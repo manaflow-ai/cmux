@@ -227,6 +227,12 @@ select {
   padding: 14px 0 6px;
 }
 
+.cloud-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .cloud-section-title {
   margin: 0;
   font-size: 13px;

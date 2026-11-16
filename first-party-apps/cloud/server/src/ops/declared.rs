@@ -104,6 +104,7 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     ),
     ("cloud.retention.set", MUTATION, &[]),
     ("cloud.machine.connect_info", READ, &["cloud.machine.not_bound", "cloud.machine.not_found"]),
+    ("cloud.machine.board", READ, &[]),
     // Only `cmux link` calls it; this server never does (listed so the table
     // is the whole CloudDO catalog).
     (

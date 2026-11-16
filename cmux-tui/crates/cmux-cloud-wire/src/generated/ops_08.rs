@@ -4,6 +4,49 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes linear.issue.create declares.
+    LinearIssueCreateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        IntegrationUnavailable = "integration.unavailable",
+        MutationIndeterminate = "mutation.indeterminate",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// List the Linear teams this connection can reach (ids for linear.issue.create).
+    LinearTeamsListOp {
+        name: "linear.teams.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: LinearTeamsListParams,
+        result: LinearTeamsListResult,
+        error: LinearTeamsListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LinearTeamsListParams {
+    pub connection: ConnectionId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LinearTeamsListResultTeamsItem {
+    pub id: String,
+    pub key: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LinearTeamsListResult {
     pub teams: Vec<LinearTeamsListResultTeamsItem>,
@@ -850,43 +893,6 @@ pub struct PushTargetRegisterParams {
 wire_errors! {
     /// The error codes push.target.register declares.
     PushTargetRegisterError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Remove an APNs token (sign-out on the device, or the user removes a device).
-    PushTargetRemoveOp {
-        name: "push.target.remove",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: PushTargetRemoveParams,
-        result: PushTargetRemoveResult,
-        error: PushTargetRemoveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PushTargetRemoveParams {
-    pub token: PushToken,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PushTargetRemoveResult {
-    pub token: PushToken,
-    pub removed: bool,
-}
-
-wire_errors! {
-    /// The error codes push.target.remove declares.
-    PushTargetRemoveError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
         IdempotencyConflict = "idempotency.conflict",

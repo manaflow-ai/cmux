@@ -5,6 +5,43 @@
 use super::*;
 
 wire_op! {
+    /// Remove an APNs token (sign-out on the device, or the user removes a device).
+    PushTargetRemoveOp {
+        name: "push.target.remove",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: PushTargetRemoveParams,
+        result: PushTargetRemoveResult,
+        error: PushTargetRemoveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PushTargetRemoveParams {
+    pub token: PushToken,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PushTargetRemoveResult {
+    pub token: PushToken,
+    pub removed: bool,
+}
+
+wire_errors! {
+    /// The error codes push.target.remove declares.
+    PushTargetRemoveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Add a tapback or emoji reaction to a message part (one per author, part and kind).
     ReactionAddOp {
         name: "reaction.add",
@@ -852,53 +889,5 @@ wire_errors! {
     TeamDeviceComplianceError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Make this team the calling install's managing team: with an MDM enrollment token's hash, or without one as the user's explicit acceptance.
-    TeamDeviceEnrollOp {
-        name: "team.device.enroll",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: TeamDeviceEnrollParams,
-        result: ManagedDevice,
-        error: TeamDeviceEnrollError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceEnrollParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token_hash: Option<EnrollmentTokenHash>,
-}
-
-wire_errors! {
-    /// The error codes team.device.enroll declares.
-    TeamDeviceEnrollError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The device-scoped policy for the calling install: values only when this team manages it (decision E3).
-    TeamDevicePolicyOp {
-        name: "team.device.policy",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Install],
-        params: TeamDevicePolicyParams,
-        result: TeamDevicePolicyResult,
-        error: TeamDevicePolicyError,
     }
 }

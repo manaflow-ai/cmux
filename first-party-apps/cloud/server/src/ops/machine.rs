@@ -1,11 +1,12 @@
 //! `cloud.machine.*` over `cmux.wire/1` (contract 1.3): list (paged),
 //! watch, get, create, rename, start, pause, resize, delete,
-//! idle_policy.set, keep, archive_delete, connect_info. Each op sends the checked params to the
-//! backend op of the same name.
+//! idle_policy.set, keep, archive_delete, connect_info, board. Each op sends the checked params to
+//! the backend op of the same name.
 
 use crate::api::args;
 use crate::api::models::{Machine, Revision, decode_connect_info};
 use crate::api::{CloudError, ControlPlane, Ctx, codes, decode_answer};
+use cmux_cloud_wire::{CloudMachineBoardOp, Op};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -152,6 +153,16 @@ pub(super) fn run<C: ControlPlane>(
                 ));
             }
             Ok(json!(decode_connect_info(name, answer.value)?))
+        }
+        "cloud.machine.board" => {
+            // The team board (webviews/src/pages/board): the platform's
+            // answer as it came, so the page gets every field of each
+            // machine, usage and audit row. It must have the catalog's
+            // shape: a broken answer is `bad_response`, never half a board.
+            args::object(raw, &[])?;
+            let value = ctx.wire(name, json!({}))?.value;
+            decode_answer::<<CloudMachineBoardOp as Op>::Result>(name, value.clone())?;
+            Ok(value)
         }
         _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
     }

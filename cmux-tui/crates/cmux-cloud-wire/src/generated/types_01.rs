@@ -94,6 +94,13 @@ wire_enum! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BoardMember {
+    pub user: UserId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Body {
     AgentPrompt(BodyAgentPrompt),
@@ -887,16 +894,4 @@ pub struct FeedContext {
     pub task: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedFilter {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub poster_kind: Option<FeedPosterKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<FeedKind>,
 }
