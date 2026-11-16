@@ -646,3 +646,64 @@ fn git_status_of_a_head_that_is_no_branch_with_a_commit_limits_the_status_child_
         );
     }
 }
+
+impl Client {
+    /// The whole reply to one `git.status` of `directory` that asks for `github_repo`.
+    fn status_with_github(&mut self, directory: &Path) -> Value {
+        self.next += 1;
+        let id = format!("r{}", self.next);
+        let request = json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "id": id,
+            "operation": "git.status",
+            "params": {"path": directory, "machine": "current", "session": "current", "github": true},
+        });
+        writeln!(self.stream.get_mut(), "{request}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.stream.read_line(&mut line).unwrap(), 0, "closed before {id}");
+            let reply: Value = serde_json::from_str(&line).unwrap();
+            if reply["id"] == id {
+                return reply;
+            }
+        }
+    }
+}
+
+/// `github: true` adds the GitHub `owner/name` of the upstream's remote (else origin), so a
+/// sidebar can list the pull requests of the workspace's repository and branch; without it the
+/// reply and the git children are what they were.
+#[test]
+fn git_status_with_github_names_the_repository_of_the_upstreams_remote() {
+    let world = World::new();
+    let mut client = Client::of_a_new_daemon();
+
+    let repo = world.fresh_clone();
+    forget_children(&repo);
+    let plain = client.status(&repo);
+    assert!(plain["result"].get("github_repo").is_none(), "{plain}");
+    assert!(with_word(&children(&repo), "config").is_empty(), "no config run unless asked");
+
+    // A local origin is no GitHub repository.
+    let local = client.status_with_github(&repo);
+    assert_eq!(local["ok"], true, "{local}");
+    assert!(local["result"].get("github_repo").is_none(), "{local}");
+
+    git(&repo, &["remote", "set-url", "origin", "git@github.com:manaflow-ai/cmux.git"]);
+    let ssh = client.status_with_github(&repo);
+    assert_eq!(ssh["result"]["github_repo"], json!("manaflow-ai/cmux"), "{ssh}");
+
+    // The upstream's remote wins over origin.
+    git(&repo, &["remote", "add", "fork", "https://github.com/someone/cmux.git"]);
+    git(&repo, &["config", "branch.main.remote", "fork"]);
+    git(&repo, &["update-ref", "refs/remotes/fork/main", "HEAD"]);
+    let fork = client.status_with_github(&repo);
+    assert_eq!(fork["result"]["upstream"], json!("fork/main"), "{fork}");
+    assert_eq!(fork["result"]["github_repo"], json!("someone/cmux"), "{fork}");
+
+    // A branch with no upstream reads origin.
+    git(&repo, &["switch", "--quiet", "-c", "topic"]);
+    let alone = client.status_with_github(&repo);
+    assert_eq!(alone["result"]["github_repo"], json!("manaflow-ai/cmux"), "{alone}");
+}

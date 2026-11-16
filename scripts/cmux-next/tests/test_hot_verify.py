@@ -170,6 +170,32 @@ class PlanTest(unittest.TestCase):
         self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
         self.assertEqual(planned["layers"], [])
 
+    PIN = '{"url": "https://example.invalid/cmux-app-ffi-%s/CCmuxAppFFI.xcframework.zip", "checksum": "%s"}\n'
+
+    def test_ffi_drift_under_the_same_pin_swaps_the_daemon(self):
+        # cmux#44125's look (2026-11-16): the nightly 4dde96d6e699 and the PR's fork f2186cbc8970 both pinned
+        # cmux-app-ffi-0a02f56030ef, yet 4 FFI source files in the 33 commits between them made it "need a build".
+        # An app links its pinned release, so an app at the fork links the same library this one has.
+        pin = self.PIN % ("a" * 40, "0" * 64)
+        self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: pin}, "pin", parent=self.fx.base)
+        tip = self.advance_base({"cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 2 }\n"})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        planned = self.plan(head)
+        self.assertEqual(planned["layers"], ["rust"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+
+    def test_ffi_drift_that_moves_the_pin_still_needs_a_build(self):
+        self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
+                                      parent=self.fx.base)
+        tip = self.advance_base({"cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 2 }\n",
+                                 hv.FFI_PIN_FILE: self.PIN % ("b" * 40, "1" * 64)})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        planned = self.plan(head)
+        self.assertTrue(planned["needs_build"])
+        self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
+
     def test_a_daemon_change_after_resource_drift_swaps_the_daemon(self):
         # The fleet's looks on cmux#43653 and cmux#43683 crashed here ("module 'hot_apply' has no attribute
         # 'NATIVE_IN_TUI'", removed by #43797): a resource, manifest or non-live Swift file in the commits the app
