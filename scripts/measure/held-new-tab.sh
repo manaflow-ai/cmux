@@ -13,9 +13,13 @@
 # alone (the bench `newtab` asks for that one).
 # --config=<debug|release|bench> picks reload.sh's build configuration, --vdisplay=HZ a virtual main display at HZ
 # (as burst-bench.sh; the helper is this script's own, no label gives it), --film one more take as JPEG frames,
-# --no-gate exit 0 when a row did not measure what it names and each round still has a valid row (the tool's exit 2;
-# an artifact comes back only from a passing step). A failed preflight and a round with no valid row stay a failed
-# step. Every other argument goes to held-new-tab.py. The label gui-session-v1 adds a console session with a screen
+# --no-gate exit 0 when a row did not measure what it names and each round still has a valid row (the tool's exit 2).
+# A failed preflight and a round with no valid row stay a failed step.
+# NO artifact comes back from a failed step. A step fails at the tool's exit 1, at its exit 2 without --no-gate (a
+# fault of the wider take or of a restore alone gives exit 2 also), and at its exit 3 (the tool writes no report
+# then). What comes back in each case is the step's log: the lines HELD-NEW-TAB-ROW (one for each row) and
+# HELD-NEW-TAB (the whole report) at exit 1 and 2, the tool's NOT RUN line at exit 3.
+# Every other argument goes to held-new-tab.py. The label gui-session-v1 adds a console session with a screen
 # that is not locked; without it the tool's preflight says in 2 minutes for each launch form if the display link
 # gives frames and if a key makes a tab.
 set -euo pipefail
@@ -93,6 +97,7 @@ python3 scripts/measure/held-new-tab.py --app "$app" --out "$out/measure" --disp
   --artifact "$PWD/held-new-tab.tgz" ${measure_args[@]+"${measure_args[@]}"} || status=$?
 cp "$out/measure/report.json" "$PWD/held-new-tab.json" 2>/dev/null || true
 # An artifact comes back only from a passing step: --no-gate passes a run in which each round has a valid row (the
-# tool's exit 2). A failed preflight, and a round with no valid row, stay a failed step.
+# tool's exit 2). A failed preflight, and a round with no valid row, stay a failed step: the log's HELD-NEW-TAB
+# lines are then all that comes back (the header).
 if [[ "$gate" == 0 && "$status" == 2 && -f held-new-tab.json ]]; then status=0; fi
 exit "$status"
