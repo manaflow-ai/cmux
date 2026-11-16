@@ -37,9 +37,4 @@ public nonisolated extension RemoteRdHello {
     /// The cap a viewer offers when it draws the remote cursor itself (cmux-rd-core
     /// `caps::CURSOR`): the host then leaves the cursor out of its pictures.
     static let cursorCap = "cursor"
-    /// The session clock (`caps::CLOCK`): the viewer probes the host's clock, so its
-    /// times convert to the host's.
-    static let clockCap = "clock"
-    /// The stage ledger (`caps::LEDGER`): each frame's host times follow its last shard.
-    static let ledgerCap = "ledger"
 }

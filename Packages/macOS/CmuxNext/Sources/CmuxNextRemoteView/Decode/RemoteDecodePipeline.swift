@@ -63,21 +63,15 @@ public actor RemoteDecodePipeline {
             return .skippedAwaitingKeyframe
         }
         do {
-            let started = DispatchTime.now().uptimeNanoseconds
             let image = try decoder.decode(unit)
-            let decodedAt = DispatchTime.now().uptimeNanoseconds
             awaitingKeyframe = false
             keyframeRequested = false
             expectedFrame = unit.frame &+ 1
             stats.decoded += 1
             stats.hardware = decoder.isHardware
-            let source = source, frame = unit.frame
-            source.noteDecoded(frame: frame, decodeMicros: UInt32(clamping: (decodedAt &- started) / 1_000),
-                               decodedAtMicros: decodedAt / 1_000)
             deliver(RemoteDecodedFrame(
                 pixelBuffer: image, frame: unit.frame, tCaptureMicros: unit.tCaptureMicros,
-                decodedAtNanos: decodedAt,
-                onPresented: { at in source.notePresented(frame: frame, presentedAtMicros: at) }))
+                decodedAtNanos: DispatchTime.now().uptimeNanoseconds))
             return .decoded
         } catch {
             stats.decodeErrors += 1
