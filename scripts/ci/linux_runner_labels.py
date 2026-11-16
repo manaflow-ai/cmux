@@ -16,7 +16,8 @@ Two literals stay, because the places they run read no repository variables:
 - the owner branch, `github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'` (or `-arm`):
   a copy of the repository on another account, where GitHub's own Ubuntu image is the only label;
 - the fork pull request branch, `head.repo.full_name != github.repository && '<label>'`: it must be
-  the first member of the pool the same expression reads last (runners.json is its source).
+  the first member of its pool: the pool read right after it, else the last Linux pool the
+  expression reads (the size the job runs at with no overflow). runners.json is its source.
   `--fix` rewrites a fork label that disagrees, so a pool change is runners.json plus `--fix`,
   never a hand edit across files.
 
@@ -85,27 +86,41 @@ def code_part(line: str) -> str:
     return line if cut < 0 else line[:cut]
 
 
-def fork_problem(code: str, defaults: dict[str, str]) -> tuple[str, str] | None:
-    """(found, wanted) when a fork branch's label is not the first member of the pool the line reads last."""
-    fork = FORK_BRANCH.search(code)
-    if not fork or not LABEL.fullmatch(fork.group(2)):
-        return None
-    pools = [pool for pool in POOL_READ.findall(code) if LINUX_POOL.match(pool)]
-    if not pools or pools[-1] not in defaults:
-        return (fork.group(2), "")
-    wanted = defaults[pools[-1]]
-    return None if fork.group(2) == wanted else (fork.group(2), wanted)
+PAIRED_POOL = re.compile(r"\s*\|\|\s*fromJSON\(vars\.RUNNER_POOLS\)\.([a-z][a-z0-9_]*)")
+
+
+def fork_branches(code: str, defaults: dict[str, str]) -> list[tuple[re.Match[str], str]]:
+    """Each fork branch naming a Linux label, with the label its pool says it should name ("" when no pool).
+
+    A fork branch's pool is the pool read right after it (`(fork && '<label>' || fromJSON(vars.RUNNER_POOLS).linux_16)`),
+    else the last Linux pool the expression reads after it: the size the job runs at when no overflow is on.
+    """
+    branches = []
+    for fork in FORK_BRANCH.finditer(code):
+        if not LABEL.fullmatch(fork.group(2)):
+            continue
+        rest = code[fork.end():]
+        paired = PAIRED_POOL.match(rest)
+        pools = [paired.group(1)] if paired and LINUX_POOL.match(paired.group(1)) else [
+            pool for pool in POOL_READ.findall(rest) if LINUX_POOL.match(pool)][-1:]
+        branches.append((fork, defaults.get(pools[0], "") if pools else ""))
+    return branches
+
+
+def fork_problems(code: str, defaults: dict[str, str]) -> list[tuple[str, str]]:
+    """(found, wanted) for each fork branch whose label is not the first member of its pool."""
+    return [(fork.group(2), wanted) for fork, wanted in fork_branches(code, defaults) if fork.group(2) != wanted]
 
 
 def hand_typed(code: str, defaults: dict[str, str]) -> list[str]:
-    """The Linux labels a line types by hand: everything but the owner branch and a fork branch that matches its pool."""
+    """The Linux labels a line types by hand: everything but the owner branch and fork branches that match their pool."""
     if "runner.name" in code:
         # Comparisons against a runner's own name (the ephemeral-machine identity check), not a route.
         return []
     code = OWNER_BRANCH.sub("", code)
-    fork = FORK_BRANCH.search(code)
-    if fork and fork_problem(code, defaults) is None:
-        code = code[: fork.start(2)] + code[fork.end(2):]
+    for fork, wanted in reversed(fork_branches(code, defaults)):
+        if fork.group(2) == wanted:
+            code = code[: fork.start(2)] + code[fork.end(2):]
     return LABEL.findall(code)
 
 
@@ -148,10 +163,11 @@ def fix(root: Path = ROOT) -> int:
         text = path.read_text()
         lines = text.splitlines(keepends=True)
         for i, line in enumerate(lines):
-            problem = fork_problem(code_part(line), defaults)
-            if problem and problem[1]:
-                wanted = problem[1]
-                lines[i] = FORK_BRANCH.sub(lambda m: f"{m.group(1)}'{wanted}'", line, count=1)
+            # code_part() is a prefix of the line, so its match offsets are the line's.
+            for fork, wanted in reversed(fork_branches(code_part(line), defaults)):
+                if wanted and fork.group(2) != wanted:
+                    line = line[: fork.start(2)] + wanted + line[fork.end(2):]
+            lines[i] = line
         new = "".join(lines)
         if new != text:
             path.write_text(new)
@@ -166,11 +182,11 @@ def check(root: Path = ROOT, baseline: dict[str, int] | None = None) -> list[str
     for path in workflow_files(root):
         rel = path.relative_to(root).as_posix()
         for number, line in enumerate(path.read_text().splitlines(), 1):
-            problem = fork_problem(code_part(line), defaults)
-            if problem and problem[1]:
-                problems.append(
-                    f"{rel}:{number}: fork branch names '{problem[0]}', but the pool this line reads starts with "
-                    f"'{problem[1]}' (.github/runners.json pools); run python3 scripts/ci/linux_runner_labels.py --fix")
+            for found, wanted in fork_problems(code_part(line), defaults):
+                if wanted:
+                    problems.append(
+                        f"{rel}:{number}: fork branch names '{found}', but its pool starts with '{wanted}' "
+                        "(.github/runners.json pools); run python3 scripts/ci/linux_runner_labels.py --fix")
     for rel, hits in sorted(scan(root, defaults).items()):
         allowed = baseline.get(rel, 0)
         if len(hits) > allowed:

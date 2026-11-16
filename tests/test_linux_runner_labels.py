@@ -77,6 +77,18 @@ class LinuxRunnerLabelsTests(unittest.TestCase):
         self.assertIn("&& 'blacksmith-2vcpu-ubuntu-2404' ||", path.read_text())
         self.assertEqual(self.check(), [])
 
+    def test_each_fork_branch_takes_the_pool_read_right_after_it(self) -> None:
+        path = self.tree.workflow(
+            f"${{{{ {OWNER} || vars.CI_CLOUD_OVERFLOW_SAVED && ({FORK} && 'blacksmith-2vcpu-ubuntu-2404' || "
+            f"fromJSON(vars.RUNNER_POOLS).linux_8) || ({FORK} && 'blacksmith-2vcpu-ubuntu-2404' || "
+            "fromJSON(vars.RUNNER_POOLS).linux_2) }}")
+        self.assertEqual(len(self.check()), 1)
+        lrl.fix(self.tree.dir)
+        text = path.read_text()
+        self.assertIn("'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8", text)
+        self.assertIn("'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2", text)
+        self.assertEqual(self.check(), [])
+
     def test_fork_branch_reads_the_last_linux_pool_not_a_macos_one(self) -> None:
         self.tree.workflow(
             f"${{{{ {OWNER} || {FORK} && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8 && "
