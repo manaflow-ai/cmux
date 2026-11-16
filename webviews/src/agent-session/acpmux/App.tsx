@@ -80,7 +80,8 @@ import { setNowPlaying } from "./newtab/nowPlaying";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
-import { NewTabAppPage } from "./newtab/NewTabAppPage";
+import { NewTabAppPage, type NewTabAppFailure } from "./newtab/NewTabAppPage";
+import { NewTabAppFailureNotice } from "./newtab/NewTabAppFailureNotice";
 import { historyPages } from "./queue/historyPages";
 import type { AllChatsPage } from "./newtab/allChatsListModel";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -4634,6 +4635,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // `tabs.newTabApp` (newtab/NewTabAppPage.tsx): the visit (adoption) whose app page could not show
   // draws cmux's own; the next Cmd-T tries the app again, also on a spare that keeps its screen.
   const [newTabAppGone, setNewTabAppGone] = useState<number>();
+  // Why that visit's app page could not show, drawn on cmux's own page in its place.
+  const [newTabAppFailure, setNewTabAppFailure] = useState<{ at: number; failure: NewTabAppFailure }>();
   // A start owns this visit's screen until accepted, even while a switch publishes queued rows.
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
@@ -13338,12 +13341,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             />
           )}
           {showNewTab && folderAskView}
+          {showNewTab && !newTabApp && !harnessesOpen && newTabAppFailure?.at === newTabAdoptions && newTab?.app && (
+            // The picked extension (tabs.newTabApp) could not draw this visit: say why, in place.
+            <NewTabAppFailureNotice app={newTab.app} failure={newTabAppFailure.failure} />
+          )}
           {newTabApp && !harnessesOpen ? (
             <NewTabAppPage
               key={`${newTabGeneration}:${newTabApp}`}
               app={newTabApp}
               {...(newTab?.cwd ? { cwd: newTab.cwd } : {})}
-              onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
+              onUnavailable={(failure) => {
+                setNewTabAppGone(newTabAdoptions);
+                setNewTabAppFailure({ at: newTabAdoptions, failure });
+              }}
               inputToken={newTab?.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
             />

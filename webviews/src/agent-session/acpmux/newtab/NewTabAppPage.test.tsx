@@ -7,7 +7,8 @@ import { pageError } from "../../../pages/shared/pageClient";
 import type { SceneEvent } from "../../../apps/scene/panelsClient";
 import { teardownDom } from "../../../../test/support/domTeardown";
 import { newTabHost, pickedNewTabApp } from "../newTabModel";
-import { NewTabAppPage } from "./NewTabAppPage";
+import { NEW_TAB_APP_DEADLINE_MS, NewTabAppPage, type NewTabAppFailure } from "./NewTabAppPage";
+import { NewTabAppFailureNotice } from "./NewTabAppFailureNotice";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -56,6 +57,7 @@ async function render(host: Host) {
   document.body.append(container);
   const root = createRoot(container);
   const gone: number[] = [];
+  const failures: NewTabAppFailure[] = [];
   const ready: string[] = [];
   await act(async () => {
     root.render(
@@ -65,11 +67,14 @@ async function render(host: Host) {
         client={host}
         inputToken="t1"
         onInputReady={(token) => ready.push(token)}
-        onUnavailable={() => gone.push(1)}
+        onUnavailable={(failure) => {
+          gone.push(1);
+          failures.push(failure);
+        }}
       />,
     );
   });
-  return { container, root, gone, ready };
+  return { container, root, gone, ready, failures };
 }
 
 test("the handshake names the app the host picked", () => {
@@ -173,5 +178,101 @@ test("keys typed after Cmd-T wait for the app's first scene: focus while it load
     window.dispatchEvent(new window.Event("focus"));
   });
   expect(ready).toEqual(["t1"]);
+  await act(async () => root.unmount());
+});
+
+// Leo, 2026-11-16: "i cant see a clock i cant see anything in the new tab". A New Tab page is
+// never blank: an app that fails, is late or draws nothing hands the visit to cmux's own page.
+
+test("a render error hands the page back with the host's reason, which names the script's line", async () => {
+  const host = new Host();
+  const { root, failures } = await render(host);
+  await act(async () => {
+    host.scene?.({ mount_id: "m1", status: "failed", reason: "render: TypeError: x is undefined (main.js:12)" }, 1);
+  });
+  expect(failures).toEqual([{ kind: "failed", reason: "render: TypeError: x is undefined (main.js:12)" }]);
+  await act(async () => root.unmount());
+});
+
+test("an app that has not drawn within the deadline hands the page back once, never a blank page", async () => {
+  const host = new Host();
+  const realSetTimeout = globalThis.setTimeout;
+  const timers: (() => void)[] = [];
+  globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+    if (ms === NEW_TAB_APP_DEADLINE_MS) {
+      timers.push(fn);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }
+    return realSetTimeout(fn, ms);
+  }) as typeof setTimeout;
+  try {
+    const { container, root, failures } = await render(host);
+    expect(timers.length).toBeGreaterThan(0);
+    await act(async () => {
+      for (const fire of timers) fire();
+    });
+    expect(failures).toEqual([{ kind: "slow" }]);
+    expect(container.querySelector(".nt-app-page")).toBeNull();
+    // A late scene after the hand-back changes nothing: the visit stays on cmux's own page.
+    await act(async () => {
+      host.scene?.(
+        {
+          mount_id: "m1",
+          ops: [
+            { op: "create", id: "t", type: "Text", props: { text: "late" } },
+            { op: "root", id: "t" },
+          ],
+        },
+        1,
+      );
+    });
+    expect(failures).toEqual([{ kind: "slow" }]);
+    await act(async () => root.unmount());
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+});
+
+test("a first scene that draws nothing visible (only stacks and spacers) hands the page back", async () => {
+  const host = new Host();
+  const { container, root, failures } = await render(host);
+  await act(async () => {
+    host.scene?.(
+      {
+        mount_id: "m1",
+        ops: [
+          { op: "create", id: "s", type: "Spacer" },
+          { op: "create", id: "v", type: "VStack" },
+          { op: "children", id: "v", children: ["s"] },
+          { op: "root", id: "v" },
+        ],
+      },
+      1,
+    );
+  });
+  expect(failures).toEqual([{ kind: "empty" }]);
+  expect(container.querySelector(".nt-app-page")).toBeNull();
+  await act(async () => root.unmount());
+});
+
+test("cmux's own page says why the app could not draw, in place", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(
+      <NewTabAppFailureNotice
+        app="local/clock"
+        failure={{ kind: "failed", reason: "render: Error: nope (main.js:3)" }}
+      />,
+    );
+  });
+  const notice = container.querySelector("output.nt-app-failure");
+  expect(notice?.getAttribute("data-app")).toBe("local/clock");
+  expect(notice?.textContent).toContain("local/clock");
+  expect(notice?.textContent).toContain("render: Error: nope (main.js:3)");
+  expect(notice?.textContent).toContain("cmux ext dev");
+  await act(async () => root.render(<NewTabAppFailureNotice app="local/clock" failure={{ kind: "slow" }} />));
+  expect(container.querySelector("output")?.textContent).toContain(String(NEW_TAB_APP_DEADLINE_MS / 1000));
   await act(async () => root.unmount());
 });
