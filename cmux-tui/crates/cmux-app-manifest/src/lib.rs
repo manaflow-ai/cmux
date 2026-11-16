@@ -39,7 +39,9 @@ mod scopes;
 mod toolbar;
 mod web_pane;
 
-pub use capabilities::{Capabilities, OpCapability, OpClass, OpScope, scope_info};
+pub use capabilities::{
+    Capabilities, OpCapability, OpClass, OpScope, scope_info, scope_reaches_out,
+};
 pub use catalog::{CATALOG_SCHEMA, validate_catalog};
 pub use cli::{
     CLI_RESERVED, Conflict, ConflictKind, MCP_TOOL_NAME_MAX, conflicts, first_party_cli_names,
