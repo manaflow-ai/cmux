@@ -821,9 +821,14 @@ impl Capture {
 
     /// The newest complete frame (kept, so a recovery keyframe needs no new capture), with its
     /// display and arrival times when ScreenCaptureKit gave a display time.
+    #[cfg(feature = "bench")]
     pub fn newest(&self) -> Option<(PixelBuffer, Option<(u64, u64)>)> {
-        let shared = self.shared.lock().unwrap_or_else(|p| p.into_inner());
-        shared.newest.clone().map(|frame| (frame, shared.newest_times))
+        self.frames().newest()
+    }
+
+    /// A reader of the newest frame for the session's encode thread.
+    pub fn frames(&self) -> Frames {
+        Frames(self.shared.clone())
     }
 
     #[cfg(feature = "bench")]
@@ -835,6 +840,19 @@ impl Capture {
             samples: shared.presented.as_mut().map_or_else(Vec::new, |queue| queue.take()),
             queue_overflow: shared.presented.as_ref().is_some_and(|queue| queue.overflowed()),
         }
+    }
+}
+
+/// The newest captured frame of a [`Capture`], read from another thread (the session's encode
+/// thread) while the capture's owner drains damage.
+pub struct Frames(Arc<Mutex<Shared>>);
+
+impl Frames {
+    /// The newest complete frame (kept, so a recovery keyframe needs no new capture), with its
+    /// display and arrival times when ScreenCaptureKit gave a display time.
+    pub fn newest(&self) -> Option<(PixelBuffer, Option<(u64, u64)>)> {
+        let shared = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        shared.newest.clone().map(|frame| (frame, shared.newest_times))
     }
 }
 
