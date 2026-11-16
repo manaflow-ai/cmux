@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43821407686",
+  "recorded_at": "2026-11-16T07:14:18Z",
+  "reason": "cmux-tui 05b93ccbfe10 changes the image's cmux-tui (pinned 732989aa09a0)",
+  "dry_run": false,
+  "cmux_tui": "05b93ccbfe10453214a69e0b11ccf6928028f7dc",
+  "fixes": [
+    {
+      "sha": "c76d0649f1115f75fa51ebf9cb72655f4593e4f7",
+      "mergedAt": "2026-11-15T22:50:05-08:00",
+      "subject": "bundle size: panic=abort for cmux-mobile-host and cmux-agent-screen-detection (#44006)"
+    },
+    {
+      "sha": "d39c8b1e91aa4942c3ca76c59dd56e9f09be0393",
+      "mergedAt": "2026-11-16T06:37:24Z",
+      "subject": "Extension web panes (render: web) on the shared page host, calls through the scoped page bridge (#43033)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T07:14:18Z",
+    "snapshot_id": "sh-5cc543f225264628a78eb3115cb7178c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43821407686): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b9e6e45dbb5c7c9e48bd23cd060ac043346c1c1a",
+    "image": "cloud-native-auto-05b93ccb-43821407686-1",
+    "revision": "ci-43821407686-1",
+    "at": "2026-11-16T07:14:18Z"
+  },
+  "rolled_back": false
+}
