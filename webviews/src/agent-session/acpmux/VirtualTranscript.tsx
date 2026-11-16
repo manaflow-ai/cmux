@@ -63,7 +63,7 @@ import { minimapReserve } from "./chatMinimap/paint";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
-import { besideMask } from "./conversation/besideStack";
+import { useBesideStack } from "./conversation/useBesideStack";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
   clearScrollOrigin,
@@ -2312,6 +2312,8 @@ function TranscriptView({
     // Only the size change of this frame is the card leaving.
     requestAnimationFrame(() => requestAnimationFrame(() => (queueLeft.current = false)));
   }, [queueIds]);
+  // The rows beside the stack stay in sight (conversation/useBesideStack.ts).
+  useBesideStack(dock, ref, TRAY_GHOST);
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
@@ -2450,75 +2452,6 @@ function TranscriptView({
     };
     dock.addEventListener(FIELD_GROWTH_EVENT, grew);
     observer.observe(dock);
-    // The rows beside the stack stay in sight (besideStack.ts): its surfaces' gutters and the room
-    // outside their top corners, written straight to the scroller's mask variables, no render. Read
-    // again when the stack or the scroller changes size, so a taller pane or a tray that opens moves
-    // them with the stack.
-    const scroller = ref.current;
-    const paintBeside = () => {
-      if (!scroller) return;
-      const view = scroller.getBoundingClientRect();
-      const surfaces =
-        over() > 0
-          ? [
-              ...dock.querySelectorAll<HTMLElement>(
-                `:scope > .acpmux-running-tray:not(.${TRAY_GHOST}), .acpmux-composer-box`,
-              ),
-            ].map((surface) => {
-              const box = surface.getBoundingClientRect();
-              const style = getComputedStyle(surface);
-              return {
-                left: box.left - view.left,
-                top: box.top - view.top,
-                right: box.right - view.left,
-                bottom: Math.min(box.bottom, view.bottom) - view.top,
-                radiusLeft: Number.parseFloat(style.borderTopLeftRadius) || 0,
-                radiusRight: Number.parseFloat(style.borderTopRightRadius) || 0,
-              };
-            })
-          : [];
-      const mask = besideMask(surfaces, view.width);
-      for (const [name, value] of [
-        ["--acpmux-beside-images", mask?.images],
-        ["--acpmux-beside-sizes", mask?.sizes],
-        ["--acpmux-beside-positions", mask?.positions],
-      ] as const)
-        if (value) scroller.style.setProperty(name, value);
-        else scroller.style.removeProperty(name);
-    };
-    const besideObserver = new ResizeObserver(paintBeside);
-    besideObserver.observe(dock);
-    if (scroller) besideObserver.observe(scroller);
-    // A surface can move or change shape with neither box resizing: the card widened by a column
-    // setting with the dock's own size kept, the tray settling in on its entrance translate, its
-    // corners rounding as it turns into a card, the ghost copy of one that left removed. Each surface
-    // is watched itself, motions are read once they end, and the dock's own children and their
-    // `data-card` are read as they change.
-    const SURFACES = `:scope > .acpmux-running-tray, .acpmux-composer-box`;
-    const watched = new WeakSet<Element>();
-    // Its childList on the dock (a ghost tray removed, a new tray), and each surface's own
-    // `data-card` (its corners round as the tray turns into a card).
-    const besideMutations = new MutationObserver(() => {
-      watchSurfaces();
-      paintBeside();
-    });
-    const watchSurfaces = () => {
-      for (const surface of dock.querySelectorAll(SURFACES)) {
-        if (watched.has(surface)) continue;
-        watched.add(surface);
-        besideObserver.observe(surface);
-        besideMutations.observe(surface, { attributes: true, attributeFilter: ["data-card"] });
-      }
-    };
-    besideMutations.observe(dock, { childList: true });
-    watchSurfaces();
-    // Only a surface's own motion moves it; the composer's hovers and the tray's count rolls do not.
-    const settled = (event: Event) => {
-      if (event.target instanceof Element && event.target.matches(".acpmux-running-tray, .acpmux-composer-box"))
-        paintBeside();
-    };
-    dock.addEventListener("animationend", settled);
-    dock.addEventListener("transitionend", settled);
     noteQueue();
     const space = over();
     const fullHeight = height();
@@ -2528,12 +2461,6 @@ function TranscriptView({
     setDockTray(tray(space));
     return () => {
       observer.disconnect();
-      besideObserver.disconnect();
-      besideMutations.disconnect();
-      dock.removeEventListener("animationend", settled);
-      dock.removeEventListener("transitionend", settled);
-      for (const name of ["--acpmux-beside-images", "--acpmux-beside-sizes", "--acpmux-beside-positions"])
-        scroller?.style.removeProperty(name);
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
       rowsMove?.cancel();
