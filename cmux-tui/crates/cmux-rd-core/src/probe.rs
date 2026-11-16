@@ -216,6 +216,14 @@ impl ProbePlanner {
         self.active.as_ref().map(|train| train.summary)
     }
 
+    /// The next time the caller may emit a packet for the active train.
+    ///
+    /// The planner intentionally exposes only a deadline; transport sequence
+    /// allocation and actual socket departure remain owned by the caller.
+    pub fn next_deadline_us(&self) -> Option<u64> {
+        self.active.as_ref().map(|train| train.next_due_us)
+    }
+
     /// Enqueues the next packet when its spacing deadline has arrived.
     /// `transport_seq` and `now_us` are supplied by the shared sender. The
     /// `now_us` value is only an enqueue timestamp; call
