@@ -637,12 +637,6 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
-    "app.captureScreenshotGlobalHotKey" : {
-      "default" : false,
-      "description" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.",
-      "title" : "Capture Screenshot to Chat from Any App",
-      "type" : "boolean"
-    },
     "app.confirmQuit" : {
       "default" : true,
       "description" : "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.",
@@ -1603,11 +1597,12 @@
       "type" : "string"
     },
     "appearance.fontSmoothing" : {
-      "default" : "antialiased",
-      "description" : "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts.",
+      "default" : "auto",
+      "description" : "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting.",
       "enum" : [
+        "auto",
         "antialiased",
-        "system"
+        "subpixel"
       ],
       "title" : "Text Smoothing",
       "type" : "string"
