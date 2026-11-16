@@ -847,6 +847,27 @@ jobs:
       - name: The Python test registry, and the tests no pull request runs
         run: python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" ${{ github.event_name == 'push' && '--warn-only' || '' }}
 
+      # A Swift test target no pull request check runs (hq#11644): cmux#43937 added seven tests that
+      # the fast tier built and listed, and no check ran. The tree check fails on a package test
+      # target with no runner and no scripts/ci/swift-test-targets.json entry. On a pull request the
+      # diff check (HEAD^1 is the base) also fails on a new CmuxNext test target that no fast-tier.json
+      # entry covers, unless the pull request carries full-ci, whose `cmux-next swift test` runs it.
+      - name: Every Swift test target runs in a pull request check (swift_test_coverage.py)
+        if: ${{ !cancelled() }}
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$EVENT_NAME" == pull_request ]]; then args+=(--base "$(git rev-parse HEAD^1)"); fi
+          if [[ "$FULL_CI" == true ]]; then args+=(--full-ci); fi
+          python3 -I scripts/ci/swift_test_coverage.py ${args[@]+"${args[@]}"}
+
+      - name: The Swift test target coverage check's own tests (swift_test_coverage.py)
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_swift_test_coverage.py
+
       # The web lint pre-push hook (scripts/web-lint.sh, scripts/web_lint_prepush.py) on throwaway
       # repositories with stand-in packages; cmux-next-web.yml ran it only on pushes. A stand-in
       # package with no node_modules gets a `bun install`.

@@ -314,6 +314,9 @@ pub struct Supervisor {
     /// Keeping a last good copy and rolling back, serialized per app
     /// (`rollback.rs`).
     pub(super) rollback_locks: super::rollback::AppLocks,
+    /// One local reload pass at a time (`local_reload.rs`): a pass the CLI
+    /// asks for and the file watch's never both apply the same save.
+    pub(super) local_reload_pass: Mutex<()>,
     /// `apps-link-changed` coalescing: (one runs, another came meanwhile).
     pub(super) link_changed: Mutex<(bool, bool)>,
     /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
@@ -431,7 +434,7 @@ impl Supervisor {
                 safe_mode,
                 launches,
                 failed: HashMap::new(),
-                local_prints: local_prints.clone(),
+                local_prints,
                 last_good,
                 good_tried: HashMap::new(),
                 ladders: HashMap::new(),
@@ -447,6 +450,7 @@ impl Supervisor {
             transactions: AtomicU64::new(1),
             host_spawns: AtomicU64::new(0),
             rollback_locks: Default::default(),
+            local_reload_pass: Mutex::new(()),
             link_changed: Mutex::new((false, false)),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
             server_observers: OnceLock::new(),
@@ -459,7 +463,7 @@ impl Supervisor {
         supervisor.reconcile_sidebar();
         supervisor.start_always_servers();
         supervisor.activate_background(&BTreeSet::new());
-        supervisor.start_local_watch(local_prints);
+        supervisor.start_local_watch();
         supervisor
     }
 

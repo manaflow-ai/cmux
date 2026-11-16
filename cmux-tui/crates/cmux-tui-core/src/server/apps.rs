@@ -57,6 +57,15 @@ enum Command {
         #[serde(default)]
         region: Option<cmux_layout_reducer::sidebar_doc::Region>,
     },
+    /// Reads the local app folders again now and reloads `app`, or every
+    /// local app, as a save would (`Supervisor::reload_local_now`). No
+    /// gesture: it changes no install, grant or placement, only reruns
+    /// scripts the person already installed.
+    #[serde(rename = "apps-reload")]
+    Reload {
+        #[serde(default)]
+        app: Option<String>,
+    },
     #[serde(rename = "apps-set")]
     Set {
         idempotency_key: String,
@@ -130,6 +139,13 @@ enum Command {
     /// daemon's clients; apps never get a socket path).
     #[serde(rename = "apps-terminal-links")]
     TerminalLinks,
+    /// Read the local app folders again now and apply what changed, as the
+    /// file watch does on a save (`Supervisor::reload_local_apps_now`): the
+    /// caller that just wrote an app's files (`cmux ext dev`) asks, so its
+    /// reload never waits on file events. The `apps-changed` and
+    /// `apps-reload-failed` events of the pass go out before the reply.
+    #[serde(rename = "apps-reload-local")]
+    ReloadLocal,
     #[serde(rename = "apps-logs")]
     Logs {
         app: String,
@@ -222,6 +238,28 @@ pub fn start_apps_when_ready(mux: &Arc<Mux>) {
         let _ = spawn_off_startup(move || {
             mux.control_clients.apps.get_or_init(&mux);
         });
+    }
+}
+
+/// Runs `job` on a thread of its own and replies to `id` with its result
+/// when it ends; the connection reads its next request meanwhile.
+fn answer_off_thread(
+    writer: &MessageWriter,
+    id: Option<Value>,
+    job: impl FnOnce() -> Result<Value, crate::apps::ApiError> + Send + 'static,
+) -> bool {
+    let answer = writer.clone();
+    let asked = id.clone();
+    let spawned = std::thread::Builder::new()
+        .name("cmux-apps-reload".into())
+        .spawn(move || reply(&answer, asked, job()));
+    match spawned {
+        Ok(_) => true,
+        Err(error) => reply(
+            writer,
+            id,
+            Err(crate::apps::ApiError::new("operation.failed", error.to_string())),
+        ),
     }
 }
 
@@ -438,10 +476,33 @@ pub(super) fn try_handle(
     );
     let Request { id, origin, command } = request;
     let user = origin == crate::apps::Origin::User;
+    // A forced reload reads every local folder and may wait on a load trial
+    // per open view (seconds): it answers from its own thread, so this
+    // connection's mounts and events go on meanwhile (`apps-reload`, and the
+    // app's Reload Custom Views, the App Store op `apps.local.reload`).
+    let command = match command {
+        Command::Reload { app } => {
+            return Some(answer_off_thread(writer, id, move || {
+                supervisor.reload_local_now(app.as_deref())
+            }));
+        }
+        Command::Store { op, args } if op == "apps.local.reload" => {
+            return Some(answer_off_thread(writer, id, move || {
+                supervisor.store_call(client, &op, args, origin)
+            }));
+        }
+        command => command,
+    };
     let result = match command {
         Command::List => Ok(supervisor.list()),
+        Command::ReloadLocal => Ok(supervisor.reload_local_apps_now()),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
+        // Answered on its own thread above.
+        Command::Reload { .. } => Err(crate::apps::ApiError::new(
+            "operation.failed",
+            "apps-reload is answered off this thread",
+        )),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
         Command::TeamEvent { event, data } => supervisor.team_event(&event, &data),
