@@ -51,7 +51,12 @@ fn machine_a(mesh: Arc<dyn MeshHub>) -> Arc<Hub> {
 
 /// Machine A with the chats `seed` (stored records, no harness started) already there.
 fn machine_a_seeded(mesh: Arc<dyn MeshHub>, seed: &[Value]) -> Arc<Hub> {
-    let mut config: Config = serde_json::from_value(json!({})).unwrap();
+    machine_a_configured(mesh, json!({}), seed)
+}
+
+/// Machine A with config `config` and the chats `seed`.
+fn machine_a_configured(mesh: Arc<dyn MeshHub>, config: Value, seed: &[Value]) -> Arc<Hub> {
+    let mut config: Config = serde_json::from_value(config).unwrap();
     config.store.mode = crate::config::StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     for meta in seed {
@@ -648,28 +653,90 @@ async fn a_hub_start_by_an_agent_a_remote_device_drives_is_refused() {
     // B gates a marked start's folder; this one has no Trust answer.
     let gates = tempfile::tempdir().unwrap();
     gate(&b, gates.path());
-    let agent_id = uuid::Uuid::now_v7().to_string();
-    let seed = json!({
-        "schema": crate::store::META_SCHEMA, "id": agent_id, "name": "agent", "harness": "fake",
-        "cwd": cwd, "status": "idle", "createdAt": 1, "updatedAt": 1
-    });
+    let (agent_id, seed) = agent_record(&cwd);
     let a = machine_a_seeded(Arc::new(Loopback::new(&b, dir.path(), Some("person-1"))), &[seed]);
     let agent = a.resolve(&agent_id).expect("the agent's chat on A");
     agent.mark_last_turn_web_for_tests();
-    let (in_tx, in_rx) = mpsc::channel(64);
-    let (out_tx, out_rx) = mpsc::channel(4096);
-    tokio::spawn(crate::server::serve_connection_with(a.clone(), in_rx, out_tx, Origin::Local));
-    let mut socket = Client(in_tx, out_rx, 0);
-    let hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "_meta": {"acpmux": {
-        "callerSession": {"sessionId": agent.id, "token": crate::hub::person::caller_token(&agent.id)}
-    }}});
-    let proven = socket.call("initialize", hello, &mut Vec::new()).await;
-    assert_eq!(proven["result"]["_meta"]["acpmux"]["callerSessionId"], json!(agent.id), "{proven}");
+    let mut socket = Client::agent(&a, &agent_id).await;
     let refused =
         socket.call("session/new", new_params(&cwd, "machine-b", "driven"), &mut Vec::new()).await;
     assert!(b.resolve("driven").is_err(), "a remote-driven agent's start ran on B unmarked");
     assert_eq!(refused["error"]["data"]["reason"], "mesh.local_only", "{refused}");
     a.shutdown_all().await;
+    b.shutdown_all().await;
+}
+
+/// An agent's chat record on A in `cwd` (no harness started): its id and the record.
+fn agent_record(cwd: &std::path::Path) -> (String, Value) {
+    let id = uuid::Uuid::now_v7().to_string();
+    let record = json!({
+        "schema": crate::store::META_SCHEMA, "id": id, "name": "agent", "harness": "fake",
+        "cwd": cwd, "status": "idle", "createdAt": 1, "updatedAt": 1
+    });
+    (id, record)
+}
+
+impl Client {
+    /// A connection on `hub`'s unix socket that proved it runs in chat `id` (`callerSession`).
+    async fn agent(hub: &Arc<Hub>, id: &str) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(crate::server::serve_connection_with(
+            hub.clone(),
+            in_rx,
+            out_tx,
+            Origin::Local,
+        ));
+        let mut socket = Self(in_tx, out_rx, 0);
+        let token = crate::hub::person::caller_token(id);
+        let hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "_meta": {"acpmux": {
+            "callerSession": {"sessionId": id, "token": token}
+        }}});
+        let proven = socket.call("initialize", hello, &mut Vec::new()).await;
+        assert_eq!(proven["result"]["_meta"]["acpmux"]["callerSessionId"], json!(id), "{proven}");
+        socket
+    }
+}
+
+/// Review P1 of #38377 at 5a5c988d: an agent on A starts a chat through the hub from a no-prompt
+/// preset the person never approved. As over a linked peer (`unattended_presets.rs`), A refuses it
+/// and asks for the approval (`preset.approval_required`), and nothing goes to the hub: the
+/// preset's name never reaches a machine that may have a preset of that name.
+#[tokio::test]
+async fn a_hub_start_from_an_unapproved_no_prompt_preset_is_refused_before_it_is_sent() {
+    let (_dir, _root, cwd) = project();
+    let mesh = Arc::new(Recorder::default());
+    let (agent_id, seed) = agent_record(&cwd);
+    let config = json!({"presets": {"night": {"harness": "claude", "policy": "approve-all"}}});
+    let a = machine_a_configured(mesh.clone(), config, &[seed]);
+    let mut socket = Client::agent(&a, &agent_id).await;
+    let params = json!({"cwd": cwd, "mcpServers": [],
+        "_meta": {"acpmux": {"preset": "night", "name": "unattended", "peer": "machine-b"}}});
+    let refused = socket.call("session/new", params, &mut Vec::new()).await;
+    let sent = mesh.0.lock().unwrap().clone();
+    assert!(sent.is_empty(), "the unapproved preset's start went to the hub: {sent:?}");
+    assert_eq!(refused["error"]["data"]["reason"], "preset.approval_required", "{refused}");
+    a.shutdown_all().await;
+}
+
+/// Review P2 of #38377 at 5a5c988d: a version 2 start is one that carries a mark this machine
+/// gates by. With `via` null, or a value no client is, B refuses the body (as a daemon from before
+/// marked starts does) and starts nothing unmarked.
+#[tokio::test]
+async fn a_version_2_start_with_no_valid_mark_is_refused() {
+    let (dir, root, cwd) = project();
+    let b = machine_b(&root);
+    let hook = Loopback::new(&b, dir.path(), Some("person-1")).hook;
+    for (name, via) in [("null-mark", Value::Null), ("bogus-mark", json!("bogus"))] {
+        let body = json!({"version": 2, "params": {"cwd": cwd, "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": name, "via": via}}}});
+        let start =
+            from_a(crate::mesh::Kind::Control, Some("start"), Target::default(), body.to_string());
+        let ack = super::super::deliver(&b, &start, &hook, Some("inst_b")).await;
+        let detail = ack.and_then(|a| a.detail).unwrap_or_default();
+        assert!(b.resolve(name).is_err(), "{name}: a version 2 start with no valid mark ran");
+        assert!(detail.contains("unsupported control body version"), "{name}: {detail}");
+    }
     b.shutdown_all().await;
 }
 
