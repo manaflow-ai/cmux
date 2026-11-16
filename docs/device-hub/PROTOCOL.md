@@ -210,7 +210,9 @@ to each host), so a change made while it was away never leaves an old value.
    `signalURL` = `wss://<host>/v1/sessions/<sid>/ws` (`<host>` is the Worker's
    public origin: env `PUBLIC_BASE_URL`, else the request's). `ice` = cmux relay
    credentials if cmux billing includes the relay for the user right now
-   (Cloudflare TURN, minted per session, TTL 1 h), else `[]`; the app adds the
+   (TURN, minted per session, TTL 1 h: the hub gets them from cmux-platform's
+   one TURN minter, with its own mint as the fallback until that is removed;
+   workers/device-hub/DEPLOY.md), else `[]`; the app adds the
    user's own relays.
 4. Each device opens `signalURL?ticket=<jws>` with its device headers (no
    `Authorization`; the ticket admits it). The User DO passes both devices'
