@@ -11,6 +11,7 @@ import { webkit, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("transcript-older-scroll.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -142,15 +143,18 @@ await requireBrowserLane("transcript-older-scroll.test.ts", async () => {
     }
     for (let frame = 0; frame < 30; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
     // The reader's row: the first one whose top is in view.
-    const anchor = await page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const top = scroller.getBoundingClientRect().top;
-      for (const row of document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
-        const at = row.getBoundingClientRect().top - top;
-        if (at >= 0) return { id: row.dataset.rowId!, at };
-      }
-      return undefined;
-    });
+    const anchor = await page.evaluate(
+      ({ TRANSCRIPT_ROW }) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const top = scroller.getBoundingClientRect().top;
+        for (const row of document.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)) {
+          const at = row.getBoundingClientRect().top - top;
+          if (at >= 0) return { id: row.dataset.rowId!, at };
+        }
+        return undefined;
+      },
+      { TRANSCRIPT_ROW },
+    );
     expect(anchor).toBeDefined();
     // Every painted frame from here: how far the view is from its end, and where the reader's row is.
     await page.evaluate((id) => {

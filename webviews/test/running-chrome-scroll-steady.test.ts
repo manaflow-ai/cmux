@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane, type PapercutStep } from "./support/papercutChat";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
   const update = (update: Record<string, unknown>) => ({
@@ -81,7 +82,7 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
   /// The surfaces watched, by selector: each must be on the page when the scroll starts.
   const SURFACES = {
     tray: ".acpmux-running-tray",
-    sessionInfo: "aside.acpmux-session-info",
+    sessionInfo: SESSION_INFO,
   };
 
   /// Watches every surface across 100 frames of wheel scrolling up then down; returns, per surface,
@@ -262,7 +263,7 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
               window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
             ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
           });
-          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const toggle = page.locator(SESSION_INFO_TOGGLE);
           await toggle.waitFor({ timeout: 10_000 });
           if ((await page.locator(SURFACES.sessionInfo).count()) === 0) await toggle.click({ force: true });
           await page.locator(`${SURFACES.sessionInfo}[data-presence=shown]`).waitFor({ timeout: 10_000 });
@@ -290,7 +291,7 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
               window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
             ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
           });
-          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const toggle = page.locator(SESSION_INFO_TOGGLE);
           await toggle.waitFor({ timeout: 10_000 });
           if ((await page.locator(SURFACES.sessionInfo).count()) === 0) await toggle.click({ force: true });
           await page.locator(`${SURFACES.sessionInfo}[data-presence=shown]`).waitFor({ timeout: 10_000 });
