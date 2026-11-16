@@ -44,6 +44,9 @@ test("the native menu is the menu glass level", () => {
 
 test("the page lays the same veil on the App's glass", () => {
   const glass = repo("webviews/src/ui/glass/glass.css");
-  expect(glass).toContain("var(--ds-glass-menu-veil, 40%)");
-  expect(repo("webviews/src/pages/shared/desktop.css")).toContain(`--ds-glass-menu-veil: ${menu.veil}%;`);
+  expect(glass).toContain("calc(var(--ds-transient-host-veil) * 100%)");
+  expect(repo("webviews/src/pages/shared/desktop.css")).toContain(
+    `--ds-transient-host-veil: ${designScale.transientMaterial.hostVeil};`,
+  );
+  expect(designScale.transientMaterial.hostVeil * 100).toBe(menu.veil as number);
 });
