@@ -2681,6 +2681,12 @@ button.menu-disclosure {
   gap: var(--ds-space-2);
 }
 
+/* In the column the title keeps its own height: as a flex: 1 item it took the space the editor's
+   wrap left over when the column measured it, a blank band between the title and the editor. */
+.row[data-kind="json"] > .row-main > .row-label {
+  flex: none;
+}
+
 .row[data-kind="json"] .row-control {
   justify-content: flex-start;
   max-width: 100%;
