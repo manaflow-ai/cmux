@@ -16,8 +16,8 @@ pub const ACT_IDS_FILE: &str = "act-ids";
 
 const MAGIC: &[u8; 4] = b"AIDR";
 const VERSION: u32 = 2;
-// magic, version, count, floor-present, floor
-const HEADER_BYTES: usize = 24;
+// magic, version, count, floor-present, floor, checkpoint-through
+const HEADER_BYTES: usize = 32;
 const MAX_RING_BYTES: usize = HEADER_BYTES + ACT_ID_CAPACITY * ACT_ID_ENTRY_BYTES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -60,6 +60,7 @@ pub struct ActIdRing {
     /// Set only after an entry is evicted. `open_at` uses the checkpoint as a
     /// conservative floor when the receipt file is absent or damaged.
     floor: Option<u64>,
+    through: Option<u64>,
 }
 
 impl ActIdRing {
@@ -77,29 +78,29 @@ impl ActIdRing {
 
     fn open_inner(book: &Path, checkpoint_seq: Option<u64>) -> io::Result<Self> {
         let path = book.join(ACT_IDS_FILE);
-        let (entries, floor) = match File::open(&path) {
+        let (entries, floor, through) = match File::open(&path) {
             Ok(mut file) => match decode(&mut file) {
-                Ok((entries, floor)) => (entries, floor),
+                Ok((entries, floor, through)) => (entries, floor, through),
                 Err(error)
                     if matches!(
                         error.kind(),
                         io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof
                     ) =>
                 {
-                    (VecDeque::new(), checkpoint_seq)
+                    (VecDeque::new(), checkpoint_seq, None)
                 }
                 Err(error) => return Err(error),
             },
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                (VecDeque::new(), checkpoint_seq)
+                (VecDeque::new(), checkpoint_seq, None)
             }
             Err(error) => return Err(error),
         };
-        Ok(Self { path, entries, floor })
+        Ok(Self { path, entries, floor, through })
     }
 
     pub fn empty(book: &Path) -> Self {
-        Self { path: book.join(ACT_IDS_FILE), entries: VecDeque::new(), floor: None }
+        Self { path: book.join(ACT_IDS_FILE), entries: VecDeque::new(), floor: None, through: None }
     }
 
     pub fn len(&self) -> usize {
@@ -116,6 +117,10 @@ impl ActIdRing {
 
     pub fn floor(&self) -> Option<u64> {
         self.floor
+    }
+
+    pub fn through(&self) -> Option<u64> {
+        self.through
     }
 
     pub fn lookup(&self, id: &str, op: &str, body: &serde_json::Value) -> ActIdLookup {
@@ -220,7 +225,7 @@ impl ActIdRing {
             .filter(|entry| entry.ack_seq <= through)
             .collect::<VecDeque<_>>();
         let floor = self.floor.filter(|floor| *floor <= through);
-        encode(&mut file, &entries, floor)?;
+        encode(&mut file, &entries, floor, through)?;
         file.sync_all()?;
         fs::rename(&temporary, &self.path)?;
         if let Some(parent) = self.path.parent()
@@ -250,12 +255,14 @@ fn encode(
     mut output: impl Write,
     entries: &VecDeque<ActIdReceipt>,
     floor: Option<u64>,
+    through: u64,
 ) -> io::Result<()> {
     output.write_all(MAGIC)?;
     output.write_all(&VERSION.to_le_bytes())?;
     output.write_all(&(entries.len() as u32).to_le_bytes())?;
     output.write_all(&[u8::from(floor.is_some()); 4])?;
     output.write_all(&floor.unwrap_or_default().to_le_bytes())?;
+    output.write_all(&through.to_le_bytes())?;
     for entry in entries {
         output.write_all(&entry.id_hash)?;
         output.write_all(&entry.op_body_hash.to_le_bytes())?;
@@ -264,7 +271,7 @@ fn encode(
     Ok(())
 }
 
-fn decode(mut input: impl Read) -> io::Result<(VecDeque<ActIdReceipt>, Option<u64>)> {
+fn decode(mut input: impl Read) -> io::Result<(VecDeque<ActIdReceipt>, Option<u64>, u64)> {
     let mut bounded = input.by_ref().take((MAX_RING_BYTES + 1) as u64);
     let mut header = [0; HEADER_BYTES];
     bounded.read_exact(&mut header)?;
@@ -272,7 +279,9 @@ fn decode(mut input: impl Read) -> io::Result<(VecDeque<ActIdReceipt>, Option<u6
     let (version_bytes, rest) = rest.split_first_chunk::<4>().ok_or_else(invalid_ring)?;
     let (count_bytes, rest) = rest.split_first_chunk::<4>().ok_or_else(invalid_ring)?;
     let (flags, floor_bytes) = rest.split_first_chunk::<4>().ok_or_else(invalid_ring)?;
-    let (floor_value, _) = floor_bytes.split_first_chunk::<8>().ok_or_else(invalid_ring)?;
+    let (floor_value, through_bytes) =
+        floor_bytes.split_first_chunk::<8>().ok_or_else(invalid_ring)?;
+    let (through_value, _) = through_bytes.split_first_chunk::<8>().ok_or_else(invalid_ring)?;
     if magic != MAGIC || u32::from_le_bytes(*version_bytes) != VERSION {
         return Err(invalid_ring());
     }
@@ -299,7 +308,7 @@ fn decode(mut input: impl Read) -> io::Result<(VecDeque<ActIdReceipt>, Option<u6
     if bounded.read(&mut trailing)? != 0 {
         return Err(invalid_ring());
     }
-    Ok((entries, floor))
+    Ok((entries, floor, u64::from_le_bytes(*through_value)))
 }
 
 fn invalid_ring() -> io::Error {
@@ -366,6 +375,7 @@ mod tests {
         ring.remember("tail", "op", &serde_json::json!(true), 10).unwrap();
         ring.save(9).unwrap();
         let ring = ActIdRing::open_at(home.path(), 9).unwrap();
+        assert_eq!(ring.through(), Some(9));
         assert_eq!(
             ring.lookup("old", "op", &serde_json::json!(true)),
             ActIdLookup::Replay { ack_seq: 9 }
