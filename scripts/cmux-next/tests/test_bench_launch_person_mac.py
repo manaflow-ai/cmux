@@ -4,10 +4,12 @@ another part of the app everything just got completely [messed up] i couldnt sto
 fighting focus").
 
 1. A Mac the fleet registry lists with a person's role (by key, alias or hostname) is refused, with the registry key
-   and role in the reason; a fleet GUI host, an unknown Mac and a missing registry are not.
+   and role in the reason; a fleet GUI host and a missing registry (a fleet worker account) are not. A Mac the
+   registry does not name is refused while its console was used in the last 10 minutes.
 2. BenchApp.launch() refuses a launch that lets the app activate on such a Mac before it starts anything; a launch
    that keeps CMUX_NEXT_NO_ACTIVATE (the default) still runs there.
-3. require_no_person_mac, for a script that takes focus without BenchApp, exits 1 with one BENCH-LAUNCH line.
+3. require_no_person_mac, for a script that takes focus without BenchApp, exits 1 with one BENCH-LAUNCH line, and
+   every script that posts real input (CGEventPost) calls it before its first event.
 
 Runs anywhere (registry and names injected, no app started):
 
@@ -49,11 +51,30 @@ class PersonMac(unittest.TestCase):
             self.assertIsNotNone(problem, names)
             self.assertIn(f"fleet registry {key}", problem)
 
-    def test_fleet_hosts_unknown_macs_and_no_registry_are_not_refused(self):
-        for names in (["aws-m4pro-1"], ["cmux16"], ["someones-laptop"], []):
-            self.assertIsNone(bl.person_mac_problem(names, MACHINES), names)
+    def test_fleet_hosts_and_no_registry_are_not_refused_and_never_read_idle_time(self):
+        asked = lambda: self.fail("idle time read")  # noqa: E731
+        for names in (["aws-m4pro-1"], ["cmux16"]):
+            self.assertIsNone(bl.person_mac_problem(names, MACHINES, idle=asked), names)
+        self.assertIsNone(bl.person_mac_problem(["someones-laptop"], {}, idle=asked))
         self.assertIsNone(bl.person_mac(["cosmic-gray"], None))
         self.assertIsNone(bl.person_mac(["cosmic-gray"], {"cosmic-gray": "not an entry"}))
+
+    def test_a_mac_the_registry_does_not_name_is_refused_while_its_console_is_in_use(self):
+        # A person's Mac whose LocalHostName is not its registry key (Leos-MacBook-Pro) on an agent host account.
+        for idle in (lambda: 4.0, lambda: None):
+            problem = bl.person_mac_problem(["leos-macbook-pro"], MACHINES, idle=idle)
+            self.assertIn("not in the fleet registry", problem)
+        self.assertIsNone(bl.person_mac_problem(["leos-macbook-pro"], MACHINES, idle=lambda: bl.IDLE_REQUIRED_S + 1))
+        self.assertIsNotNone(bl.person_mac_problem([], MACHINES, idle=lambda: 1.0))
+
+    def test_every_script_that_posts_real_input_checks_first(self):
+        # The detector for a new one: any script here that calls CGEventPost must call the check before it.
+        posting = sorted(p for p in HERE.glob("*.py") if "CGEventPost(" in p.read_text())
+        self.assertGreaterEqual(len(posting), 7)
+        for path in posting:
+            text = path.read_text()
+            self.assertIn(f'require_no_person_mac("{path.stem}")', text, path.name)
+            self.assertLess(text.index("require_no_person_mac("), text.index("CGEventPost("), path.name)
 
     def test_the_registry_comes_from_the_environment_or_the_accounts_projects(self):
         with tempfile.TemporaryDirectory() as home:

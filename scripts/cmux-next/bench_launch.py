@@ -522,12 +522,15 @@ def host_facts():
 # A person's Mac (2026-11-16): a bench that lets the app activate, or posts real clicks and keys, took focus on Leo's
 # own Mac while he recorded his screen, and he could not stop the recording. Such a launch now runs only on a Mac the
 # fleet registry does not list with a person's role. A bench that keeps CMUX_NEXT_NO_ACTIVATE (the default) still
-# runs there at light load (rulebook: benchmark now, worst case on his Mac). There is no override. A Mac the registry
-# does not name, or no registry at all (a fleet worker account), is not refused: its console idle time would also
-# count the synthetic input of the bench before it in the same step. BENCH_LAUNCH_FLEET_REGISTRY names the registry
-# (tests); else the account's ~/Projects/*/machines/fleet-registry.json. screen-stream-eval's person_guard.py (#44305)
-# keeps the same roles for GUI viewers.
+# runs there at light load (rulebook: benchmark now, worst case on his Mac). There is no override. An account that has
+# the registry (an agent host) but whose Mac it does not name, say a person's Mac whose LocalHostName is not its
+# registry key, is refused while its console was used in the last IDLE_REQUIRED_S. With no registry at all (a fleet
+# worker account) nothing is refused: there the idle time would also count the synthetic input of the bench before it
+# in the same step. BENCH_LAUNCH_FLEET_REGISTRY names the registry (tests); else the account's
+# ~/Projects/*/machines/fleet-registry.json. screen-stream-eval's person_guard.py (#44305) keeps the same rule for GUI
+# viewers.
 PERSON_ROLES = frozenset({"attended", "leo-mac", "leo-apps", "interactive"})
+IDLE_REQUIRED_S = 600
 
 
 def fleet_machines(home=None):
@@ -556,16 +559,25 @@ def local_names():
     return [n.lower() for n in dict.fromkeys(names) if n]
 
 
-def person_mac(names, machines):
-    """(registry key, its person roles) for the first registry entry naming this Mac with a person's role, else None."""
+def registry_entries(names, machines):
+    """[(key, entry)] of the registry entries naming this Mac by key, alias or hostname."""
     wanted = set(names)
+    found = []
     for key, entry in sorted((machines or {}).items()):
         if not isinstance(entry, dict):
             continue
         aliases = {key.lower(), *(a.lower() for field in ("aliases", "hostnames") for a in entry.get(field) or []
                                   if isinstance(a, str))}
+        if aliases & wanted:
+            found.append((key, entry))
+    return found
+
+
+def person_mac(names, machines):
+    """(registry key, its person roles) for the first registry entry naming this Mac with a person's role, else None."""
+    for key, entry in registry_entries(names, machines):
         roles = sorted(PERSON_ROLES & set(entry.get("roles") or []))
-        if roles and aliases & wanted:
+        if roles:
             return key, roles
     return None
 
@@ -575,15 +587,37 @@ def activates(extra_env):
     return extra_env.get("CMUX_NEXT_NO_ACTIVATE", BASE_ENV["CMUX_NEXT_NO_ACTIVATE"]) != "1"
 
 
-def person_mac_problem(names=None, machines=None):
-    """Why a focus-taking launch may not run here, or None. `names` and `machines` are read when not given."""
-    found = person_mac(local_names() if names is None else names, fleet_machines() if machines is None else machines)
-    if not found:
+def console_idle_seconds():
+    """Seconds since the last input on any HID device (IOHIDSystem HIDIdleTime), None when ioreg does not say."""
+    try:
+        out = subprocess.run(["/usr/sbin/ioreg", "-c", "IOHIDSystem", "-d", "4"], capture_output=True, text=True,
+                             timeout=10).stdout
+    except (OSError, subprocess.TimeoutExpired):
         return None
-    key, roles = found
-    return (f"this Mac is a person's (fleet registry {key}, role {', '.join(roles)}): a launch that lets the app "
-            "activate, or posts clicks and keys, takes their focus. Run it on a fleet GUI host (cmux-ci run --class "
-            "exclusive --measurement), or keep CMUX_NEXT_NO_ACTIVATE")
+    values = [int(v) for v in re.findall(r'"HIDIdleTime"\s*=\s*(\d+)', out)]
+    return min(values) / 1e9 if values else None
+
+
+def person_mac_problem(names=None, machines=None, idle=None):
+    """Why a focus-taking launch may not run here, or None. `names`, `machines` and `idle` (a function answering
+    ``console_idle_seconds``) are read when not given."""
+    names = local_names() if names is None else names
+    machines = fleet_machines() if machines is None else machines
+    next_step = ("a launch that lets the app activate, or posts clicks and keys, takes their focus. Run it on a fleet "
+                 "GUI host (cmux-ci run --class exclusive --measurement), or keep CMUX_NEXT_NO_ACTIVATE")
+    found = person_mac(names, machines)
+    if found:
+        key, roles = found
+        return f"this Mac is a person's (fleet registry {key}, role {', '.join(roles)}): {next_step}"
+    if not machines or registry_entries(names, machines):
+        return None  # no registry (a fleet worker account), or a registry host with no person's role
+    seconds = (idle or console_idle_seconds)()
+    if seconds is None:
+        return f"this Mac ({', '.join(names) or 'no name'}) is not in the fleet registry and its console idle time is unreadable: {next_step}"
+    if seconds < IDLE_REQUIRED_S:
+        return (f"this Mac ({', '.join(names) or 'no name'}) is not in the fleet registry and its console was used "
+                f"{int(seconds)} s ago (needs {IDLE_REQUIRED_S} s idle): {next_step}")
+    return None
 
 
 def require_no_person_mac(who="bench", names=None, machines=None):
