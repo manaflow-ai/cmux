@@ -6,10 +6,13 @@
 pub(crate) mod capture;
 #[cfg(feature = "bench")]
 pub(crate) mod cpu;
+pub(crate) mod cursor;
 mod input;
 mod keys;
 #[cfg(feature = "bench")]
 pub(crate) mod observe;
+#[cfg(feature = "bench")]
+pub(crate) mod synthetic;
 mod sys;
 
 use crate::desktop::{Desktop, FrameSource, Halves};
@@ -37,10 +40,12 @@ fn encoder_fps(width: u32, height: u32, fps: u32) -> u32 {
     fps.min(limit as u32)
 }
 
-/// The loop thread's half: the capture's damage and CGEvent input.
+/// The loop thread's half: the capture's damage, CGEvent input, and the cursor.
 pub struct MacDesktop {
     capture: Capture,
     injector: Injector,
+    /// The cursor as metadata (cap `cursor`): the pictures leave it out.
+    cursor: Option<cursor::CursorReader>,
 }
 
 /// The encode thread's half: picks the newest captured frame and encodes it with VideoToolbox.
@@ -58,7 +63,8 @@ pub struct MacFrames {
 }
 
 /// Starts the display's capture and opens both halves of the session's desktop.
-pub fn open(cfg: &SessionCfg) -> Res<Halves> {
+/// `cursor_metadata`: capture without the cursor and report it through `Desktop::cursor`.
+pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     if cfg.codec != "videotoolbox" {
         return Err(format!(
             "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
@@ -66,7 +72,9 @@ pub fn open(cfg: &SessionCfg) -> Res<Halves> {
         )
         .into());
     }
-    let capture = Capture::start(&cfg.display, cfg.max_fps, cfg.max_width)?;
+    let cursor_metadata = cursor_metadata && cursor::available();
+    let capture =
+        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
     capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
     let (width, height) = capture.size();
     let encoder = VideoToolbox::new(
@@ -89,7 +97,9 @@ pub fn open(cfg: &SessionCfg) -> Res<Halves> {
         #[cfg(feature = "bench")]
         quality: crate::eval::Quality::from_env(),
     };
-    Ok((Box::new(MacDesktop { capture, injector }), Box::new(frames)))
+    let cursor =
+        cursor_metadata.then(|| cursor::CursorReader::new(capture.bounds(), (width, height)));
+    Ok((Box::new(MacDesktop { capture, injector, cursor }), Box::new(frames)))
 }
 
 impl Desktop for MacDesktop {
@@ -114,6 +124,10 @@ impl Desktop for MacDesktop {
     fn release_all(&mut self) -> Res<()> {
         self.injector.release_all();
         Ok(())
+    }
+
+    fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {
+        self.cursor.as_mut()?.sample()
     }
 }
 
