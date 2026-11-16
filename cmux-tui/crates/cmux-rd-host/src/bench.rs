@@ -865,6 +865,14 @@ pub fn run(opts: &Opts) -> Res<()> {
         None => None,
     };
     let first_frame_ms = (v.marker_at_ns.saturating_sub(start)) as f64 / 1e6;
+    // The first frame's own times, so a script can split first_frame_ms with the host's log.
+    let first_frame_times = json!({
+        "start_ns": start,
+        "capture_us": v.marker_capture_us,
+        "first_rx_ns": v.marker_first_rx_ns,
+        "complete_ns": v.marker_complete_ns,
+        "decoded_ns": v.marker_at_ns,
+    });
     let (b0, f0, c0, t_begin) = (v.bytes, v.frames, cpu_s(), now_ns());
     // A stall is a run of lost samples: from the first lost key press to the next one
     // that showed. A link blip shows up here as its length plus the recovery time.
@@ -939,6 +947,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         "input": input,
         "welcome": v.welcome,
         "first_frame_ms": first_frame_ms,
+        "first_frame_times": first_frame_times,
         "stalls_ms": stalls_ms,
         "g2g_ms": pct(&mut g2g),
         "lost": lost,

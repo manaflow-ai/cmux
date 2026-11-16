@@ -130,6 +130,13 @@ impl Timing {
         let _ = writeln!(self.out, "{line}");
     }
 
+    /// The session opened its capture and encoder: asked at `open_us`, ready at `ready_us`.
+    fn opened(&mut self, open_us: u64, ready_us: u64) {
+        use std::io::Write;
+        let line = serde_json::json!({ "open_us": open_us, "desktop_ready_us": ready_us });
+        let _ = writeln!(self.out, "{line}");
+    }
+
     /// An input was injected at `inject_us`.
     fn injected(&mut self, inject_us: u64) {
         use std::io::Write;
@@ -176,7 +183,12 @@ impl MediaSession {
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
+        let open_us = now_us();
         let desktop = crate::desktop::open(cfg)?;
+        let mut timing = Timing::from_env();
+        if let Some(timing) = timing.as_mut() {
+            timing.opened(open_us, now_us());
+        }
         let (w, h) = desktop.size();
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
         let engine = MediaEngine::new(
@@ -206,7 +218,7 @@ impl MediaSession {
             stats_every_ns: cfg.stats_every_ms * 1_000_000,
             cpu_last: (process_cpu_s(), now_ns()),
             settle_ns: cfg.settle_us * 1000,
-            timing: Timing::from_env(),
+            timing,
         })
     }
 

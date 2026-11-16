@@ -524,6 +524,7 @@ def readline(proc, deadline):
 class Orchestrator:
     def __init__(self, args):
         self.a = args
+        self.ff_rows = []
         self.host = Remote(args.host, args.via)
         self.viewer = Remote(args.viewer, args.via)
         self.root = args.root
@@ -674,6 +675,7 @@ class Orchestrator:
                     rec["g2g_ms"] = rep.get("g2g_ms")
                     rec["lost"] = rep.get("lost")
                     rec["sample_times"] = rep.get("sample_times")
+                    rec["first_frame_times"] = rep.get("first_frame_times")
                     rec["frames_per_s"] = rep.get("frames_per_s")
                 else:
                     rec["marker_fps"] = rep.get("marker_fps")
@@ -700,6 +702,37 @@ class Orchestrator:
                         p.kill()
                         p.wait()
         return rec
+
+    def first_frame_breakdown(self, rec, timing, offset_ns):
+        """connect -> first decoded frame, split with the host's log (ms, viewer clock)."""
+        t = rec.get("first_frame_times")
+        opened = next((x for x in timing if "open_us" in x), None)
+        f = next((x for x in timing if t and x.get("release_us") == t.get("capture_us")), None)
+        if not (t and opened and f):
+            return None
+        off_us = offset_ns / 1000.0
+        start = t["start_ns"] / 1000.0
+        arrived = f.get("arrived_us")
+
+        def ms(us):
+            return None if us is None else round(us / 1000.0, 3)
+
+        return {
+            # the viewer has the answer -> the host opens the session (handshake, hello, start)
+            "signal": ms(opened["open_us"] - off_us - start),
+            # capture stream and encoder start
+            "capture_start": ms(opened["desktop_ready_us"] - opened["open_us"]),
+            # the capture's first frame arrives
+            "first_capture": ms(arrived - opened["desktop_ready_us"]) if arrived else None,
+            "gate": ms(f["release_us"] - arrived) if arrived else None,
+            "encode": ms(f["encoded_us"] - f["release_us"]),
+            "send": ms(f["sent_us"] - f["encoded_us"]),
+            "down": ms(t["complete_ns"] / 1000.0 - (f["sent_us"] - off_us)),
+            "decode": ms((t["decoded_ns"] - t["complete_ns"]) / 1000.0),
+            "total": ms((t["decoded_ns"] - t["start_ns"]) / 1000.0),
+            "bytes": f.get("encoded_bytes"),
+            "idr": f.get("idr"),
+        }
 
     def breakdown(self, rec, timing, offset_ns):
         """Per key press: where the time went, on the viewer's clock (ms)."""
@@ -764,6 +797,10 @@ class Orchestrator:
                 g2g += [(s["decoded_ns"] - s["sent_ns"]) / 1e6 for s in rec.get("sample_times") or []]
                 rec["breakdown"] = self.breakdown(rec, timing, clock["offset_ns"])
                 rows += rec["breakdown"]
+                ff = self.first_frame_breakdown(rec, timing, clock["offset_ns"])
+                if ff:
+                    rec["first_frame_breakdown"] = ff
+                    self.ff_rows.append(ff)
             rec.pop("sample_times", None)
             self.log(rec)
         for n in range(1, self.a.fps_trials + 1):
@@ -858,11 +895,9 @@ class Orchestrator:
             fmt = lambda s: f"{s['p50']:.1f} / {s['p95']:.1f}" if s else "-"  # noqa: E731
             print(f"{name:<22} {fmt(sf):>24} {fmt(sg):>25} {(sp['p50'] if sp else '-'):>17} "
                   f"{len(f)}tr/{len(g)}k")
-        if rows:
+        def stage_table(title, rows, keys):
             print()
-            print("cmux key-to-frame breakdown (ms, viewer clock; p50 / p95 / mean over samples)")
-            keys = ["up", "inject", "draw", "sck", "gate", "encode", "send", "first_packet", "down",
-                    "decode", "total"]
+            print(title)
             stages = {}
             for k in keys:
                 xs = [row[k] for row in rows if row.get(k) is not None]
@@ -870,7 +905,18 @@ class Orchestrator:
                     stages[k] = {"p50": round(pct(xs, 50), 2), "p95": round(pct(xs, 95), 2),
                                  "mean": round(statistics.mean(xs), 2)}
                     print(f"  {k:<13} {stages[k]['p50']:>8} {stages[k]['p95']:>8} {stages[k]['mean']:>8}")
-            summ["cmux_breakdown"] = stages
+            return stages
+
+        if rows:
+            summ["cmux_breakdown"] = stage_table(
+                "cmux key-to-frame breakdown (ms, viewer clock; p50 / p95 / mean over samples)", rows,
+                ["up", "inject", "draw", "sck", "gate", "encode", "send", "first_packet", "down",
+                 "decode", "total"])
+        if self.ff_rows:
+            summ["cmux_first_frame_breakdown"] = stage_table(
+                "cmux first-frame breakdown (ms, viewer clock; p50 / p95 / mean over trials)",
+                self.ff_rows, ["signal", "capture_start", "first_capture", "gate", "encode", "send",
+                               "down", "decode", "total"])
         self.log({"summary": summ, "link": self.a.link, "rtt": clock})
 
 
