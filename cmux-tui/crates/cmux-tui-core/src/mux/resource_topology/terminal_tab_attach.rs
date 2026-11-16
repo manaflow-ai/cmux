@@ -1,5 +1,6 @@
 //! The attach of a new terminal tab to its pane: the spawn, the slot in the pane's strip and
-//! the `tab-added` delta, in one state lock.
+//! the `tab-added` delta, in one state lock. The slot is the strip index that the creation
+//! names (`tab_slot`), else the `place` of its request (`tab_place`), else the end.
 
 use super::*;
 
@@ -14,7 +15,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
         on_exit: Option<TerminalOnExit>,
-        index: Option<usize>,
+        mut spot: tab_strip::tab_place::Spot,
     ) -> anyhow::Result<CreatedTerminalEffect> {
         // `pinned-dock-v1`: a pinned column that takes no tabs refuses
         // before anything spawns, and again when the tab attaches.
@@ -41,17 +42,31 @@ impl Mux {
         let active_at = self.next_active_at();
         let notifications = self.tree_decorations_placing(&surface);
         let mut refused = None;
+        let mut joins = None;
         let attached = {
             let mut state = self.state.lock().unwrap();
             if let Err(error) = ensure_pane_takes_tabs(operation, &state, target) {
                 refused = Some(error);
             }
+            // The strip index of the creation (`tab_slot`: Reopen Closed puts
+            // a tab back in place) wins over the `place` of its request.
+            let landing = match spot.index {
+                None if refused.is_none() => {
+                    spot.placed.land(&state, &notifications.presentation, target, surface.id)
+                }
+                _ => None,
+            };
             let pane = if refused.is_some() { None } else { state.panes.get_mut(&target) };
             let delta = match pane {
                 Some(pane) => {
-                    // At its end, or at the strip index the creation names
-                    // (`tab_slot`: Reopen Closed puts a tab back in place).
-                    let index = tab_strip::tab_slot::slot(index, pane.tabs.len());
+                    let end = pane.tabs.len();
+                    let index = match landing {
+                        Some(landing) => {
+                            joins = landing.joins;
+                            landing.index.min(end)
+                        }
+                        None => tab_strip::tab_slot::slot(spot.index, end),
+                    };
                     pane.tabs.insert(index, surface.id);
                     pane.active_tab = index;
                     pane.active_at = active_at;
@@ -77,7 +92,7 @@ impl Mux {
                         index: Some(index),
                         entity,
                         workspace_revision: None,
-                        transaction: None,
+                        transaction: spot.placed.transaction.take(),
                         mutation: None,
                     })
                 }
@@ -107,6 +122,7 @@ impl Mux {
             anyhow::bail!("pane disappeared while creating tab");
         };
         self.emit_tree_delta(delta, true);
+        self.join_new_tab(surface.id, joins);
         self.reap_if_dead(&surface);
         Ok(created)
     }

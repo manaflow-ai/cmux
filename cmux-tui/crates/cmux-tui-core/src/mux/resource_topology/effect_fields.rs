@@ -380,5 +380,7 @@ pub(super) fn semantic_creation_fields(fields: &Map<String, Value>) -> Map<Strin
     fields.remove("expected_revision");
     fields.remove("correlation_key");
     fields.remove("idempotency_key");
+    // Not a part of the request: what the daemon knew when the request arrived.
+    fields.remove(tab_strip::tab_place::ORIGIN_FIELD);
     fields
 }

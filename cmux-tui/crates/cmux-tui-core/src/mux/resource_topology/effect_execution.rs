@@ -441,7 +441,7 @@ impl Mux {
                     optional_owned_string(fields, "name")?,
                     effect_cell_size(fields)?,
                     effect_on_exit(fields)?,
-                    None,
+                    Default::default(),
                 )
                 .map(|created| created.path)
             }
@@ -456,7 +456,7 @@ impl Mux {
                         optional_owned_string(fields, "name")?,
                         effect_cell_size(fields)?,
                         None,
-                        tab_strip::tab_slot::effect_index(fields),
+                        tab_strip::tab_place::Spot::of(fields),
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,

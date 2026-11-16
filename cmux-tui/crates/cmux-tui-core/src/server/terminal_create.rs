@@ -65,6 +65,8 @@ struct CreationSlot {
     /// The caller-minted terminal id whose input queue this creation owns, with its generation:
     /// creating from submit to commit (`terminal-input-while-creating-v1`, `mux::creating_input`).
     creating_terminal: Option<(String, u64)>,
+    /// The slot of a `new-tab` in the list of its pane (`tab-create-place-v1`), taken at submit.
+    hole: Option<u64>,
 }
 
 impl Command {
@@ -188,9 +190,11 @@ impl ConnectionSurfaceScheduler {
         self: &Arc<Self>,
         mux: &Arc<Mux>,
         client: u64,
-        pending: PendingSurfaceRequest,
+        mut pending: PendingSurfaceRequest,
         writer: &MessageWriter,
     ) -> bool {
+        // On the thread that reads the connection, so in request order.
+        let hole = pending.request.cmd.admit_tab_place(mux, client);
         let prelaunch = PrelaunchRequest::of(&pending.request.cmd, frontend_shell(mux, client));
         let label = match (&pending.request.cmd, prelaunch.is_some()) {
             (Command::NewTab { .. }, true) => "new-tab",
@@ -213,6 +217,7 @@ impl ConnectionSurfaceScheduler {
             launched: Mutex::new(None),
             trace: Mutex::new(None),
             creating_terminal,
+            hole,
         });
         queue.slots.push_back(slot.clone());
         drop(queue);
@@ -223,12 +228,14 @@ impl ConnectionSurfaceScheduler {
         let job: Box<dyn FnOnce() + Send> = Box::new(move || {
             crate::debug_spans::install(trace);
             crate::debug_spans::mark("job.start");
+            let unlaunched = Unlaunched { mux: &job_mux, hole: slot.hole };
             let launched = prelaunch.and_then(|prelaunch| prelaunch.launch(&job_mux));
             crate::debug_spans::mark("prelaunch.done");
             let trace = crate::debug_spans::take();
             *slot.trace.lock().recover_poison() = trace;
             job_mux.run_creation_launch_hook(seq, false);
             *slot.launched.lock().recover_poison() = Some(launched);
+            drop(unlaunched);
             scheduler.commit_ready_creations(&job_mux, client, &job_writer);
             job_mux.run_creation_launch_hook(seq, true);
         });
@@ -464,10 +471,27 @@ impl Drop for CreateCleanup<'_> {
             let failure = self.cancelled.then_some("cancelled");
             self.mux.finish_creating_input(terminal_id, *generation, failure);
         }
+        // A create that made no tab (dropped, failed or panicked) leaves its slot.
+        self.mux.end_tab_creation(self.slot.hole, None);
         crate::debug_spans::mark("reply.queued");
         crate::debug_spans::finish(crate::debug_spans::take());
         if let Some(terminal_hex) = self.launched.take() {
             self.mux.discard_prelaunched_terminal(&terminal_hex);
+        }
+    }
+}
+
+/// A launch step that panics has no commit, so no [`CreateCleanup`]: the
+/// slot of its `new-tab` (`tab-create-place-v1`) leaves here.
+struct Unlaunched<'a> {
+    mux: &'a Mux,
+    hole: Option<u64>,
+}
+
+impl Drop for Unlaunched<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.mux.end_tab_creation(self.hole, None);
         }
     }
 }
