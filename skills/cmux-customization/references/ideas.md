@@ -14,6 +14,11 @@ know, they added a Figma thing to CMUX itself ... how would we make stuff where
 someone goes, oh, that's compelling. Oh, I'd want to make my own. Oh, I'd want to
 use somebody else's thing for that as well."
 
+For a whole window at once (layout settings plus views of its own, one profile file each:
+cockpit, tiling, right-handed, focus, ide), start from
+[`examples/customize-showcase`](../../../examples/customize-showcase/README.md):
+`cmux customize use examples/customize-showcase/<name>.json`.
+
 ## Casual: one glance, no setup
 
 | Idea | Place | Built on | Today |
