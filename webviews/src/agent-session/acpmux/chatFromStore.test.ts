@@ -234,12 +234,32 @@ test("an early attach the open dropped while its switch was out, for a chat no l
     await settle(() => run.hostPosts().some((post) => post.method === "chat.rows.open" && post.params.chat === run.a));
     // Another chat is picked with the switch for the first still out; then the list answers, and the
     // open drops the early attach of the chat no longer shown.
+    const trace = (label: string) =>
+      console.log(
+        "DEBUG",
+        label,
+        JSON.stringify({
+          early: client.earlyAttach ? { s: client.earlyAttach.sessionId, d: client.earlyAttach.sent.dropped } : null,
+          gen: client.selectionGeneration,
+          sel: client.selectedSessionId,
+          a: run.a,
+          b: run.b,
+          asked: run.asked.map((ask) => [
+            ask.to,
+            ask.method,
+            ask.params?.sessionId ?? ask.params?.chat ?? ask.params?.sid,
+          ]),
+        }),
+      );
+    trace("before-select");
     const picking = client.select(run.b);
     listed();
     await picking;
+    trace("after-select");
     await settle(() => client.selectedSessionId === run.b && !client.earlyAttach);
     answerA();
     for (let turn = 0; turn < 10; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    trace("end");
     expect(run.attaches()).toHaveLength(0);
   } finally {
     client.close?.();
