@@ -114,7 +114,7 @@ await requireBrowserLane("peer-reconnect-gallery.test.ts", async () => {
           await page.emulateMedia({ reducedMotion: "reduce" });
           const row = page.locator("[data-peer-reconnecting]");
           await page.screenshot({
-            path: path.join(out, `${variant}-${width}.png`),
+            path: path.join(out, `before-${variant}-${width}.png`),
           });
           if (variant === "before" || variant === "baseline-1s") {
             expect(await row.count()).toBe(0);
@@ -132,6 +132,9 @@ await requireBrowserLane("peer-reconnect-gallery.test.ts", async () => {
             variant,
             width,
             text: await row.allTextContents(),
+          });
+          await page.screenshot({
+            path: path.join(out, `after-${variant}-${width}.png`),
           });
         } finally {
           await page.close();
