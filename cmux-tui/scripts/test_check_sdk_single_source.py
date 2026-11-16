@@ -96,7 +96,7 @@ class SdkSingleSourceTests(unittest.TestCase):
         self.assertIn("webviews/src/resource-operations.json: a byte copy", errors)
 
     def test_a_missing_catalog_fails(self) -> None:
-        subprocess.run(["git", "-C", str(self.root), "rm", "-q", "--", CHECK.CATALOG], check=True)
+        subprocess.run(["git", "-C", str(self.root), "rm", "-q", "-f", "--", CHECK.CATALOG], check=True)
         status, errors = self.run_check()
         self.assertEqual(status, 1)
         self.assertIn("is missing", errors)
