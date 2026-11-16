@@ -78,9 +78,12 @@ export default agentPaneEntry({
       },
       snapshot: chat([
         user("Capture the page and its metadata", 3),
-        // Two fetches group (reads never do since 2026-11-17, readPath.ts); the first returned an image.
+        // Two searches group (reads never do since 2026-11-17, readPath.ts); the first returned an image.
         activity(
-          [capture(), tool("Fetch the page metadata", "fetch", "completed", { output: "Read the page metadata" })],
+          [
+            tool("Search the captures", "search", "completed", { images: [CAPTURE], output: "Captured page" }),
+            tool("Search the page metadata", "search", "completed", { output: "Read the page metadata" }),
+          ],
           2,
         ),
       ]),
