@@ -406,6 +406,80 @@ fn own_tree_a_made_work_tree_is_a_work_tree_of_the_repository_of_the_create() {
     assert_eq!(found, (true, false), "the made work tree is of a different repository");
 }
 
+/// A work tree of the repository of the create that git keeps locked is not a made work tree:
+/// `git worktree add` keeps its lock while it checks the files out. After the unlock, the same
+/// work tree is a made work tree.
+#[test]
+fn own_tree_a_locked_work_tree_is_not_a_made_work_tree() {
+    let top = new_folder("made-locked");
+    let (main, own) = (top.join("main"), top.join("own"));
+    std::fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(&main, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    let work_tree = own.to_string_lossy();
+    git(&main, &["worktree", "add", "-q", "-b", "cmux/new", &*work_tree]);
+    let (branch, base) = ("cmux/new".to_string(), "main".to_string());
+    let attempt = Attempt { root: own.clone(), branch, base, base_commit: String::new() };
+    let common = main.join(".git");
+
+    git(&main, &["worktree", "lock", &*work_tree]);
+    let locked = made(&attempt, &common);
+    git(&main, &["worktree", "unlock", &*work_tree]);
+    let unlocked = made(&attempt, &common);
+
+    std::fs::remove_dir_all(top).unwrap();
+    assert_eq!((locked, unlocked), (false, true), "a locked work tree is a made work tree");
+}
+
+/// A create gives a work tree only when the repository of the create keeps it, also when
+/// `git worktree add` ends with a success. The repository of the test has a `post-checkout`
+/// hook that ends with a success, so git does too. The hook writes, in the new work tree, a
+/// `.git` file that names the git folder of a work tree of a second repository. The create is
+/// refused with `git_failed`.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_create_gives_only_a_work_tree_that_its_repository_keeps() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let top = new_folder("create-kept");
+    let (main, other) = (top.join("main"), top.join("other"));
+    let (root, of_other) = (top.join("root"), top.join("of-other"));
+    for repository in [&main, &other] {
+        std::fs::create_dir_all(repository).unwrap();
+        git(repository, &["init", "-q", "-b", "main"]);
+        git(repository, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    }
+    git(&other, &["worktree", "add", "-q", "-b", "cmux/new", &*of_other.to_string_lossy()]);
+    let entry = format!("gitdir: {}", other.join(".git/worktrees/of-other").display());
+    let hooks = top.join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let hook = format!("#!/bin/sh\nprintf '%s\\n' '{entry}' > '{}'\n", root.join(".git").display());
+    std::fs::write(hooks.join("post-checkout"), hook).unwrap();
+    let mode = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(hooks.join("post-checkout"), mode).unwrap();
+    git(&main, &["config", "core.hooksPath", &*hooks.to_string_lossy()]);
+    let repository = Repository::open(&main).unwrap();
+    let base_commit = repository.commit("main").unwrap();
+    let (branch, base) = ("cmux/new".to_string(), "main".to_string());
+    let attempt = Attempt { root: root.clone(), branch, base, base_commit };
+    let user_git = UserGit { root: &repository.root, deadline: deadline() };
+
+    let created = create(&repository, &user_git, &attempt, &main.join(".git"));
+
+    let written = std::fs::read_to_string(root.join(".git")).unwrap_or_default();
+    std::fs::remove_dir_all(top).unwrap();
+    assert_eq!(written.trim_end(), entry, "the hook of the test did not write the `.git` file");
+    let details = created.err().map(|error| error.details);
+    let reason = details.as_ref().map(|details| details["reason"].clone());
+    let message = "the create gave a work tree that its repository does not keep";
+    assert_eq!(reason, Some(json!("git_failed")), "{message}");
+    // A failure of `git worktree add` has the same reason: the message says which refusal it is.
+    let text = details.map(|details| details["extra"]["message"].to_string()).unwrap_or_default();
+    assert!(text.contains("is not a worktree that this repository keeps"), "{text}");
+    // The folder and the branch that git made stay: the message names them.
+    let named = text.contains(&*root.to_string_lossy()) && text.contains("cmux/new");
+    assert!(named, "the message does not name the folder and the branch that stay: {text}");
+}
+
 /// No setup starts in a folder that is not directly in the `worktrees` folder of the
 /// repository's git folder: a folder in the `worktrees` folder of a different repository, the
 /// repository's git folder, its `worktrees` folder, a folder below the git folder of a work
