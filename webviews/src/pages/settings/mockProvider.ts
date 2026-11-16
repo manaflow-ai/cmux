@@ -55,7 +55,6 @@ import {
   type WorkspaceBackground,
   type KeysState,
   type CustomizeTryOn,
-  type KeysState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
