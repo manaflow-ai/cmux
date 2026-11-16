@@ -2,12 +2,13 @@
 //! a Mac exactly like a shared Mac (docs/device-hub/PROTOCOL.md). The Mac app holds a Mac's
 //! device key and hub link and drives `cmux-rd serve`; on Linux this command does that job.
 //!
-//!   enable --stack-token-file PATH|- [--hub URL] [--name NAME] [--allow-control]
-//!       Signs in once with a cmux (Stack Auth) access token, registers this desktop as a
+//!   enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--allow-control]
+//!       Signs in once with a cmux (Stack Auth) access token (without a token file, through
+//!       a browser sign-in link: stack_login.rs), registers this desktop as a
 //!       `linux` device, anchors it (it renews its own host session for 30 days with its
 //!       device key, no token) and turns sharing on. Control (input) is off unless
 //!       `--allow-control`.
-//!   share on --stack-token-file PATH|- | share off
+//!   share on [--stack-token-file PATH|-] | share off
 //!   run [--display :0] [--xauthority PATH] [--capture x11|portal]
 //!       The host: holds the hub socket and serves approved sessions. Run it in the desktop
 //!       user's graphical session (the user systemd unit `systemd/cmux-screen-host.service`).
@@ -28,6 +29,7 @@ mod identity;
 mod net;
 mod rd_doc;
 mod session;
+mod stack_login;
 
 use crate::capture_backend::CaptureBackend;
 use crate::Res;
@@ -45,8 +47,8 @@ use std::time::{Duration, Instant};
 const DEFAULT_HUB: &str = "https://cmux-device-hub.debussy.workers.dev";
 const PING_EVERY: Duration = Duration::from_secs(30);
 
-const USAGE: &str = "usage: cmux-rd linux-host enable --stack-token-file PATH|- [--hub URL] [--name NAME] [--allow-control]
-       cmux-rd linux-host share on --stack-token-file PATH|- | share off
+const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--allow-control]
+       cmux-rd linux-host share on [--stack-token-file PATH|-] | share off
        cmux-rd linux-host run [--display :0] [--xauthority PATH] [--capture x11|portal]
        cmux-rd linux-host requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status";
 
@@ -69,8 +71,8 @@ impl std::fmt::Display for Fatal {
 impl std::error::Error for Fatal {}
 
 impl Fatal {
-    const ENABLE: &'static str = "cmux-rd linux-host enable --stack-token-file PATH|-";
-    const SHARE_ON: &'static str = "cmux-rd linux-host share on --stack-token-file PATH|-";
+    const ENABLE: &'static str = "cmux-rd linux-host enable";
+    const SHARE_ON: &'static str = "cmux-rd linux-host share on";
 
     fn needs(what: &str, command: &str) -> Self {
         Self(format!(
@@ -268,25 +270,9 @@ pub fn run_cli(args: &[String]) -> i32 {
     }
 }
 
-/// The access token from `--stack-token-file` (this user's 0600 file, or `-` for stdin).
+/// The access token: `--stack-token-file`, or a browser sign-in (stack_login.rs).
 fn stack_token(args: &Args) -> Res<String> {
-    let path = args
-        .get("stack-token-file")
-        .ok_or("needs --stack-token-file PATH (or - for stdin): a cmux sign-in access token")?;
-    let text = if path == "-" {
-        let mut text = String::new();
-        std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut text)?;
-        text
-    } else {
-        let bytes = identity::read_private(std::path::Path::new(path))?
-            .ok_or_else(|| format!("{path} does not exist"))?;
-        String::from_utf8(bytes).map_err(|_| format!("{path} is not text"))?
-    };
-    let token = text.trim().to_owned();
-    if token.is_empty() || token.contains(char::is_whitespace) {
-        return Err("the access token file must hold one token".into());
-    }
-    Ok(token)
+    stack_login::access_token(args.get("stack-token-file"))
 }
 
 /// The enabled host: its device, account and hub.

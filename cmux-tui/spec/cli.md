@@ -348,7 +348,23 @@ another. An owner at its connection limit refuses each new connection with a
 `type: "refused"`, `code: "server.busy"` line; `server ensure` waits for
 capacity instead of starting another owner and fails with `server.busy` after
 10 seconds of continuous refusals. `server ensure --replace-unresponsive` replaces an
-owner that refuses every connection for that long.
+owner that refuses every connection for that long. This is the explicit **Restart
+cmux-tui** action, including when healthy clients hold every connection: it closes
+their live connections. Terminal hosts survive and the new owner adopts them;
+clients must reconnect. To keep those connections, release an unused client and
+retry normal ensure instead.
+
+The refusal is emitted before reading any request, so neither `identify` nor
+`server-stats` can check a full owner's health through a new connection. The
+accept loop can keep refusing while request workers are wedged; conversely,
+healthy idle clients need not make progress or release a permit. CPU or I/O
+activity also does not prove those workers can serve requests. There is no
+reliable bounded progress signal in this protocol that distinguishes both cases,
+so explicit Restart retains recovery of a wedged full owner. Automatic ensure
+keeps reporting `server.busy` without replacing it. The
+`replace_unresponsive_owner` integration tests cover both healthy and wedged
+saturation and normal ensure adopting the original owner once capacity is available.
+
 `server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
 contract, cx-hnmbt.2) starts an owner it spawns with `--ws 127.0.0.1:0` (and the
 extra page origins, a comma-separated list: the app passes every first-party page origin
