@@ -164,8 +164,8 @@ fn plan(
 /// reply's run already made it in the repository whose git folder is
 /// `common_dir` ([`made`]). A success of `git worktree add` is not enough:
 /// the folder is given only when this repository keeps it as its worktree
-/// ([`kept`]), else the create is refused with `git_failed` and the folder
-/// stays.
+/// ([`kept`]), else the create is refused with `git_failed`. The folder and
+/// the branch that git made stay, and the message names them.
 fn create(
     repository: &Repository,
     git: &UserGit<'_>,
@@ -209,8 +209,11 @@ fn create(
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
         }
         if run.success && !kept(attempt, common_dir) {
-            let message = "git worktree add ended, and the folder is not a worktree that this \
-                           repository keeps";
+            let message = format!(
+                "git worktree add ended, and {root} is not a worktree that this repository keeps; \
+                 the folder and the branch {} stay",
+                attempt.branch
+            );
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
         }
     }
