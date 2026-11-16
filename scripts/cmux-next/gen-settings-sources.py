@@ -90,7 +90,9 @@ A row's constants: the path ([String]); the default when not null (Bool, Double,
 range kind; the values ([String]) of a choice kind with no swift_enum. The hand-written parser
 reads them, so no default literal is left in Swift. A section's Swift stays one file while it fits
 in MAX_LINES lines; past that it is split into <file>2.generated.swift and on (a list too long for
-one file becomes <var>Part1 + <var>Part2...), so a source of any size keeps the god-file limits.
+one file becomes <var>Part1 + <var>Part2...). A section type whose lists pass MAX_TYPE_LINES keeps
+only the first ones; the rest go on overflow types <type>2, <type>3..., and the section type forwards
+each moved list in one line, so a source of any size keeps the god-file and god-type limits.
 The constants are `public` when the owner type is: an owner declared without `public` in
 CmuxNextSettings (a section type, or a hand-written internal parser) gets internal constants, since
 a public constant on an internal type can name a type that is itself internal.
@@ -262,6 +264,9 @@ RANGE_KINDS = {"number", "choice_or_number", "number_list"}
 CONSUMERS = {"cmux-next": ".cmuxNext", "cmux-browser": ".cmuxBrowser"}
 # A generated Swift file holds at most this many lines (check-no-godfiles.sh allows 400).
 MAX_LINES = 390
+# A section type holds at most this many lines of lists (check-no-godfiles.sh allows 1000 per type,
+# extensions included); past that its lists go on <type>2, <type>3... behind one-line forwarders.
+MAX_TYPE_LINES = 900
 
 
 def fail(src, message):
@@ -815,14 +820,16 @@ def section_swift(section, data):
     single.append("}")
     if line_count(single) <= MAX_LINES:
         return {section["swift"]: "\n".join(single) + "\n"}
-    # Split: pieces packed in order into files of at most MAX_LINES lines.
+    # Split: pieces packed in order into files of at most MAX_LINES lines. A list piece is
+    # (what, lines, var it defines or None, [part vars] it joins): what is "list" (a whole list),
+    # "part" (one part of a list too long for a file) or "join" (the list of those parts).
     pieces = list(constant_blocks)
     for entry in data["lists"]:
         var, list_owner = section["lists"][entry["name"]]
         note = ["    /// " + entry["note"]] if entry.get("note") else []
         whole = note + list_var_swift(var, entry, entry["rows"], list_owner)
         if line_count(whole) + len(header) + 3 <= MAX_LINES:
-            pieces.append(("list", whole))
+            pieces.append(("list", whole, var, []))
             continue
         parts, current = [], []
         for row in entry["rows"]:
@@ -832,17 +839,55 @@ def section_swift(section, data):
                 trial = [row]
             current = trial
         parts.append(current)
-        joined = " + ".join("%sPart%d" % (var, n + 1) for n in range(len(parts)))
-        pieces.append(("list", note + ["    static var %s: [SettingDescriptor] { %s }" % (var, joined)]))
-        for n, rows in enumerate(parts):
-            pieces.append(("list", list_var_swift("%sPart%d" % (var, n + 1), entry, rows, list_owner)))
+        names = ["%sPart%d" % (var, n + 1) for n in range(len(parts))]
+        pieces.append(("join", note, var, names))
+        for name, rows in zip(names, parts):
+            pieces.append(("part", list_var_swift(name, entry, rows, list_owner), name, []))
     if section.get("joined"):
-        pieces.append(("list", joined_var_swift(section, data)))
-    files, current, declared = [], list(header), False
+        pieces.append(("list", joined_var_swift(section, data), None, []))
+    # The type of each list body: the section type while it stays under MAX_TYPE_LINES, then
+    # <type>2, <type>3... (a list the section type forwards). Joins stay on the section type.
+    home, used, index = {}, 0, 0
     for piece in pieces:
+        if isinstance(piece, tuple) and piece[0] in ("list", "part") and piece[2]:
+            size = line_count(piece[1]) + 3
+            if used and used + size > MAX_TYPE_LINES:
+                index, used = index + 1, 0
+            home[piece[2]] = index
+            used += size
+    overflow = index > 0
+    def type_name(n):
+        return section["type"] if n == 0 else "%s%d" % (section["type"], n + 1)
+    def ref(name):
+        return "%s.%s" % (type_name(home[name]), name) if overflow and home.get(name, 0) else name
+    forwards = []
+    for piece in pieces:
+        if isinstance(piece, tuple) and piece[0] == "list" and piece[2] and home[piece[2]]:
+            forwards.append("    static var %s: [SettingDescriptor] { %s }" % (piece[2], ref(piece[2])))
+    placed = []
+    for piece in pieces:
+        if isinstance(piece, tuple) and piece[0] == "join":
+            _, note, var, names = piece
+            placed.append((0, note + ["    static var %s: [SettingDescriptor] { %s }" % (var, " + ".join(ref(n) for n in names))]))
+        elif isinstance(piece, tuple):
+            placed.append((home.get(piece[2], 0) if piece[2] else 0, piece[1]))
+        else:
+            placed.append(piece)
+    if forwards:
+        placed.append((0, ["    /// The lists on the overflow types (%s)." % ", ".join(type_name(n) for n in range(1, index + 1))] + forwards))
+    files, current, declared = [], list(header), set()
+    for piece in placed:
         if isinstance(piece, tuple):
-            body = (intro if not declared else ["extension %s {" % section["type"]]) + piece[1] + ["}", ""]
-            declared = True
+            n, lines = piece
+            if n in declared:
+                opening = ["extension %s {" % type_name(n)]
+            elif n == 0:
+                opening = intro
+            else:
+                opening = ["/// More of `%s`'s lists (its own type: the type's line budget)." % section["type"],
+                           "nonisolated enum %s {" % type_name(n)]
+            body = opening + lines + ["}", ""]
+            declared.add(n)
         else:
             body = piece
         if line_count(current) + line_count(body) > MAX_LINES + 1 and len(current) > len(header):

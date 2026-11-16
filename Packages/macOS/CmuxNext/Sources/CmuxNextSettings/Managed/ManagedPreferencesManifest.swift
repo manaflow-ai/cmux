@@ -23,7 +23,7 @@ public nonisolated enum ManagedPreferencesManifest {
         /// `timeRange` dictionaries: their string members.
         public let members: [String]
         /// `json` rows: the value's JSON Schema (the Jamf schema uses it as is).
-        public var shape: JSONValue? = nil
+        public var shape: JSONValue?
     }
 
     public static let title = "cmux"

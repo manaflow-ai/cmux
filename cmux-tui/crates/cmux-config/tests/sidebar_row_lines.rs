@@ -235,10 +235,7 @@ fn set_read_back_refuse_and_reset_round_trip() {
 
     let stored = state(&written);
     let row = Schema::embedded().row(BY_AGENT).expect("row");
-    assert_eq!(
-        cmux_config::schema::effective_value(row, &root, &Domains::default()),
-        Some(layout.clone())
-    );
+    assert_eq!(cmux_config::schema::effective_value(row, &root, &Domains::default()), Some(layout));
 
     let refused = op(
         &stored,
