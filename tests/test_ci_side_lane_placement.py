@@ -2579,7 +2579,8 @@ class AppFfiBuildPlacement(unittest.TestCase):
 
     def context(self, *, promote: str, attempt: str = "1", event: str = "push", switch: str = "on") -> dict:
         context = github_context(event, ref="refs/heads/feat-cmux-next", CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=SIDE,
-                                 CI_NEXT_PROMOTE_POOL=promote, CI_BLACKSMITH_MACOS=switch)
+                                 CI_NEXT_PROMOTE_POOL=promote, CI_BLACKSMITH_MACOS=switch,
+                                 CI_RELEASE_PIN_SLOT="off")  # the routes behind the release-pin slot
         context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, event={}, token="g")
         context["steps"] = {"route-token": {"outputs": {"token": "t"}}}
         return context
