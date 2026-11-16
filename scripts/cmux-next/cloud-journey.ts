@@ -2294,6 +2294,31 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
   return out;
 }
 
+/**
+ * The installs earlier journey runs registered and never revoked: kind cli, named `cloud journey jr-<tag>` (the
+ * name only the journey's install token step gives), not revoked, whose tag is more than `maxAgeMs` old. A run
+ * revokes its own at cleanup; one killed first leaves it live, and a user's live installs are never pruned (only
+ * revoked ones past MAX_REVOKED_INSTALLS, backend/apps/api/src/domains/user.ts). Before any run revoked, they filled
+ * the staging account's state: install.register answered owner.state_full, 1500285 of 1500000 bytes (2026-11-16).
+ * Ownership is the name, as for machines: any other name, and a tag that does not read as a time, are never picked.
+ */
+export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS): string[] {
+  const out: string[] = [];
+  for (const i of installs) {
+    if (!i || i.revoked_at !== null || i.kind !== "cli") continue;
+    const m = /^cloud journey (jr-([0-9a-z]+))$/.exec(typeof i.name === "string" ? i.name : "");
+    if (!m) continue;
+    const started = parseInt(m[2], 36);
+    if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
+    if (nowMs - started <= maxAgeMs) continue;
+    if (typeof i.id === "string" && i.id) out.push(i.id);
+  }
+  return out;
+}
+
+/** The most time one run spends revoking leaked installs; the next run takes the rest. */
+export const INSTALL_SWEEP_BUDGET_MS = 60_000;
+
 /** Every page of cloud.machine.list (`next_cursor`), at most `maxPages` pages. */
 export async function listAllMachines(read: (params: Record<string, unknown>) => Promise<any>, maxPages = 20): Promise<any[]> {
   const rows: any[] = [];
@@ -2978,6 +3003,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     probeExtra.failure_facts = facts;
     J.record({ step: "failure facts", status: "skip", ms: Date.now() - t0, detail: `read before any delete: ${JSON.stringify(facts)}` });
   };
+  // This run's install (install token step), revoked at cleanup.
+  let journeyInstall: string | null = null;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
   const cleanup = sharedCleanup(async () => {
@@ -3009,6 +3036,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }).catch(() => undefined);
     }
     if (keep || !api.bearer) return;
+    // This run's own install, so it never adds to the account's live installs (a sweep takes a killed run's).
+    if (journeyInstall) {
+      const own: string = journeyInstall;
+      journeyInstall = null;
+      const t0 = Date.now();
+      await api.op("install.revoke", { install: own }, `${tag}-install-revoke`).then(
+        () => J.record({ step: "revoke install (cleanup)", status: "pass", ms: Date.now() - t0, detail: own }),
+        (e) => J.record({ step: "revoke install (cleanup)", status: "skip", ms: Date.now() - t0, detail: `${own}: ${String((e as Error)?.message ?? e).slice(0, 300)}` }));
+    }
     if (gatewayMachine) {
       const g: string = gatewayMachine;
       await J.step("delete gateway machine (cleanup)", async () => {
@@ -3075,6 +3111,27 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
     });
+    if (!keep) {
+      // Installs that killed runs left live fill the account's state until install.register is refused
+      // (owner.state_full). Revoked ones past 100 are pruned, so revoking frees the space. Never fails the journey.
+      const name = "sweep leaked journey installs";
+      const t0 = Date.now();
+      const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
+      try {
+        const v = await api.read("install.list", {});
+        const stale = staleJourneyInstalls(Array.isArray(v?.installs) ? v.installs : [], Date.now());
+        const failed: string[] = [];
+        let revoked = 0;
+        for (const id of stale) {
+          if (Date.now() - t0 > INSTALL_SWEEP_BUDGET_MS) break;
+          await api.op("install.revoke", { install: id }, `${tag}-sweep-install-${id}`).then(() => revoked++, (e) => failed.push(`${id}: ${err(e)}`));
+        }
+        const detail = `${revoked} of ${stale.length} leaked revoked (${v?.installs?.length ?? 0} installs)${failed.length ? `; failed ${failed.slice(0, 3).join("; ")}` : ""}`;
+        J.record({ step: name, status: failed.length ? "skip" : "pass", ms: Date.now() - t0, detail });
+      } catch (e) {
+        J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
+      }
+    }
     const install = await J.step("install token", async () => {
       const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
       const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
@@ -3087,6 +3144,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.secrets.push(tok.body.access_token);
       return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
     });
+    journeyInstall = install.id;
     // The NEXT app mints its install token for its active Stack team (a challenge that names the team), which
     // heals a team TeamDO never mirrored from Stack. On production that mint ran past the app's 25 s limit
     // (cmuxterm-hq run 43577358598, 2026-11-14) while the unscoped mint above passed. --team, else the account's

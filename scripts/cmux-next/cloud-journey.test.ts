@@ -10,7 +10,7 @@ import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from ".
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -472,6 +472,31 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(asked).toEqual([{ limit: 100 }, { limit: 100, cursor: "c1" }, { limit: 100, cursor: "c2" }]);
     // A list that never ends is an error (the sweep then deletes nothing), not a partial sweep.
     await expect(listAllMachines(async () => ({ machines: [], next_cursor: "again" }), 3)).rejects.toThrow("more than 3 pages");
+  });
+});
+
+describe("cloud journey: leaked install sweep", () => {
+  const now = Date.UTC(2026, 10, 16, 9, 0, 0);
+  const tagAt = (ms: number) => `jr-${ms.toString(36)}`;
+  const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
+  const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
+  const inst = (id: string, name: string, extra: Record<string, unknown> = {}) => ({ id, name, kind: "cli", revoked_at: null, ...extra });
+
+  test("takes only a live cli install a journey run named, older than any journey run", () => {
+    expect(staleJourneyInstalls([
+      inst("i_old", `cloud journey ${old}`),
+      inst("i_young", `cloud journey ${young}`),
+      inst("i_revoked", `cloud journey ${old}`, { revoked_at: now - 1000 }),
+      inst("i_mac", `cloud journey ${old}`, { kind: "mac" }),
+      inst("i_person", "Leo's MacBook"),
+      inst("i_auto", `cloud journey auto ${old}`),
+      inst("i_future", `cloud journey ${tagAt(now + 3_600_000)}`),
+      inst("i_nottime", "cloud journey jr-zz"),
+    ], now)).toEqual(["i_old"]);
+  });
+
+  test("a malformed list row is skipped, never thrown on", () => {
+    expect(staleJourneyInstalls([null, {}, { name: 7 }, inst("", `cloud journey ${old}`)], now)).toEqual([]);
   });
 });
 
