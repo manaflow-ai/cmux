@@ -252,6 +252,12 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
   test("a selection scrolled out of view hides the chip; scrolled back, it shows again", async () => {
     const page = await open("chip-paragraph-end", 1040, 300);
     try {
+      // The stage's reply is short: empty room under it lets a scroll take the selection out of view.
+      await page.evaluate(() => {
+        const room = document.createElement("div");
+        room.style.height = "800px";
+        document.querySelector(".acpmux-scroll")!.append(room);
+      });
       // The selection's last line in the middle of the visible transcript first.
       const start = await read(page);
       await scroll(

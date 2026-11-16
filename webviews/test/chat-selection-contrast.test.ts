@@ -20,7 +20,14 @@ import path from "node:path";
 import { JSDOM } from "jsdom";
 import { parseGhosttyTheme } from "../src/gallery/theme/ghostty";
 import { themeInput } from "../src/gallery/theme/web";
-import { css, deriveTokens, withAlpha, type ThemeRGB, type ThemeTokens } from "../src/gallery/theme/tokens";
+import {
+  css,
+  deriveTokens,
+  wallpaperTintOpacity,
+  withAlpha,
+  type ThemeRGB,
+  type ThemeTokens,
+} from "../src/gallery/theme/tokens";
 import { SELECTION_FILL_PROPERTY, updateSelectionFill } from "../src/ui/adaptiveSelection";
 import { HIGHLIGHT_FLOORS, over } from "../src/ui/highlightContrast";
 import { parseComputedColor } from "../src/backdrop";
@@ -82,17 +89,25 @@ function makePage(): Page {
   return page;
 }
 
-type Window = { opacity: number };
+/** A window of `opacity`, over a background picture or not (`picture`). */
+type Window = { opacity: number; picture?: boolean };
+
+/** The alpha of the theme tint the window lays over the picture or the desktop (WindowBackdrop.swift):
+ * the Opacity asked for, or at full Opacity over a picture the theme's own lighter picture tint
+ * (ThemeTokens.wallpaperTintOpacity). */
+const tintOf = (tokens: ThemeTokens, { opacity, picture }: Window) =>
+  opacity < 1 ? opacity : picture ? wallpaperTintOpacity(tokens) : 1;
 
 /** Paints `page` as the app does for `tokens` in a window of `opacity`: WebTheme's variables, the
  * page background (clear over a see-through window, which then lays its tint natively) and the
  * surfaces' fills. */
-function paint(page: Page, tokens: ThemeTokens, { opacity }: Window): void {
+function paint(page: Page, tokens: ThemeTokens, window: Window): void {
   const doc = page.dom.window.document;
   const root = doc.documentElement;
-  const seeThrough = opacity < 1;
+  const { opacity } = window;
+  const seeThrough = opacity < 1 || window.picture === true;
   const surface = withAlpha(tokens.surfaceBackground, 1);
-  const tint = withAlpha(tokens.windowBackground, seeThrough ? opacity : 1);
+  const tint = withAlpha(tokens.windowBackground, tintOf(tokens, window));
   page.variables = {
     "--cmux-text-selection": css(tokens.textSelection),
     "--cmux-surface-token": css(withAlpha(tokens.surfaceBackground, opacity)),
@@ -111,9 +126,9 @@ function paint(page: Page, tokens: ThemeTokens, { opacity }: Window): void {
 }
 
 /** What the eye sees under the page: the opaque page, or the window's tint over each desktop. */
-function canvases(tokens: ThemeTokens, { opacity }: Window): RGB[] {
-  if (opacity >= 1) return [rgbOf(withAlpha(tokens.surfaceBackground, 1))];
-  const tint = rgbaOf(withAlpha(tokens.windowBackground, opacity));
+function canvases(tokens: ThemeTokens, window: Window): RGB[] {
+  if (window.opacity >= 1 && !window.picture) return [rgbOf(withAlpha(tokens.surfaceBackground, 1))];
+  const tint = rgbaOf(withAlpha(tokens.windowBackground, tintOf(tokens, window)));
   return [BLACK, { r: 0.5, g: 0.5, b: 0.5 }, WHITE].map((desktop) => over(tint, desktop));
 }
 
@@ -179,7 +194,7 @@ function misses(window: Window): Miss[] {
           if (surfaceRatio < FLOOR.surface - EPSILON || inkRatio < inkFloor - EPSILON)
             found.push({
               theme: theme.name,
-              window: `opacity ${window.opacity}`,
+              window: `opacity ${window.opacity}${window.picture ? " over a picture" : ""}`,
               surface: name,
               desktop,
               fill: hex(shown),
@@ -223,9 +238,30 @@ describe("chat selection contrast", () => {
     }
   });
 
-  for (const opacity of [1, 0.85, 0.7])
-    test(`every theme, every surface, window opacity ${opacity}`, () => {
-      const found = misses({ opacity });
+  // The same setup on a real screen over the user's background picture (laurence-mckinley, a light
+  // mountain; a whole-host fleet capture, 2026-11-15): the bubble showed as #535753 and the theme's
+  // selection on it as #56574f, 1.02:1, as in the user's screenshot. The fill must stand off that
+  // bubble too, with the prompt's text readable on it.
+  test("the user's case on a real screen over their picture: the selection stands off the bubble", () => {
+    const theme = themes.find((one) => one.name === "Monokai Classic")!;
+    const window = { opacity: 0.85, picture: true };
+    const tokens = deriveTokens({ ...themeInput(theme), backgroundOpacity: window.opacity });
+    const page = makePage();
+    try {
+      paint(page, tokens, window);
+      const fill = fillFor(page, "user bubble")!;
+      expect(fill).not.toBeNull();
+      const seen: RGB = { r: 0x53 / 255, g: 0x57 / 255, b: 0x53 / 255 };
+      expect(contrast(fill, seen)).toBeGreaterThanOrEqual(FLOOR.surface);
+      expect(contrast(rgbOf(withAlpha(tokens.textPrimary, 1)), fill)).toBeGreaterThanOrEqual(FLOOR.ink);
+    } finally {
+      page.dom.window.close();
+    }
+  });
+
+  for (const window of [{ opacity: 1 }, { opacity: 0.85 }, { opacity: 0.7 }, { opacity: 1, picture: true }])
+    test(`every theme, every surface, window opacity ${window.opacity}${window.picture ? " over a picture" : ""}`, () => {
+      const found = misses(window);
       if (found.length) console.log(JSON.stringify(found.slice(0, 20), null, 1), `\n${found.length} misses`);
       expect(found).toEqual([]);
     });
