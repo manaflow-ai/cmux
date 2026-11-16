@@ -141,6 +141,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `palette.scopes.settings.prefix` | string | `","` | `@`, `#`, `>`, `,`, `?`, `!`, `/`, `;`, `:`, `%`, `&`, `+`, `=`, `~`, `$`, `^`, `*`, `.`, `none` | Settings Prefix. Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope. |
 | `palette.scopes.scopes.prefix` | string | `"?"` | `@`, `#`, `>`, `,`, `?`, `!`, `/`, `;`, `:`, `%`, `&`, `+`, `=`, `~`, `$`, `^`, `*`, `.`, `none` | Scope List Prefix. Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope. |
 | `palette.aliases` | dictionary | `{}` |  | Command Aliases. A word that names a command by its action id ("vs": "splitRight"). Typing the whole word in the command palette puts that command first. |
+| `actions` | string | `{}` |  | Custom Commands. Commands of your own by id, each with a title and a shell command (or an agent), shown in the command palette. |
 | `palette.pins` | array | `[]` |  | Pinned Commands. Commands shown first when the command palette opens, in this order, by action id. |
 | `palette.searchHistory` | boolean | `true` |  | Remember Palette Searches. The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only. |
 | `agents.chats.enabled` | boolean | `true` |  | Enable Chats. Show chats stored on this device. Nothing is uploaded. |
@@ -420,6 +421,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.cmd9` | string | `"last"` | `last`, `ninth` | Command-9. Goes to the last item, as in browsers, or to the ninth. |
 | `sidebar.stepping` | string | `"allItems"` | `allItems`, `workspacesOnly` | Next and Previous Item. What Command-Control-] and Command-Control-[ step through. |
 | `sidebar.steppingWraps` | boolean | `true` |  | Wrap Around. Past the last item, the next item is the first again. |
+| `sidebar.sections.hidden` | array | `[]` |  | Hidden Sections. Sidebar sections to hide, by id. The section of the selected workspace always shows. |
+| `sidebar.sections.order` | array | `[]` |  | Section Order. Sidebar sections to show first in their part of the sidebar, in this order, by id. |
 | `sidebar.hoverCards.enabled` | boolean | `true` |  | Show Hover Cards. A card with details opens when the pointer rests on a workspace or a tab. |
 | `sidebar.hoverCards.delay` | real | `1300` | 0 to 5000 | Hover Card Delay. How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once. |
 | `sidebar.hoverCards.layout` | string | `"timeline"` | `timeline`, `compact`, `log`, `classic`, `minimal` | Workspace Card Layout. What a workspace's hover card shows: its history of prompts and waits, its details, or both. |

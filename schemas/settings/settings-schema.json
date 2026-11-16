@@ -21306,6 +21306,195 @@
     },
     {
       "accepts" : [
+        {
+
+        },
+        {
+          "deploy" : {
+            "command" : "make deploy",
+            "title" : "Deploy"
+          }
+        },
+        {
+          "logs" : {
+            "command" : "tail -f log",
+            "icon" : {
+              "name" : "doc.text",
+              "type" : "symbol"
+            },
+            "tooltip" : "Logs"
+          },
+          "review" : {
+            "agent" : "claude",
+            "args" : "-p review",
+            "icon" : "sparkles",
+            "target" : "currentTerminal",
+            "type" : "agent"
+          }
+        }
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.palette",
+        "text" : "Command Palette"
+      },
+      "help" : {
+        "key" : "settings.actions.help",
+        "text" : "Commands of your own by id, each with a title and a shell command (or an agent), shown in the command palette."
+      },
+      "kept_on_reset_all" : true,
+      "key" : "actions",
+      "keywords" : [
+        "palette",
+        "action",
+        "command",
+        "custom",
+        "shell",
+        "script"
+      ],
+      "kind" : "text",
+      "page_hidden" : true,
+      "path" : [
+        "actions"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        [
+
+        ],
+        "make deploy",
+        {
+          "deploy" : "make deploy"
+        },
+        {
+          "deploy" : {
+            "title" : "Deploy"
+          }
+        },
+        {
+          "deploy" : {
+            "command" : " "
+          }
+        },
+        {
+          "deploy" : {
+            "command" : "x",
+            "type" : "workspace"
+          }
+        },
+        {
+          "review" : {
+            "agent" : "claude --yolo"
+          }
+        },
+        {
+          "deploy" : {
+            "command" : "x",
+            "target" : "elsewhere"
+          }
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "command objects by id; cmux.json only",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.actions",
+        "text" : "Custom Commands"
+      },
+      "validation" : "domain:config_actions"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -64636,6 +64825,320 @@
         "text" : "Wrap Around"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "recents"
+        ],
+        [
+          "projects",
+          "pinned"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.sections.hidden.help",
+        "text" : "Sidebar sections to hide, by id. The section of the selected workspace always shows."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.sections.hidden",
+      "keywords" : [
+        "sidebar",
+        "section",
+        "hide",
+        "hidden"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "sections",
+        "hidden"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "recents",
+        [
+          ""
+        ],
+        [
+          "pinned",
+          "pinned"
+        ],
+        [
+          1
+        ],
+        {
+          "hidden" : [
+            "recents"
+          ]
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "section ids; cmux.json only",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.sections.hidden",
+        "text" : "Hidden Sections"
+      },
+      "validation" : "domain:sidebar_section_ids"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "recents"
+        ],
+        [
+          "projects",
+          "pinned"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.sections.order.help",
+        "text" : "Sidebar sections to show first in their part of the sidebar, in this order, by id."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.sections.order",
+      "keywords" : [
+        "sidebar",
+        "section",
+        "order",
+        "sort"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "sections",
+        "order"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "recents",
+        [
+          ""
+        ],
+        [
+          "pinned",
+          "pinned"
+        ],
+        [
+          1
+        ],
+        {
+          "hidden" : [
+            "recents"
+          ]
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "section ids; cmux.json only",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.sections.order",
+        "text" : "Section Order"
+      },
+      "validation" : "domain:sidebar_section_ids"
     },
     {
       "accepts" : [
