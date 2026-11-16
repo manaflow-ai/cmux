@@ -176,3 +176,34 @@ real app host).
 `tsconfig.json` points `import … from "cmux-extension-sdk"` there and `package.json` names it as
 `file:./sdk`, so a new extension builds with no npm account, no registry and no network, and its
 `API_VERSION` is that cmux's. `cmux ext new` in a newer cmux gives a newer copy.
+
+## Share it from a git repository
+
+An extension folder is a git repository with the manifest and `README.md` at its root.
+`cmux ext new NAME --repo OWNER/REPO` (or `cmux ext new NAME --dir .` in a clone of a new,
+empty GitHub repository, whose `origin` names it) writes:
+
+- the id `owner/NAME` (the GitHub owner, lowercased) and `"repository": "https://github.com/OWNER/REPO"`;
+- a README with the badge and the install line:
+
+  ```markdown
+  [![Get it on cmux](https://cmux.com/extensions/badge.svg)](https://cmux.com/extensions/OWNER/REPO)
+  ```
+
+  ```sh
+  cmux apps install github.com/OWNER/REPO
+  ```
+
+- a `.gitignore`, and `git init` (branch `main`) when the folder is in no repository.
+
+With no repository, the id stays `local/NAME` and the README carries a marked `OWNER/REPO`
+placeholder. `cmux ext dev` loads an `owner/NAME` folder as `local/NAME` (its copy in the local
+apps folder says `local/`; the folder keeps its own id).
+
+`cmux ext publish [DIR] [--repo OWNER/REPO] [--write-badge] [--json]` writes nothing to the
+network. It checks the manifest validates, the id starts with the owner, the `repository` field,
+the README badge (`--write-badge` adds it or fills the placeholder), and an image `icon` or
+`screenshots`; then prints the steps: push to GitHub, add the topic `cmux-extension` (cmux.com
+lists repositories with it once reviewed), or submit at https://cmux.com/extensions. Exit 0 when
+ready, 1 when something is left (each `todo` line says what), 2 for a bad `--repo` or folder.
+Commit `dist/main.js`: cmux installs the repository as it is, with no build.
