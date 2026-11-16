@@ -236,7 +236,7 @@ pub(crate) fn harness_command(
     cmd.env_remove(crate::agent_tools::MCP_TOOLS_ENV);
     // The app the daemon follows is not the agent's: a daemon its commands start must not
     // follow it too (`daemon/owner_exit.rs`).
-    cmd.env_remove(crate::daemon::owner_exit::OWNER_APP_PID_ENV);
+    cmd.env_remove(crate::owner_exit::OWNER_APP_PID_ENV);
     cmd.env_remove(crate::agent_tools::UPSTREAMS_ENV);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
@@ -289,7 +289,7 @@ pub(crate) fn harness_command(
         .envs(env.iter());
     // The subagent mark is the daemon's to give (a workflow runner a subagent started,
     // `hub/workflow_runs.rs`), never a profile's: an agent's MCP servers would send as it.
-    cmd.env_remove(crate::cli::sender::SUBAGENT_ENV);
+    cmd.env_remove(crate::sender_env::SUBAGENT_ENV);
     // The profile's PATH first, never instead of the login PATH (login_env::with_agent_path).
     if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
         cmd.env("PATH", crate::login_env::with_agent_path(own));

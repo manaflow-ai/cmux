@@ -44,16 +44,15 @@ const FOLDED_TOOL: &str = "acpmux_bg_start";
 
 pub fn route(config: &Value) -> Option<Route> {
     let servers = config.get("mcpServers")?;
-    if servers.get(crate::acpmux_mcp::SERVER_NAME).is_some() {
+    if servers.get(crate::acpmux_mcp_names::SERVER_NAME).is_some() {
         return Some(Route::Direct);
     }
     let cmux = servers.get("cmux")?;
     let env = |k: &str| cmux.pointer("/env")?.get(k)?.as_str();
     let upstreams: Value = serde_json::from_str(env(crate::agent_tools::UPSTREAMS_ENV)?).ok()?;
-    let folded = upstreams
-        .as_array()?
-        .iter()
-        .any(|s| s.get("name").and_then(Value::as_str) == Some(crate::acpmux_mcp::SERVER_NAME));
+    let folded = upstreams.as_array()?.iter().any(|s| {
+        s.get("name").and_then(Value::as_str) == Some(crate::acpmux_mcp_names::SERVER_NAME)
+    });
     if !folded {
         return None;
     }
@@ -273,13 +272,13 @@ pub fn subagent_mark(input: &Value) -> Option<Value> {
     let kind = input
         .get("agent_type")
         .and_then(Value::as_str)
-        .filter(|k| crate::cli::sender::subagent_word(k))
+        .filter(|k| crate::sender_env::subagent_word(k))
         .unwrap_or("subagent");
-    if !crate::cli::sender::subagent_word(id) {
+    if !crate::sender_env::subagent_word(id) {
         return None;
     }
     let command = input.pointer("/tool_input/command")?.as_str()?;
-    let env = crate::cli::sender::SUBAGENT_ENV;
+    let env = crate::sender_env::SUBAGENT_ENV;
     if !may_run_acpmux(command) || command.contains(env) {
         return None;
     }
@@ -414,12 +413,10 @@ fn plain_command(argv: &[&str]) -> bool {
 /// `command` without the hook's mark line ([`subagent_mark`]) when it starts with one, else as
 /// it is. The mark only sets `ACPMUX_CALLER_SUBAGENT` to two plain words: it runs nothing.
 pub fn without_subagent_mark(command: &str) -> &str {
-    let prefix = format!("export {}=", crate::cli::sender::SUBAGENT_ENV);
+    let prefix = format!("export {}=", crate::sender_env::SUBAGENT_ENV);
     let Some((line, rest)) = command.split_once('\n') else { return command };
     let marked = line.strip_prefix(&prefix).and_then(|value| value.split_once(':')).is_some_and(
-        |(kind, id)| {
-            crate::cli::sender::subagent_word(kind) && crate::cli::sender::subagent_word(id)
-        },
+        |(kind, id)| crate::sender_env::subagent_word(kind) && crate::sender_env::subagent_word(id),
     );
     if marked { rest } else { command }
 }
@@ -490,7 +487,7 @@ pub fn subagent_call_starts(home: &std::path::Path, session: &str, input: &Value
         return;
     };
     let kind =
-        text("agent_type").filter(|k| crate::cli::sender::subagent_word(k)).unwrap_or("subagent");
+        text("agent_type").filter(|k| crate::sender_env::subagent_word(k)).unwrap_or("subagent");
     let _ = crate::subagent_call::record(home, session, call, agent, kind);
 }
 
@@ -511,7 +508,7 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let mut text = String::new();
     let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text);
     let Ok(input) = serde_json::from_str::<Value>(&text) else { return Ok(()) };
-    let Ok(session) = std::env::var(crate::acpmux_mcp::SESSION_ENV) else { return Ok(()) };
+    let Ok(session) = std::env::var(crate::acpmux_mcp_names::SESSION_ENV) else { return Ok(()) };
     let home = home.unwrap_or_else(crate::config::home);
     match input.get("hook_event_name").and_then(Value::as_str) {
         Some("PostToolUse") => {

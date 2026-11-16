@@ -276,7 +276,7 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
         // UniiChat (the bundled `uniichat-agent`): the token `unii login`
         // keeps for the server the harness env names (UNII_URL, UNII_HOME).
         "unii" => {
-            use crate::cli::uniichat_agent::{Endpoint, Options};
+            use crate::uniichat_endpoint::{Endpoint, Options};
             let env = |key: &str| s.env.get(key).filter(|v| !v.is_empty()).cloned();
             let endpoint = Endpoint::resolve(
                 &Options::default(),

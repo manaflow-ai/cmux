@@ -699,8 +699,13 @@ async fn run(options: Options) -> Result<i32> {
     }
     let (exe_fd, exe) = executable(&denies, &writable)?;
     let bwrap_fd = open_bwrap()?;
-    let prefix =
-        init_prefix(&exe, crate::daemon::daemon_prefix(), 3, options.proxy_port, options.api)?;
+    let prefix = init_prefix(
+        &exe,
+        crate::daemon_parts::daemon_prefix(),
+        3,
+        options.proxy_port,
+        options.api,
+    )?;
     // The snapshot precedes the bwrap clone. Only unsandboxed host processes
     // can add mounts in that window, and they already have full host access.
     // After cloning, seccomp and user namespaces block sandbox mounts; the

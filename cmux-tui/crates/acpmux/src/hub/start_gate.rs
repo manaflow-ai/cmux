@@ -10,12 +10,10 @@ use cmux_json::JsonSet as _;
 mod preset_bind;
 pub(crate) use preset_bind::StartGrant;
 
+pub use crate::meta_fields::CALLER_FIELD;
 pub use crate::person_tokens::{
     CALLER_ENV_KEYS, CALLER_SOCKET_ENV, CALLER_TOKEN_ENV, caller_env, caller_token,
 };
-
-/// `_meta.acpmux` field of a first `initialize`: `{sessionId, token}`.
-pub const CALLER_FIELD: &str = "callerSession";
 /// `_meta.acpmux` field of `session/new`: the mode the session starts in.
 pub const START_MODE_FIELD: &str = "mode";
 

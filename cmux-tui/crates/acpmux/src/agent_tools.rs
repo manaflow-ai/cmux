@@ -648,8 +648,8 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
     resolve_gated(inputs, cua_helper::installed, || {
-        computer_use_allowed(crate::cli::cloud_join::local_computer_use_kept, || {
-            crate::cli::cloud_join::require_joined_consent("control").is_ok()
+        computer_use_allowed(crate::machine_record::local_computer_use_kept, || {
+            crate::machine_record::require_joined_consent("control").is_ok()
         })
     })
 }
@@ -793,7 +793,7 @@ fn resolve_with_cua_helper(
         // send, ls, last and info (`acpmux_mcp.rs`): messages another session as this one,
         // instead of `acpmux send` in a shell; and the chat's daemon-owned background tasks.
         servers.push(McpServer {
-            name: crate::acpmux_mcp::SERVER_NAME.into(),
+            name: crate::acpmux_mcp_names::SERVER_NAME.into(),
             command: acpmux.exe.clone(),
             args: acpmux.args_lossy(&["acpmux-mcp"]),
             env: vec![],
@@ -898,7 +898,7 @@ impl AgentTools {
         }
         let scope = session_env.get(CUA_SCOPE_ENV).cloned().unwrap_or_default();
         let tools = session_env.get(MCP_TOOLS_ENV);
-        let gh = if self.servers.iter().any(|s| s.name == crate::acpmux_mcp::SERVER_NAME) {
+        let gh = if self.servers.iter().any(|s| s.name == crate::acpmux_mcp_names::SERVER_NAME) {
             gh_env(session_env, || crate::login_env::every_child_pairs(Some(session_env)))
         } else {
             Vec::new()
@@ -908,7 +908,7 @@ impl AgentTools {
             // The `acpmux` server's `pr_state` runs the agent's own `gh`: it gets the agent's gh
             // sign-in, which a client that passes a stdio server only an allowlisted env (Codex)
             // leaves out.
-            if server.name == crate::acpmux_mcp::SERVER_NAME {
+            if server.name == crate::acpmux_mcp_names::SERVER_NAME {
                 server.env.retain(|(k, _)| !GH_ENV.contains(&k.as_str()));
                 server.env.extend(gh.iter().cloned());
             }
@@ -918,7 +918,7 @@ impl AgentTools {
             // The `acpmux` server gets the list too: folded, `cmux` filters its
             // tools by the same names; standalone (cmux off or missing, so no
             // fold) the server's own filter is the only one (`acpmux_mcp::allowed`).
-            if (server.name == "cmux" || server.name == crate::acpmux_mcp::SERVER_NAME)
+            if (server.name == "cmux" || server.name == crate::acpmux_mcp_names::SERVER_NAME)
                 && let Some(tools) = tools
             {
                 server.env.push((MCP_TOOLS_ENV.to_owned(), tools.clone()));
@@ -974,7 +974,7 @@ impl AgentTools {
                     crate::cloud_repo_mcp::SERVER_NAME => {
                         matches!(k.as_str(), "CMUX_BIN" | "CMUX_SOCKET_PATH")
                     }
-                    crate::acpmux_mcp::SERVER_NAME => {
+                    crate::acpmux_mcp_names::SERVER_NAME => {
                         k == MCP_TOOLS_ENV || GH_ENV.contains(&k.as_str())
                     }
                     _ => false,
@@ -1012,7 +1012,7 @@ impl AgentTools {
             // Code config with it is a 0600 file (`claude_args`).
             if server.name == crate::subsession_mcp::SERVER_NAME
                 || server.name == crate::forum_mcp::SERVER_NAME
-                || server.name == crate::acpmux_mcp::SERVER_NAME
+                || server.name == crate::acpmux_mcp_names::SERVER_NAME
                 || server.name == crate::cloud_repo_mcp::SERVER_NAME
             {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();

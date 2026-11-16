@@ -11,7 +11,18 @@ now_ms() {
   python3 -c 'import time; print(time.time_ns() // 1_000_000)'
 }
 
+# received_bytes PID: the process's cumulative received bytes, all its sockets, from nettop's one
+# sample (`time,PROCESS.PID,BYTES_IN,`), the way gui-viewer.sh counts a third-party viewer. Empty
+# when nettop cannot read it.
+received_bytes() {
+  # macOS has no timeout(1): perl alarm bounds a stalled nettop at 5 s, as gui-viewer.sh does.
+  perl -e 'alarm 5; exec @ARGV' nettop -P -L 1 -n -x -J bytes_in -p "$1" 2>/dev/null \
+    | awk -F, '$3 ~ /^[0-9]+$/ { last = $3 } END { if (last != "") print last }' || true
+}
+
 screen_sharing_app() {
+  # EVAL_SCREEN_SHARING_APP: a test's stand-in (test_apple_bytes.py runs this target off a Mac).
+  [[ -n "${EVAL_SCREEN_SHARING_APP:-}" ]] && echo "$EVAL_SCREEN_SHARING_APP" && return
   [[ -d "/System/Library/CoreServices/Applications/Screen Sharing.app" ]] && echo "/System/Library/CoreServices/Applications/Screen Sharing.app" && return
   [[ -d "/System/Library/CoreServices/Screen Sharing.app" ]] && echo "/System/Library/CoreServices/Screen Sharing.app" && return
   [[ -d "/System/Applications/Utilities/Screen Sharing.app" ]] && echo "/System/Applications/Utilities/Screen Sharing.app" && return
@@ -247,11 +258,36 @@ PY
     first_ms=""
     seen_frame=0
     last_hash=""
-    bucket_start_ms=""
+    # kbps: Screen Sharing.app's received bytes (VNC payload plus headers), read at each
+    # bucket's end, so a bucket's bytes and duration span the same two reads.
+    bytes_last=$(received_bytes "$viewer_pid")
+    bytes_total=0
+    bytes_ok=1
+    [[ -n "$bytes_last" ]] || bytes_ok=0
+    bucket_start_ms=$(now_ms)
     bucket_frames=0
     rows=()
+    row_bytes=()
     cpu_sum=0
     cpu_count=0
+    # close_bucket: one row for the bucket that ends now. Each count belongs to its actual
+    # elapsed duration; the bytes are those received between this read and the last.
+    close_bucket() {
+      local total delta=null
+      total=$(received_bytes "$viewer_pid")
+      now=$(now_ms)
+      if [[ -n "$total" && -n "$bytes_last" ]] && (( total >= bytes_last )); then
+        delta=$((total - bytes_last))
+        bytes_total=$((bytes_total + delta))
+      else
+        bytes_ok=0
+      fi
+      bytes_last=$total
+      rows+=("{\"unix_ms\":$now,\"duration_ms\":$((now - bucket_start_ms)),\"bytes\":@BYTES@,\"frames\":null,\"sampled_changes\":$bucket_frames}")
+      row_bytes+=("$delta")
+      bucket_start_ms=$now
+      bucket_frames=0
+    }
     i=0
     while (( SECONDS < deadline )); do
       png="$EVAL_STATE/frame-$i.png"
@@ -266,15 +302,10 @@ PY
         changed=0
         [[ "$seen_frame" == 1 && "$hash" != "$last_hash" ]] && changed=1
         seen_frame=1
-        if [[ -z "$bucket_start_ms" ]]; then bucket_start_ms=$now; fi
-        # Screen Sharing.app's PNG screenshot is a local observation, not the
-        # VNC transport payload. Keep kbps explicitly unavailable.
+        # The PNG screenshot is a local observation: it counts sampled changes, never bytes.
         bucket_frames=$((bucket_frames + changed))
         if (( now - bucket_start_ms >= 1000 )); then
-          # Each count belongs to this bucket's actual elapsed duration.
-          rows+=("{\"unix_ms\":$now,\"duration_ms\":$((now - bucket_start_ms)),\"bytes\":null,\"frames\":null,\"sampled_changes\":$bucket_frames}")
-          bucket_start_ms=$now
-          bucket_frames=0
+          close_bucket
         fi
         last_hash=$hash
         cp "$png" "$snapshot"
@@ -283,14 +314,28 @@ PY
       sleep 0.1
     done
     if (( bucket_frames > 0 )); then
-      rows+=("{\"unix_ms\":$now,\"duration_ms\":$((now - bucket_start_ms)),\"bytes\":null,\"frames\":null,\"sampled_changes\":$bucket_frames}")
+      close_bucket
     fi
+    # A failed read, or no bytes at all while the window ran (the stream lives in another
+    # process), is not a measured zero: every row's bytes stay null and the run says why.
+    bytes_method="nettop bytes_in of the Screen Sharing.app viewer process, all sockets"
+    bytes_unavailable=false
+    if (( bytes_ok == 0 || bytes_total == 0 )); then
+      bytes_method="nettop read no received bytes for the Screen Sharing.app viewer process"
+      bytes_unavailable=true
+    fi
+    for idx in "${!rows[@]}"; do
+      value=${row_bytes[$idx]}
+      [[ "$bytes_unavailable" == true ]] && value=null
+      rows[$idx]=${rows[$idx]/@BYTES@/$value}
+    done
     cpu=null
     if (( cpu_count > 0 )); then
       cpu=$(awk -v sum="$cpu_sum" -v count="$cpu_count" 'BEGIN { printf "%.3f", sum / count }')
     fi
-    printf '{"series":[%s],"extra":{"first_frame_ms":%s,"cpu_pct":%s,"mode":"%s","viewer":"Screen Sharing.app","bytes_method":"Screen Sharing.app transport bytes are not exposed","bytes_unavailable":true,"readiness":%s}}\n' \
-      "$(IFS=,; echo "${rows[*]-}")" "${first_ms:-null}" "${cpu:-null}" "$mode" "$(cat "$raw.readiness.json")" >"$raw"
+    printf '{"series":[%s],"extra":{"first_frame_ms":%s,"cpu_pct":%s,"mode":"%s","viewer":"Screen Sharing.app","bytes_method":"%s","bytes_unavailable":%s,"readiness":%s}}\n' \
+      "$(IFS=,; echo "${rows[*]-}")" "${first_ms:-null}" "${cpu:-null}" "$mode" "$bytes_method" "$bytes_unavailable" \
+      "$(cat "$raw.readiness.json")" >"$raw"
     ;;
   window-report)
     raw=$1; out=$2

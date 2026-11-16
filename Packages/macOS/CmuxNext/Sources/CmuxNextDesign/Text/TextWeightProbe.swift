@@ -24,7 +24,9 @@ public struct TextWeightProbe {
     /// Space around the grid: a window's edge draws a hairline that is no row's ink.
     private static let margin: CGFloat = 16
 
-    /// `<ink>.<font>.label` and `<ink>.<font>.layer`: coverage over stock; `scale`: the backing scale.
+    /// `<ink>.<font>.label` and `<ink>.<font>.layer`: coverage over stock; `stock.<ink>.<font>`: the
+    /// stock label's own coverage (`appearance.fontSmoothing` moves it); `scale`: the backing scale;
+    /// `smoothsStems`: 1 when this process darkens stems (``ProcessFontSmoothing/current``).
     public func measure() async -> [String: Double] {
         let background = Self.color(dark ? 0x1E1E2E : 0xEFF1F5)
         let inks: [(String, NSColor)] = dark
@@ -97,7 +99,7 @@ public struct TextWeightProbe {
         guard let image = shown else { return [:] }
         var ground: (Double, Double, Double) = (0, 0, 0)
         appearance.performAsCurrentDrawingAppearance { ground = Self.rgb(background) }
-        var result: [String: Double] = ["scale": Double(scale)]
+        var result: [String: Double] = ["scale": Double(scale), "smoothsStems": ProcessFontSmoothing.current.smoothsStems ? 1 : 0]
         var stock = 0.0
         for (index, row) in rows.enumerated() {
             var ink: (Double, Double, Double, Double) = (0, 0, 0, 1)
@@ -107,7 +109,12 @@ public struct TextWeightProbe {
             }
             let coverage = Self.coverage(image, cell: (index / 3, index % 3), width: width, scale: CGFloat(image.height) / window.frame.height,
                                          ground: ground, ink: ink)
-            if index % 3 == 0 { stock = coverage } else { result[row.key] = stock == 0 ? 0 : coverage / stock }
+            if index % 3 == 0 {
+                stock = coverage
+                result["stock.\(row.key.dropLast(".stock".count))"] = coverage
+            } else {
+                result[row.key] = stock == 0 ? 0 : coverage / stock
+            }
         }
         return result
     }

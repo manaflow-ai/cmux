@@ -193,7 +193,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         if listWidth > 0 { (hostFrame.origin.x, hostFrame.size.width) = (hostFrame.minX + listWidth, max(0, hostFrame.width - listWidth)) }
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
-        if hostChanged { contentHost.frame = hostFrame }
+        if hostChanged { contentHost.frame = hostFrame; paintHold.placeKept() } // a kept outgoing view stays where it shows until the swap
         if launchImageView != nil, !held, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
             // A move cover owns the clear callback that reveals the page on its next frame. A resize drops old-size pixels, but
             // not a grow to the image's own size (±2 pt of pixel rounding): a restored chat's tools joining the tab row (Leo 10-24).
