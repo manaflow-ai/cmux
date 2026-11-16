@@ -432,7 +432,7 @@ impl ActorQueue {
             .apply_act(&line, receipt.place, line.len() as u64)
             .map_err(|error| QueueError::Invalid(error.to_string()))?;
         self.ids
-            .remember_bytes(&envelope.id, &envelope.op, &body, receipt.after)
+            .remember_bytes(&stored.id, &stored.op, &body, receipt.after)
             .map_err(QueueError::from)?;
         let result = act_result(
             stored.id.clone(),
