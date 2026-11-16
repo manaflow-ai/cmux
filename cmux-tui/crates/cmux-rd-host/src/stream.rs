@@ -289,6 +289,15 @@ impl MediaSession {
         session: SessionId,
         viewer: &Principal,
     ) -> String {
+        // Measurement only: CMUX_RD_TEST_LOSS_PCT loses media datagrams (off unless set).
+        let mut lossy;
+        let carrier: &mut dyn Carrier = match crate::test_loss::TestLoss::from_env() {
+            Some(loss) => {
+                lossy = crate::test_loss::LossyCarrier { inner: carrier, loss };
+                &mut lossy
+            }
+            None => carrier,
+        };
         let mut damage = Vec::new();
         let mut incoming = Vec::new();
         let mut had_control = table.may_inject_input(session, viewer);
