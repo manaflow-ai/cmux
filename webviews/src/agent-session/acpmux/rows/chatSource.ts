@@ -9,6 +9,7 @@ import { type AdaptedChat, ChatAdapter, type ChatRowsContext } from "./adapter";
 import { CHAT_ROWS_OFF, CHAT_ROWS_OTHER_SID, CHAT_ROWS_SLOW, ChatRowsHost, type ChatRowsPost } from "./host";
 import { addChatRowsHost, listenForChatRows, receiveChatRows, removeChatRowsHost } from "./receiver";
 import { type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
+import type { RowId } from "./rowId";
 
 /// What this document knows of the host's switch: `off` once a host said it has no such operation
 /// (`chat.rows.off`: the page host's `unknown_op` or the old bridge's `unsupported`), and then no
@@ -182,10 +183,11 @@ export class ChatSource {
     return shown?.chat === chat && shown.view !== undefined && this.host.page(shown.sid, "before");
   }
 
-  /// A rail jump to a turn older than the rows held (`loadThrough`): pages from its prompt's row
-  /// (`row-<prompt>`, the rail's earlier prompt) until a page holds it. Resolves true once it is
-  /// held, false when the page was refused, held no such row, or the chat was left or fell.
-  async through(chat: string, prompt: number): Promise<boolean> {
+  /// A rail jump to a turn the rows held do not reach (direct.ts `loadPromptRow`): pages from its
+  /// prompt's row (`row-<prompt>`, the rail's earlier or later prompt) until a page holds it.
+  /// Resolves true once it is held, false when the page was refused, held no such row, or the chat
+  /// was left or fell.
+  async through(chat: string, prompt: RowId): Promise<boolean> {
     for (;;) {
       const shown = this.shown;
       if (shown?.chat !== chat || !shown.view) return false;

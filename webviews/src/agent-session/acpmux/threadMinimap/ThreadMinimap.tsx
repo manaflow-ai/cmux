@@ -11,6 +11,7 @@ import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, u
 import { flushSync } from "react-dom";
 import { HIDDEN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
+import { promptRowId, type RowId } from "../rows/rowId";
 import { useT } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
@@ -146,8 +147,10 @@ const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElemen
 export function ThreadMinimap({
   rows,
   earlier = EMPTY_EARLIER,
+  later = EMPTY_EARLIER,
   promptCount,
   loadThrough,
+  loadPromptRow,
   loadPromptIndex,
   sessionId,
   layout,
@@ -166,6 +169,9 @@ export function ThreadMinimap({
   rows: readonly AcpmuxRow[];
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
   earlier?: readonly AcpmuxRow[];
+  /// The chat's prompts past `rows` (VirtualTranscript `later`, a store chat's `laterPrompts`): their
+  /// ticks follow the held ones, and a click loads its prompt's row (`loadPromptRow`).
+  later?: readonly AcpmuxRow[];
   /// The chat's prompt count while `rows` and `earlier` do not hold every prompt yet (the snapshot's
   /// `promptCount`): the prompts neither holds draw as pending resting ticks above the held ones
   /// (model.ts pendingCount), so the rail's first frame has its final length and tick rows. It
@@ -173,6 +179,9 @@ export function ThreadMinimap({
   /// its foot.
   promptCount?: number;
   loadThrough?: (seq: number) => Promise<boolean>;
+  /// Loads a store chat's prompt row (rows/rowId.ts `promptRowId`): a click on an earlier or a later
+  /// tick of a chat on the row store. True once the row is held.
+  loadPromptRow?: (row: RowId) => Promise<boolean>;
   /// Asks for the chat's prompt index, which names every pending tick's prompt (the pane client's
   /// `loadPromptIndex`): a hover or a click on a pending tick. True once it named them.
   loadPromptIndex?: () => Promise<boolean>;
@@ -231,8 +240,8 @@ export function ThreadMinimap({
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
   const read = useMemo(
-    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows, promptCount),
-    [rows, sessionId, change, earlierRows, promptCount],
+    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows, promptCount, later),
+    [rows, sessionId, change, earlierRows, promptCount, later],
   );
   useLayoutEffect(() => {
     lastTurns.current = read;
@@ -255,6 +264,11 @@ export function ThreadMinimap({
   // Prompts known only by count have no sender yet: a filtered rail draws none of them.
   const pendingCount = named.filtered ? 0 : (read.pendingCount ?? 0);
   const loadedStart = named.loadedStart + pendingCount;
+  // Where the held turns end: the later prompts (no row, index -1) are the turns after the last held
+  // one, which a filter or a fold keeps last.
+  let heldEnd = named.turns.length;
+  while (heldEnd > named.loadedStart && named.turns[heldEnd - 1]!.index < 0) heldEnd -= 1;
+  const loadedEnd = heldEnd + pendingCount;
   const turns = useMemo(() => turnRows(named.turns, pendingCount, sessionId), [named.turns, pendingCount, sessionId]);
   const ticks = useMemo(() => tickRows(named.ticks, pendingCount, sessionId), [named.ticks, pendingCount, sessionId]);
   /// The row under the pointer, or the one a scrub is on.
@@ -374,7 +388,7 @@ export function ThreadMinimap({
     restoring.current = { from: seen, by: (tops(anchored.index) ?? 0) - anchor.current!.layoutTop };
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
-  const onScreen = visibleTurns(turns, tops, layout.totalHeight, top, viewportHeight, loadedStart);
+  const onScreen = visibleTurns(turns, tops, layout.totalHeight, top, viewportHeight, loadedStart, loadedEnd);
   const boxHeight = railBox?.height ?? viewportHeight;
   const boxFoot = railBox?.foot ?? foot;
   /// The window the rail's 92% cap reads. Without one (no layout), the rail's own box stands in, not
@@ -472,6 +486,7 @@ export function ThreadMinimap({
     shown,
     hovered,
     loadedStart,
+    loadedEnd,
     filtered: named.filtered,
   });
   useLayoutEffect(() => {
@@ -487,6 +502,7 @@ export function ThreadMinimap({
       shown,
       hovered,
       loadedStart,
+      loadedEnd,
       filtered: named.filtered,
     };
   });
@@ -528,7 +544,7 @@ export function ThreadMinimap({
       restoring.current = undefined;
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, top, height, live.current.loadedStart);
+      const next = visibleTurns(all, tops, total, top, height, live.current.loadedStart, live.current.loadedEnd);
       // Synchronously: a frame callback is outside React's batch, which would draw the band after
       // this frame paints. Only a scroll that moves the band renders.
       if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
@@ -607,7 +623,8 @@ export function ThreadMinimap({
       domTop.current = { sessionId: session, top: layoutScrollTop(node) };
       restoring.current = undefined;
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height, live.current.loadedStart);
+      const { loadedStart: from, loadedEnd: to } = live.current;
+      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height, from, to);
       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
     return () => {
@@ -637,6 +654,8 @@ export function ThreadMinimap({
   const waiting = useRef<Waiting | undefined>(undefined);
   const loadThroughNow = useRef(loadThrough);
   loadThroughNow.current = loadThrough;
+  const loadPromptRowNow = useRef(loadPromptRow);
+  loadPromptRowNow.current = loadPromptRow;
   const loadPromptIndexNow = useRef(loadPromptIndex);
   loadPromptIndexNow.current = loadPromptIndex;
   /// The rail's one ask for the prompt index per chat: a hover sweep across a hundred pending ticks
@@ -754,9 +773,19 @@ export function ThreadMinimap({
         return undefined;
       }
       if (turn.index < 0) {
+        // A store chat's earlier or later tick names its prompt's row (`row-<id>`); a v1 chat's
+        // earlier tick its prompt's log seq (`user-<seq>`).
+        const row = promptRowId(turn.id);
+        const loadRow = loadPromptRowNow.current;
+        const loadSeq = loadThroughNow.current;
         const seq = Number(turn.id.slice(turn.id.indexOf("-") + 1));
-        const load = loadThroughNow.current;
-        if (!Number.isFinite(seq) || !load) return undefined;
+        const load =
+          row !== undefined
+            ? loadRow && (() => loadRow(row))
+            : loadSeq && Number.isFinite(seq)
+              ? () => loadSeq(seq)
+              : undefined;
+        if (!load) return undefined;
         const pending = { id: turn.id, how, sessionId: live.current.sessionId };
         waiting.current = pending;
         // A read that stopped short of the prompt (no history left, a failed page) drops the jump, so
@@ -764,7 +793,7 @@ export function ThreadMinimap({
         const drop = () => {
           if (waiting.current === pending) waiting.current = undefined;
         };
-        void load(seq).then((held) => {
+        void load().then((held) => {
           if (!held) drop();
         }, drop);
         return undefined;
@@ -868,7 +897,7 @@ export function ThreadMinimap({
     /// own prompt when that is above the view and matches, else to the match before it.
     const target = (by: -1 | 1, matches: (index: number) => boolean) => {
       const node = scroller.current;
-      const { turns: all, ticks: keys, tops, total, filtered } = live.current;
+      const { turns: all, ticks: keys, tops, total, filtered, loadedEnd: heldTo } = live.current;
       if (!node || !all.length) return undefined;
       const stepping =
         pending.tick !== undefined && performance.now() < pending.until ? tickIndex(keys, pending.tick) : -1;
@@ -881,7 +910,7 @@ export function ThreadMinimap({
       let reading = below ? -1 : Math.max(0, all.pendingCount - 1);
       if (stepping >= 0) reading = stepping;
       else
-        for (let index = all.pendingCount; index < all.length; index += 1)
+        for (let index = all.pendingCount; index < heldTo; index += 1)
           if (turnScrollTop(all.at(index)!, tops) <= top + 1) reading = index;
       const start =
         reading < 0

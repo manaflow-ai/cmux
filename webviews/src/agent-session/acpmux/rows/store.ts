@@ -262,10 +262,10 @@ class SidRows {
     }
   }
 
-  private setHeads(heads: ChatHeads | null, bytes: number): void {
+  private setHeads(heads: ChatHeads | null, bytes: number, at?: Map<number, number>): void {
     this.heads = heads;
     this.headBytes = bytes;
-    this.headAt = new Map(heads?.rows.map((head, at) => [head.id, at]));
+    this.headAt = at ?? new Map(heads?.rows.map((head, place) => [head.id, place]));
     this.changed = true;
   }
 
@@ -284,32 +284,42 @@ class SidRows {
     );
   }
 
-  /// A group row that settled, or changed after: the run takes it when it adjoins the run's last
-  /// head (nothing past the run, `hasAfter` false), the oldest head let go past the cap. A head the
-  /// run holds is replaced by its newer rev.
-  private noteHead(row: ChatRow): void {
+  /// Group rows that settled, or changed after, in one step: the run takes one when it adjoins the
+  /// run's last head (nothing past the run, `hasAfter` false), and a head the run holds is replaced
+  /// by its newer rev. The run is copied once and its ids' places kept, so a window of many group
+  /// rows costs the heads once, not once a row; the oldest heads go past the cap at the end.
+  private noteHeads(rows: readonly ChatRow[]): void {
     const heads = this.heads;
-    if (row.kind !== "group" || row.open || !heads || heads.unsupported) return;
-    const list = heads.rows;
-    const last = list[list.length - 1];
-    if (last && row.id <= last.id) {
-      const at = this.headAt.get(row.id) ?? -1;
-      const held = at >= 0 ? list[at]! : undefined;
-      if (!held || held.rev >= row.rev) return;
-      const next = list.slice();
-      next[at] = row;
-      this.setHeads({ ...heads, rows: next }, this.headBytes - rowBytes(held) + rowBytes(row));
-      return;
+    if (!heads || heads.unsupported) return;
+    let next: ChatRow[] | undefined;
+    let bytes = this.headBytes;
+    for (const row of rows) {
+      if (row.kind !== "group" || row.open) continue;
+      const list: readonly ChatRow[] = next ?? heads.rows;
+      const last = list[list.length - 1];
+      if (last && row.id <= last.id) {
+        const at = this.headAt.get(row.id);
+        const held = at === undefined ? undefined : list[at];
+        if (at === undefined || !held || held.rev >= row.rev) continue;
+        next ??= list.slice();
+        next[at] = row;
+        bytes += rowBytes(row) - rowBytes(held);
+      } else if (!heads.hasAfter) {
+        next ??= list.slice();
+        this.headAt.set(row.id, next.length);
+        next.push(row);
+        bytes += rowBytes(row);
+      }
     }
-    if (heads.hasAfter) return;
-    const next = [...list, row];
-    let bytes = this.headBytes + rowBytes(row);
+    if (!next) return;
     let from = 0;
     while (next.length - from > STORE_MAX_HEADS || (bytes > STORE_MAX_HEAD_BYTES && from < next.length - 1))
       bytes -= rowBytes(next[from++]!);
     this.setHeads(
-      { rows: from ? next.slice(from) : next, hasBefore: heads.hasBefore || from > 0, hasAfter: false },
+      { rows: from ? next.slice(from) : next, hasBefore: heads.hasBefore || from > 0, hasAfter: heads.hasAfter },
       bytes,
+      // Kept places hold until the oldest heads go; then each moves, and they are counted again once.
+      from ? undefined : this.headAt,
     );
   }
 
@@ -406,7 +416,7 @@ class SidRows {
       this.edition = window.edition;
       if (this.heads) this.setHeads(null, 0);
     }
-    for (const row of window.rows) this.noteHead(row);
+    this.noteHeads(window.rows);
     const incoming: ChatRowEntry[] = window.rows.map((row) => entryOf(row));
     for (const open of window.open ?? []) incoming.push(openEntry(open));
     for (const id of window.refused ?? []) incoming.push(hole(id, this.entries.get(id)));
@@ -462,7 +472,7 @@ class SidRows {
     switch (op.op) {
       case "row": {
         const id = op.row.id;
-        this.noteHead(op.row);
+        this.noteHeads([op.row]);
         const held = this.entries.get(id);
         if (held) {
           if (held.row && held.rev > op.row.rev) return;
@@ -491,7 +501,7 @@ class SidRows {
         return;
       }
       case "patch": {
-        this.noteHead(op.row);
+        this.noteHeads([op.row]);
         const held = this.entries.get(op.row.id);
         if (held) {
           if (!held.row || held.rev < op.row.rev) this.put(entryOf(op.row));

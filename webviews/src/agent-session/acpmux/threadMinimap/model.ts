@@ -666,6 +666,10 @@ export type MinimapTurns = {
   loadedTicks?: readonly MinimapTick[];
   loadedStart?: number;
   earlierTurns?: readonly MinimapTurn[];
+  /// Prompts past the last row the transcript holds (a store chat's `laterPrompts`), after the loaded
+  /// turns: the rail keeps every newer prompt after a jump to an old one let the tail go.
+  laterRows?: readonly AcpmuxRow[];
+  laterTurns?: readonly MinimapTurn[];
   /// Historical prompts known only by count. They are not materialized in `turns` or `ticks`.
   pendingCount?: number;
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
@@ -704,6 +708,7 @@ export function minimapTurns(
   change?: RowsChange,
   earlierRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
   promptCount = 0,
+  laterRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
 ): MinimapTurns {
   const prior = previous?.sessionId === sessionId ? previous : undefined;
   const reuse = prior
@@ -815,10 +820,12 @@ export function minimapTurns(
   // two last differed, so a streamed token whose reply preview is still filling writes the live turn
   // alone, not a copy of every turn (#24058 review round 5), and `previous` stays the committed rows'
   // (round 6). A dropped render wrote only the spare, and its agreement says how far it still holds.
-  // The indexed prompts older than the held rows go first, as turns with no row (index -1), so the
-  // rail lays out every turn from the first frame. The combined list is a new array whenever the
-  // earlier or the loaded turns change, never one a committed result still holds: the loaded turns'
-  // own lists stay `spare`'s alone. With no earlier prompts the loaded lists are the result's.
+  // The indexed prompts older than the held rows go first, and the page of turns' prompts past the
+  // last held row (`laterRows`, a store chat's after a jump let the tail go) last, as turns with no
+  // row (index -1), so the rail lays out every turn from the first frame: pending, earlier, loaded,
+  // later. The combined list is a new array whenever the earlier, later or loaded turns change,
+  // never one a committed result still holds: the loaded turns' own lists stay `spare`'s alone.
+  // With neither, the loaded lists are the result's.
   const withEarlier = (
     loadedTurns: readonly MinimapTurn[],
     loadedTicks: readonly MinimapTick[],
@@ -829,30 +836,34 @@ export function minimapTurns(
     // ticks above the held ones, so the rail has its final length and every tick its final row on the
     // first frame; the index or a page then names them in place (Leo, 2026-11-03: "mostly i just
     // don't like it when the thing shifts and whatnot trying to center itself").
-    const pending = Math.max(0, promptCount - earlierRows.length - loadedTurns.length);
-    if (!earlierRows.length)
+    const pending = Math.max(0, promptCount - earlierRows.length - loadedTurns.length - laterRows.length);
+    if (!earlierRows.length && !laterRows.length)
       return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0, pendingCount: pending };
     const sameEarlier = prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined;
-    if (sameEarlier && prior!.loadedTurns === loadedTurns && prior!.loadedTicks === loadedTicks)
+    const sameLater = prior?.laterRows === laterRows && prior.laterTurns !== undefined;
+    if (sameEarlier && sameLater && prior!.loadedTurns === loadedTurns && prior!.loadedTicks === loadedTicks)
       return { ...prior!, ...base, pendingCount: pending };
-    const earlier = sameEarlier
-      ? prior!.earlierTurns!
-      : earlierRows.map((row): MinimapTurn => ({
-          index: -1,
-          id: row.id,
-          key: turnKey(sessionId, row),
-          prompt: promptText(row),
-          ...withSender(row),
-          reply: [],
-        }));
-    const turns = [...earlier, ...loadedTurns];
+    const unheld = (row: AcpmuxRow): MinimapTurn => ({
+      index: -1,
+      id: row.id,
+      key: turnKey(sessionId, row),
+      prompt: promptText(row),
+      ...withSender(row),
+      reply: [],
+    });
+    const earlier = sameEarlier ? prior!.earlierTurns! : earlierRows.map(unheld);
+    const later = sameLater ? prior!.laterTurns! : laterRows.map(unheld);
+    const turns = [...earlier, ...loadedTurns, ...later];
     return {
       ...base,
       turns,
       // A token streaming into a reply leaves the prompts, and so the ticks, as they were.
-      ticks: sameEarlier && prior!.loadedTicks === loadedTicks ? prior!.ticks : ticksOf(turns, prior?.ticks),
+      ticks:
+        sameEarlier && sameLater && prior!.loadedTicks === loadedTicks ? prior!.ticks : ticksOf(turns, prior?.ticks),
       earlierRows,
       earlierTurns: earlier,
+      laterRows,
+      laterTurns: later,
       pendingCount: pending,
       loadedStart: earlier.length,
     };
@@ -966,12 +977,13 @@ export function currentTurn(
   scrollTop: number,
   viewportHeight: number,
   firstLoaded = 0,
+  loadedEnd = turns.length,
 ): number {
-  if (firstLoaded >= turns.length) return 0;
+  if (firstLoaded >= loadedEnd) return 0;
   const anchor = scrollTop + viewportHeight / 3;
-  let low = 0;
-  let high = turns.length;
-  low = firstLoaded;
+  let low = firstLoaded;
+  // Turns past `loadedEnd` (later prompts, no row) have no top: the search stops before them.
+  let high = loadedEnd;
   while (low < high) {
     const middle = (low + high) >>> 1;
     if ((tops(turns.at(middle)!.index) ?? 0) <= anchor) low = middle + 1;
@@ -994,12 +1006,13 @@ export function visibleTurns(
   scrollTop: number,
   viewportHeight: number,
   firstLoaded = 0,
+  loadedEnd = turns.length,
 ): { first: number; last: number } {
-  if (firstLoaded >= turns.length) return { first: 0, last: 0 };
+  if (firstLoaded >= loadedEnd) return { first: 0, last: 0 };
   const bottom = scrollTop + viewportHeight - THREAD_PADDING_TOP;
-  const first = currentTurn(turns, tops, scrollTop + LANDING_OFFSET, 0, firstLoaded);
+  const first = currentTurn(turns, tops, scrollTop + LANDING_OFFSET, 0, firstLoaded, loadedEnd);
   let last = first;
-  while (last + 1 < turns.length && (tops(turns.at(last + 1)!.index) ?? totalHeight) < bottom) last += 1;
+  while (last + 1 < loadedEnd && (tops(turns.at(last + 1)!.index) ?? totalHeight) < bottom) last += 1;
   return { first, last };
 }
 

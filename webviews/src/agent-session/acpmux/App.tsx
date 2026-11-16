@@ -11656,6 +11656,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     earlier={
                                                                       !childRows ? snapshot.earlierPrompts : undefined
                                                                     }
+                                                                    later={
+                                                                      !childRows ? snapshot.laterPrompts : undefined
+                                                                    }
                                                                     promptCount={
                                                                       !childRows ? snapshot.promptCount : undefined
                                                                     }
@@ -11663,6 +11666,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                       !childRows
                                                                         ? (seq) =>
                                                                             directClient.current?.loadThrough(seq) ??
+                                                                            Promise.resolve(false)
+                                                                        : undefined
+                                                                    }
+                                                                    loadPromptRow={
+                                                                      !childRows
+                                                                        ? (row) =>
+                                                                            directClient.current?.loadPromptRow(row) ??
                                                                             Promise.resolve(false)
                                                                         : undefined
                                                                     }

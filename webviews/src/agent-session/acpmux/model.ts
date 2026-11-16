@@ -1480,6 +1480,12 @@ export type AcpmuxSnapshot = {
    */
   earlierPrompts?: readonly AcpmuxRow[];
   /**
+   * A chat on the row store: the page of turns' prompts past the last row it holds, in order (a jump
+   * to an old prompt lets the tail go). The rail draws pending, earlier, loaded, later; a later
+   * tick's click loads its prompt's row. Absent on a v1 chat, and while none are past the rows.
+   */
+  laterPrompts?: readonly AcpmuxRow[];
+  /**
    * The chat's prompt count from its summary (`turnCount`), while the pane does not hold every prompt
    * yet (the prompt index has not answered, or the daemon has none) and older history is left: the
    * thread rail starts at the height that many prompts take. Absent once `earlierPrompts` is read.

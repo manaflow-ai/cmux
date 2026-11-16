@@ -11,6 +11,7 @@ import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
 import { HOLD_KINDS } from "./rows/holdKinds";
 import { resetChatRowsReceiver } from "./rows/receiver";
+import { promptRowId } from "./rows/rowId";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -210,17 +211,28 @@ async function listOut(open: (params: any) => Promise<unknown>, list?: Promise<v
     }
   }
   let rows: Row[] = [];
+  let last: Record<string, unknown> | undefined;
   const connecting = AcpmuxDirectClient.connect(
     { ...mockHost, sessionId: a },
     (snapshot) => {
       rows = snapshot.rows as Row[];
+      last = snapshot as unknown as Record<string, unknown>;
     },
     undefined,
     () => new ListOut() as unknown as WebSocket,
   ).then((client) => client as any);
   const hostPosts = () => asked.filter((ask) => ask.to === "host" && ask.method.startsWith("chat.rows."));
   const attaches = () => asked.filter((ask) => ask.method === "_acpmux/attach" && ask.params.sessionId === a);
-  return { a, b: mockSessions[1]!.sessionId, asked, connecting, rows: () => rows, hostPosts, attaches };
+  return {
+    a,
+    b: mockSessions[1]!.sessionId,
+    asked,
+    connecting,
+    rows: () => rows,
+    snapshot: () => last,
+    hostPosts,
+    attaches,
+  };
 }
 
 test("an early attach the open dropped while its switch was out, for a chat no longer shown, is never sent", async () => {
@@ -318,6 +330,56 @@ test("with the list still out, a host that opens: the hold's reply gives the row
     // The chat's row came from the hold's reply: the list never answered.
     expect(client.sessions.map((row: { sessionId: string }) => row.sessionId)).toContain(run.a);
     expect(run.hostPosts().filter((post) => post.method === "chat.rows.open")).toHaveLength(1);
+  } finally {
+    client.close?.();
+    resetChatRowsReceiver();
+  }
+});
+
+test("a v1 chat's snapshot has no laterPrompts", async () => {
+  const run = await listOut(() =>
+    Promise.reject(
+      Object.assign(new Error("unknown"), {
+        code: "native.invalid_request",
+        details: { protocol: "cmux.protocol.unknown_op" },
+      }),
+    ),
+  );
+  const client = await run.connecting;
+  try {
+    await settle(() => run.rows().length > 0);
+    expect(client.chatRows.holds(run.a)).toBe(false);
+    expect(run.snapshot()).toBeDefined();
+    expect("laterPrompts" in run.snapshot()!).toBe(false);
+  } finally {
+    client.close?.();
+    resetChatRowsReceiver();
+  }
+});
+
+test("on a store chat, a timeline turn's seq reads no row page: loadThrough answers false, and a prompt row pages", async () => {
+  let sid = "";
+  const run = await listOut(async (params) => {
+    sid = String(params.sid);
+    return { sid };
+  });
+  const client = await run.connecting;
+  try {
+    await settle(() => run.attaches().length > 0);
+    (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
+      batch: 1,
+      changes: recorded("window", sid),
+    });
+    await settle(() => run.rows().length === 11);
+    expect(client.chatRows.holds(run.a)).toBe(true);
+    const pages = () => run.hostPosts().filter((post) => post.method === "chat.rows.page");
+    const before = pages().length;
+    // A span's turnSeq is a log seq: on a store chat it names no row, so nothing is paged.
+    expect(await client.loadThrough(5)).toBe(false);
+    expect(pages()).toHaveLength(before);
+    // A prompt row (the rail's `row-<id>`) is held already: it answers at once, with no page either.
+    expect(await client.loadPromptRow(promptRowId("row-1")!)).toBe(true);
+    expect(pages()).toHaveLength(before);
   } finally {
     client.close?.();
     resetChatRowsReceiver();

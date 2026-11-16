@@ -114,6 +114,7 @@ import {
 export { SETTLED_ATTACH_CAPABILITY, attachedDetail, settledAttachFailed } from "./attachParams";
 import { ChatSource } from "./rows/chatSource";
 import { holdAttach, holdReads } from "./rows/holdKinds";
+import type { RowId } from "./rows/rowId";
 import {
   forgetTail,
   keptEvents,
@@ -10917,6 +10918,7 @@ export class AcpmuxDirectClient {
       ...(fromStore
         ? fromStore.earlierPrompts && { earlierPrompts: fromStore.earlierPrompts }
         : this.shownEarlierPrompts().length > 0 && { earlierPrompts: this.shownEarlierPrompts() }),
+      ...(fromStore?.laterPrompts && { laterPrompts: fromStore.laterPrompts }),
       ...this.promptCountField(fromStore?.promptsHeld),
       historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
@@ -14958,16 +14960,24 @@ export class AcpmuxDirectClient {
     return "stale";
   }
 
-  /// Pages history in until the record at `seq` is held: a click on the rail's tick of a prompt
-  /// older than the held rows (`earlierPrompts`). Each step is `loadOlder` reading on through `seq`
+  /// A chat on the row store: pages its rows until the prompt row `row` is held (a click on the
+  /// rail's earlier or later tick, `row-<id>`). False on a v1 chat, which names prompts by seq.
+  loadPromptRow(row: RowId): Promise<boolean> {
+    const shown = this.selectedSessionId;
+    if (!shown || !this.chatRows.holds(shown)) return Promise.resolve(false);
+    return this.chatRows.through(shown, row);
+  }
+
+  /// A v1 chat: pages history in until the record at `seq` is held: a click on the rail's tick of a
+  /// prompt older than the held rows (`earlierPrompts`). Each step is `loadOlder` reading on through `seq`
   /// (up to OLDER_PAGES_PER_ASK pages in one commit), with its guards; a step that moves nothing, or
   /// another chat, ends it.
   /// Resolves true once the prompt is held, false when the read stopped short of it.
   async loadThrough(seq: number): Promise<boolean> {
-    // A chat on the store: `seq` is the turn's prompt rowId (the rail's earlier prompt `row-<id>`),
-    // and the store pages from it.
+    // A chat on the store names no row by a log seq: a seq read as a row id would page the wrong
+    // rows, so it reads none (`loadPromptRow` takes a store chat's row, 6d decision 410).
     const shown = this.selectedSessionId;
-    if (shown && this.chatRows.holds(shown)) return this.chatRows.through(shown, seq);
+    if (shown && this.chatRows.holds(shown)) return false;
     const generation = this.selectionGeneration;
     const held = () => generation === this.selectionGeneration && this.firstSeq !== undefined && this.firstSeq <= seq;
     // The prompt index gives us the target's sequence before its transcript page is held. Fetch
