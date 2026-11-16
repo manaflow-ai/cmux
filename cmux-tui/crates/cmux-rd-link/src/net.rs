@@ -178,9 +178,10 @@ struct MediaFrame {
     droppable: bool,
 }
 
-/// The link queue keeps at most one frame pending. A new frame replaces the
-/// oldest pending frame, so media never waits behind an unbounded burst while
-/// control traffic continues to use the lossless command channel.
+/// The link queue keeps at most one frame being drained plus one waiting. A
+/// new droppable frame replaces the waiting frame, so media never waits behind
+/// an unbounded burst while control traffic continues to use the lossless
+/// command channel.
 const MAX_MEDIA_FRAMES: usize = 2;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -189,6 +190,19 @@ pub struct NetStats {
     pub queue_datagrams: usize,
     pub dropped_frames: u64,
     pub dropped_datagrams: u64,
+    pub dropped_replaced_frames: u64,
+    pub dropped_replaced_datagrams: u64,
+    pub dropped_evicted_for_protected_frames: u64,
+    pub dropped_evicted_for_protected_datagrams: u64,
+    pub dropped_rejected_protected_frames: u64,
+    pub dropped_rejected_protected_datagrams: u64,
+}
+
+#[derive(Clone, Copy)]
+enum DropReason {
+    Replaced,
+    EvictedForProtected,
+    RejectedProtected,
 }
 
 #[derive(Default)]
@@ -196,6 +210,12 @@ struct MediaQueue {
     frames: VecDeque<MediaFrame>,
     dropped_frames: u64,
     dropped_datagrams: u64,
+    dropped_replaced_frames: u64,
+    dropped_replaced_datagrams: u64,
+    dropped_evicted_for_protected_frames: u64,
+    dropped_evicted_for_protected_datagrams: u64,
+    dropped_rejected_protected_frames: u64,
+    dropped_rejected_protected_datagrams: u64,
 }
 
 impl MediaQueue {
@@ -206,17 +226,17 @@ impl MediaQueue {
         if datagrams.droppable {
             if let Some(index) = self.frames.iter().position(|frame| frame.droppable) {
                 if let Some(old) = self.frames.remove(index) {
-                    self.record_drop(old);
+                    self.record_drop(old, DropReason::Replaced);
                 }
             } else if self.frames.len() >= MAX_MEDIA_FRAMES {
                 // Protected frames are never evicted. The newest droppable
                 // frame is rejected until one of them leaves the queue.
-                self.record_drop(datagrams);
+                self.record_drop(datagrams, DropReason::RejectedProtected);
                 return;
             }
         } else if let Some(index) = self.frames.iter().position(|frame| frame.droppable) {
             if let Some(old) = self.frames.remove(index) {
-                self.record_drop(old);
+                self.record_drop(old, DropReason::EvictedForProtected);
             }
         }
         self.frames.push_back(datagrams);
@@ -232,14 +252,34 @@ impl MediaQueue {
             queue_datagrams: self.frames.iter().map(|frame| frame.datagrams.len()).sum(),
             dropped_frames: self.dropped_frames,
             dropped_datagrams: self.dropped_datagrams,
+            dropped_replaced_frames: self.dropped_replaced_frames,
+            dropped_replaced_datagrams: self.dropped_replaced_datagrams,
+            dropped_evicted_for_protected_frames: self.dropped_evicted_for_protected_frames,
+            dropped_evicted_for_protected_datagrams: self.dropped_evicted_for_protected_datagrams,
+            dropped_rejected_protected_frames: self.dropped_rejected_protected_frames,
+            dropped_rejected_protected_datagrams: self.dropped_rejected_protected_datagrams,
         }
     }
 
-    fn record_drop(&mut self, frame: MediaFrame) {
+    fn record_drop(&mut self, frame: MediaFrame, reason: DropReason) {
+        let datagrams = u64::try_from(frame.datagrams.len()).unwrap_or(u64::MAX);
         self.dropped_frames = self.dropped_frames.saturating_add(1);
-        self.dropped_datagrams = self
-            .dropped_datagrams
-            .saturating_add(u64::try_from(frame.datagrams.len()).unwrap_or(u64::MAX));
+        self.dropped_datagrams = self.dropped_datagrams.saturating_add(datagrams);
+        let (frames, packets) = match reason {
+            DropReason::Replaced => {
+                (&mut self.dropped_replaced_frames, &mut self.dropped_replaced_datagrams)
+            }
+            DropReason::EvictedForProtected => (
+                &mut self.dropped_evicted_for_protected_frames,
+                &mut self.dropped_evicted_for_protected_datagrams,
+            ),
+            DropReason::RejectedProtected => (
+                &mut self.dropped_rejected_protected_frames,
+                &mut self.dropped_rejected_protected_datagrams,
+            ),
+        };
+        *frames = frames.saturating_add(1);
+        *packets = packets.saturating_add(datagrams);
     }
 }
 
@@ -1043,6 +1083,8 @@ mod tests {
 
         assert_eq!(queue.stats().dropped_frames, 1);
         assert_eq!(queue.stats().dropped_datagrams, 3);
+        assert_eq!(queue.stats().dropped_replaced_frames, 1);
+        assert_eq!(queue.stats().dropped_replaced_datagrams, 3);
         assert_eq!(queue.stats().queue_frames, 1);
         assert_eq!(queue.stats().queue_datagrams, 2);
         assert_eq!(
@@ -1067,7 +1109,28 @@ mod tests {
         queue.push(MediaFrame { datagrams: vec![b"recovery".to_vec()], droppable: false });
 
         assert_eq!(queue.stats().dropped_datagrams, 1);
+        assert_eq!(queue.stats().dropped_evicted_for_protected_frames, 1);
+        assert_eq!(queue.stats().dropped_evicted_for_protected_datagrams, 1);
         assert_eq!(queue.pop().map(|frame| frame.datagrams), Some(vec![b"key".to_vec()]));
         assert_eq!(queue.pop().map(|frame| frame.datagrams), Some(vec![b"recovery".to_vec()]));
+    }
+
+    #[test]
+    fn droppable_frame_is_rejected_behind_two_protected_frames() {
+        let mut queue = MediaQueue::default();
+        queue.push(MediaFrame { datagrams: vec![b"key".to_vec()], droppable: false });
+        queue.push(MediaFrame { datagrams: vec![b"recovery".to_vec()], droppable: false });
+        queue.push(MediaFrame {
+            datagrams: vec![b"delta".to_vec(), b"fec".to_vec()],
+            droppable: true,
+        });
+
+        let stats = queue.stats();
+        assert_eq!(stats.queue_frames, 2);
+        assert_eq!(stats.dropped_rejected_protected_frames, 1);
+        assert_eq!(stats.dropped_rejected_protected_datagrams, 2);
+        assert_eq!(queue.pop().map(|frame| frame.datagrams), Some(vec![b"key".to_vec()]));
+        assert_eq!(queue.pop().map(|frame| frame.datagrams), Some(vec![b"recovery".to_vec()]));
+        assert!(queue.pop().is_none());
     }
 }

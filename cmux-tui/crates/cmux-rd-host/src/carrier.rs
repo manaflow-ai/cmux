@@ -24,6 +24,22 @@ pub enum Incoming {
     Datagram(Vec<u8>),
 }
 
+/// A snapshot of the bounded link media queue, included in host stats when
+/// the session is using cmux-rd-link.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MediaQueueStats {
+    pub queue_frames: usize,
+    pub queue_datagrams: usize,
+    pub dropped_frames: u64,
+    pub dropped_datagrams: u64,
+    pub dropped_replaced_frames: u64,
+    pub dropped_replaced_datagrams: u64,
+    pub dropped_evicted_for_protected_frames: u64,
+    pub dropped_evicted_for_protected_datagrams: u64,
+    pub dropped_rejected_protected_frames: u64,
+    pub dropped_rejected_protected_datagrams: u64,
+}
+
 pub trait Carrier {
     /// Readable when [`Carrier::receive`] may have something.
     fn fds(&self) -> Vec<RawFd>;
@@ -32,6 +48,9 @@ pub trait Carrier {
     /// The current media route's measured RTT. Reads do not consume it;
     /// None means the current route needs frame-ACK based sizing.
     fn path_rtt_us(&self) -> Option<u64> {
+        None
+    }
+    fn media_queue_stats(&self) -> Option<MediaQueueStats> {
         None
     }
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()>;
@@ -188,6 +207,22 @@ impl Carrier for LinkCarrier {
     fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, droppable: bool) -> io::Result<()> {
         self.net.send_datagram_frame(datagrams, droppable);
         Ok(())
+    }
+
+    fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+        let stats = self.net.stats();
+        Some(MediaQueueStats {
+            queue_frames: stats.queue_frames,
+            queue_datagrams: stats.queue_datagrams,
+            dropped_frames: stats.dropped_frames,
+            dropped_datagrams: stats.dropped_datagrams,
+            dropped_replaced_frames: stats.dropped_replaced_frames,
+            dropped_replaced_datagrams: stats.dropped_replaced_datagrams,
+            dropped_evicted_for_protected_frames: stats.dropped_evicted_for_protected_frames,
+            dropped_evicted_for_protected_datagrams: stats.dropped_evicted_for_protected_datagrams,
+            dropped_rejected_protected_frames: stats.dropped_rejected_protected_frames,
+            dropped_rejected_protected_datagrams: stats.dropped_rejected_protected_datagrams,
+        })
     }
 
     fn send_control(&mut self, control: &Control) -> io::Result<()> {

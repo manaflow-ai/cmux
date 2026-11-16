@@ -131,7 +131,7 @@ pub use with_link::HybridCarrier;
 #[cfg(feature = "link")]
 mod with_link {
     use super::{LinkCfg, LINK_MAX_DATAGRAM, MAX_CANDIDATES, MAX_OFFERS, MAX_PROLOGUE};
-    use crate::carrier::{Carrier, Incoming, SocketCarrier};
+    use crate::carrier::{Carrier, Incoming, MediaQueueStats, SocketCarrier};
     use crate::wire::Control;
     use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
     use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
@@ -345,6 +345,27 @@ mod with_link {
             }
         }
 
+        fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+            self.net.as_ref().filter(|_| self.up).and_then(|net| {
+                let stats = net.stats();
+                Some(MediaQueueStats {
+                    queue_frames: stats.queue_frames,
+                    queue_datagrams: stats.queue_datagrams,
+                    dropped_frames: stats.dropped_frames,
+                    dropped_datagrams: stats.dropped_datagrams,
+                    dropped_replaced_frames: stats.dropped_replaced_frames,
+                    dropped_replaced_datagrams: stats.dropped_replaced_datagrams,
+                    dropped_evicted_for_protected_frames: stats
+                        .dropped_evicted_for_protected_frames,
+                    dropped_evicted_for_protected_datagrams: stats
+                        .dropped_evicted_for_protected_datagrams,
+                    dropped_rejected_protected_frames: stats.dropped_rejected_protected_frames,
+                    dropped_rejected_protected_datagrams: stats
+                        .dropped_rejected_protected_datagrams,
+                })
+            })
+        }
+
         fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
             match &self.net {
                 Some(net) if self.up && datagram.len() <= LINK_MAX_DATAGRAM => {
@@ -352,6 +373,22 @@ mod with_link {
                     Ok(())
                 }
                 _ => self.stream.send_datagram(datagram),
+            }
+        }
+
+        fn send_datagram_frame(
+            &mut self,
+            datagrams: Vec<Vec<u8>>,
+            droppable: bool,
+        ) -> io::Result<()> {
+            let on_link =
+                self.up && datagrams.iter().all(|datagram| datagram.len() <= LINK_MAX_DATAGRAM);
+            match (on_link, &self.net) {
+                (true, Some(net)) => {
+                    net.send_datagram_frame(datagrams, droppable);
+                    Ok(())
+                }
+                _ => self.stream.send_datagram_frame(datagrams, droppable),
             }
         }
 
