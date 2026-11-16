@@ -353,19 +353,24 @@ struct FileSettings {
     tree_config: bool,
 }
 
-/// What [`core_worktree`] says when a file sets the two settings more
-/// times than are kept.
-const TOO_MANY_WORK_TREE_SETTINGS: &str =
-    "a config file of the git folder sets its work tree more times than are read";
+/// What [`core_worktree`] says when the records of the two settings in one
+/// config file are longer than are kept.
+const WORK_TREE_SETTINGS_TOO_LONG: &str =
+    "a config file of the git folder has work tree settings that are longer than are read";
 
 /// The settings of the file `name` of the git folder `git_dir`, and of no
 /// file that it includes. The run is in the git folder and names the file
 /// by `name`, so a git folder whose path is not UTF-8 is read too.
 ///
-/// A limit: a setting whose record is 64 KiB or longer is not seen (the
-/// read of the records drops it). git gave the top folder with that
-/// setting read, so the limit is the one of [`is_on`]: the open then reads
-/// the git folder as one that names no work tree.
+/// git is asked for the two settings only. A record of another setting is
+/// no part of the output, at any length.
+///
+/// A limit: when the records of the two settings in the file are together
+/// longer than 64 KiB (each record with the byte that ends it), the open is
+/// refused. A part of the records can lack the last value of a setting, and
+/// git takes the last value, so no setting is taken from a part. The
+/// refusal is also for a work tree that git itself opens, when this read is
+/// asked for its git folder.
 fn file_settings(
     git_dir: &Path,
     name: &str,
@@ -376,20 +381,24 @@ fn file_settings(
     if std::fs::metadata(git_dir.join(name)).is_err_and(|error| missing(&error)) {
         return Ok(FileSettings::default());
     }
-    // `--null --list` prints each setting as a record: the name in lower
-    // case, a line break and the value, or the name alone when the file
-    // gives it no value.
-    let arguments = ["config", "--file", name, "--no-includes", "--null", "--list"];
-    let keep: fn(&[u8]) -> bool = |record| {
-        let key = record.split(|byte| *byte == b'\n').next().unwrap_or_default();
-        key == b"core.worktree" || key == b"extensions.worktreeconfig"
-    };
+    // `--null --get-regexp` prints each setting whose name the pattern
+    // matches as a record: the name in lower case, a line break and the
+    // value, or the name alone when the file gives it no value.
+    let pattern = r"^(core\.worktree|extensions\.worktreeconfig)$";
+    let arguments = ["config", "--file", name, "--no-includes", "--null", "--get-regexp", pattern];
     let left = remaining(deadline);
-    let output =
-        run_git_records_within(git_dir, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, left, keep)?;
-    if output.truncated {
-        return Err(GitFailure::Exit(TOO_MANY_WORK_TREE_SETTINGS.to_string()));
-    }
+    let output = match run_git_within(git_dir, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, left) {
+        Ok(output) if output.truncated => {
+            return Err(GitFailure::Exit(WORK_TREE_SETTINGS_TOO_LONG.to_string()));
+        }
+        Ok(output) => output,
+        // `--get-regexp` exits 1, with no text, when the file has neither
+        // setting.
+        Err(GitFailure::Exit(stderr)) if stderr.is_empty() => {
+            return Ok(FileSettings::default());
+        }
+        Err(failure) => return Err(failure),
+    };
     let mut settings = FileSettings::default();
     for record in output.stdout.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
         let mut parts = record.splitn(2, |byte| *byte == b'\n');
@@ -399,7 +408,7 @@ fn file_settings(
             // A name with no value: a setting is there, and it leads to no
             // folder.
             settings.worktree = Some(value.unwrap_or_default().to_vec());
-        } else {
+        } else if key == b"extensions.worktreeconfig" {
             settings.tree_config = is_on(value);
         }
     }
