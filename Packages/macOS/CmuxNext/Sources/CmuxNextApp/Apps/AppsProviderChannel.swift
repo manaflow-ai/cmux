@@ -102,8 +102,7 @@ final class AppsProviderChannel {
         didSet { if let turnedOff { answerRunningDisabled(turnedOff) } }
     }
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "apps.provider")
-    /// `apps-site-styles`: the daemon's full site-style snapshot, sent to the `browser.site` family's
-    /// connection at any time (right after the registration, possibly before its reply).
+    /// `apps-site-styles`, the daemon's full site-style snapshot, at any time (even before the register reply).
     @ObservationIgnored var onSiteStyles: (@MainActor (AppJSON) -> Void)?
 
     init(link: AppsProviderLink, backoff: Backoff = AppsProviderChannel.registerBackoff) {

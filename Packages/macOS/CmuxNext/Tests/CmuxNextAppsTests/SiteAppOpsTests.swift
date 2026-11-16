@@ -100,6 +100,9 @@ struct SiteAppOpsTests {
         #expect(run.first?.isRemoval == true)
         #expect(snapshot.sources(for: "https://a.test") == ["install-a2"], "and is not kept for later commits")
         #expect(snapshot.sources(for: "https://b.test").isEmpty, "the full snapshot replaces the last one")
+        let installers = SiteStyleSnapshot.installers(second)
+        #expect(installers.now == ["https://a.test": ["remove-a", "install-a2"]], "what runs on open tabs, in order")
+        #expect(installers.kept == ["https://a.test": ["install-a2"]], "what later commits run")
         #expect(snapshot.replace(with: ["styles": []]).isEmpty)
         #expect(snapshot.entries.isEmpty)
     }
