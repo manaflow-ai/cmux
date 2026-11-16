@@ -49,11 +49,24 @@ struct FakeHub {
     unreachable: bool,
     reports: bool,
     mints: Mutex<usize>,
+    /// Other machines the person's list has, beside the one the join makes.
+    others: Vec<Row>,
+    /// This computer's ledger of minted tokens.
+    ledger: Mutex<Vec<ledger::Entry>>,
+    revoked: Mutex<Vec<String>>,
 }
 
 impl FakeHub {
     fn up() -> Self {
-        Self { mint: Ok(()), unreachable: false, reports: true, mints: Mutex::new(0) }
+        Self {
+            mint: Ok(()),
+            unreachable: false,
+            reports: true,
+            mints: Mutex::new(0),
+            others: Vec::new(),
+            ledger: Mutex::new(Vec::new()),
+            revoked: Mutex::new(Vec::new()),
+        }
     }
 }
 
@@ -80,19 +93,140 @@ impl Hub for FakeHub {
 
     fn machines(&self) -> BoxFut<'_, Result<Vec<Row>, HubError>> {
         Box::pin(async move {
-            Ok(if self.reports {
-                vec![Row {
+            let revoked = self.revoked.lock().unwrap().clone();
+            let mut rows: Vec<Row> = self
+                .others
+                .iter()
+                .cloned()
+                .map(|mut row| {
+                    row.revoked |= revoked.contains(&row.machine_id);
+                    row
+                })
+                .collect();
+            if self.reports {
+                rows.push(Row {
                     machine_id: "machine_01".into(),
                     name: "gcp-3".into(),
                     join_token_id: Some("join_01".into()),
                     last_heartbeat_ms: Some(now_ms()),
                     revoked: false,
-                }]
-            } else {
-                Vec::new()
-            })
+                    hostname: Some("ubuntu".into()),
+                });
+            }
+            Ok(rows)
         })
     }
+
+    fn revoke<'a>(&'a self, machine_id: &'a str) -> BoxFut<'a, Result<(), HubError>> {
+        Box::pin(async move {
+            self.revoked.lock().unwrap().push(machine_id.to_owned());
+            Ok(())
+        })
+    }
+
+    fn remember(&self, entry: ledger::Entry) {
+        self.ledger.lock().unwrap().push(entry);
+    }
+
+    fn remembered(&self, join_token_id: &str) -> Option<ledger::Entry> {
+        self.ledger.lock().unwrap().iter().find(|e| e.join_token_id == join_token_id).cloned()
+    }
+}
+
+/// A probe answer: `uname -sm`, then the far machine's ed25519 host key line.
+fn probed(key: &str) -> Ran {
+    ok(&format!("Linux x86_64\nssh-ed25519 {key} root@ubuntu\n"))
+}
+
+const KEY_A: &str = "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
+const KEY_B: &str = "AAAAC3NzaC1lZDI1NTE5AAAAIPXGdgsLzYvYQW1iyn8lUYf3jfQ0l2a7Ut1UMp6JhL8C";
+
+fn earlier(machine_id: &str, name: &str, token: &str) -> Row {
+    Row {
+        machine_id: machine_id.into(),
+        name: name.into(),
+        join_token_id: Some(token.into()),
+        last_heartbeat_ms: None,
+        revoked: false,
+        hostname: Some("ubuntu".into()),
+    }
+}
+
+fn entry(token: &str, host: &str, key: &str) -> ledger::Entry {
+    let host_key = host_key_of(&probed(key)).expect("a host key");
+    ledger::Entry { join_token_id: token.into(), host: host.into(), host_key }
+}
+
+/// Door A timing run (huge-blue/door-a-join-timing, 2026-11-16): a failed first add of the VM left
+/// a second `doora-vm-1`, and `cmux chat --on doora-vm-1` refused "2 joined machines are named
+/// doora-vm-1". A re-add with the same name of the same machine (the same ssh destination and
+/// ssh host key, from this computer's ledger) revokes the earlier record; a machine of that
+/// name on another box, one this computer did not add, and another name are left alone.
+#[tokio::test]
+async fn a_readd_with_the_same_name_on_the_same_machine_replaces_the_earlier_record() {
+    let mut ssh = FakeSsh::new(vec![probed(KEY_A), ok("")]);
+    ssh.lines = vec!["cmux join: joined as gcp-3"];
+    let hub = FakeHub {
+        others: vec![
+            earlier("machine_old", "gcp-3", "join_old"),
+            earlier("machine_other_box", "gcp-3", "join_other_box"),
+            earlier("machine_not_ours", "GCP-3", "join_someone_else"),
+            earlier("machine_other_name", "gcp-4", "join_other_name"),
+        ],
+        ..FakeHub::up()
+    };
+    hub.remember(entry("join_old", "gcp-3", KEY_A));
+    hub.remember(entry("join_other_box", "gcp-3", KEY_B));
+    hub.remember(entry("join_other_name", "gcp-3", KEY_A));
+    let (outcome, _) = run("gcp-3", &ssh, &hub).await;
+    assert!(outcome.ok, "{outcome:?}");
+    assert_eq!(outcome.replaced, ["machine_old"]);
+    assert_eq!(*hub.revoked.lock().unwrap(), ["machine_old"]);
+    // The new token went into the ledger before the install, with the machine's host key.
+    let new = hub.remembered("join_01").expect("the new token is recorded");
+    assert_eq!(
+        (new.host.as_str(), new.host_key.clone()),
+        ("gcp-3", entry("x", "x", KEY_A).host_key)
+    );
+    // The machine the join made says which host name an older acpmux heartbeats with.
+    assert_eq!(outcome.machine.and_then(|m| m.hostname).as_deref(), Some("ubuntu"));
+}
+
+/// A probe with no host key (the file unreadable) still joins, and replaces nothing.
+#[tokio::test]
+async fn a_machine_whose_host_key_is_unknown_replaces_nothing() {
+    let ssh = FakeSsh::new(vec![ok("Linux x86_64\n"), ok("")]);
+    let hub =
+        FakeHub { others: vec![earlier("machine_old", "gcp-3", "join_old")], ..FakeHub::up() };
+    hub.remember(entry("join_old", "gcp-3", KEY_A));
+    let (outcome, _) = run("gcp-3", &ssh, &hub).await;
+    assert!(outcome.ok, "{outcome:?}");
+    assert!(outcome.replaced.is_empty());
+    assert!(hub.revoked.lock().unwrap().is_empty());
+}
+
+#[test]
+fn the_probe_reads_the_platform_and_the_host_key_fingerprint() {
+    let reply = probed(KEY_A);
+    assert_eq!(platform_of(&reply), Ok("Linux x86_64".to_owned()));
+    let key = host_key_of(&reply).unwrap();
+    assert!(key.starts_with("SHA256:") && !key.ends_with('='), "{key}");
+    assert_ne!(Some(key), host_key_of(&probed(KEY_B)));
+    assert_eq!(host_key_of(&ok("Linux x86_64\n")), None);
+    let remote = probe_plan("ssh", "gcp-3").argv.last().cloned().unwrap();
+    assert!(remote.starts_with("uname -sm && "), "{remote}");
+}
+
+#[test]
+fn the_ledger_keeps_each_token_once_and_finds_it_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ssh-joins.json");
+    assert_eq!(ledger::find(&path, "join_1"), None);
+    ledger::remember(&path, entry("join_1", "gcp-3", KEY_A)).unwrap();
+    ledger::remember(&path, entry("join_1", "gcp-3b", KEY_B)).unwrap();
+    ledger::remember(&path, entry("join_2", "gcp-4", KEY_A)).unwrap();
+    assert_eq!(ledger::find(&path, "join_1"), Some(entry("join_1", "gcp-3b", KEY_B)));
+    assert_eq!(ledger::find(&path, "join_2"), Some(entry("join_2", "gcp-4", KEY_A)));
 }
 
 fn ok(stdout: &str) -> Ran {

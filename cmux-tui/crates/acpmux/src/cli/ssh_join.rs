@@ -148,6 +148,10 @@ impl Failure {
 pub struct Joined {
     pub machine_id: String,
     pub name: String,
+    /// The host name the machine reported (`ubuntu`): an acpmux released before the mesh took
+    /// the joined name heartbeats with it, so the hub's mesh lists the machine by it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
 }
 
 /// The whole join's answer.
@@ -163,6 +167,10 @@ pub struct Outcome {
     pub seconds: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure: Option<Failure>,
+    /// Earlier records of this machine under the same name that the join revoked
+    /// ([`replace_earlier`]), by machine id.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub replaced: Vec<String>,
 }
 
 impl Outcome {
@@ -225,6 +233,8 @@ pub struct Row {
     pub join_token_id: Option<String>,
     pub last_heartbeat_ms: Option<u64>,
     pub revoked: bool,
+    /// The host name the machine reported at its join.
+    pub hostname: Option<String>,
 }
 
 /// The hub as the signed-in person.
@@ -232,6 +242,12 @@ pub trait Hub: Send + Sync {
     fn origin(&self) -> &str;
     fn mint<'a>(&'a self, label: Option<&'a str>) -> BoxFut<'a, Result<Minted, HubError>>;
     fn machines(&self) -> BoxFut<'_, Result<Vec<Row>, HubError>>;
+    /// Revokes the person's machine `machine_id`.
+    fn revoke<'a>(&'a self, machine_id: &'a str) -> BoxFut<'a, Result<(), HubError>>;
+    /// Records where a token minted here went ([`ledger`]).
+    fn remember(&self, entry: ledger::Entry);
+    /// Where the token `join_token_id` went, if this computer minted it.
+    fn remembered(&self, join_token_id: &str) -> Option<ledger::Entry>;
 }
 
 /// A host ssh takes as one word: never an option (`-oProxyCommand=…`), a space, a quote or a
@@ -329,9 +345,30 @@ fn ssh_argv(program: &str, host: &str, remote: &str) -> Vec<String> {
     .to_vec()
 }
 
-/// `reach`: the far machine's OS and arch.
+/// `reach`: the far machine's OS and arch, then its ssh host key (for [`host_key_of`]). A system
+/// with no `uname` (Windows) fails at the first command, before the `&&`.
 pub fn probe_plan(program: &str, host: &str) -> SshPlan {
-    SshPlan { argv: ssh_argv(program, host, "uname -sm"), stdin: None }
+    SshPlan { argv: ssh_argv(program, host, PROBE), stdin: None }
+}
+
+/// The probe's remote command.
+const PROBE: &str = "uname -sm && { cat /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || cat /etc/ssh/ssh_host_ecdsa_key.pub 2>/dev/null || true; }";
+
+/// The far machine's ssh host key from the probe's answer, as OpenSSH prints its fingerprint
+/// (`SHA256:` and the unpadded base64 of the key blob's SHA-256), or None when it printed none.
+pub fn host_key_of(reply: &Ran) -> Option<String> {
+    use base64::Engine as _;
+    use sha2::Digest as _;
+    reply.stdout.lines().skip(1).find_map(|line| {
+        let mut words = line.split_whitespace();
+        let kind = words.next()?;
+        if !(kind.starts_with("ssh-") || kind.starts_with("ecdsa-")) {
+            return None;
+        }
+        let blob = base64::engine::general_purpose::STANDARD.decode(words.next()?).ok()?;
+        let digest = sha2::Sha256::digest(&blob);
+        Some(format!("SHA256:{}", base64::engine::general_purpose::STANDARD_NO_PAD.encode(digest)))
+    })
 }
 
 /// `install`: the remote shell reads the token from stdin into an unexported variable, downloads
@@ -357,7 +394,8 @@ pub fn join_plan(
 
 /// `uname -sm` as a platform the POSIX join script serves, or why not.
 pub fn platform_of(reply: &Ran) -> Result<String, String> {
-    let text = reply.stdout.trim();
+    // The first line: the host key follows it ([`PROBE`]).
+    let text = reply.stdout.trim().lines().next().unwrap_or_default().trim();
     let mut words = text.split_whitespace();
     let (os, arch) = (words.next().unwrap_or_default(), words.next().unwrap_or_default());
     let known_os = matches!(os, "Linux" | "Darwin");
@@ -518,6 +556,7 @@ pub async fn join(
         platform: None,
         seconds: 0,
         failure: None,
+        replaced: Vec::new(),
     };
     let result = steps(request, ssh, hub, started, &mut outcome, emit).await;
     outcome.seconds = started.elapsed().as_secs();
@@ -586,6 +625,7 @@ async fn steps(
         )
     })?;
     outcome.platform = Some(platform.clone());
+    let host_key = host_key_of(&probe);
     emit(Progress { step: Step::Reach, state: "ok", detail: platform, seconds: seconds() });
 
     emit(Progress {
@@ -595,6 +635,14 @@ async fn steps(
         seconds: seconds(),
     });
     let minted = hub.mint(request.name.as_deref()).await.map_err(|e| hub_failure(&origin, &e))?;
+    // Before the install: an add that fails after the script redeemed the token is known too.
+    if let Some(host_key) = &host_key {
+        hub.remember(ledger::Entry {
+            join_token_id: minted.join_token_id.clone(),
+            host: host.to_owned(),
+            host_key: host_key.clone(),
+        });
+    }
     emit(Progress { step: Step::Token, state: "ok", detail: String::new(), seconds: seconds() });
 
     emit(Progress {
@@ -645,6 +693,9 @@ async fn steps(
             format!("run `cmux device doctor {host}` to see why its daemon is not running"),
         )
     })?;
+    if let Some(host_key) = &host_key {
+        outcome.replaced = replace_earlier(hub, &machine, host, host_key).await;
+    }
     emit(Progress {
         step: Step::Connect,
         state: "ok",
@@ -676,7 +727,11 @@ async fn reported(hub: &dyn Hub, join_token_id: &str, started: Instant) -> Optio
             if let Some(row) = row
                 && row.last_heartbeat_ms.is_some_and(|at| at + 60_000 >= began_ms)
             {
-                return Some(Joined { machine_id: row.machine_id, name: row.name });
+                return Some(Joined {
+                    machine_id: row.machine_id,
+                    name: row.name,
+                    hostname: row.hostname,
+                });
             }
         }
         if tokio::time::Instant::now() + CONNECT_EVERY > deadline {
@@ -684,6 +739,44 @@ async fn reported(hub: &dyn Hub, join_token_id: &str, started: Instant) -> Optio
         }
         tokio::time::sleep(CONNECT_EVERY).await;
     }
+}
+
+/// Revokes the records an earlier add of this same machine left under `joined`'s name: rows with
+/// that name, not revoked, whose token this computer minted for the same ssh destination and the
+/// same ssh host key (the [`ledger`]). A machine keeps one join record, so once it reported in
+/// with the new one the old one speaks for nothing; left, it made a second machine of that name
+/// and `cmux chat --on NAME` refused to pick. A machine of that name on another box, or one this
+/// computer did not add, is never touched. Answers the revoked machine ids.
+async fn replace_earlier(
+    hub: &dyn Hub,
+    joined: &Joined,
+    host: &str,
+    host_key: &str,
+) -> Vec<String> {
+    let Ok(rows) = hub.machines().await else { return Vec::new() };
+    let mut replaced = Vec::new();
+    for row in rows {
+        let same_machine = row
+            .join_token_id
+            .as_deref()
+            .and_then(|id| hub.remembered(id))
+            .is_some_and(|entry| entry.host == host && entry.host_key == host_key);
+        if row.revoked
+            || row.machine_id == joined.machine_id
+            || !row.name.eq_ignore_ascii_case(&joined.name)
+            || !same_machine
+        {
+            continue;
+        }
+        match hub.revoke(&row.machine_id).await {
+            Ok(()) => replaced.push(row.machine_id),
+            Err(error) => tracing::warn!(
+                machine = %row.machine_id,
+                "the join could not revoke this machine's earlier record ({error:?})"
+            ),
+        }
+    }
+    replaced
 }
 
 fn now_ms() -> u64 {
@@ -817,6 +910,29 @@ impl Hub for PersonHub {
             Ok(rows(&body))
         })
     }
+
+    fn revoke<'a>(&'a self, machine_id: &'a str) -> BoxFut<'a, Result<(), HubError>> {
+        Box::pin(async move {
+            let id = machine_id.parse().map_err(|_| HubError::Status {
+                status: 400,
+                code: "machine.malformed_id".into(),
+            })?;
+            match self.client.machine_join_revoke(&id).await {
+                Ok(_) => Ok(()),
+                Err(error) => Err(hub_error(error).await),
+            }
+        })
+    }
+
+    fn remember(&self, entry: ledger::Entry) {
+        if let Err(error) = ledger::remember(&ledger::path(), entry) {
+            tracing::warn!("could not record the join token's machine: {error}");
+        }
+    }
+
+    fn remembered(&self, join_token_id: &str) -> Option<ledger::Entry> {
+        ledger::find(&ledger::path(), join_token_id)
+    }
 }
 
 /// The machine list's rows (tolerant of fields it does not know).
@@ -848,6 +964,7 @@ pub fn rows(body: &Value) -> Vec<Row> {
                 join_token_id: text("joinTokenId"),
                 last_heartbeat_ms,
                 revoked: row.get("revoked").and_then(Value::as_bool).unwrap_or(false),
+                hostname: text("hostname"),
             })
         })
         .collect()
@@ -867,6 +984,7 @@ pub async fn join_as(
             machine: None,
             platform: None,
             seconds: 0,
+            replaced: Vec::new(),
             failure: Some(Failure::new(
                 Kind::Usage,
                 format!("the hub origin is not usable: {error:#}"),
@@ -875,6 +993,9 @@ pub async fn join_as(
         },
     }
 }
+
+#[path = "ssh_join_ledger.rs"]
+pub mod ledger;
 
 #[cfg(test)]
 #[path = "ssh_join_tests.rs"]
