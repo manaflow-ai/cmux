@@ -169,8 +169,13 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
     # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
-    {"name": "memory-agents", "args": [*MEASURE, "--suite=memory-agents", "--agents=10"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
+    # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
+    # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
+    # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
+    # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
+    {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
+     "run_seconds": 2400},  # 1500 s for the bench, plus a cold bench build (800 s) when this part runs first
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
     # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
