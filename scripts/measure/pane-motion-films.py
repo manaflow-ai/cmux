@@ -241,7 +241,7 @@ class Films:
             elif kind in ("page", "chat"):
                 fallbacks = st.chat_fallbacks
                 st.add_tab(workspace, pane, "chromium" if kind == "page" else "chat")
-                if st.chat_fallbacks > fallbacks or not st.made[pane][-1][1]:
+                if st.chat_fallbacks > fallbacks or not (st.made.get(pane) or [(kind, None)])[-1][1]:
                     raise RuntimeError(f"no {kind} tab: the app refused it or it did not come ({st.refusals[-1:]})")
                 if shell:
                     st.action("closeTab", target=f"tab:{shell}", focus=False)
@@ -434,7 +434,8 @@ def main():
         print(f"pane-motion-films: NOT RUN: needs --app and known film ids (not known: {[i for i in wanted if i not in known]})", flush=True)
         return 3
     # A film that opens a window goes last: a window that stays open is then in no other film.
-    wanted.sort(key=lambda i: next(s for s in FILMS if s["id"] == i).get("crop") == "frame")
+    wanted = sorted(dict.fromkeys(wanted), key=lambda i: next(s for s in FILMS if s["id"] == i).get("crop") == "frame")
+    opts.out = os.path.abspath(opts.out)  # the recorder writes the movie in the app's process
     os.makedirs(opts.out, exist_ok=True)
     # No osascript in a step: the launcher leaves the sound as it is and its read of the mute state is a no-op.
     os.environ.update({"BENCH_LAUNCH_AUDIO": "keep", "BENCH_LAUNCH_OSASCRIPT": "/usr/bin/true"})
