@@ -1,20 +1,19 @@
 /* A machine's load line (MachineLoadLine.tsx): quiet facts, then the verdict; the dot and the verdict
    take the verdict's colour (room: success, busy: warning, offline and held: muted). The colours fall
-   back to the Settings page's tokens, which has no agent palette. */
+   back to the Settings page's tokens, which has no agent palette. Its size is the row's own text. */
 .machine-load {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-1);
   min-width: 0;
-  font-size: var(--text-caption, 11px);
   font-variant-numeric: tabular-nums;
   color: var(--agent-muted, var(--text-secondary, GrayText));
   white-space: nowrap;
 }
 .machine-load-dot {
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: calc(var(--ds-space-1) * 1.5);
+  aspect-ratio: 1;
   border-radius: 50%;
   box-sizing: border-box;
   border: 1px solid currentColor;
@@ -25,6 +24,7 @@
   text-overflow: ellipsis;
 }
 .machine-load-verdict { flex: none; }
+.machine-load-facts + .machine-load-verdict { margin-left: var(--ds-space-1); }
 .machine-load[data-machine-load="room"] .machine-load-dot {
   border-color: transparent;
   background: var(--agent-success, var(--success, #34c759));

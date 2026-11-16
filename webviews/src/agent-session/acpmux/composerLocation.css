@@ -1928,7 +1928,8 @@
   flex: 1 1 0;
   justify-content: flex-end;
   overflow: hidden;
-  padding-left: 12px;
+  padding-left: var(--ds-space-3);
+  font-size: var(--text-caption);
 }
 .acpmux-env-row .machine-load + .acpmux-env-key,
-.acpmux-env-row .machine-load + .acpmux-location-check { margin-left: 6px; }
+.acpmux-env-row .machine-load + .acpmux-location-check { margin-left: calc(var(--ds-space-1) * 1.5); }

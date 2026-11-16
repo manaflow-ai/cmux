@@ -80,10 +80,15 @@ export default componentEntry<Props>({
     offline: {
       note: "A machine that dropped: no numbers, how long it has been offline.",
       props: machines({ "old-laptop": offlineLoad }),
+      // An offline machine is listed under Unavailable (EnvironmentPicker's folded group): open it.
       play: async (ctx) => {
-        await openMachines(ctx);
-        if (!ctx.document.querySelector(".acpmux-env-popover")?.textContent?.includes("offline 2 min"))
-          throw new Error("the offline machine does not say how long");
+        await ctx.contextMenu({ role: "button", name: /^Environment/ });
+        await ctx.click({ role: "menuitem", name: "Machines…" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-action="unavailable"]'));
+        await ctx.click({ role: "option", name: /Unavailable/ });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-env-popover .machine-load")?.textContent?.includes("offline 2 min"),
+        );
       },
     },
     mixed: {
