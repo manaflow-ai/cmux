@@ -3593,9 +3593,94 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
 
 #[test]
 fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts() {
+    interrupted_public_creation_with_prints("public-create-recovery");
+}
+
+#[test]
+fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts_copy_b() {
+    interrupted_public_creation_with_prints("public-create-recovery-b");
+}
+
+#[test]
+fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts_copy_c() {
+    interrupted_public_creation_with_prints("public-create-recovery-c");
+}
+
+#[test]
+fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts_copy_d() {
+    interrupted_public_creation_with_prints("public-create-recovery-d");
+}
+
+/// The time of this process's clock, in milliseconds since the epoch: the unit of the journal's rows.
+fn epoch_ms() -> u128 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()
+}
+
+/// A proof commit only, never merged: each row of the store's journal and of 3 more tables, as prints.
+/// A read that fails is a print, not a panic.
+fn print_store_rows(state: &Path) {
+    let Some(registry) = walk_files(state)
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3"))
+    else {
+        eprintln!("revision-print: no registry file");
+        return;
+    };
+    let connection = match rusqlite::Connection::open_with_flags(
+        &registry,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    ) {
+        Ok(connection) => connection,
+        Err(error) => {
+            eprintln!("revision-print: open failed: {error}");
+            return;
+        }
+    };
+    for table in ["session_journal", "resource_mutations", "workspace_events", "terminal_events"] {
+        if let Err(error) = print_table_rows(&connection, table) {
+            eprintln!("revision-print: table {table}: {error}");
+        }
+    }
+}
+
+fn print_table_rows(connection: &rusqlite::Connection, table: &str) -> rusqlite::Result<()> {
+    let mut statement = connection.prepare(&format!("SELECT * FROM {table} ORDER BY 1"))?;
+    let names: Vec<String> = statement.column_names().into_iter().map(str::to_owned).collect();
+    let mut rows = statement.query([])?;
+    let mut count = 0_usize;
+    while let Some(row) = rows.next()? {
+        count += 1;
+        if count > 200 {
+            eprintln!("revision-print: table {table}: more than 200 rows, the rest is not printed");
+            break;
+        }
+        let mut line = String::new();
+        for (index, name) in names.iter().enumerate() {
+            let value = match row.get_ref(index)? {
+                rusqlite::types::ValueRef::Null => "null".to_owned(),
+                rusqlite::types::ValueRef::Integer(value) => value.to_string(),
+                rusqlite::types::ValueRef::Real(value) => value.to_string(),
+                rusqlite::types::ValueRef::Text(text) => {
+                    String::from_utf8_lossy(text).chars().take(500).collect::<String>()
+                }
+                rusqlite::types::ValueRef::Blob(blob) => format!("blob of {} bytes", blob.len()),
+            };
+            line.push_str(&format!(" {name}={value}"));
+        }
+        eprintln!("revision-print: {table}:{line}");
+    }
+    eprintln!("revision-print: table {table}: {count} rows read");
+    Ok(())
+}
+
+/// A proof commit only, never merged: the test's body with prints of the clock at 5 points and of the
+/// store's rows after the second snapshot. No assert on a time. The body ends with a forced red, so that
+/// the test runner shows the prints of a pass with revision 1 too.
+fn interrupted_public_creation_with_prints(name: &str) {
+    let test_start_at = epoch_ms();
     // The exact revision assertions below count creation commits only; a
     // shell's cwd report would add its own revision.
-    let mut harness = RecoveryHarness::start_unstarted("public-create-recovery");
+    let mut harness = RecoveryHarness::start_unstarted(name);
     harness.host_ready_delay_ms = Some(2_000);
     harness.shell_integration = false;
     harness.restart();
@@ -3646,6 +3731,7 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
         serde_json::json!({"machine":"current","session":"current"}),
         None,
     );
+    let first_snapshot_at = epoch_ms();
     assert_eq!(first_snapshot["cursor"]["revision"], "1");
     assert_eq!(first_snapshot["workspaces"].as_array().unwrap().len(), 1);
     assert_eq!(first_snapshot["terminals"].as_array().unwrap().len(), 1);
@@ -3654,8 +3740,10 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
     assert_eq!(after_first_restart.host_start_nonce, before.host_start_nonce);
     assert_eq!(after_first_restart.incarnation, before.incarnation);
 
+    let second_kill_at = epoch_ms();
     harness.sigkill();
     harness.restart();
+    let second_start_done_at = epoch_ms();
 
     let second_resolution = resource_request(
         &harness.socket,
@@ -3692,6 +3780,18 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
         serde_json::json!({"machine":"current","session":"current"}),
         None,
     );
+    let second_snapshot_at = epoch_ms();
+    eprintln!(
+        "revision-print: {name}: second snapshot revision {} (first snapshot revision {}); clock in ms: \
+         test start {test_start_at}, first snapshot {first_snapshot_at}, second kill {second_kill_at}, \
+         second start done {second_start_done_at}, second snapshot {second_snapshot_at}; \
+         replay revision {}, second resolution revision {}",
+        second_snapshot["cursor"]["revision"],
+        first_snapshot["cursor"]["revision"],
+        replay["revision"],
+        second_resolution["revision"],
+    );
+    print_store_rows(&harness.state);
     assert_eq!(second_snapshot["cursor"]["revision"], "1");
     assert_eq!(second_snapshot["workspaces"].as_array().unwrap().len(), 1);
     assert_eq!(second_snapshot["terminals"].as_array().unwrap().len(), 1);
@@ -3712,6 +3812,9 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
         Some("public-create-close"),
     );
     wait_for_no_host_records(&harness.host_root());
+    panic!(
+        "revision-print: a forced red of this proof commit: the prints of a pass with revision 1 must show"
+    );
 }
 
 #[test]
