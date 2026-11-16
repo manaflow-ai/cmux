@@ -127,7 +127,11 @@ var row: [String: Any] = [
     "label": label, "pid": app?.processIdentifier ?? 0, "start_epoch_ms": start ?? NSNull(),
     "request_to_start": start.map { ($0 - requested).rounded(toPlaces: 1) } ?? NSNull(),
     "finished_launching": rel(finished), "window_on_screen": rel(window), "active": rel(active),
-    "marks": marks.filter { keep.contains($0.key) }, "all_marks": marks.count,
+    // The prime launch (a fresh home: no Home cache, no Chief yet) keeps every mark, so the steps of its
+    // wait for Home (home.chief_owner_ready, home.chief_create_replied, ...) can be named; every launch keeps
+    // the launch steps (dfl.*) and Home's (home.*), so a relaunch's cache read shows too.
+    "marks": marks.filter { label == "prime" || keep.contains($0.key) || $0.key.hasPrefix("dfl.") || $0.key.hasPrefix("home.") },
+    "all_marks": marks.count,
 ]
 if let failure { row["error"] = failure }
 let data = try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
