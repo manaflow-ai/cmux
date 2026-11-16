@@ -10631,78 +10631,66 @@ class UnplacedGitHub(FakeGitHub):
         self.logs = {1: unplaced_log(name, step, *head_lines), 2: unplaced_log(name, step, *base_lines)}
 
 
-class SubCheckTheBaseNeverReached(unittest.TestCase):
-    """2026-11-16, cmux#44614 at fb973a17 and cmux#44622 at 071af5f5. 'cmux-next checks (god files, concurrency, crash
-    safety, l10n)' runs several checks in one step under `set -e`. The newest red base verdict (run 43891349325) failed
-    the pull-request tiers test and exited there, never reaching ./scripts/lint-ios-package-conventions.sh; both heads
-    got past the tiers test and failed that lint on three namespace-type violations in files neither PR touches, which
-    base commit f48280ea767 justified after their merge-base. Compared whole, each head had error lines the base
-    "lacked", so both reds read as the PRs' own."""
+class SubCheckThePassedOnTheBase(unittest.TestCase):
+    """2026-11-16, cmux#44614 at fb973a17 and cmux#44622 at 071af5f5. Both heads' only red was 'cmux-next checks (god
+    files, concurrency, crash safety, l10n)', failing ./scripts/lint-ios-package-conventions.sh on three
+    namespace-type violations in files neither PR touches, which base commit f48280ea767 justified after their
+    merge-base. The base ran that lint and passed it (run 43891349325's log, `##[group]./scripts/
+    lint-ios-package-conventions.sh: ok, 22s`), so compared whole each head had error lines the base lacked, and both
+    reds read as the PRs' own with nothing said about the base merge that clears them."""
 
     CHECKS = "cmux-next checks (god files, concurrency, crash safety, l10n)"
     STEP = "Run the cmux-next checks"
     LINT = "./scripts/lint-ios-package-conventions.sh"
-    HEAD_LINES = (f"##[error]{LINT}", "##[error]FAIL: convention violations found (ERROR lines above).")
+    HEAD_LINES = (f"##[error]title=check failed::{LINT}", f"##[error]{LINT}",
+                  "##[error]FAIL: convention violations found (ERROR lines above).")
+    # What the concurrent check runner prints for a check that passed, and the base's own red beside it.
+    PASSED = f"##[group]{LINT}: ok, 22s"
     TIERS = ("##[error]FAIL: test_a_path_no_mac_build_reads_runs_no_mac_compile "
              "(__main__.PullRequestTiers.test_a_path_no_mac_build_reads_runs_no_mac_compile)")
 
-    def github(self, head_lines=HEAD_LINES, base_lines=(TIERS,)):
+    def github(self, head_lines=HEAD_LINES, base_lines=(PASSED, TIERS)):
         github = UnplacedGitHub(self.CHECKS, self.STEP, head_lines, base_lines)
         github.base_runs[1]["created_at"] = "2026-11-16T14:00:00Z"
-        return github
-
-    def older(self, github, lines, conclusion="failure"):
-        """An older base verdict of the same job (run 19) that does reach the lint."""
-        github.jobs[3] = dict(failed_job(3, 19, BASE_SHA, name=self.CHECKS, step=self.STEP), conclusion=conclusion)
-        if conclusion == "success":
-            github.jobs[3]["steps"] = [dict(step, conclusion="success") for step in github.jobs[3]["steps"]]
-        github.logs[3] = unplaced_log(self.CHECKS, self.STEP, *lines)
-        github.base_runs.append({"id": 19, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
-                                 "conclusion": conclusion, "head_sha": BASE_SHA,
-                                 "created_at": "2026-11-16T13:00:00Z"})
         return github
 
     def judge(self, github):
         return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
 
-    def test_a_base_step_that_stopped_before_the_sub_check_is_said_so_not_called_the_heads_own(self):
+    def test_a_check_the_base_ran_and_passed_is_named_with_the_base_merge_that_clears_it(self):
         with self.assertRaises(excuse.Refused) as raised:
             self.judge(self.github())
         said = str(raised.exception)
-        self.assertIn("feat-cmux-next never reached scripts/lint-ios-package-conventions.sh", said)
-        self.assertIn("failed earlier in the same step", said)
-        # The old wording read as the head's own red and said nothing about what to do with it.
-        self.assertNotIn("its error lines are not feat-cmux-next run 20's", said)
+        self.assertIn("ran scripts/lint-ios-package-conventions.sh", said)
+        self.assertIn("it passed there", said)
+        self.assertIn(f"merge feat-cmux-next into the branch", said)
 
-    def test_the_newest_base_verdict_that_reached_it_decides_and_excuses_the_same_lines(self):
-        github = self.older(self.github(), self.HEAD_LINES)
-        said = self.judge(github)
+    def test_a_base_verdict_that_fails_the_same_lines_is_still_excused(self):
+        # The excuse path is untouched: nothing here adds or removes one.
+        said = self.judge(self.github(base_lines=self.HEAD_LINES))
         self.assertIn("excused", said)
-        # The window walk reaches run 19 itself here, so the plain whole-log excuse is the one printed; the sub-check
-        # rule's own reading only has to find such a verdict once the window has been spent on ones that never
-        # reached the lint, which the refusal test above covers.
-        self.assertIn("run 19", said)
-        self.assertNotIn("never reached", said)
+        self.assertNotIn("it passed there", said)
 
-    def test_a_base_verdict_that_reached_it_and_fails_other_lines_still_refuses(self):
-        github = self.older(self.github(), (f"##[error]{self.LINT}", "##[error]FAIL: something else entirely."))
-        with self.assertRaisesRegex(excuse.Refused, "more on this head: .*convention violations"):
-            self.judge(github)
-
-    def test_a_base_verdict_that_reached_it_and_passed_makes_the_red_the_heads_own(self):
-        github = self.older(self.github(), (f"##[group]Run {self.LINT}", "OK: no unjustified convention violations."),
-                            conclusion="success")
-        with self.assertRaisesRegex(excuse.Refused, "reached scripts/lint-ios-package-conventions.sh.*and passed"):
-            self.judge(github)
-
-    def test_a_base_log_that_does_name_the_sub_check_keeps_the_plain_whole_log_refusal(self):
-        # The base reached the lint and failed another of its lines: nothing here is a step it never ran.
-        github = self.github(base_lines=(f"##[error]{self.LINT}", "##[error]FAIL: something else entirely."))
+    def test_a_base_log_that_never_names_the_check_keeps_the_plain_refusal(self):
+        # Without the runner's `: ok` line the base log says nothing about the check: the whole-log refusal stands.
         with self.assertRaises(excuse.Refused) as raised:
-            self.judge(github)
+            self.judge(self.github(base_lines=(self.TIERS,)))
         said = str(raised.exception)
         self.assertIn("compared whole", said)
-        self.assertNotIn("never reached", said)
+        self.assertNotIn("it passed there", said)
+
+    def test_a_source_path_in_a_compiler_error_is_no_sub_check(self):
+        # SUB_CHECK reads only a script a step runs, so a compile red keeps its own reading (and its own excuses).
+        self.assertEqual(excuse.sub_checks("##[error]webviews/src/pages/x.ts(12,3): error TS2304: Cannot find name"),
+                         frozenset())
+        self.assertEqual(excuse.sub_checks(f"##[error]{self.LINT} failed"),
+                         frozenset({"scripts/lint-ios-package-conventions.sh"}))
+
+    def test_only_the_runners_ok_line_counts_as_passed(self):
+        # A step that merely echoes the script's name (its `Run` body, a usage line) never counts as having passed it.
+        self.assertTrue(excuse.check_passed_in(f"##[group]{self.LINT}: ok, 22s", "scripts/lint-ios-package-conventions.sh"))
+        self.assertFalse(excuse.check_passed_in(f"##[group]Run {self.LINT}", "scripts/lint-ios-package-conventions.sh"))
+        self.assertFalse(excuse.check_passed_in(f"{self.LINT}: ok, 22s", "scripts/lint-ios-package-conventions.sh"))
 
 
 class PrOnlyStepGitHub(FakeGitHub):

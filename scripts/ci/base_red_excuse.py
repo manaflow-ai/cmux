@@ -68,7 +68,6 @@ import copy
 import functools
 import importlib.util
 import io
-import itertools
 import json
 import os
 import re
@@ -2101,65 +2100,62 @@ def pr_only_step_verdict(repo: str, base: str, name: str, head: UnplacedSignatur
         fixed |= passed
     return None
 
-# A sub-check the base's step never reached (2026-11-16, cmux#44614 at fb973a17 and cmux#44622 at 071af5f5). One step
-# runs several checks in order under `set -e`: 'cmux-next checks (god files, concurrency, crash safety, l10n)' runs the
-# pull-request tiers test, then ./scripts/lint-ios-package-conventions.sh, then the rest. The newest red base verdict
-# (run 43891349325) failed test_a_path_no_mac_build_reads_runs_no_mac_compile and exited there, so its log never
-# printed the lint's lines at all, while both heads got past the tiers test and failed the lint on three namespace-type
-# violations in files neither PR touches (base commit f48280ea767 justified them after the merge-base). Compared whole,
-# each head then had error lines "the base lacks", and two reds that were the base's read as the PRs' own.
-# A base log is no evidence about a check its step never reached. So when every base verdict read failed earlier in
-# the step and none of their logs names the sub-check the head failed, the newest base verdict that did reach it
-# decides instead (a pass there means the head's red is its own), and when no base verdict reached it the refusal says
-# "never reached <script>" and what to run, instead of calling the head's red its own.
-SUB_CHECK = re.compile(r"((?:\./)?(?:[\w.-]+/)+[\w.-]+\.(?:sh|py|mjs|js|ts))")
-# How many more base verdicts may be read to find one that reached the sub-check, past the window already read.
-UNREACHED_READS = BASE_WINDOW
+# A sub-check the base ran and passed (2026-11-16, cmux#44614 at fb973a17 and cmux#44622 at 071af5f5). One step runs
+# many checks, concurrently through scripts/ci/run-checks-concurrently.sh, which prints one
+# `::group::<command>: ok, <n>s` line per check that passed and `::error title=check failed::<command>` for each that
+# failed. Both heads' only red was 'cmux-next checks (god files, concurrency, crash safety, l10n)', failing
+# ./scripts/lint-ios-package-conventions.sh on three namespace-type violations in files neither PR touches, which base
+# commit f48280ea767 justified after their merge-base. The base ran that lint and passed it, so compared whole each
+# head had error lines the base lacked, and both reds read as the PRs' own with nothing said about what to do: the
+# fix was already on the base and a base merge would have cleared them. So when every base verdict read ran and
+# passed the script the head's extra error lines name, the refusal says that by name, and says to merge the base. It
+# excuses nothing by itself: a red is still only excused by a base verdict that fails the same lines.
+SUB_CHECK = re.compile(r"((?:\./|scripts/)[\w./-]+\.(?:sh|py|mjs|js|ts))")
 
 
 def sub_checks(error: str) -> frozenset:
     """The scripts an error line names (`./scripts/lint-ios-package-conventions.sh`), which is how a step's log says
-    which sub-check printed it; empty when the line names none."""
+    which check printed it; empty when the line names none. Only a script a step runs (`./...` or `scripts/...`), so a
+    compiler error naming a source file is no sub-check."""
     return frozenset(found.group(1).removeprefix("./") for found in SUB_CHECK.finditer(error))
 
 
-def unreached_sub_check_verdict(repo: str, base: str, name: str, head: UnplacedSignature,
-                                seen: "list[tuple[dict, dict, UnplacedSignature]]", verdicts, github) -> str | None:
-    """The audit line for an unplaced red NAME whose extra error lines name scripts no base verdict read (SEEN:
-    (run, job, signature)) ever reached, judged against the newest base verdict that did reach them (VERDICTS, at
-    most UNREACHED_READS more); raises Refused naming the sub-check when none reached it or the one that did does not
-    fail it. None when the shape does not hold: a base log that does name the script is evidence, and the plain
-    whole-log refusal is then the honest one."""
+# What scripts/ci/run-checks-concurrently.sh prints for a check that passed: `::group::<command>: ok, <n>s`, which the
+# runner renders as `##[group]<command>: ok, 22s`. Not a step header (STEP_START reads `##[group]Run `), and the one
+# line that tells a check that ran and passed from a name a step merely echoes.
+CHECK_GROUP = "##[group]"
+
+
+def check_passed_in(log: str, marker: str) -> bool:
+    """Whether LOG says the concurrent check runner ran MARKER and it passed (`##[group]<command>: ok, 22s`)."""
+    return any(line.startswith(CHECK_GROUP) and not STEP_START.match(line) and f"{marker}: ok," in line
+               for line in lines_of(log))
+
+
+def passed_on_base_verdict(repo: str, base: str, name: str, head: UnplacedSignature,
+                           seen: "list[tuple[dict, dict, UnplacedSignature]]", github) -> None:
+    """Raises Refused naming the script when the head's extra error lines over every base verdict read (SEEN:
+    (run, job, signature)) name one that each of those verdicts ran and passed; returns None when no base log says
+    so. A refusal only: it never excuses a red."""
     markers: set = set()
     for _, job, found in seen:
         extra = sorted((head.errors - found.errors).elements())
         if not extra:
             return None
         asked = {marker for error in extra for marker in sub_checks(error)}
+        log = github.log(repo, job) or ""
+        asked = {marker for marker in asked if check_passed_in(log, marker)}
         if not asked:
             return None
-        text = github.log(repo, job) or ""
-        if any(marker in text for marker in asked):
+        markers = asked if not markers else markers & asked
+        if not markers:
             return None
-        markers |= asked
+    run = seen[0][0]
+    url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
     said = "; ".join(sorted(markers))[:200]
-    for _ in range(UNREACHED_READS):
-        run, found = next(verdicts, (None, None))
-        if run is None:
-            break
-        if found.get("conclusion") not in ("failure", "success"):  # unfinished or cancelled: no verdict either way
-            continue
-        if not any(marker in (github.log(repo, found) or "") for marker in markers):
-            continue
-        url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
-        if found.get("conclusion") == "success":
-            raise Refused(f"'{name}': {base} run {run['id']} ({url}) reached {said} in '{name}' and passed, so this "
-                          f"head's failure there is its own")
-        return (unplaced_verdict(repo, name, base, head, unplaced_base_evidence(repo, found, github), run)
-                + f"; the newer base verdicts' step stopped before {said}")
-    raise Refused(f"'{name}': {base} never reached {said}: each of the {len(seen)} base verdict(s) read failed earlier "
-                  f"in the same step and none of their logs names it, so they say nothing about it; run {said} on "
-                  f"{base} to judge this red")
+    raise Refused(f"'{name}': {base} run {run['id']} ran {said} in '{name}' and it passed there ({url}), so this red "
+                  f"is not {base}'s; when {base} fixed what it reports after this PR's merge-base, merge {base} into "
+                  f"the branch and the red goes")
 
 
 
@@ -7605,18 +7601,14 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                                 audit.append(only + (f"; {aside}" if aside is not None else ""))
                                 pr_only.add((job.get("run_id"), name))
                                 break
-                            # RUN and FOUND: the pair that ended the window walk (a pass, or one too old), read
-                            # again by the sub-check rule, which a green base verdict answers as well as a red one.
-                            left = itertools.chain([(run, found)] if run is not None else [], verdicts)
-                            if (reached := unreached_sub_check_verdict(repo, base, name, mine, seen, left,
-                                                                      github)) is not None:
-                                audit.append(reached + (f"; {aside}" if aside is not None else ""))
-                                break
                             if aside is None and (same := compile_errors_verdict(
                                     repo, base, sha, name, job, view, got.compile, got.unplaced, newest_job,
                                     evidence.runs(workflow), base_jobs, github, run_reads)) is not None:
                                 audit.append(same)
                                 break
+                            # Last, so it pre-empts no excuse: a refusal that says the base ran and passed the check
+                            # the head fails, and to merge the base (passed_on_base_verdict).
+                            passed_on_base_verdict(repo, base, name, mine, seen, github)
                             raise
                         read += 1
                         base_run, base_job = run, found
