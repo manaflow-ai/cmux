@@ -74,6 +74,17 @@ pub fn check_create_capabilities(selection: &Selection, params: &Value) -> Resul
     Ok(())
 }
 
+/// Whether a create's parameters name a field whose meaning needs a backend capability
+/// (check_create_capabilities). `null` is an omitted field.
+pub(crate) fn create_needs_capabilities(params: &Value) -> Result<bool, String> {
+    let object = params
+        .as_object()
+        .ok_or_else(|| "machine create parameters must be a JSON object".to_owned())?;
+    Ok(ADVANCED_CREATE_FIELDS
+        .iter()
+        .any(|field| object.get(*field).is_some_and(|value| !value.is_null())))
+}
+
 pub(crate) fn cached(
     resolver: &Resolver,
     mut selection: Selection,
