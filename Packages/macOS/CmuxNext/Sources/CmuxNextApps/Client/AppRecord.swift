@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextActions
 
 /// Where an app came from (`apps-list` `source`).
 public nonisolated enum AppSource: String, Sendable, Hashable, CaseIterable {
@@ -64,13 +65,33 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         public var when: String?
         /// The op's default shortcuts (catalog `keyboard`, `commands[].keys`).
         public var keys: [Key]
+        /// Single browser-page keys (`page_keys`), with `cmux.keys` overrides applied by the daemon.
+        public var pageKeys: [String]
+        /// The raw catalog predicate for each page key (`page_key_when`).
+        public var pageKeyWhen: [String: String]
         public var id: String { op }
 
-        public init(op: String, title: AppLocalizedText, when: String? = nil, keys: [Key] = []) {
+        public init(op: String, title: AppLocalizedText, when: String? = nil, keys: [Key] = [], pageKeys: [String] = [], pageKeyWhen: [String: String] = [:]) {
             self.op = op
             self.title = title
             self.when = when
             self.keys = keys
+            self.pageKeys = pageKeys
+            self.pageKeyWhen = pageKeyWhen
+        }
+
+        /// Whether a bare page key runs this command under the live context.
+        public func answers(pageKey character: String, shift: Bool) -> Bool {
+            answers(pageKey: character, shift: shift, context: KeyContext(["browserFocused": .bool(true)]))
+        }
+
+        public func answers(pageKey character: String, shift: Bool, context: KeyContext) -> Bool {
+            let key = shift ? "shift+\(character)" : character
+            guard pageKeys.contains(key) else { return false }
+            guard let raw = pageKeyWhen[key], let clause = try? WhenClause.parse(raw) else {
+                return pageKeyWhen[key] == nil
+            }
+            return clause.evaluate(context)
         }
 
         /// One default shortcut: one chord (`cmd+shift+r`) and its context (`browserFocused`).
@@ -140,8 +161,10 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
             let keys = (entry["keys"]?.arrayValue ?? []).compactMap { key in
                 key["key"]?.stringValue.map { Command.Key(key: $0, when: key["when"]?.stringValue) }
             }
+            let pageKeys = entry["page_keys"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            let pageKeyWhen = entry["page_key_when"]?.objectValue?.compactMapValues(\.stringValue) ?? [:]
             return Command(op: op, title: AppLocalizedText(json: entry["title"]) ?? AppLocalizedText(op), when: entry["when"]?.stringValue,
-                           keys: keys)
+                           keys: keys, pageKeys: pageKeys, pageKeyWhen: pageKeyWhen)
         }
     }
 
@@ -156,7 +179,9 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
             "revision": revision.map { .number(Double($0)) } ?? .null,
             "commands": .array(commands.map { command in
                 ["op": .string(command.op), "title": .string(command.title.english),
-                 "keys": .array(command.keys.map { ["key": .string($0.key), "when": $0.when.map(AppJSON.string) ?? .null] })]
+                 "keys": .array(command.keys.map { ["key": .string($0.key), "when": $0.when.map(AppJSON.string) ?? .null] }),
+                 "page_keys": .array(command.pageKeys.map(AppJSON.string)),
+                 "page_key_when": .object(command.pageKeyWhen.mapValues(AppJSON.string))]
             }),
         ]
     }

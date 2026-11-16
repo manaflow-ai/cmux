@@ -71,8 +71,29 @@ import Testing
 
     /// The wire record round-trips the keys (the fake transport answers with `json`).
     @Test func recordJSONKeepsKeys() throws {
-        let record = try #require(Self.record(keys: [["key": "cmd+shift+r", "when": "browserFocused"]]))
+        let record = try #require(AppRecord(json: [
+            "id": "local/reader-mode", "installed": true,
+            "manifest": ["manifestVersion": 2, "id": "local/reader-mode", "name": "Reader Mode", "version": "1.0.0"],
+            "commands": [["op": "local.reader_mode.toggle", "title": "Reader Mode: Toggle",
+                          "keys": [["key": "cmd+shift+r", "when": "browserFocused"]],
+                          "page_keys": ["f", "shift+f", "g"],
+                          "page_key_when": ["f": "browserFocused", "shift+f": "browserFocused && !readOnly",
+                                             "g": "browserFocused || paneFocused:editor"]]],
+        ]))
         let again = try #require(AppRecord(json: record.json))
         #expect(again.commands.first?.keys == [AppRecord.Command.Key(key: "cmd+shift+r", when: "browserFocused")])
+        #expect(again.commands.first?.pageKeys == ["f", "shift+f", "g"])
+        #expect(again.commands.first?.answers(pageKey: "f", shift: false) == true)
+        #expect(again.commands.first?.answers(pageKey: "f", shift: true) == true)
+        #expect(again.commands.first?.answers(pageKey: "f", shift: true,
+                                              context: KeyContext(["browserFocused": .bool(true), "readOnly": .bool(true)])) == false)
+        #expect(again.commands.first?.answers(pageKey: "g", shift: false,
+                                              context: KeyContext(["paneFocused:editor": .bool(true)])) == true)
+    }
+
+    @Test func optionAndSpaceChordsStayInTheAppLayer() throws {
+        let bindings = Self.bindings(Self.record(keys: [["key": "alt+shift+r", "when": "browserFocused"], ["key": "ctrl+space"]]))
+        #expect(bindings.map(\.keys) == [[Shortcut("r", modifiers: [.option, .shift])], [Shortcut(" ", modifiers: [.control])]])
+        #expect(KeyBindingLoader(Self.registry()).loadApp(bindings).isEmpty)
     }
 }

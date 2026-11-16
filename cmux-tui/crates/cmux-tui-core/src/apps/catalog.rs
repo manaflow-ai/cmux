@@ -158,12 +158,10 @@ impl Package {
     }
 
     /// The app's palette commands for `apps-list`: the catalog ops with a
-    /// `palette` entry, as `{op, title, when?, keys?}`. `keys` are the op's
-    /// `keyboard` chords with Cmd or Ctrl (`{key, when?}`): the App puts them
-    /// in its binding table's app layer, each running the command
-    /// (`app.command.run`). A key without either is a single page key, which
-    /// the binding table never takes.
-    pub fn palette_commands(&self) -> Vec<Value> {
+    /// `palette` entry, as `{op, title, when?, keys?, page_keys?}`. Chords
+    /// stay in #44151's app binding layer; page keys are routed after a
+    /// browser page declines the key and include `cmux.keys` overrides.
+    pub fn palette_commands(&self, key_overrides: Option<&Value>) -> Vec<Value> {
         self.catalog_ops()
             .into_iter()
             .filter_map(|(op, entry)| {
@@ -185,15 +183,32 @@ impl Package {
                 if !chords.is_empty() {
                     command.set("keys", Value::Array(chords));
                 }
+                let page_keys = super::page_keys::keys(&op, &entry, key_overrides);
+                if !page_keys.is_empty() {
+                    command.set("page_keys", serde_json::json!(page_keys));
+                    command.set(
+                        "page_key_when",
+                        super::page_keys::when_map(&op, &entry, key_overrides),
+                    );
+                }
                 Some(command)
             })
             .collect()
     }
+
+    pub fn has_page_keys(&self) -> bool {
+        self.catalog_ops()
+            .iter()
+            .any(|(op, entry)| !super::page_keys::keys(op, entry, None).is_empty())
+    }
 }
 
-/// Whether a catalog `key` (`cmd+shift+r`) holds Cmd or Ctrl: a shortcut the binding table runs.
+/// Whether a catalog `key` (`cmd+shift+r`) holds a dispatcher modifier: a
+/// shortcut the binding table runs.
 fn is_chord(key: &str) -> bool {
-    key.split('+').rev().skip(1).any(|m| m == "cmd" || m == "ctrl")
+    let mut parts = key.split('+');
+    let _ = parts.next_back();
+    parts.any(|m| matches!(m, "cmd" | "ctrl" | "alt" | "option" | "opt"))
 }
 
 impl Package {
@@ -507,16 +522,18 @@ mod tests {
             manifest: json!({ "catalog": "catalog.json" }),
         };
         let export = package.export_for_op("notes.open");
-        let commands = package.palette_commands();
+        let commands = package.palette_commands(None);
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(export.as_deref(), Some("open"));
         assert_eq!(
             commands,
             vec![
                 json!({ "op": "notes.export", "title": { "en": "Export" }, "when": "paneFocused:editor",
-                        "keys": [{ "key": "cmd+shift+e", "when": "browserFocused" }] })
+                        "keys": [{ "key": "cmd+shift+e", "when": "browserFocused" }],
+                        "page_keys": ["f", "shift+f"],
+                        "page_key_when": { "f": "browserFocused", "shift+f": "browserFocused && !readOnly" } })
             ],
-            "keys ride on palette commands only, and only Cmd or Ctrl chords: a page key (`f`) stays out"
+            "keys ride on palette commands only; a page key (`f`) stays out of the app layer"
         );
     }
 

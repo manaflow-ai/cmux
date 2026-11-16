@@ -37,7 +37,7 @@ public final class AppKeyBindings {
         apps.filter(\.isVisible).flatMap { app in
             app.commands.flatMap { command in
                 command.keys.compactMap { key -> KeyBinding? in
-                    guard !key.key.contains(" "), let stroke = ShortcutBindingFormat.parseStroke(key.key) else { return nil }
+                    guard let stroke = ShortcutBindingFormat.parseStroke(key.key) else { return nil }
                     var when: WhenClause?
                     if let text = key.when {
                         guard let clause = try? WhenClause.parse(text) else { return nil }
