@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextTestSupport
+import Darwin
 import Foundation
 import Testing
 
@@ -59,14 +60,59 @@ struct NewTabRepeatKeyTests {
     }
 
     /// The New Tab key goes down in `pane`: the first key-down of a press (no repeat), or one of the system's repeats.
-    private static func newTabKey(repeats: Bool, in pane: PaneController, _ window: NSWindow, _ services: AppServices) throws {
-        send(try event(.keyDown, repeats: repeats, in: window), services) { NewTabPage.open(in: pane, seed: nil) }
+    /// `answered` gets the key that the store gave the tab, when the store answered the open.
+    private static func newTabKey(repeats: Bool, in pane: PaneController, _ window: NSWindow, _ services: AppServices,
+                                  answered: (@MainActor (String) -> Void)? = nil) throws {
+        send(try event(.keyDown, repeats: repeats, in: window), services) { NewTabPage.open(in: pane, seed: nil, then: answered) }
+    }
+
+    /// The store's answer for one open, as an event: a test waits for it with no poll and no clock. When the store
+    /// never answers, the wait ends at the suite's time limit.
+    @MainActor private final class StoreAnswer {
+        private var key: String?
+        private var waiting: CheckedContinuation<String, Never>?
+
+        /// The store answered: the tab has the key `key` now.
+        func came(_ key: String) {
+            self.key = key
+            waiting?.resume(returning: key)
+            waiting = nil
+        }
+
+        /// The key that the store gave the tab, when the store answered.
+        func value() async -> String {
+            if let key { return key }
+            return await withCheckedContinuation { (told: CheckedContinuation<String, Never>) in
+                self.waiting = told
+            }
+        }
+    }
+
+    /// The pane's state in words, for a failure's text: what decides if the pane makes the page of its selected tab.
+    private static func state(of pane: PaneController, _ services: AppServices) -> String {
+        let tabs = services.agentTabs
+        let selected: String? = pane.stripModel.selectedID?.rawValue
+        let selectedText: String = selected ?? "nil"
+        let shownText: String = pane.currentTabKey ?? "nil"
+        let selectedIsNewTab: Bool = selected.map { tabs.isNewTabPage($0) } ?? false
+        let selectedHasView: Bool = selected.map { tabs.existingView($0) != nil } ?? false
+        let record: [String] = pane.pane.tabs.map { $0.id }
+        let holdOn: Bool = services.inputDispatch.newTabHold.isOn
+        // One statement for each part: a long sum of strings is slow to type-check.
+        var line: String = "holdOn=\(holdOn) selected=\(selectedText) shown=\(shownText)"
+        line += " selectedIsNewTab=\(selectedIsNewTab) selectedHasView=\(selectedHasView)"
+        line += " stale=\(pane.stripIsStale) alive=\(pane.selectedContentIsAlive) suspended=\(pane.isSuspended)"
+        line += " focused=\(pane.isFocusedInWorkspace) stripTabs=\(pane.orderedIDs.count) record=\(record)"
+        return line
     }
 
     /// A press and `repeats` repeats of the New Tab key, with a frame after each key. Returns the count of page
     /// views after the press's own page: the repeats must add none to it. The fixture counts the repeats' tabs by
     /// the store's entries, not by their keys: the store can give a tab a new key between two frames.
+    /// `beforeTheLastRepeat` runs in the turn before the last repeat's key; `lastAnswered` gets the key that the
+    /// store gave the last repeat's tab, when the store answered (`StoreAnswerOrder`).
     private static func heldNewTabKey(repeats: Int, in pane: PaneController, _ window: NSWindow, _ services: AppServices,
+                                      beforeTheLastRepeat: () -> Void = {}, lastAnswered: (@MainActor (String) -> Void)? = nil,
                                       _ built: () -> Int) async throws -> Int {
         let tabs = services.agentTabs
         let start = built()
@@ -74,8 +120,10 @@ struct NewTabRepeatKeyTests {
         await NewTabPageAtItsFrameTests.frame(services)
         try #require(built() == start + 1, "fixture: the press of the key (no repeat) had \(built() - start) page views at its frame")
         let before = tabs.newTabPages.keys
-        for _ in 0..<repeats {
-            try newTabKey(repeats: true, in: pane, window, services)
+        for index in 0..<repeats {
+            let isLast = index == repeats - 1
+            if isLast { beforeTheLastRepeat() }
+            try newTabKey(repeats: true, in: pane, window, services, answered: isLast ? lastAnswered : nil)
             await NewTabPageAtItsFrameTests.frame(services)
         }
         let after = tabs.newTabPages.keys
@@ -89,7 +137,9 @@ struct NewTabRepeatKeyTests {
     private static func expectOnePageForTheSelectedTab(after held: Int, _ why: String, in pane: PaneController, _ services: AppServices,
                                                        _ built: () -> Int) async {
         await NewTabPageAtItsFrameTests.frame(services)
-        #expect(built() == held + 1, "\(built() - held) page views were made by the first frame after \(why); exactly one is right")
+        let first = state(of: pane, services)
+        #expect(built() == held + 1,
+                "\(built() - held) page views were made by the first frame after \(why); exactly one is right; the pane then: \(first)")
         for _ in 0..<3 { await NewTabPageAtItsFrameTests.frame(services) }
         #expect(built() == held + 1, "\(built() - held) page views were made by the fourth frame after \(why); exactly one is right")
         let selected = pane.stripModel.selectedID?.rawValue
@@ -121,11 +171,43 @@ struct NewTabRepeatKeyTests {
         case keyUp, commandUp, anotherKey, repeatOfAnotherKey, appResignsActive
     }
 
-    /// Each end makes exactly one page view, for the selected tab.
-    @Test(arguments: HoldEnd.allCases) func eachEndOfAHeldNewTabKeyMakesOnePageViewForTheSelectedTab(_ end: HoldEnd) async throws {
-        try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-repeat-key-end-\(end.rawValue)") { services, window, pane, built in
-            let held = try await Self.heldNewTabKey(repeats: 3, in: pane, window, services, built)
+    /// When the store answers the open of the last repeat's tab, against the hold's end. At its answer the store
+    /// gives the tab its own key in place of the provisional one, and the pane's selection goes to that key. With
+    /// no order of the test's own, the answer comes when the daemon is ready: after the page of the hold's end in
+    /// most runs, before the end in some. The test owns the order, by an event and with no wait on a clock
+    /// (decision 2026-11-16):
+    ///
+    /// - `aFrameBeforeTheEnd`, `inTheTurnBeforeTheEnd`: the test waits for the answer (the open's own `then`), and
+    ///   then sends the end, after one frame or with no frame between;
+    /// - `afterTheEnd`: the daemon's process is stopped from before the last repeat until the asserts of the end
+    ///   ran, so no answer can come; then it runs again, and the test waits for the answer.
+    enum StoreAnswerOrder: String, CaseIterable, Sendable {
+        case aFrameBeforeTheEnd, inTheTurnBeforeTheEnd, afterTheEnd
+    }
+
+    /// Each end makes exactly one page view, for the selected tab, in each order of the store's answer.
+    @Test(arguments: HoldEnd.allCases, StoreAnswerOrder.allCases)
+    func eachEndOfAHeldNewTabKeyMakesOnePageViewForTheSelectedTab(end: HoldEnd, answer order: StoreAnswerOrder) async throws {
+        let install = "cn-repeat-key-end-\(end.rawValue)-\(order.rawValue)"
+        try await NewTabPageAtItsFrameTests.withAnEmptyPool(install) { services, window, pane, built in
+            let tabs = services.agentTabs
+            let answer = StoreAnswer()
+            let daemon = try #require(services.daemon.identity?.pid, "fixture: the daemon has no process id")
+            var stopped = false
+            defer { if stopped { kill(daemon, SIGCONT) } } // a throw never leaves the daemon stopped
+            let held = try await Self.heldNewTabKey(repeats: 3, in: pane, window, services,
+                                                    beforeTheLastRepeat: { if order == .afterTheEnd { stopped = kill(daemon, SIGSTOP) == 0 } },
+                                                    lastAnswered: { answer.came($0) }, built)
             #expect(built() == held, "\(built() - held) page views were made for the tabs of 3 repeats, with the key still down")
+            if order == .afterTheEnd {
+                try #require(stopped, "fixture: the daemon's process did not stop")
+            } else {
+                let real = await answer.value()
+                try #require(!ProvisionalTab.isProvisional(real) && tabs.isNewTabPage(real),
+                             "fixture: the store's answer \(real) is no New Tab page with a key of the store")
+                if order == .aFrameBeforeTheEnd { await NewTabPageAtItsFrameTests.frame(services) }
+                #expect(built() == held, "\(built() - held) page views were made at the store's answer for a repeat's tab, with the key still down")
+            }
             switch end {
             case .keyUp: Self.send(try Self.event(.keyUp, in: window), services)
             case .commandUp: Self.send(try Self.event(.flagsChanged, code: 55, flags: [], in: window), services)
@@ -138,7 +220,16 @@ struct NewTabRepeatKeyTests {
                 let router = KeyRouter(registry: services.registry, inputDispatch: services.inputDispatch, center: center)
                 withExtendedLifetime(router) { center.post(name: NSApplication.didResignActiveNotification, object: nil) }
             }
-            await Self.expectOnePageForTheSelectedTab(after: held, "the end \(end.rawValue)", in: pane, services, built)
+            await Self.expectOnePageForTheSelectedTab(after: held, "the end \(end.rawValue), answer \(order.rawValue)", in: pane, services, built)
+            guard order == .afterTheEnd else { return }
+            // The daemon runs again: the store answers now, and its key takes the page that the end made.
+            #expect(kill(daemon, SIGCONT) == 0, "fixture: the daemon's process did not run again")
+            stopped = false
+            let real = await answer.value()
+            for _ in 0..<3 { await NewTabPageAtItsFrameTests.frame(services) }
+            #expect(built() == held + 1, "\(built() - held - 1) page views more were made at the store's answer after the end \(end.rawValue)")
+            let last = Self.state(of: pane, services)
+            #expect(tabs.existingView(real) != nil, "the store's tab \(real) has no page view after the end \(end.rawValue); the pane: \(last)")
         }
     }
 
@@ -152,7 +243,9 @@ struct NewTabRepeatKeyTests {
             Self.send(try Self.event(.flagsChanged, code: 55, flags: [], in: window), services)
             #expect(built() == held, "\(built() - held) page views were made in the flags event's own turn, before a frame")
             await NewTabPageAtItsFrameTests.frame(services)
-            #expect(built() <= held + 1, "\(built() - held) page views were made at the first frame after Command went up")
+            let first = Self.state(of: pane, services)
+            #expect(built() <= held + 1,
+                    "\(built() - held) page views were made at the first frame after Command went up; the pane then: \(first)")
             for _ in 0..<2 { Self.send(try Self.event(.keyDown, repeats: true, flags: [], in: window), services) }
             Self.send(try Self.event(.keyUp, flags: [], in: window), services)
             await Self.expectOnePageForTheSelectedTab(after: held, "Command up, then the plain key's repeats and its key-up", in: pane, services, built)
@@ -252,6 +345,34 @@ struct NewTabRepeatKeyTests {
             let selected = try #require(pane.stripModel.selectedID?.rawValue, "the pane has no selected tab after the key-up")
             #expect(services.agentTabs.existingView(selected) === parked, "the tab of the hold's end did not adopt the parked page")
             #expect(pool.spare?.view !== parked, "the parked page is still the pool's after the tab of the hold's end adopted it")
+        }
+    }
+
+    /// The next Cmd-N's reservation is idle work, and it can come while the key is down (the fixture makes the
+    /// launch's reservation before it counts). The page view of a reservation is for a tab that no pane has: it is no
+    /// page of a repeat's tab, and the hold's end still makes exactly one page, for the selected tab.
+    @Test func aReservationMadeWhileTheKeyIsHeldMakesItsOwnPageAndNoneForARepeatsTab() async throws {
+        try await NewTabPageAtItsFrameTests.withThePagesOfAnEmptyPool("cn-repeat-key-reserve") { services, window, pane, pages in
+            let tabs = services.agentTabs, daemon = services.daemon
+            let built = { pages().count }
+            let held = try await Self.heldNewTabKey(repeats: 3, in: pane, window, services, built)
+            #expect(built() == held, "\(built() - held) page views were made for the tabs of 3 repeats, with the key still down")
+
+            // The reservation goes and is made again in one turn, with the key still down. The pool is empty, so the
+            // reservation builds its page now.
+            tabs.releaseReservedWorkspace(on: daemon.store, .unshown)
+            services.newTabSpares.dropAll()
+            _ = try #require(tabs.reserveWorkspace(on: daemon, cwd: nil), "fixture: no Cmd-N workspace was reserved with the key down")
+            let reserved = try #require(daemon.store.reservedWorkspace?.tabKey, "fixture: the reservation has no tab")
+            let made = pages().dropFirst(held).map { $0.key }
+            #expect(made == [reserved], "the reservation made with the key down built \(made.count) page views; one, for its own tab \(reserved), is right: \(made)")
+            #expect(!pane.pane.tabs.contains { $0.id == reserved }, "the reservation's tab is a tab of the pane")
+            for _ in 0..<3 { await NewTabPageAtItsFrameTests.frame(services) }
+            #expect(built() == held + 1, "\(built() - held - 1) page views were made for the repeats' tabs after the reservation, with the key still down")
+
+            Self.send(try Self.event(.keyUp, in: window), services)
+            #expect(built() == held + 1, "\(built() - held - 1) page views were made in the key-up's own turn, before a frame")
+            await Self.expectOnePageForTheSelectedTab(after: held + 1, "the key-up, after a reservation with the key down", in: pane, services, built)
         }
     }
 }
