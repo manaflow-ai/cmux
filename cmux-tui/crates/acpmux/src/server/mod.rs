@@ -2476,6 +2476,9 @@ mod nodelay_tests;
 #[cfg(test)]
 mod outbound_queue_tests;
 
+#[cfg(test)]
+mod read_lane_tests;
+
 /// Owner-only TLS ingress from the embedded tailnet node.
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod tailnet_ingress;

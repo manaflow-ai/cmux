@@ -22,6 +22,13 @@ pub(super) fn register(conn: &Arc<Conn>) {
     conns.push(Arc::downgrade(conn));
 }
 
+/// The connections served now.
+pub(super) fn live() -> Vec<Arc<Conn>> {
+    let mut conns = conns().lock().unwrap_or_else(|e| e.into_inner());
+    conns.retain(|c| c.strong_count() > 0);
+    conns.iter().filter_map(Weak::upgrade).collect()
+}
+
 /// One connection's row in [`status`].
 fn row(conn: &Conn) -> (usize, Value) {
     let gauge = conn.out.gauge();
@@ -41,11 +48,7 @@ fn row(conn: &Conn) -> (usize, Value) {
 /// ended for falling past their bound since the daemon started, and the [`TOP`] largest queues by
 /// bytes.
 pub(crate) fn status() -> Value {
-    let live: Vec<Arc<Conn>> = {
-        let mut conns = conns().lock().unwrap_or_else(|e| e.into_inner());
-        conns.retain(|c| c.strong_count() > 0);
-        conns.iter().filter_map(Weak::upgrade).collect()
-    };
+    let live = live();
     let mut rows: Vec<(usize, Value)> = live.iter().map(|conn| row(conn)).collect();
     let total: usize = rows.iter().map(|(b, _)| b).sum();
     rows.sort_by_key(|(b, _)| std::cmp::Reverse(*b));
