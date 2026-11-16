@@ -245,6 +245,10 @@ def cmd_rig(args):
                 for k, v in (req.get("flags") or {}).items():
                     if k in SERVE_FLAGS and v in SERVE_FLAGS[k]:
                         argv += [k, v]
+                bind = req.get("link_bind")
+                if bind:
+                    socket.inet_aton(bind)  # an IPv4 literal, or this request fails
+                    argv += ["--link-bind", f"{bind}:0"]
                 env = dict(os.environ)
                 if req.get("timing"):
                     open(timing, "w").close()
@@ -585,7 +589,8 @@ class Orchestrator:
             viewer_key = json.loads(line)["key"]
             host = self.host.popen(f"{self.py} {self.me} rig-call --root {self.root} "
                                    + shlex.quote(json.dumps({"cmd": "serve", "timing": mode == "key",
-                                                             "flags": {"--profile": "high"}})))
+                                                             "flags": {"--profile": "high"},
+                                                             "link_bind": self.a.link_bind})))
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
                      "viewer": {"user": "viewer", "install": "screen-share-vs"}}
@@ -838,6 +843,8 @@ def main():
     r.add_argument("--viewer", required=True, help="the viewing Mac (reach/ssh name)")
     r.add_argument("--host-ip", required=True, help="the shared Mac's address on the measured link")
     r.add_argument("--link", default="wired", help="a label for the table")
+    r.add_argument("--link-bind", help="bind the shared Mac's link socket to this address (its "
+                   "Wi-Fi address when Ethernet shares the subnet), so both directions use it")
     r.add_argument("--via", choices=["reach", "ssh"], default="reach")
     r.add_argument("--root", default="cmux-rd-test", help="relative to the remote home")
     r.add_argument("--python", default="/usr/bin/python3")

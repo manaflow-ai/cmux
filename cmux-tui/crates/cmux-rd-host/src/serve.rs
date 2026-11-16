@@ -301,7 +301,10 @@ pub fn run(opts: &Opts) -> Res<()> {
         local: keys,
         expected_remote: peer_key,
         stun,
-        bind: "0.0.0.0:0".parse()?,
+        // `--link-bind IP:PORT` (measurement only): the link's UDP socket on one interface's
+        // address, so a Mac with Ethernet and Wi-Fi on one subnet sends from Wi-Fi when asked
+        // (scripts/screen-share-vs.py --link wifi). The app never passes it.
+        bind: opts.str_or("link-bind", "0.0.0.0:0").parse()?,
         turn: crate::carrier::turn_servers(&setup.turn),
         relay_only: setup.relay_only,
     })?;
