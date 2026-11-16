@@ -269,6 +269,7 @@ mod session_stream;
 mod split_kind;
 mod split_respawn;
 mod tab_column;
+mod tab_create_wire;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
@@ -1355,30 +1356,7 @@ enum Command {
         intent: crate::command_context::Intent,
     },
     /// New tab in a pane (default: the active pane).
-    NewTab {
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// Extra environment for the new terminal's child only.
-        #[serde(default)]
-        env: Option<BTreeMap<String, String>>,
-        /// Expected content size in cells (spawn-at-size avoids shell redraw artifacts).
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        /// Mark the new terminal `keep` so it survives with no tab.
-        #[serde(default)]
-        keep: bool,
-        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
-        /// `SHELL` in `env`, else the daemon's default shell).
-        #[serde(default)]
-        shell_args: Option<Vec<String>>,
-    },
+    NewTab(tab_create_wire::NewTabParams),
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
     BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).

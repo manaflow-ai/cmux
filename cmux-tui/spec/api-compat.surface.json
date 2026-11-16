@@ -4441,6 +4441,10 @@
         "ty": "uint64",
         "required": true
       },
+      "/transaction": {
+        "ty": "string",
+        "nullable": true
+      },
       "/workspace": {
         "ty": "uint64",
         "required": true
@@ -10704,6 +10708,30 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/place": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/place/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/after_creation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/place/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/joins": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/place/start": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/route": {
         "ty": "string",
         "nullable": true
@@ -10773,6 +10801,30 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/place": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/place/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/after_creation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/place/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/joins": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/place/start": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/profile_id": {
         "ty": "string",
         "nullable": true
@@ -10802,6 +10854,10 @@
         "nullable": true
       },
       "/title": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/transaction": {
         "ty": "string",
         "nullable": true
       },
@@ -11100,6 +11156,30 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/place": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/place/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/after_creation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/place/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/joins": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/place/start": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "nullable": true
@@ -11112,6 +11192,10 @@
         "ty": "string"
       },
       "/terminal_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/transaction": {
         "ty": "string",
         "nullable": true
       }
@@ -19238,6 +19322,9 @@
       "/data/terminal_resource_id": {
         "ty": "string"
       },
+      "/data/transaction": {
+        "ty": "string"
+      },
       "/data/workspace_id": {
         "ty": "string"
       }
@@ -19445,6 +19532,9 @@
       "/data/terminal_resource_id": {
         "ty": "string"
       },
+      "/data/transaction": {
+        "ty": "string"
+      },
       "/data/workspace_id": {
         "ty": "string"
       }
@@ -19476,6 +19566,9 @@
       "/data/terminal_resource_id": {
         "ty": "string"
       },
+      "/data/transaction": {
+        "ty": "string"
+      },
       "/data/workspace_id": {
         "ty": "string"
       }
@@ -19505,6 +19598,9 @@
         "nullable": true
       },
       "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/transaction": {
         "ty": "string"
       },
       "/data/workspace_id": {

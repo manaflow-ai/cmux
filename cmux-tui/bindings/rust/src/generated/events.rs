@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d6fe394e4186410f007428bdc8a655853714c501d88f2fd7a18b0b8f1593fa78.
+// cmux-tui mux protocol 12, IR 79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -845,6 +845,9 @@ pub struct TabAddedEvent {
     pub pane: T::Id,
     pub screen: T::Id,
     pub surface: T::Id,
+    /// The transaction of the create request that made the tab, when it sent one (conversation-tab-transaction-v1, tab-create-place-v1).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
     pub workspace: T::Id,
 }
 
