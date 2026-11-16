@@ -99,14 +99,21 @@ def teardown():
         sh(f"ip netns del {ns}", check=False)
 
 
-def readline(proc, deadline):
+def unbuffered(stream):
+    """A child's stdout with no read-ahead. select() waits on the descriptor, so a buffered
+    readline() that pulled a whole burst in (key, candidates, candidates_done in one write)
+    leaves the rest where select() never sees it, and the next wait sits out its timeout."""
+    return os.fdopen(os.dup(stream.fileno()), "rb", buffering=0)
+
+
+def readline(out, deadline):
     while True:
         left = deadline - time.time()
         if left <= 0:
             return None
-        r, _, _ = select.select([proc.stdout], [], [], left)
+        r, _, _ = select.select([out], [], [], left)
         if r:
-            return proc.stdout.readline()
+            return out.readline()
 
 
 def attempt(args, n):
@@ -118,7 +125,8 @@ def attempt(args, n):
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
     host = None
     try:
-        line = readline(viewer, time.time() + 10)
+        viewer_out = unbuffered(viewer.stdout)
+        line = readline(viewer_out, time.time() + 10)
         viewer_key = json.loads(line)["key"]
         stun = [f"{HOST_IP}:{STUN_PORT}"] if args.stun_delay_ms is not None else []
         t_offer = time.time()
@@ -130,14 +138,12 @@ def attempt(args, n):
                                      "stun": stun, "display": args.display,
                                      "viewer": {"user": "viewer", "install": "bench"}}) + "\n")
         host.stdin.flush()
+        host_out = unbuffered(host.stdout)
         host_key, cands = None, []
         dl = time.time() + 10
         while True:
-            # Once the key and a candidate are in, wait only briefly for more: serve with
-            # no STUN prints no candidates_done, and the handshake clock is already running.
-            # With a STUN server, the answer waits for candidates_done, as the app's does.
-            quick = host_key and cands and not stun
-            line = readline(host, min(dl, time.time() + 0.2) if quick else dl)
+            # The answer waits for candidates_done, as the app's does (serve always prints it).
+            line = readline(host_out, dl)
             if not line:
                 break
             msg = json.loads(line)
@@ -157,7 +163,7 @@ def attempt(args, n):
         viewer.stdin.flush()
         blip_done = args.blip_at is None
         blip_until = None
-        streams = {host.stdout: "host", viewer.stdout: "viewer"}
+        streams = {host_out: "host", viewer_out: "viewer"}
         deadline = t0 + args.timeout
         while streams and time.time() < deadline:
             if not blip_done and "connect_ms" in rec and time.time() - t0 >= args.blip_at:
@@ -196,7 +202,7 @@ def attempt(args, n):
                     rec["host_ended"] = msg["ended"]
                 elif who == "viewer" and "g2g_ms" in msg:
                     rec["report"] = msg
-                    streams.pop(viewer.stdout, None)
+                    streams.pop(viewer_out, None)
             if "report" in rec:
                 break
         if blip_until:
