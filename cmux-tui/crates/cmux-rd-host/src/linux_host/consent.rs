@@ -124,7 +124,7 @@ impl<'a> Pending<'a> {
 }
 
 /// Why `--scope full` is refused on a host whose capture applies no input.
-const NO_INPUT_FULL: &str = "this desktop is captured through the Wayland portal, which applies no input: it is shared view only (approve with --scope view)";
+const NO_INPUT_FULL: &str = "this desktop is captured through the Wayland portal, which has no keyboard and pointer grant (`cmux-rd linux-host grant --control` asks for it once): it is shared view only (approve with --scope view)";
 
 /// The person's answer to a request, checked before it reaches the hub: only a recorded
 /// request, a scope at most the requested one (`full` may be lowered to `view`, never
