@@ -2263,6 +2263,8 @@
     "team.enrollment_token.revoke",
     "team.integration.release_lock",
     "team.members.remove",
+    "team.models_policy.get",
+    "team.models_policy.set",
     "team_vm.rebuild",
     "team_vm.retired.delete",
     "team_vm.retired.export",
