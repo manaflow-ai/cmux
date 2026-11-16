@@ -69,7 +69,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// one root material (WindowRootMaterialTests).
     let trafficLightsGlass = TrafficLightsPatch(frame: .zero)
     /// The sidebar toggle, Back, Forward and the glass patch. With the
-    /// sidebar open they show (unless `sidebar.controlsOnHover`); with it
+    /// sidebar open they show (unless Minimal Mode or `sidebar.controlsOnHover`); with it
     /// hidden, `window.titlebarButtons` hover hides them until the top row is
     /// hovered (`applyTitlebarButtonsMode`).
     private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
@@ -170,7 +170,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
                                            TopRowSpacing.buttonSide, Metrics.space2, Metrics.space3,
                                            DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
-                                           DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
+                                           DesignSettings.shared.sidebarSections.hidesControlsUntilHover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.floatOnHover ? 1 : 0,
                                            DesignSettings.shared.tabBarPosition == .bottom ? 1 : 0] }) {
                 self?.applyTokens()
@@ -392,7 +392,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if !view.handKeyboardToWindow(), let window {
             // A field editor that refuses to resign while it validates: end the edit, then resign.
             window.endEditing(for: nil)
-            window.makeFirstResponder(nil)
+            FocusRoute(.system, "a withdrawn view gives up the keys").moveKeyboard(in: window, to: nil)
         }
         view.isHidden = true
         // Parked once hidden: the hidden subtree hears nothing more.

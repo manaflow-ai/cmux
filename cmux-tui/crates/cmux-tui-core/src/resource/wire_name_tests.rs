@@ -13,6 +13,7 @@ fn wire_name_round_trips_through_serde() {
         "git.branches",
         "git.diff",
         "git.files.list",
+        "git.fingerprint",
         "git.files.search",
         "diff.comments.list",
         "diff.comments.save",

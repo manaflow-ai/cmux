@@ -68,7 +68,9 @@ The control shows at rest (`alwaysVisible`): it never fades with the bar's other
 - The action is `palette.toggleTerminalChat` (Toggle Terminal and Chat). A press on the other face runs it through
   the action registry with the selected tab as its target, the same path as the key.
 - The tooltip is the action's title and its shortcut from the catalog (`ActionRegistry.shortcutDisplay`), never a
-  hard-coded key. The catalog's default is Opt-Cmd-`.
+  hard-coded key. It has no default key (Leo, 2026-11-15: "idk if the terminal gui should even get a hotkey by
+  default"): a person binds one in Settings > Keyboard Shortcuts; the Command Palette, the pane control and the tab's
+  right-click run it unbound.
 - VoiceOver reads a radio group, "Toggle Terminal and Chat", of two radio buttons, "Terminal" and "Chat", the lit
   one selected.
 

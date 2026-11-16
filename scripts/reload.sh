@@ -42,10 +42,6 @@ CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CMUX_DEV_API_BASE_URL_VALUE=""
-CMUX_IROH_BROKER_BASE_URL_VALUE=""
-CMUX_IROH_V2_ENVIRONMENT_VALUE=""
-CMUX_IROH_V2_BASE_URL_VALUE=""
-CMUX_IROH_V2_FORCE_RELAY_VALUE="0"
 CMUX_AUTH_WWW_ORIGIN_VALUE=""
 CMUX_WWW_ORIGIN_VALUE=""
 PROD_AUTH=0
@@ -740,8 +736,8 @@ Options:
   --direct-backend       Use the tag's shared GCP dev web stack (scripts/dev-backend.sh,
                          direct Tailscale transport). cmux-next builds default to local
                          backend mode without it, and Cloud is then unavailable.
-  --prod-auth            Point this tagged Debug build at production Stack auth,
-                         cmux APIs, and the production Iroh broker.
+  --prod-auth            Point this tagged Debug build at production Stack auth
+                         and cmux APIs.
                          Without it, tagged builds use the shared dev backend, which
                          needs a cmuxterm-hq checkout. Outside one, set
                          CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
@@ -1503,22 +1499,14 @@ fi
 
 # cmux-next's agent pane starts the acpmux daemon from Resources/bin. A miss
 # builds it on a build host (CI, fleet, nx-remote: build-acpmux.sh
-# --check-build-allowed decides); a developer machine reuses the
-# commit-addressed cache but never runs Cargo.
+# --check-build-allowed decides); anywhere else it fetches the acpmux published
+# for this checkout's cmux-tui tree, and never runs Cargo (resolve-acpmux.sh).
 if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" ]]; then
   echo "==> cmux-next: bundling acpmux from CMUX_NEXT_ACPMUX_BIN=$CMUX_NEXT_ACPMUX_BIN"
-elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
-  if acpmux_cached="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null)"; then
-    export CMUX_NEXT_ACPMUX_BIN="$acpmux_cached"
-    echo "==> cmux-next: bundling cached acpmux from $CMUX_NEXT_ACPMUX_BIN"
-  elif "$PWD/scripts/cmux-next/build-acpmux.sh" --check-build-allowed; then
-    "$PWD/scripts/cmux-next/build-acpmux.sh" || exit 1
-    export CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path)"
-    echo "==> cmux-next: bundling acpmux built on this host from $CMUX_NEXT_ACPMUX_BIN"
-  else
-    echo "error: no cached acpmux for this checkout, and this machine never runs Cargo; build through nx-remote or the fleet, or set CMUX_NEXT_ACPMUX_BIN" >&2
-    exit 1
-  fi
+elif [[ -x "$PWD/scripts/cmux-next/resolve-acpmux.sh" ]]; then
+  CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/resolve-acpmux.sh" --repo "$PWD")" || exit 1
+  export CMUX_NEXT_ACPMUX_BIN
+  echo "==> cmux-next: bundling acpmux from $CMUX_NEXT_ACPMUX_BIN"
 fi
 
 # The Home Chief's brain host (Native/OptChat/optchat-chief, see
@@ -1572,16 +1560,12 @@ CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
 if [[ -n "$TAG" && "$PROD_AUTH" -eq 0 ]]; then
   source "$PWD/scripts/lib/dev-backend-origin.sh"
   CMUX_DEV_ORIGIN="$(cmux_resolve_tagged_backend "$TAG_SLUG" "$PWD" "$CMUX_DEV_ORIGIN")" || exit 1
-  # Local mode has no shared backend to bake into the app or the Iroh broker default.
+  # Local mode has no shared backend to bake into the app.
   if [[ "${CMUX_DEV_BACKEND_MODE:-remote}" != "local" ]]; then
     export CMUX_DEV_BACKEND_URL="$CMUX_DEV_ORIGIN"
   fi
 fi
 CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
-CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_DEV_BACKEND_URL:-${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}}"
-CMUX_IROH_V2_ENVIRONMENT_VALUE="${CMUX_IROH_V2_ENVIRONMENT:-development}"
-CMUX_IROH_V2_BASE_URL_VALUE="${CMUX_IROH_V2_BASE_URL:-https://cmux-v2-development.debussy.workers.dev}"
-CMUX_IROH_V2_FORCE_RELAY_VALUE="${CMUX_IROH_V2_FORCE_RELAY:-0}"
 CMUX_AUTH_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 CMUX_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 if [[ "$PROD_AUTH" -eq 1 ]]; then
@@ -1589,12 +1573,7 @@ if [[ "$PROD_AUTH" -eq 1 ]]; then
     echo "error: --prod-auth cannot use API origin '$CMUX_DEV_API_BASE_URL'; production builds must use https://cmux.com" >&2
     exit 1
   fi
-  if [[ -n "${CMUX_IROH_BROKER_BASE_URL:-}" && "$CMUX_IROH_BROKER_BASE_URL" != "https://cmux.com" ]]; then
-    echo "error: --prod-auth cannot use Iroh broker origin '$CMUX_IROH_BROKER_BASE_URL'; production builds must use https://cmux.com" >&2
-    exit 1
-  fi
   CMUX_DEV_API_BASE_URL_VALUE="https://cmux.com"
-  CMUX_IROH_BROKER_BASE_URL_VALUE="https://cmux.com"
   CMUX_AUTH_WWW_ORIGIN_VALUE="https://cmux.com"
   CMUX_WWW_ORIGIN_VALUE="https://cmux.com"
 fi
@@ -1662,8 +1641,6 @@ reload_finalize() {
     echo "  $CMUX_DEV_ORIGIN"
     echo "Dev API origin:"
     echo "  $CMUX_DEV_API_BASE_URL_VALUE"
-    echo "Iroh broker origin:"
-    echo "  $CMUX_IROH_BROKER_BASE_URL_VALUE"
     if [[ -n "${TAG_SLUG:-}" ]]; then
       echo "Dev web command:"
       echo "  cd web && CMUX_PORT=$CMUX_DEV_PORT CMUX_PORT_RANGE=$CMUX_DEV_PORT_RANGE CMUX_PORT_END=$CMUX_DEV_PORT_END CMUX_AUTH_CALLBACK_SCHEME=cmux-dev-$TAG_SLUG bun dev"
@@ -2229,10 +2206,6 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       fi
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
-      set_plist_env "$INFO_PLIST" CMUX_IROH_BROKER_BASE_URL "$CMUX_IROH_BROKER_BASE_URL_VALUE"
-      set_plist_env "$INFO_PLIST" CMUX_IROH_V2_ENVIRONMENT "$CMUX_IROH_V2_ENVIRONMENT_VALUE"
-      set_plist_env "$INFO_PLIST" CMUX_IROH_V2_BASE_URL "$CMUX_IROH_V2_BASE_URL_VALUE"
-      set_plist_env "$INFO_PLIST" CMUX_IROH_V2_FORCE_RELAY "$CMUX_IROH_V2_FORCE_RELAY_VALUE"
       if [[ "$PROD_AUTH" -eq 1 ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_ENVIRONMENT production
       fi
@@ -2479,10 +2452,6 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_WWW_ORIGIN="$CMUX_WWW_ORIGIN_VALUE"
     CMUX_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
     CMUX_VM_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
-    CMUX_IROH_BROKER_BASE_URL="$CMUX_IROH_BROKER_BASE_URL_VALUE"
-    CMUX_IROH_V2_ENVIRONMENT="$CMUX_IROH_V2_ENVIRONMENT_VALUE"
-    CMUX_IROH_V2_BASE_URL="$CMUX_IROH_V2_BASE_URL_VALUE"
-    CMUX_IROH_V2_FORCE_RELAY="$CMUX_IROH_V2_FORCE_RELAY_VALUE"
   )
   if [[ "$PROD_AUTH" -eq 1 ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)

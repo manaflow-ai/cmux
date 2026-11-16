@@ -27,7 +27,7 @@ mod agent_roster_poison;
 mod agent_roster_restore;
 mod agent_screen_exit;
 mod agent_start_mark;
-mod at_rest_writers;
+pub(crate) mod at_rest_writers;
 mod cell_pixel_fanout;
 mod cell_pixels;
 mod checkpoint_retention;
@@ -43,6 +43,8 @@ mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
 mod history_agent_fold;
+#[cfg(unix)]
+mod holder_late_start;
 mod input_queue_backstop;
 mod journal_lane_full;
 mod journal_roster;
@@ -52,6 +54,8 @@ mod kitty_budget;
 mod kitty_reservation;
 mod layout_apply_focus;
 mod layout_sizes;
+#[cfg(unix)]
+mod layout_sizes_session_cost;
 mod layout_undo;
 mod layout_undo_commit;
 mod lone_dock;

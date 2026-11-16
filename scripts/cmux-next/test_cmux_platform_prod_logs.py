@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+"""cmux-platform-prod-logs: dispatch only, an allowlisted service, non-empty needles, an exact parsed vm_/team_ id
+that fails closed, and rows only in the private HQ issue store; the public log gets a count and a pointer.
+Run by hand: python3 scripts/cmux-next/test_cmux_platform_prod_logs.py (no network, no credential)."""
+import importlib.util
+import io
+import json
+import os
+import re
+import tempfile
+import unittest
+import urllib.error
+from unittest.mock import patch
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-platform-prod-logs.yml")
+_spec = importlib.util.spec_from_file_location("cmux_platform_prod_logs", os.path.join(HERE, "cmux-platform-prod-logs.py"))
+logs = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(logs)
+
+VM = "vm_0000aaaa1111bbbb2222"
+TEAM = "team_0000aaaa1111bbbb2222"
+PROD = "cmux-platform-production"
+STAGING = "cmux-platform-staging"
+LISTED = "cloud platform edge"
+
+
+def event(message, url="https://platform.example/v1/machines/" + VM + "/exec?token=abc", status=502):
+    return {"timestamp": 1794400000000,
+            "$metadata": {"type": "cf-worker", "message": message if isinstance(message, str) else json.dumps(message)},
+            "$workers": {"outcome": "ok", "event": {"request": {"method": "POST", "url": url}, "response": {"status": status}}}}
+
+
+def rows_for(events, ident, needles=(LISTED,)):
+    return logs.publish(events, list(needles), ident)[1]
+
+
+def run_main(args, env=None, stdin="fixture-token\n", response=None, upload="https://github.com/manaflow-ai/cmuxterm-hq/issues/9"):
+    """main() with the network and the private store mocked; returns (exit, stdout, query mock, upload mock)."""
+    output = io.StringIO()
+    environ = {"GITHUB_EVENT_NAME": "workflow_dispatch", **(env or {})}
+    response = response if response is not None else {"result": {"events": {"events": []}}}
+    with patch.dict(logs.os.environ, environ), patch.object(logs.sys, "argv", ["logs", *args]), \
+            patch.object(logs.sys, "stdin", io.StringIO(stdin)), patch.object(logs.sys, "stdout", output), \
+            patch.object(logs, "query", return_value=response) as query, \
+            patch.object(logs.base, "private_destination", return_value="fixture-hq-token"), \
+            patch.object(logs.base, "private_upload", return_value=upload) as up:
+        try:
+            code = logs.main()
+        except SystemExit as error:
+            code = error
+    return code, output.getvalue(), query, up
+
+
+def event_file(inputs):
+    f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+    json.dump({"inputs": inputs}, f)
+    f.close()
+    return f.name
+
+
+class WorkflowTests(unittest.TestCase):
+    """The workflow file itself: what may start the job and what it may read."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(WORKFLOW) as f:
+            cls.text = f.read()
+
+    def block(self, key):
+        """A top-level YAML block's body: the lines after `key:` up to the next unindented key."""
+        m = re.search(rf"^{key}:\n((?:[ #].*\n|\n)*)", self.text, re.M)
+        self.assertIsNotNone(m, f"no top-level {key}:")
+        return m.group(1)
+
+    def test_dispatch_is_the_only_trigger(self):
+        triggers = re.findall(r"^  ([A-Za-z_]+):", self.block("on"), re.M)
+        self.assertEqual(triggers, ["workflow_dispatch"])
+        for other in ("push", "pull_request", "schedule", "workflow_run", "workflow_call", "repository_dispatch"):
+            self.assertNotRegex(self.block("on"), rf"^\s+{other}:", other)
+
+    def test_the_job_runs_only_for_a_dispatch_from_feat_cmux_next(self):
+        self.assertRegex(self.text, r"(?m)^    if: github\.event_name == 'workflow_dispatch' && "
+                                    r"github\.ref == 'refs/heads/feat-cmux-next'$")
+        self.assertEqual(len(re.findall(r"(?m)^  [a-z][a-z0-9_-]*:$", self.block("jobs"))), 1)
+
+    def test_the_service_is_a_choice_of_the_two_platform_workers(self):
+        on = self.block("on")
+        self.assertRegex(on, r"(?m)^      service:\n(?:        .*\n)*?        type: choice\n")
+        options = re.search(r"(?m)^        options: \[([^\]]*)\]$", on)
+        self.assertIsNotNone(options)
+        self.assertEqual({o.strip() for o in options.group(1).split(",")}, {PROD, STAGING})
+        self.assertEqual(set(logs.SERVICES), {PROD, STAGING})
+
+    def test_id_and_needles_are_required_and_never_in_step_env(self):
+        on = self.block("on")
+        for name in ("id", "needles"):
+            self.assertRegex(on, rf"(?m)^      {name}:\n(?:        .*\n)*?        required: true\n", name)
+            self.assertNotIn(f"inputs.{name}", self.block("jobs"), name)
+        self.assertNotIn("inputs.service", self.block("jobs"))
+        self.assertIn('--from-event "$GITHUB_EVENT_PATH"', self.text)
+
+    def test_existing_credentials_only_and_read_only_contents(self):
+        self.assertRegex(self.text, r"(?m)^permissions:\n  contents: read\n")
+        self.assertRegex(self.text, r"(?m)^    environment: cmux-next-production$")
+        self.assertEqual(set(re.findall(r"secrets\.([A-Z0-9_]+)", self.text)), {"CLOUDFLARE_API_TOKEN", "GLAEDA_ROUTE_APP_KEY"})
+        self.assertIn("repositories: cmuxterm-hq", self.text)
+        self.assertIn("permission-issues: write", self.text)
+
+    def test_the_public_log_gets_only_the_scripts_count_and_pointer(self):
+        self.assertNotRegex(self.text, r"upload-artifact|actions/cache")
+        self.assertIn("python3 -I scripts/cmux-next/cmux-platform-prod-logs.py", self.text)
+        self.assertIn("sparse-checkout: |", self.text)
+        for path in ("scripts/cmux-next/cmux-platform-prod-logs.py", "scripts/cmux-next/cmux-api-prod-logs.py"):
+            self.assertIn(path, self.text)
+
+
+class GuardTests(unittest.TestCase):
+    def test_a_push_never_queries(self):
+        path = event_file({"service": PROD, "id": TEAM, "needles": LISTED})
+        try:
+            code, out, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--from-event", path],
+                                           env={"GITHUB_EVENT_NAME": "push"})
+        finally:
+            os.unlink(path)
+        self.assertRegex(str(code), "only workflow_dispatch")
+        query.assert_not_called()
+        self.assertEqual(out, "")
+
+    def test_empty_needles_refuse_before_query(self):
+        for needles in ("", " , ", ","):
+            with self.subTest(needles=needles):
+                code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", PROD, "--id", TEAM,
+                                              "--needles", needles])
+                self.assertRegex(str(code), "at least one search term")
+                query.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "at least one search term"):
+            logs.publish([event({"msg": LISTED, "team": TEAM})], [], TEAM)
+
+    def test_a_malformed_needle_refuses_before_query(self):
+        code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", PROD, "--id", TEAM,
+                                      "--needles", "ok text,a\"b"])
+        self.assertRegex(str(code), "needles: each")
+        query.assert_not_called()
+
+    def test_only_the_two_platform_workers_are_read(self):
+        for service in ("", "cmux-api", "cmux-platform-development", "cmux-vm-staging", PROD + " ", "cmux-platform-*"):
+            with self.subTest(service=service):
+                code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", service, "--id", TEAM,
+                                              "--needles", LISTED])
+                self.assertRegex(str(code), "service: one of")
+                query.assert_not_called()
+
+    def test_an_unparsed_id_refuses_before_query(self):
+        for ident in ("", "team_", "vm_", "machine_abc", "user_abc", "VM_abc", "team_a,team_b", "vm_a b",
+                      "team_" + "a" * 70, " team_abc", "team_abc\n", "*"):
+            with self.subTest(ident=ident):
+                code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", PROD, "--id", ident,
+                                              "--needles", LISTED])
+                self.assertRegex(str(code), "exact vm_ or team_ id")
+                query.assert_not_called()
+
+    def test_inputs_come_from_the_event_file_and_stdout_is_count_and_pointer(self):
+        own = event({"msg": LISTED, "machine": VM, "outcome": "refused"})
+        foreign = event({"msg": LISTED, "machine": "vm_foreign"})
+        path = event_file({"service": STAGING, "id": VM, "needles": LISTED})
+        try:
+            code, out, query, upload = run_main(["--from", "2026-11-11T13:20:00Z", "--from-event", path],
+                                                response={"result": {"events": {"events": [own, foreign]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        self.assertEqual(query.call_args.args[1], STAGING)
+        token, header, rows = upload.call_args.args
+        self.assertEqual(token, "fixture-hq-token")
+        self.assertEqual((header["service"], header["id_kind"], header["id"]), (STAGING, "vm", logs.base.tag(VM)))
+        self.assertEqual(header["events_in_window"], 1)
+        self.assertEqual([r["log"]["machine"] for r in rows], [logs.base.tag(VM)])
+        self.assertEqual(json.loads(out), {"row_count": 1, "pointer": "https://github.com/manaflow-ai/cmuxterm-hq/issues/9"})
+        for leak in (VM, logs.base.tag(VM), LISTED, "refused", "fixture-token", "fixture-hq-token"):
+            self.assertNotIn(leak, out)
+
+    def test_the_private_store_is_verified_before_any_query(self):
+        args = ["--from", "2026-11-11T13:20:00Z", "--service", PROD, "--id", TEAM, "--needles", LISTED]
+        for repo in ({"private": False, "full_name": logs.base.HQ_REPO}, {"private": True, "full_name": "someone/else"}, None):
+            with self.subTest(repo=repo), \
+                    patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch", "HQ_GH_TOKEN": "fixture-hq-token"}), \
+                    patch.object(logs.sys, "argv", ["logs", *args]), \
+                    patch.object(logs.base, "hq_request", return_value=repo), patch.object(logs, "query") as query:
+                with self.assertRaisesRegex(SystemExit, "expected private repository"):
+                    logs.main()
+                query.assert_not_called()
+
+    def test_a_failed_private_upload_prints_nothing(self):
+        output = io.StringIO()
+        response = {"result": {"events": {"events": [event({"msg": LISTED, "team": TEAM})]}}}
+        args = ["logs", "--from", "2026-11-11T13:20:00Z", "--service", PROD, "--id", TEAM, "--needles", LISTED]
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", args), patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), \
+                patch.object(logs.sys, "stdout", output), patch.object(logs, "query", return_value=response), \
+                patch.object(logs.base, "private_destination", return_value="fixture-hq-token"), \
+                patch.object(logs.base, "private_upload", side_effect=SystemExit("private log store refused: HTTP 403")):
+            with self.assertRaisesRegex(SystemExit, "private log store refused"):
+                logs.main()
+        self.assertEqual(output.getvalue(), "")
+
+
+class IdFilterTests(unittest.TestCase):
+    def test_a_machine_id_keeps_only_lines_parsed_as_that_machine(self):
+        own = event({"msg": LISTED, "machine": VM})
+        alias = event({"msg": LISTED, "machineId": VM, "team": "team_any"})
+        foreign = event({"msg": LISTED, "machine": "vm_foreign"}, url="https://platform.example/v1/machines/" + VM)
+        missing = event({"msg": LISTED}, url="https://platform.example/v1/machines/" + VM)
+        team_only = event({"msg": LISTED, "team": TEAM})
+        self.assertEqual(len(rows_for([own, alias, foreign, missing, team_only], VM)), 2)
+
+    def test_a_team_id_keeps_only_lines_parsed_as_that_team(self):
+        own = event({"msg": LISTED, "team": TEAM, "machine": "vm_any"})
+        alias = event({"msg": LISTED, "teamId": TEAM})
+        foreign = event({"msg": LISTED, "team": "team_foreign"}, url="https://platform.example/v1/teams/" + TEAM)
+        machine_only = event({"msg": LISTED, "machine": VM})
+        self.assertEqual(len(rows_for([own, alias, foreign, machine_only], TEAM)), 2)
+
+    def test_conflicts_duplicates_and_non_strings_fail_closed(self):
+        cases = [
+            event({"msg": LISTED, "machine": VM, "machineId": "vm_foreign"}),
+            event({"msg": LISTED, "machine": VM, "vm": {"id": VM}}),
+            event('{"msg":"' + LISTED + '","machine":"vm_foreign","machine":"' + VM + '"}'),
+            event({"msg": LISTED, "machine": VM + "-suffix"}),
+            event({"msg": LISTED, "machine": None}),
+            event({"msg": LISTED, "machine": [VM]}),
+            event("plain text that mentions " + VM),
+        ]
+        conflicting_source = event({"msg": LISTED, "machine": VM})
+        conflicting_source["source"] = {"msg": LISTED, "machine": "vm_foreign"}
+        cases.append(conflicting_source)
+        for i, candidate in enumerate(cases):
+            with self.subTest(case=i):
+                self.assertEqual(rows_for([candidate], VM), [])
+        self.assertEqual(rows_for([event({"msg": LISTED, "team": TEAM, "teamId": "team_foreign"})], TEAM), [])
+
+    def test_scope_comes_before_counts(self):
+        good = event({"msg": LISTED, "team": TEAM})
+        bad = event({"msg": "private text from another team", "team": "team_foreign"})
+        head, rows = logs.publish([good, bad], [LISTED], TEAM)
+        self.assertEqual(head["events_in_window"], 1)
+        # The window's own count, before the id filter: zero here says the query read nothing, not that no row was
+        # this id's (the 12:50Z read, hq#11503, could not tell the two apart).
+        self.assertEqual(head["events_scanned"], 2)
+        self.assertNotIn("logs_dropped_unlisted", head)
+        self.assertEqual(len(rows), 1)
+
+
+class ProjectionTests(unittest.TestCase):
+    def test_an_unlisted_or_tenant_line_never_reaches_a_row(self):
+        for line, why in (({"msg": "the merger closes friday", "team": TEAM}, "unlisted"),
+                          ({"msg": LISTED + ": hunter2", "team": TEAM}, "unlisted"),
+                          ({"msg": LISTED, "team": TEAM, "source": "automation", "run": "r1"}, "tenant")):
+            with self.subTest(line=line):
+                counts = {}
+                row = logs.line(event(line), counts)
+                self.assertNotIn("log", row)
+                self.assertEqual(counts, {f"logs_dropped_{why}": 1})
+                self.assertNotIn("merger", json.dumps(row))
+                self.assertNotIn("hunter2", json.dumps(row))
+
+    def test_a_listed_line_keeps_typed_fields_with_ids_hashed(self):
+        row = logs.line(event({"msg": LISTED, "team": TEAM, "machine": VM, "outcome": "refused", "status": 409,
+                               "error": "upstream said hunter2", "why": "free text with spaces", "body": {"k": "v"}}))
+        self.assertEqual(row["log"], {"msg": LISTED, "team": logs.base.tag(TEAM), "machine": logs.base.tag(VM),
+                                      "outcome": "refused", "status": 409, "error": True})
+        text = json.dumps(row)
+        for leak in (TEAM, VM, "hunter2", "token=abc", "free text"):
+            self.assertNotIn(leak, text)
+
+    def test_the_msg_allowlist_is_exact_constant_ids(self):
+        self.assertIn(LISTED, logs.PLATFORM_MSGS)
+        self.assertIn("machines.spare.claim", logs.PLATFORM_MSGS)
+        self.assertTrue(all(isinstance(m, str) and "${" not in m and m == m.strip() for m in logs.PLATFORM_MSGS))
+
+
+class QueryTests(unittest.TestCase):
+    def test_the_query_filters_on_the_chosen_service_in_the_shared_account(self):
+        sent = []
+
+        class Reply(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            sent.append(request)
+            return Reply(b'{"result": {"events": {"events": []}}}')
+
+        with patch.object(logs.urllib.request, "urlopen", side_effect=urlopen):
+            logs.query("fixture-token", STAGING, 1, 2)
+        body = json.loads(sent[0].data)
+        self.assertEqual(body["parameters"]["filters"],
+                         [{"key": "$metadata.service", "operation": "eq", "type": "string", "value": STAGING}])
+        self.assertIn(f"/accounts/{logs.base.ACCOUNT}/workers/observability/telemetry/query", sent[0].full_url)
+
+    def test_a_refused_query_says_only_the_status(self):
+        error = urllib.error.HTTPError("https://x", 403, "Forbidden", {}, io.BytesIO(b'{"errors":[{"message":"secret detail"}]}'))
+        with patch.object(logs.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(SystemExit) as raised:
+                logs.query("fixture-token", PROD, 1, 2)
+        self.assertEqual(str(raised.exception), "telemetry query refused: HTTP 403")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -14,31 +14,28 @@
 }
 
 /* ---- A long turn's end: the "Worked for" row (TurnRows.tsx WorkedFor). ---- */
-/* The check sits over the chevron: its negative margin gives back its width and the row's gap. */
+/* The check sits over the chevron: its negative margin gives back its width and the row's gap. It
+   draws in the row's own quiet ink, and the label keeps it: a turn that ended is no success state, so
+   nothing on the row turns green (Leo, 2026-11-14: "why ... does worked for turn green after it's
+   done"). conversation/finishedInk.test.ts keeps every finished row off the success ink. */
 .cv-finish-check {
   flex: none;
   margin-inline-start: calc(-1 * var(--cmux-finish-check) - var(--grid-gap));
   fill: none;
-  stroke: var(--agent-status-success);
+  stroke: currentColor;
   stroke-width: 1.6;
   stroke-linecap: round;
   stroke-linejoin: round;
   pointer-events: none;
 }
-.cv-worked[data-finish] > .cv-worked__label {
-  color: var(--agent-status-success);
-}
 .cv-worked[data-finish] > .cv-worked__chevron {
   opacity: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
-  /* The check draws in on the settle, holds, then gives the chevron back as the label's tint fades. */
+  /* The check draws in on the settle, holds, then gives the chevron back. */
   :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-finish-check {
     stroke-dasharray: 1;
     animation: cv-finish-draw var(--cmux-finish-short) var(--cmux-ease-settle) both; /* motion-allow: a one-shot finish moment, gated above */
-  }
-  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-worked[data-finish] > .cv-worked__label {
-    animation: cv-finish-tint var(--cmux-finish-short) var(--cmux-ease-out) both; /* motion-allow: one-shot, gated above */
   }
   :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-worked[data-finish] > .cv-worked__chevron {
     animation: cv-finish-chevron var(--cmux-finish-short) linear both; /* motion-allow: one-shot, gated above */
@@ -49,10 +46,6 @@
   38% { stroke-dashoffset: 0; opacity: 1; }
   78% { stroke-dashoffset: 0; opacity: 1; }
   100% { stroke-dashoffset: 0; opacity: 0; }
-}
-@keyframes cv-finish-tint {
-  0%, 55% { color: var(--agent-status-success); }
-  100% { color: var(--cv-activity-text); }
 }
 @keyframes cv-finish-chevron {
   0%, 78% { opacity: 0; }

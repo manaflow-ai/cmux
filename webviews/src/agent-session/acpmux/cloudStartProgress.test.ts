@@ -1,6 +1,7 @@
 // l10n-allow-file: test fixture prompts and host words, not shipped UI.
 import { expect, test } from "bun:test";
-import type { CloudStartAsk } from "./cloudStartProgress";
+import type { CloudStartAsk, CloudStartProgress } from "./cloudStartProgress";
+import { translate } from "./i18n";
 import {
   cloudRefusalText,
   cloudStartAsk,
@@ -8,6 +9,7 @@ import {
   cloudStartEnded,
   cloudStartPushed,
   cloudStartSignedIn,
+  cloudStartWayOn,
   cloudFolderTooBig,
   folderSizeText,
 } from "./cloudStartProgress";
@@ -394,4 +396,49 @@ test("a too-big folder's size reads as the copy's limit words it", () => {
   expect(folderSizeText(300 * 1024 ** 2)).toBe("300 MB");
   // Malformed details still say why, with no repository to offer.
   expect(cloudFolderTooBig(undefined).tooBig).toEqual({ folder: "~", repos: [], more: false });
+});
+
+test("a host failure whose words are only its code reads as a sentence, never the code", () => {
+  const begun = cloudStartBegun("k", "fix the build", "/Users/me/paint");
+  const off = cloudStartEnded(begun, "k", { ok: false, code: "cloud_disabled", message: "cloud_disabled" });
+  expect(off?.message).toBe(translate("cloudStart.cloudDisabled"));
+  expect(off?.message).not.toContain("cloud_disabled");
+  expect(cloudStartEnded(begun, "k", { ok: false, code: "cloud_disabled" })?.message).toBe(
+    translate("cloudStart.cloudDisabled"),
+  );
+  // Any other raw code says Cloud isn't available for the chat; the host's own sentence stays as it is.
+  expect(cloudStartEnded(begun, "k", { ok: false, code: "cloud_unknown", message: "cloud_unknown" })?.message).toBe(
+    translate("composer.offloadNotRun", { action: translate("composer.cloud") }),
+  );
+  expect(
+    cloudStartEnded(begun, "k", { ok: false, code: "cloud_start_failed", message: "No machine free" })?.message,
+  ).toBe("No machine free");
+});
+
+test("a failed start's way on: the folder, a new Cloud chat, Retry, or This Mac; none beside its own recovery", () => {
+  const failed = (code: string, extra: Partial<CloudStartProgress> = {}): CloudStartProgress => ({
+    key: "k",
+    task: "t",
+    state: "failed",
+    code,
+    ...extra,
+  });
+  expect(cloudStartWayOn(failed("cloud_folder_missing"))).toEqual(["pick-folder", "no-folder"]);
+  expect(cloudStartWayOn(failed("transport.path_outside_roots"))).toEqual(["pick-folder", "no-folder"]);
+  expect(cloudStartWayOn(failed("unavailable_now"))).toEqual(["new-cloud-chat"]);
+  expect(cloudStartWayOn(failed("transport.gesture_required"))).toEqual(["retry"]);
+  expect(cloudStartWayOn(failed("cloud_prompt_changed"))).toEqual(["retry"]);
+  expect(cloudStartWayOn(failed("cloud_start_failed"))).toEqual(["retry", "run-here"]);
+  expect(cloudStartWayOn(failed("cloud_disabled"))).toEqual(["run-here", "dismiss"]);
+  expect(cloudStartWayOn({ key: "k", task: "t", state: "failed" })).toEqual(["run-here", "dismiss"]);
+  for (const code of [
+    "not_signed_in",
+    "cloud_plan_required",
+    "cloud_spend_cap",
+    "cloud_member_budget",
+    "cloud_folder_too_big",
+  ])
+    expect(cloudStartWayOn(failed(code)), code).toEqual([]);
+  expect(cloudStartWayOn(failed("cloud_start_failed", { retryable: true }))).toEqual([]);
+  expect(cloudStartWayOn({ key: "k", task: "t", state: "starting" })).toEqual([]);
 });

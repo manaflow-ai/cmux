@@ -38,6 +38,8 @@ cp templates/<name>/cmux-app.json templates/<name>/main.js ~/.config/cmux/custom
 | `clock-weather` | A widget: the time, the date and the weather for a city you type (Open-Meteo, no key). The clock ticks every 15 s, the weather every 15 min. | `net:geocoding-api.open-meteo.com` and `net:api.open-meteo.com` (the weather), `storage:local` (keep the city) |
 | `my-prs` | Your open PRs and the reviews you owe, in the order you keep them (Move to top, up, down in a row's menu), read every minute and again when an agent chat changes. | `actions:run` (a click opens the PR), `storage:local` (keep the order), `net:api.github.com` (when GitHub is not connected) |
 | `design-links` | Figma, FigJam, Linear, Notion and Docs links: paste one, its file name becomes the row, a click opens it in a cmux browser tab beside the code. | `storage:local` (keep the links), `actions:run` (open) |
+| `media-player` | A radio player: SomaFM's stations (no key) with the song on now, read every 30 s; a Now playing card with previous, play and next; favorites first, with a Favorites only switch. Play opens the stream in one cmux browser tab, whose speaker button mutes it and whose close stops it; previous and next move that tab instead of opening a second stream. | `net:somafm.com` (the stations), `actions:run` (play), `browser:read` (is the stream tab open), `browser:write` (switch stations in that tab), `storage:local` (your station and favorites) |
+| `start-page` | A start page of your own, as a pane: a greeting and the time, New chat, Terminal and Browser buttons (the actions cmux's New Tab page runs), your workspaces (`cmux.watch("workspace.list")`) and your PRs (`cmux.watch("github.pulls")`), plus a Start row in the sidebar that opens it. Cmd-T still opens cmux's own New Tab page. | `workspace:read` and `integration:github:read` (granted at install), `actions:run` (the buttons, a PR, the sidebar row), `workspace:write` (show a workspace) |
 | `threads` | Your agent chats as a thread list (`agent_chat.list`): cards with the folder, a status (Input, Failed, Done, Working with its duration) or the age, the title and what the chat does now; chats that need you first, running chats in a Working shelf and day-old chats in Earlier, both closed; a search field. Read again on `agent_chat.changed` (the app tells the daemon when a chat changes), not on a timer. | `workspace:write` (a click shows the chat's workspace), `actions:run` (a chat with no workspace opens in a tab) |
 
 Read scopes (`workspace:read`, `integration:github:read`, ...) are granted at
@@ -87,6 +89,7 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 | A Session Info section | `implements["cmux.session.info.section/1"]`; render gets `{ session_id, cwd, branch?, harness? }` | none |
 | Decorate workspace rows | `implements["cmux.sidebar.rows/1"]` (customize app only) | none |
 | A pane (a tab) | `implements["cmux.pane/1"]`, opened as above | none |
+| A whole New Tab page | `implements["cmux.newtab/1"]`; shows only once the person runs `cmux settings set tabs.newTabApp <app id>` (unset: cmux's own page; a missing, hidden or failing app: cmux's own page); render gets `{ surface: "newTab", cwd? }`. The web page only, not `tabs.nativeNewTabPage`. | none |
 | Look like cmux | `Panel`, `Row`, `Button`, `Menu`, `Toggle`, `Slider`, `TextField`, `Badge`, `EmptyState`, `ProgressView`, `cmux.theme` tones, `cmux.toast` ([the kit](local-app-views.md#matching-the-app)) | none |
 | Run my own command | `cmux.actions.run("cmuxConfig.<name>")` from a click | `actions:run` |
 | Run a built-in action | `cmux.actions.run(id, args)` from a click; ids from `cmux.actions.list()`. Actions that sign in, quit, change the system or act on live input are refused | `actions:run` |
@@ -98,6 +101,8 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 | Type into a terminal | `cmux.terminal.input.write` | `terminal:execute` |
 | Agents, git, GitHub, notes, the feed | `cmux.agent.list`, `cmux.git.*`, `cmux.integrations.github.request`, `cmux.notes.*`, `cmux.feed.*` | each family's read or write scope |
 | Keep state, call a server | `cmux.storage.*`, `cmux.net.fetch`, `cmux.timer.*`, `cmux.clipboard` | `storage:local`, `net:<host>`, none, `clipboard:write` |
+| Read a browser page (reader mode) | `cmux.page.read({ tab? })`: the page's url and title, its main text as blocks (heading, paragraph, list_item, quote, code, image) with title, byline and site, and its links. No `tab`: the focused browser tab | `page:read` (highlighted on the consent sheet) |
+| Link hints on a browser page | `cmux.page.hints({ action: "show" \| "clear", tab? })` draws the built-in `f` labels and answers `{tab, hints: [{label, text, href}]}`; `cmux.page.follow({ label, new_split?, tab? })` clicks the hint's element, or opens its link in a new split (`F`). Both need a gesture (a key or a click) | `page:write` |
 | Errors | `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'` | |
 
 The whole op list with scopes is `cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts`

@@ -15,6 +15,7 @@ pub mod agent_chat;
 pub mod agent_keys;
 pub mod agent_memory;
 pub mod agents;
+pub mod analytics;
 pub mod approval;
 pub mod audit;
 pub mod auto_resume;

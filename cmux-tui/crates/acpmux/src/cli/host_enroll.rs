@@ -18,6 +18,8 @@ use std::sync::Arc;
 
 #[path = "host_enroll_daemon.rs"]
 mod daemon_step;
+#[path = "host_enroll_install.rs"]
+mod install_step;
 #[path = "host_enroll_update.rs"]
 mod update_step;
 use daemon_step::daemon;
@@ -323,22 +325,35 @@ fn fail(step: Step, detail: impl Into<String>, fix: impl Into<String>) -> StepRe
 
 /// Why `ssh -o BatchMode=yes HOST true` failed, from its stderr.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SshFailure {
+pub(super) enum SshFailure {
     NoRoute,
     SshOff,
     KeyRejected,
     HostKeyChanged,
+    HostKeyRevoked,
+    HostKeyConfigInvalid,
+    HostKeyUnknown,
     HostKeyUntrusted,
     Other,
 }
 
 impl SshFailure {
-    fn of(stderr: &str) -> Self {
+    pub(super) fn of(stderr: &str) -> Self {
         let s = stderr.to_ascii_lowercase();
         let any = |needles: &[&str]| needles.iter().any(|n| s.contains(n));
         // ssh prints the host key warning before anything else it reports.
-        if any(&["remote host identification has changed"]) {
+        if any(&["revoked host key", "host key is revoked", "revoked by file"]) {
+            Self::HostKeyRevoked
+        } else if any(&["remote host identification has changed"]) {
             Self::HostKeyChanged
+        } else if s.contains("error checking host key") && s.contains("in revoked keys file") {
+            Self::HostKeyConfigInvalid
+        } else if s.lines().any(|line| {
+            line.starts_with("no ")
+                && line.contains(" host key is known for ")
+                && line.contains("you have requested strict checking")
+        }) {
+            Self::HostKeyUnknown
         } else if any(&["host key verification failed"]) {
             Self::HostKeyUntrusted
         } else if any(&["connection refused"]) {
@@ -361,13 +376,15 @@ impl SshFailure {
         }
     }
 
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Self::NoRoute => "no route to the host",
             Self::SshOff => "ssh is off (connection refused)",
             Self::KeyRejected => "the ssh key was rejected",
             Self::HostKeyChanged => "the host key has changed",
-            Self::HostKeyUntrusted => "the host key is not trusted",
+            Self::HostKeyRevoked => "the host key has been revoked",
+            Self::HostKeyConfigInvalid => "the ssh revocation file could not be checked",
+            Self::HostKeyUnknown | Self::HostKeyUntrusted => "the host key is not trusted",
             Self::Other => "ssh failed",
         }
     }
@@ -389,8 +406,17 @@ impl SshFailure {
             Self::HostKeyChanged => format!(
                 "Verify {bare}'s new fingerprint with its owner before removing the old key with `ssh-keygen -R {bare}` and reconnecting."
             ),
-            Self::HostKeyUntrusted => format!(
+            Self::HostKeyRevoked => format!(
+                "The host key for {bare} was revoked and cannot be accepted. Contact its owner to replace the revoked key and verify the replacement fingerprint before reconnecting."
+            ),
+            Self::HostKeyConfigInvalid => format!(
+                "Check the RevokedHostKeys file in your SSH configuration for {bare}. Restore a readable, valid revocation file before reconnecting."
+            ),
+            Self::HostKeyUnknown => format!(
                 "Run `ssh {host}` to inspect the host key. For a new machine, Add Machine or `acpmux machine enroll {host} --accept-new-host-key` records its first key; changed keys are still refused."
+            ),
+            Self::HostKeyUntrusted => format!(
+                "Run `ssh -v {host}` to inspect the host-key verification failure. Check your SSH configuration and verify the host and IP fingerprints with the machine's owner before reconnecting."
             ),
             Self::Other => format!("Run `ssh {host}` in a terminal to see why it fails."),
         }
@@ -595,11 +621,6 @@ fn cmux_session_daemon(acp: bool, exe: Option<&str>, daemon_bin: &str) -> bool {
 }
 
 impl Probe {
-    /// The file `path` resolves to on the host, else `path` itself.
-    fn resolved<'a>(&'a self, path: &'a str) -> &'a str {
-        self.real.get(path).map(String::as_str).unwrap_or(path)
-    }
-
     fn in_use(&self) -> Option<InUse> {
         if let Some(run) = &self.running {
             let app_bin = self.bins.iter().any(|(path, _)| app_owned(path));
@@ -741,8 +762,12 @@ fn same_platform(uname: &str, os: &str, arch: &str) -> bool {
     kernel == os && machine == arch
 }
 
-/// A stale peer on another platform needs a target-specific update bundle or a
-/// rebuild there; plain `host update` cannot use this machine's binary.
+/// Whether this caller's binary cannot run on the probed host.
+fn foreign_platform(uname: &str) -> bool {
+    !uname.is_empty() && !same_platform(uname, std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// An unsupported platform needs a target-specific update bundle or rebuild.
 pub(super) fn platform_skew(
     step: Step,
     host: &str,
@@ -831,6 +856,15 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
             "Give --remote-binary as ~/… or an absolute path.",
         );
     }
+    // Enrollment checks usability; the host's updater owns its build. A live
+    // daemon on another platform must reach the peer handshake unchanged.
+    if foreign_platform(&probed.uname) && probed.running.is_some() {
+        return StepResult::new(
+            Step::Install,
+            StepState::Ok,
+            format!("{host} already runs acpmux for {}", probed.uname),
+        );
+    }
     let found = match installed(r, bin) {
         Ok(found) => found,
         Err(e) => return fail(Step::Install, format!("{e:#}"), "Check again."),
@@ -859,6 +893,17 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     };
     if current(&found) {
         return StepResult::new(Step::Install, StepState::Ok, format!("{bin} is build {want}"));
+    }
+    if foreign_platform(&probed.uname) && found.0.is_some() && found.1.is_some() {
+        return StepResult::new(
+            Step::Install,
+            StepState::Ok,
+            format!(
+                "{bin} is installed for {} (build {})",
+                probed.uname,
+                found.0.as_deref().unwrap_or("?")
+            ),
+        );
     }
     let why = describe(&found);
     if !fix {
@@ -899,8 +944,13 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     // safe remote-only operation even when this invoking binary is for a
     // different platform. Any binary push must stop on platform skew.
     let link_only = bin != DAEMON_BIN && found.0.as_deref() == Some(want);
-    if !link_only && let Some(step) = platform_skew(Step::Install, host, name, &uname, true) {
-        return step;
+    if !link_only && foreign_platform(&uname) {
+        if let Some(target) = crate::cli::peer_status::target_from_uname(&uname) {
+            return install_step::bootstrap(r, bin, target);
+        }
+        if let Some(step) = platform_skew(Step::Install, host, name, &uname, true) {
+            return step;
+        }
     }
     // Every change below holds the host's update lock, so neither another
     // update nor the host's self-update timer finds its binary replaced under it.
@@ -941,7 +991,10 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
         )
         .with_reason(REASON_NOT_THIS_PROGRAM);
     }
-    let pushed = hosts::push_binary(r, bin).and_then(|_| {
+    // Enroll asks for exactly this build (it checks it after), so it may move
+    // a host back, and inside its restart window; `host update` and `host
+    // setup` refuse both.
+    let pushed = hosts::push_binary(r, bin, true, true).and_then(|_| {
         if bin == DAEMON_BIN {
             return Ok(String::new());
         }

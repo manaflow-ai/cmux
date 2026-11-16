@@ -1240,6 +1240,11 @@ export type QueuedSubagentRetry = {
   name: (string | null);
 } & Record<string, unknown>;
 
+export interface ReleaseToWatchParams {
+  _meta?: RequestMeta;
+  sessionId?: unknown;
+}
+
 export type RequestMeta = {
   acpmux?: AcpmuxRequestMeta;
 } & Record<string, unknown>;

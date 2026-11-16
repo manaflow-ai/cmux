@@ -33,10 +33,15 @@ public final class AgentPaneModel {
     /// The first reveal came from the page's after-render report, rather than the watchdog.
     @ObservationIgnored var pageReportedPaint = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
+    /// The waits for another process this open ran before its first paint, as the host sees them.
+    @ObservationIgnored public internal(set) var openWaits = AgentPaneOpenWaits()
     /// The page's acpmux client is connected and its page actions answer (`pane.clientReady`); false
     /// while it connects or after it lost its connection. A prewarmed New Tab page serves a tab
     /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
     @ObservationIgnored public internal(set) var clientReady = false
+    /// A push that waits for the page's client (``AgentPaneView/attachExternal(_:claimed:)``): the old
+    /// host runs a script at once, so a page still loading would miss it. Runs once, on `pane.clientReady`.
+    @ObservationIgnored var whenClientReady: (@MainActor () -> Void)?
     /// The page's finish sound (`pane.finishSound`), with its own gap between sounds.
     @ObservationIgnored let finishSound = AgentPaneFinishSound()
 
@@ -475,6 +480,8 @@ public final class AgentPaneModel {
         // The spare's start folder was no tab's; the chat's folder comes with its session.
         handshakeCwd = nil
         (hasPainted, paintedFromKeptTail, paintedSettled, pageReportedPaint) = (false, false, false, false)
+        // The chat's open starts here: the page's own load and connection ran before any tab asked.
+        openWaits = AgentPaneOpenWaits()
         return true
     }
 
@@ -491,7 +498,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
+             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .completeFolder, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown, .dictationSources: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
@@ -540,6 +547,11 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .clientReady(let ready):
             clientReady = ready
+            if ready { openWaits.ran(.connected) }
+            if ready, let waiting = whenClientReady {
+                whenClientReady = nil
+                waiting()
+            }
             return AgentPaneReply.success()
         case .framePacing(let intervals):
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
@@ -604,6 +616,7 @@ public final class AgentPaneModel {
         case .attachDropped(let kind, let names): return await attachDropped(kind, names: names)
         // A chat on another machine gets the gesture's source only (`attachSource`).
         case .attachSource(let kind, let names, let gestureAt): return await attachSource(kind, names: names, gestureAt: gestureAt)
+        case .attachExternal: return await takeExternalAttachments()
         case .attachmentSourceIcon(let bundleId):
             return AgentPaneReply.success(sourceIcons.dataURL(bundleId).map { ["src": $0] } ?? [:])
         case .useFolder(let cwd, let confirm) where remoteChat:
@@ -649,6 +662,11 @@ public final class AgentPaneModel {
         case .projectIcon where remoteChat:
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()
+        case .completeFolder where remoteChat:
+            // A chat on another machine: its folders are there, and this Mac's disk is never listed.
+            return AgentPaneReply.success(["folders": [String]()])
+        case .completeFolder(let path):
+            return AgentPaneReply.success(["folders": await AgentPaneFolderCompletion().foldersInBackground(path) ?? []])
         case .projectIcon(let cwd):
             // Off the main actor, cached by file and modification date; neither keeps the page's letters.
             let answer = await AgentPaneProjectIcons.shared.answer(for: cwd)

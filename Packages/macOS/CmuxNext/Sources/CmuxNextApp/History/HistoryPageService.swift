@@ -18,7 +18,6 @@ import os
 #if DEBUG
 import CmuxNextRemoteBrowser
 #endif
-
 /// Opens `cmux://history` (plans/cmux-next/history.md 5.1). The page is a
 /// browser tab whose record URL is `cmux://history`, so it survives relaunch
 /// like any tab; the React page reads the daemon's history module itself.
@@ -173,7 +172,7 @@ extension TabContentCache {
                     showAppPage(confirmedURL, in: tab)
                 },
                 cloudRd: { [weak services] machine in services?.cloudDesktopRdTransport(machine: machine) },
-                displayName: RemoteViewTabRecord(url: url).flatMap { $0.cloudDesktop ? services.machines.cloudMachineBadge(machine: $0.host) : nil }, loginKeychain: services.loginKeychain)
+                displayName: RemoteViewTabRecord(url: url).flatMap { $0.cloudDesktop ? services.machines.cloudMachineBadge(machine: $0.host) : nil }, connectionTarget: RemoteViewTabRecord(url: url).flatMap { record in record.cloudDesktop ? services.machines.cloudMachineConnectionTarget(machine: record.host) : nil }, loginKeychain: services.loginKeychain)
             page.onNavigate = { [weak self] target in
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)

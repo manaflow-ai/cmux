@@ -57,6 +57,32 @@ impl SummaryIndex {
         view.read_page(anchor, side, inclusive, limit, max_bytes, filter)
     }
 
+    /// A bounded page over the live rows of origin `local` only. Every row,
+    /// flag and continuation key comes from that set, so a page for a peer
+    /// never names a row of another origin, and a run of remote rows costs
+    /// nothing to skip. An anchor of another origin is refused.
+    pub fn read_local_live_page(
+        &self,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+    ) -> io::Result<IndexPage> {
+        if anchor.is_some_and(|anchor| anchor.row.origin.as_ref() != "local") {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "anchor is not a local row"));
+        }
+        let mut view = self.clone();
+        view.ordered = self.local_live.clone();
+        view.disk = None;
+        if let Some(anchor) = anchor
+            && !view.local_live.contains_key(anchor)
+        {
+            view.by_id.remove(&anchor.row);
+        }
+        view.read_page(anchor, side, inclusive, limit, max_bytes, None)
+    }
+
     /// One bounded part: a hot table range or a physical snapshot piece.
     /// Flags and continuation name candidates, including hidden rows (decision 93).
     pub fn read_page(
@@ -66,6 +92,36 @@ impl SummaryIndex {
         inclusive: bool,
         limit: usize,
         max_bytes: usize,
+        filter: Option<&ListFilter>,
+    ) -> io::Result<IndexPage> {
+        self.read_page_in(anchor, side, inclusive, limit, max_bytes, false, filter)
+    }
+
+    /// [`read_page`](Self::read_page) whose snapshot piece is the full physical piece
+    /// (`snapshot::PAGE_BYTES`, `limit` rows) whatever `max_bytes` is: a peer's `all` page
+    /// reads one after a piece that held none of its rows (decision 291). The rows are still
+    /// cut to `max_bytes` by the same selection, so the reply's size is the asker's.
+    pub fn read_page_full_piece(
+        &self,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+        filter: Option<&ListFilter>,
+    ) -> io::Result<IndexPage> {
+        self.read_page_in(anchor, side, inclusive, limit, max_bytes, true, filter)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn read_page_in(
+        &self,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+        full_piece: bool,
         filter: Option<&ListFilter>,
     ) -> io::Result<IndexPage> {
         if limit == 0 || limit > 400 || max_bytes == 0 || max_bytes > super::snapshot::PAGE_BYTES {
@@ -112,10 +168,15 @@ impl SummaryIndex {
             // also carries index framing and a trailer. Read one bounded
             // physical piece with enough room to decode a record whose
             // summary itself fits the response budget; selection below still
-            // enforces `max_bytes` on returned rows.
-            let physical_bytes = max_bytes
-                .saturating_add(super::MAX_INDEX_RECORD_BYTES)
-                .min(super::snapshot::PAGE_BYTES);
+            // enforces `max_bytes` on returned rows. A full piece reads the
+            // most one piece may, whatever the response budget.
+            let physical_bytes = if full_piece {
+                super::snapshot::PAGE_BYTES
+            } else {
+                max_bytes
+                    .saturating_add(super::MAX_INDEX_RECORD_BYTES)
+                    .min(super::snapshot::PAGE_BYTES)
+            };
             let piece = disk.read_piece(anchor, side, inclusive, limit, physical_bytes)?;
             bytes_read = piece.bytes_read;
             disk_before = piece.has_before;

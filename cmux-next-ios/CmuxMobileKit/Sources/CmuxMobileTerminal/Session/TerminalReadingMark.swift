@@ -30,13 +30,13 @@ struct TerminalReadingMark: Equatable {
     let anchorIndex: Int
     let rowsFromEnd: Int
     /// The anchor's row as it was, and its pixel remainder.
-    let row: Int
+    private(set) var row: Int
     let delta: CGFloat
     /// The document's last `tailLength` rows when marked (oldest first), and
     /// the total then: rows the replay still has near its end, readable
     /// when the anchor's rows are not (round 8, V2-3 residual).
     let tail: [String]
-    let totalRows: Int
+    private(set) var totalRows: Int
 
     /// Rows of the exact match at the anchor.
     static let length = 6
@@ -69,6 +69,17 @@ struct TerminalReadingMark: Equatable {
         self.totalRows = totalRows
         let tailStart = max(0, totalRows - Self.tailLength)
         self.tail = (tailStart..<totalRows).map { rowText($0).map(Self.normalized) ?? "" }
+    }
+
+    /// The same rows, expected at the same distance from the end of a
+    /// scrollback of `totalRows` rows: a replay that starts at another row of
+    /// the Mac's history (a tab's new host, older rows fetched;
+    /// `TerminalScrollRestore`). The old end's rows move with it.
+    func rebased(totalRows: Int) -> TerminalReadingMark {
+        var copy = self
+        copy.row = totalRows - rowsFromEnd
+        copy.totalRows = totalRows
+        return copy
     }
 
     /// The anchor in a rebuilt scrollback of `totalRows` rows.

@@ -8,6 +8,8 @@ extension SettingsSchema {
     /// write through `settings.set` or the palette is refused as removed
     /// (`SettingRetired`), not as unknown.
     public static let retiredKeys: [String: String] = [
+        // Auto became the default on Mac and iPhone (Leo, 2026-11-09: it is a different kind of default, it is auto).
+        "remote.ultraMode": "Ultra Connection Mode is now remote.ultra: Off, Auto or Always (true reads as Always)",
         // One background everywhere (plans/cmux-next/windows.md, 2026-10-03).
         "appearance.tabBarBackground": "every surface draws the one window background",
         // The update card is gone (Lawrence 2026-10-05): nothing left to quiet.
@@ -70,5 +72,13 @@ extension SettingsSchema {
         "agents.hiddenChats.discard": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
         // Leo (2026-11-14): "obviously if something isn't drawn/is completely proven idle then dont bother taking memory"; Lawrence (#38022): no perf switch. A hidden idle chat and an archived chat always give back their page.
         "agents.hiddenChats.discardAfterMinutes": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
+    ]
+
+    /// Retired keys a row took the place of, by the row's path: the old key's path and what its
+    /// values read as in the row (any other value reads as the row's default). While the row is
+    /// unset Settings shows the old key's value, and every write or reset of the row removes the
+    /// old key (``RenamedSettingKeys``), as the daemon does (cmux-config `schema::retired`).
+    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue])] = [
+        ["remote", "ultra"]: (old: ["remote", "ultraMode"], values: [.bool(true): .string("always")]),
     ]
 }

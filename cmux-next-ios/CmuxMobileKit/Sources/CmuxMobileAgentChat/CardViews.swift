@@ -347,7 +347,7 @@ public struct QuestionCard: View {
             .background(chosen ? Color.cmuxMobileFillSelected : Color.cmuxMobileFill, in: .rect(cornerRadius: 14, style: .continuous))
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .sensoryFeedback(.selection, trigger: chosen)
         .accessibilityAddTraits(chosen ? .isSelected : [])
     }
@@ -381,7 +381,7 @@ public struct QuestionCard: View {
                     .background(Color.cmuxMobileFill, in: .rect(cornerRadius: 14, style: .continuous))
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
             }
         }
     }
@@ -635,7 +635,7 @@ struct NextStepTryView: View {
                             .foregroundStyle(ticked.contains(index) ? .secondary : .primary)
                             .multilineTextAlignment(.leading)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityIdentifier("agentChat.nextStep.verify.\(index)")
                 }
             }

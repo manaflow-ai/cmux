@@ -93,7 +93,7 @@ impl OpRouter for MuxRouter {
         is_daemon_op(op) || op == AGENT_CHAT_LIST
     }
 
-    fn start_events(&self, publish: Box<dyn Fn(&str) + Send + Sync>) {
+    fn start_events(&self, publish: super::supervisor::StreamPublish) {
         let Some(mux) = self.mux.upgrade() else { return };
         // Only the events that invalidate an app stream: every other daemon
         // event (terminal output, titles, notifications) was cloned into this
@@ -103,10 +103,18 @@ impl OpRouter for MuxRouter {
         let _ = std::thread::Builder::new().name("cmux-apps-events".into()).spawn(move || {
             while let Ok(event) = events.recv() {
                 for stream in streams(&event) {
-                    publish(stream);
+                    publish(stream, body(&event));
                 }
             }
         });
+    }
+
+    /// `github.changed` is live while the Cloud pushes GitHub changes on the feed socket.
+    fn stream_live(&self, stream: &str) -> Option<bool> {
+        if !GITHUB_STREAMS.contains(&stream) {
+            return None;
+        }
+        Some(self.mux.upgrade().is_some_and(|mux| mux.feed_client().github_push_live()))
     }
 
     fn spawn_backend_terminal(
@@ -165,6 +173,32 @@ const AGENT_STREAMS: &[&str] = &["agent.changed"];
 /// The streams a change to the chat index (`mux/chat_index.rs`) invalidates.
 const CHAT_STREAMS: &[&str] = &["chat.changed", "agent_chat.changed"];
 
+/// The stream a Cloud-pushed GitHub change invalidates (feed_client.rs, the Cloud's webhooks).
+const GITHUB_STREAMS: &[&str] = &["github.changed"];
+
+/// The stream every settings change invalidates (`settings-v1`; `mux/settings.rs`).
+const SETTINGS_STREAMS: &[&str] = &["settings.changed"];
+/// The streams a settings change that touches the theme invalidates.
+const SETTINGS_AND_THEME_STREAMS: &[&str] = &["settings.changed", "theme.changed"];
+/// The settings the theme is made from: a change to one of these keys (or a key under one, such as
+/// `appearance.themeEdits.dark.background`) is a theme change.
+const THEME_KEYS: &[&str] = &[
+    "appearance.theme",
+    "appearance.appTheme",
+    "appearance.themeFile",
+    "appearance.themeEdits",
+    "appearance.accent",
+    "appearance.hue",
+    "appearance.saturation",
+    "appearance.highlightColor",
+];
+
+fn is_theme_key(key: &str) -> bool {
+    THEME_KEYS.iter().any(|theme| {
+        key.strip_prefix(theme).is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+    })
+}
+
 /// The app streams a daemon event invalidates (`cmux.live` re-reads on them). Every one is
 /// declared in `cmux-app-host/schema/v2/events.json`, the table the extension SDKs are made from.
 fn streams(event: &MuxEvent) -> &'static [&'static str] {
@@ -175,7 +209,21 @@ fn streams(event: &MuxEvent) -> &'static [&'static str] {
         | MuxEvent::TreeDelta(_) => TREE_STREAMS,
         MuxEvent::AgentChanged { .. } => AGENT_STREAMS,
         MuxEvent::ChatsChanged { .. } => CHAT_STREAMS,
+        MuxEvent::SettingsChanged(change) if change.keys.iter().any(|key| is_theme_key(key)) => {
+            SETTINGS_AND_THEME_STREAMS
+        }
+        MuxEvent::SettingsChanged(_) => SETTINGS_STREAMS,
+        MuxEvent::GitHubChanged { .. } => GITHUB_STREAMS,
         _ => &[],
+    }
+}
+
+/// An event's body for apps: `{}` (an invalidation), or `{"live": bool}` when a pushed stream's
+/// channel went up or down (a watch keeps its slow re-read while it is down).
+fn body(event: &MuxEvent) -> Value {
+    match event {
+        MuxEvent::GitHubChanged { live: Some(live) } => json!({ "live": live }),
+        _ => json!({}),
     }
 }
 
@@ -190,12 +238,82 @@ mod tests {
                 .unwrap();
         let declared = table["events"].as_object().unwrap();
         assert_eq!(streams(&MuxEvent::TreeChanged), TREE_STREAMS);
-        for stream in TREE_STREAMS.iter().chain(AGENT_STREAMS).chain(CHAT_STREAMS) {
+        for stream in TREE_STREAMS
+            .iter()
+            .chain(AGENT_STREAMS)
+            .chain(CHAT_STREAMS)
+            .chain(SETTINGS_STREAMS)
+            .chain(SETTINGS_AND_THEME_STREAMS)
+            .chain(GITHUB_STREAMS)
+        {
             assert!(
                 declared.contains_key(*stream),
                 "{stream} is published to apps but not declared in schema/v2/events.json"
             );
         }
+    }
+
+    fn settings_changed(keys: &[&str]) -> MuxEvent {
+        MuxEvent::SettingsChanged(cmux_config::store::Change {
+            revision: 1,
+            keys: keys.iter().map(|key| (*key).to_string()).collect(),
+            origin: cmux_config::store::Origin::User,
+        })
+    }
+
+    /// Every settings change invalidates `settings.changed`; one that touches a key the theme is
+    /// made from also invalidates `theme.changed`. Both are declared with `settings.get`, so an app
+    /// hears them with `settings:read`.
+    #[test]
+    fn settings_changes_publish_settings_changed_and_theme_keys_also_theme_changed() {
+        assert_eq!(streams(&settings_changed(&["terminal.fontSize"])), ["settings.changed"]);
+        for key in ["appearance.theme", "appearance.themeFile", "appearance.accent"] {
+            assert_eq!(
+                streams(&settings_changed(&["terminal.fontSize", key])),
+                ["settings.changed", "theme.changed"],
+                "{key}"
+            );
+        }
+        assert_eq!(
+            streams(&settings_changed(&["appearance.themeEdits.dark.background"])),
+            ["settings.changed", "theme.changed"]
+        );
+        assert_eq!(streams(&settings_changed(&["appearance.themeful"])), ["settings.changed"]);
+        for stream in ["settings.changed", "theme.changed"] {
+            assert_eq!(super::super::subscriptions::declared_reads(stream), Some("settings.get"));
+        }
+        assert_eq!(super::super::subscriptions::declared_reads("made.changed"), None);
+    }
+
+    /// A Cloud-pushed GitHub change is `github.changed` with an empty body; a move of the push
+    /// channel is the same stream with `{"live": bool}`. It reads `integration.request` as a GET
+    /// to GitHub, so only `integration:github:read` (or `integration:github`) hears it.
+    #[test]
+    fn github_changes_publish_github_changed_with_liveness_in_the_body() {
+        let change = MuxEvent::GitHubChanged { live: None };
+        assert_eq!(streams(&change), ["github.changed"]);
+        assert_eq!(body(&change), json!({}));
+        assert_eq!(body(&MuxEvent::GitHubChanged { live: Some(false) }), json!({"live": false}));
+        let (reads, params) = super::super::subscriptions::declared("github.changed").unwrap();
+        assert_eq!(
+            (reads, params),
+            ("integration.request", &json!({"provider": "github", "method": "GET"}))
+        );
+        let table = super::super::grants::ScopeTable::get();
+        let grant = |scopes: &[&str]| super::super::grants::Grant {
+            scopes: scopes.iter().map(|s| (*s).to_string()).collect(),
+            ..Default::default()
+        };
+        let hears = |scopes: &[&str]| {
+            matches!(
+                table.check(reads, params, &grant(scopes)),
+                super::super::grants::Decision::Allow(_)
+            )
+        };
+        assert!(hears(&["integration:github:read"]));
+        assert!(hears(&["integration:github"]));
+        assert!(!hears(&["integration:slack:read"]), "another provider's grant hears nothing");
+        assert!(!hears(&["net:api.github.com"]));
     }
 
     #[test]

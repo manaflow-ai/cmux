@@ -317,6 +317,7 @@ final class ConversationAudioComposer {
         if noticeLabel.superview !== field { field.addSubview(noticeLabel) }
         noticeLabel.alpha = 0
         let dimsPlus = style == .unavailable
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.2) {
             self.noticeLabel.alpha = 1
             composer.placeholder.alpha = 0
@@ -353,6 +354,7 @@ final class ConversationAudioComposer {
             noticeLabel.removeFromSuperview()
             return
         }
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.2, animations: restore) { _ in
             if self.noticeLabel.alpha == 0 { self.noticeLabel.removeFromSuperview() }
         }
@@ -443,6 +445,7 @@ final class ConversationAudioComposer {
     private func setPlusGlyph(_ symbol: String, in composer: ConversationComposerView) {
         let image = UIImage(systemName: symbol, withConfiguration: ConversationComposerView.plusSymbolConfiguration)
         guard composer.plusButton.image(for: .normal) != image else { return }
+        // motion: allow crossfade, the Reduce Motion form
         UIView.transition(with: composer.plusButton, duration: 0.2, options: .transitionCrossDissolve) {
             composer.plusButton.setImage(image, for: .normal)
         }

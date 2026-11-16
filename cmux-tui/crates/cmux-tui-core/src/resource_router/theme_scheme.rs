@@ -221,7 +221,9 @@ mod tests {
         let bad = BASE16.replace("\"b294bb\"", "\"b294zz\"");
         let error = convert(&fields(json!({ "text": bad, "file": "t.yaml" }))).unwrap_err();
         assert_eq!(error.code, "validation.invalid");
-        assert!(error.message.contains("t.yaml:15"), "{}", error.message);
+        // BASE16 is `scheme:` on line 1, then base00..base0F on lines 2..17 (1-based),
+        // so the bad base0E is on line 16.
+        assert!(error.message.starts_with("t.yaml:16: base0E"), "{}", error.message);
     }
 
     #[test]

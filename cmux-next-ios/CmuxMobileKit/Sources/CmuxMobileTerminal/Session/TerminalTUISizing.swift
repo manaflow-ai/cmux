@@ -29,9 +29,16 @@ public struct TerminalTUISizing: Equatable, Sendable {
     public init() {}
 
     /// The keyboard finished showing or hiding; `stackTop` is the composer
-    /// stack's top now, `restingStackTop` its top with the keyboard down.
-    public mutating func keyboardSettled(stackTop: CGFloat, restingStackTop: CGFloat, isTUI: Bool) {
-        keyboardLift = stackTop < restingStackTop - 0.5 ? restingStackTop - stackTop : nil
+    /// stack's top now, `restingStackTop` its top with the keyboard down,
+    /// `keyboardShown` whether the soft keyboard is on screen, docked.
+    ///
+    /// Only a shown keyboard lifts the stack. With the keyboard down a gap
+    /// between the two tops is the page's own layout catching up (a tab's
+    /// insets arriving after its first settle left the stack 8 pt above the
+    /// resting top it was measured against), never a lift: kept as one, it
+    /// cost a full-screen app in a tab a row until the keyboard next came.
+    public mutating func keyboardSettled(stackTop: CGFloat, restingStackTop: CGFloat, keyboardShown: Bool, isTUI: Bool) {
+        keyboardLift = keyboardShown && stackTop < restingStackTop - 0.5 ? restingStackTop - stackTop : nil
         followsKeyboard = isTUI
     }
 

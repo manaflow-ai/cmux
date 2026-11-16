@@ -27,19 +27,20 @@ import Testing
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
     }
 
-    @Test func theTopBarOffersNoCreationButtonsOnlyItsMoreMenu() {
+    @Test func theTopBarOffersNoButtonsOfItsOwn() {
         let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil }, paneTarget: ActionTargetRef(kind: .pane, id: "sample-pane"))
+        let toolbar = PaneToolbar(registry: { registry }, paneTarget: ActionTargetRef(kind: .pane, id: "sample-pane"))
         toolbar.update(target: "sample-terminal", kind: .terminal)
-        #expect(toolbar.view.items.isEmpty, "the terminal and browser buttons repeat the + menu, which the ⋮ menu holds")
+        #expect(toolbar.view.items.isEmpty, "the terminal and browser buttons repeat the + menu")
         #expect(toolbar.view.buttons.isEmpty)
-        #expect(toolbar.view.hasMore, "the ⋮ stays for the pane's actions")
+        #expect(toolbar.view.intrinsicContentSize.width == 0, "no \"…\" either: the pane's actions are the tab bar's right-click")
     }
 
     /// Relaunch (Leo 2026-11-04: "too many layout shifts/flicker renderings"): a restored pane's toolbar was empty at its
     /// first layout (its items came on the observation's first turn), so the first frame gave the tab strip the whole
-    /// row and the next one took 27 pt back. The toolbar has its items, and its width, before any run-loop turn.
-    @Test func thePaneToolbarHasItsWidthBeforeTheFirstLayout() throws {
+    /// row and the next one took 27 pt back. The toolbar has its items, and its width, before any run-loop turn: the
+    /// width the pane's first layout sees is the width it keeps once the observation has run.
+    @Test func thePaneToolbarHasItsWidthBeforeTheFirstLayout() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -50,7 +51,9 @@ import Testing
         let pane = PaneController(pane: model, daemon: services.daemon, layoutPaneID: LayoutPaneID(model.id), services: services, state: WindowState(record: record))
         defer { pane.teardown() }
         let toolbar = PaneToolbar(pane: pane) // no await: what the pane's first layout sees
-        #expect(toolbar.view.intrinsicContentSize.width > 0, "the toolbar reserves its slot before the first layout")
+        let first = toolbar.view.intrinsicContentSize.width
+        await Task.yield() // the observation's first turn
+        #expect(toolbar.view.intrinsicContentSize.width == first, "the toolbar's slot is settled before the first layout")
     }
 
     @Test func thePaneStripPlusIsAPlainButtonWithoutATypeMenuOnPress() throws {

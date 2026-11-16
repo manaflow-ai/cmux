@@ -48,10 +48,16 @@ public struct StateFolderMove: Sendable {
     }
 
     /// Moves `build`'s old folder, once, then the loose items NEXT kept in classic's
-    /// folder (``ClassicFolderItemsMove``). Cheap when there is nothing to move: a few `lstat`s.
+    /// folder and in its `cmux/<bundle id>` (``ClassicFolderItemsMove``). Cheap when there is nothing to move: a few `lstat`s.
     @discardableResult
     public func run(build: BuildIdentity) -> Outcome {
-        defer { ClassicFolderItemsMove(applicationSupport: applicationSupport).run() }
+        defer {
+            let items = ClassicFolderItemsMove(applicationSupport: applicationSupport)
+            items.run()
+            items.moveBundleItems(bundleID: build.bundleID)
+            // The bundle id the helper's own folder is named by (`ComputerUseHelperDaemon.defaultStateDirectory`).
+            items.moveComputerUseRuntime(bundleID: build.bundleID ?? "com.cmuxterm.app")
+        }
         guard let pair = folders(build: build) else { return .nothing }
         let (old, new) = pair
         var info = stat()

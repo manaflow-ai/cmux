@@ -36,13 +36,15 @@ public final class CmuxRemoteService {
         didSet {
             guard currentConfig != nil else { return }
             let waiting = configWaiters
-            configWaiters = []
-            for waiter in waiting { waiter.resume() }
+            configWaiters = [:]
+            for waiter in waiting.values { waiter.resume() }
         }
     }
-    private var configWaiters: [CheckedContinuation<Void, Never>] = []
+    private var configWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private let configClock: any Clock<Duration>
 
-    public init(connection: @escaping @MainActor () -> DaemonConnection?) {
+    public init(clock: any Clock<Duration> = ContinuousClock(), connection: @escaping @MainActor () -> DaemonConnection?) {
+        configClock = clock
         connectionSource = connection
     }
 
@@ -78,10 +80,33 @@ public final class CmuxRemoteService {
 
     /// Applies the current switches once when none were sent yet; whether the daemon runs cmux Remote.
     public func waitAvailable() async -> Bool {
-        // Before the settings load nothing decides yet: wait for `follow` to set the switches.
+        (try? await configuredAvailability()) ?? false
+    }
+
+    /// Hub startup must distinguish an absent worker from settings that never arrived.
+    func configuredAvailability() async throws -> Bool {
+        try Task.checkCancellation()
         if currentConfig == nil {
-            await withCheckedContinuation { configWaiters.append($0) }
+            let id = UUID()
+            // Platform continuation lifetime only; use the shared one-shot deadline adapter.
+            let timer = DemandTimer(owner: "cmux-remote.configuration", clock: configClock)
+            defer { timer.cancel() }
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (waiter: CheckedContinuation<Void, any Error>) in
+                    guard !Task.isCancelled else { waiter.resume(throwing: CancellationError()); return }
+                    configWaiters[id] = waiter
+                    timer.schedule(after: .seconds(30)) { @MainActor [weak self] in
+                        self?.configWaiters.removeValue(forKey: id)?.resume(throwing: CmuxRemoteError.configurationTimeout)
+                    }
+                }
+            } onCancel: {
+                // Cancellation may arrive on any executor; remove only this caller's waiter.
+                MainDelivery().run { [weak self] in
+                    self?.configWaiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
+                }
+            }
         }
+        try Task.checkCancellation()
         guard let config = currentConfig?() else { return false }
         if lastConfig == nil {
             await apply(computerUse: config.computerUse, screenSharing: config.screenSharing, headless: config.headless)
@@ -90,10 +115,21 @@ public final class CmuxRemoteService {
         return available && (config.computerUse || config.screenSharing)
     }
 
+    /// The worker as Stop Sharing This Mac sees it (``MacScreenActions``): running once started, and its
+    /// `screen.stop_session` ends the session it hosts.
+    public var screenSessionWorker: MacScreenWorkerSession {
+        MacScreenWorkerSession(running: { [weak self] in self?.started == true },
+                               stop: { [weak self] in
+                                   guard let self else { throw CmuxRemoteError.unavailable }
+                                   _ = try await self.call("screen.stop_session")
+                               })
+    }
+
     /// One host request over the daemon (status, refresh, request, restart, screen.*).
-    public func call(_ method: String, _ params: CmuxNextDaemon.JSONValue = .object([:])) async throws -> CmuxNextDaemon.JSONValue {
+    public func call(_ method: String, _ params: CmuxNextDaemon.JSONValue = .object([:]),
+                     timeout: Duration = .seconds(25)) async throws -> CmuxNextDaemon.JSONValue {
         guard let connection else { throw CmuxRemoteError.unavailable }
-        return try await connection.request(RemoteHostCallRequest(method: method, params: params), timeout: .seconds(25))
+        return try await connection.request(RemoteHostCallRequest(method: method, params: params), timeout: timeout)
     }
 
     public func status() async throws -> CmuxNextDaemon.JSONValue {

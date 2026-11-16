@@ -1044,6 +1044,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   padding: 0 4px;
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
+  /* As tall as its glyph, so on a 36 px tile the chip sits under the poster's middle, which the
+     length must stay clear of (composer/videoLengthFit.ts). */
+  line-height: 1;
+}
+/* A tile too narrow for the length keeps the glyph alone in its corner (composer/videoLengthFit.ts). */
+[data-length-clipped] > .acpmux-queued-video .acpmux-queued-video-time {
+  display: none;
 }
 .acpmux-queued-images-more {
   flex: none;

@@ -115,6 +115,11 @@ fn part(part: &Part) -> Option<RemotePart> {
         // A paired install cannot fetch the picture (no relay read of
         // attachment bytes yet), so a link preview reaches it as its URL.
         Part::LinkPreview { url, .. } => Some(RemotePart::Text { text: url.clone(), runs: None }),
+        // A paired install has no extension runtime: a widget reaches it
+        // as its fallback text.
+        Part::Widget(widget) => {
+            Some(RemotePart::Text { text: widget.fallback.clone(), runs: None })
+        }
         // Paired installs cannot fetch attachment bytes yet (no relay read).
         // Questions are not projected to paired installs yet.
         Part::Work { .. } | Part::Attachment { .. } | Part::Question(_) | Part::Unknown(_) => None,

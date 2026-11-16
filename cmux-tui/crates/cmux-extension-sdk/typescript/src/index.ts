@@ -73,9 +73,99 @@ export function pane(render: (context: MountContext) => View): (context: MountCo
   return render
 }
 
+/** Context a New Tab page render gets: the folder the new tab starts in, when it has one. */
+export type NewTabContext = { surface: "newTab"; cwd?: string }
+
+/**
+ * A whole New Tab page (`cmux.newtab/1`): the scene is the page's body, in place of cmux's own page.
+ * It shows only once the person picks the extension (`cmux settings set tabs.newTabApp <id>`); when
+ * it is hidden, disabled or its render fails, cmux draws its own page. Open the tab the person asks
+ * for with `cmux.actions.run` from a click (scope `actions:run`).
+ *
+ *     // cmux-app.json: "implements": { "cmux.newtab/1": { "export": "renderNewTab", "title": "Launcher" } }
+ *     export const renderNewTab = newTab(() => VStack([Text("Good morning")]))
+ */
+export function newTab(render: (context: NewTabContext) => View): (context: NewTabContext) => View {
+  return render
+}
+
+/** The tool call a chat widget draws: its name, and its input and result as the agent sent them (each cut to 16 KiB). */
+export type ChatWidgetTool = { name: string; title?: string; status?: string; input?: unknown; output?: string }
+
+/**
+ * Context a chat widget render gets. `widget.key` is stable for the call or the part: keep state
+ * that must outlive the extension in `cmux.storage` under it. `tool` is set under a tool call,
+ * `props` for a widget part an agent sent.
+ */
+export type ChatWidgetContext = {
+  surface: "chatWidget"
+  widget: { key: string }
+  tool?: ChatWidgetTool
+  props?: Record<string, unknown>
+}
+
+/**
+ * A chat widget (`cmux.chat.widget/1`): a card in the agent chat, under every tool call whose name
+ * matches the manifest's `options.tools` (`*` matches any run of characters), and for widget parts
+ * an agent sends naming this extension. cmux ships no widgets of its own; when the extension is
+ * missing, hidden or its render fails, the chat shows the call as it always did. The same render
+ * can be exported again with `section(...)` to show in the sidebar.
+ *
+ *     // cmux-app.json: "implements": { "cmux.chat.widget/1": { "export": "renderCard", "title": "PR",
+ *     //   "options": { "tools": ["mcp__github__*pull_request*"] } } }
+ *     export const renderCard = chatWidget((ctx) => Text(ctx.tool?.name ?? "widget"))
+ */
+export function chatWidget(render: (context: ChatWidgetContext) => View): (context: ChatWidgetContext) => View {
+  return render
+}
+
 /** A command (a catalog op the extension declares in catalog.json): runs from the palette, the CLI or another extension. */
 export function command<A, R>(run: (args: A, ctx: { app: string; gesture?: string; cmux: CmuxGlobal }) => R | Promise<R>) {
   return run
+}
+
+// ---------------------------------------------------------------------------------------------
+// Composer places. These are data in the manifest, not exports: cmux's daemon reads them and
+// answers the agent chat composer, so a save of cmux-app.json updates the composer live.
+
+/**
+ * A slash command in the agent chat composer (`cmux.composer.command/1`). Picking `/name` in the
+ * `/` menu writes `insert` over the typed `/word`.
+ *
+ *     // cmux-app.json: "implements": { "cmux.composer.command/1": { "options": { "commands": [
+ *     //   { "name": "standup", "description": "Ask for today's standup", "insert": "Write my standup notes." } ] } } }
+ */
+export interface ComposerCommand {
+  /** What the person types after `/`: lowercase letters, digits, `-` and `_`, at most 32. */
+  name: string
+  /** The menu row's sentence. */
+  description?: string
+  /** What follows the command, shown after its name (`<ticket>`). */
+  hint?: string
+  /** The text written over the typed `/word`. */
+  insert: string
+}
+
+/** The `options` of `cmux.composer.command/1`. */
+export interface ComposerCommandOptions {
+  commands: ComposerCommand[]
+}
+
+/** An item the person names with `@` in the composer (`cmux.composer.mention/1`); the daemon ranks them for a query. */
+export interface ComposerMention {
+  id: string
+  /** What the row shows and what a query matches. */
+  label: string
+  detail?: string
+  /** What the mention writes; the label when absent. */
+  insert?: string
+}
+
+/** The `options` of `cmux.composer.mention/1`. */
+export interface ComposerMentionOptions {
+  /** The word that narrows `@` to this provider (`@ticket:`). */
+  prefix: string
+  items: ComposerMention[]
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -87,8 +177,10 @@ export const EVENT_STREAMS = Object.keys(eventTable.events) as EventStream[]
 
 /** The scope the manifest must ask for to hear `stream` (`workspace:read` for `workspace.changed`). */
 export function scopeFor(stream: EventStream): string {
-  const reads = eventTable.events[stream].reads as keyof typeof scopeTable.ops
-  return scopeTable.ops[reads].scope
+  const event = eventTable.events[stream] as { reads: string; scope?: string }
+  // A reads op with a placeholder scope (integration.request): the stream names its own (github.changed).
+  if (event.scope) return event.scope
+  return scopeTable.ops[event.reads as keyof typeof scopeTable.ops].scope
 }
 
 /**

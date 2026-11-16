@@ -318,7 +318,7 @@ impl Hub {
         {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let device = by.full_access_device.as_deref();
-            self.web_control_verdict(session, &m, by.control)
+            self.web_control_verdict(session, &m, by.control, device)
                 .and_then(|()| self.full_access_hold(&m, by.control, device))?;
         }
         let web = by.control == Control::Web;

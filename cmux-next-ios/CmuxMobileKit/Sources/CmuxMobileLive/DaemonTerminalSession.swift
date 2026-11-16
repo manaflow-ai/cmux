@@ -209,6 +209,9 @@ public final class DaemonTerminalSession: TerminalSession {
     private var reclaimDeadline: Task<Void, Never>?
     /// How long a claim may take (tests shorten it).
     var reclaimWait: Duration = TerminalReclaimHold.reclaimWait
+    /// When the page last claimed again after a release: for `reclaimWait`,
+    /// the Mac's grid from before the claim is held (`TerminalReclaimHold`).
+    private var claimSentAt: ContinuousClock.Instant?
     /// The Mac holds a size of this session's now (a sized attach or a
     /// `resize-surface` went out, and no release after it).
     private var sizeClaimed = false
@@ -403,6 +406,7 @@ public final class DaemonTerminalSession: TerminalSession {
         claimsSize = claims
         outbox.removeAll { if case .size = $0 { true } else { false } }
         if claims {
+            claimSentAt = ContinuousClock.now
             if attached, let size = lastSize {
                 log.notice("surface \(self.surface, privacy: .public): shown again, claiming \(size.columns, privacy: .public)x\(size.rows, privacy: .public)")
                 enqueue(.size(columns: size.columns, rows: size.rows))
@@ -564,13 +568,30 @@ public final class DaemonTerminalSession: TerminalSession {
     /// reattach, but the connection stays attached throughout. One at a time;
     /// a no-op while a key is on its way (it must not be sent twice), and
     /// against a daemon without `attach-replay-history-rows-v1`.
-    public func loadOlderHistory() {
+    /// Returns whether the fetch was sent (its reset and replay follow).
+    @discardableResult
+    public func loadOlderHistory() -> Bool {
         guard attached, !attaching, replacing == nil, tailReplay, historyRowsOmitted > 0,
-              let allowance = historyAllowance, inputInFlight == 0, let client else { return }
+              let allowance = historyAllowance, inputInFlight == 0, let client else { return false }
         historyAllowance = historyRowsOmitted <= Self.historyChunkRows ? nil : allowance + Self.historyChunkRows
         log.notice("surface \(self.surface, privacy: .public): older history asked (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, next allowance \(self.historyAllowance.map(String.init) ?? "all", privacy: .public))")
         replacing = client
         Task { await attach() }
+        return true
+    }
+
+    /// The most history ``requestHistoryRows(_:)`` asks for ahead of time.
+    static let maxRequestedHistoryRows = 5 * historyChunkRows
+
+    /// A tab back from the warm set will put its reader back `rows` rows above
+    /// the end: the next attach asks for that much history, in whole
+    /// ``historyChunkRows`` (up to ``maxRequestedHistoryRows``), so the first
+    /// replay holds the reader's rows instead of the screen alone and a
+    /// second fetch.
+    public func requestHistoryRows(_ rows: Int) {
+        guard let allowance = historyAllowance, rows > allowance else { return }
+        let chunks = (rows + Self.historyChunkRows - 1) / Self.historyChunkRows
+        historyAllowance = max(allowance, min(Self.maxRequestedHistoryRows, chunks * Self.historyChunkRows))
     }
 
     /// The size state and own participant of an attach reply (shared sizing).
@@ -937,12 +958,18 @@ public final class DaemonTerminalSession: TerminalSession {
     private func show(_ event: TerminalSessionEvent) {
         let phoneGrid = lastSize.map { TerminalReclaimHold.Grid(columns: $0.columns, rows: $0.rows) }
         let wasHolding = reclaimHold.isHolding
-        let events = reclaimHold.take(event, claims: claimsSize, phoneGrid: phoneGrid, alternate: isAlternateScreen)
+        let awaitingClaim = claimSentAt.map { ContinuousClock.now < $0.advanced(by: reclaimWait) } ?? false
+        let events = reclaimHold.take(event, claims: claimsSize, phoneGrid: phoneGrid, alternate: isAlternateScreen,
+                                      awaitingClaim: awaitingClaim)
         if wasHolding != reclaimHold.isHolding {
-            log.notice("surface \(self.surface, privacy: .public): \(wasHolding ? "reclaim hold ended" : "hidden: holding the Mac's grid", privacy: .public)")
+            log.notice("surface \(self.surface, privacy: .public): \(wasHolding ? "reclaim hold ended" : "holding the Mac's grid", privacy: .public)")
             if wasHolding {
                 reclaimDeadline?.cancel()
                 reclaimDeadline = nil
+                claimSentAt = nil
+            } else if claimsSize {
+                // Held after the claim went out: the claim's wait, as for a page shown again.
+                settleReclaimHold()
             }
         }
         for event in events { handler?(event) }
@@ -1396,6 +1423,10 @@ public final class DaemonTerminalSession: TerminalSession {
     private func stopLeaseRefresh() {
         leaseTask?.cancel()
         leaseTask = nil
+    }
+
+    public func renewSizeClaim() {
+        refreshLease()
     }
 
     private func refreshLease() {

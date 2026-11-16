@@ -326,6 +326,7 @@ async fn reconcile_corrects_a_stale_typed_archived_bit() {
     let (_, task) = start_v2_tee(v1, v2.clone());
     let tee = tokio::spawn(task);
     let writer = tokio::spawn(v2.take_writer().unwrap().run());
+    // timeout: Test-only deadline detects an archive that never reaches the v2 row; no user request is cancelled.
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
             if v2.hub.snapshot().get("archived").is_some_and(|row| row.archived) {
@@ -336,6 +337,48 @@ async fn reconcile_corrects_a_stale_typed_archived_bit() {
     })
     .await
     .expect("reconcile did not replace the stale archive bit");
+    tee.abort();
+    let _ = tee.await;
+    v2.hub.close();
+    writer.await.unwrap().unwrap();
+}
+
+/// Row 7c: a row the index holds from before summaries kept `cmux.chief` (the same summary
+/// without that tag) has it after the next start, so a Chief's readers find every one of its
+/// chats with no rewrite of the store.
+#[tokio::test]
+async fn a_start_gives_an_old_row_the_chief_tag_its_summary_now_keeps() {
+    let v1 = memory_hub();
+    let session = v1.insert_test_session(meta("chief-row"));
+    v1.edit_test_meta(&session, |meta| {
+        meta.tags.insert(
+            "cmux.chief".into(),
+            crate::store::Tag { value: "0a1b2c3d".into(), expires_at: None },
+        );
+    });
+    let chief = |row: &Summary| {
+        serde_json::from_str::<serde_json::Value>(row.extra.get()).unwrap()["tags"]["cmux.chief"]
+            == "0a1b2c3d"
+    };
+    let mut old = summary_from_session(&v1, &session).unwrap();
+    let mut extra: serde_json::Value = serde_json::from_str(old.extra.get()).unwrap();
+    extra["tags"].as_object_mut().unwrap().remove("cmux.chief");
+    old.extra = serde_json::value::to_raw_value(&extra).unwrap();
+    assert!(!chief(&old));
+    let index = acpmux_book::index::SummaryIndex::new().apply(1, old);
+    let (hub, writer) = acpmux_core::hub::Hub::new(index);
+    let v2 = Arc::new(V2::new(hub, writer));
+    let (_, task) = start_v2_tee(v1, v2.clone());
+    let tee = tokio::spawn(task);
+    let writer = tokio::spawn(v2.take_writer().unwrap().run());
+    // timeout: Test-only deadline detects a tag that never reaches the v2 row; no user request is cancelled.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !v2.hub.snapshot().get("chief-row").is_some_and(|row| chief(&row)) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the start did not give the old row its chief tag");
     tee.abort();
     let _ = tee.await;
     v2.hub.close();
@@ -383,6 +426,7 @@ async fn quiet_live_turn_crossing_marks_without_another_record() {
     assert!(subscription.receiver.try_next().is_none(), "the old crossing must be rescheduled");
 
     let crossing =
+        // timeout: Test-only deadline detects a quiet-turn crossing that never fires; no user request is cancelled.
         tokio::time::timeout(std::time::Duration::from_secs(2), next(&subscription.receiver))
             .await
             .expect("quiet-turn deadline did not mark the row");
@@ -406,6 +450,7 @@ async fn quiet_live_turn_crossing_marks_without_another_record() {
     assert!(subscription.receiver.try_next().is_none(), "the fired crossing must be rescheduled");
     drop(config_guard);
     let second =
+        // timeout: Test-only deadline detects a repeated crossing that never fires; no user request is cancelled.
         tokio::time::timeout(std::time::Duration::from_secs(2), next(&subscription.receiver))
             .await
             .expect("repeated quiet-turn deadline did not mark the row");
@@ -914,6 +959,7 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
         no_queue: false,
         admitted: false,
         after_turn: false,
+        steer_on_start: false,
     };
     let mut accepted = |value: Value| assert_eq!(value.get("waitsForSlot"), Some(&json!(true)));
     let mut waiting = Box::pin(v1.queue_slot(&child, slot, &mut accepted));

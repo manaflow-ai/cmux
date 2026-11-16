@@ -35,6 +35,7 @@ import { WHEEL_GLIDE_END_EVENT, WHEEL_GLIDE_START_EVENT } from "../src/agent-ses
 import { installPaintedFrames } from "./support/paintedFrames";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 type Probe = Window & {
   __still: {
@@ -90,7 +91,7 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
     // fixed-wait: nothing marks the page's start-up as done (as streaming-text-frames.test.ts)
     await page.waitForTimeout(500);
     await page.evaluate(
-      ({ START, END }) => {
+      ({ START, END, TRANSCRIPT_ROW }) => {
         const w = window as unknown as Probe;
         w.__still = { samples: [], sampling: false, done: false, wheels: 0, ended: false, glides: 0, gliding: false };
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -130,7 +131,7 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
             // motion, so an item counts once its own animations have finished.
             const entering = (node: Element) =>
               node.getAnimations().some((animation) => animation.playState === "running");
-            for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
+            for (const row of scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)) {
               const rect = row.getBoundingClientRect();
               if (inView(rect) && !entering(row)) items[`row:${row.dataset.rowId}`] = rect.top;
             }
@@ -161,7 +162,7 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
         });
         w.__still.run = w.__streamingText.run({ cadence: "claude" });
       },
-      { START: WHEEL_GLIDE_START_EVENT, END: WHEEL_GLIDE_END_EVENT },
+      { START: WHEEL_GLIDE_START_EVENT, END: WHEEL_GLIDE_END_EVENT, TRANSCRIPT_ROW },
     );
     await page.waitForFunction(
       () => (document.querySelector('.acpmux-row[data-row-id="live-answer"] .cv-md')?.textContent?.length ?? 0) > 1_200,

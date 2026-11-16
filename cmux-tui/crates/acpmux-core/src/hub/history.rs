@@ -9,7 +9,13 @@ use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+#[cfg(test)]
+mod replay_tests;
+
 const CREDIT_WINDOW_BYTES: usize = 1024 * 1024;
+// Keep ordinary replay spans and their wire envelopes below large-allocation
+// sizes. One larger operation may exceed this target, never the wire budget.
+const REPLAY_FRAME_TARGET_BYTES: usize = 64 * 1024;
 // Every encoded op is longer than 32 bytes, including an empty gone at seq 0.
 const MIN_OP_BYTES: usize = 32;
 
@@ -57,6 +63,8 @@ pub(super) struct PeerHistory {
     last: u64,
     tail: usize,
     used: usize,
+    /// Ops encoded in peer form: one per local change, whatever the number of peers.
+    encodes: u64,
 }
 
 /// A comma-separated span of the already encoded operations in the ring.
@@ -100,6 +108,8 @@ pub(super) struct HistorySnapshot {
     first: u64,
     used: usize,
     #[cfg(test)]
+    reserved_bytes: usize,
+    #[cfg(test)]
     raw_copies: Arc<AtomicUsize>,
     #[cfg(test)]
     raw_copy_permit: Arc<AtomicBool>,
@@ -116,6 +126,8 @@ impl HistorySnapshot {
             len: 0,
             first,
             used: 0,
+            #[cfg(test)]
+            reserved_bytes: 0,
             #[cfg(test)]
             raw_copies: _history.raw_copies.clone(),
             #[cfg(test)]
@@ -139,10 +151,6 @@ impl HistorySnapshot {
         through: u64,
         max_bytes: usize,
     ) -> Option<RawSpan> {
-        #[cfg(test)]
-        let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
-        #[cfg(test)]
-        self.raw_copies.fetch_add(1, Ordering::Release);
         if cursor >= through {
             return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
         }
@@ -153,7 +161,11 @@ impl HistorySnapshot {
         if count == 0 {
             return None;
         }
-        let max_bytes = max_bytes.min(256 * 1024);
+        let first_entry = self.entries.get((self.head + offset) % self.entries.len())?;
+        let max_bytes =
+            first_entry.len.max(REPLAY_FRAME_TARGET_BYTES).min(max_bytes.min(256 * 1024));
+        #[cfg(test)]
+        let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
         let mut out = Vec::with_capacity(max_bytes.min(self.used.saturating_add(count)));
         let mut last_seq = cursor;
         for index in 0..count {
@@ -167,6 +179,11 @@ impl HistorySnapshot {
             }
             if !copy_entry_into(&self.bytes, entry, &mut out) {
                 return None;
+            }
+            #[cfg(test)]
+            if index == 0 {
+                // A positive observation proves bytes have already copied.
+                self.raw_copies.fetch_add(1, Ordering::Release);
             }
             last_seq = first.saturating_add(index as u64);
         }
@@ -271,7 +288,17 @@ impl History {
         }
         let offset = usize::try_from(first.saturating_sub(self.first)).unwrap_or(self.len);
         let count = self.len.saturating_sub(offset);
-        let mut bytes = Vec::with_capacity(self.used.min(self.bytes.len()));
+        let Some(begin) = self.entries.get((self.head + offset) % self.entries.len()) else {
+            return HistorySnapshot::empty(first, self);
+        };
+        // Retained operations are contiguous in the byte ring. A nonempty
+        // suffix with equal endpoints occupies the full capacity.
+        let suffix_bytes = if self.tail > begin.start {
+            self.tail - begin.start
+        } else {
+            self.bytes.len() - begin.start + self.tail
+        };
+        let mut bytes = Vec::with_capacity(suffix_bytes);
         let mut entries = Vec::with_capacity(count);
         for index in 0..count {
             let Some(entry) = self.entries.get((self.head + offset + index) % self.entries.len())
@@ -285,6 +312,8 @@ impl History {
             entries.push(Entry { start, ..*entry });
         }
         let used = bytes.len();
+        #[cfg(test)]
+        let reserved_bytes = bytes.capacity();
         HistorySnapshot {
             bytes: bytes.into_boxed_slice(),
             entries: entries.into_boxed_slice(),
@@ -292,6 +321,8 @@ impl History {
             len: count,
             first,
             used,
+            #[cfg(test)]
+            reserved_bytes,
             #[cfg(test)]
             raw_copies: self.raw_copies.clone(),
             #[cfg(test)]
@@ -536,11 +567,16 @@ impl PeerHistory {
             last: start,
             tail: 0,
             used: 0,
+            encodes: 0,
         }
     }
 
     pub(super) fn last_seq(&self) -> u64 {
         self.last
+    }
+
+    pub(super) fn encodes(&self) -> u64 {
+        self.encodes
     }
 
     pub(super) fn can_resume(&self, cursor: u64) -> bool {
@@ -589,6 +625,7 @@ impl PeerHistory {
     }
 
     fn append_bytes(&mut self, seq: u64, bytes: &[u8]) -> io::Result<()> {
+        self.encodes += 1;
         if bytes.len() > self.bytes.len() {
             self.clear(self.last);
             return Err(io::Error::other("peer list op exceeds history byte capacity"));
@@ -780,6 +817,40 @@ pub(super) fn decode(bytes: Vec<u8>) -> serde_json::Result<Vec<ListItem>> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn snapshot_reserves_only_the_requested_suffix_across_wraps() {
+        let mut history = History::with_capacity(4096);
+        for seq in 1..300 {
+            history.append(&gone(seq)).unwrap();
+        }
+        let last = history.last_seq().unwrap();
+        for cursor in history.first - 1..=last {
+            let snapshot = history.snapshot_after(cursor);
+            let expected = history.after(cursor, last).unwrap();
+            assert_eq!(snapshot.bytes.as_ref(), expected);
+            assert_eq!(snapshot.reserved_bytes, expected.len(), "cursor {cursor}");
+        }
+    }
+
+    #[test]
+    fn replay_frames_match_live_ring_operations() {
+        let mut history = History::with_capacity(4096);
+        for seq in 1..300 {
+            history.append(&gone(seq)).unwrap();
+        }
+        let first = history.first - 1;
+        let last = history.last_seq().unwrap();
+        let snapshot = history.snapshot_after(first);
+        let mut cursor = first;
+        while cursor < last {
+            let span = snapshot.after_frame(cursor, last, 512).unwrap();
+            let expected = history.after_frame(cursor, last, 512).unwrap();
+            assert_eq!(span.bytes, expected.bytes);
+            assert_eq!(span.last_seq, expected.last_seq);
+            cursor = span.last_seq;
+        }
+    }
+
     fn gone(seq: u64) -> ListItem {
         ListItem::Gone { seq, origin: "remote".into(), chat_id: format!("id-{seq}") }
     }
@@ -817,11 +888,17 @@ mod tests {
         history.append(&gone(1)).unwrap();
         history.append(&gone(2)).unwrap();
         assert_eq!(history.used, history.bytes.len());
+        let snapshot = history.snapshot_after(0);
+        assert_eq!(snapshot.reserved_bytes, history.used);
+        assert_eq!(snapshot.bytes.as_ref(), history.after(0, 2).unwrap());
         assert_eq!(decode(history.after(0, 2).unwrap()).unwrap().len(), 2);
         assert_eq!(decode(history.after(1, 2).unwrap()).unwrap().len(), 1);
         history.append(&gone(3)).unwrap();
         assert!(history.after(0, 3).is_none());
         assert_eq!(decode(history.after(1, 3).unwrap()).unwrap().len(), 2);
+        let snapshot = history.snapshot_after(1);
+        assert_eq!(snapshot.reserved_bytes, history.used);
+        assert_eq!(snapshot.bytes.as_ref(), history.after(1, 3).unwrap());
     }
 
     #[test]

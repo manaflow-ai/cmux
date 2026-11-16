@@ -601,3 +601,110 @@ fn a_bind_with_a_restart_pending_waits_for_the_restarted_service() {
     assert!(fake.0.borrow().seen.is_empty(), "the bind went out");
     assert!(store.read(BIND_FILE).is_some(), "bind.json is kept for the restarted service");
 }
+
+/// Leo's item 1 ("no first-boot self-update"): "A spare whose services are restarting is not
+/// claimable. Fix it so the flip clears ready, and ready comes back only when the restarted
+/// daemon reconnects." A fake spare flips after ready: the restarted service's reports say
+/// `degraded` (the Cloud does not hand it out) until its session host answers `identify`, and
+/// `running` after. Before, its first report took the bake's daemon block and said `running` at
+/// once (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s later, and its
+/// chat never connected).
+#[test]
+fn a_spare_that_flips_after_ready_reports_degraded_until_its_daemon_identifies() {
+    use super::client::CloudClient;
+    use super::session::Session;
+    use crate::updater::gate::{Gate, Honor};
+
+    let fake = Fake::new();
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+    let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
+    assert!(matches!(bound, BindResult::Bound(_)), "bind failed");
+    let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
+    let mut client = CloudClient::new(fake.clone(), saved, key);
+    let send = |client: &mut CloudClient<Fake>, s: &mut Session, reqs: Vec<_>, now| {
+        let mut states = Vec::new();
+        let mut queue: Vec<super::sender::OpRequest> = reqs;
+        while let Some(req) = queue.pop() {
+            states.push(req.params["state"].as_str().unwrap_or("").to_owned());
+            let answer = client.op(&req, T0);
+            queue.extend(s.answered(&req, &answer, now, 0.5).0);
+        }
+        states
+    };
+
+    // Ready: the spare's service runs and reports running.
+    let mut ready = Session::new(MACHINE, daemon(), 60_000).after_restart(false);
+    let reqs = ready.start(0);
+    assert_eq!(send(&mut client, &mut ready, reqs, 0), ["running"], "the spare before its flip");
+
+    // The flip queues the restart of the service (the own-flip mark with it).
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    let gate = Gate::new(&paths);
+    assert!(gate.run(T0, Honor::All, |inside| inside.flip_restart_queued(T0, 0)).is_ok());
+
+    // The restarted service: the queued restart, then the updater's own-flip mark still there.
+    let restarted = gate.service_started_at(T0 + 3_000);
+    assert!(restarted, "the start after the flip is not the queued restart");
+    assert!(gate.take_own_flip(T0 + 3_000, 0), "the Cloud role's read took the updater's mark");
+    assert!(!gate.service_started_at(T0 + 4_000), "a second start is no queued restart");
+
+    let mut s = Session::new(MACHINE, daemon(), 60_000).after_restart(restarted);
+    let reqs = s.start(0);
+    assert_eq!(send(&mut client, &mut s, reqs, 0), ["degraded"], "claimable during the restart");
+    // A heartbeat while the session host is still down: still not claimable.
+    let reqs = s.fire(60_000);
+    assert_eq!(send(&mut client, &mut s, reqs, 60_000), ["degraded"], "a heartbeat said running");
+
+    // The restarted session host answers identify (the new build): running, at once.
+    let new_build = DaemonInfo { version: "0.41.0".to_owned(), ..daemon() };
+    let reqs = s.daemon_identified(&new_build, 75_000);
+    assert_eq!(send(&mut client, &mut s, reqs, 75_000), ["running"], "not claimable after");
+    let ops = fake.0.borrow().seen.iter().filter(|r| r.url.ends_with("/v1/ops")).count();
+    assert_eq!(ops, 4, "one report per step");
+
+    // The same build answering (no new block) is the daemon back too.
+    let mut same = Session::new(MACHINE, daemon(), 60_000).after_restart(true);
+    let reqs = same.start(0);
+    assert_eq!(send(&mut client, &mut same, reqs, 0), ["degraded"]);
+    let reqs = same.daemon_identified(&daemon(), 20_000);
+    assert_eq!(send(&mut client, &mut same, reqs, 20_000), ["running"]);
+    assert!(same.daemon_identified(&daemon(), 40_000).is_empty(), "reported once");
+}
+
+/// The flip's `stopping` report (`role::report_stopping`): from `bound.json`, the install key
+/// and the block the Cloud role last reported, one `cloud.vm.status.report` that says stopping.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_flips_stopping_report_says_stopping_with_the_last_reported_block() {
+    use super::role::FileStore;
+
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    let fake = Fake::new();
+    assert_eq!(
+        super::role::report_stopping_with(&paths, fake.clone()),
+        Err("not bound (no bound.json)".to_owned()),
+        "an unbound machine sends nothing"
+    );
+    let mut store = FileStore::new(paths.clone());
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &SystemRandom::new()).unwrap().key;
+    let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
+    assert!(matches!(bound, BindResult::Bound(_)), "bind failed");
+    let reported = DaemonInfo { version: "0.40.1".to_owned(), ..daemon() };
+    let state = json!({ "daemon": reported.to_json() });
+    store.write(AGENT_STATE_FILE, &format!("{state}\n"), 0o644).unwrap();
+
+    assert_eq!(super::role::report_stopping_with(&paths, fake.clone()), Ok(()));
+    let seen = fake.0.borrow();
+    let op = seen.seen.iter().rfind(|r| r.url.ends_with("/v1/ops")).expect("no report went out");
+    assert_eq!(op.bearer.as_deref(), Some("tok-1"));
+    assert_eq!(op.body["op"], STATUS_REPORT_OP);
+    assert_eq!(op.body["params"]["machine"], MACHINE);
+    assert_eq!(op.body["params"]["state"], "stopping");
+    assert_eq!(op.body["params"]["daemon"], reported.to_json());
+}
