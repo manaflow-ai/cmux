@@ -37,9 +37,6 @@ public final class TabCloseSelection {
     private var known: [String: String] = [:]
     private var shownAs: [String: String] = [:]
 
-    /// TEMP diagnostic (removed before merge): why each item left.
-    public var leftLog: [String] = []
-
     public init() {}
 
     /// No opener relation is held: every pick is by position.
@@ -197,7 +194,7 @@ public final class TabCloseSelection {
         let gone = held.filter { !swapped.contains($0) && !live.contains($0) && !live.contains(shownAs[$0] ?? $0) }
         if !gone.isEmpty {
             let pending = closing()
-            for item in gone where !pending.contains(shownAs[item] ?? item) { leftLog.append("settle \(item.suffix(4)) shown \((shownAs[item] ?? item).suffix(4)) became \(became(shownAs[item] ?? item)?.suffix(4) ?? "nil") old \(old.count) tabs \(tabs.map { String($0.suffix(4)) })"); left(item) }
+            for item in gone where !pending.contains(shownAs[item] ?? item) { left(item) }
         }
         forgetWhenEmpty()
     }
@@ -211,7 +208,7 @@ public final class TabCloseSelection {
     func prune(livePanes: Set<String>) {
         if !expected.isEmpty { expected = expected.filter { livePanes.contains($0.key) } }
         guard !home.isEmpty else { return }
-        for (item, pane) in home where !livePanes.contains(pane) { leftLog.append("prune \(item.suffix(4))"); left(item) }
+        for (item, pane) in home where !livePanes.contains(pane) { left(item) }
         forgetWhenEmpty()
     }
 

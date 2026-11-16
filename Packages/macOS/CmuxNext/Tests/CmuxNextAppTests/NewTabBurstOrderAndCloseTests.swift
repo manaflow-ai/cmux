@@ -63,8 +63,6 @@ struct NewTabBurstOrderAndCloseTests {
             let selected = pane.stripModel.selectedID?.rawValue
             let strip = pane.orderedIDs.map { $0.rawValue == selected ? "[\(name($0.rawValue))]" : name($0.rawValue) }.joined(separator: " ")
             let openers = pane.state?.selection.closeRule.relations(in: pane.paneKey).map { "\(name($0.tab))<\(name($0.opener))" }.sorted().joined(separator: " ") ?? "-"
-            let log = pane.state?.selection.closeRule.leftLog ?? []
-            if !log.isEmpty { lines.append("   left: \(log) names \(names.map { "\($0.key.suffix(4))=\($0.value)" }.sorted())"); pane.state?.selection.closeRule.leftLog = [] }
             let line = "\(strip)   | daemon: \(store.map(name).joined(separator: " "))   | openers: \(openers)"
             if lines.last?.hasSuffix(line) != true { lines.append("\(step): \(line)") }
         }
