@@ -59,7 +59,7 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
     /// keyframe); nil when `data` is not a delta.
     var terminalBytes: Data? {
         guard let delta else { return nil }
-        var out = "\u{1b}[?2026h\u{1b}[?25l\u{1b}[0m"
+        var out = "\u{1b}[?25l\u{1b}[0m"
         if base == nil { out += "\u{1b}[H\u{1b}[2J" }
         if delta.shift > 0 {
             // Line feeds on the last row: the rows that leave the top reach the scrollback.
@@ -97,7 +97,6 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
         }
         out += "\u{1b}[0m\u{1b}[\(cursorY + 1);\(cursorX + 1)H"
         if cursorVisible { out += "\u{1b}[?25h" }
-        out += "\u{1b}[?2026l"
         return Data(out.utf8)
     }
 
