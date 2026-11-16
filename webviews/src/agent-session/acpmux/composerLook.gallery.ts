@@ -1,13 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample chats and prompts), not shipped UI.
-// The composer's two looks (composerLook.ts, composerLook.css; Leo 2026-10-22: "first dot claude,
-// second dot codex. since it's just all looks anyways. first 2 dots minimal on the new tab page, and
-// then when you're in a chat you can also switch the dots if you hover on that bottom area"). The
-// same chat and the same New Tab page in Claude's look (the first dot, the default: the composer as
-// it was) and Codex's (the second dot), and the dots on hover in a chat's bottom area. Both looks lay
-// the buttons out as Claude's (Leo 2026-11-01: "the placement of the buttons are just really bad
-// compared to our claude code version", then "we already have a good version"); Codex's keeps its
-// folder tray. The `codex-*-alt-*` variants are the other Codex layouts drawn for the pick
-// (gallery-only CSS over the shipped one), the replaced in-box row among them.
+// Chat composers keep Claude and Codex looks. New Tab always uses Claude.
 import { minutesAgo } from "../../gallery/clock";
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
@@ -282,12 +274,11 @@ const DEPTH_NONE = depthCss("0 0 transparent");
 
 /// Alternate B: the strip stays plain text over the box, as Claude's look draws it; only the row moves.
 const ALT_PLAIN_STRIP = `
-.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
-.nt-composer[data-composer-look="codex"] .nt-above .acpmux-composer-strip { all: revert-layer; }`;
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip { all: revert-layer; }`;
 /// Alternate C: the tray, and the row's controls as quiet text with no mode glyph (Codex's model text).
 const ALT_TEXT_ROW = `
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-access .acpmux-icon { display: none; }
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-soft); }`;
+.acpmux-composer[data-composer-look="codex"] .acpmux-access .acpmux-icon { display: none; }
+.acpmux-composer[data-composer-look="codex"] :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-soft); }`;
 
 /// Replaced (cmux #28901's in-box row, last good commit 8b44a8a1dc2): + and the mode left, the ring,
 /// the model, the mic and Send right, in one 52 px row inside the box under the prompt. Drawn here
@@ -367,7 +358,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/composerFooterShared.css",
     "agent-session/acpmux/LookSwitch.tsx#LookSwitch",
     "agent-session/acpmux/TaskGoalStrip.tsx#TaskGoalStrip",
-    "agent-session/acpmux/newtab/PageDots.tsx#PageDots",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#DotSwitch",
   ],
   variants: {
@@ -402,12 +392,11 @@ export default agentPaneEntry({
         await ctx.click({ selector: ".acpmux-goal-toggle" });
       },
     },
-    "newtab-codex-speed": {
+    "newtab-speed": {
       note: "Fast and Ultrafast are available before the first prompt, from the model's advertised tiers.",
       height: 520,
       ready: newTab(),
       snapshot: speedNewTab(),
-      play: (ctx) => look(ctx, "codex"),
     },
     "claude-chat": {
       composerLook: "claude",
@@ -684,32 +673,11 @@ export default agentPaneEntry({
     },
     "newtab-claude": {
       composerLook: "claude",
-      note: "New Tab, the first dot (Claude Minimal, the default): the Minimal page as it was, with the three dots under it.",
+      note: "New Tab keeps Claude Minimal with no look switcher.",
       height: 520,
       ready: newTab(),
       snapshot: noChat(manySessions(6)),
       play: (ctx) => look(ctx, "claude"),
-    },
-    "newtab-codex": {
-      note: "New Tab, the third dot (Codex Minimal): the same page with Codex's composer, the third dot marked.",
-      height: 520,
-      ready: newTab(),
-      snapshot: noChat(manySessions(6)),
-      play: (ctx) => look(ctx, "codex"),
-    },
-    "newtab-classic-codex": {
-      note: "Classic New Tab with Codex's look: the page stays Classic (its dot marked among the styles), its box's row in the same order as Claude's look.",
-      height: 520,
-      ready: newTab({ template: "classic" }),
-      snapshot: noChat(manySessions(4)),
-      play: (ctx) => look(ctx, "codex"),
-    },
-    "newtab-cards-codex": {
-      note: "Cards New Tab with Codex's look: the project strip is Codex's tray over the box, the model in the quiet row under it as Claude's look, the chat cards under it.",
-      height: 560,
-      ready: newTab({ template: "cards" }),
-      snapshot: noChat(manySessions(6)),
-      play: (ctx) => look(ctx, "codex"),
     },
   },
 });
