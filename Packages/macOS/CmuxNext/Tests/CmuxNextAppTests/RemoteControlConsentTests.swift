@@ -260,10 +260,10 @@ import Testing
         #expect(fake.calls.isEmpty && fake.signs.isEmpty, "Labs off: nothing")
         enabled = true
         await store.signedIn()
-        #expect(fake.signs == ["user_abc * * true Studio"])
+        #expect(fake.signs == ["user_abc * * default Studio"])
         #expect(fake.methods == ["_acpmux/machine_consent_get", "_acpmux/consent_account_set"])
         let grant = fake.calls.last?.params["grant"] as? [String: any Sendable]
-        #expect(grant?["machineId"] as? String == "*" && grant?["nodeKey"] as? String == "*" && grant?["control"] as? String == "on")
+        #expect(grant?["machineId"] as? String == "*" && grant?["nodeKey"] as? String == "*" && grant?["control"] as? String == "default")
         #expect(fake.recordReads == 1)
         fake.record["accountPolicy"] = ["grantor": "mac-0011223344556677", "issuedAt": 1000, "control": "off", "screen": "off"]
         await store.signedIn()

@@ -263,17 +263,18 @@ public final class RemoteControlConsent {
     }
 
     /// The person signed in on this Mac (a person step, so no gesture): when acpmux has no account-wide grant
-    /// yet (`accountPolicy` null), one turns Control and Screen sharing on for all their devices (contract
-    /// v2 C). Nothing with the Labs switch off, a policy already there (on or off), or an acpmux that does
-    /// not report one.
+    /// yet (`accountPolicy` null), one `*` grant with both surfaces `default` turns Control and Screen sharing
+    /// on for all their devices, but only on a machine that keeps no account policy yet, so it never undoes an
+    /// Off set from another Mac (contract v2 C). Nothing with the Labs switch off, a policy already there (on or
+    /// off), or an acpmux that does not report one.
     public func signedIn() async {
         guard services.enabled(), case .success(let answer) = await services.call("_acpmux/machine_consent_get", [:]),
               let record = JoinConsentRecord.parse(answer), record.reportsAccountPolicy, record.accountPolicy == nil else { return }
-        _ = await sendAccount(record.account, on: true)
+        _ = await sendAccount(record.account, on: nil)
         await services.refreshRecord()
     }
 
-    private func sendAccount(_ account: String?, on: Bool) async -> String? {
+    private func sendAccount(_ account: String?, on: Bool?) async -> String? {
         guard let account else { return RemoteControlStrings.signedOut }
         guard let grant = await services.sign(account, "*", "*", on, services.thisMacName()) else { return RemoteControlStrings.noKey }
         switch await services.call("_acpmux/consent_account_set", ["grant": grant]) {
