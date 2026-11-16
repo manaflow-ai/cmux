@@ -235,6 +235,7 @@ pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_k
 mod credentials;
 mod live_name;
 mod profile_respawn;
+mod rediscover;
 pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;

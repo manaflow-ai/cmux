@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextImportCards
+import CmuxNextMacScreen
 import CmuxNextMobileHost
 import CmuxNextOnboarding
 import CmuxNextSessionTransfer
@@ -23,15 +24,14 @@ import CmuxNextSettings
 ///   (default: the newest visible one).
 @MainActor
 enum DebugDialog {
-    /// Dialogs only the user answers: a clipboard read (CLIPBOARD-READ-BROKER), the Enable
-    /// harness sheet (a folder's program would run with the user's rights), the Cloud machine create confirmation (a spend
-    /// the person approves, cx-t2rz), a browser pairing (it admits a client to the whole daemon, cx-hnmbt.2), an iPhone pairing,
-    /// an ssh:// link from another app (it connects to a host a web page chose), and a cmux://session
-    /// link's new tab (any page or app can open the link), and a guest link an agent or script asked for
-    /// (it exposes the chat's transcript, #30263).
-    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudChangeRequest.identifier,
-                                        DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
-                                        SessionLinkGate.dialogIdentifier]
+    /// Dialogs only the user answers: a clipboard read (CLIPBOARD-READ-BROKER), the Enable harness sheet (a folder's program would
+    /// run with the user's rights), the Cloud machine create confirmation (a spend the person approves, cx-t2rz), a browser pairing
+    /// (it admits a client to the whole daemon, cx-hnmbt.2), an iPhone pairing, an ssh:// link from another app (it connects to a host
+    /// a web page chose), a cmux://session link's new tab (any page or app can open the link), a guest link an agent or script asked
+    /// for (it exposes the chat's transcript, #30263), and cmux Remote's `remote.confirm` (its Allow may sign a share approval).
+    static let userOnly: Set<String> = Set([ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudChangeRequest.identifier,
+                                            DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
+                                            SessionLinkGate.dialogIdentifier, CmuxRemoteActionEnvironment.confirmIdentifier]).union(CmuxRemoteActionEnvironment.setupIdentifiers)
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let center = CmuxDialogCenter.shared

@@ -23,7 +23,7 @@ import {
 import { Effect, Layer, Redacted } from "effect"
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
-import { authenticate, mintAccessToken, publicJwks } from "./auth.ts"
+import { mintAccessToken, publicJwks, authenticateOrUnreachable } from "./auth.ts";
 import type { Env } from "./env.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
@@ -569,7 +569,9 @@ const AuthorizationLive = Layer.succeed(Authorization)(
   Authorization.of({
     bearer: (httpEffect, { credential }) =>
       Effect.gen(function* () {
-        const token = yield* Effect.promise(() => authenticate(env, Redacted.value(credential)))
+        const token = yield* Effect.promise(() => authenticateOrUnreachable(env, Redacted.value(credential)))
+        // Stack's keys could not be read: the token was never judged, so a retryable 503, never "sign in again".
+        if (token === "unreachable") return yield* new OwnerUnreachable({ code: "owner.unreachable", message: "the sign-in keys could not be read; retry", retryable: true })
         if (!token || !token.user || !token.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
         const named = { ...token, user: token.user, team: token.team }, header = (yield* HttpServerRequest.HttpServerRequest).headers[TEAM_HEADER]
         const selected = yield* Effect.promise(() => selectTeam(env, named, header))
