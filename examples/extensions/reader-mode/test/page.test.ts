@@ -72,7 +72,7 @@ describe.skipIf(!existsSync(happyDom))("reader page script", () => {
       <article><div class="stack">
         <div class="wrapper"><header><h1>Night buses stay</h1></header></div>
         <div class="wrapper"><figure><img src="/images/bus.jpg" alt="A night bus"></figure></div>
-        <div class="wrapper"><div data-component="byline">By Sam Lee</div></div>
+        <div class="wrapper"><div data-testid="byline-block"><time>5 hours ago</time><button>Share</button><span class="x-TextContributorName">Sam Lee</span>, Transport reporter, reporting from the depot</div></div>
         ${block(1)}
         <div class="wrapper"><div class="ad-slot"><a href="https://ads.example/y">Ad</a></div></div>
         ${block(4)}
@@ -85,8 +85,8 @@ describe.skipIf(!existsSync(happyDom))("reader page script", () => {
     const body = shadow.querySelector(".body")!
     for (const n of [1, 4, 7, 9]) expect(body.textContent).toContain(`Part ${n}:`)
     expect(body.querySelector("img")!.getAttribute("src")).toBe("https://news.example.com/images/bus.jpg")
-    expect(shadow.querySelector(".meta")!.textContent).toStartWith("By Sam Lee")
-    for (const junk of ["Buy now", "Ad", "By Sam Lee"]) expect(body.textContent).not.toContain(junk)
+    expect(shadow.querySelector(".meta")!.textContent).toBe("By Sam Lee · 1 min read")
+    for (const junk of ["Buy now", "Ad", "Sam Lee", "Share"]) expect(body.textContent).not.toContain(junk)
     await window.happyDOM.close()
   })
 

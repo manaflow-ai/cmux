@@ -140,9 +140,18 @@
   }
   const heading = document.querySelector("article h1, main h1, h1")
   const title = (heading && text(heading)) || meta("og:title", "twitter:title") || document.title
+  // The byline: the names in it when it marks them (a byline block often also holds the date and
+  // share buttons), else its text when that is short enough to be only a byline.
+  const bylineOf = (block) => {
+    if (!block) return ""
+    const named = [...block.querySelectorAll("[itemprop=name], [rel=author], [class*=ContributorName], [class*=author-name], [class*=AuthorName]")]
+      .map(text).filter(Boolean)
+    if (named.length) return `By ${[...new Set(named)].join(", ")}`
+    const whole = text(block)
+    return whole.length <= 80 ? whole : ""
+  }
   const byline = meta("author", "article:author", "parsely-author") ||
-    text(document.querySelector("[rel=author], [itemprop=author], .byline, .author, [data-component*=byline], [data-testid*=byline]") ||
-      document.createElement("i")).slice(0, 120)
+    bylineOf(document.querySelector("[rel=author], [itemprop=author], .byline, .author, [data-component*=byline], [data-testid*=byline]"))
   const site = meta("og:site_name", "application-name") || location.hostname.replace(/^www\./, "")
   const body = document.createElement("div")
   for (const part of parts) body.append(clean(part))
