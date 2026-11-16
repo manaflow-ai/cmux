@@ -4,13 +4,14 @@
 // typing under load is not good enough").
 //
 // Each time a streaming reply settles to the bottom, the transcript keeps its rows on whole pixels by
-// writing the sub-pixel remainder of its scroll offset, `--acpmux-scroll-origin`
-// (conversation/scrollCoordinates.ts `retainScrollOrigin`). The thread reads it for its `top`. Written
-// on the scroller as an unregistered, so inherited, custom property, every write restyled every
-// element under the scroller: 1,972 elements on this 1,480-element page, 92-96% of what a stream
-// restyles, which landed between typed keys as ~12 ms of style per key (a Chromium trace with
-// invalidation tracking, bench/composer-typing.bench.ts --modes stream). Written on the thread and
-// registered as non-inherited, a write restyles the thread alone.
+// writing the sub-pixel remainder of its scroll offset (conversation/scrollCoordinates.ts
+// `retainScrollOrigin`), which moves the thread. Written on the scroller as an unregistered, so
+// inherited, custom property (`--acpmux-scroll-origin`, read by the thread's `top`), every write
+// restyled every element under the scroller: 1,972 elements on this 1,480-element page, 92-96% of
+// what a stream restyles, which landed between typed keys as ~12 ms of style per key (a Chromium trace
+// with invalidation tracking, bench/composer-typing.bench.ts --modes stream). A custom property on the
+// thread still restyled 276 (Chromium restyles an element's children for one); the thread's own
+// `margin-top` restyles a handful.
 //
 // The real pane (`?mock`), a light 700-turn chat opened at its end; one write and one clear through
 // the transcript's own writer, traced with Chromium's own UpdateLayoutTree counts.
@@ -103,9 +104,9 @@ await requireBrowserLane("scroll-origin-restyle.test.ts", async () => {
     // The thread still takes the origin: its rows move by it, and back.
     expect(moved).toBeCloseTo(0.5, 1);
     expect(back).toBeCloseTo(-0.5, 1);
-    // A write restyles a handful of elements (the scroller, its direct children, the thread), not
-    // the mounted rows: before, it restyled every element under the scroller.
-    expect(write, "elements restyled by one scroll-origin write").toBeLessThan(60);
-    expect(clear, "elements restyled by clearing the scroll origin").toBeLessThan(60);
+    // A write restyles a handful of elements, not the mounted rows: before, it restyled every element
+    // under the scroller.
+    expect(write, "elements restyled by one scroll-origin write").toBeLessThan(20);
+    expect(clear, "elements restyled by clearing the scroll origin").toBeLessThan(20);
   });
 });

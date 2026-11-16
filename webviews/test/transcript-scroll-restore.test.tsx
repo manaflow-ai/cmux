@@ -143,7 +143,7 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
     // The DOM correction, not just the coordinate bookkeeping, must preserve the rendered place.
     const cssOrigin =
       Number.parseFloat(
-        scroller().querySelector<HTMLElement>(".acpmux-thread")?.style.getPropertyValue("--acpmux-scroll-origin") ?? "",
+        scroller().querySelector<HTMLElement>(".acpmux-thread")?.style.getPropertyValue("margin-top") ?? "",
       ) || 0;
     expect(scroller().scrollTop - cssOrigin).toBe(logicalResting);
 
