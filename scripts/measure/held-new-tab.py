@@ -32,7 +32,11 @@ refreshes, the main thread's longest stop); the pane's tabs by kind at the end; 
 by command name (`server-stats` section `commands`, after minus before: the count and the handler time, which
 has no wait in the connection's queue); and each record of the daemon's `slow-requests.jsonl` of the take (a
 request above its threshold with `queue_ms` and `handler_ms` apart, a long lock hold). The queue time of a faster
-request is in no log. --film DIR adds one `mixed` take under `debug.window_record` (it slows the app: not for a table).
+request is in no log. `tab_shows` is the count of changes of a pane's shown tab in the take (the input journal's
+`show` records: each new tab page that was the shown one at a frame is one, and so is the tab that a close uncovers).
+`opens` says how many of the row's new tab pages took the page that the app keeps ready (`warm`) and how many did
+not (`cold`), from `debug.new_tab`, which keeps the last OPENINGS opens only. --film DIR adds one `mixed` take under
+`debug.window_record` (it slows the app: not for a table).
 
 Prints one `HELD-NEW-TAB {json}` line and writes report.json to --out. Exit 1 when a row did not measure what it
 names, 3 when it cannot run as asked. Run on a fleet GUI host (held-new-tab.sh), never on a Mac that someone works on.
@@ -50,6 +54,9 @@ BENCH.KEY["t"], BENCH.ACTIONS["t"] = 17, "newTab.default"
 MAKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf-bench", "session_real.py")
 ROWS = ("mixed", "hold", "close")
 REPEAT_RULE = "the system's: each new key-down of T starts its repeats again after the first delay"
+SEED_LIMIT = ("the page tabs have no favicon and the terminals have one folder: the new tab page's favicon work and "
+              "its list of folders are not in these rows")
+OPENINGS = 64  # NewTabSparePool.maximumOpenings
 FRAMES_S = 8.0  # with the 0.8 s lead, a take stays under the 9 s between 2 bluetoothd starts
 APPSERVICES = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
 LOG_PREDICATE = 'process == "launchd" AND eventMessage CONTAINS "Successfully spawned bluetoothd"'
@@ -153,6 +160,7 @@ def take(opts):
             record["errors"].append("no tab to close")
             letters = ["w"]
         steps, offsets = BENCH.sequence(letters, 0, (delay, interval))
+    seen = ((rpc("debug.journal", {"last": 1}) or {}).get("stats") or {}).get("lastSeq")
     if opts.film:
         rpc("debug.window_record", {"dir": opts.film, "seconds": min(12.0, opts.hold_ms / 1000 + 2)})
     sent = post_keys(opts.keys, rpc, steps, opts.pane)
@@ -173,6 +181,8 @@ def take(opts):
         record["invalid"].append(f"the app never said the burst was done within {opts.deadline:.0f} s more")
     settled_ms = round((time.monotonic() - began) * 1000)
     trace = rpc("debug.burst", {"action": "stop"}) or {}
+    journal = [] if seen is None else [e for e in (rpc("debug.journal", {"last": 4096}) or {}).get("entries") or [] if (e.get("seq") or 0) > seen]
+    shows = sum(e.startswith("show pane=") for e in re.findall(r'"event":\s*"([^"]*)"', json.dumps(journal)))
     if opts.film and not STRESS.wait(lambda: os.path.exists(os.path.join(opts.film, "frames.json")), 20, step=0.2):
         record["errors"].append("the film has no frames.json")
     starts = bluetoothd_starts(start, end)
@@ -187,6 +197,7 @@ def take(opts):
                    "frames": {k: frames.get(k) for k in BENCH.FRAME_FIELDS}, "settled_ms": settled_ms,
                    "tabs_after": [t.get("id") for p in builder.panes(builder.workspace(opts.workspace)) for t in p.get("tabs") or []],
                    "take": {"tabs_by_kind_after": kinds, "settled_inside_the_frames": bool(in_take),
+                            "tab_shows": shows if journal else None, "tab_shows_whole": bool(journal) and journal[0].get("seq") == seen + 1,
                             "bluetoothd": {"new_pid_before": fresh, "pid_changed": moved, "log_starts": starts},
                             "disturbed": bool(moved or starts)}})
     with open(os.path.join(opts.out, "scenario.json"), "w") as f:
@@ -338,6 +349,10 @@ def run(opts, app, signposts, report):
                     "tabs_made": fates.get("created", 0), "tabs_closed": fates.get("closed", 0),
                     "keys_without_effect": (record.get("presses") or 0) - fates.get("created", 0) - fates.get("closed", 0),
                     "daemon_requests": requests_between(before, stats(path)), "daemon_slow": slow_records(roots, start, time.time())})
+        if name != "close" and row["tabs_made"]:
+            last = ((app.rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or [])[-min(OPENINGS, row["tabs_made"]):]
+            row["opens"] = {"warm": sum(o.get("spare") is True for o in last), "cold": sum(o.get("spare") is False for o in last),
+                            "known_of_the_last": OPENINGS}
         if name != "hold":  # `close` is the row that closes what `hold` made
             row["not_restored"] = BENCH.restore(builder, STRESS, workspace, pane, state)
         report["rows"].append(row)
@@ -376,7 +391,8 @@ def main():
     os.makedirs(opts.out, exist_ok=True)
     report = {"host": BENCH.load("action_signposts_bench", "action-signposts-bench.py").host_facts(), "hid_grant": grant,
               "key_source": f"{opts.keys}: debug.key posts real key events to the app's own queue; not the HID tap, not the window server",
-              "hold_ms": opts.hold_ms, "every_ms": opts.every_ms, "mixed_repeat_rule": REPEAT_RULE, "rows": [], "failures": []}
+              "hold_ms": opts.hold_ms, "every_ms": opts.every_ms, "mixed_repeat_rule": REPEAT_RULE, "session_limit": SEED_LIMIT,
+              "rows": [], "failures": []}
     app = BENCH.load("activation_perf", "activation-perf.py").App(os.path.abspath(opts.app), opts.out, 50)
     app.launch()
     try:
