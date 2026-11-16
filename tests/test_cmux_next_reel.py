@@ -179,7 +179,7 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(size, "2560,1600")
             # One pixel at the left edge, half a second into the clip (after the 1.5 s card).
             pixel = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", "2", "-i", str(out / "reel.mp4"),
-                                    "-frames:v", "1", "-vf", "crop=1:1:4:800", "-f", "rawvideo", "-pix_fmt", "rgb24",
+                                    "-frames:v", "1", "-vf", "format=rgb24,crop=2:2:4:800", "-f", "rawvideo",
                                     "-"], capture_output=True, check=True).stdout
         red, green, blue = pixel[:3]
         self.assertGreater(red, 100, pixel)
