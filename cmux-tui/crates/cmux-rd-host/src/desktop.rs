@@ -38,25 +38,6 @@ pub trait Desktop {
     fn pump(&mut self) -> Res<Option<std::time::Duration>> {
         Ok(None)
     }
-    /// Reads the cursor, for a desktop opened with cursor metadata (cap `cursor`): it left
-    /// the cursor out of its pictures. `None`: this desktop draws the cursor in the picture.
-    fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {
-        None
-    }
-}
-
-/// Whether this OS's desktop can report the cursor as metadata (`Desktop::cursor`), so a
-/// host offers the `cursor` cap: macOS reads the system cursor; Linux does not yet (X11
-/// and the portal keep their own cursor handling).
-pub fn reports_cursor() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        crate::mac::cursor::available()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        false
-    }
 }
 
 /// Receives capture setup states (`state` code, sentence) while a desktop opens: `cmux-rd serve`
@@ -104,11 +85,8 @@ mod tests {
     }
 }
 
-/// The desktop of this OS. `cursor_metadata`: the viewer draws the cursor (cap `cursor`), so
-/// a desktop that [`reports_cursor`] leaves it out of its pictures.
-pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Box<dyn Desktop>> {
-    #[cfg(not(target_os = "macos"))]
-    let _ = cursor_metadata;
+/// The desktop of this OS.
+pub fn open(cfg: &SessionCfg) -> Res<Box<dyn Desktop>> {
     #[cfg(target_os = "linux")]
     return match cfg.capture {
         crate::capture_backend::CaptureBackend::X11 => {
@@ -135,7 +113,7 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Box<dyn Desktop>> {
         },
     };
     #[cfg(target_os = "macos")]
-    return Ok(Box::new(crate::mac::MacDesktop::open(cfg, cursor_metadata)?));
+    return Ok(Box::new(crate::mac::MacDesktop::open(cfg)?));
 }
 
 /// The frame rate cap when neither `--max-fps` nor the viewer names one: macOS, the captured

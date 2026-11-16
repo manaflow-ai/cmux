@@ -500,10 +500,6 @@ fn serve_viewer<S: ViewerStream>(
     if cfg!(feature = "link") && link.is_some() && udp.is_none() {
         host_caps.push(caps::LINK_UDP);
     }
-    // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
-    if crate::desktop::reports_cursor() {
-        host_caps.push(caps::CURSOR);
-    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {

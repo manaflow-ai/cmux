@@ -6,7 +6,6 @@
 pub(crate) mod capture;
 #[cfg(feature = "bench")]
 pub(crate) mod cpu;
-pub(crate) mod cursor;
 mod input;
 mod keys;
 #[cfg(feature = "bench")]
@@ -47,15 +46,12 @@ pub struct MacDesktop {
     encoder: VideoToolbox,
     injector: Injector,
     name: String,
-    /// The cursor as metadata (cap `cursor`): the pictures leave it out.
-    cursor: Option<cursor::CursorReader>,
     #[cfg(feature = "bench")]
     quality: Option<crate::eval::Quality>,
 }
 
 impl MacDesktop {
-    /// `cursor_metadata`: capture without the cursor and report it through `Desktop::cursor`.
-    pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Self> {
+    pub fn open(cfg: &SessionCfg) -> Res<Self> {
         if cfg.codec != "videotoolbox" {
             return Err(format!(
                 "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
@@ -63,9 +59,7 @@ impl MacDesktop {
             )
             .into());
         }
-        let cursor_metadata = cursor_metadata && cursor::available();
-        let capture =
-            Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
+        let capture = Capture::start(&cfg.display, cfg.max_fps, cfg.max_width)?;
         capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
         let (width, height) = capture.size();
         let encoder = VideoToolbox::new(
@@ -78,8 +72,6 @@ impl MacDesktop {
         let name =
             format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
         let injector = Injector::new(capture.bounds(), (width, height))?;
-        let cursor =
-            cursor_metadata.then(|| cursor::CursorReader::new(capture.bounds(), (width, height)));
         Ok(Self {
             capture,
             picked: None,
@@ -87,7 +79,6 @@ impl MacDesktop {
             encoder,
             injector,
             name,
-            cursor,
             #[cfg(feature = "bench")]
             quality: crate::eval::Quality::from_env(),
         })
@@ -163,9 +154,5 @@ impl Desktop for MacDesktop {
     fn release_all(&mut self) -> Res<()> {
         self.injector.release_all();
         Ok(())
-    }
-
-    fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {
-        self.cursor.as_mut()?.sample()
     }
 }

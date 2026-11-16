@@ -394,11 +394,7 @@ fn serve_session(
         interactive: true,
     };
     let sink = crate::upstream::session_sink(None, 0);
-    let mut host_caps = crate::upstream::offered_caps(&*sink);
-    // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
-    if crate::desktop::reports_cursor() {
-        host_caps.push(cmux_rd_core::service::caps::CURSOR);
-    }
+    let host_caps = crate::upstream::offered_caps(&*sink);
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
