@@ -66,6 +66,8 @@ final class SidebarFooterCollapseMotion: MotionAnimating {
 
     /// `Motion.fadeCurve` (ease-out, control points 0, 0, 0.58, 1) at progress `t`: the curve the footer's fade runs.
     static func easeOut(_ t: Double) -> CGFloat {
+        guard t > 0 else { return 0 }
+        guard t < 1 else { return 1 }
         let (x1, y1, x2, y2) = (0.0, 0.0, 0.58, 1.0)
         func bezier(_ s: Double, _ p1: Double, _ p2: Double) -> Double {
             let u = 1 - s
