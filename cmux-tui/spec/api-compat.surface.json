@@ -1044,6 +1044,35 @@
         "ty": "string"
       }
     },
+    "event:device-setup-step": {
+      "/detail": {
+        "ty": "string",
+        "required": true
+      },
+      "/device": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"device-setup-step\""
+        ]
+      },
+      "/fix": {
+        "ty": "string",
+        "required": true
+      },
+      "/state": {
+        "ty": "string",
+        "required": true
+      },
+      "/step": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "event:empty": {
       "/event": {
         "ty": "literal",
@@ -9630,6 +9659,22 @@
         "nullable": true
       }
     },
+    "request:device-setup": {
+      "/allow_agents": {
+        "ty": "boolean"
+      },
+      "/device": {
+        "ty": "string",
+        "required": true
+      },
+      "/dry_run": {
+        "ty": "boolean"
+      },
+      "/verb": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:export-layout": {
       "/screen": {
         "ty": "uint64",
@@ -17029,6 +17074,12 @@
       }
     },
     "response:detach-client": {},
+    "response:device-setup": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:export-layout": {
       "/data/layout": {
         "ty": "tagged_union|object",
