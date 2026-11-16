@@ -8,7 +8,7 @@ import { createScreenQueryClient, renderDashboardScreen } from "./helpers/dashbo
 // Every wake from the dashboard goes through `POST /api/vm/{id}/resume`, the
 // route `cmux vm resume` and the iPhone call, so the procedure is tested
 // against that route's contract: the request it receives and what it answers.
-type SeenResume = { url: string; method: string; params: unknown; cookie: string | null };
+type SeenResume = { url: string; method: string; params: unknown; cookie: string | null; clientTimeoutMs: string | null };
 let seen: SeenResume[] = [];
 let resumeResponse: () => Response = () => Response.json({ id: "vm-1", status: "running" });
 
@@ -20,6 +20,7 @@ mock.module("@/app/api/vm/[id]/resume/route", () => ({
       method: request.method,
       params: await context.params,
       cookie: request.headers.get("cookie"),
+      clientTimeoutMs: request.headers.get("x-cmux-client-timeout-ms"),
     });
     return resumeResponse();
   },
@@ -67,6 +68,9 @@ describe("cloud.resumeMachine", () => {
       method: "POST",
       params: { id: "vm-1" },
       cookie: "session=abc",
+      // The iPhone's 16-minute budget, so a slow wake answers `running`, not
+      // the CLI's "still resuming" at 180 s.
+      clientTimeoutMs: "960000",
     }]);
   });
 
@@ -92,6 +96,22 @@ describe("cloud.resumeMachine", () => {
       "PAYMENT_REQUIRED",
       402,
       { reason: "vm_limit_reached", message: "Your plan allows 2 running machines. Pause one first." },
+    ]);
+  });
+
+  test("a provider timeout stays a declared, retryable refusal with its copy", async () => {
+    resumeResponse = () => Response.json(
+      { error: "vm_provider_timeout", message: "The Cloud service took too long. Try again." },
+      { status: 504 },
+    );
+    const error = await call(cloudRouter.resumeMachine, { id: "vm-1", teamId: null }, {
+      context: { request: rpcRequest(), serverPrefetch: true },
+    }).catch((caught: unknown) => caught);
+    const refusal = error as ORPCError<string, unknown>;
+    expect([refusal.code, refusal.status, refusal.data]).toEqual([
+      "GATEWAY_TIMEOUT",
+      504,
+      { reason: "vm_provider_timeout", message: "The Cloud service took too long. Try again." },
     ]);
   });
 

@@ -3,6 +3,7 @@ import * as accessGrantsRoute from "@/app/api/vm/access-grants/route";
 import * as accessGrantRoute from "@/app/api/vm/access-grants/[id]/route";
 import * as networkRoute from "@/app/api/vm/[id]/network/route";
 import * as resumeRoute from "@/app/api/vm/[id]/resume/route";
+import { VM_CLIENT_TIMEOUT_HEADER } from "@/services/vms/routeDeadline";
 import { listUserVms, runVmWorkflow } from "@/services/vms/workflows";
 import { authed, dashboardOS, requireDashboardOrigin } from "./base";
 import { callRoute } from "./route-call";
@@ -117,13 +118,21 @@ const setNetwork = cloudOS
  * Wake a paused machine from the browser, so a machine can be resumed without
  * the Mac app. `POST /api/vm/{id}/resume` (what `cmux vm resume` and the iPhone
  * call) owns auth, account scope, plan limits, and the provider wait; a running
- * machine answers `running`.
+ * machine answers `running`. The browser waits as long as the iPhone does (16
+ * minutes), so the route waits for `running` instead of answering "still
+ * resuming" after the CLI's 180 s budget.
  */
+const DASHBOARD_RESUME_TIMEOUT_MS = 960_000;
+
 const resumeMachine = cloudOS
   .input(machineInput)
   .output(cloudMachineResumeSchema)
   .handler(async ({ context, input }) =>
-    cloudMachineResumeSchema.parse(await callRoute(context, resumeRoute.POST, { method: "POST", ...machineCall(input, "resume") }))
+    cloudMachineResumeSchema.parse(await callRoute(context, resumeRoute.POST, {
+      method: "POST",
+      ...machineCall(input, "resume"),
+      headers: { [VM_CLIENT_TIMEOUT_HEADER]: String(DASHBOARD_RESUME_TIMEOUT_MS) },
+    }))
   );
 
 export const cloudRouter = { devices, renameDevice, revokeDevice, machines, network, setNetwork, resumeMachine };
