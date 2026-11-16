@@ -247,15 +247,15 @@ extension AgentTabStore {
     }
 
     /// Local tab `key`, which shows this Mac's chat `session`, adopts the prewarmed, connected `spare`:
-    /// the page switches to the chat in place (``AgentPaneView/adoptSession(_:revealTurn:moved:)``).
-    /// A spare that refuses (no longer an untouched New Tab page) goes back to the pool or is retired,
-    /// and the tab gets nothing from it.
+    /// the page switches to the chat in place (``AgentPaneView/adoptSession(_:tab:revealTurn:wake:moved:)``), and
+    /// takes what the tab's last page held. A spare that refuses (no longer an untouched New Tab page) goes back to
+    /// the pool or is retired, and the tab gets nothing from it and keeps that state for a page of its own.
     @discardableResult
     func adoptSpare(_ spare: AgentPaneView, key: String, session: String, revealTurn: String?) -> Bool { adoptSpare(spare, key: tabKey(key), session: session, revealTurn: revealTurn) }
 
     func adoptSpare(_ spare: AgentPaneView, key: AgentTabKey, session: String, revealTurn: String?) -> Bool {
         let moved: @MainActor () -> Void = { [weak spare] in spare?.tellWindowItsPagesMoved() }
-        guard spare.adoptSession(session, tab: key.key, revealTurn: revealTurn, moved: moved) else {
+        guard spare.adoptSession(session, tab: key.key, revealTurn: revealTurn, wake: wakeStates[key], moved: moved) else {
             AgentPaneSpareOutcome.refused.trace(note: spare.model.spareRefusal)
             if let revealTurn { pendingTurns[key] = revealTurn }
             if recycle?(spare) != true { retirer.retire(spare) }
@@ -264,6 +264,7 @@ extension AgentTabStore {
         AgentPaneSpareOutcome.adopted.trace()
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion) = (spare, true)
+        wakeStates[key] = nil // the page's model keeps the state from here
         wire(spare.model, key: key.key, machine: key.machine)
         return true
     }

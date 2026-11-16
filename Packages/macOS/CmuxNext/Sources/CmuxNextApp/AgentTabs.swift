@@ -567,11 +567,11 @@ final class AgentTabStore {
             onPageBuilt?(key)
             return kept
         }
-        // An existing chat of this Mac (a sidebar click, Open in Tab, a subagent's pane) adopts the
-        // spare too: it is loaded and connected, and switches to the chat in place.
+        // An existing chat of this Mac (a sidebar click, Open in Tab, a subagent's pane, a return after its
+        // page let go) adopts the spare too: it is loaded and connected, and switches to the chat in place.
         if let session = AgentPaneSpareAdoption(thisMac: kind == .local, session: sessions[tabKey] ?? record.session,
                                                 newTabPage: newTabPages[tabKey] != nil, seeded: seed != nil,
-                                                wake: wakeStates[tabKey] != nil || relaunchWake.mayHold(tabKey.relaunchKeyCandidates))
+                                                wake: wakeStates[tabKey]?.fitsAdoptEvent == false || relaunchWake.mayHold(tabKey.relaunchKeyCandidates))
             .adopted(chiefKeeps: chiefKeepsSession),
            let spare = takeConnectedSpare?(), adoptSpare(spare, key: tabKey, session: session, revealTurn: pendingTurns.removeValue(forKey: tabKey)) {
             track(key, in: store, machine: tabKey.machine)

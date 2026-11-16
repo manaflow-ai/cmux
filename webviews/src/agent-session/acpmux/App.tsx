@@ -102,6 +102,7 @@ import {
   type SessionAdoption,
   withHandshakeNewTab,
 } from "./newtab/adoption";
+import { applyWake, readWake, type WakeTargets } from "./pageWake";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import {
@@ -630,7 +631,7 @@ import { NewestSteerContext, SteerChatContext, takeBackSteer, takesSteersBack } 
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
-import { readWakeFolds, wakeFolds, type PaneFolds } from "./conversation/wakeFolds";
+import { wakeFolds, type PaneFolds } from "./conversation/wakeFolds";
 import {
   callsToHold,
   foldsToHold,
@@ -1162,41 +1163,6 @@ const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { s
     ? { sessionId, rowId: anchor.rowId, offset: anchor.offset }
     : undefined;
 };
-
-/// The handshake's `wake` (AgentPaneWakeState.swift): what a released page held that acpmux does not.
-/// `scrollAnchor`: the transcript's place, null at its latest message, undefined when unknown.
-function readWake(
-  value: unknown,
-):
-  | { composer: ComposerWake; scrollAnchor?: ScrollAnchor | null; subagentDrafts?: unknown; folds?: unknown }
-  | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const wake = value as {
-    attachments?: unknown;
-    shell?: unknown;
-    shellText?: unknown;
-    scrollAnchor?: unknown;
-    atLatest?: unknown;
-    subagentDrafts?: unknown;
-    folds?: unknown;
-  };
-  const anchor = wake.scrollAnchor as { rowId?: unknown; offset?: unknown } | null | undefined;
-  return {
-    composer: {
-      attachments: Array.isArray(wake.attachments) ? (wake.attachments as ComposerAttachment[]) : undefined,
-      shell: wake.shell === true,
-      shellText: typeof wake.shellText === "string" ? wake.shellText : undefined,
-    },
-    scrollAnchor:
-      typeof anchor?.rowId === "string" && typeof anchor.offset === "number"
-        ? { rowId: anchor.rowId, offset: anchor.offset }
-        : wake.atLatest === true
-          ? null
-          : undefined,
-    subagentDrafts: wake.subagentDrafts,
-    folds: wake.folds,
-  };
-}
 
 /// Asks the host to show the Quick Composer's chat in a window.
 const postOpenInWindow = (sessionId: string) =>
@@ -6878,8 +6844,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ),
     [startingSends, sandbox],
   );
-  /// What a released page's composer held (the handshake's `wake`), for the composer once it mounts.
+  /// What a released page's composer held (the handshake's `wake`, or an adopt event's), for the composer once
+  /// it mounts.
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
+  /// Where a woken state goes (pageWake.ts `applyWake`), for the handshake of a page built for the chat and for
+  /// the adopt event of a prewarmed page. A ref: the effect and the callback that use it keep their dependencies.
+  /// Each part reads a ref, a state setter or a module function, so the first render's object serves the pane's life.
+  const wakeTargets = useRef<WakeTargets>({
+    subagentDrafts: (drafts) => wakeIntoSubagentDrafts(drafts),
+    composer: () => composerHandle.current,
+    holdForComposer: (state) => {
+      pendingWake.current = state;
+    },
+    folds: (session, folds) => setWokenFolds({ session, folds }),
+    place: (session, anchor) => postScrollAnchor(session, anchor),
+  });
+  /// An adopt event carried a state and this page took it: the next paint report says so (`appliedWake`), and
+  /// the host lets go of its copy only then (AgentPaneModel `pendingWake`).
+  const wakeAdopted = useRef(false);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
@@ -7166,6 +7148,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (adoption: SessionAdoption) => {
       // The chat's tail the host handed with the event: the switch draws it with no round trip.
       keepAdoptedTail(adoption);
+      // What the chat's last page held comes with the event too (a hidden chat selected again): it goes
+      // where a handshake's goes. The composer mounts in this event's render and takes its part there.
+      if (adoption.wake) {
+        applyWake(adoption.wake, adoption.sessionId, wakeTargets.current);
+        wakeAdopted.current = true;
+      }
       directClient.current?.bindToSession(adoption.sessionId);
       paintReported.current = false;
       settledReported.current = undefined;
@@ -7219,15 +7207,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const first = !paintReported.current;
     paintReported.current = true;
     if (settledNow) settledReported.current = settledSession;
+    // The state an adopt event carried is this page's now: the host is told once, with this report.
+    const tookWake = wakeAdopted.current;
+    wakeAdopted.current = false;
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
     // the next frame, in one step.
     if (first) swapChatSnapshot();
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
-        void callNative("pane.painted", { drewKeptTail, ...(settledNow ? { settled: true } : {}) }).catch(
-          () => undefined,
-        );
+        void callNative("pane.painted", {
+          drewKeptTail,
+          ...(settledNow ? { settled: true } : {}),
+          ...(tookWake ? { appliedWake: true } : {}),
+        }).catch(() => undefined);
         if (!first) return;
         void loadHighlightedCode();
         void loadEditDiffHunks();
@@ -8202,22 +8195,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Before the transcript's rows arrive: it opens where the reader left it (cx-6bgzj).
         // A woken page (its last one let go while hidden) comes back as it was left.
         const wake = !reconnect ? readWake(host.wake) : undefined;
-        if (wake) {
-          // Each subagent's unsent prompt comes back before its pane's composer reads it.
-          wakeIntoSubagentDrafts(wake.subagentDrafts);
-          if (composerHandle.current) composerHandle.current.wake(wake.composer);
-          else pendingWake.current = wake.composer;
-          const folds = readWakeFolds(wake.folds, host.sessionId);
-          if (folds && host.sessionId) setWokenFolds({ session: host.sessionId, folds });
-        }
+        // The chat's kept tail is asked for now, beside the reading place: the client draws it
+        // while its socket connects, and this read is the one it waits on (#32735, tailCache.ts).
+        if (!reconnect && host.sessionId && host.transport !== "mock")
+          void readHostTail(host.sessionId).catch(() => undefined);
+        // The subagents' prompts, the composer's part, the folds, and the released page's place (newer than
+        // the kept one, and kept for a relaunch too): pageWake.ts `applyWake`, as an adopt event's.
+        if (wake) applyWake(wake, host.sessionId, wakeTargets.current);
         if (!reconnect && host.sessionId) {
-          // The chat's kept tail is asked for now, beside the reading place: the client draws it
-          // while its socket connects, and this read is the one it waits on (#32735, tailCache.ts).
-          if (host.transport !== "mock") void readHostTail(host.sessionId).catch(() => undefined);
-          // The released page's place is newer than the kept one: a scroll that settled while
-          // hidden was never reported. Keep it for a relaunch too.
           const woken = wake?.scrollAnchor;
-          if (woken !== undefined) postScrollAnchor(host.sessionId, woken);
           const anchor = woken
             ? { sessionId: host.sessionId, ...woken }
             : woken === null
@@ -9623,7 +9609,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // A subagent's draft the storage refused lives only in this page (subagentDrafts.ts).
             if (quitting !== true && subagentDraftUnsaved()) return { holdsPageState: true };
             const anchor = transcriptAnchor.current?.();
-            const composer = composerHandle.current?.wakeState();
+            // A woken state that no composer took yet is still this page's to hand back.
+            const composer = composerHandle.current?.wakeState() ?? pendingWake.current;
             const attachments = [...chips, ...(composer?.attachments ?? [])];
             // Subagents' unsent prompts have no acpmux session: the host keeps them with the tab, the
             // ones this page kept and its chat's.

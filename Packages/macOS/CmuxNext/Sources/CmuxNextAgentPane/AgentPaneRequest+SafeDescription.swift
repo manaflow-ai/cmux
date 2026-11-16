@@ -118,7 +118,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .checkpointAvailability: "checkpointAvailability"
         case .commandAvailability: "commandAvailability"
         case .clientReady(let ready): ready ? "clientReady" : "clientNotReady"
-        case .painted(let fromKeptTail, let settled):
+        case .painted(let fromKeptTail, let settled, _):
             settled ? (fromKeptTail ? "painted(settled,keptTail)" : "painted(settled)") : fromKeptTail ? "painted(keptTail)" : "painted"
         case .dictation: "dictation"
         case .dictationHandoff: "dictationHandoff"

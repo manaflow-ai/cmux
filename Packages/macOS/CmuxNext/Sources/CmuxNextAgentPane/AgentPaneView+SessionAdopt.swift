@@ -19,12 +19,15 @@ extension AgentPaneView {
 
     /// Adopts this connected New Tab page for the tab of chat `session`; `tab` is that tab's key (where
     /// the reader left the chat is kept per tab, ``AgentPaneScrollAnchors``), and `revealTurn` is a turn
-    /// its open asks to show (a subagent's pane: `subagent:<id>`). `moved` runs each time the held page
-    /// changes place (out of the window now, back once it drew), so a Chromium page's window follows.
-    /// False when the page is no untouched, connected New Tab page (``AgentPaneModel/adoptSpareSession(_:)``).
+    /// its open asks to show (a subagent's pane: `subagent:<id>`). `wake` is what the chat's last page
+    /// held when it let go (decision 2026-11-16): it goes with the event, and the model keeps it until
+    /// the page says that it took it. `moved` runs each time the held page changes place (out of the
+    /// window now, back once it drew), so a Chromium page's window follows.
+    /// False when the page is no untouched, connected New Tab page (``AgentPaneModel/adoptSpareSession(_:wake:)``).
     @discardableResult
-    public func adoptSession(_ session: String, tab: String? = nil, revealTurn: String? = nil, moved: (@MainActor () -> Void)? = nil) -> Bool {
-        guard model.adoptSpareSession(session) else { return false }
+    public func adoptSession(_ session: String, tab: String? = nil, revealTurn: String? = nil, wake: AgentPaneWakeState? = nil,
+                             moved: (@MainActor () -> Void)? = nil) -> Bool {
+        guard model.adoptSpareSession(session, wake: wake) else { return false }
         holdPageAway(moved: moved)
         // A New Tab page drew without it (AgentTabStore.makeView); the chat's pane keeps it until it drew.
         // On before the loading state begins: that is where the chat-open trace binds and takes its
@@ -38,9 +41,11 @@ extension AgentPaneView {
         // where asking for it (`chat.tail.get`) cost a round trip a busy main thread lost to its
         // 250 ms race, leaving the pane empty until acpmux's attach answered. So does where the
         // reader left the chat: the page awaited `chat.scrollAnchor.get` (the same 250 ms race)
-        // before its switch on every sidebar open.
+        // before its switch on every sidebar open. The place that the chat's last page left is the
+        // newer one, so it stands over the kept one.
+        let place = AgentPaneWakeState.adoptPlace(of: wake, kept: AgentPaneScrollAnchors.adoptedPlace(session: session, tab: tab))
         let json = Self.adoptEventDetail(session: session, revealTurn: revealTurn, tail: AgentPaneTailCache.shared.tail(for: session),
-                                         place: AgentPaneScrollAnchors.adoptedPlace(session: session, tab: tab))
+                                         place: place, wake: wake?.adoptEventValue)
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-session-adopt', {detail: \(json)}))")
         return true
     }
@@ -49,13 +54,15 @@ extension AgentPaneView {
     /// the turn its open asks to show, the chat's tail the host keeps (``AgentPaneTailCache``), in
     /// the page's own shape, when it holds one, and `place`, where the reader left the chat in its tab:
     /// `.some(nil)` is none kept (sent as null: the chat opens at its latest message), `nil` that there
-    /// is no place store (left out: the page asks `chat.scrollAnchor.get`, as before). Linear in the
-    /// tail's size, which the cache bounds.
+    /// is no place store (left out: the page asks `chat.scrollAnchor.get`, as before). `wake`: what the
+    /// chat's last page held (``AgentPaneWakeState/adoptEventValue``). Linear in the tail's size and
+    /// the state's, which each have a bound.
     nonisolated static func adoptEventDetail(session: String, revealTurn: String?, tail: JSONValue?,
-                                             place: AgentPaneScrollAnchor?? = nil) -> String {
+                                             place: AgentPaneScrollAnchor?? = nil, wake: JSONValue? = nil) -> String {
         var detail: [String: JSONValue] = ["sessionId": .string(session)]
         if let revealTurn { detail["revealTurn"] = .string(revealTurn) }
         if let tail { detail["tail"] = tail }
+        if let wake { detail["wake"] = wake }
         if let place {
             detail["scrollAnchor"] = place.map { .object(["rowId": .string($0.rowId), "offset": .number($0.offset)]) } ?? .null
         }
