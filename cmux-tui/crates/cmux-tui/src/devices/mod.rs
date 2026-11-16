@@ -610,7 +610,7 @@ fn actor() -> String {
         .unwrap_or_else(|_| "unknown".into())
 }
 
-fn record(event: &str, fields: Value) {
+pub(crate) fn record(event: &str, fields: Value) {
     let mut entry = json!({"event": event, "by": actor(), "via": "cli"});
     if let (Some(map), Some(extra)) = (entry.as_object_mut(), fields.as_object()) {
         map.extend(extra.clone());
