@@ -256,8 +256,9 @@ impl Hub {
         }
         // A remote chain's Claude Code stubs empty package.json, lockfiles and .env* into its
         // folder (scrub mode, `remote_sandbox.rs`): only a checkout or a scratch folder takes it
-        // (`remote_cwd.rs`). Creation only: an existing session's respawn is never re-checked, and
-        // the trigger bridge's fixed-id chats (`server/trigger_chat.rs`) keep their own folder rule.
+        // (`remote_cwd.rs`), or a chat folder under ~/chats. Creation only: an existing session's
+        // respawn is never re-checked, and the trigger bridge's fixed-id chats
+        // (`server/trigger_chat.rs`) keep their own folder rule.
         super::remote_cwd::admit_new(
             super::remote_cwd::NewSession {
                 remote,
@@ -266,6 +267,7 @@ impl Hub {
             },
             &cwd,
             &std::env::temp_dir(),
+            dirs::home_dir().map(|home| home.join("chats")).as_deref(),
         )?;
         let mut meta = draft_meta(Draft {
             id: String::new(),
