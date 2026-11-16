@@ -5,14 +5,17 @@ import Testing
 
 /// When the pool's next page is made after a chat adopted the last one (AgentPaneSpareRefiller, decision
 /// 2026-11-16): after the page drew the chat and the settle, as one background task; never in the handout's turn,
-/// and never while an input event (a key, a click, a scroll) is in dispatch.
+/// never while an input event (a key, a click, a scroll) is in dispatch, and never while another chat's page on
+/// screen has not drawn.
 ///
 /// The refiller also holds the pool's size rule (AgentPaneSpareDemand, decision 2026-11-16): the size follows a burst
 /// of opens, each more page of that size is made at the next frame, and 60 s after the last open the pool is back to
 /// its own count, as one background task that never runs while an input event is in dispatch.
 ///
-/// The settle and the 60 s run on a clock the test moves and the frames fire by hand: no test waits on the wall clock
-/// for a result.
+/// The settle and the 60 s run on a clock the test moves and the frames fire by hand. No test polls: a test awaits
+/// the moment a timer sleeps on that clock, and the moment the refiller's queue asks the scheduler for frames (its
+/// link starts), then fires frames until the queue stops asking. A limit on the wall clock only ends a test that
+/// fails.
 @MainActor @Suite struct AgentPaneSpareRefillerTests {
     /// What the refiller was given and what its makes did.
     @MainActor private final class Seen {
@@ -28,6 +31,10 @@ import Testing
         /// The sizes the refiller gave the pool, in order.
         var sizes: [Int] = []
         var frame = 0
+        /// The chat pages on screen that have not drawn (the app: the wait for shown chats).
+        var loading: [AgentPaneShownChatsWait.WhenPainted] = []
+        /// What a page of `loading` runs once it drew.
+        var drew: (() -> Void)?
     }
 
     /// A refiller on a scheduler whose frames the test fires, with its settle on a manual clock.
@@ -36,6 +43,7 @@ import Testing
         let seen: Seen
         let work: MainWorkScheduler
         let refills: AgentPaneSpareRefiller
+        private let asks: Asks
         private let uptime: Uptime
         private var time = 10.0
 
@@ -43,13 +51,15 @@ import Testing
             let clock = ManualClock()
             let seen = Seen()
             let uptime = Uptime()
-            let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: uptime.read)) { _ in FakeLink() }
+            let asks = Asks()
+            let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: uptime.read)) { _ in FakeLink(asks) }
             self.clock = clock
             self.seen = seen
+            self.asks = asks
             self.uptime = uptime
             self.work = work
-            refills = AgentPaneSpareRefiller(on: work, clock: clock, inInput: { seen.dispatching }, room: { seen.room },
-                                             resize: { seen.sizes.append($0) }) {
+            refills = AgentPaneSpareRefiller(on: work, clock: clock, inInput: { seen.dispatching }, loading: { seen.loading },
+                                             room: { seen.room }, resize: { seen.sizes.append($0) }) {
                 seen.made += 1
                 seen.madeInFrame.append(seen.frame)
                 if seen.room > 0 { seen.room -= 1 }
@@ -73,22 +83,19 @@ import Testing
             }
         }
 
-        /// Frames until `reached`. The deadline on the wall clock only ends a test that fails.
-        func frames(until reached: () -> Bool) async {
-            let wall = ContinuousClock()
-            let deadline = wall.now.advanced(by: .seconds(10))
-            while !reached(), wall.now < deadline {
+        /// The refiller queued a task for a frame (a make that is due): waits for the queue's ask for frames, then
+        /// fires frames until the queue asks for no more. Background work can wait some frames for one with idle
+        /// time, so the count of frames has a bound and no clock is read. A task that queues one more in its frame
+        /// (the next page of a row) keeps the queue asking: the frames go on until the row's end.
+        func runQueued() async throws {
+            try await asks.next()
+            var fired = 0
+            while !asks.stopped, fired < 60 {
                 frame()
-                await Task.yield()
+                fired += 1
             }
-        }
-
-        /// `count` timers are asleep on the clock. The deadline on the wall clock only ends a test that fails.
-        func asleep(_ count: Int) async {
-            let wall = ContinuousClock()
-            let deadline = wall.now.advanced(by: .seconds(10))
-            while clock.sleeperCount != count, wall.now < deadline { await Task.yield() }
-            #expect(clock.sleeperCount == count, "\(clock.sleeperCount) timers are asleep on the clock, not \(count)")
+            try #require(asks.stopped, "the refiller's queue still asked for frames after \(fired) of them")
+            asks.served()
         }
 
         /// A timer is asleep on the clock, then the clock moves by `duration`.
@@ -104,9 +111,65 @@ import Testing
         var read: () -> UInt64 { { [self] in self.now } }
     }
 
+    /// When the refiller's queue asks the scheduler for frames (the link is made, or resumed) and when it stops
+    /// (the link pauses).
+    @MainActor private final class Asks {
+        nonisolated struct NoFrames: Error, CustomStringConvertible {
+            var description: String { "the refiller queued no task for a frame" }
+        }
+
+        /// The queue asks for no frames now.
+        private(set) var stopped = true
+        private var count = 0
+        private var taken = 0
+        private var waiter: CheckedContinuation<Void, Never>?
+
+        func began() {
+            stopped = false
+            count += 1
+            wake()
+        }
+
+        func ended() { stopped = true }
+
+        /// The frames ran until the queue stopped: no ask before now is left for ``next(within:)``.
+        func served() { taken = count }
+
+        private func wake() {
+            waiter?.resume()
+            waiter = nil
+        }
+
+        /// The next ask for frames that no call took yet. Only a test that fails waits `limit` on the wall clock.
+        func next(within limit: Duration = .milliseconds(2_500)) async throws {
+            if count == taken {
+                let late = DemandTimer(owner: "AgentPaneSpareRefillerTests.asks", ledger: WakeupLedger())
+                await withCheckedContinuation { (asked: CheckedContinuation<Void, Never>) in
+                    waiter = asked
+                    late.schedule(after: limit) { @MainActor [weak self] in self?.wake() }
+                }
+                late.cancel()
+            }
+            guard count > taken else { throw NoFrames() }
+            taken = count
+        }
+    }
+
     @MainActor private final class FakeLink: FrameLink {
-        var isPaused = false
-        func invalidate() {}
+        private let asks: Asks
+        var isPaused = false {
+            didSet {
+                guard isPaused != oldValue else { return }
+                if isPaused { asks.ended() } else { asks.began() }
+            }
+        }
+
+        init(_ asks: Asks) {
+            self.asks = asks
+            asks.began()
+        }
+
+        func invalidate() { asks.ended() }
     }
 
     @Test func theNextPageFollowsTheChatsPaintThenTheSettle() async throws {
@@ -126,7 +189,7 @@ import Testing
         #expect(rig.seen.made == 0, "a page was made before the settle ended")
 
         rig.clock.advance(by: .milliseconds(1))
-        await rig.frames(until: { rig.seen.made > 0 })
+        try await rig.runQueued()
         #expect(rig.seen.made == 1, "no page followed the chat's paint and the settle")
         #expect(!rig.refills.isOpening)
         #expect(rig.refills.counts.makes == 1 && rig.refills.counts.heldForInput == 0, "\(rig.refills.counts)")
@@ -143,7 +206,7 @@ import Testing
         await rig.frames(20)
         #expect(rig.seen.made == 0, "a page was made before the settle ended")
         try await rig.advance(by: AgentPaneSpareRefiller.settle)
-        await rig.frames(until: { rig.seen.made > 0 })
+        try await rig.runQueued()
         #expect(rig.seen.made == 1)
         #expect(rig.seen.madeInInput == 0)
     }
@@ -156,7 +219,7 @@ import Testing
         // The event is in dispatch before the settle ends, so no frame can run the make first.
         rig.seen.dispatching = true
         try await rig.advance(by: AgentPaneSpareRefiller.settle)
-        await rig.frames(until: { rig.refills.counts.heldForInput > 0 })
+        try await rig.runQueued()
         #expect(rig.refills.counts.heldForInput == 1, "the make that was due did not find the event in dispatch")
         #expect(rig.seen.made == 0, "a page was made while an input event was in dispatch")
         #expect(rig.refills.isOpening, "the refill ended without a page")
@@ -166,16 +229,76 @@ import Testing
 
         // The settle ends again while the event is still in dispatch.
         try await rig.advance(by: AgentPaneSpareRefiller.settle)
-        await rig.frames(until: { rig.refills.counts.heldForInput > 1 })
+        try await rig.runQueued()
         #expect(rig.refills.counts.heldForInput == 2 && rig.seen.made == 0, "\(rig.refills.counts), made \(rig.seen.made)")
 
         // The dispatch ended.
         rig.seen.dispatching = false
         try await rig.advance(by: AgentPaneSpareRefiller.settle)
-        await rig.frames(until: { rig.seen.made > 0 })
+        try await rig.runQueued()
         #expect(rig.seen.made == 1, "no page after the dispatch ended")
         #expect(rig.seen.madeInInput == 0, "a make ran while an input event was in dispatch")
         #expect(rig.refills.counts.makes == 1 && rig.refills.counts.heldForInput == 2, "\(rig.refills.counts)")
+        #expect(!rig.refills.isOpening)
+    }
+
+    /// A second chat found no page and builds its own (a cold open). A make that is due while that chat's page has
+    /// not drawn makes nothing: its main-thread tasks would land in that open. The settle starts again at the page's
+    /// paint.
+    @Test func noMakeRunsWhileAChatOnScreenHasNotDrawn() async throws {
+        let rig = Rig()
+        rig.refills.afterPaint { $0() }
+        // The second chat's page loads before the first chat's settle ends.
+        rig.seen.loading = [{ [seen = rig.seen] in seen.drew = $0 }]
+        try await rig.advance(by: AgentPaneSpareRefiller.settle)
+        try await rig.runQueued()
+        #expect(rig.seen.made == 0, "a page was made while a chat on screen had not drawn")
+        #expect(rig.refills.counts.heldForOpen == 1, "the make that was due did not find the chat that loads")
+        #expect(rig.refills.isOpening, "the refill ended without a page")
+        // More frames make nothing and ask nothing.
+        await rig.frames(20)
+        #expect(rig.seen.made == 0 && rig.refills.counts.heldForOpen == 1, "\(rig.refills.counts), made \(rig.seen.made)")
+
+        // The second chat drew: the settle again, then the page.
+        rig.seen.loading = []
+        let paint = try #require(rig.seen.drew, "the held make did not ask the page for its paint")
+        paint()
+        try await rig.advance(by: AgentPaneSpareRefiller.settle - .milliseconds(1))
+        await rig.frames(20)
+        #expect(rig.seen.made == 0, "a page was made before the settle ended")
+        rig.clock.advance(by: .milliseconds(1))
+        try await rig.runQueued()
+        #expect(rig.seen.made == 1, "no page after the chat drew")
+        #expect(rig.refills.counts.makes == 1 && rig.refills.counts.heldForOpen == 1, "\(rig.refills.counts)")
+        #expect(!rig.refills.isOpening)
+
+        // A second paint report of that page comes late: nothing more is made.
+        paint()
+        await rig.frames(20)
+        #expect(rig.clock.sleeperCount == 0, "a paint after the make began a settle")
+        #expect(rig.refills.counts.makes == 1)
+    }
+
+    /// The chat that loads never draws: its tab was hidden, or it closed. The make is asked again after the
+    /// shown-chats deadline, and a page that is on screen no more holds nothing: the pool is not left empty.
+    @Test func aChatThatNeverDrawsIsAskedAboutAgain() async throws {
+        let rig = Rig()
+        rig.refills.afterPaint { $0() }
+        rig.seen.loading = [{ _ in }]
+        try await rig.advance(by: AgentPaneSpareRefiller.settle)
+        try await rig.runQueued()
+        #expect(rig.seen.made == 0 && rig.refills.counts.heldForOpen == 1, "\(rig.refills.counts), made \(rig.seen.made)")
+
+        // Still on screen and not drawn at the deadline: held again.
+        try await rig.advance(by: AgentPaneShownChatsWait.deadline)
+        try await rig.runQueued()
+        #expect(rig.seen.made == 0 && rig.refills.counts.heldForOpen == 2, "\(rig.refills.counts), made \(rig.seen.made)")
+
+        // Its tab was hidden: at the next deadline the page is made.
+        rig.seen.loading = []
+        try await rig.advance(by: AgentPaneShownChatsWait.deadline)
+        try await rig.runQueued()
+        #expect(rig.seen.made == 1, "a chat that left the screen kept the pool empty")
         #expect(!rig.refills.isOpening)
     }
 
@@ -195,7 +318,7 @@ import Testing
         let paint = try #require(painted)
         paint()
         try await rig.advance(by: AgentPaneSpareRefiller.settle)
-        await rig.frames(until: { rig.seen.made > 0 })
+        try await rig.runQueued()
         #expect(rig.seen.made == 1)
         #expect(rig.refills.counts.makes == 1)
     }
@@ -221,6 +344,10 @@ import Testing
     /// ends when the pool has no more room.
     @Test func eachMorePageOfABurstsSizeIsMadeAtTheNextFrame() async throws {
         let rig = Rig()
+        // The handout's wait starts first, so the settle is the one timer the test waits for on the clock (the
+        // opens start a second one, the release). The opens change nothing of that wait.
+        rig.refills.afterPaint { $0() }
+        try await rig.clock.waitForSleeper()
         rig.refills.asked()
         #expect(rig.seen.sizes.isEmpty, "one open changed the pool's size: \(rig.seen.sizes)")
         rig.refills.asked()
@@ -230,12 +357,10 @@ import Testing
         #expect(rig.seen.sizes == [2, 3], "a fourth open raised the size over its bound: \(rig.seen.sizes)")
 
         rig.seen.room = 3
-        rig.refills.afterPaint { $0() }
-        #expect(rig.seen.made == 0, "a page was made in the handout's turn")
-        // Two timers sleep on the clock: the refill's settle and the release. The settle ends first.
-        await rig.asleep(2)
+        #expect(rig.seen.made == 0, "a page was made in an open's turn")
+        // The settle ends; the release's 60 s do not.
         rig.clock.advance(by: AgentPaneSpareRefiller.settle)
-        await rig.frames(until: { rig.seen.made == 3 })
+        try await rig.runQueued()
         #expect(rig.seen.made == 3, "\(rig.seen.made) of 3 pages were made")
         #expect(Set(rig.seen.madeInFrame).count == 3, "two pages were made in one frame: frames \(rig.seen.madeInFrame)")
         await rig.frames(20)
@@ -249,7 +374,8 @@ import Testing
         let refills = AgentPaneSpareRefiller(on: rig.work, clock: rig.clock, room: { 2 }) { rig.seen.made += 1 }
         refills.afterPaint { $0() }
         try await rig.advance(by: AgentPaneSpareRefiller.settle)
-        await rig.frames(until: { rig.seen.made > 0 })
+        try await rig.runQueued()
+        #expect(rig.seen.made == 1, "\(rig.seen.made) makes ran in the row")
         await rig.frames(20)
         #expect(rig.seen.made == 1, "the refiller asked \(rig.seen.made) times for a page the pool cannot make")
     }
@@ -266,12 +392,12 @@ import Testing
         // The 60 s end while an event is in dispatch: nothing is released in that frame.
         rig.seen.dispatching = true
         rig.clock.advance(by: .milliseconds(1))
-        await rig.frames(until: { rig.refills.counts.heldForInput > 0 })
+        try await rig.runQueued()
         #expect(rig.refills.counts.heldForInput == 1 && rig.seen.sizes == [2, 3], "\(rig.refills.counts), sizes \(rig.seen.sizes)")
 
         rig.seen.dispatching = false
         try await rig.advance(by: AgentPaneSpareRefiller.settle)
-        await rig.frames(until: { rig.refills.counts.releases > 0 })
+        try await rig.runQueued()
         #expect(rig.seen.sizes == [2, 3, 1] && rig.refills.size == 1, "\(rig.seen.sizes)")
         #expect(rig.refills.counts.releases == 1)
         #expect(rig.clock.sleeperCount == 0, "a timer runs after the release")
@@ -287,7 +413,7 @@ import Testing
         await rig.frames(20)
         #expect(rig.seen.sizes == [2, 3] && rig.refills.counts.releases == 0, "pages went 59 s after an open: \(rig.seen.sizes)")
         rig.clock.advance(by: .seconds(1))
-        await rig.frames(until: { rig.refills.counts.releases > 0 })
+        try await rig.runQueued()
         #expect(rig.seen.sizes == [2, 3, 1], "\(rig.seen.sizes)")
     }
 
@@ -307,7 +433,7 @@ import Testing
         for _ in 0..<2 { rig.refills.asked() }
         #expect(rig.seen.sizes == [2, 3, 1, 3])
         try await rig.advance(by: AgentPaneSpareDemand.release)
-        await rig.frames(until: { rig.refills.counts.releases > 0 })
+        try await rig.runQueued()
         #expect(rig.seen.sizes == [2, 3, 1, 3, 2], "the release went below the pool's own count: \(rig.seen.sizes)")
     }
 }
