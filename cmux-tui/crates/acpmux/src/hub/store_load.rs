@@ -47,7 +47,7 @@ impl Hub {
                 .session_path("__cmux_force_recovery_panic__")
                 .is_some_and(|path| path.exists())
             {
-                panic!("forced staged recovery panic");
+                std::panic::resume_unwind(Box::new("forced staged recovery panic"));
             }
             hub.recover_staged_replacements();
             drop(_recovery_phase);

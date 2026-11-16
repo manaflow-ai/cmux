@@ -798,7 +798,9 @@ impl Ledger {
 
     #[cfg(test)]
     pub fn query(&self, q: &LedgerQuery) -> LedgerReply {
-        self.try_query(q).expect("ledger query after initial fold failure")
+        self.try_query(q).unwrap_or_else(|| {
+            std::panic::resume_unwind(Box::new("ledger query after initial fold failure"))
+        })
     }
 
     /// Waits until the writer has written everything handed to it.

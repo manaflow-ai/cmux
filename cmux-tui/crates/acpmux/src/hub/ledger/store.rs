@@ -361,7 +361,7 @@ pub(crate) fn spawn_writer(
         let folded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             #[cfg(test)]
             if path.with_extension("panic").exists() {
-                panic!("forced ledger fold panic");
+                std::panic::resume_unwind(Box::new("forced ledger fold panic"));
             }
             #[cfg(test)]
             while path.with_extension("hold").exists() {
@@ -382,8 +382,8 @@ pub(crate) fn spawn_writer(
                 .collect::<Vec<_>>();
             #[cfg(test)]
             if path.with_extension("panic-under-lock").exists() {
-                let _guard = state.lock().unwrap();
-                panic!("forced ledger fold panic while holding state");
+                let _guard = state.lock().unwrap_or_else(PoisonError::into_inner);
+                std::panic::resume_unwind(Box::new("forced ledger fold panic while holding state"));
             }
             loaded.folded = true;
             *state.lock().unwrap_or_else(PoisonError::into_inner) = loaded;
