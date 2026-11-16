@@ -9,6 +9,8 @@ import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
+import { suggestionsAnchor } from "../src/agent-session/acpmux/newtab/suggestionsAnchor";
+import { resolveUiOverlayPosition, UI_ANCHOR_GAP } from "../src/ui/anchor";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -71,7 +73,11 @@ afterAll(async () => {
 const noop = () => {};
 
 function Chips() {
-  return <span className="acpmux-chips">Claude Opus 5.5</span>;
+  return (
+    <span className="acpmux-chips">
+      <span className="acpmux-model-name">Claude Opus 5.5</span>
+    </span>
+  );
 }
 
 async function mount(
@@ -169,6 +175,66 @@ test("New Tab keeps Claude and its controls when the saved chat look is Codex", 
     expect(savedComposerLook()).toBe("codex");
   }
   act(() => setComposerLook("claude"));
+});
+
+test("suggestions mirror the box-to-chip text gap at every density and zoom", async () => {
+  await mount();
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  await act(async () => {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type("ff");
+  });
+  expect(document.querySelector(".nt-popover .nt-row")).not.toBeNull();
+  const composer = host.querySelector<HTMLElement>(".nt-composer")!;
+  const box = host.querySelector<HTMLElement>(".nt-box")!;
+  const label = host.querySelector<HTMLElement>(".nt-foot .acpmux-model-name")!;
+  const anchor = suggestionsAnchor(composer, box);
+  // jsdom has no layout. Supply viewport rects with density, font and zoom varied independently.
+  for (const density of [0.8, 0.86, 1, 1.2, 1.6]) {
+    for (const zoom of [0.92, 1, 1.25]) {
+      for (const lineHeight of [14, 18, 24]) {
+        let growth = 0;
+        const boxBottom = () => (160 + growth) * zoom;
+        const textTop = () => boxBottom() + (6 * density - 2 + (28 * density - lineHeight) / 2) * zoom;
+        const textBottom = () => textTop() + lineHeight * zoom;
+        composer.getBoundingClientRect = () => new window.DOMRect(40, 80 * zoom, 600 * zoom, (140 + growth) * zoom);
+        box.getBoundingClientRect = () => new window.DOMRect(40, 100 * zoom, 600 * zoom, (60 + growth) * zoom);
+        label.getBoundingClientRect = () => new window.DOMRect(420, textTop(), 100, lineHeight * zoom);
+        const rect = anchor.getBoundingClientRect();
+        const popup = resolveUiOverlayPosition(rect, { width: 600, height: 100 }, { width: 1200, height: 1000 });
+        expect(Math.abs(popup.top - textBottom() - (textTop() - boxBottom()))).toBeLessThanOrEqual(1);
+        expect(rect.width).toBe(composer.getBoundingClientRect().width);
+        const above = resolveUiOverlayPosition(
+          rect,
+          { width: 600, height: 40 },
+          { width: 1200, height: 1000 },
+          { side: "above" },
+        );
+        expect(above.top).toBe(composer.getBoundingClientRect().top - 6 - 40);
+        for (const height of [lineHeight / 4, lineHeight / 2, lineHeight, lineHeight / 2, 0]) {
+          growth = height;
+          const moved = resolveUiOverlayPosition(
+            anchor.getBoundingClientRect(),
+            { width: 600, height: 100 },
+            { width: 1200, height: 1000 },
+          );
+          expect(moved.top - popup.top).toBeCloseTo(growth * zoom);
+        }
+      }
+    }
+  }
+  // A collapsed form keeps its box under visibility: hidden (at the chips' top); the label drawn sets the gap.
+  const ghost = label.cloneNode(true) as HTMLElement;
+  ghost.style.visibility = "hidden";
+  ghost.getBoundingClientRect = () => new window.DOMRect(420, 0, 100, 14);
+  label.before(ghost);
+  composer.getBoundingClientRect = () => new window.DOMRect(40, 80, 600, 140);
+  box.getBoundingClientRect = () => new window.DOMRect(40, 100, 600, 60);
+  label.getBoundingClientRect = () => new window.DOMRect(420, 166, 100, 14);
+  expect(anchor.getBoundingClientRect().bottom).toBe(180 + 166 - 160 - UI_ANCHOR_GAP);
+  ghost.remove();
+  label.getBoundingClientRect = () => new window.DOMRect();
+  expect(anchor.getBoundingClientRect().toJSON()).toEqual(composer.getBoundingClientRect().toJSON());
 });
 
 // Review (#20148): the composer's Computer menu listed a remote chat's machine, so the row could
