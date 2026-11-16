@@ -1913,7 +1913,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "cc",
  "cmux-encode",
