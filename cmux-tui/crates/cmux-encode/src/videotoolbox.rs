@@ -818,7 +818,7 @@ mod tests {
         assert_eq!(ultra_min_qp(Some("0")), ULTRA_MIN_QP, "0 is out of range");
         assert_eq!(ultra_min_qp(Some("52")), ULTRA_MIN_QP, "past H.264's range");
         assert_eq!(ultra_min_qp(Some("x")), ULTRA_MIN_QP);
-        assert!(ULTRA_REFINE_MIN_QP < ULTRA_MIN_QP);
+        const { assert!(ULTRA_REFINE_MIN_QP < ULTRA_MIN_QP) };
     }
 
     #[test]
