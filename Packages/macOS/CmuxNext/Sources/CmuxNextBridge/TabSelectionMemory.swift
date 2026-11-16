@@ -77,7 +77,9 @@ public final class TabSelectionMemory {
     /// tab whose place it took (what a New Tab page turned into); else the selected tab when that is a creation's
     /// stand-in `tabs` no longer lists. The close-selection rule keeps the two as one item.
     public func selectMade(_ tab: String, in pane: String, inPlaceOf replaced: String?, tabs: [String]) {
-        let standIn = replaced ?? selected[pane].flatMap { old in ProvisionalTab.isProvisional(old) && !tabs.contains(old) ? old : nil }
+        // A new tab's own stand-in never takes the place of the stand-in before it (a burst: the store replaced that one, the
+        // strip still selects it): it took that tab's opener, and the daemon's tab of the one before lost its own.
+        let standIn = replaced ?? (ProvisionalTab.isProvisional(tab) ? nil : selected[pane].flatMap { old in ProvisionalTab.isProvisional(old) && !tabs.contains(old) ? old : nil })
         set(tab, in: pane, standIn: standIn)
     }
 
