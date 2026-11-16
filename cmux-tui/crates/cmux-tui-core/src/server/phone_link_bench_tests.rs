@@ -150,7 +150,7 @@ fn run(workload: &str, seconds: u64, busy: bool) -> Vec<(String, Value)> {
         command: Some(vec!["/bin/sh".into(), "-c".into(), "sleep 3600; :".into()]),
         ..SurfaceOptions::default()
     };
-    let mux = Mux::new(&format!("phone-link-bench-{workload}"), options);
+    let mux = Mux::new(format!("phone-link-bench-{workload}"), options);
     let claude = mux.new_workspace(None, None).unwrap();
     mux.note_running_agent_for_test(claude.terminal_public_id().expect("a terminal"), "claude");
     let shells: Vec<Arc<Surface>> =
