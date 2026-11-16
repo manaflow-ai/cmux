@@ -45,7 +45,8 @@ const assetPlay =
     await ctx.type("https://example.org/sample-icon.png", { selector: ".icon-asset-url input" });
     await ctx.click({ selector: ".icon-asset-url button" });
     await ctx.waitFor(() =>
-      ctx.document.querySelector(failed ? ".icon-asset-error" : ".icon-asset-url button:disabled"),
+      // The error line is always in the sheet (its place is held); it has text only with an error.
+      ctx.document.querySelector(failed ? ".icon-asset-error:not(:empty)" : ".icon-asset-url button:disabled"),
     );
   };
 
@@ -118,6 +119,19 @@ export default iconPickerPageEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".icon-picker-search"));
         await ctx.press("Meta+k");
         await ctx.waitFor(() => ctx.document.querySelector(".icon-actions-menu"));
+      },
+    },
+    "pick-refused": {
+      note: "Play: a pick the host refuses. The line that says so comes over the grid, above the bottom bar; no icon of the grid moves.",
+      session,
+      prefs,
+      finishState: "refused",
+      // Set Icon in the bottom bar, not a tile: a click on a tile makes the grid the step's own
+      // target, and the stage then reads a grid that moves down as the step's expansion (shift.ts).
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-bar-primary"));
+        await ctx.click({ selector: ".icon-bar-primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-picker-error"));
       },
     },
     loading: { session: { ...session, tab: "image" }, assetState: "loading", play: assetPlay(false) },

@@ -162,6 +162,8 @@ class MatchTests(unittest.TestCase):
         self.assertEqual(teardown.state_roots, {"/Users/me/Library/Application Support/cmux-next/tags/sweep11/tui",
                                                 "/Users/me/Library/Application Support/cmux-next/tags/sweep12/tui"})
 
+    # procargs reads KERN_PROCARGS2, which only macOS has (it returns None elsewhere).
+    @unittest.skipUnless(sys.platform == "darwin", "procargs reads macOS's KERN_PROCARGS2")
     def test_procargs_reads_an_environment_value_with_spaces(self):
         child = subprocess.Popen([sys.executable, "-I", "-c", "import sys; print('ready', flush=True); sys.stdin.read()"],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,

@@ -4,7 +4,7 @@
 Writes plans/cmux-next/swift-linux-inventory.md (or checks it is current with --check). Sources:
 every Package.swift in the repo (SwiftPM targets, test targets, executables, macros, C and binary
 targets), the native targets of every .xcodeproj, and the Linux receipts in CI:
-scripts/ci/swift-linux-packages.txt and .github/workflows/swift-packages-linux.yml.
+scripts/ci/swift-linux-packages.txt and .github/workflows/swift-linux-packages.yml.
 
 Classes, in Leo's words (ask-64314e2230):
   linux    builds on Linux today. "CI" in the proof column means a Linux job builds and tests the
@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "plans/cmux-next/swift-linux-inventory.md"
 LINUX_LIST = ROOT / "scripts/ci/swift-linux-packages.txt"
-PORTABLE_WORKFLOW = ROOT / ".github/workflows/swift-packages-linux.yml"
+PORTABLE_WORKFLOW = ROOT / ".github/workflows/swift-linux-packages.yml"
 
 LINUX, SHIMS, MAC = 0, 1, 2
 CLASS_NAMES = {LINUX: "linux", SHIMS: "shims", MAC: "mac"}
@@ -289,9 +289,9 @@ def ci_linux_packages() -> dict[str, tuple[str, set[str] | None]]:
     text = PORTABLE_WORKFLOW.read_text()
     for block in re.findall(r"packages:\s*>-?\s*\n((?:\s+\S+\n)+)", text):
         for p in block.split():
-            proven[p] = ("CI swift-packages-linux", None)
+            proven[p] = ("CI swift-linux-packages (portable)", None)
     for p in re.findall(r"packages:\s*(\S+/\S+)\s*$", text, flags=re.M):
-        proven[p] = ("CI swift-packages-linux", None)
+        proven[p] = ("CI swift-linux-packages (portable)", None)
     for line in LINUX_LIST.read_text().splitlines():
         if line.strip() and not line.lstrip().startswith("#"):
             parts = line.split()
@@ -341,7 +341,7 @@ def inventory() -> list[Target]:
                     t.reasons = [r for r in t.reasons if not r.startswith("via ")] + [f"via {dep}"]
                     changed = True
     # Proof: a Linux CI job builds the target. A row of swift-linux-packages.txt builds its test
-    # targets and the package modules they import; swift-packages-linux.yml builds whole packages.
+    # targets and the package modules they import; swift-linux-packages.yml builds whole packages.
     for pkg, (job, tests) in ci_linux_packages().items():
         mine = {t.name: t for t in targets if t.package == pkg}
         built = set(mine) if tests is None else set()

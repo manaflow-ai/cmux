@@ -29,9 +29,12 @@ pub const TEMPLATE_BOUND_FILE: &str = "/run/cmux/bound";
 pub const AGENT_DIR: &str = "/run/cmux-host";
 pub const DAEMON_PID_FILE: &str = "/run/cmux-host/daemon.pid";
 pub const STATUS_FILE: &str = "/run/cmux-host/status.json";
+/// Present while the agent keeps an adopted session host of an older build
+/// because a person's carrier session is attached to it (`machine.rs`,
+/// `ReplaceWhy`): the updater's health deadline starts at its replacement.
+pub const HOST_DEFERRED_FILE: &str = "/run/cmux-host/old-host-deferred";
 /// Operator breadcrumb: which layout the session host runs under.
 pub const LAYOUT_MARKER_FILE: &str = "/etc/cmux/daemon-layout";
-pub const GHOSTTY_VERSION_FILE: &str = "/etc/cmux/ghostty-version";
 pub const MACHINE_ID_FILE: &str = "/etc/machine-id";
 pub const DBUS_MACHINE_ID_FILE: &str = "/var/lib/dbus/machine-id";
 pub const RANDOM_SEED_FILE: &str = "/var/lib/systemd/random-seed";

@@ -378,6 +378,17 @@ struct ChatNativeLayout: @unchecked Sendable {
                                      options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
         return CGSize(width: (rect.width * 3).rounded(.up) / 3, height: (rect.height * 3).rounded(.up) / 3)
     }
+
+    /// Text at `width` exactly as a multi-line UILabel draws it: lines at their glyphs' own heights
+    /// plus the paragraph's line spacing between them, with no font leading (UILabel draws none; a
+    /// fleet probe at body 17 pt matched UILabel's `textRect` to the pixel from 1 to 2,500 lines),
+    /// rounded up to the pixel grid. For a label whose frame must hug its text.
+    static func measureDrawn(_ text: NSAttributedString, width: CGFloat) -> CGSize {
+        guard text.length > 0 else { return .zero }
+        let rect = text.boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                                     options: [.usesLineFragmentOrigin], context: nil)
+        return CGSize(width: (rect.width * 3).rounded(.up) / 3, height: (rect.height * 3).rounded(.up) / 3)
+    }
 }
 
 /// Inline markdown to UIKit text with `InlineMarkdownCache`'s look: bold, italic, code in the

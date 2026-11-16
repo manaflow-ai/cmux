@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Build the client xcframework of the remote desktop viewer core.
 #
-# Compiles the staticlib crate cmux-tui/crates/cmux-rd-ffi (own Cargo
-# workspace, outside the cmux-tui build) for each selected slice and packs it
+# Compiles the staticlib crate cmux-tui/crates/cmux-rd-ffi (a member of the
+# app FFI workspace, cmux-tui/crates/cmux-app-ffi, outside the cmux-tui build)
+# for each selected slice and packs it
 # with its C header and module map (module CCmuxRdFFI) into
 # cmux-tui/target/cmux-rd-ffi/CCmuxRdFFI.xcframework, for standalone use (iOS
 # slices, the core's own checks). The macOS app does NOT link this archive: it

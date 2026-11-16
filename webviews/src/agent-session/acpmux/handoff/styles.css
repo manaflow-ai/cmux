@@ -30,7 +30,7 @@
 .acpmux-handoff-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .acpmux-handoff-buttons button {
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   padding: 8px 12px;
   font: inherit;
   color: var(--agent-text);

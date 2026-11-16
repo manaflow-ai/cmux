@@ -9,6 +9,7 @@ import { JSDOM } from "jsdom";
 import { setChipHost } from "../chips/host";
 import { AnsweredBy, AuthorChip, Face, PresenceStack, TypingLine } from "./Faces";
 import { ANA, JORDAN, MEI, SAM } from "./people.fixtures";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -18,7 +19,7 @@ const saved = new Map<string, unknown>();
 function render(node: ReactNode): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -36,9 +37,10 @@ function render(node: ReactNode): HTMLElement {
   return host;
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -15,7 +15,7 @@ enum InstantClose {
         // Preserve the pre-close order. ClosingWorkspaces hides the rows before
         // repairSelections runs; reconstructing the old order afterward can
         // make a last-row close fall back to the first surviving workspace.
-        windows.repairSelections(previous: [window: room], only: window, batch: ids.count > 1) // several rows: by position, no opener rank
+        windows.repairSelections(previous: [window: room], only: window, pressed: true) // the press: the close can still be cancelled or refused
         controller.sidebar.sameTurn.syncNow(rows: true)
         controller.showWorkspace(requested: controller.state.workspaceID)
         return hidden

@@ -13,7 +13,9 @@
 //!   footer (`bridge.rs`). A forward of the person's words inside one
 //!   (a quote the agent relays) stays that agent's message, with the quote in it.
 //! - A prompt acpmux could not attribute to anyone (`kind: "unverified"`, a program that sent
-//!   no sender): `From a program (NAME it claims), not the person:`.
+//!   no sender): `From a program (NAME it claims), not the person:`, or the program acpmux saw
+//!   send it (`program`, `sender_program.rs`): `From the program NAME (acpmux checked its
+//!   process), not the person:`.
 //! - In the person's own prompt, each block the composer marked pasted (`_meta.cmux.pasted`)
 //!   goes between `[Pasted by the person, not their own words ...]` and `[End of pasted
 //!   text]`; when it reads as another agent's output (`agent_text.rs`), the opening line says so
@@ -50,6 +52,17 @@ pub(crate) fn unverified_line(claimed: Option<&str>) -> String {
     match claimed {
         Some(name) => format!("From a program that calls itself {name}, not the person:"),
         None => "From a program that did not say who it is, not the person:".to_owned(),
+    }
+}
+
+/// The opening line ahead of a prompt whose program the daemon saw (`sender_program.rs`), on
+/// `host`, the machine that daemon read it on.
+pub(crate) fn checked_program_line(program: &str, host: Option<&str>) -> String {
+    match host {
+        Some(host) => format!(
+            "From the program {program} on {host} (acpmux checked its process), not the person:"
+        ),
+        None => format!("From the program {program} (acpmux checked its process), not the person:"),
     }
 }
 
@@ -196,7 +209,19 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
     if let Some(p) =
         provenance.filter(|p| p.get("kind").and_then(Value::as_str) == Some("unverified"))
     {
-        blocks.insert(first, text_block(unverified_line(claimed_name(p))));
+        let program = p
+            .pointer(&format!("/{}/name", crate::sender_program::PROVENANCE_KEY))
+            .and_then(Value::as_str);
+        let line = match program {
+            // The host the checking daemon wrote, never the send's `cliHost` claim.
+            Some(program) => checked_program_line(
+                program,
+                p.pointer(&format!("/{}/host", crate::sender_program::PROVENANCE_KEY))
+                    .and_then(Value::as_str),
+            ),
+            None => unverified_line(claimed_name(p)),
+        };
+        blocks.insert(first, text_block(line));
         return;
     }
     let mut out = Vec::with_capacity(blocks.len() + 2);
@@ -298,6 +323,17 @@ mod tests {
         assert_eq!(
             texts(&params)[0],
             "From a program that calls itself hermes@box, not the person:"
+        );
+        // The program the daemon saw send it names it, and the host a peer passed it on from.
+        let checked = json!({"kind": "unverified",
+                             "program": {"name": "next-autoland", "host": "build-box"},
+                             "claimed": {"cliHost": "elsewhere"}});
+        let mut params = json!({"sessionId": "s", "prompt": [{"type": "text", "text": "hi"}]});
+        mark(&mut params, None, Some(&checked));
+        assert_eq!(
+            texts(&params)[0],
+            "From the program next-autoland on build-box (acpmux checked its process), not the \
+             person:"
         );
     }
 

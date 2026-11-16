@@ -5,7 +5,9 @@
 #   cmux-ci test --setup rust --timeout 10800 -- bash scripts/ci/affected_tests_measure.sh [--python-only] SHA [PYTHON_TEST]...
 # SHA is the merged commit; its first parent is the base. PYTHON_TEST are the linux-guard tests
 # the plan selects (affected_tests.py's python units), none for a plan with no Python unit.
-# Writes $FAST_CHECKS_OUT/measure.json: seconds and the failed tests of each run.
+# Writes $FAST_CHECKS_OUT/measure.json: seconds and the failed tests of each run. A Rust run cargo
+# refused for a stale Cargo.lock (--locked) is `"outcome": "stale-lock"` with `"tests": null`, not
+# 0 tests, and cargo-locks.py explain prints the cause and fix on stderr.
 set -uo pipefail
 python_only=0
 if [[ "${1:-}" == --python-only ]]; then python_only=1; shift; fi
@@ -18,6 +20,7 @@ work="$(mktemp -d)"
 # This script and the lane runner (with --path) come from this PR's head: the checkout below
 # replaces the tree.
 cp scripts/ci/run_python_test_lane.py "$work/run_python_test_lane.py"
+cp scripts/cmux-next/cargo-locks.py "$work/cargo-locks.py"
 depth=()  # --depth only in a checkout that is already shallow, so a full clone stays full
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=2)
 git fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} origin "$sha" || { echo "error: cannot fetch $sha" >&2; exit 3; }
@@ -43,9 +46,16 @@ rust() { # LABEL SCOPE...
   start=$(date +%s)
   (cd cmux-tui && cargo nextest run "$@" --locked --profile ci --no-tests=pass) >"$out/$label.log" 2>&1
   rc=$?
-  python3 - "$label" "$rc" "$(( $(date +%s) - start ))" "$out/$label.log" "$*" >>"$results" <<'PY'
+  stale=0
+  if [[ "$rc" -ne 0 ]] && python3 "$work/cargo-locks.py" explain "$out/$label.log" --repo "$PWD"; then stale=1; fi
+  python3 - "$label" "$rc" "$(( $(date +%s) - start ))" "$out/$label.log" "$*" "$stale" >>"$results" <<'PY'
 import json, re, sys
-label, rc, secs, log, scope = sys.argv[1:]
+label, rc, secs, log, scope, stale = sys.argv[1:]
+if stale == "1":
+    # cargo refused the lock before any test ran: not a run of 0 tests.
+    print(json.dumps({"label": label, "rc": int(rc), "seconds": int(secs), "tests": None, "failed": [], "scope": scope,
+                      "outcome": "stale-lock"}))
+    sys.exit(0)
 # nextest's per-test lines: "  PASS [ 0.1s] ( 1/9) crate::binary test_name"
 line = re.compile(r"^\s+(\S+) \[.*?\]\s+\(\s*\d+/\d+\)\s+(\S+)\s+(\S+)")
 ran, failed = set(), set()

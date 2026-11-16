@@ -8,6 +8,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "support/thread_activity.rs"]
+mod thread_activity;
 // This process starts no agent.
 const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
@@ -20,8 +22,12 @@ use std::time::Duration;
 
 /// Quiet window over which wakeups are counted.
 const WINDOW: Duration = Duration::from_secs(10);
-/// Windows measured; a process is judged by its median window.
-const WINDOWS: u32 = 3;
+/// Windows measured; a process is judged by its median window, and its
+/// threads by the windows they ran in: over 60 s any timer with a period up
+/// to 30 s runs in 2 windows or more.
+const WINDOWS: u32 = 6;
+/// Windows a thread pool may run in: one, for a one-off event.
+const MAX_WINDOWS_A_POOL_RUNS: usize = 1;
 /// Time after startup for one-shot work (the first chat scan, the cache save).
 const SETTLE: Duration = Duration::from_secs(5);
 /// Context switches allowed per process in its median window: a 1 Hz wake gives 10.
@@ -243,17 +249,36 @@ fn acpmux_daemon_idle_has_no_periodic_wakeups() {
         .chain(children(pid).into_iter().map(|child| (format!("child {child}"), child)))
         .collect();
     let mut marks = vec![processes.iter().map(|(_, pid)| usage(*pid)).collect::<Vec<Usage>>()];
+    let mut threads = vec![thread_activity::thread_activity(pid)];
     for _ in 0..WINDOWS {
         std::thread::sleep(WINDOW);
         marks.push(processes.iter().map(|(_, pid)| usage(*pid)).collect());
+        threads.push(thread_activity::thread_activity(pid));
     }
     let mut failures = Vec::new();
     for (at, (name, _)) in processes.iter().enumerate() {
         let windows: Vec<Usage> =
             marks.windows(2).map(|pair| delta(pair[0][at], pair[1][at])).collect();
+        // Not captured by libtest, so CI logs carry the numbers on success too.
+        eprintln!("idle acpmux {name}: {windows:?} ({WINDOWS} windows of {WINDOW:?})");
         if woke(&windows) {
             failures.push(format!("{name}: {windows:?}"));
         }
+    }
+    // A thread pool that runs in more than one window is woken by a timer,
+    // however little each wake costs and whichever of its threads takes it:
+    // the desktop bridge's 15 s setting reread ran in 2 of each 3 windows and
+    // the peer cache's 30 s tick in 1 of 3, on any runtime worker, so neither
+    // ran in every window nor on one thread.
+    let periodic = thread_activity::names_in_windows(&threads, MAX_WINDOWS_A_POOL_RUNS + 1);
+    for name in &periodic {
+        eprintln!("idle acpmux daemon thread pool woke in more than one window: {name}");
+    }
+    if !periodic.is_empty() {
+        failures.push(format!(
+            "daemon threads that ran in more than {MAX_WINDOWS_A_POOL_RUNS} window: {}",
+            periodic.join(", ")
+        ));
     }
     let _ = child.kill();
     let _ = child.wait();
@@ -263,4 +288,148 @@ fn acpmux_daemon_idle_has_no_periodic_wakeups() {
         failures.is_empty(),
         "an idle acpmux daemon woke up (per {WINDOW:?} window): {failures:#?}"
     );
+}
+
+/// Usage patterns (opt-in counters) are written some time after a count, so
+/// an idle daemon does not wake for them: a count made just before the daemon
+/// stops (an update's SIGTERM) must be on disk after the stop. The connection
+/// comes after the first write of the 5-second loop the writer had before,
+/// which then wrote again only 30 s later.
+#[test]
+fn acpmux_daemon_writes_its_usage_counts_when_it_stops() {
+    let dir = scratch("usage");
+    let counts = dir.join("usage-patterns");
+    let socket = dir.join("s.sock");
+    let mut child = daemon_env::acpmux(&dir)
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .env("CMUX_USAGE_PATTERNS", "1")
+        .env("CMUX_USAGE_PATTERNS_DIR", &counts)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let ready = BufReader::new(stdout)
+        .lines()
+        .map_while(Result::ok)
+        .find_map(|line| serde_json::from_str::<Value>(&line).ok().filter(|v| v["ready"] == true));
+    if ready.is_none() {
+        let _ = child.kill();
+        panic!("the daemon exited without a readiness line: {:?}", child.wait());
+    }
+    std::thread::sleep(Duration::from_secs(6));
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    let call = json!({"jsonrpc":"2.0","id":1,"method":"_acpmux/watch","params":{"enabled":true}});
+    stream.write_all(format!("{call}\n").as_bytes()).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    loop {
+        let mut line = String::new();
+        assert!(reader.read_line(&mut line).unwrap() > 0, "the daemon closed the stream");
+        if serde_json::from_str::<Value>(&line).ok().is_some_and(|v| v["id"] == 1) {
+            break;
+        }
+    }
+    // SAFETY: the pid is this test's own daemon, still running.
+    unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while child.try_wait().unwrap().is_none() {
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("the daemon did not stop on SIGTERM");
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    drop(reader);
+    let counted: u64 = fs::read_dir(&counts)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .filter_map(|entry| fs::read(entry.path()).ok())
+        .filter_map(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .flat_map(|rollup| {
+            rollup["counts"]
+                .as_object()
+                .into_iter()
+                .flat_map(|families| families.values())
+                .flat_map(|keys| keys.as_object().into_iter().flat_map(|keys| keys.values()))
+                .filter_map(Value::as_u64)
+                .collect::<Vec<_>>()
+        })
+        .sum();
+    let _ = fs::remove_dir_all(&dir);
+    assert!(counted >= 1, "the connection counted before the stop was not written");
+}
+
+/// Waits up to 20 s for a daemon log line that holds `text`.
+fn log_line(lines: &std::sync::mpsc::Receiver<String>, text: &str, what: &str) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match lines.recv_timeout(left) {
+            Ok(line) if line.contains(text) => return,
+            Ok(_) => {}
+            Err(_) => panic!("{what}: no log line '{text}' within 20 s"),
+        }
+    }
+}
+
+/// The desktop bridge sets no timer while it is off (it used to reread its setting every
+/// 15 s), so it must follow `agents.desktopBridge.enabled` through the settings watch with no
+/// restart: a settings file absent at start and created later in a folder made later, a file
+/// replaced by rename (editors and the settings writer save that way), and one written in
+/// place, each turn it on or off.
+#[test]
+fn acpmux_desktop_bridge_follows_its_setting_with_no_restart() {
+    let dir = scratch("bridge");
+    let home = daemon_env::home(&dir);
+    fs::create_dir_all(&home).unwrap();
+    let folder = home.join(".config").join("cmux");
+    let settings = folder.join("cmux-next.json");
+    let socket = dir.join("s.sock");
+    let mut child = daemon_env::acpmux(&dir)
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "info"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let (sent, lines) = std::sync::mpsc::channel();
+    let stdout = child.stdout.take().unwrap();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if sent.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    let bridge = |on: bool| format!("{{\"agents\":{{\"desktopBridge\":{{\"enabled\":{on}}}}}}}");
+    let replace = |on: bool| {
+        let staged = folder.join("cmux-next.json.tmp");
+        fs::write(&staged, bridge(on)).unwrap();
+        fs::rename(&staged, &settings).unwrap();
+    };
+    log_line(&lines, "\"ready\"", "start");
+    assert!(!folder.exists(), "the test home has a settings folder");
+    // Absent at start, its folder too: created later.
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(&settings, bridge(true)).unwrap();
+    log_line(&lines, "desktop bridge: on", "a settings file created later");
+    replace(false);
+    log_line(&lines, "desktop bridge: off", "a settings file replaced by rename");
+    fs::write(&settings, bridge(true)).unwrap();
+    log_line(&lines, "desktop bridge: on", "a settings file written in place");
+    replace(false);
+    log_line(&lines, "desktop bridge: off", "a second replace by rename");
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = fs::remove_dir_all(&dir);
 }

@@ -14,6 +14,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_MD_FIELD } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
   if (!(await probeEngineOrSkip("composer-grow-no-thumb", "chromium", chromium))) return;
@@ -24,7 +25,7 @@ await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
   let browser: Browser;
   /** A blank page that decodes the lane captures, so the stage under test does no extra work. */
   let decoder: Page;
-  const FIELD = ".acpmux-composer-box .acpmux-md-field";
+  const FIELD = COMPOSER_MD_FIELD;
   beforeAll(async () => {
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
@@ -45,13 +46,20 @@ await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
   /** The most any pixel of the field's scrollbar lane differs from the lane's own commonest colour:
    *  near 0 for a clear lane, the thumb's ink (38% of the text colour) when it is drawn. The lane's
    *  middle only, where the thumb draws: its 2 px transparent border at each side (and the box's rim
-   *  beside it), and the track's 10 px inset at each end (the box's rounded corners). */
+   *  beside it), and the track's 10 px inset at each end, or more where the box's rounded corner
+   *  reaches into the lane: Codex's look (the default since #42247) rounds the box 22 px and runs the
+   *  lane against its right edge (composerLook.css), so the corner's rim crosses the lane's top. */
   const laneInk = async (page: Page) => {
     const lane = await page.evaluate((selector) => {
       const field = document.querySelector<HTMLElement>(selector)!;
       const r = field.getBoundingClientRect();
       const lane = field.offsetWidth - field.clientWidth;
-      return { x: r.right - lane + 2, y: r.top + 10, width: lane - 4, height: r.height - 20, lane };
+      const box = field.closest<HTMLElement>(".acpmux-composer-box")!;
+      const b = box.getBoundingClientRect();
+      const style = getComputedStyle(box);
+      const top = Math.max(10, parseFloat(style.borderTopRightRadius) - (r.top - b.top));
+      const bottom = Math.max(10, parseFloat(style.borderBottomRightRadius) - (b.bottom - r.bottom));
+      return { x: r.right - lane + 2, y: r.top + top, width: lane - 4, height: r.height - top - bottom, lane };
     }, FIELD);
     expect(lane.lane).toBeGreaterThan(4);
     const png = await page.screenshot({ clip: { x: lane.x, y: lane.y, width: lane.width, height: lane.height } });
@@ -121,6 +129,11 @@ await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
     test(`${theme}: a field that grows by a line it fits draws no thumb; one past its cap does`, async () => {
       const page = await open(theme);
       try {
+        // A second line first: Codex's look (the default since #42247) holds two lines' room at rest
+        // (composerLook.css --acpmux-codex-editor-min), so only the third line grows the field.
+        await page.keyboard.press("Shift+Enter");
+        await page.keyboard.type("and the 500 one");
+        await rest(page);
         const before = await fit(page);
         expect(before.scroll).toBeLessThanOrEqual(before.client);
         const clear = await laneInk(page);

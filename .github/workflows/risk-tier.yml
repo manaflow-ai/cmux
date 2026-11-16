@@ -110,10 +110,11 @@ jobs:
         env:
           TIER: ${{ steps.grade.outputs.tier }}
           TAKES_BACK: ${{ steps.grade.outputs.takes_back }}
+          TAKES_BACK_FIX: ${{ steps.grade.outputs.takes_back_fix }}
           ENFORCE_FROM: "2026-10-24T00:00:00Z"
         run: |
           if [ "$TAKES_BACK" = true ]; then
-            echo "::error::risk:$TIER takes back a recent change; the job summary says how to own it or merge the base."
+            echo "::error::risk:$TIER takes back a recent change. $TAKES_BACK_FIX"
             exit 1
           fi
           echo "::warning::risk:$TIER is held by its review verdict (the job summary says why). The lander refuses a BLOCK at the head; this check does not."

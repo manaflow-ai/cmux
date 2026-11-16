@@ -12,6 +12,7 @@ import path from "node:path";
 import type { Browser, Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
+import { settleReact } from "./support/domTeardown";
 
 await requireBrowserLane("session-info-section-order-browser.test.tsx", async () => {
   setDefaultTimeout(60_000);
@@ -66,6 +67,7 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
   await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
   const markup = container.innerHTML;
   act(() => root.unmount());
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

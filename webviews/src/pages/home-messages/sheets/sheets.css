@@ -351,8 +351,3 @@
   color: var(--page-text-2);
   letter-spacing: var(--text-caption--letter-spacing);
 }
-/* An agent member's disc: the hover tint and a sparkle in the secondary text colour (HomeGroupAvatar). */
-.hm-member-sparkle {
-  background: var(--page-hover);
-  color: color-mix(in srgb, var(--page-text) 60%, transparent);
-}

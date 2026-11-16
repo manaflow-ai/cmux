@@ -15,10 +15,15 @@
     "keys": {
       "agents.chats.roots": "domain:chat_roots",
       "appearance.background": "domain:backdrop_selection",
+      "appearance.backgroundLight": "domain:backdrop_picture",
+      "appearance.backgroundDark": "domain:backdrop_picture",
+      "appearance.backgroundSchedule": "domain:backdrop_schedule",
+      "appearance.backgroundLocation": "domain:backdrop_location",
       "appearance.customDensities": "domain:custom_densities",
       "agentPane.display.commandLabels": "domain:command_labels",
       "browser.customSearchEngine.search": "domain:search_template",
-      "browser.customSearchEngine.suggest": "domain:search_template"
+      "browser.customSearchEngine.suggest": "domain:search_template",
+      "tabs.newTabApp": "domain:app_id"
     },
     "kinds": {
       "theme": "domain:theme",
@@ -106,9 +111,6 @@
     "tabs.newTabTemplate": [
       "default",
       "cards"
-    ],
-    "tabs.newTabWidgets.greeting": [
-      true
     ],
     "ui.animations.newWorkspace": [
       false

@@ -150,7 +150,8 @@
   height: var(--find-pill-button);
   padding: 0;
   border: 0;
-  border-radius: calc(var(--find-pill-button) / 2);
+  /* Concentric with the capsule (Lawrence 2026-11-15), as the native find pill: half the button's height. */
+  border-radius: calc(var(--find-pill-button) / 2) /* radius-allow: concentric child of the find capsule */;
   background: none;
   color: inherit;
 }
@@ -175,22 +176,18 @@
   color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent))));
 }
 
-/* Held feedback is immediate and never moves the search controls. Selected toggles keep their hue. */
+/* Held feedback is immediate and never moves the search controls. Selected toggles keep their hue; a press changes the fill only. */
 .find-pill__button:active:not(:disabled) {
   background: color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent);
-  color: inherit;
 }
 .find-pill__button[aria-pressed="true"]:active {
   background-color: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 30%, transparent) !important;
-  color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent)))) !important;
 }
 .find-pill__button[data-press-active]:not(:disabled) {
   background: color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent);
-  color: inherit;
 }
 .find-pill__button[aria-pressed="true"][data-press-active]:not(:disabled) {
   background-color: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 30%, transparent) !important;
-  color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent)))) !important;
 }
 
 /* The replace row (the code editor's Replace): the capsule grows into a rounded panel of two rows. */

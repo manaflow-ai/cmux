@@ -26,6 +26,27 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   house: <path d="M2.4 7.4 8 2.6l5.6 4.8M3.8 6.2v7.2h3V10h2.4v3.4h3V6.2" />,
+  "sidebar.left": (
+    <>
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="M6 2.8v10.4M3.4 5.4h1M3.4 7.2h1" />
+    </>
+  ),
+  "rectangle.split.2x1": (
+    <>
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="M8 2.8v10.4" />
+    </>
+  ),
+  "plus.square": (
+    <>
+      <rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2.4" />
+      <path d="M8 5.4v5.2M5.4 8h5.2" />
+    </>
+  ),
+  "bubble.left": (
+    <path d="M8 2.6c3.3 0 5.8 2 5.8 4.6S11.3 11.8 8 11.8c-.6 0-1.2-.1-1.8-.2L3 13.2l.8-2.6C2.8 9.7 2.2 8.5 2.2 7.2 2.2 4.6 4.7 2.6 8 2.6Z" />
+  ),
   keyboard: (
     <>
       <rect x="1.4" y="3.6" width="13.2" height="8.8" rx="1.6" />
@@ -38,6 +59,12 @@ const paths: Record<string, ReactNode> = {
       <circle cx="8" cy="8" r="6.2" />
       <circle cx="8" cy="6.6" r="2.1" />
       <path d="M3.9 12.5c.9-1.5 2.4-2.3 4.1-2.3s3.2.8 4.1 2.3" />
+    </>
+  ),
+  key: (
+    <>
+      <circle cx="5.2" cy="10.8" r="3" />
+      <path d="m7.3 8.7 6-6M11.2 4.8l1.6 1.6M9.6 6.4l1.2 1.2" />
     </>
   ),
   "square.stack": (
@@ -109,6 +136,33 @@ const paths: Record<string, ReactNode> = {
       <path d="m10.3 10.3 3.6 3.6" />
     </>
   ),
+  // The app areas What's New and the Updated popover group changes under (changelog/SheetPage.tsx
+  // AREA_SYMBOLS; Leo 2026-11-14 on the popover's blobby cloud and its blank Other: "theese are kinda
+  // crappy looking icons and stuff").
+  cloud: <path d="M4.6 12.6h6.9a2.7 2.7 0 0 0 .4-5.4 4 4 0 0 0-7.7-.9 3.2 3.2 0 0 0 .4 6.3Z" />,
+  command: (
+    <path d="M6 6H4.5A1.5 1.5 0 1 1 6 4.5V6Zm4 0V4.5A1.5 1.5 0 1 1 11.5 6H10Zm0 4h1.5a1.5 1.5 0 1 1-1.5 1.5V10Zm-4 0v1.5A1.5 1.5 0 1 1 4.5 10H6ZM6 6h4v4H6Z" />
+  ),
+  macwindow: (
+    <>
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="M1.8 5.8h12.4M3.9 4.3h.01M5.5 4.3h.01" />
+    </>
+  ),
+  "rectangle.tabs": (
+    <>
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="M1.8 6.2h12.4M6 2.8v3.4M10.2 2.8v3.4" />
+    </>
+  ),
+  "ellipsis.circle": (
+    <>
+      <circle cx="8" cy="8" r="6.2" />
+      <circle cx="5.2" cy="8" r=".85" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r=".85" fill="currentColor" stroke="none" />
+      <circle cx="10.8" cy="8" r=".85" fill="currentColor" stroke="none" />
+    </>
+  ),
   "icloud.and.arrow.down": (
     <path d="M4.6 12.6h6.9a2.7 2.7 0 0 0 .4-5.4 4 4 0 0 0-7.7-.9 3.2 3.2 0 0 0 .4 6.3ZM8 6.8v4M6.5 9.4 8 10.9l1.5-1.5" />
   ),
@@ -127,6 +181,8 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   chevron: <path d="m4.5 6.2 3.5 3.6 3.5-3.6" />,
+  // A pop-up button's caret: a small down chevron, centered on the box (Settings menus, Lucas 2026-11-12).
+  "chevron.popup": <path d="m4.75 6.4 3.25 3.25 3.25-3.25" />,
   pawprint: (
     <>
       <path d="M8 8.6c-2 0-3.4 1.7-3.4 3.2 0 1 .8 1.6 1.7 1.6.7 0 1.1-.4 1.7-.4s1 .4 1.7.4c.9 0 1.7-.6 1.7-1.6 0-1.5-1.4-3.2-3.4-3.2Z" />

@@ -2,7 +2,7 @@
 // ask-a8e62e5885: "Currently, even after updating to restart, this is still showing up."). An agent
 // pane's Chromium renderer ran at 115% CPU for 50 minutes in a nightly, and nothing said which page or
 // which code: the debug probes (idleProbe.ts, `debug.agent_pane`) are not in a release build, the
-// flicker log (flickerLog.ts) sends only on the old WebKit bridge, and the dev perf budgets
+// flicker log (flickerLog.ts) records frames, not the scripts that took them, and the dev perf budgets
 // (devkit/perfBudgets.ts) run only under the dev server. createPageClient (pageClient.ts) installs it
 // in every app page on the shared page host, the agent pane included.
 //

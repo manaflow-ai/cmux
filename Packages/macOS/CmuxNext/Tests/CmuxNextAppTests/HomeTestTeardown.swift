@@ -4,7 +4,7 @@ import Testing
 
 extension NSWindow {
     /// A test's teardown for a window that holds Home: closes it and the Chief Settings popover
-    /// panels the running test's Homes made. Each `HomeChiefSettingsPopover` keeps its panel and only
+    /// panels the running test's Homes made. Each `HomeHostView` makes that panel up front and only
     /// ever hides it, and it is no child of the window until it shows, so closing the window leaves
     /// it open (`.closesItsWindows`).
     func closeWithHomePopovers() {

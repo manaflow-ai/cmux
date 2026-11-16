@@ -1,0 +1,14 @@
+{
+  "title": "Home chat: the Chief's status line above its typing bubble, one line",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "The Home fixture conversation", "rpc": {"method": "debug.home_native_fixture.open", "params": {}}, "wait": 3, "shot": false},
+    {"title": "Light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 2, "shot": false},
+    {"title": "Light: Reading, then Starting agents, 7 s in", "rpc": {"method": "debug.home.drive", "params": {"action": "live", "steps": ["Reading", "Starting agents"], "elapsed": 7}}, "wait": 1.5},
+    {"title": "Light: a long turn in a narrow column", "rpc": {"method": "debug.home.drive", "params": {"action": "live", "steps": ["Running git status", "Running swift build", "Running the tests", "Reading HomeNoticeRows.swift", "Checking on a31"], "elapsed": 130}}, "wait": 0.5, "shot": false},
+    {"title": "Light: a long turn in a narrow column", "rpc": {"method": "debug.home.drive", "params": {"action": "resize", "trims": [260]}}, "wait": 1.5},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2},
+    {"title": "Dark: full width", "rpc": {"method": "debug.home.drive", "params": {"action": "resize", "trims": [0]}}, "wait": 1.5},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 2, "shot": false}
+  ]
+}

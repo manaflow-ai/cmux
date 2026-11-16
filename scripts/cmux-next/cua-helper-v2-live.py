@@ -34,6 +34,7 @@ copy of the app, and the window this script started, are stopped, each by its ex
 Never Lawrence's running cmux. Exit 0 pass, 1 fail, 2 a missing grant.
 """
 import argparse, datetime, glob, json, os, plistlib, secrets, signal, socket, stat, subprocess, sys, time
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -114,7 +115,7 @@ if failures:
 TAG = opts.tag
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 HOME_ACP = os.path.join(OUT, "acpmux-home")
-ACP_SOCKET = f"/tmp/cuav2-acp-{os.getpid()}.sock"
+ACP_SOCKET = os.path.join(tempfile.mkdtemp(prefix="cuav2-", dir="/tmp"), "acp.sock")  # a mkdtemp dir: a guessable /tmp name could be planted by another account
 WORK = os.path.join(OUT, "work")
 for path in (HOME_ACP, WORK):
     os.makedirs(path, exist_ok=True)

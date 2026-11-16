@@ -144,9 +144,6 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// compact row has no second line of its own, Leo 2026-10-30). Nil for
     /// every other row.
     public var stage: String?
-    /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
-    /// terminal in the home folder): the row reads quiet while idle (`WorkspaceRowView.isQuiet`).
-    public var isUnnamed = false
     /// Archived in the sidebar document (`extra.archived`, or under an archived group): the row
     /// draws dimmed at the end of its list (plans/cmux-next/archiving-DESIGN.md). Set by `arrange`.
     public var isArchived = false

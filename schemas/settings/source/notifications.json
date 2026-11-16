@@ -977,7 +977,7 @@
             "text": "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "reorder",
             "sort",

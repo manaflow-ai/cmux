@@ -86,7 +86,11 @@ await requireBrowserLane("glass-material.test.ts", async () => {
   const SPECULAR_BAND = "1px 1.5px 1px -1px inset";
   const RETURN_BAND = "-1px -1px 1px -1px inset";
   const SHEEN = "0px 16px 20px -16px inset";
-  const DEPTH = "0px 12px 32px -12px";
+  // The composer's own depth (glass.css --glass-material-depth-composer; Leo 2026-11-06: "maybe less
+  // shadow? ... Probably just a little bit more subtle."): the material's two steps at about half the
+  // reach and half the dark, never the floating glass's 0 12px 32px -12px at 22% / 55%.
+  const DEPTH = "0px 6px 18px -8px";
+  const FLOATING_DEPTH = "0px 12px 32px -12px";
   const windows: { name: string; attributes: Record<string, string> }[] = [
     { name: "an opaque window", attributes: {} },
     { name: "art under Plain glass", attributes: { "data-cmux-see-through": "", "data-glass": "plain" } },
@@ -104,7 +108,11 @@ await requireBrowserLane("glass-material.test.ts", async () => {
           expect(layerAlpha(shadow, SPECULAR_BAND), `${id} specular band`).toBeGreaterThan(0.2);
           expect(layerAlpha(shadow, RETURN_BAND), `${id} return along the bottom and right`).toBeGreaterThan(0.05);
           expect(layerAlpha(shadow, SHEEN), `${id} sheen under the top edge`).toBeGreaterThan(0.03);
-          expect(layerAlpha(shadow, DEPTH), `${id} depth shadow`).toBeGreaterThan(0.2);
+          expect(layerAlpha(shadow, DEPTH), `${id} depth shadow`).toBeGreaterThan(0.05);
+          // Under the floating glass's 55% dark (this harness's root is color-scheme dark, so both
+          // cases read the dark branch); the geometry check below tells it from the floating depth.
+          expect(layerAlpha(shadow, DEPTH), `${id} depth shadow`).toBeLessThan(0.3);
+          expect(layerAlpha(shadow, FLOATING_DEPTH), `${id} floating glass's depth`).toBe(-1);
           // The specular light is brighter than its return: lit from above.
           expect(layerAlpha(shadow, SPECULAR_BAND)).toBeGreaterThan(layerAlpha(shadow, RETURN_BAND));
         }

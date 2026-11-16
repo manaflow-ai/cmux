@@ -18,7 +18,7 @@ import { TeamAdmin } from "../auth/team-admin.ts";
 import { MeshStore, type MeshDeviceRow } from "../db/mesh.ts";
 import { absenceIsFinal, authorizes, intentState, reconcileLive, type IntentAttemptRow, type IntentCaller } from "../db/mesh-intents.ts";
 import type { OverlayServerRow } from "../db/overlay-servers.ts";
-import { AuditStore, OwnershipStore } from "../db/stores.ts";
+import { type AuditEntry, AuditStore, OwnershipStore } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
 import {
@@ -96,6 +96,24 @@ const phase = <A, E, R>(into: Phases | undefined, key: string, effect: Effect.Ef
         return yield* effect.pipe(Effect.ensuring(Effect.flatMap(Clock.currentTimeMillis, (at) => Effect.sync(() => { into[key] = String(at - started); }))));
       });
 
+/**
+ * Runs an attach and logs its mesh_vm_attach line after the attach's audit write, which is a serial database step
+ * that queues under load: auditMs times AuditStore.append, and totalMs runs from where the attach calls `begin`
+ * through that write. An attach refused before `begin` (the caller gate, rate limit or mesh ownership) logs nothing.
+ */
+export const timedAttach = <A, E, R>(phases: Phases, run: (begin: Effect.Effect<number>) => Effect.Effect<A, E, R>) =>
+  Effect.suspend(() => {
+    let started: number | null = null;
+    const begin = Effect.tap(Clock.currentTimeMillis, (at) => Effect.sync(() => { started = at; }));
+    return run(begin).pipe(
+      Effect.provideServiceEffect(AuditStore, Effect.map(AuditStore, (store) => ({ ...store, append: (entry: AuditEntry) => phase(phases, "auditMs", store.append(entry)) }))),
+      Effect.ensuring(Effect.suspend(() => {
+        const from = started;
+        return from === null ? Effect.void : Effect.flatMap(Clock.currentTimeMillis, (at) => logEvent("mesh_vm_attach", { ...phases, totalMs: String(at - from) }));
+      })),
+    );
+  });
+
 const now = Effect.map(Clock.currentTimeMillis, (ms) => new Date(ms));
 
 /**
@@ -130,14 +148,15 @@ export const withMeshCaller = <const S extends Scope, A, E, R>(
   scope: S,
   rateClass: RateClass,
   k: <C>(caller: Named<C, Principal>, granted: KeyHasScope<C, S>) => Effect.Effect<A, E, R>,
+  phases?: Phases,
 ) =>
   Effect.gen(function* () {
-    const principal = yield* gate;
+    const principal = yield* phase(phases, "gateMs", gate);
     return yield* name(principal, (caller) =>
       Effect.gen(function* () {
         const granted = keyHasScope(caller, scope);
         if (granted === null) return yield* Effect.fail(missingScope(scope));
-        yield* rateLimit(principal, rateClass);
+        yield* phase(phases, "rateMs", rateLimit(principal, rateClass));
         return yield* k(caller, granted);
       }),
     );
@@ -152,6 +171,7 @@ export const withOwnedMesh = <const S extends Scope, A, E, R>(
     mesh: Named<M, MeshId>,
     proofs: { readonly owns: TenantOwnsResource<C, M>; readonly scope: KeyHasScope<C, S> },
   ) => Effect.Effect<A, E, R>,
+  phases?: Phases,
 ) =>
   withMeshCaller(scope, rateClass, (caller, granted) =>
     Effect.gen(function* () {
@@ -159,12 +179,13 @@ export const withOwnedMesh = <const S extends Scope, A, E, R>(
       if (Option.isNone(parsed)) return yield* Effect.fail(meshNotFound());
       return yield* name(parsed.value, (mesh) =>
         Effect.gen(function* () {
-          const owns = yield* tenantOwnsMesh(caller, mesh).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+          const owns = yield* phase(phases, "ownsMeshMs", tenantOwnsMesh(caller, mesh).pipe(Effect.catchAll(dependencyDown("ownership.find"))));
           if (owns === null) return yield* Effect.fail(meshNotFound());
           return yield* k(caller, mesh, { owns, scope: granted });
         }),
       );
     }),
+    phases,
   );
 
 const withOwnedDevice = <const S extends Scope, A, E, R>(
@@ -438,15 +459,45 @@ const reconcile = <C, M>(
     return { created: plan.create.length, deleted: plan.remove.length, ruleCount: desired.length };
   });
 
-/** Re-applies the mesh's current ACL after its devices or VMs changed. */
+/**
+ * The mesh's apply coverage, in the tenant's Durable Object beside its writer
+ * lock: `wanted` counts VM attaches, `applied` is the highest count a landed
+ * apply of the mesh's current state had read before it compiled. An attach
+ * whose count is applied is reachable, so it answers without an apply of its
+ * own: N concurrent attaches (one mesh per team) cost one or two applies, not N
+ * one after another (10 Cloud creates answered from 7.8 s to 28.5 s on staging).
+ */
+const coverageKey = (meshId: string) => `mesh-apply:${meshId}`;
+
+/**
+ * Re-applies the mesh's current ACL after its devices or VMs changed, as the
+ * mesh's writer. Every caller compiles the stored state, so each records its
+ * landed apply as covering every attach counted before its read; a failed or
+ * cut apply records nothing. Only attaches skip an apply when covered: an
+ * enroll, an address publish (which also repairs missing rules) and a
+ * revocation always apply, and an ACL change applies its own new document
+ * (putMeshAcl) and so needs no count.
+ */
 const reconcileCurrent = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ownsMesh: TenantOwnsResource<C, M>, phases?: Phases) =>
   Effect.gen(function* () {
     const store = yield* MeshStore;
-    const acl = yield* phase(phases, "aclMs", store.currentAcl(caller.value.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl"))));
+    const limits = yield* TenantLimits;
+    const tenantId = caller.value.tenantId;
+    // Read before the ACL and the inventory: each attach counted up to here wrote its member row first, so this compile
+    // reads it. Unreadable, the apply still runs and simply covers no one.
+    const wanted = yield* limits.coverageWanted(tenantId, coverageKey(mesh.value)).pipe(Effect.option);
+    const acl = yield* phase(phases, "aclMs", store.currentAcl(tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl"))));
     const document = Option.match(acl, { onNone: () => EMPTY_ACL, onSome: (row) => row.document });
-    const { result } = yield* phase(phases, "compileMs", compileFor(caller.value.tenantId, mesh.value, document, false));
+    const { result } = yield* phase(phases, "compileMs", compileFor(tenantId, mesh.value, document, false, [], phases));
     const desired = yield* compiled(result);
-    return yield* reconcile(caller, mesh, ownsMesh, desired, phases);
+    const applied = yield* reconcile(caller, mesh, ownsMesh, desired, phases);
+    if (Option.isSome(wanted)) {
+      // Unrecorded, the attaches it covered each apply again (a no-op at the provider): slower, never wrong.
+      yield* limits.coverageApplied(tenantId, coverageKey(mesh.value), wanted.value).pipe(
+        Effect.catchAll(() => logEvent("mesh_apply_coverage_unrecorded", { meshId: mesh.value })),
+      );
+    }
+    return applied;
   });
 
 /** Billing (402) then the budget (429); runs `k` with the proof and releases the reservation afterwards. */
@@ -512,20 +563,51 @@ const MESH_WRITER_TIMING: MeshWriterTiming = { leaseMs: 30_000, renewEveryMs: 10
  */
 export const withMeshWriter = <A, E, R>(tenantId: Principal["tenantId"], meshId: string, effect: Effect.Effect<A, E, R>, timing: MeshWriterTiming = MESH_WRITER_TIMING) =>
   Effect.gen(function* () {
-    const limits = yield* TenantLimits;
     const holder = crypto.randomUUID();
+    yield* acquireMeshWriter(tenantId, meshId, holder, null, timing);
+    return yield* holdMeshWriter(tenantId, meshId, holder, effect, timing);
+  });
+
+/**
+ * withMeshWriter for an attach counted as change `need` of the mesh's apply
+ * coverage: while it waits for the lock, each try first asks whether an apply
+ * that read its member row has landed, and if so it leaves the queue with
+ * None and runs nothing. The check and the lock are one Durable Object call,
+ * so an apply cannot land between them: an attach that takes the lock is not
+ * yet covered and runs `effect` itself.
+ */
+const withMeshWriterUnlessCovered = <A, E, R>(tenantId: Principal["tenantId"], meshId: string, need: number, effect: Effect.Effect<A, E, R>, timing: MeshWriterTiming = MESH_WRITER_TIMING) =>
+  Effect.gen(function* () {
+    const holder = crypto.randomUUID();
+    if ((yield* acquireMeshWriter(tenantId, meshId, holder, need, timing)) === "covered") return Option.none<A>();
+    return Option.some(yield* holdMeshWriter(tenantId, meshId, holder, effect, timing));
+  });
+
+/** Waits up to `timing.waitMs` for the mesh's writer lock (409 past it), or, with `need`, until that change is covered. */
+const acquireMeshWriter = (tenantId: Principal["tenantId"], meshId: string, holder: string, need: number | null, timing: MeshWriterTiming) =>
+  Effect.gen(function* () {
+    const limits = yield* TenantLimits;
     const key = `mesh-writer:${meshId}`;
     const started = yield* Clock.currentTimeMillis;
     let delayMs = 20;
     for (;;) {
-      const taken = yield* limits.lock(tenantId, key, holder, timing.leaseMs).pipe(Effect.catchAll(dependencyDown("limits.lock")));
-      if (taken) break;
+      const outcome = need === null
+        ? yield* limits.lock(tenantId, key, holder, timing.leaseMs).pipe(Effect.map((taken) => (taken ? "taken" : "busy")), Effect.catchAll(dependencyDown("limits.lock")))
+        : yield* limits.lockUnlessCovered(tenantId, key, holder, timing.leaseMs, coverageKey(meshId), need).pipe(Effect.catchAll(dependencyDown("limits.lock")));
+      if (outcome !== "busy") return outcome;
       if ((yield* Clock.currentTimeMillis) - started >= timing.waitMs) {
         return yield* Effect.fail(new Conflict({ message: "Another change to this mesh is in progress; retry" }));
       }
       yield* Effect.sleep(Duration.millis(delayMs));
       delayMs = Math.min(delayMs * 2, 400);
     }
+  });
+
+/** Runs `effect` as the holder of the mesh's writer lock, renewing its lease, then unlocks. */
+const holdMeshWriter = <A, E, R>(tenantId: Principal["tenantId"], meshId: string, holder: string, effect: Effect.Effect<A, E, R>, timing: MeshWriterTiming) =>
+  Effect.gen(function* () {
+    const limits = yield* TenantLimits;
+    const key = `mesh-writer:${meshId}`;
     const renewal: Effect.Effect<never, ServiceUnavailable> = Effect.gen(function* () {
       let renewedAt = yield* Clock.currentTimeMillis;
       for (;;) {
@@ -1612,7 +1694,13 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
       })),
     )
     .handle("attachMeshVm", ({ path }) =>
-      withOwnedMesh(path.meshId, "mesh:write", "write", (caller, mesh, proofs) =>
+      Effect.gen(function* () {
+      // The handler's entry, before the caller gate, the rate limit and the mesh ownership read: the mesh_vm_attach
+      // line's entered_at, with each of those timed (gateMs, rateMs, ownsMeshMs) and preMs in all. The audit write
+      // runs after the attach, so timedAttach times it (auditMs) inside totalMs.
+      const entered = yield* Clock.currentTimeMillis;
+      const phases: Phases = {};
+      return yield* timedAttach(phases, (begin) => withOwnedMesh(path.meshId, "mesh:write", "write", (caller, mesh, proofs) =>
         audited(
           "mesh.vm.attach",
           mesh.value,
@@ -1624,10 +1712,10 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             const store = yield* MeshStore;
             const upstream = yield* UpstreamMesh;
             const tenantId = caller.value.tenantId;
-            // Where an attach's time goes (ownership reads, the provider attach, the writer lock, the rule creates),
-            // logged once as mesh_vm_attach for wrangler tail.
-            const phases: Phases = { meshId: mesh.value, vmId: path.vmId };
-            const started = yield* Clock.currentTimeMillis;
+            // Where an attach's time goes (ownership reads, the provider attach, the writer lock, the rule creates, the
+            // audit write), logged once as mesh_vm_attach for wrangler tail.
+            const started = yield* begin;
+            Object.assign(phases, { meshId: mesh.value, vmId: path.vmId, enteredAt: String(entered), preMs: String(started - entered) });
             return yield* name(parsed.value, (vm) =>
               Effect.gen(function* () {
                 const ownsVm = yield* phase(phases, "ownsVmMs", tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find"))));
@@ -1650,11 +1738,16 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
                   if (!inserted) return yield* Effect.fail(new Conflict({ message: "This VM joined a mesh at the same time; retry" }));
                   member = row;
                 }
+                // Counted after the member row is written (a retry whose row exists counts again): an apply that reads
+                // the count at or past `need` reads the row too, so its landing makes this VM reachable.
+                const limits = yield* TenantLimits;
+                const need = yield* limits.coverageWant(tenantId, coverageKey(mesh.value)).pipe(Effect.catchAll(dependencyDown("limits.coverageWant")));
                 const lockStarted = yield* Clock.currentTimeMillis;
-                yield* phase(phases, "writerMs", withMeshWriter(tenantId, mesh.value, Effect.gen(function* () {
+                const ran = yield* phase(phases, "writerMs", withMeshWriterUnlessCovered(tenantId, mesh.value, need, Effect.gen(function* () {
                   phases.lockMs = String((yield* Clock.currentTimeMillis) - lockStarted);
                   return yield* reconcileCurrent(caller, mesh, proofs.owns, phases);
                 })));
+                if (Option.isNone(ran)) phases.coveredMs = String((yield* Clock.currentTimeMillis) - lockStarted);
                 return new MeshMember({
                   meshId: MeshId_(member.meshId),
                   vmId: VmId_(member.vmId),
@@ -1662,14 +1755,11 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
                   attachedAt: member.attachedAt.toISOString(),
                 });
               }),
-            ).pipe(
-              Effect.ensuring(
-                Effect.flatMap(Clock.currentTimeMillis, (at) => logEvent("mesh_vm_attach", { ...phases, totalMs: String(at - started) })),
-              ),
             );
           }),
         ),
-      ),
+      phases));
+      }),
     )
     .handle("detachMeshVm", ({ path }) =>
       withOwnedMesh(path.meshId, "mesh:write", "write", (caller, mesh, proofs) =>

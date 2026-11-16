@@ -109,14 +109,17 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     const under = [".acpmux-scroll", ".acpmux-composer-box"];
     const before = await boxes(page, under);
     await page.keyboard.type("/");
-    await page.waitForSelector("#acpmux-slash-menu[data-escaped]", { state: "attached", timeout: 10_000 });
+    // The glass shell escapes; the listbox (the id) is its rows' viewport inside it.
+    await page.waitForSelector("[data-escaped] > #acpmux-slash-menu", { state: "attached", timeout: 10_000 });
     const rows = await page.locator("#acpmux-slash-menu [role=option]").count();
     const show = (await popupCalls(page)).find((call) => call.method === "popup.show");
     expect(show?.params).toMatchObject({ kind: "list", side: "top", highlighted: "0" });
     expect(show?.params.items as unknown[] | undefined).toHaveLength(rows);
     expect(rows).toBeGreaterThan(1);
     // The page's list is invisible and moved nothing.
-    expect(await page.$eval("#acpmux-slash-menu", (list) => getComputedStyle(list).opacity)).toBe("0");
+    expect(
+      await page.$eval("[data-escaped] > #acpmux-slash-menu", (list) => getComputedStyle(list.parentElement!).opacity),
+    ).toBe("0");
     expect(await boxes(page, under)).toEqual(before);
     // The prompt keeps the keyboard; the host's highlight follows.
     await page.keyboard.press("ArrowDown");

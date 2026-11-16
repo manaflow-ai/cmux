@@ -78,6 +78,14 @@ public final class ChromiumWarmup {
     /// The spare's idle moment came while a page was being made: it is made once the pages
     /// settle (`pagesSettled`), not at a later idle check.
     private var spareWaitsForPages = false
+    /// Whether any web tab (a Chromium browser tab of any window, restored or opened) is open: the spare
+    /// window and its spare page serve web tabs only, so none is made while none is open or likely.
+    private var webTabsOpen: @MainActor () -> Bool = { true }
+    /// A web tab is likely soon: the person reached for one (the "+" engine menu, the palette's Chromium
+    /// entries, the default engine switched to Chromium, or a restored Chromium tab).
+    private var webTabIntent = false
+    /// A spare was due while no web tab was open or likely: it is made at the next idle moment once one is.
+    private var spareDeferred = false
     private var stopped = false
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
 
@@ -113,10 +121,15 @@ public final class ChromiumWarmup {
     /// open in Chromium (`defaultIsChromium`) starts it (CefInitialize, then
     /// the spare window, at idle moments). Anyone else pays nothing until a
     /// signal (`chromiumLikely`).
-    public func start(defaultIsChromium: @escaping @MainActor () -> Bool, pagesPending: @escaping @MainActor () -> Bool = { false }) {
+    public func start(
+        defaultIsChromium: @escaping @MainActor () -> Bool,
+        pagesPending: @escaping @MainActor () -> Bool = { false },
+        webTabsOpen: @escaping @MainActor () -> Bool = { true }
+    ) {
         guard !launchTimer.isScheduled, isAvailable else { return }
         self.defaultIsChromium = defaultIsChromium
         self.pagesPending = pagesPending
+        self.webTabsOpen = webTabsOpen
         // Whenever no spare window is ready (taken, or a tab started Chromium itself), the next
         // idle moment makes one, so a new Chromium tab joins a live window (CEFSpareWindow, PL-cef-tab).
         engine.onSpareWindowNeeded = { [weak self] in self?.spareNeeded() }
@@ -145,6 +158,7 @@ public final class ChromiumWarmup {
     /// A Chromium tab is likely soon: map the framework now and run
     /// `CefInitialize` at the next idle moment. Once per process.
     public func chromiumLikely(_ reason: Reason) {
+        if Self.signalsWebTab(reason) { webTabLikely() }
         guard self.reason == nil, isAvailable, !engine.isRunning else { return }
         self.reason = reason
         engine.preload()
@@ -169,6 +183,13 @@ public final class ChromiumWarmup {
     /// the first tab's open.
     private func warmStarted() {
         guard !stopped, engine.isRunning else { return }
+        // Chromium also runs for agent chats and cmux pages, which never use the web tabs' spare: it is a
+        // web tab's window and page. With none open or likely, Home held both (a hidden window, an
+        // about:blank placeholder and a frozen spare page, each with its renderer) for nothing. Once a
+        // cmux page opened, the pages' own store keeps a spare window for the next page (CEFSpareWindow).
+        let webSpare = Self.makesSpare(webTabsOpen: webTabsOpen(), webTabIntent: webTabIntent)
+        spareDeferred = !webSpare
+        guard webSpare || engine.wantsPageSpareWindow else { return }
         waitForIdle { [weak self] in
             guard let self else { return }
             // A page being made builds its own window: the spare waits until the pages settle
@@ -179,9 +200,27 @@ public final class ChromiumWarmup {
                 spareWaitsForPages = true
                 return
             }
-            engine.prepareSpareWindow()
+            // One window per idle moment: the pages' spare first (a cmux page opens more often than a
+            // web tab's pane); its window coming up asks for the next idle moment (`onSpareWindowNeeded`).
+            if engine.wantsPageSpareWindow, engine.preparePageSpareWindow() { return }
+            if webSpare { engine.prepareSpareWindow() }
         }
     }
+
+    /// A web tab is open now or likely soon: a spare deferred for want of one is made at the next idle
+    /// moment, so the tab after this one joins a live window.
+    public func webTabLikely() {
+        webTabIntent = true
+        guard spareDeferred, !waiting else { return }
+        warmStarted()
+    }
+
+    /// Reasons that mean a web tab, not just Chromium: launch with Chromium as the default engine starts
+    /// Chromium for agent chats and cmux pages too, so it alone makes no spare.
+    nonisolated static func signalsWebTab(_ reason: Reason) -> Bool { reason != .launch }
+
+    /// Whether the spare window and its page are worth making now: a web tab is open, or one is likely.
+    nonisolated static func makesSpare(webTabsOpen: Bool, webTabIntent: Bool) -> Bool { webTabsOpen || webTabIntent }
 
     /// No Chromium page is being made any more (the cache's pending set emptied), or the page the
     /// person waited for arrived: a spare that waited for that is made at the next idle moment.

@@ -3,6 +3,7 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -252,11 +253,7 @@ try {
     act(() => root.unmount());
   });
 } finally {
-  afterAll(() => {
-    dom.window.close();
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
+  afterAll(async () => {
+    await teardownDom(saved, { window: dom.window, scope });
   });
 }

@@ -50,6 +50,7 @@ import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # bench_arms, also under `python3 -I`
 import bench_arms  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -422,7 +423,7 @@ def profile_new_tabs(window, count):
         try:
             out[label] = profile_summary(trace, f"new-tab-{label}")
         except Exception as error:  # a failed export must not lose the timings
-            print(f"profile export failed: {error!r}", flush=True)
+            safe_print(f"profile export failed: {error!r}", flush=True)
         action("closeWorkspace", {"confirm": True})
         time.sleep(0.8)  # test harness: the workspace's pages close
     return out

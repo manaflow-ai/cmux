@@ -3,7 +3,8 @@
     "biome:check": "biome check .",
     "feed-tui": "bun Resources/feed-tui/index.ts",
     "iroh:relay-catalog:check": "bun web/tools/generate-managed-iroh-relay-catalog.ts --check",
-    "iroh:relay-catalog:generate": "bun web/tools/generate-managed-iroh-relay-catalog.ts"
+    "iroh:relay-catalog:generate": "bun web/tools/generate-managed-iroh-relay-catalog.ts",
+    "react-doctor": "python3 scripts/ci/react_doctor_gate.py"
   },
   "dependencies": {
     "@opentui/core": "^0.1.106",

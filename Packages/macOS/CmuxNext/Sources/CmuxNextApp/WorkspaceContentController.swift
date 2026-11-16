@@ -38,6 +38,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let state: WindowState  // strong: queued content work can run after WindowController.teardown let the state go (#34062)
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
+    /// Alone on its screen while its page has the whole screen (`LayoutMapping.Result.presenting`, view-only).
+    var presentedPane: LayoutPaneID? { didSet { if presentedPane != oldValue { applyCurrent() } } }
     private var retiredPanes: [LayoutPaneID: PaneController] = [:] // closed, kept for their teardown (retainContentView)
     private var observation: Task<Void, Never>?
     private var connectionObservation: Task<Void, Never>?
@@ -181,6 +183,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.
         observe()
+        for pane in panes.values {
+            if case .agent(let view)? = pane.currentContent, view.model.newTab != nil, view.pageDrawsOverCovers { view.placeMovedChromiumPage(requiringFrame: true) }
+        }
         // A Home with no pane yet is still being made (its dock, then the Chief conversation, over
         // several daemon replies): it stays clear until its conversation is in, never in pieces.
         if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) {
@@ -268,6 +273,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     func applyLayoutIfChanged() { apply(LayoutMapping.shared.map(workspace)) }
 
     private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
+        let result = presentedPane.map { result.presenting($0) } ?? result
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
         let topologyMoved = adoptHandles(result.handles)
@@ -401,7 +407,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let spare = ProvisionalPane.isStandIn(handle) ? paneSpare.take() : nil // a stand-in pane (a key's create) adopts the views made ahead
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self, spare: spare)
         AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } // after the key's frame; a motion that started refills when it lands
-        controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
+        controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's pinned buttons and Exit Zoom
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
         services.themes.applyPaneBackground(controller) // its own background and tint, before the first frame

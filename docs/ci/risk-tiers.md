@@ -22,7 +22,7 @@ A pull request takes the highest tier of any file it changes. A file no rule nam
 | --- | --- | --- |
 | low | docs, plans, skills, copy (`*.xcstrings`, `*.strings`), logs (even inside a high directory), generated output, tests and fixtures, agent and tooling config (`.claude/`, `tools/`, prototypes) | green relevant checks. Post-merge checks catch the rest. |
 | normal | everything else: cmux NEXT UI and logic, webviews, the daemon and cmux-tui, web routes, CI workflows and scripts, pins and lockfiles (even inside a high directory), defaults behind a setting | agent review and the relevant checks, then auto-merge or the batch queue. No person. |
-| high | the six kinds below | an independent review receipt `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile. The line goes in the description (no comment needed) or leads a comment. From the pull request author's own account (every agent posts as it), the receipt is `Review (<reviewer agent id>, started by <agent id>): SHIP at <sha>`, the description has a line `Author-agent: <agent id>`, and neither id is the author agent; otherwise that SHIP does not count (a BLOCK always does; `scripts/ci/risk_tier.py`). An approving review on the head by a collaborator other than the author, or `risk:human-ok` added by a maintainer, also counts. The check warns on a missing verdict or a BLOCK and stays green; the lander refuses a BLOCK at the head. Only an unowned takeback (below) turns the check red |
+| high | the six kinds below | a review receipt `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile. The line goes in the description (no comment needed) or leads a comment. A SHIP counts from any reviewer, any model family, the pull request's own agent included (Leo, 2026-11-14, on "need a review from a model family other than": "this is no longer a requirement"); a BLOCK always counts (`scripts/ci/risk_tier.py`). An approving review on the head by a collaborator other than the author, or `risk:human-ok` added by a maintainer, also counts. The check warns on a missing verdict or a BLOCK and stays green; the lander refuses a BLOCK at the head. Only an unowned takeback (below) turns the check red |
 
 High is kept small on purpose. Each kind is here because a regression in it can't be undone by
 reverting the commit, or because it takes out the safety net every other tier relies on:
@@ -46,7 +46,9 @@ last 7 days is held. It deletes most of what that pull request added, and puts b
 it replaced. This is how a stale-base squash silently undoes other work: one (50a0c607aee, #21194)
 undid #21199, #21369 and #21384. The check names the pull request. To clear it, merge the base
 and push. If it's on purpose, add a line `Takes back #N: <why>` to the description. An agent
-clears this; no person is needed.
+clears this; no person is needed. The check's error names that line with its number filled in, so a
+deliberate revert (the fast route back from a change that broke base) is cleared from the refusal
+itself, without opening the job summary (cmux#41154).
 
 ### What is deliberately not high
 

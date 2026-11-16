@@ -18,6 +18,7 @@ type Props = {
   fail?: boolean;
   direction?: UiDirection;
   stableFilter?: boolean;
+  many?: boolean;
 };
 
 function entry(path: string, name: string, kind: PickerEntry["kind"], git = false): PickerEntry {
@@ -83,6 +84,7 @@ function GalleryPathPicker({
   fail = false,
   direction = "ltr",
   stableFilter = false,
+  many = false,
 }: Props) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const [receipt, setReceipt] = useState("Ready");
@@ -92,6 +94,11 @@ function GalleryPathPicker({
     if (loading) return new Promise<PickerListing>(() => {});
     if (fail) throw new Error("fixture listing failed");
     const value = listing(path, options.hidden);
+    if (many && value.path === PROJECTS)
+      return {
+        ...value,
+        entries: Array.from({ length: 40 }, (_, index) => entry(PROJECTS, `project-${index}`, "dir")),
+      };
     if (stableFilter && value.path === PROJECTS)
       return { ...value, entries: value.entries.filter((item) => item.name.startsWith("cmux")) };
     // The any-file play starts in a project folder with one deliberate fuzzy match. Keeping the
@@ -386,6 +393,14 @@ export default componentEntry<Props>({
       },
     },
     virtualized: { props: { start: CMUX }, play: virtualized },
+    overflowing: {
+      props: { start: PROJECTS, many: true },
+      note: "Forty folders in the nonvirtualized list viewport.",
+    },
+    "virtual-overflow": {
+      props: { start: CMUX },
+      note: "Three hundred sixty folders in the virtual list viewport.",
+    },
     rtl: { props: { direction: "rtl", start: PROJECTS, stableFilter: true }, play: rtlCompletion },
     cancel: { props: { start: `${HOME}/Desktop`, stableFilter: true }, play: cancel },
   },

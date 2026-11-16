@@ -3,6 +3,7 @@
 // turn's end takes that away.
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -16,7 +17,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -264,8 +266,9 @@ test("a refused Stop stops reading as stopping and says why", () =>
     await deliver({ sessionId: f.id, message: reason, reason: "remote.session_cancel_ownership" });
     await f.until(() => f.shown().stopping === undefined);
     expect(f.shown().isWorking).toBe(true);
-    const said = translate("queue.stopRefused", { reason });
-    expect(said).toContain(reason);
+    // The pane's own words for the reason it knows; acpmux's English stays in the log.
+    const said = translate("queue.stopRefused", { reason: translate("error.stopOwnerOnly") });
+    expect(said).not.toContain(reason);
     expect(notes().slice(before)).toEqual([said]);
   }));
 
@@ -300,8 +303,10 @@ test("only the refusal of the Stop still waiting counts", () =>
     await deliver({ sessionId: f.id, message, turnId: "stop-turn-1" });
     await f.until(() => f.shown().stopping === undefined);
     expect(notes().slice(before)).toHaveLength(1);
-    expect(notes().at(-1)).toContain(message);
-    expect(notes().at(-1)).not.toContain("earlier");
+    // A reason the pane does not word: the plain line, never acpmux's text.
+    const { translate } = await import("./i18n");
+    expect(notes().at(-1)).toBe(translate("queue.stopRefusedPlain"));
+    expect(notes().at(-1)).not.toContain(message);
   }));
 
 test("a failed cancel send leaves Stop available for a successful retry", () =>

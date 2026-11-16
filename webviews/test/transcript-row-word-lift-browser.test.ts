@@ -25,6 +25,8 @@ type Kind = {
   /** What the row is, in the report. */
   name: string;
   entry: string;
+  /** The entry's variant, when the line is not in its first one. */
+  variant?: string;
   /** The line the pointer visits. */
   line: string;
   /** The line's words, inside `line`. */
@@ -74,11 +76,14 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
       glyph: ".cv-agent-activity__icon",
     },
     {
-      name: "background reaction line",
+      // A failure's line under the default background-turn-look (inline): its rows already draw under
+      // it, so it opens nothing and is no button, like "Subagent finished" with no report.
+      name: "background reaction line (opens nothing)",
       entry: "agent-pane.background-reactions",
-      line: "button.cv-background-turn",
+      line: "div.cv-background-turn",
       words: ".cv-agent-activity__sentence",
       glyph: ".cv-agent-activity__icon",
+      lights: false,
     },
     {
       name: "Subagent finished, no report (only its name chip opens)",
@@ -97,6 +102,11 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
     {
       name: "sub-session line (its name chip opens its chat)",
       entry: "agent-pane.long-report",
+      // A running stretch draws no finished call (live-turn-work `line`, shipped since 8a37e5fcf650).
+      // In this variant the stretch that started the sub-session ended and its play opens it, so the
+      // line is in sight while the lead works on. The play leaves the pointer on the name chip; the
+      // test moves it away before it reads the line at rest.
+      variant: "lead-running-hover",
       line: ".cv-disclosure__open",
       words: ".cv-disclosure__label",
       glyph: ".cv-disclosure__icon",
@@ -167,11 +177,13 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
     await vite?.close();
   });
 
-  const open = async (entry: string) => {
+  const open = async (entry: string, variant?: string) => {
     const page = await browser.newPage({ viewport: { width: 760, height: 2400 } });
     await page.emulateMedia({ reducedMotion: "reduce" });
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { width: 760 })}`);
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame(entry, { variant, width: 760, exp: "background-turn-look", arm: "line" })}`,
+    );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
     });
@@ -220,7 +232,7 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
 
   for (const kind of KINDS)
     test(`${kind.name}: ${kind.lights === false ? "never lights" : "its words light all the way through on hover, nothing moves"}`, async () => {
-      const page = await open(kind.entry);
+      const page = await open(kind.entry, kind.variant);
       try {
         await page.mouse.move(1, 1);
         const rest = await read(page, kind);

@@ -6,8 +6,8 @@
 // below the row as a disclosure does.
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useContext, useEffect, useRef, useState } from "react";
-import { DialogButton } from "../../../ui/DialogButton";
-import { useT } from "../i18n";
+import { Button } from "../../../ui/Button";
+import { translate, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import {
@@ -17,6 +17,7 @@ import {
   decodeChunk,
   firstMachine,
   nextReadDelay,
+  useHostRelays,
   useRun,
   type RunElsewhere as Runs,
   type RunPlan,
@@ -50,30 +51,58 @@ function usePast(due: number | undefined, now: () => number = Date.now): boolean
   return past;
 }
 
+/** What a plan's answer leaves under the row: the panel when a machine can take the run, else one
+ * quiet line that says why it stays here (nothing to press: the line is the whole answer). */
+export function afterPlan(plan: RunPlan, last?: string): RunState {
+  if (!plan.eligible) return { phase: "note", text: translate("runElsewhere.stays", { why: plan.why ?? "" }) };
+  // A machine connected later can take it: the chip stays, beside the line, to ask again.
+  if (plan.machines.length === 0) return { phase: "note", text: translate("runElsewhere.noMachine"), retry: true };
+  return { phase: "choosing", plan, machine: firstMachine(plan.machines, last), send: [] };
+}
+
+/** What a failed plan leaves under the row. The pane's host refusing to relay it (not on its relay
+ * allowlist, `transport.method_refused`: acpmux never saw the ask) means this build cannot move
+ * commands at all, so the chip goes from every row; any other transport error (a dropped
+ * connection) passes. acpmux's own refusal says its reason. */
+export function afterPlanError(runs: Runs, error: unknown): RunState {
+  if ((error as { code?: unknown } | null)?.code === "transport.method_refused") {
+    runs.store.hostRefused();
+    return { phase: "note", text: translate("runElsewhere.unavailable") };
+  }
+  const why = String((error as Error)?.message ?? error);
+  // acpmux's refusal (a JSON-RPC code) names why the command stays; anything else (this chat lost
+  // its connection) is its own sentence.
+  const fromAcpmux = typeof error === "object" && error !== null && "code" in error;
+  // A lost connection passes: the chip stays to ask again once the chat is back.
+  return fromAcpmux
+    ? { phase: "note", text: translate("runElsewhere.stays", { why }) }
+    : { phase: "note", text: why, retry: true };
+}
+
 /** Opens the panel: reads what would go, then shows it. */
 function openPanel(runs: Runs, toolCallId: string, command: string) {
   runs.store.set(toolCallId, { phase: "loading" });
   runs.client.plan(command).then(
     (plan) => {
       if (runs.store.get(toolCallId)?.phase !== "loading") return;
-      const machine = firstMachine(plan.machines, lastMachine);
-      runs.store.set(toolCallId, { phase: "choosing", plan, machine, send: [] });
+      runs.store.set(toolCallId, afterPlan(plan, lastMachine));
     },
     (error: unknown) => {
       if (runs.store.get(toolCallId)?.phase !== "loading") return;
-      const plan: RunPlan = { eligible: false, why: String((error as Error)?.message ?? error), machines: [] };
-      runs.store.set(toolCallId, { phase: "choosing", plan, send: [] });
+      runs.store.set(toolCallId, afterPlanError(runs, error));
     },
   );
 }
 
-/** The chip, on a running shell row from 20 s on, while no run of it is open. */
+/** The chip, on a foreground shell row running from 20 s on, while no run of it is open and the
+ * pane's host relays the run's requests. */
 export function RunElsewhereChip({
   toolCallId,
   kind,
   command,
   startedAt,
   running,
+  background,
   now,
 }: {
   toolCallId: string;
@@ -81,14 +110,19 @@ export function RunElsewhereChip({
   command?: string;
   startedAt?: number;
   running: boolean;
+  /** The command went to the background (`inBackground`): it never gets the chip. */
+  background?: boolean;
   now?: () => number;
 }) {
   const t = useT();
   const runs = useContext(RunElsewhereContext);
   const run = useRun(runs, toolCallId);
-  const due = runs ? chipDueAt({ kind, command, startedAt, running }) : undefined;
+  const relays = useHostRelays(runs);
+  const due = runs && relays ? chipDueAt({ kind, command, startedAt, running, background }) : undefined;
   const past = usePast(due, now);
-  if (!runs || !past || !command || run) return null;
+  // A note that may pass (no machine yet, a lost connection) keeps the chip to ask again.
+  const shown = run && !(run.phase === "note" && run.retry);
+  if (!runs || !relays || !past || !command || shown) return null;
   const open = (event: MouseEvent | KeyboardEvent) => {
     // The chip sits in the row's toggle: it never opens or closes the row (as PreviewChip.tsx).
     event.preventDefault();
@@ -114,27 +148,28 @@ export function RunElsewhereChip({
   );
 }
 
-/** Under the row: the panel while choosing, else the run. Nothing while no run is open. */
+/** Under the row: a quiet line while the plan loads or when the command stays here, the panel
+ * while choosing, else the run. Nothing while no run is open. */
 export function RunElsewhereBelow({ toolCallId, command }: { toolCallId: string; command?: string }) {
+  const t = useT();
   const runs = useContext(RunElsewhereContext);
   const run = useRun(runs, toolCallId);
   if (!runs || !run || !command) return null;
-  if (run.phase === "loading") return <RunElsewhereLoading />;
+  if (run.phase === "loading") return <RunElsewhereLine text={t("runElsewhere.checking")} busy />;
+  if (run.phase === "note") return <RunElsewhereLine text={run.text} />;
   if (run.phase === "choosing")
     return <RunElsewherePanel runs={runs} toolCallId={toolCallId} command={command} run={run} />;
   return <RunElsewhereStream runs={runs} toolCallId={toolCallId} run={run} />;
 }
 
-/** The panel's first frame while acpmux reads the tree: its title in place, so the panel grows from it. */
-function RunElsewhereLoading() {
-  const t = useT();
+/** One quiet line under the row, starting under its words, cut to the width (as a failed call's
+ * cause, ToolFailureCause.tsx): the plan loading, or why the command stays on this machine. It has
+ * no control: the line is the answer, and the row goes on as it was. */
+function RunElsewhereLine({ text, busy }: { text: string; busy?: boolean }) {
   return (
-    <div className="cv-run-elsewhere cv-run-elsewhere--loading" aria-busy="true">
-      <div className="cv-run-elsewhere__head">
-        <span className="cv-run-elsewhere__title">{t("runElsewhere.title")}</span>
-        <span className="cv-run-elsewhere__base">{t("runElsewhere.checking")}</span>
-      </div>
-    </div>
+    <output className="cv-run-elsewhere-line" aria-busy={busy || undefined} title={text} data-find-skip>
+      {text}
+    </output>
   );
 }
 
@@ -155,7 +190,7 @@ function RunElsewherePanel({
   const update = (patch: Partial<typeof run>) => runs.store.set(toolCallId, { ...run, ...patch });
   const close = () => runs.store.set(toolCallId, undefined);
   const start = () => {
-    if (!machine || !tree) return;
+    if (!machine || !tree || run.starting) return;
     update({ starting: true, error: undefined });
     lastMachine = machine;
     runs.client.start(command, machine, tree.digest, send).then(
@@ -201,11 +236,7 @@ function RunElsewherePanel({
           </span>
         )}
       </div>
-      {!plan.eligible ? (
-        <p className="cv-run-elsewhere__note">{t("runElsewhere.stays", { why: plan.why ?? "" })}</p>
-      ) : plan.machines.length === 0 ? (
-        <p className="cv-run-elsewhere__note">{t("runElsewhere.noMachine")}</p>
-      ) : (
+      {plan.machines.length > 0 && (
         <div className="cv-run-elsewhere__machines" role="radiogroup" aria-label={t("runElsewhere.machine")}>
           {plan.machines.map((m) => (
             <label
@@ -284,13 +315,17 @@ function RunElsewherePanel({
       )}
       {run.error && <p className="cv-run-elsewhere__error">{run.error}</p>}
       <div className="cv-run-elsewhere__actions">
-        <DialogButton dialogKey="escape" className="cv-run-elsewhere__cancel" onClick={close}>
+        {/* The design system's buttons, as the chat's other cards (ui/Button.tsx): a ghost Cancel
+            and the one solid action. Escape and Return work from anywhere in the panel (the form),
+            so neither draws a keycap. */}
+        <Button variant="ghost" size="sm" className="cv-run-elsewhere__cancel" onClick={close}>
           {t("runElsewhere.cancel")}
-        </DialogButton>
-        {plan.eligible && machine && (
-          <DialogButton dialogKey="return" type="submit" className="cv-run-elsewhere__run" disabled={!ready}>
+        </Button>
+        {/* Shown only when it can act; a second press while it starts does nothing (`ready`). */}
+        {plan.eligible && machine && tree && (
+          <Button variant="solid" size="sm" type="submit" className="cv-run-elsewhere__run">
             {t("runElsewhere.run", { machine })}
-          </DialogButton>
+          </Button>
         )}
       </div>
     </form>

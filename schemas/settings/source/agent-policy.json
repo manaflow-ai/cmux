@@ -98,7 +98,8 @@
       "agent": "settable",
       "why": "Which New Tab page draws; a look switch, ends no work.",
       "keys": [
-        "tabs.nativeNewTabPage"
+        "tabs.nativeNewTabPage",
+        "tabs.newTabApp"
       ]
     },
     {
@@ -250,7 +251,12 @@
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
         "appearance.background",
-        "appearance.backgroundRotation"
+        "appearance.backgroundRotation",
+        "appearance.backgroundLight",
+        "appearance.backgroundDark",
+        "appearance.backgroundSchedule",
+        "appearance.backgroundDynamic",
+        "appearance.backgroundLocation"
       ]
     },
     {
@@ -275,10 +281,13 @@
         "appearance.customDensity",
         "appearance.customDensities",
         "appearance.metrics.chromeFontSize",
+        "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
+        "appearance.titleAreaTone",
+        "appearance.titleAreaContrast",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
@@ -366,17 +375,6 @@
         "sidebar.nowPlaying.enabled",
         "tabs.newTabNowPlaying",
         "media.pictureInPicture.enabled",
-        "tabs.newTabWidgets.greeting",
-        "tabs.newTabWidgets.projects",
-        "tabs.newTabWidgets.actions",
-        "tabs.newTabWidgets.chats",
-        "tabs.newTabWidgets.styleDots",
-        "tabs.newTabWidgets.order",
-        "tabs.newTabWidgets.machines",
-        "tabs.newTabWidgets.clock",
-        "tabs.newTabWidgets.timer",
-        "tabs.newTabWidgets.warmGreeting",
-        "tabs.newTabWidgets.quote",
         "sidebar.showProjects",
         "sidebar.showSpaces",
         "sidebar.showProfileControl",
@@ -391,7 +389,9 @@
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
-        "browser.showBookmarksBar"
+        "browser.showBookmarksBar",
+        "browser.vimKeys",
+        "browser.showLoadingBar"
       ]
     },
     {
@@ -733,6 +733,7 @@
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
+        "agentPane.display.finishSound",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
         "agentPane.display.unreadBanner",
@@ -883,6 +884,7 @@
         "appearance.metrics.dividerThickness",
         "appearance.metrics.dividerHitWidth",
         "appearance.metrics.titlebarHeight",
+        "appearance.metrics.sidebarRowHeight",
         "browser.toolbar.back",
         "browser.toolbar.forward",
         "browser.toolbar.reload",
@@ -973,7 +975,7 @@
     },
     {
       "agent": "settable",
-      "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy as agents.hiddenChats.discard is for memory.",
+      "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.",
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
@@ -1009,14 +1011,6 @@
         "workspaces.freeing.idleMinutes",
         "workspaces.freeing.agents",
         "workspaces.freeing.runningCommands"
-      ]
-    },
-    {
-      "agent": "settable",
-      "why": "Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.",
-      "keys": [
-        "agents.hiddenChats.discard",
-        "agents.hiddenChats.discardAfterMinutes"
       ]
     },
     {
@@ -1073,14 +1067,6 @@
         "feed.github.enabled",
         "feed.github.pollIntervalSeconds",
         "browser.remoteLocalhost"
-      ]
-    },
-    {
-      "agent": "network",
-      "why": "The weather widget asks Open-Meteo (and names a city) only once the person turns it on.",
-      "keys": [
-        "tabs.newTabWidgets.weather",
-        "tabs.newTabWidgets.weatherCity"
       ]
     },
     {
@@ -1247,8 +1233,10 @@
     },
     {
       "agent": "destructive",
+      "why": "The quit behavior ends sessions; confirmQuit off lets one Cmd-Q end them without asking.",
       "keys": [
-        "app.quitBehavior"
+        "app.quitBehavior",
+        "app.confirmQuit"
       ]
     },
     {
@@ -1284,6 +1272,13 @@
       "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
       "keys": [
         "developerTools.appPages"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether the person's Command Palette lists the debug commands: the person's call.",
+      "keys": [
+        "app.internalDeveloperMode"
       ]
     },
     {
@@ -1345,6 +1340,13 @@
       "why": "Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.",
       "keys": [
         "diagnostics.hangReports"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
+      "keys": [
+        "diagnostics.usagePatterns"
       ]
     },
     {
@@ -1480,14 +1482,6 @@
       ]
     },
     {
-      "agent": "network",
-      "why": "What reaches this Mac from outside and what leaves it: only the person opens phone access.",
-      "keys": [
-        "phone.allowConnections",
-        "phone.startSessions"
-      ]
-    },
-    {
       "agent": "userOnly",
       "keys": [
         "phone.keepAwake"
@@ -1532,9 +1526,9 @@
     },
     {
       "agent": "userOnly",
-      "why": "Spends about 2 to 3 times the data on every remote connection; only the person turns it on.",
+      "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
-        "remote.ultraMode"
+        "remote.ultra"
       ]
     },
     {

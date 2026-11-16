@@ -3,6 +3,7 @@
 //! GitHub actions read. The item keeps the prompt's JSON; this is derived
 //! from it on demand, and an unknown kind is `Custom`.
 
+use cmux_json::JsonGet as _;
 use serde_json::Value;
 
 /// One choice option.
@@ -73,25 +74,15 @@ pub enum Prompt {
     Custom,
 }
 
-fn text(object: &Value, key: &str) -> String {
-    object.get(key).and_then(Value::as_str).unwrap_or_default().to_owned()
-}
-
-fn optional(object: &Value, key: &str) -> Option<String> {
-    object.get(key).and_then(Value::as_str).map(str::to_owned)
-}
-
-fn flag(object: &Value, key: &str) -> bool {
-    object.get(key).and_then(Value::as_bool).unwrap_or(false)
-}
-
 impl Prompt {
     /// The typed prompt of `kind` with `prompt` (an object; anything else
     /// reads as `{}`).
     pub fn parse(kind: &str, prompt: &Value) -> Self {
         match kind {
             "notice" => Prompt::Notice,
-            "question" => Prompt::Question { question: text(prompt, "question") },
+            "question" => {
+                Prompt::Question { question: prompt.get_string("question").unwrap_or_default() }
+            }
             "choice" => Prompt::Choice {
                 questions: prompt
                     .get("questions")
@@ -111,24 +102,27 @@ impl Prompt {
                 };
                 Prompt::Approve {
                     action: kind,
-                    summary: text(&action, "summary"),
-                    command: optional(&action, "command"),
+                    summary: action.get_string("summary").unwrap_or_default(),
+                    command: action.get_string("command"),
                 }
             }
-            "confirm" => Prompt::Confirm { statement: text(prompt, "statement") },
-            "sign-in" => Prompt::SignIn { origin: text(prompt, "origin") },
-            "passkey" => {
-                Prompt::Passkey { origin: text(prompt, "origin"), rp_id: optional(prompt, "rp_id") }
+            "confirm" => {
+                Prompt::Confirm { statement: prompt.get_string("statement").unwrap_or_default() }
             }
+            "sign-in" => Prompt::SignIn { origin: prompt.get_string("origin").unwrap_or_default() },
+            "passkey" => Prompt::Passkey {
+                origin: prompt.get_string("origin").unwrap_or_default(),
+                rp_id: prompt.get_string("rp_id"),
+            },
             "review" => Prompt::Review {
-                subject: optional(prompt, "subject").unwrap_or_else(|| "document".to_owned()),
-                reference: text(prompt, "ref"),
+                subject: prompt.get_string("subject").unwrap_or_else(|| "document".to_owned()),
+                reference: prompt.get_string("ref").unwrap_or_default(),
             },
             "input" => Prompt::Input,
-            "file" => Prompt::File { purpose: text(prompt, "purpose") },
+            "file" => Prompt::File { purpose: prompt.get_string("purpose").unwrap_or_default() },
             "handoff" => Prompt::Handoff {
-                reason: text(prompt, "reason"),
-                resume_hint: optional(prompt, "resume_hint"),
+                reason: prompt.get_string("reason").unwrap_or_default(),
+                resume_hint: prompt.get_string("resume_hint"),
             },
             _ => Prompt::Custom,
         }
@@ -137,8 +131,8 @@ impl Prompt {
 
 fn choice_question(question: &Value) -> ChoiceQuestion {
     ChoiceQuestion {
-        id: text(question, "id"),
-        question: text(question, "question"),
+        id: question.get_string("id").unwrap_or_default(),
+        question: question.get_string("question").unwrap_or_default(),
         options: question
             .get("options")
             .and_then(Value::as_array)
@@ -146,13 +140,13 @@ fn choice_question(question: &Value) -> ChoiceQuestion {
                 options
                     .iter()
                     .map(|option| ChoiceOption {
-                        id: text(option, "id"),
-                        label: text(option, "label"),
+                        id: option.get_string("id").unwrap_or_default(),
+                        label: option.get_string("label").unwrap_or_default(),
                     })
                     .collect()
             })
             .unwrap_or_default(),
-        multi: flag(question, "multi"),
-        allow_other: flag(question, "allow_other"),
+        multi: question.get_bool("multi").unwrap_or(false),
+        allow_other: question.get_bool("allow_other").unwrap_or(false),
     }
 }

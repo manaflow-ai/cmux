@@ -1460,22 +1460,26 @@ fn resize_narrowing_a_padded_two_line_prompt_leaves_no_copy_of_line_one() {
     }
 }
 
-/// Cmd-K on a two-line prompt whose first line sits on the top row, with a
-/// prompt row already in history, must leave a clean screen: the prompt's
-/// first line goes too, and only the input line remains at the top.
+/// `pwd_is` answers what comparing `pwd()` would, without building a
+/// `String`: before any OSC 7, after one, after a change, and for a pwd that
+/// is not valid UTF-8 (never equal; the caller then reads `pwd`).
 #[test]
-fn cmd_k_clears_multiline_prompt_that_starts_in_history() {
-    let mut term = Terminal::new(20, 2, 100, Callbacks::default()).unwrap();
-    term.vt_write(b"\x1b]133;A\x07one\r\n");
-    term.vt_write(b"\x1b]133;A\x07L1\r\n> \x1b]133;B\x07");
-    assert_eq!(term.history_rows(), 1, "setup must push one prompt row into history");
-
-    let _ = term.clear_history_preserving_prompt();
-
-    let text = term.viewport_text().unwrap();
-    assert!(!text.contains("L1"), "prompt's first line stayed on screen: {text:?}");
-    assert!(!text.contains("one"), "history stayed: {text:?}");
-    // viewport_text drops trailing spaces, so the input line reads as ">".
-    assert!(text.starts_with('>'), "input line did not move to the top: {text:?}");
-    assert_eq!(term.history_rows(), 0, "scrollback was not cleared");
+fn pwd_is_matches_pwd_without_allocating() {
+    let mut term = Terminal::new(40, 4, 100, Callbacks::default()).unwrap();
+    assert_eq!(term.pwd(), None);
+    assert!(term.pwd_is(None));
+    assert!(!term.pwd_is(Some("/tmp")));
+    for path in ["/tmp", "/Users/someone/src/project", "/tmp"] {
+        term.vt_write(format!("\x1b]7;file://host{path}\x07").as_bytes());
+        let pwd = term.pwd();
+        assert!(term.pwd_is(pwd.as_deref()), "pwd_is disagrees with pwd {pwd:?}");
+        assert!(!term.pwd_is(None));
+        assert!(!term.pwd_is(Some("/elsewhere")));
+    }
+    term.vt_write(b"\x1b]7;file://host/bad\xff\x07");
+    if let Some(pwd) = term.pwd()
+        && pwd.contains('\u{fffd}')
+    {
+        assert!(!term.pwd_is(Some(&pwd)));
+    }
 }

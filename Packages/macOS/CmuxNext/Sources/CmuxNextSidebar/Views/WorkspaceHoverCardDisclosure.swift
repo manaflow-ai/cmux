@@ -43,8 +43,8 @@ final class WorkspaceHoverCardDisclosure: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        fillLayer.cornerRadius = Metrics.itemCornerRadius
-        fillLayer.cornerCurve = .continuous
+        fillLayer.cornerRadius = SidebarDensityTokens.rowCornerRadius
+        fillLayer.cornerCurve = Metrics.tabCornerCurve // one curve with the rows and tabs (`TabCornerCurve`)
         layer?.masksToBounds = false
         layer?.addSublayer(fillLayer)
         chevron.imageScaling = .scaleProportionallyDown

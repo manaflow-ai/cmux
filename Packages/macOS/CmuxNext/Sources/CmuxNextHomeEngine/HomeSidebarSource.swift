@@ -103,9 +103,12 @@ public final class HomeSidebarSource {
     /// This Mac's marks changed here (a Mark as Unread or Read of a row no owner lists): other
     /// sources over the same account read them again (``reloadMarks()``).
     @ObservationIgnored public var onMarksChanged: () -> Void = {}
-    /// This account's deleted conversations changed here (Delete Conversation…, Show Hidden
-    /// Conversations): other sources over the account read them again (``reloadPins()``).
-    @ObservationIgnored public var onHiddenChanged: () -> Void = {}
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG: conversations listed besides the store's (`debug.home.sidebar_fixture`).
+    @ObservationIgnored public var debugRows: [InboxRow] = []
+    /// DEBUG: team members listed besides the directory's (`debug.home.sidebar_fixture` `team`).
+    @ObservationIgnored public var debugTeam: [HomeContact] = []
+    #endif
 
     public init(store: HomePinStore, inboxes: [HomeInboxSource] = [], account: @escaping @MainActor () -> String,
          rows: @escaping @MainActor () -> [InboxRow],
@@ -140,13 +143,25 @@ public final class HomeSidebarSource {
                                          chiefHarnesses: chiefHarnesses(), archivedChiefs: archivedChiefs, roster: chiefRoster())
     }
 
-    /// The store's rows.
-    private func listed() -> [InboxRow] { rows() }
+    /// The store's rows (plus DEBUG fixture rows).
+    private func listed() -> [InboxRow] {
+        #if DEBUG
+        return debugRows.isEmpty ? rows() : rows() + debugRows
+        #else
+        return rows()
+        #endif
+    }
 
     public func model(now: Date = Date()) -> HomeSidebarModel { model(query: query, now: now) }
 
-    /// The people the list offers.
-    private func people() -> [HomeContact] { contacts() }
+    /// The people the list offers (plus DEBUG fixture teammates).
+    private func people() -> [HomeContact] {
+        #if DEBUG
+        return debugTeam.isEmpty ? contacts() : debugTeam + contacts()
+        #else
+        return contacts()
+        #endif
+    }
 
     /// Whether `row` stays listed: not deleted, or a message came after the delete.
     private func shows(_ row: InboxRow) -> Bool {
@@ -272,8 +287,14 @@ public final class HomeSidebarSource {
         hidden = store.hidden(account: account())
         hidden[id] = row.summary.lastSeq
         store.save(hidden: hidden, account: account())
-        onHiddenChanged()
         return true
+    }
+
+    /// Lists `id` again after ``hide(_:)`` (its toast's Undo), across launches too.
+    public func unhide(_ id: ConversationID) {
+        hidden = store.hidden(account: account())
+        guard hidden.removeValue(forKey: id) != nil else { return }
+        store.save(hidden: hidden, account: account())
     }
 
     /// Lists every deleted conversation again; returns how many were hidden.
@@ -282,7 +303,6 @@ public final class HomeSidebarSource {
         let count = store.hidden(account: account()).count
         hidden = [:]
         store.save(hidden: [:], account: account())
-        onHiddenChanged()
         return count
     }
 

@@ -42,6 +42,14 @@ const personalGrantCached = (w: World, stackUser: string) => {
   })
 }
 
+/** The model router's plan refresh of the shared team (TeamDO.inferencePlan), with its plan copy made stale first. */
+const planRefresh = (team: string, user: string) =>
+  inDO(teamStub(team), async (instance, state) => {
+    state.storage.sql.exec(`CREATE TABLE IF NOT EXISTS inference_plan (id INTEGER PRIMARY KEY CHECK (id = 1), plan TEXT, checked_at INTEGER NOT NULL, failed_at INTEGER)`)
+    state.storage.sql.exec(`DELETE FROM inference_plan`)
+    return instance.inferencePlan(team, user)
+  })
+
 /** Makes the shared team's delivery to the personal TeamDO fail (`fail` = true) or work again (false). */
 const personalUnreachable = (team: string, fail: boolean) =>
   inDO(teamStub(team), async (instance) => {
@@ -339,6 +347,36 @@ describe("a Stack team delete never strands its Cloud grant (ask-7b9075082b)", {
     expect(await carried(t.team)).toBeNull()
     expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: null })
   })
+
+  // Review F1 at f2d36575, and its class: every read of the team record feeds the grant copy a delete carries.
+  it("a grant upgrade seen by a plan refresh before its webhook arrives is what the delete carries", async () => {
+    const t = await ownedTeamWithGrant("go")
+    // Max is set on the team record; its team.updated has not arrived when the model router refreshes the plan.
+    t.w.vmPlans.set(t.stackTeam, "max")
+    expect(await planRefresh(t.team, t.user)).toMatchObject({ ok: true })
+    expect((await deleteInStack(t)).status).toBe(200)
+    expect(await carried(t.team)).toMatchObject({ vm_plan: "max", outcome: "moved", owner: t.user })
+    expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: "max" })
+  })
+
+  // Review F2 at f2d36575: an override that was read stays the answer when only the paid-plan read fails.
+  it("an override below the carried grant is answered when the paid-plan read fails, with or without a cached answer", async () => {
+    const t = await ownedTeamWithGrant("max")
+    expect((await deleteInStack(t)).status).toBe(200)
+    t.w.userVmPlans.set(t.stackUser, "pro")
+    const real = t.w.fake.getUserPlan
+    const failing = async () => {
+      throw new Error("stack GET user returned 429")
+    }
+    t.w.fake.getUserPlan = failing
+    // No cached answer: Pro is confirmed, so the answer is Pro, never unavailable.
+    expect(await personalGrant(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: "pro" })
+    t.w.fake.getUserPlan = real
+    expect(await personalGrantCached(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: "max" })
+    // With the carried Max answered last, a failed paid-plan read keeps it rather than lowering the person to Pro.
+    t.w.fake.getUserPlan = failing
+    expect(await personalGrantCached(t.w, t.stackUser)).toEqual({ ok: true, vm_plan: "max" })
+  })
 })
 
 /** The next team read answers what Stack holds now, then waits until released (a slow, older read). */
@@ -419,7 +457,7 @@ describe("property: a carry never grants more than the latest confirmed grant, o
         }
         const steps = 3 + Math.floor(r() * 6)
         for (let i = 0; i < steps; i++) {
-          const op = pick(["grant", "grant", "owner", "refresh", "slow", "alarm"] as const)
+          const op = pick(["grant", "grant", "owner", "refresh", "slow", "alarm", "plan"] as const)
           log.push(op)
           if (op === "grant") {
             const g = pick(grants)
@@ -427,6 +465,13 @@ describe("property: a carry never grants more than the latest confirmed grant, o
             else t.w.vmPlans.set(t.stackTeam, g)
             log.push(`=${g}`)
             await send("team.updated", { id: t.stackTeam, display_name: "Acme" })
+          } else if (op === "plan") {
+            // Review F1 at f2d36575: the grant changes and the model router's plan refresh reads it before any webhook.
+            const g = pick(grants)
+            if (g === null) t.w.vmPlans.delete(t.stackTeam)
+            else t.w.vmPlans.set(t.stackTeam, g)
+            log.push(`=${g}`)
+            await planRefresh(t.team, t.user)
           } else if (op === "owner") {
             const next = owner === alice ? bob : alice
             t.w.perms.set(`${t.stackTeam}:${next}`, ["$delete_team"])

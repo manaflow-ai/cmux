@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 // Each test renders the whole transcript once per scroll step; jsdom takes about 5 s for that.
 setDefaultTimeout(60_000);
@@ -19,6 +20,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
+
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
   window: dom.window,
@@ -92,16 +94,18 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
 });
 
 const { act } = await import("react");
+// The minimap places its band in the frame after a scroll event, as a browser runs it.
+const scrolledFrame = (target: EventTarget) =>
+  act(async () => {
+    target.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+  });
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { TRANSCRIPT_FADE_BOTTOM, TRANSCRIPT_FADE_TOP } = await import("../src/agent-session/acpmux/threadMinimap/model");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
 });
 
@@ -161,7 +165,7 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
     };
     const scrollTo = async (top: number) => {
       scroller.scrollTop = top;
-      await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+      await scrolledFrame(scroller);
     };
     // Up to the top, then down in wheel-sized steps to the bottom, as a reader goes back down a chat.
     await scrollTo(0);
@@ -210,7 +214,7 @@ for (const how of ["hover", "focus"] as const)
       const bottom = scroller.scrollTop;
       const scrollTo = async (top: number) => {
         scroller.scrollTop = top;
-        await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+        await scrolledFrame(scroller);
       };
       await scrollTo(0);
       // A tick near the top of the rail, held while the chat scrolls down to its end.
@@ -288,7 +292,7 @@ async function pointerOnRail(sessionId: string) {
   const bottom = scroller.scrollTop;
   const scrollTo = async (top: number) => {
     scroller.scrollTop = top;
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await scrolledFrame(scroller);
   };
   await scrollTo(0);
   placeList(list());
@@ -439,7 +443,7 @@ test("in a short pane every lit tick stays clear of the transcript's faded edges
     const offsets = [...Array.from({ length: Math.floor(end / 37) + 1 }, (_, step) => step * 37), end - 1, end];
     for (const at of offsets) {
       scroller.scrollTop = at;
-      await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+      await scrolledFrame(scroller);
       const rail = host.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
       const list = host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
       // The mask's opaque band at this offset, from the scroller's own fade state.

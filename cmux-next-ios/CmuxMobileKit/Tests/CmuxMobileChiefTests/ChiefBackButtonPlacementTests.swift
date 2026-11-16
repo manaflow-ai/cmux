@@ -52,6 +52,11 @@ import UIKit
         #expect(pinned.conversation.additionalSafeAreaInsets.top == 0)
         // The bar is under the header, never over the back button.
         let headerBottom = pinned.conversation.view.convert(CGPoint(x: 0, y: pinned.conversation.header.frame.maxY), to: pinned.view).y
+        // Offline: the header's "Connecting…" line shows, and the bar sits below it.
+        let status = pinned.conversation.header.statusLabel
+        if status.text != nil {
+            #expect(bar.minY >= status.convert(status.bounds, to: pinned.view).maxY)
+        }
         #expect(bar.minY >= headerBottom)
         #expect(!bar.intersects(backFrame(pinned)))
         // The transcript starts below the bar, so no bubble is under it (R2-1).

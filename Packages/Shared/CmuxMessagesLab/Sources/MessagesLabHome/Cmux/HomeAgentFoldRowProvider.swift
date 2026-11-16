@@ -102,7 +102,7 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
     /// no chevron, like a status note; nil when not installed (the row's text shows instead).
     static func part(feed row: HomeFeedRow) -> Part? {
         guard installed != nil else { return nil }
-        var payload = Payload(open: false, label: row.source.isEmpty ? row.title : "\(row.source) · \(row.title)", chips: [], chevron: false)
+        var payload = Payload(open: false, label: row.line, chips: [], chevron: false)
         payload.role = "feed"
         let key = "feed\u{0}\(payload.label)"
         guard let custom = try? CustomPart(kind: kind, version: HomeDiagramRowProvider.version(key), value: payload) else { return nil }

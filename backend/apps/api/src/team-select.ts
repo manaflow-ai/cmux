@@ -1,9 +1,10 @@
 import type { Principal } from "@cmux/ownership"
 import { withGrantClasses } from "./auth.ts"
 import { roleHas } from "./domains/team-roles.ts"
-import { personalTeamIdFor } from "./domains/user.ts"
+import { personalTeamIdFor, stackTeamIdFor } from "./domains/user.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
 import type { Env } from "./env.ts"
+import { memberCheck, stackHealDeps, type MemberCheck, type StackHealDeps } from "./stack-team-heal.ts"
 
 /**
  * Session team selection (cx-3bi.43; plans/cmux-next/enterprise.md "shared teams" item 3): a Stack
@@ -18,6 +19,19 @@ import type { Env } from "./env.ts"
 export const TEAM_HEADER = "x-cmux-team"
 export const TEAM_SUBPROTOCOL_PREFIX = "team."
 const TEAM_ID = /^team_[0-9a-f]{20}$/
+const STACK_TEAM_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The team a session's `x-cmux-team` names, as this Worker's `team_` id. A client that keeps its active team as Stack
+ * names it sends the Stack team's UUID, the same team as `stackTeamIdFor` (the NEXT app's Codex holder: on Leo's
+ * NIGHTLY on production, 2026-11-15, every Codex login delivery was refused with "x-cmux-team must name a team id").
+ * Only a session's, and only the id: whether the caller is a member is still asked of that team's TeamDO, so a Stack id
+ * selects nothing its `team_` id would not.
+ */
+const requestedTeam = (env: Env, p: TeamPrincipal, requested: string | null | undefined) =>
+  requested && p.kind === "session" && STACK_TEAM_UUID.test(requested)
+    ? stackTeamIdFor(env.STACK_PROJECT_ID, requested.toLowerCase())
+    : requested
 
 /** The principal in its own personal team, whatever team the request named (user.ensure creates that team). */
 export const personalPrincipal = (p: Principal): Principal => (p.user ? { ...p, team: personalTeamIdFor(p.user) } : p)
@@ -29,7 +43,8 @@ export type TeamSelection =
   | { readonly ok: true; readonly principal: TeamPrincipal }
   | { readonly ok: false; readonly code: "auth.forbidden" | "team.not_member" | "owner.unreachable"; readonly message: string }
 
-export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string | null | undefined): Promise<TeamSelection> => {
+export const selectTeam = async (env: Env, p: TeamPrincipal, asked: string | null | undefined, heal: StackHealDeps = stackHealDeps(env)): Promise<TeamSelection> => {
+  const requested = requestedTeam(env, p, asked)
   if (requested && requested !== p.team) {
     if (!TEAM_ID.test(requested)) return { ok: false, code: "auth.forbidden", message: `${TEAM_HEADER} must name a team id` }
     if (p.kind !== "session") return { ok: false, code: "auth.forbidden", message: "an install token acts only in the team it was minted for" }
@@ -37,16 +52,17 @@ export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string |
   const team = requested || p.team
   // The personal team needs no lookup (user.ensure made it); a machine install's team is its bound team (minted by UserDO).
   if (team === personalTeamIdFor(p.user) || (p.kind === "install" && isMachineInstallKind(p.install_kind))) return { ok: true, principal: { ...p, team } }
-  let role: string | null
+  let check: MemberCheck
   try {
-    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
-    role = await stub.memberRole(team, p.user)
+    // A team TeamDO never mirrored from Stack is synced first when Stack lists the person in it, within the heal's budget.
+    check = await memberCheck(env, team, p.user, p.kind === "session" ? p.stack_user_id : undefined, heal)
   } catch (e) {
     console.error(JSON.stringify({ msg: "team selection unreachable", error: String(e).slice(0, 200) }))
     return { ok: false, code: "owner.unreachable", message: "team membership could not be checked; retry" }
   }
+  if ("pending" in check) return { ok: false, code: "owner.unreachable", message: `team membership is not confirmed yet (${check.pending}); retry` }
   // Its own code (cx-5xew review): clients tell "not a member" apart from a role or op refusal inside the team.
-  if (!role) return { ok: false, code: "team.not_member", message: "not a member of this team" }
+  if (!check.role) return { ok: false, code: "team.not_member", message: "not a member of this team" }
   return { ok: true, principal: { ...p, team } }
 }
 

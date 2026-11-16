@@ -5,7 +5,7 @@ use super::*;
 
 /// The agent name, or `agent-N` for the first N not taken in `sessions`.
 pub(super) fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent: &str) -> String {
-    let taken: Vec<String> = sessions.values().map(|s| s.meta().name).collect();
+    let taken: Vec<String> = sessions.values().map(|s| s.read_meta(|m| m.name.clone())).collect();
     for n in 0.. {
         let candidate = if n == 0 { agent.to_owned() } else { format!("{agent}-{n}") };
         if !taken.contains(&candidate) {
@@ -121,6 +121,9 @@ pub struct NewRequest {
     /// The create asked to wait on its harness (`_meta.acpmux.waitStart`, `Session::wait_start`):
     /// never honored from an agent's, a lane's or a remote connection (`server/requests.rs`).
     pub wait_start: bool,
+    /// `_meta.acpmux.throwaway` (`SessionMeta::throwaway`): its creator purges it
+    /// after its work.
+    pub throwaway: bool,
     /// `_meta.acpmux.requireAsking` (`require_asking.rs`): the start runs only on a harness the
     /// asking table lists, as it resolves it, and its policy fails the start where it is not kept.
     pub require_asking: bool,

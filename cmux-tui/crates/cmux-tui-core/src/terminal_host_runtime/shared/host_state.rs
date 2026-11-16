@@ -314,9 +314,11 @@ pub(crate) fn mutate_viewer_sizes(
     Ok(())
 }
 
+/// One client's queue of frames to write. A frame is shared (`Arc`): every
+/// tap, the smart retention and the parser hold the one copy of a PTY chunk.
 #[derive(Clone)]
 pub(crate) struct HostTap {
-    pub(crate) sender: Sender<Frame>,
+    pub(crate) sender: Sender<Arc<Frame>>,
     pub(crate) queued_bytes: Arc<AtomicUsize>,
     pub(crate) queued_output_bytes: Arc<AtomicUsize>,
     pub(crate) shutdown: Arc<HostStream>,
@@ -325,7 +327,7 @@ pub(crate) struct HostTap {
 
 impl HostTap {
     pub(crate) fn new(
-        sender: Sender<Frame>,
+        sender: Sender<Arc<Frame>>,
         shutdown: Arc<HostStream>,
         max_queued_bytes: usize,
     ) -> Self {
@@ -354,7 +356,8 @@ impl HostTap {
         }
     }
 
-    pub(crate) fn try_send(&self, frame: Frame) -> bool {
+    pub(crate) fn try_send(&self, frame: impl Into<Arc<Frame>>) -> bool {
+        let frame = frame.into();
         let retained =
             crate::terminal_host_protocol::HEADER_LEN.saturating_add(frame.payload.len());
         if !Self::try_reserve(&self.queued_bytes, retained, self.max_queued_bytes) {
@@ -409,7 +412,7 @@ impl HostTap {
         // writer's local HostTap still owns a sender. Enqueue one private
         // sentinel so an input-side EOF always releases an otherwise-idle
         // writer. Socket shutdown releases a writer blocked in write_frame.
-        let wake = Frame::new(MessageKind::ResyncRequired, Vec::new());
+        let wake = Arc::new(Frame::new(MessageKind::ResyncRequired, Vec::new()));
         let retained = crate::terminal_host_protocol::HEADER_LEN;
         self.queued_bytes.fetch_add(retained, Ordering::AcqRel);
         if self.sender.send(wake).is_err() {
@@ -421,7 +424,7 @@ impl HostTap {
         // The source-ordered DetachAck is already queued. This private
         // sentinel closes the writer loop after it writes that receipt,
         // without shutting the socket before the receipt is drained.
-        let wake = Frame::new(MessageKind::ResyncRequired, Vec::new());
+        let wake = Arc::new(Frame::new(MessageKind::ResyncRequired, Vec::new()));
         let retained = crate::terminal_host_protocol::HEADER_LEN;
         self.queued_bytes.fetch_add(retained, Ordering::AcqRel);
         if self.sender.send(wake).is_err() {
@@ -457,13 +460,20 @@ impl SmartStreamState {
     /// Publish before parsing. The returned source cursor is marked
     /// applied only after the authoritative parser has consumed the same
     /// transition.
-    pub(crate) fn publish(&self, mut frame: Frame) -> u64 {
+    pub(crate) fn publish(&self, frame: Frame) -> u64 {
+        self.publish_shared(frame).0
+    }
+
+    /// [`Self::publish`], also returning the published frame: the retention,
+    /// every tap and the caller share its one payload.
+    pub(crate) fn publish_shared(&self, mut frame: Frame) -> (u64, Arc<Frame>) {
         let _broadcast = self.broadcast_lock.lock().recover_poison();
         let cursor = self.source_cursor.fetch_add(1, Ordering::AcqRel) + 1;
         frame.sequence = cursor;
+        let frame = Arc::new(frame);
         self.retained.lock().recover_poison().push(frame.clone());
         self.taps.lock().recover_poison().retain(|_, tap| tap.try_send(frame.clone()));
-        cursor
+        (cursor, frame)
     }
 
     pub(crate) fn publish_after_targeted(
@@ -476,6 +486,7 @@ impl SmartStreamState {
         let targeted_queued = targeted.try_send(targeted_frame);
         let cursor = self.source_cursor.fetch_add(1, Ordering::AcqRel) + 1;
         frame.sequence = cursor;
+        let frame = Arc::new(frame);
         self.retained.lock().recover_poison().push(frame.clone());
         self.taps.lock().recover_poison().retain(|_, tap| tap.try_send(frame.clone()));
         (cursor, targeted_queued)
@@ -531,13 +542,13 @@ impl SmartStreamState {
 
 #[derive(Default)]
 pub(crate) struct SmartRetention {
-    pub(crate) frames: VecDeque<Frame>,
+    pub(crate) frames: VecDeque<Arc<Frame>>,
     pub(crate) bytes: usize,
     pub(crate) dropped_through: u64,
 }
 
 impl SmartRetention {
-    pub(crate) fn push(&mut self, frame: Frame) {
+    pub(crate) fn push(&mut self, frame: Arc<Frame>) {
         let retained = retained_frame_bytes(&frame);
         self.bytes = self.bytes.saturating_add(retained);
         self.frames.push_back(frame);
@@ -564,7 +575,7 @@ impl SmartRetention {
         }
     }
 
-    pub(crate) fn after(&self, cursor: u64) -> Result<Vec<Frame>, SmartReplayGap> {
+    pub(crate) fn after(&self, cursor: u64) -> Result<Vec<Arc<Frame>>, SmartReplayGap> {
         if cursor < self.dropped_through {
             return Err(SmartReplayGap::Retention {
                 requested_after: cursor,
@@ -603,32 +614,21 @@ pub(crate) fn retained_frame_bytes(frame: &Frame) -> usize {
 
 pub(crate) enum ParserCommand {
     Output {
-        bytes: Vec<u8>,
+        /// The published Output frame; the parser reads its payload.
+        frame: Arc<Frame>,
         source_cursor: u64,
         accounted_bytes: usize,
     },
-    Resize {
-        cols: u16,
-        rows: u16,
-        cell_pixels: (u16, u16),
-        source_cursor: Option<u64>,
-        acknowledge_with_replay: bool,
-        targeted_ack: Option<(u64, HostTap)>,
-        /// The PTY already holds the new size (the program got SIGWINCH
-        /// when the command was queued); restore this size if the grid
-        /// cannot follow.
-        pty_previous: Option<PtySize>,
-        response: SyncSender<ParserResizeResult>,
-    },
+    /// Boxed, as ClearHistory: the bounded queue allocates every slot at the
+    /// size of its largest command when the host starts, so a rare large
+    /// command would make all 256 slots large (parser_queue_memory test).
+    Resize(Box<ParserResize>),
     SetDefaults {
         colors: Box<DefaultColors>,
         source_cursor: u64,
         response: SyncSender<()>,
     },
-    ClearHistory {
-        fallback_key: Option<KeyInput>,
-        response: SyncSender<Result<ParserClearHistoryResult, String>>,
-    },
+    ClearHistory(Box<ParserClearHistory>),
     /// Answers one deferred clipboard read; `None` refuses it.
     ClipboardReadComplete {
         token: u64,
@@ -637,6 +637,24 @@ pub(crate) enum ParserCommand {
     /// Answers once every earlier command is applied (metric_commits.rs).
     Barrier(SyncSender<()>),
     Drain,
+}
+
+pub(crate) struct ParserResize {
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) cell_pixels: (u16, u16),
+    pub(crate) source_cursor: Option<u64>,
+    pub(crate) acknowledge_with_replay: bool,
+    pub(crate) targeted_ack: Option<(u64, HostTap)>,
+    /// The PTY already holds the new size (the program got SIGWINCH when the
+    /// command was queued); restore this size if the grid cannot follow.
+    pub(crate) pty_previous: Option<PtySize>,
+    pub(crate) response: SyncSender<ParserResizeResult>,
+}
+
+pub(crate) struct ParserClearHistory {
+    pub(crate) fallback_key: Option<KeyInput>,
+    pub(crate) response: SyncSender<Result<ParserClearHistoryResult, String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -694,11 +712,11 @@ pub(crate) fn enqueue_parser_output(
     parser_commands: &SyncSender<ParserCommand>,
     parser_budget: &ParserBudget,
     smart: &SmartStreamState,
-    bytes: Vec<u8>,
+    frame: Arc<Frame>,
     source_cursor: u64,
     accounted_bytes: usize,
 ) -> bool {
-    if parser_commands.send(ParserCommand::Output { bytes, source_cursor, accounted_bytes }).is_ok()
+    if parser_commands.send(ParserCommand::Output { frame, source_cursor, accounted_bytes }).is_ok()
     {
         return true;
     }
@@ -733,6 +751,7 @@ pub(crate) fn publish_host_frames_and_targeted(
     for mut frame in frames {
         let sequence = sequence.fetch_add(1, Ordering::AcqRel) + 1;
         frame.sequence = sequence;
+        let frame = Arc::new(frame);
         taps.retain(|_, tap| tap.try_send(frame.clone()));
     }
     drop(taps);

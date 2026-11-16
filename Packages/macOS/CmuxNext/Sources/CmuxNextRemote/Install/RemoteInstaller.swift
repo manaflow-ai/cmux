@@ -149,8 +149,9 @@ public struct RemoteInstaller: Sendable {
     }
 
     /// The artifact in the download cache, fetched with resume when needed
-    /// and checked against the manifest digest.
-    func localCopy(_ plan: RemoteInstallPlan, environment: [String: String]) async throws -> URL {
+    /// and checked against the manifest digest. `@concurrent`: the digest reads the whole binary
+    /// (twice when it is fetched), and the callers come from the main actor.
+    @concurrent func localCopy(_ plan: RemoteInstallPlan, environment: [String: String]) async throws -> URL {
         try paths.prepare()
         let file = paths.downloads.appendingPathComponent("\(plan.artifact)-\(plan.commit.prefix(12))")
         if (try? SHA256File.verify(file, expected: plan.sha256)) != nil {

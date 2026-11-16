@@ -57,6 +57,7 @@ PORTABLE_PATHS = (
     "webviews/package.json",
     "webviews/bun.lock",
     "scripts/check-webviews-bun-version.sh",
+    "scripts/webviews_bun_version.py",
     "scripts/cmux-next/build-optchat-inspector-web.sh",
 )
 GENERATED_INSPECTOR = "Native/OptChat/optchat-chief/inspector/index.html"

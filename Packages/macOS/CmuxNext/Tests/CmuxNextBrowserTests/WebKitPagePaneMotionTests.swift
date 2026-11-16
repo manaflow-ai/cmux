@@ -29,7 +29,7 @@ import WebKit
             page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
             pane = BrowserPaneChrome()
             chrome = pane.bind(page, state: BrowserChromeTabState())
-            chrome.frame = area.contentBounds
+            chrome.frame = area.contentBounds(for: chrome)
             chrome.autoresizingMask = [.width, .height]
             area.addSubview(chrome)
             window.contentView?.addSubview(area)

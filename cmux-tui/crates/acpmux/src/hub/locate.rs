@@ -197,11 +197,18 @@ impl Hub {
             here.push(host);
         }
         let hashes = |s: &Value, hosts: &[&str]| {
-            s["agentSessionId"]
-                .as_str()
-                .is_some_and(|session| hosts.iter().any(|h| key.id(h, family_of(s), session) == id))
+            s["agentSessionId"].as_str().is_some_and(|session| {
+                hosts.iter().any(|h| {
+                    minted_harnesses(family_of(s)).any(|harness| key.id(h, harness, session) == id)
+                })
+            })
         };
-        let keep = |r: &RemoteSession| hashes(&r.summary, &[r.peer.as_str()]);
+        let keep = |r: &RemoteSession| {
+            r.summary.agent_session_id().is_some_and(|session| {
+                minted_harnesses(r.summary.family().unwrap_or_default())
+                    .any(|harness| key.id(r.peer.as_str(), harness, session) == id)
+            })
+        };
         let here: Vec<&str> = here.iter().map(String::as_str).collect();
         for all in [false, true] {
             let summaries = self.located_summaries(&keep, all);
@@ -228,8 +235,7 @@ impl Hub {
         } else {
             self.indexed_live_sessions().iter().map(|s| self.session_summary(s)).collect()
         };
-        let open =
-            |r: &RemoteSession| r.summary.get("status").and_then(Value::as_str) != Some("closed");
+        let open = |r: &RemoteSession| !r.summary.closed();
         self.visit_remote_sessions(|r| (closed || open(r)) && keep(r), |row| v.push(row));
         super::session_pages::sort_session_summaries(&mut v);
         v
@@ -334,6 +340,16 @@ fn bare_name(summary: &Value) -> &str {
 /// harness. `link_of` writes the same.
 fn family_of(summary: &Value) -> &str {
     summary["family"].as_str().or(summary["harness"].as_str()).unwrap_or_default()
+}
+
+/// The harness names an opaque id for a session of `family` may be minted under: the family
+/// itself, then the harness it runs when that is another name. agent-identity names a Claude
+/// Code session `claude` from inside it (CLAUDE_CODE_SESSION_ID) whatever profile started it,
+/// so a `claude-sr2` chat's PR footer hashes as `claude`; the part before the first `-` is that
+/// harness, as `config::derive_family` falls back to. At most two names, so two hashes a row.
+fn minted_harnesses(family: &str) -> impl Iterator<Item = &str> {
+    let base = family.split('-').next().filter(|base| !base.is_empty() && *base != family);
+    std::iter::once(family).chain(base)
 }
 
 /// The sessions whose harness session id and family are the link's, those on the host the link
@@ -510,16 +526,18 @@ impl<'q> Names<'q> {
     /// row costs a few compares; the matchers then decide on the rows it took.
     fn may_name(&self, r: &RemoteSession) -> bool {
         let s = &r.summary;
-        let bead = || self.bead.as_ref().is_some_and(|tag| s["tags"].get(tag).is_some());
+        // Its tags are parsed only for a bead's lookup.
+        let bead =
+            || self.bead.as_ref().is_some_and(|tag| s.tags().is_some_and(|t| t.get(tag).is_some()));
         if self.bead_only {
             return bead();
         }
         if let Some(link) = self.link {
-            return s["agentSessionId"].as_str() == Some(link.session.as_str());
+            return s.agent_session_id() == Some(link.session.as_str());
         }
         let q = self.query;
         let mux = r.receipt.mux_session_id.as_str();
-        let name = s["name"].as_str().unwrap_or_default();
+        let name = s.name().unwrap_or_default();
         let bare =
             name.strip_prefix(r.peer.as_str()).and_then(|n| n.strip_prefix('/')).unwrap_or(name);
         mux.starts_with(q)
@@ -528,7 +546,7 @@ impl<'q> Names<'q> {
             || crate::session_name::ends_with_segments(bare, q)
             || self.host.is_some_and(|host| r.peer.eq_ignore_ascii_case(host))
             || q.strip_prefix(r.peer.as_str()).and_then(|q| q.strip_prefix('/')) == Some(mux)
-            || s["agentSessionId"].as_str() == Some(q)
+            || s.agent_session_id() == Some(q)
             || bead()
     }
 }

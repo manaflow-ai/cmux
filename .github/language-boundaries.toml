@@ -37,6 +37,23 @@
 # review by teamleaderleo with a line starting `leo-approved-port:` and his reason, carrying no agent footer.
 # Agents never add that label or write that line (scripts/ci/language_boundaries.py's docstring says what the check
 # can and cannot tell apart).
+#
+# Swift to React, anywhere in the repo (not only in the areas below). Lawrence, relayed by Leo (2026-11-11): "also
+# let's not move stuff to react anymore unless we talk about it / swift->rust is usually fine though".
+#
+#   [[react_port]]                        # exactly one table
+#   label     = "react-port-ok"
+#   approvers = ["login", ...]            # who may add the label (a User account, not through a GitHub App)
+#   web       = ["glob", ...]             # where new React / web code counts
+#
+# A pull request is a React port, the same feature moving from Swift to web, when in one diff it
+#   - removes Swift files on net: more `.swift` files deleted, or renamed to another language, than added, and
+#   - adds at least one web file (ts tsx js jsx mjs cjs mts cts css html vue svelte) under `web`: a new file, or one
+#     renamed or copied in from outside `web` or from another language.
+# Such a pull request fails unless `label` is on it and its latest `labeled` event's actor is one of `approvers`, a
+# User account acting without a GitHub App (a bot, an app or any other account never counts). Talk to Lawrence or
+# Leo first; they add the label. Agents never add it. Swift to Rust, new Rust and new web code that removes no Swift
+# pass. Edits that empty a Swift file without deleting it are not counted: the rulebook covers those.
 
 [[area]]
 name = "imessage-home"
@@ -121,4 +138,12 @@ policy = "minimal"
 paths = [
   "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/**",
   "Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/**",
+]
+
+[[react_port]]
+label = "react-port-ok"
+approvers = ["lawrencecchen", "teamleaderleo"]
+web = [
+  "webviews/**",
+  "agent-chat/**",
 ]

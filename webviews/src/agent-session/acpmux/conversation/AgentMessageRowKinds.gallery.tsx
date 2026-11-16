@@ -10,9 +10,10 @@
 // kind now opens to, the unverified marker right after the name, so it reads with the name it is
 // about and never covers the family mark's own corner), `corner` (the marker on the icon's corner),
 // `flat` (no card, the sent row's look before). The hover variants compare what a folded group's
-// head shows under the pointer (MessageGroupHover.tsx): the digest (the pick: the newest message
-// whole, then the other senders with their counts), the messages two lines each, one line each, or
-// the names only. Synthetic data.
+// head shows under the pointer (MessageGroupHover.tsx): the threads (the pick since 2026-11-14:
+// each sender once with its count and its newest message whole, the card scrolling past the
+// window), the digest (the newest message whole, then the other senders with their counts), the
+// messages two lines each, one line each, or the names only. Synthetic data.
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import type { Play } from "../../../gallery/play";
@@ -164,11 +165,24 @@ export default componentEntry<Props>({
       rendering("The hover digest is up for review."),
       verified?.kind === "message" ? verified.message : undefined,
     ]);
+    // A fleet tool's `acpmux send` with no session token: acpmux names the program it saw run the
+    // send (incomingMessage.ts `senderProgram`), on the machine the checking daemon read it on; beside it, one with
+    // no program, still an unverified sender.
+    const unverified = { kind: "unverified", to: "s-1", transport: "unix", verified: false };
+    const program = incomingPrompt("Merged #23727 (squash, pinned at 4be1c0d).", {
+      _meta: {
+        provenance: {
+          ...unverified,
+          program: { name: "next-autoland", path: "/Users/me/tools/next-autoland", host: "build-box" },
+        },
+      },
+    });
+    const unknown = incomingPrompt("Merged #23727 (squash, pinned at 4be1c0d).", { _meta: { provenance: unverified } });
     const send = acpmuxSendCall(SEND)!;
     return function GalleryMessageRowKinds({ look, hover }: Props) {
       return (
         <MessageRowLookContext.Provider value={look}>
-          <GroupHoverLookContext.Provider value={hover ?? "digest"}>
+          <GroupHoverLookContext.Provider value={hover ?? "threads"}>
             <SubagentNavContext.Provider value={() => undefined}>
               <DoneReportLookContext.Provider value="disclosure">
                 <main
@@ -201,6 +215,20 @@ export default componentEntry<Props>({
                           <InboxNoticeCard rowId="kinds-unverified" notice={notice} onOpen={() => undefined} />
                         </div>
                       </section>
+                      {[program, unknown].map(
+                        (prompt, index) =>
+                          prompt?.kind === "message" && (
+                            <section key={index} className="acpmux-row">
+                              <div className="cv-incoming">
+                                <IncomingMessageLine
+                                  id={`kinds-program-${index}`}
+                                  message={prompt.message}
+                                  onOpen={() => undefined}
+                                />
+                              </div>
+                            </section>
+                          ),
+                      )}
                       <section className="acpmux-row">
                         <SubagentDoneLine row={SUBAGENT} />
                       </section>
@@ -253,23 +281,28 @@ export default componentEntry<Props>({
       props: { look: "flat" },
       play: openAll,
     },
+    "hover-threads": {
+      note: "The pick for a 'Received 9 messages' head's hover since Leo's 2026-11-14 \"is not scrollable\": each sender once, newest first, with its count and its newest message whole (lock-proof-routes's report, chat-rendering 2, pr-latency 2, cloud-start-matrix with the unverified marker, base-red-watch), a hairline between, then '+2 more'. The card scrolls in itself past the window's height; the transcript under it stays.",
+      height: 360,
+      props: { look: "card", hover: "threads" },
+    },
     "hover-digest": {
-      note: "The pick for a 'Received 9 messages' head's hover: the newest message whole under its sender (lock-proof-routes, verified), a hairline, then the other senders once each, newest first, with how many they sent (chat-rendering 2, pr-latency 2), cloud-start-matrix with the unverified marker, base-red-watch, then '+2 more'.",
+      note: "Version B (the pick before): the second sender is only a name, what it said out of reach. The newest message whole under its sender (lock-proof-routes, verified), a hairline, then the other senders once each, newest first, with how many they sent (chat-rendering 2, pr-latency 2), cloud-start-matrix with the unverified marker, base-red-watch, then '+2 more'.",
       height: 360,
       props: { look: "card", hover: "digest" },
     },
     "hover-messages": {
-      note: "Version B (the pick before): newest first, each sender's mark and short name, the unverified marker, and two lines of what it said; five, then '+4 more'.",
+      note: "Version C (the pick before the digest): newest first, each sender's mark and short name, the unverified marker, and two lines of what it said; five, then '+4 more'.",
       height: 360,
       props: { look: "card", hover: "messages" },
     },
     "hover-lines": {
-      note: "Version C: one line each, the short name then the first line.",
+      note: "Version D: one line each, the short name then the first line.",
       height: 260,
       props: { look: "card", hover: "lines" },
     },
     "hover-names": {
-      note: "Version D: the senders only, each once, with their marks: today's list without the noise.",
+      note: "Version E: the senders only, each once, with their marks: today's list without the noise.",
       height: 240,
       props: { look: "card", hover: "names" },
     },

@@ -6,6 +6,7 @@ import unittest
 
 import yaml
 from test_seed_derived_data import evaluate, github_context
+import workflow_jobs
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci-manual-dispatch-guard.yml"
@@ -59,7 +60,9 @@ def test_ci_changes_job_remains_read_only() -> None:
 
 def test_non_main_dispatch_remote_daemon_uses_picked_owned_side_runner() -> None:
     workflow = yaml.safe_load((CI.parent / "remote-daemon.yml").read_text())
-    route = workflow["jobs"]["remote-daemon-macos-tests"]["runs-on"]
+    cells = workflow_jobs.runs_on_cells(workflow["jobs"]["remote-daemon-macos-tests"])
+    assert cells is not None and len(cells) == 1, cells
+    route = cells[0]
     context = github_context("workflow_dispatch", ref="refs/heads/topic")
     context["github"].update(repository="manaflow-ai/cmux", run_attempt=1,
                              workflow_ref="manaflow-ai/cmux/.github/workflows/ci.yml@refs/heads/topic")

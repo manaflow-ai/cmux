@@ -28,6 +28,9 @@ import sys
 import tempfile
 
 import yaml
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NIGHTLY = os.path.join(ROOT, ".github", "workflows", "nightly.yml")
@@ -70,7 +73,7 @@ def _check(cond, msg):
 def render(text, context):
     """Substitute `${{ expr }}` like the runner: known paths get their value,
     anything else becomes empty."""
-    return re.sub(r"\$\{\{\s*([^}]+?)\s*\}\}", lambda m: context.get(m.group(1).strip(), ""), str(text))
+    return gh_expressions.STRIPPED.sub(lambda m: context.get(m.group(1).strip(), ""), str(text))
 
 
 def run_guard(script, tag_object, live_build=None, extra_env=None):

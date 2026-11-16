@@ -20,4 +20,14 @@ public nonisolated struct CloudCodexSignInConsentSetting: Sendable {
     public func consent(file: JSONValue, effective: JSONValue, managed: Bool) -> Bool? {
         CloudLoginCopyConsentSetting.consent(at: Self.configPath, file: file, effective: effective, managed: managed)
     }
+
+    /// The answer a start goes by. A DEV or NIGHTLY build (`copiesWithoutConsent`: dogfood, with the login copy
+    /// left on) uses the Mac's Codex sign-in unless the person said no, as it copies their Claude login with no
+    /// consent asked (``CloudLoginCopyConsentSetting``): the Codex login rides along the way Claude's does. Before,
+    /// a start that may show no prompt (`cmux chat --on vm:new`, `cloud start-session`) never asked, so it passed
+    /// nothing and the machine's Codex failed on "Missing environment variable: `OPENAI_API_KEY`" (Cloud composer
+    /// journey, 2026-11-10). A no, or any managed key, stays no in every build; Release still asks once.
+    public func consent(file: JSONValue, effective: JSONValue, managed: Bool, copiesWithoutConsent: Bool) -> Bool? {
+        consent(file: file, effective: effective, managed: managed) ?? (copiesWithoutConsent ? true : nil)
+    }
 }

@@ -116,10 +116,6 @@ extension SidebarListView {
     /// unread total) is configured again. Only a row whose
     /// height changes reloads the layout; nothing rebuilds the sections.
     func patchRows(_ patched: [SidebarWorkspace]) {
-        // A drag, its settle or its landing runs: the rows keep their look until the card is gone (`SidebarRowHold`).
-        if holdsRowPatches { return holdRowPatches(patched) }
-        // Rows still held after the hold ended (its card went without a landing): they apply with these.
-        if !rowHold.isEmpty { return releaseRowHold(adding: patched) }
         SidebarPerfCounters.add(.rowPatches, patched.count)
         // A height change lays the list out again (outside the timed patch: `reload` times itself), with no
         // motion unless the user asked for it, and not under the pointer (`showModelChange`, calm-sidebar-movement);
@@ -129,7 +125,8 @@ extension SidebarListView {
     }
 
     /// Patches each row in place; true when one row's height changed.
-    private func patchRowsNow(_ patched: [SidebarWorkspace]) -> Bool {
+    func patchRowsNow(_ patched: [SidebarWorkspace]) -> Bool {
+        spacePages.cachesTookChange(at: model.structureRevision)
         var options: SidebarLayoutOptions?
         var heightChanged = false
         let shownCard = hoverCard.shownID

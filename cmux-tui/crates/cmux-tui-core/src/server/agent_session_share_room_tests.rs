@@ -726,19 +726,31 @@ fn a_delete_stops_retrying_after_share_expiry_even_with_its_host_token() {
 #[test]
 fn expired_cleanup_retries_when_settling_the_pending_delete_cannot_be_saved() {
     let room = FakeRoom::start(&[]);
+    // The room answers the DELETE only once writes fail, and the test waits for the refused save:
+    // a worker that settled the DELETE before the test refused writes (a loaded full --lib run)
+    // left nothing pending.
+    let gate = room.block_deletes();
     let (_fake, mux, surface, mut owner) = bridged("room-expired-unsaved", &room);
     let share = create(&mut owner, surface)["data"].clone();
     room.request("PUT");
+    let entered = room.watch_delete();
     assert_eq!(
         owner.request(json!({"cmd":"agent-session-share-revoke",
         "share_id":share["share_id"]}))["ok"],
         true
     );
-    room.request("DELETE");
+    entered.recv_timeout(WAIT).expect("the DELETE enters the room");
 
     let shares = shares_of(&mux);
     shares.advance(Duration::from_secs(2 * 86_400));
+    let (told, refused) = channel();
+    *shares.refused_write.lock().unwrap() = Some(told);
     shares.refuse_writes.store(true, Ordering::Relaxed);
+    let (released, wake) = &*gate;
+    *released.lock().unwrap() = true;
+    wake.notify_all();
+    room.request("DELETE");
+    refused.recv_timeout(WAIT).expect("the worker's save of the settled DELETE is refused");
     shares.expired(&mux);
     assert!(
         view(&mux, share["share_id"].as_str().unwrap()).unwrap().delete,

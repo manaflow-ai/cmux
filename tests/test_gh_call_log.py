@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import contextlib
-import importlib.util
+import importlib
 import io
 import os
 import sys
@@ -25,11 +25,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load(name: str):
-    spec = importlib.util.spec_from_file_location(name, ROOT / f"scripts/ci/{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+    if str(ROOT / "scripts/ci") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+    return importlib.import_module(name)
 
 
 gh_call_log = load("gh_call_log")

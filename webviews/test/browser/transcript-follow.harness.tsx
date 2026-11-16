@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { VirtualTranscript, type ScrollAnchor } from "../../src/agent-session/acpmux/App";
 import { followTrace } from "../../src/agent-session/acpmux/followTrace";
+import { acpmuxPerf } from "../../src/agent-session/acpmux/perf";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import type { TurnFile } from "../../src/agent-session/acpmux/diff";
 import { toggleTurnFold, turnView } from "../../src/agent-session/acpmux/conversation/turns";
@@ -59,6 +60,8 @@ let openAt: ScrollAnchor | undefined;
 let sessionId = "session-1";
 let dock: HTMLElement | null = null;
 let working = false;
+// A chat whose read has not landed (`__showLoadingRows`): App passes `loading` until it does.
+let loading = false;
 const shadowMounts: Array<{ root: ReturnType<typeof createRoot>; host: HTMLElement }> = [];
 let mediaMount: { root: ReturnType<typeof createRoot>; host: HTMLElement } | undefined;
 // acpmux's process registry as the pane reads it for an opened background task note
@@ -122,16 +125,31 @@ const draw = () =>
         sends={sends}
         dock={dock}
         working={working}
+        loading={loading}
         openAt={openAt}
         canLoadOlder={openAt !== undefined}
         onLoadOlder={() => new Promise<void>(() => {})}
       />
     </BackgroundTaskOutputContext.Provider>,
   );
+// The pane's render counters (perf.ts), for a test that counts the rows a toggle draws again
+// (chat-fold-frame-budget-browser.test.ts).
+(window as unknown as { __acpmuxPerf: typeof acpmuxPerf }).__acpmuxPerf = acpmuxPerf;
 (window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows = (rows) => {
   rawRows = false;
   live = false;
   shown = rows;
+  draw();
+};
+// Rows as an open shows them before and after its read lands (`loading`), as App does.
+(window as unknown as { __showLoadingRows: (rows: AcpmuxRow[], loading: boolean) => void }).__showLoadingRows = (
+  rows,
+  next,
+) => {
+  rawRows = false;
+  live = false;
+  shown = rows;
+  loading = next;
   draw();
 };
 

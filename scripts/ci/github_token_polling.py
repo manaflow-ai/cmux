@@ -46,12 +46,33 @@ from __future__ import annotations
 
 import ast
 import re
+import sys
 from pathlib import Path
 from typing import Iterable, Iterator
 
 import yaml
 
-OWN_TOKEN = re.compile(r"\$\{\{[^}]*\b(github\.token|secrets\.GITHUB_TOKEN)\b[^}]*\}\}")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
+
+_OWN_TOKEN_REFERENCE = re.compile(r"\b(github\.token|secrets\.GITHUB_TOKEN)\b", re.IGNORECASE)
+
+
+class _OwnToken:
+    """`github.token` or `secrets.GITHUB_TOKEN` (any case, as GitHub reads contexts) inside some `${{ }}` of a value.
+    gh_expressions finds each expression: `[^}]*` stopped at a `}` in a string literal
+    (`${{ format('{0}}}', github.token) }}`), so the token after it was missed. A `${{` that never ends counts as
+    the token, so a step is judged rather than passed."""
+
+    def search(self, text: str) -> bool:
+        try:
+            found = gh_expressions.contents(text)
+        except gh_expressions.Unterminated:
+            return True
+        return any(_OWN_TOKEN_REFERENCE.search(expression) for expression in found)
+
+
+OWN_TOKEN = _OwnToken()
 SHELL_API = re.compile(r"^(gh)$")
 GH_VERBS = {"api", "run", "pr", "issue", "release", "workflow", "label", "search", "cache"}
 API_TEXT = re.compile(r"api\.github\.com")
@@ -473,9 +494,13 @@ def dotted(node: ast.AST) -> str:
 
 
 def python_http_call(name: str) -> bool:
-    """Whether a dotted callable name makes an HTTP call: urlopen, or deadline_http.request, the transport
-    scripts/ci calls instead of urlopen (tests/test_ci_no_bare_urlopen.py)."""
-    return name.endswith("urlopen") or name == "deadline_http.request" or name.endswith(".deadline_http.request")
+    """Whether a dotted callable name makes an HTTP call: urlopen, or deadline_http.request or .stream (a
+    download read as it comes), the transport scripts/ci calls instead of urlopen
+    (tests/test_ci_no_bare_urlopen.py)."""
+    if name.endswith("urlopen"):
+        return True
+    return any(name == f"deadline_http.{call}" or name.endswith(f".deadline_http.{call}")
+               for call in ("request", "stream"))
 
 
 def python_call_is_api(call: ast.Call) -> bool:

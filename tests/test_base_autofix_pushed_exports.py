@@ -31,6 +31,15 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/cmux-next"))
 import base_autofix_pushed_exports as px  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 PACK_SCRIPT = ROOT / "scripts/cmux-next/base-autofix-exports-pack.sh"
 AUTOFIX = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").read_text())
@@ -106,7 +115,7 @@ class FakeApi(px.Api):
         self.calls.append(path)
         if path.startswith("actions/artifacts?"):
             name = path.split("name=")[1].split("&")[0]
-            return {"artifacts": [a for tree, items in self.packs.items() for a in items if px.pack_name(tree) == name]}
+            return {"artifacts": [a for items in self.packs.values() for a in items if a["name"] == name]}
         if path.startswith("actions/workflows/"):
             assert f"branch={px.BRANCH}" in path
             return {"workflow_runs": self.listed}
@@ -322,6 +331,14 @@ class TakesOnlyTrustedIntactPacks(unittest.TestCase):
     def test_a_pack_missing_an_export_is_refused(self):
         files = {rel: b"x" for rel in NAMES[:-1]}
         self.assert_miss(self.api_with(pack_zip(self.tree, 7, self.sha, files)), "exactly the exports")
+
+    def test_a_previous_recipe_pack_is_not_downloaded(self):
+        old = artifact(self.tree, 7, 70)
+        old["name"] = old["name"].replace("-v2-", "-v1-")
+        self.assertNotEqual(old["name"], px.pack_name(self.tree))
+        api = self.api_with(pack_zip(self.tree, 7, self.sha), art=old)
+        self.assert_miss(api, "none is coming")
+        self.assertFalse(any(call.startswith("https://") for call in api.calls))
 
     def test_a_manifest_of_another_tree_or_run_is_refused(self):
         self.assert_miss(self.api_with(pack_zip(oid(999), 7, self.sha)), "another tree")
@@ -602,6 +619,15 @@ class PackScript(unittest.TestCase):
         self.assertEqual((self.repo / NAMES[0]).read_text(), "left by the checks\n")
         self.assertEqual((self.repo / NAMES[1]).read_text(), f"committed {NAMES[1]}\n")
 
+    def test_a_pack_without_the_full_catalog_dump_is_refused(self):
+        dump = "plans/cmux-next/action-catalog.json"
+        self.assertIn(dump, px.ACTION_EXPORTS, "the action pack must carry the full catalog")
+        result, out = self.run_pack([rel for rel in px.ACTION_EXPORTS if rel != dump],
+                                    [rel for rel in NAMES if rel not in px.ACTION_EXPORTS])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(dump, result.stderr)
+        self.assertNotIn("name=", result.stdout)
+
     def test_an_export_a_failing_test_did_not_rewrite_makes_no_pack(self):
         actions = list(px.ACTION_EXPORTS)
         settings = [rel for rel in NAMES if rel not in actions][:-1]
@@ -713,7 +739,10 @@ sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).
         self.assertLess(2700 / 60, step["timeout-minutes"])
         self.assertLess(step["timeout-minutes"], job["timeout-minutes"])
         self.assertNotIn("runs-on: macos", json.dumps(job))
-        self.assertIn("ubuntu", job["runs-on"])
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertTrue(cells, "a runs-on matrix nothing resolves, or no runs-on")
+        for cell in cells:
+            self.assertIn("ubuntu", cell)
 
     def test_the_consumer_job_cannot_fail_so_the_mac_job_always_has_its_fallback(self):
         # action-exports needs pushed-exports with no status function: a failed pushed-exports would

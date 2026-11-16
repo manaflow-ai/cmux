@@ -16,6 +16,7 @@ import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { CmuxCommand, CmuxCommandResult } from "../src/agent-session/acpmux/cmuxCommands";
 import { LONG_PRESS_MS } from "../src/agent-session/acpmux/composer/SendMenu";
 import { SEND_KEYS, sendChoiceForKey, type SendChoice } from "../src/agent-session/acpmux/composer/sendMenuModel";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -76,12 +77,8 @@ afterEach(() => {
   document.body.querySelectorAll(".ui-context-menu-backdrop").forEach((node) => node.remove());
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {

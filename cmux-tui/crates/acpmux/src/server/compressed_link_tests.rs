@@ -42,7 +42,7 @@ async fn listening_fleet(peers: usize, rows: usize) -> u16 {
         hub.peers.lock().unwrap().insert(name.clone(), peer.clone());
         let list = (0..rows).map(|i| row(p, i)).collect();
         let mut settled = peer.settled();
-        for notice in [PeerNotice::Sessions(list), PeerNotice::Connected] {
+        for notice in [PeerNotice::sessions_from_values(list), PeerNotice::Connected] {
             hub.peer_notices.send((name.clone(), peer.generation, notice)).await.unwrap();
         }
         tokio::time::timeout(Duration::from_secs(30), settled.wait_for(|n| *n >= 1))
@@ -58,7 +58,7 @@ async fn listening_fleet(peers: usize, rows: usize) -> u16 {
 }
 
 /// A server on `listener` that serves `pages` pages of `per_page` rows of its own through the
-/// listener's writer (`ws_shutdown::write`): with zlib frames when `compress` and its client
+/// listener's writer (`ws_shutdown::write_link`): with zlib frames when `compress` and its client
 /// asks, else Text only, as a server from before them (which ignores the field) does.
 async fn paging_server(
     listener: tokio::net::TcpListener,
@@ -72,8 +72,14 @@ async fn paging_server(
     let (out, outbound) = mpsc::channel::<String>(64);
     let (_stop, stopped) = tokio::sync::oneshot::channel();
     let wire = Arc::new(crate::frame_compress::Wire::default());
-    let writer =
-        super::ws_shutdown::write(sink, outbound, stopped, Default::default(), wire.clone());
+    let writer = super::ws_shutdown::write_link(
+        sink,
+        outbound,
+        None,
+        stopped,
+        Default::default(),
+        wire.clone(),
+    );
     tokio::spawn(writer);
     let page = |n: usize| {
         let rows: Vec<Value> = (0..per_page).map(|i| row(n, i)).collect();
@@ -130,7 +136,7 @@ async fn a_20k_row_list_reaches_a_peer_every_row_once_compressed_or_plain() {
                 .expect("the link connects")
                 .expect("the link stays open");
             match notice {
-                PeerNotice::Sessions(rows) => listed = Some(rows),
+                PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
                 PeerNotice::Connected => break,
                 PeerNotice::Disconnected(why) => panic!("the link dropped: {why}"),
                 _ => {}
@@ -166,7 +172,8 @@ async fn a_20k_row_list_reaches_a_peer_every_row_once_compressed_or_plain() {
 /// initialize reply says nothing of compression.
 #[tokio::test]
 async fn a_client_that_does_not_ask_gets_text_frames() {
-    let port = listening_fleet(2, 200).await;
+    // 200 rows: about 0.8 MB, so the watch list is one reply (`REPLY_PAGE_BYTES` is 1 MiB).
+    let port = listening_fleet(2, 100).await;
     for ask in [false, true] {
         let mut req = format!("ws://127.0.0.1:{port}").into_client_request().unwrap();
         req.headers_mut().insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
@@ -201,7 +208,7 @@ async fn a_client_that_does_not_ask_gets_text_frames() {
                     answered.insert(1);
                 }
                 Some(2) => {
-                    assert_eq!(reply["result"]["sessions"].as_array().unwrap().len(), 400);
+                    assert_eq!(reply["result"]["sessions"].as_array().unwrap().len(), 200);
                     answered.insert(2);
                 }
                 _ => {}

@@ -40,8 +40,10 @@ extension CEFTab: BrowserContentVisibilityReporting {
 }
 
 public extension BrowserTab {
-    /// The page can take keys: Chromium created its browser and a real document loaded (a non-Chromium page always can).
-    var pageReady: Bool { (self as? CEFTab).map { $0.browserID != nil && $0.hasDocument } ?? true }
+    /// The page can take keys: Chromium created its browser, a real document loaded, and no focus ask of it waits for its
+    /// grant (a page shown in this turn gets the keys after the turn's frame commit; a key typed before that reached no
+    /// view). A non-Chromium page always can.
+    var pageReady: Bool { (self as? CEFTab).map { $0.browserID != nil && $0.hasDocument && !$0.pendingFocus } ?? true }
     /// Chromium created the page (its address bar works; its document may still load).
     var pageCreated: Bool { (self as? CEFTab).map { $0.browserID != nil } ?? true }
 }

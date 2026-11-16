@@ -36,6 +36,7 @@ import argparse, glob, json, os, plistlib, re, socket, subprocess, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -319,7 +320,7 @@ app = subprocess.Popen([BINARY], env={
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY,
     "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", "CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS": "1"},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-print(f"app pid {app.pid}, repo {REPO}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, repo {REPO}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 180)
     check("error" not in rpc("debug.terminal.links"), "the build has debug.terminal.links")
@@ -348,8 +349,8 @@ try:
             if quiet_wait(fixture_terminal, 3):
                 break
     if not wait_for(fixture_terminal, "the new workspace's terminal", 30):
-        print(f"workspace new: {json.dumps(made)[:400]}", flush=True)
-        print(f"snapshot.get: {json.dumps(rpc('snapshot.get'))[:2500]}", flush=True)
+        safe_print(f"workspace new: {json.dumps(made)[:400]}", flush=True)
+        safe_print(f"snapshot.get: {json.dumps(rpc('snapshot.get'))[:2500]}", flush=True)
     rpc("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": TERMINAL}, "origin": "script"})
     time.sleep(2)  # test harness: the shell starts and reports its cwd
 

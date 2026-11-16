@@ -144,8 +144,9 @@ final class PaneHostView: NSView, RestingPlacement {
         guard holdsUntilAfterLanding else { return }
         guard isOnLayoutSpring else { return releaseHeldContent() }
         (holdsUntilAfterLanding, heldPin) = (false, nil)
-        // The held size, not the content's frame: with only its area held (FRAME OWNER S1) the content is already at the pane's size.
-        heldContentSize = holdsContentInMotion() ? heldContentSize ?? content.frame.size : nil
+        // The content's size now: it followed its pane in each frame of the key hold (content held whole is still at the
+        // hold's size), so the takeover lays it out once, at the structural spring's rest, never first at the key hold's start.
+        heldContentSize = holdsContentInMotion() ? content.frame.size : nil
         // The structural spring starts here without a new spring flag: held content keeps the key hold's size until that
         // spring's rest reaches it (`announceRest`), then lays out at that rest, as any spring's start does.
         heldTakesNextRest = heldContentSize != nil
@@ -413,8 +414,11 @@ final class PaneHostView: NSView, RestingPlacement {
         // A key hold and a closing pane have their own rules.
         guard heldContentSize != nil, !holdsUntilAfterLanding, !showsClosingGround else { return clipView.showHeldGround(nil) }
         // From where the content is, with its tabs (a strip at its top or bottom edge, a list at its leading edge): no
-        // backing behind the tabs, in a whole card too (Leo 2026-11-03). The clip rounds a whole card.
-        clipView.showHeldGround(content.paneGroundColor, around: content.frame, header: headerHeight, footer: footerHeight, leading: content.paneGroundLeadingInset)
+        // backing behind the tabs, in a whole card too (Leo 2026-11-03). The clip rounds a whole card. The tabs' rows
+        // are the rows above the content's area, not `headerHeight`: a chat with no strip reports a header for
+        // its ring and paints those rows itself, so a Split Right or Left left a band of the window's color that high.
+        let tabs = content.paneGroundInsets
+        clipView.showHeldGround(content.paneGroundColor, around: content.frame, header: tabs?.top ?? headerHeight, footer: footerHeight, leading: tabs?.leading ?? 0)
     }
 
     /// Tells the content (every ``PaneMotionTargeting`` view in it) how much larger its area will rest than

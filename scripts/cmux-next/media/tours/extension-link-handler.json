@@ -1,0 +1,130 @@
+{
+  "title": "Extension link handlers (cmux.opener/1)",
+  "customize": true,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Tour"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Tour workspace",
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "focus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Save an extension that handles jira.example issue links and shows the last one in its section",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && echo Ly8gQSBsaW5rIGhhbmRsZXIgbmV4dCB0byBpdHMgb3duIHNpZGViYXIgc2VjdGlvbjogQ21kLWNsaWNrIGEgamlyYS5leGFtcGxlIGlzc3VlIGxpbmsgaW4gYQovLyB0ZXJtaW5hbCBhbmQgdGhpcyBhcHAgb3BlbnMgaXQgKGNtdXgub3BlbmVyLzEpLCBpbnN0ZWFkIG9mIHRoZSBicm93c2VyLgpjb25zdCBbbGFzdCwgc2V0TGFzdF0gPSBzaWduYWwoIk5vIGxpbmsgb3BlbmVkIHlldCIpCgpmdW5jdGlvbiByZW5kZXJTZWN0aW9uKCkgewogIHJldHVybiBWU3RhY2soWwogICAgUGFuZWwoeyB0aXRsZTogIklzc3VlIGxpbmtzIiB9LCBbCiAgICAgIFRleHQoKCkgPT4gbGFzdCgpKS5mb250KCJoZWFkbGluZSIpLAogICAgICBSb3coeyB0aXRsZTogIkNtZC1jbGljayBhbiBpc3N1ZSBsaW5rIGluIGEgdGVybWluYWwiLCBzeW1ib2w6ICJsaW5rIiwgdGludDogY211eC50aGVtZS50ZXh0LnNlY29uZGFyeSB9KQogICAgXSkKICBdKQp9CgovLyBjbXV4IGNhbGxzIHRoaXMgd2l0aCB0aGUgY2xpY2tlZCBsaW5rIHdoZW4gYSBwYXR0ZXJuIGluIGNtdXgtYXBwLmpzb24gbWF0Y2hlcyBpdC4KZnVuY3Rpb24gb3BlbkxpbmsoeyB1cmwgfSkgewogIGNvbnN0IGlzc3VlID0gdXJsLnNwbGl0KCIvIikucG9wKCkKICBzZXRMYXN0KGBPcGVuZWQgJHtpc3N1ZX0gaGVyZWApCiAgY211eC50b2FzdCh7IHRpdGxlOiBgT3BlbmVkICR7aXNzdWV9IGluIG15IGxpbmsgaGFuZGxlcmAsIHRvbmU6ICJzdWNjZXNzIiB9KQp9CgpnbG9iYWxUaGlzLl9fY211eEFwcEV4cG9ydHMgPSB7IHJlbmRlclNlY3Rpb24sIG9wZW5MaW5rIH0K | base64 -d > \"$D/main.js\" && echo ewogICIkc2NoZW1hIjogImh0dHBzOi8vY211eC5kZXYvc2NoZW1hcy9jbXV4LWFwcC8yLmpzb24iLAogICJtYW5pZmVzdFZlcnNpb24iOiAyLAogICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICJuYW1lIjogIk15IHZpZXdzIiwKICAidmVyc2lvbiI6ICIxLjAuMCIsCiAgImRlc2NyaXB0aW9uIjogIk9wZW5zIGlzc3VlIGxpbmtzIGluIG15IG93biBoYW5kbGVyLiIsCiAgImVuZ2luZXMiOiB7ICJjbXV4IjogIl4yLjAiIH0sCiAgInJ1bnRpbWUiOiB7ICJtYWluIjogIm1haW4uanMiIH0sCiAgImltcGxlbWVudHMiOiB7CiAgICAiY211eC5zZWN0aW9uLzEiOiB7ICJleHBvcnQiOiAicmVuZGVyU2VjdGlvbiIsICJ0aXRsZSI6ICJJc3N1ZSBsaW5rcyIsICJzeW1ib2wiOiAibGluayIsICJvcHRpb25zIjogeyAiZGVmYXVsdFJlZ2lvbiI6ICJib3R0b20iIH0gfSwKICAgICJjbXV4Lm9wZW5lci8xIjogeyAiZXhwb3J0IjogIm9wZW5MaW5rIiwgIm9wdGlvbnMiOiB7ICJ1cmxzIjogWyJodHRwczovL2ppcmEuZXhhbXBsZS9icm93c2UvKiJdIH0gfQogIH0KfQo= | base64 -d > \"$D/cmux-app.json\" && echo saved the link handler\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "A terminal prints an issue link",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; echo \"Issue: https://jira.example/browse/ABC-1\"\r"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Cmd-click the link: the extension opens it (its section and toast), not the browser",
+      "rpc": {
+        "method": "debug.terminal.links",
+        "params": {
+          "open": "https://jira.example/browse/ABC-1"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Save the manifest with a tracker.example pattern: no relaunch",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && echo ewogICIkc2NoZW1hIjogImh0dHBzOi8vY211eC5kZXYvc2NoZW1hcy9jbXV4LWFwcC8yLmpzb24iLAogICJtYW5pZmVzdFZlcnNpb24iOiAyLAogICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICJuYW1lIjogIk15IHZpZXdzIiwKICAidmVyc2lvbiI6ICIxLjAuMSIsCiAgImRlc2NyaXB0aW9uIjogIk9wZW5zIGlzc3VlIGxpbmtzIGluIG15IG93biBoYW5kbGVyLiIsCiAgImVuZ2luZXMiOiB7ICJjbXV4IjogIl4yLjAiIH0sCiAgInJ1bnRpbWUiOiB7ICJtYWluIjogIm1haW4uanMiIH0sCiAgImltcGxlbWVudHMiOiB7CiAgICAiY211eC5zZWN0aW9uLzEiOiB7ICJleHBvcnQiOiAicmVuZGVyU2VjdGlvbiIsICJ0aXRsZSI6ICJJc3N1ZSBsaW5rcyIsICJzeW1ib2wiOiAibGluayIsICJvcHRpb25zIjogeyAiZGVmYXVsdFJlZ2lvbiI6ICJib3R0b20iIH0gfSwKICAgICJjbXV4Lm9wZW5lci8xIjogeyAiZXhwb3J0IjogIm9wZW5MaW5rIiwgIm9wdGlvbnMiOiB7ICJ1cmxzIjogWyJodHRwczovL3RyYWNrZXIuZXhhbXBsZS90LyoiXSB9IH0KICB9Cn0K | base64 -d > \"$D/cmux-app.json\" && echo saved: issue links now come from tracker.example\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "A terminal prints a tracker link",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; echo \"Ticket: https://tracker.example/t/9\"\r"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Cmd-click it: the edited pattern routes it to the extension at once",
+      "rpc": {
+        "method": "debug.terminal.links",
+        "params": {
+          "open": "https://tracker.example/t/9"
+        }
+      },
+      "wait": 3
+    }
+  ]
+}

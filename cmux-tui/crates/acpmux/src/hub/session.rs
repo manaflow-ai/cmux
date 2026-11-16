@@ -120,6 +120,9 @@ pub struct Session {
     /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
     pub(super) auto_resume: auto_resume::Pending,
     pub(super) turn_lock: Mutex<()>,
+    /// Set while `_acpmux/release_to_watch` waits to hand the chat to a terminal: a new prompt
+    /// is refused (`watch.releasing`, `release_to_watch.rs`) rather than lost.
+    pub(super) releasing: AtomicBool,
     /// Set while a prompt holds `turn_lock` for its turn (`subsession_runs.rs` `ClaimedTurn`):
     /// from the moment it takes the lock, before `start_turn` shows its turn in `turn`, until
     /// its guard drops. A prompt that comes meanwhile queues and is accepted at once
@@ -129,6 +132,36 @@ pub struct Session {
     /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
     /// free. A leaf lock, held for no await.
     pub(super) admit: StdMutex<()>,
+    /// Set under `admit` while a journal restore holds the chat (`journal_restore.rs`): a prompt
+    /// admitted meanwhile waits for `restore_done` before it takes its place, so nothing it logs
+    /// (its `queued` record, its turn) goes between the restore's check and its settle.
+    pub(super) restoring: AtomicBool,
+    pub(super) restore_done: tokio::sync::Notify,
+    /// A restore that stopped short holds this chat until the owner's next try (`journal_restore.rs`):
+    /// the number of the hold, so its lapse ends only the hold it was set for. `restoring` stays
+    /// set while it is held. Taken under `admit`; a leaf lock.
+    pub(super) restore_lease: StdMutex<Option<u64>>,
+    /// Its log was read for a journal restore with its recovery still to run (`log_load.rs`
+    /// `load_session_log_for_restore`): the restore runs it after its records, or when it is
+    /// refused or its hold lapses.
+    pub(super) recovery_pending: AtomicBool,
+    /// Records appended while a journal restore owns this chat, kept until it ends
+    /// (`restore_writer.rs`); Some from its admission. Taken under `append_lock`.
+    pub(super) parked: StdMutex<Option<Vec<super::restore_writer::Parked>>>,
+    /// Records kept while a restore owned this chat that the store refused when it ended: they
+    /// go in first, in order, at the next append (`restore_writer.rs`). Taken under
+    /// `append_lock`.
+    pub(super) unparked: StdMutex<Vec<super::restore_writer::Parked>>,
+    /// Records kept here that a drain stored in the journal before a flush of it succeeded:
+    /// every write of the kept list on disk holds them until one does, or a crash could lose a
+    /// record from both (review of #37284 at 23e76b07, F1). Taken under `append_lock`.
+    pub(super) unflushed: StdMutex<Vec<super::restore_writer::Parked>>,
+    /// The kept list an earlier run left on disk is read back (`Hub::take_back_kept`), or there
+    /// was none: until it is, the chat is not caught up and its log not read (review of #37284 at
+    /// 23e76b07, F2). Taken under `append_lock`.
+    pub(super) kept_read: AtomicBool,
+    /// The restore try whose thread writes this chat meanwhile (0: none).
+    pub(super) restore_token: AtomicU64,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
@@ -210,6 +243,10 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// What the rehydrated transcript's note tells the agent, when not the restore's own: a fork
+    /// onto another harness says it was forked from the chat (`fork.rs` `Retarget`). Taken with
+    /// `rehydrate`.
+    pub(super) rehydrate_note: StdMutex<Option<String>>,
     /// The agent's context was emptied (`/clear`, `/compact`): its next
     /// prompt is told every forum rule again (`hub/forum.rs`).
     pub(super) forum_retell: AtomicBool,
@@ -237,6 +274,9 @@ pub struct Session {
     pub(super) profile_respawn: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
+    /// True while the chat is closed: its inbound loop hands `inbound_rx` back and ends once
+    /// it closes, and the start that reopens it starts the loop again (`permissions.rs`).
+    pub(super) closed: tokio::sync::watch::Sender<bool>,
     pub(super) steering: AtomicBool,
     /// Ctrl-B moves its work: decided by the harness kind it last started as
     /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
@@ -268,10 +308,24 @@ pub struct Session {
     /// files while the directory is being removed. Shared with the audit writer, which drops an
     /// entry of this copy that reaches it after the purge, even once a new chat took the id.
     pub(super) purged: Arc<AtomicBool>,
+    /// v1's last seq of the chat that its store took, as v2's book tee saw it (`book_tee.rs`): the
+    /// hint of the chat's v1 source. Only the tee's hook raises it, after the store took the line.
+    pub(super) book_hint: Arc<AtomicU64>,
+    /// The last seq v1 found for the chat when it loaded it: a book's first open in this daemon's
+    /// life asks `holds` against it (`v1_source.rs`).
+    pub(super) found_at_start: u64,
+    /// A source of the chat's book was opened in this daemon's life (`V1Log::opened`).
+    pub(super) book_opened: Arc<AtomicBool>,
     /// Set before a purge when the same chat, brought back under this id, replaces this copy
     /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
     /// purge record says `replaced` so the app keeps what it holds for the chat too.
     pub(super) replaced: AtomicBool,
+    /// Set while a delete (`kill` with purge) runs, before it counts its stop, and kept once the
+    /// chat is gone: no agent starts for it from then on (`ensure_child`). A request that read
+    /// the stop count after the delete counted it started a new agent once the delete had taken
+    /// the old one, and that agent, its host, its record and its temporary folder outlived the
+    /// chat (`tests/session_delete_disk.rs`). Cleared when the delete fails: the chat stays.
+    pub(super) purging: AtomicBool,
     /// Set when the chat is closed (`kill`) until its agent starts again: its host may still
     /// hold its record while it ends, and it is not running (`policy_mode.rs` `follow_policy`).
     pub(super) closing: AtomicBool,
@@ -353,6 +407,13 @@ pub struct Session {
     pub(super) attached: std::sync::atomic::AtomicUsize,
     /// Of those, the ones that do not show the chat (`hub/seen.rs`).
     pub(super) hidden: std::sync::atomic::AtomicUsize,
+    /// Of the ones that show it, those whose person is not attending: idle past the client's
+    /// window, or its window not key (`_acpmux/view` `attending`, `hub/seen.rs`). They keep the
+    /// chat shown (its process, recap and presence) but see nothing: read state skips them.
+    pub(super) idle: std::sync::atomic::AtomicUsize,
+    /// The log seq right after the last turn ended (`turns.rs`): a person who stopped attending
+    /// before it did not see that turn end (`Hub::left_off`).
+    pub(super) turn_ended_seq: AtomicU64,
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
@@ -415,8 +476,17 @@ pub struct Session {
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
     pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
-    /// Other agents' messages to this chat, in threads (`inbox.rs`).
-    pub(super) inbox: StdMutex<super::inbox::Inbox>,
+    /// Other agents' messages to this chat, in threads (`inbox.rs`). Read through
+    /// [`Session::inbox`], which restores it from the log on first use: a chat's log load no
+    /// longer reads its whole inbox history ahead of its first prompt (`restore_point.rs`).
+    pub(super) inbox_state: StdMutex<super::inbox::Inbox>,
+    /// Whether [`Self::inbox_state`] holds what the log says (`Hub::restore_inbox`).
+    pub(super) inbox_loaded: AtomicBool,
+    /// Held while the inbox is restored, so it is read once.
+    pub(super) inbox_load: StdMutex<()>,
+    /// The hub that restores the inbox ([`Session::inbox`]): set once the hub has its self-weak
+    /// (a runtime-backed hub). A session without one restores its inbox with its log, as before.
+    pub(super) hub_ref: std::sync::OnceLock<std::sync::Weak<Hub>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
@@ -436,6 +506,9 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// The other sessions' messages its Claude Code holds now, oldest first
+    /// (`native_messaging.rs`): in memory only.
+    pub(super) held_messages: StdMutex<std::collections::VecDeque<Value>>,
     /// Claude Code runs a turn, from its `system/init` to its `result`: one acpmux prompted, or
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
@@ -451,6 +524,10 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// Tool calls that run `gh pr merge` or `gh pr close`, and what each settles, until they end
+    /// (`pull_requests.rs`).
+    pub(super) pr_closes:
+        StdMutex<std::collections::HashMap<String, super::pull_requests::Closing>>,
     /// Files its tool calls just edited, for the who-else notice (`touched.rs`).
     pub(super) touch_queue: StdMutex<Vec<(String, String)>>,
     /// The sessions it was told share its files, once each (`touched.rs`).
@@ -462,6 +539,24 @@ pub struct Session {
 }
 
 impl Session {
+    /// The chat's inbox, restored from its log first when its log is read and nothing has read
+    /// the inbox yet. The log load warms it in the background (`log_load.rs`); a reader that comes
+    /// first reads it here, once. Before its log is read a chat's inbox holds what came since, as
+    /// before: a reader of many chats (`turn_coming`) never reads their logs.
+    pub(super) fn inbox(&self) -> std::sync::MutexGuard<'_, super::inbox::Inbox> {
+        if !self.inbox_loaded.load(Ordering::Acquire) && self.log_loaded.load(Ordering::SeqCst) {
+            let _loading = self.inbox_load.lock().unwrap_or_else(|e| e.into_inner());
+            if !self.inbox_loaded.load(Ordering::Acquire) {
+                // No hub to read it with: its log load restored it (`Hub::load_session_log`).
+                if let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) {
+                    hub.restore_inbox(self);
+                    self.inbox_loaded.store(true, Ordering::Release);
+                }
+            }
+        }
+        self.inbox_state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// The fencing epoch currently held by this session owner.
     pub(crate) fn ownership_epoch(&self) -> u64 {
         self.ownership_epoch.load(Ordering::SeqCst)
@@ -838,19 +933,65 @@ pub fn live_tags(m: &SessionMeta) -> Value {
 /// [`short_text`] of `s` with its secrets masked first (`secret_scan`), so a
 /// secret across the cut leaves no head: the sub-session tools' prompt
 /// preview and every summary's running turn (`TurnInfo::masked_preview`).
+///
+/// Only the head the preview can show is scanned: `PREVIEW_SCAN_MARGIN` bytes past it, so any
+/// secret that starts in the shown text ends inside the scanned head (a private key cut at the
+/// head's end is masked to it, `secret_scan`'s `\z`). A Chief compactor prompt is about 3.1 MB,
+/// and scanning all of it for a 200-character line, once per turn, was most of acpmux's CPU on
+/// Leo's laptop (2026-11-15, 115 % with ~55 compactor sessions a minute).
 pub(crate) fn masked_preview(s: &str, max: usize) -> String {
-    short_text(&crate::secret_scan::mask(s), max)
+    short_text(&crate::secret_scan::mask(preview_head(s, max)), max)
 }
 
-pub(crate) fn short_text(s: &str, max: usize) -> String {
-    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    if s.chars().count() <= max {
-        s
-    } else {
-        let mut out: String = s.chars().take(max).collect();
-        out.push('…');
-        out
+/// Bytes scanned past what a preview of `max` characters can show.
+pub(crate) const PREVIEW_SCAN_MARGIN: usize = 64 * 1024;
+
+/// The head of `s` that holds its first `max` shown characters and `PREVIEW_SCAN_MARGIN` more
+/// bytes: all of `s` when it is shorter, or when whitespace runs leave too few characters in it.
+fn preview_head(s: &str, max: usize) -> &str {
+    // 4 bytes a character at most, then the margin.
+    let room = max.saturating_mul(4).saturating_add(PREVIEW_SCAN_MARGIN);
+    if s.len() <= room.saturating_mul(2) {
+        return s;
     }
+    let mut end = room.saturating_mul(2);
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    let head = &s[..end];
+    // Whitespace the preview folds away may fill the head: then nothing proves a secret shown
+    // in it ends in it, and the whole text is scanned.
+    let shown: usize = head.split_whitespace().map(str::len).sum();
+    if shown < room {
+        return s;
+    }
+    head
+}
+
+/// `s` with its whitespace runs folded to one space, cut to `max` characters (and "…"). It reads
+/// only as far as it keeps, so a long text costs no more than a short one.
+pub(crate) fn short_text(s: &str, max: usize) -> String {
+    let mut out = String::new();
+    let mut count = 0usize;
+    for (i, word) in s.split_whitespace().enumerate() {
+        if i > 0 {
+            if count == max {
+                out.push('…');
+                return out;
+            }
+            out.push(' ');
+            count += 1;
+        }
+        for c in word.chars() {
+            if count == max {
+                out.push('…');
+                return out;
+            }
+            out.push(c);
+            count += 1;
+        }
+    }
+    out
 }
 
 /// The person's text of a prompt: its text blocks, without the hidden context acpmux added
@@ -1016,9 +1157,9 @@ impl SessionStderr {
     }
 }
 
-/// A held `spawn_lock` that a list sees: taking it and letting it go each count as a change
-/// (`list_guard::Events::changed`), so a cached session list never shows a start that began or
-/// ended since it was built. A row's `starting` reads the lease; an update waits on it.
+/// A held `spawn_lock` that a list sees: taking it and letting it go each change the row
+/// (`list_guard::Events::row_changed`), told before the next list read, so a follow never misses a
+/// start that began or ended. A row's `starting` reads the lease; an update waits on it.
 pub(super) struct SpawnLease<'a> {
     guard: Option<tokio::sync::MutexGuard<'a, ()>>,
     session: &'a Session,
@@ -1027,7 +1168,7 @@ pub(super) struct SpawnLease<'a> {
 
 impl Drop for SpawnLease<'_> {
     fn drop(&mut self) {
-        // Released first, then counted: a list built after the count reads it free.
+        // Released first, then marked: a row built after the mark reads it free.
         drop(self.guard.take());
         self.events.row_changed(self.session);
     }
@@ -1039,5 +1180,69 @@ impl Hub {
         let guard = session.spawn_lock.lock().await;
         self.events.row_changed(session);
         SpawnLease { guard: Some(guard), session, events: &self.events }
+    }
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+
+    fn token() -> String {
+        // Assembled at run time, as in `secret_scan_tests.rs`.
+        let body: String = "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS".chars().cycle().take(36).collect();
+        format!("gh{}_{}", "p", body)
+    }
+
+    /// The old fold: every word joined, then cut.
+    fn folded(s: &str, max: usize) -> String {
+        let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
+        if s.chars().count() <= max {
+            s
+        } else {
+            let mut out: String = s.chars().take(max).collect();
+            out.push('…');
+            out
+        }
+    }
+
+    #[test]
+    fn short_text_reads_as_the_full_fold_did() {
+        for s in ["", " ", "a", "ab cd", "  ab \n\t cd  ", "ééé ééé", "one two three four"] {
+            for max in 0..12 {
+                assert_eq!(short_text(s, max), folded(s, max), "{s:?} at {max}");
+            }
+        }
+    }
+
+    /// A Chief compactor prompt (about 3.1 MB): its preview reads the same as masking all of it,
+    /// a secret at its head is masked, and only a head is scanned.
+    #[test]
+    fn a_long_prompts_preview_masks_its_head_only() {
+        let secret = token();
+        let long = format!("Compaction: use {secret} now\n{}", "view line\n".repeat(320_000));
+        assert!(long.len() > 3_000_000);
+        let preview = masked_preview(&long, 200);
+        assert_eq!(preview, short_text(&crate::secret_scan::mask(&long), 200));
+        assert!(!preview.contains(&secret), "{preview}");
+        assert!(preview_head(&long, 200).len() < 200 * 1024);
+        let started = std::time::Instant::now();
+        for _ in 0..10 {
+            masked_preview(&long, 200);
+        }
+        let head = started.elapsed() / 10;
+        let started = std::time::Instant::now();
+        short_text(&crate::secret_scan::mask(&long), 200);
+        let whole = started.elapsed();
+        eprintln!("masked_preview of {} bytes: head {head:?}, whole {whole:?}", long.len());
+    }
+
+    /// Whitespace the preview folds away cannot hide a secret past the head: the whole text is
+    /// scanned then.
+    #[test]
+    fn a_head_of_whitespace_scans_the_whole_text() {
+        let secret = token();
+        let long = format!("a{}{secret} b", " ".repeat(400_000));
+        assert_eq!(preview_head(&long, 200).len(), long.len());
+        assert!(!masked_preview(&long, 200).contains(&secret));
     }
 }

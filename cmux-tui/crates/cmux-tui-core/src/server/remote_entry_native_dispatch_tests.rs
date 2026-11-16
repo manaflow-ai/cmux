@@ -396,6 +396,10 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-list",
     "apps-logs",
     "apps-mount",
+    "apps-open-link",
+    // A web pane's call goes through the local page host's bridge (its app's grant, its page key):
+    // a remote owner link hosts no page, so the carrier does not take it.
+    "apps-page-call",
     // The provider's change notice is the verified local app's, as its register and its result:
     // a Remote connection ends at `apps.local` (server/apps.rs), so the carrier does not take it.
     "apps-provider-changed",
@@ -408,6 +412,10 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-terminal-links",
     "apps-unmount",
     "browser-host-provider",
+    // The app sends input by the id of a creating terminal only to its local daemon
+    // (`queuesCreatingInput`), so no owner link has such input to cancel: default deny
+    // (`native_terminal_cannot_cancel_creating_input`).
+    "cancel-creating-input",
     "client-hello",
     "close-screen",
     "close-screen-group",
@@ -501,6 +509,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "set-terminal-keep",
     "set-workspace-metadata",
     "shutdown-daemon",
+    "terminal-command-context",
     "terminal-last-command",
     "terminal-resources",
     "terminal-resume-command",

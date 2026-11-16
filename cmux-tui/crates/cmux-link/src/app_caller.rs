@@ -63,6 +63,16 @@ pub fn peer_token(fd: std::os::fd::RawFd) -> Option<PeerToken> {
     }
 }
 
+/// The file this process runs, symbolic links resolved (the canonical `current_exe`). Read the
+/// app bundle a binary belongs to from this, never from `current_exe` alone, which on macOS keeps
+/// the link the process was started by: a daemon launchd starts as `~/.local/bin/acpmux`, a link
+/// into `cmux NIGHTLY.app/Contents/Resources/bin`, read itself as outside any app and refused
+/// every `person_enroll` ("this binary is not inside an app bundle", Leo, 2026-11-12).
+pub fn own_executable() -> Result<std::path::PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
+    std::fs::canonicalize(&exe).map_err(|error| format!("canonicalize {}: {error}", exe.display()))
+}
+
 /// The executable of the process `token` names, read by the token itself
 /// (`proc_pidpath_audittoken`): the kernel answers only while the pid still
 /// has the token's pid version, so a process that reused the pid, or one

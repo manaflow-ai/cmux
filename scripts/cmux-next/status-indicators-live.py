@@ -26,6 +26,7 @@ Exit 1 on any failed check. Every process of this job's own app copy is ended on
   nx-remote --class light -- python3 scripts/cmux-next/status-indicators-live.py --job <id> --tag <tag>
 """
 import argparse, base64, glob, json, os, plistlib, re, shutil, signal, socket, subprocess, sys, time
+import tempfile
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--job", required=True)
@@ -258,7 +259,7 @@ class Run:
         self.failures, self.notes, self.evidence = [], [], {"set": icon_set, "checks": {}}
         self.config = os.path.join(self.dir, "cmux.json")
         self.acp_home = os.path.join(self.dir, "acpmux-home")
-        self.acp_socket = f"/tmp/kxa2-acp-{os.getpid()}-{icon_set}.sock"
+        self.acp_socket = os.path.join(tempfile.mkdtemp(prefix="kxa2-", dir="/tmp"), f"acp-{icon_set}.sock")  # a mkdtemp dir: a guessable /tmp name could be planted by another account
         self.xdg = os.path.join(self.dir, "xdg")
         self.app = None
         self.terms = {}

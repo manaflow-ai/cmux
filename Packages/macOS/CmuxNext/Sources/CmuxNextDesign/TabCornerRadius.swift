@@ -58,14 +58,24 @@ extension Metrics {
     /// pixel grid.
     public static var tabStripCardInset: CGFloat { PaneChromeMetrics.current.tabGap(scale: 2) }
 
-    /// Corner radius of every tab pill, the strip's + and a tab's hover card: concentric with
-    /// the rounded card the strip sits in (``tabStripCardRadius``, else the one outer
-    /// ``cornerRadius`` where the strip's corner is square or outlined), that radius less
-    /// ``tabStripCardInset`` (``ConcentricCorners``), at most half the tab's height. The
-    /// defaults (8 pt outer, the omnibar's, 2 pt gap) make a 6 pt tab. The sidebar's workspace
-    /// rows read this radius too, so a row is as round as a tab.
+    /// Corner radius of every tab pill, the strip's + and a tab's hover card: Chrome's tab radius
+    /// on the tab's height (``chromeRowCornerRadius(height:)``; Lawrence 2026-11-11, "same roundness
+    /// as chrome"), whose card rounds from it (``chromeRowConcentricCardRadius(windowCornerRadius:)``),
+    /// so the pill stays concentric with it; the flush corner's strip sits on the frame, above its card.
+    /// With a radius the person set, Floating Panes (``usesChromeRowCorner`` false) or a card that does
+    /// not round from the tabs (no gutter), concentric with the rounded card the strip sits in
+    /// (``tabStripCardRadius``, else the one outer ``cornerRadius`` where the strip's corner is square
+    /// or outlined): that radius less ``tabStripCardInset`` (``ConcentricCorners``). At most half the
+    /// tab's height. The sidebar's workspace rows and the omnibar read this radius too, so a row and
+    /// the bar are as round as a tab.
     public static var tabCornerRadius: CGFloat {
         let corners = Metrics.corners
+        // Chrome's ratio at every density, whether or not the card rounds from the tabs (Lucas 2026-11-13: the same
+        // roundness, in proportion, at every density; a large density's card capped at the window's radius made the
+        // tabs and rows fall back to the card's nested corner, flatter than the ratio).
+        if usesChromeRowCorner {
+            return corners.radius(fitting: CGSize(width: tabHeight, height: tabHeight), radius: chromeRowCornerRadius(height: tabHeight))
+        }
         let outer = tabStripCardRadius ?? corners.outer
         return corners.radius(fitting: CGSize(width: tabHeight, height: tabHeight),
                               radius: corners.nested(in: outer, inset: tabStripCardInset))

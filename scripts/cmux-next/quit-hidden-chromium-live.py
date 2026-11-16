@@ -127,6 +127,7 @@ import argparse, datetime, glob, http.server, json, os, plistlib, re, shutil, so
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the tagged cmux DEV .app")
@@ -344,7 +345,7 @@ def end_tag():
     """TagTeardown, then this tag's terminal hosts whose daemon is gone. They run as `cmux-tui
     __terminal-host --owner <bundle id>:<tag>@<daemon pid>` (argv[0] is not the bundle path, so
     TagTeardown does not see them) and outlived the forced session shutdown on a capture mini."""
-    TagTeardown(APP, log=lambda line: print("  " + line, flush=True)).end()
+    TagTeardown(APP, log=lambda line: safe_print("  " + line, flush=True)).end()
     out = subprocess.run(["ps", "-A", "-o", "pid=,command="], capture_output=True, text=True).stdout
     owner = re.compile(r"__terminal-host .*--owner %s:%s@(\d+)" % (re.escape(BUNDLE_ID), re.escape(TAG)))
     orphans = [int(line.split(None, 1)[0]) for line in out.splitlines()
@@ -355,7 +356,7 @@ def end_tag():
         except ProcessLookupError:
             pass
     if orphans:
-        print(f"  teardown: stopped {len(orphans)} orphaned terminal hosts of {TAG}", flush=True)
+        safe_print(f"  teardown: stopped {len(orphans)} orphaned terminal hosts of {TAG}", flush=True)
 
 
 def unified_log(start, predicate, seconds=30):
@@ -1058,7 +1059,7 @@ def one_run(index):
         wipe_state()  # a first launch: nothing restored, Chromium never used
     app_log = os.path.join(run.dir, "app.log")
     reports_before = set(glob.glob(os.path.join(REPORTS, "*.ips")))
-    print(f"run {index}: launching {os.path.basename(APP)} ({BUNDLE_ID})", flush=True)
+    safe_print(f"run {index}: launching {os.path.basename(APP)} ({BUNDLE_ID})", flush=True)
     extra = []
     if opts.case == "windowless":
         # Its own cmux-next.json, which the default-engine switch writes (never the account's file).

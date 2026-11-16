@@ -106,22 +106,33 @@ impl App {
             }
             let (mut action, drained_host_input) = self.drain_host_input_batch(256)?;
             // Block for the first event, then drain whatever queued so a
-            // torrent of pty output coalesces into one frame.
+            // torrent of pty output coalesces into one frame. Idle, the wait
+            // ends at the earliest timed work, or only at an event.
+            let now = Instant::now();
             let timeout = if drained_host_input > 0 {
-                Duration::ZERO
+                Some(Duration::ZERO)
             } else if self.viewport_animation_active() {
-                Duration::from_millis(16)
+                Some(Duration::from_millis(16))
             } else if self.shake_frames > 0
                 || self.selection_auto_scroll_active()
                 || self.toast.is_some()
             {
-                Duration::from_millis(30)
+                Some(Duration::from_millis(30))
             } else {
-                Duration::from_millis(250)
+                self.idle_wait(now)
             };
-            let timeout = terminal_paints.wait_timeout(timeout, Instant::now());
+            let timeout = terminal_paints.wait_timeout(timeout, now);
+            // A pane holding a synchronized update is drawn live at the
+            // hold's end even when no output comes (synchronized_output.rs);
+            // with no hold the wait is unchanged, so an idle loop still
+            // blocks until an event.
+            let timeout = self.synchronized_output.cap_wait(timeout, now);
             let mut toast_expired_on_timeout = false;
-            let first = match rx.recv_timeout(timeout) {
+            let received = match timeout {
+                Some(timeout) => rx.recv_timeout(timeout),
+                None => rx.recv().map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected),
+            };
+            let first = match received {
                 Ok(event) => Some(event),
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                     if self.shake_frames > 0 {
@@ -134,8 +145,8 @@ impl App {
                         toast_expired_on_timeout = true;
                         action = action.merge(RenderAction::Draw);
                     }
-                    if self.tick_sidebar_files() {
-                        action = action.merge(RenderAction::Draw);
+                    if self.synchronized_output.release_expired(Instant::now()) {
+                        action = action.merge(RenderAction::Paint);
                     }
                     None
                 }
@@ -167,10 +178,15 @@ impl App {
                     Err(_) => break,
                 }
             }
-            // Every loop turn (at least each idle wait): the sidebar
-            // document's fallback read; a changed document arrives as
-            // tree-changed.
+            // Every loop turn: the sidebar document's fallback read (a
+            // changed document arrives as tree-changed) and the file
+            // sidebar's refresh, each gated by its own interval. Not only
+            // after a timeout: events that keep arriving before the idle
+            // wait ends must not hold them back.
             self.session.tick_sidebar_doc();
+            if self.tick_sidebar_files() {
+                action = action.merge(RenderAction::Draw);
+            }
             action = action.merge(self.apply_graphics_completion());
             action = action.merge(self.process_machine_requests());
             // Always drain retained failures. PtyFailuresReady only shortens

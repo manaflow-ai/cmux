@@ -85,6 +85,7 @@ enum DebugHome {
         for tab in tabs where tab.kind == .conversation {
             guard let id = tab.snapshot.conversation?.conversation, case .object(var row)? = names[id] ?? .object([:]) else { continue }
             row["tab"] = .string(home.tabTitle(for: tab))
+            if let view = home.existingTabView(tab.id) { row["header"] = view.transcript.headerTitle.map { .string($0) } ?? .null }
             names[id] = .object(row)
         }
         return .object(names)

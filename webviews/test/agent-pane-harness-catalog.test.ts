@@ -12,6 +12,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -391,7 +392,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     }
   });
 
-  test("first-run Start Chat waits for a revealed video read before sending the draft", async () => {
+  test("first-run Start Chat sends a revealed video as its path without waiting for its read", async () => {
     const page = await firstRunPage();
     try {
       await preparePendingVideo(page, true);
@@ -411,15 +412,12 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       });
       await claude.locator(".acpmux-harness-action").click();
 
-      // Setup hides and then reveals the New Tab Activity. The first video.info is interrupted;
-      // the second is the read that the resumed Start Chat must wait for.
-      await page.waitForFunction(() => (window as unknown as FirstRunWindow).firstRunVideoCalls?.length === 2);
-      expect(await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls)).toEqual([]);
-      await page.evaluate(() => (window as unknown as FirstRunWindow).finishFirstRunVideo());
+      // A video goes as its path (Leo, 2026-11-11: "if you're literally just pointing to a file path,
+      // why would it ever take time to load anything anyways?"): the resumed Start Chat sends while
+      // the host's video.info is still out, never held for it.
       await page.waitForFunction(() =>
         (window as unknown as FirstRunWindow).firstRunChatCalls.some((call) => call.method === "chat.send"),
       );
-
       const calls = await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls);
       expect(calls.map((call) => call.method)).toEqual(["chat.new", "chat.send"]);
       expect(calls[0]!.params).toEqual({ harness: "claude", noProject: true });
@@ -435,7 +433,6 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
             name: "first-chat.mov",
             mimeType: "video/quicktime",
             path: VIDEO_PATH,
-            video: expect.objectContaining({ durationMs: 42_400, width: 1_920, height: 1_080 }),
           }),
         ],
       });
@@ -517,7 +514,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     // started-chat harness switch is enabled so this chat offers the harness rail and its action.
     // Cmd-Ctrl-M and the model button open this same compact picker.
     await page.evaluate(() => window.cmuxAcpmuxComposer?.({ harnessSwitch: true }));
-    await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
+    await page.locator(MODEL_PICKER).waitFor();
     await page.keyboard.press("Meta+Control+m");
     // The rail makes it the columns menu; Add harness… ends its rail.
     const menu = page.locator(COMPACT_MODEL_MENU).first();

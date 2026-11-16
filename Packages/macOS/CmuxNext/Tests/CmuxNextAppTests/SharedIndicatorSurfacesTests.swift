@@ -100,4 +100,17 @@ struct SharedIndicatorSurfacesTests {
         #expect(young.commandRecheck == 1)
         #expect(shown(young, infer: true, after: 1) == .busy(progress: nil))
     }
+
+    @Test func homesAgentRowsShowTheirStateInTheIndicator() throws {
+        let home = HomeFirstRunView(frame: .zero)
+        home.setAgents([
+            HomeAgentGlance(id: "a", title: "claude", icon: .agentChat, status: .working),
+            HomeAgentGlance(id: "b", title: "codex", icon: .agentChat, status: .needsYou),
+            HomeAgentGlance(id: "c", title: "amp", icon: .agentChat, status: .idle),
+        ])
+        let rows = Dictionary(uniqueKeysWithValues: home.agentRows.map { ($0.title, $0) })
+        #expect(try shown(#require(rows["codex"])) == .waiting(kind: nil))
+        #expect(try shown(#require(rows["claude"])) == .working(progress: nil))
+        #expect(try shown(#require(rows["amp"])) == nil)
+    }
 }

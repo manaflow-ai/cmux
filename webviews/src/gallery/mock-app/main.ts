@@ -17,7 +17,8 @@ import entryIndex from "virtual:cmux-gallery/entry-index";
 import { overPicture, readEnv } from "../env";
 import { DEFAULT_DARK_THEME } from "../theme/ghostty";
 import { themeTokens } from "../theme/web";
-import { css, mixed, withAlpha, wallpaperTintOpacity, type ThemeTokens } from "../theme/tokens";
+import { css, mixed, type ThemeTokens } from "../theme/tokens";
+import { chromeFills } from "./chrome";
 import { fitScale, windowGeometry, windowSize, type PaneLayout, type WindowGeometry } from "../window";
 import { appAxis, paneFrameQuery, parseFixture } from "./axes";
 import { createFrameEntryStore } from "../registry";
@@ -38,10 +39,11 @@ const tokens = themeTokens(theme, env.accent);
 /** The chrome's colors from the theme's tokens, as the native window derives them. */
 function applyTokens(target: HTMLElement, t: ThemeTokens): void {
   const set = (name: string, value: string) => target.style.setProperty(name, value);
-  const glass = overPicture(env);
-  set("--app-window", glass ? css(withAlpha(t.windowBackground, wallpaperTintOpacity(t))) : css(t.windowBackground));
-  set("--app-sidebar", glass ? "transparent" : css(t.sidebarBackground));
-  set("--app-strip", glass ? "transparent" : css(t.stripBackground));
+  // chrome.ts: the fills test/chrome-layer-colors.test.ts holds to the native window's recorded colours.
+  const fills = chromeFills(t, overPicture(env));
+  set("--app-window", css(fills.window));
+  set("--app-sidebar", fills.sidebar ? css(fills.sidebar) : "transparent");
+  set("--app-strip", fills.strip ? css(fills.strip) : "transparent");
   set("--app-content", css(t.contentBackground));
   set("--app-text", css(t.textPrimary));
   set("--app-text-2", css(t.textSecondary));

@@ -88,8 +88,8 @@ struct ChiefPanelWindowTests {
         #expect(f.shown == ["k1"], "shown \(f.shown): Home stayed on screen")
         let host = f.controller.root.contentHost.bounds
         #expect(f.controller.content?.contentView.frame == host, "the workspace does not fill the content area under the Chief")
-        let panel = try #require(Self.panelFrame(f))
-        #expect(host.contains(panel), "the panel is off the content area: \(panel) in \(host)")
+        let panelView = try #require(f.controller.chiefPanelView)
+        #expect(panelView.window === panelView.launcher && panelView.launcher?.isVisible == true, "the Chief does not float in its own window")
         #expect(f.controller.chiefPanelView?.chief === chief, "the panel does not hold the Chief's view")
         #expect(chief.isDescendant(of: try #require(f.controller.chiefPanelView)))
         state.expectKept(in: chief, "after the link")
@@ -256,13 +256,15 @@ struct ChiefPanelWindowTests {
         let leftPane = f.services.workspace(id: "k1")?.screens.first?.panes.first?.id
         #expect(f.controller.content?.focus.state.pane == leftPane, "the move out did not land in the pane next to the Chief")
 
-        #expect(f.controller.floatChiefPanel()) // floating at the right of the content area
+        #expect(f.controller.floatChiefPanel()) // in its own window, on one side of the cmux window's middle
         f.frame()
-        move("focusRight")
-        move("focusRight")
+        let launcher = try #require(f.controller.chiefPanelView?.launcher), window = try #require(f.controller.window)
+        let (toward, back): (ActionID, ActionID) = launcher.frame.midX >= window.frame.midX ? ("focusRight", "focusLeft") : ("focusLeft", "focusRight")
+        move(toward)
+        move(toward)
         f.frame()
-        #expect(f.controller.frameChiefPanelHasKeys, "a move right off the stage did not reach the floating Chief on the right")
-        move("focusLeft")
+        #expect(f.controller.frameChiefPanelHasKeys, "a move off the stage toward the floating Chief did not reach it")
+        move(back)
         f.frame()
         #expect(!f.controller.frameChiefPanelHasKeys, "a move from the floating Chief did not go back to the stage")
     }
@@ -277,18 +279,15 @@ struct ChiefPanelWindowTests {
         f.services.windows.show(workspaceID: "k1", in: f.state)
         f.frame()
         let view = try #require(f.controller.chiefPanelView)
-        view.style = .panel // a style that never rests as a bar, so its frame is its place
-        let moved = NSRect(x: 40, y: 60, width: 360, height: 300)
-        let size = try #require(view.superview).bounds.size
-        // The panel keeps its place as a share of the window (`ChiefPanelFrame`, y down); the drop is in its host's points, y up.
-        view.actions.moved(.fitting(CGRect(x: moved.minX, y: size.height - moved.maxY, width: moved.width, height: moved.height), in: size))
-        f.frame()
-        #expect(Self.near(view.frame, moved), "the panel did not stay where it was dropped: \(view.frame)")
+        let launcher = try #require(view.launcher)
+        try ChiefPanelStyleWindowTests.drag(view, by: CGVector(dx: -120, dy: -60), in: f)
+        // Where it was left, kept on the screen when it comes back (a small screen pushes a drag past its edge).
+        let moved = ChiefLauncherPanel.placement(saved: launcher.frame, in: try #require(launcher.screen?.visibleFrame))
         f.controller.dockChiefPanel(at: .right)
         f.frame()
         #expect(f.controller.floatChiefPanel())
         f.frame()
-        #expect(Self.near(view.frame, moved), "a dock and float lost the floating place: \(view.frame)")
+        #expect(launcher.frame == moved, "a dock and float lost the floating place: \(moved) -> \(launcher.frame)")
         let saved = try #require(f.state.chiefPanel.record)
         let data = try JSONEncoder().encode(saved)
         let restored = ChiefPanel(record: try JSONDecoder().decode(WindowChiefPanelRecord.self, from: data))
@@ -297,16 +296,16 @@ struct ChiefPanelWindowTests {
         #expect(restored == hidden, "the window record does not bring the panel back where it was")
         #expect(!restored.isOpen, "a relaunch shows the Chief (cmux#37365: never pinned at launch)")
 
-        try #require(f.controller.window?.makeFirstResponder(state.draft) == true)
+        try #require(launcher.makeFirstResponder(state.draft))
         let esc = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                                windowNumber: f.controller.window?.windowNumber ?? 0, context: nil,
+                                                windowNumber: launcher.windowNumber, context: nil,
                                                 characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
         #expect(view.performKeyEquivalent(with: esc), "Esc did not reach the floating Chief")
         f.frame()
         #expect(!f.controller.frameChiefPanelShown, "Esc did not hide the floating Chief")
         f.controller.toggleChiefPanel()
         f.frame()
-        #expect(view.frame == moved, "the panel did not reopen where it was: \(view.frame)")
+        #expect(launcher.frame == moved, "the window did not reopen where it was: \(launcher.frame)")
         state.expectKept(in: chief, "after Esc and reopening")
     }
 
@@ -378,9 +377,9 @@ struct ChiefPanelWindowTests {
         f.frame()
         let view = try #require(f.controller.chiefPanelView)
         try #require(f.controller.frameChiefPanelShown)
-        try #require(f.controller.window?.makeFirstResponder(answering.box) == true)
+        try #require(view.window?.makeFirstResponder(answering.box) == true)
         let esc = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                                windowNumber: f.controller.window?.windowNumber ?? 0, context: nil,
+                                                windowNumber: view.window?.windowNumber ?? 0, context: nil,
                                                 characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
         #expect(view.performKeyEquivalent(with: esc), "Esc did not reach the panel")
         f.frame()

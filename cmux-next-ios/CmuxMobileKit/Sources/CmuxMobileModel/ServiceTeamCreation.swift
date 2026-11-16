@@ -71,4 +71,12 @@ public enum TeamCreationRoute: Equatable, Sendable {
             self = .unavailable
         }
     }
+
+    /// The cmux web origin for App Store plans (`<origin>/api/billing/apple/*`):
+    /// the same production-account origin as the team API, since cmux.com
+    /// accepts only production Stack sessions. Nil for every other build.
+    public var billingOrigin: URL? {
+        if case .teamAPI(let origin) = self { return origin }
+        return nil
+    }
 }

@@ -3,7 +3,7 @@
 // bc the alignment/whatever around the rest of the hat when you look at the symbol and size/whatnot of
 // it it just feels iffy how it's close the the number but idk if it should be so close"). The check is a
 // status mark in the lines' Stop column: the Stop square's size, centred on the digits, one tray gap
-// after the time's column, on a running, a finished and a failed line alike, and on the folded header
+// after the time's column, on a running, a finished and a stopped line alike (a failed one leaves the hat), and on the folded header
 // of a lone finished item, where it sat 4px after its time, off the lines' columns. Gallery
 // `agent-pane.composer-hat-done-check` (rows, lone). Prints each glyph's measurements as MEASURE lines.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -69,8 +69,17 @@ await requireBrowserLane("composer-hat-done-check.test.ts", async () => {
       return { right: text.right, left: text.left, baseline, cap, center: baseline - cap / 2 };
     };
     const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
-    const css = getComputedStyle(tray);
-    const px = (name: string) => parseFloat(css.getPropertyValue(name));
+    // A token can be a calc() on the density (composerLocation.css), which a custom property's computed
+    // value keeps as text: a probe's width resolves it to px.
+    const px = (name: string) => {
+      if (!getComputedStyle(tray).getPropertyValue(name).trim()) return Number.NaN;
+      const probe = document.createElement("div");
+      probe.style.cssText = `position:absolute;visibility:hidden;width:var(${name})`;
+      tray.append(probe);
+      const width = probe.getBoundingClientRect().width;
+      probe.remove();
+      return width;
+    };
     const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head");
     const headTime = head?.querySelector<HTMLElement>(".acpmux-running-tray__time[data-lone] .acpmux-done-mark__time");
     const rows = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")].map((line) => {
@@ -169,11 +178,11 @@ await requireBrowserLane("composer-hat-done-check.test.ts", async () => {
             console.log(`MEASURE rows ${name} ${JSON.stringify(m)}`);
             const running = m.rows.find((row) => row.status === "running");
             const done = m.rows.find((row) => row.status === "done");
-            const failed = m.rows.find((row) => row.status === "failed");
-            if (!running?.stop || !done?.check || !failed)
-              throw new Error("a running line with Stop, a done line with its check and a failed line");
+            const stopped = m.rows.find((row) => row.status === "stopped");
+            if (!running?.stop || !done?.check || !stopped)
+              throw new Error("a running line with Stop, a done line with its check and a stopped line");
             // One column across every line: its Stop track, its time's right edge.
-            for (const row of [running, done, failed]) {
+            for (const row of [running, done, stopped]) {
               within(row.stopTrack.left, running.stopTrack.left, `${row.status} Stop column left`);
               within(row.stopTrack.right, running.stopTrack.right, `${row.status} Stop column right`);
               within(row.time!.right, running.time!.right, `${row.status} time right`);

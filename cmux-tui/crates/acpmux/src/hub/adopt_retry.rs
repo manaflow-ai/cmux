@@ -77,9 +77,9 @@ mod tests {
     /// waiting on it, goes on. Before, the release pass had no budget and waited forever.
     #[tokio::test(start_paused = true)]
     async fn the_start_pass_gives_up_on_a_host_that_never_answers_hello() {
-        let dir = std::env::temp_dir().join(format!("acpmux-hello-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let socket = dir.join("host.sock");
+        // Short, so the socket stays under SUN_LEN (104 bytes on macOS) under a long TMPDIR.
+        let dir = cmux_unix_socket::short_test_dir("acpmux-h");
+        let socket = dir.path().join("host.sock");
         let listener = tokio::net::UnixListener::bind(&socket).unwrap();
         // Accepts and keeps every connection, never reads one.
         let wedged = tokio::spawn(async move {
@@ -110,6 +110,5 @@ mod tests {
         let budget = agent_host::link::START_HELLO_BUDGET;
         assert!(waited >= budget && waited < budget * 2, "waited {waited:?}");
         wedged.abort();
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

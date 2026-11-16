@@ -3,11 +3,14 @@
 // Leo, 2026-11-08 (ask-157340f908): "if you're not at the bottom, it goes, like, there's a little
 // animation where it appears to jump over your composer and then tuck under it ... it kind of, like,
 // waterfalls over the composer if you think of the composer as a bar, that they go, like, over and
-// then under behind." A prompt sent while the transcript is scrolled up: the composer is empty from
-// the first frame, and a small copy of what was sent (its text as a pill, its chips' thumbnails)
-// rises from the composer over its top edge and drops behind the bar, on the send clock
-// (conversation/sendTuck.ts). Sent from the latest row, or with motion off, nothing tucks: the
-// composer just clears. Every frame from the send is read in the agent pane's dev entry.
+// then under behind." Then Leo, 2026-11-11: "that slow settle animation is just so bad. Like, just do
+// it." The scale's send step is 0 (MOTION_SEND_MS), so a prompt sent while the transcript is scrolled
+// up tucks nothing: the composer is empty from the first frame and, riding to the latest row (the
+// default), the view cuts there with the prompt in place. The tuck (conversation/sendTuck.ts: a small
+// copy rises from the composer over its top edge and drops behind the bar) plays only for a page
+// that sets `--agent-motion-send` itself (a gallery), read here on that clock. Sent from the latest
+// row, or with motion off, nothing tucks either. Every frame from the send is read in the agent
+// pane's dev entry.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/agent-pane-send-tuck.test.ts
@@ -17,6 +20,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { MOTION_SEND_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 type Box = { left: number; top: number; width: number; height: number };
 /// One frame from the send: the time since the send's key went down, what the composer still holds,
@@ -63,7 +67,7 @@ await requireBrowserLane("agent-pane-send-tuck.test.ts", async () => {
   });
 
   const port = () => (pane!.httpServer!.address() as { port: number }).port;
-  const prompt = (page: Page) => page.locator('.acpmux-composer-prompt [contenteditable="true"]');
+  const prompt = (page: Page) => page.locator(COMPOSER_EDITOR);
 
   /// The agent pane's dev entry with its in-page mock agent, three exchanges in, so the chat overflows.
   const openChat = async (page: Page) => {
@@ -118,20 +122,23 @@ await requireBrowserLane("agent-pane-send-tuck.test.ts", async () => {
   /// A screenshot pasted into the composer beside typed text, ready to send.
   const fillComposer = async (page: Page) => {
     await prompt(page).click();
-    await page.evaluate(async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 800;
-      canvas.height = 500;
-      const context = canvas.getContext("2d")!;
-      context.fillStyle = "#3a7bd5";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-      const data = new DataTransfer();
-      data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
-      document
-        .querySelector('.acpmux-composer-prompt [contenteditable="true"]')!
-        .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
+    await page.evaluate(
+      async ({ COMPOSER_EDITOR }) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 800;
+        canvas.height = 500;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = "#3a7bd5";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        const data = new DataTransfer();
+        data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
+        document
+          .querySelector(COMPOSER_EDITOR)!
+          .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { COMPOSER_EDITOR },
+    );
     await page.waitForFunction(() => {
       const image = document.querySelector<HTMLImageElement>(".acpmux-composer .acpmux-attachment img");
       return !!image && image.complete && image.naturalWidth > 0;
@@ -234,6 +241,13 @@ await requireBrowserLane("agent-pane-send-tuck.test.ts", async () => {
       settings.setScrollToBottomOnSend(rides);
     }, rides);
 
+  /// The tuck's clock for a page that sets the send token itself, as a gallery does: the product's
+  /// step is 0 and draws no tuck (sendTuck.ts plays only on a clock above 0).
+  const galleryClock = (page: Page) =>
+    page.addStyleTag({
+      content: ":root { --agent-motion-send: 180ms !important; --agent-motion-send-fade: 180ms !important; }",
+    });
+
   /// The composer is empty from the first frame after the send, and stays so.
   const expectCleared = (frames: Frame[], label: string) => {
     expect(frames.length, `${label}: no frame was read`).toBeGreaterThan(5);
@@ -275,10 +289,11 @@ await requireBrowserLane("agent-pane-send-tuck.test.ts", async () => {
       expect(frame.ghosts, `${label}: a copy came back at ${frame.at} ms`).toBe(0);
   };
 
-  test("scrolled up, the view kept: the sent prompt waterfalls over the composer and tucks behind it", async () => {
+  test("on a gallery's send clock, scrolled up, the view kept: the sent prompt waterfalls over the composer and tucks behind it", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
     try {
       await openChat(page);
+      await galleryClock(page);
       await setRide(page, false);
       await scrollUp(page);
       await fillComposer(page);
@@ -300,16 +315,26 @@ await requireBrowserLane("agent-pane-send-tuck.test.ts", async () => {
     }
   });
 
-  test("scrolled up, the view riding to the latest row (the default): the prompt tucks all the same", async () => {
+  test("scrolled up, the view riding to the latest row (the default): nothing tucks, the view cuts to the prompt in place", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
     try {
       await openChat(page);
       await scrollUp(page);
       await fillComposer(page);
-      const clock = await sendClock(page);
+      expect(await sendClock(page), "the product's send clock is the scale's send step").toBe(MOTION_SEND_MS);
+      expect(MOTION_SEND_MS, "the scale's send step").toBe(0);
       await watchSend(page);
       await page.keyboard.press("Enter");
-      expectTuck(await sendFrames(page), clock, "riding view");
+      const frames = await sendFrames(page);
+      expectCleared(frames, "riding view");
+      for (const frame of frames) expect(frame.ghosts, `a copy at ${frame.at} ms`).toBe(0);
+      // The ride is a cut: the sent prompt shows above the composer in the send's first frame or the
+      // next, and stays.
+      const there = frames.findIndex((frame) => frame.shown);
+      expect(there, "the view never came to the sent prompt").toBeGreaterThanOrEqual(0);
+      expect(there, "the view is at the sent prompt by the send's first frame or the next").toBeLessThanOrEqual(1);
+      for (const frame of frames.slice(there))
+        expect(frame.shown, `the sent prompt shows in the transcript at ${frame.at} ms`).toBe(true);
     } finally {
       await page.close();
     }

@@ -13,16 +13,28 @@ mkdir -p "$FIXTURE_REPO/scripts" "$FIXTURE_REPO/cmux-tui/build-support/notices/t
 cp "$ROOT_DIR/scripts/install-zig-ci.sh" "$ROOT_DIR/scripts/ghostty-zig-version.sh" "$FIXTURE_REPO/scripts/"
 printf '{"zig": [{"ci_version": "99.99.99"}]}\n' > "$FIXTURE_REPO/cmux-tui/build-support/notices/toolchains/toolchains.json"
 SCRIPT="$FIXTURE_REPO/scripts/install-zig-ci.sh"
-DEFAULT_INSTALL_ROOT=""
+# The installer's shared temp root is /tmp (its fallback install root, and the shared extraction folder it
+# must not touch). The copy runs with every /tmp path moved to a simulated shared folder (sticky and
+# world-writable, like /tmp), so this test never makes or deletes a fixed name in the real /tmp, where it
+# could hit another user's files or a concurrent job's install.
+SHARED_TMP="$TMP_DIR/shared-tmp"
+mkdir -p "$SHARED_TMP"
+chmod 1777 "$SHARED_TMP"
+grep -Fq '/tmp/cmux-zig-ci' "$SCRIPT" || { echo "FAIL: the Zig installer no longer falls back to its cmux-zig-ci folder in /tmp" >&2; exit 1; }
+python3 - "$SCRIPT" "$SHARED_TMP" <<'PY'
+import re, sys
+path, root = sys.argv[1:]
+with open(path) as handle:
+    text = handle.read()
+moved = re.sub(r"""(?<![\w.$/])/tmp(?=[/"'}\s]|$)""", lambda _: root, text, flags=re.M)
+if moved == text:
+    sys.exit("install-zig-ci.sh names no /tmp path to move")
+with open(path, "w") as handle:
+    handle.write(moved)
+PY
 
 cleanup() {
   rm -rf "$TMP_DIR"
-  if [ -n "$DEFAULT_INSTALL_ROOT" ]; then
-    rm -rf "$DEFAULT_INSTALL_ROOT"
-  fi
-  if [ -n "${SHARED_TMP_ZIG_DIR:-}" ]; then
-    rm -rf "$SHARED_TMP_ZIG_DIR"
-  fi
 }
 trap cleanup EXIT
 
@@ -63,8 +75,8 @@ esac
 FIXTURE_ROOT="$TMP_DIR/fixture"
 ZIG_NAME="zig-${ZIG_ARCH}-${ZIG_OS}-${ZIG_REQUIRED}"
 ARCHIVE="$TMP_DIR/${ZIG_NAME}.tar.xz"
-DEFAULT_INSTALL_ROOT="/tmp/cmux-zig-ci/$ZIG_NAME"
-SHARED_TMP_ZIG_DIR="/tmp/$ZIG_NAME"
+DEFAULT_INSTALL_ROOT="$SHARED_TMP/cmux-zig-ci/$ZIG_NAME"
+SHARED_TMP_ZIG_DIR="$SHARED_TMP/$ZIG_NAME"
 SHARED_TMP_MARKER="$SHARED_TMP_ZIG_DIR/keep.txt"
 BIN_DIR="$TMP_DIR/bin"
 RUNNER_TEMP_DIR="$TMP_DIR/runner-temp"

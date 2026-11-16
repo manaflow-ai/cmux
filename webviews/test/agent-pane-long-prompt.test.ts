@@ -190,7 +190,7 @@ await requireBrowserLane("agent-pane-long-prompt.test.ts", async () => {
     expect(turnGap).toBeGreaterThan(0);
     expect(Math.abs(gap - turnGap)).toBeLessThan(1);
 
-    // The toggle by its state, not its English words (REVIEW.md).
+    // The toggle by its state, not its English words.
     const toggle = longRow.locator(".cv-user__more");
     expect(await toggle.getAttribute("aria-expanded")).toBe("false");
     await toggle.click();

@@ -321,6 +321,55 @@ function readVegaLibrary(): string {
     .join("\n;\n");
 }
 
+const SKIPPED_ENTRY = "\0cmux-gallery/skipped-entry";
+const REGISTRY = path.join(webviewsRoot, "src/gallery/registry.ts");
+
+/** The entry files a build of only `ids` compiles, or undefined for every entry: an id with no file builds
+ * nothing for it (a state the base lacks), and an entry that embeds the mock app (`mock-app.html`, which
+ * loads other entries by id) needs them all. */
+export function entrySubsetFiles(ids: string[], root = path.join(webviewsRoot, "src")): Set<string> | undefined {
+  const index = readEntryIndex(root);
+  const files = new Set<string>();
+  for (const id of ids) {
+    const file = index[id];
+    if (!file) continue;
+    const absolute = path.join(webviewsRoot, file);
+    if (fs.readFileSync(absolute, "utf8").includes("mock-app.html")) return undefined;
+    files.add(absolute);
+  }
+  return files;
+}
+
+/** `CMUX_GALLERY_ENTRIES=a,b bun run gallery:build` compiles only those entries' files: every other entry the
+ * registry's glob names loads as an empty module, so nothing it imports is built. gallery health's base replay
+ * renders a shard's few red states, and the whole gallery (3,224 modules) took ~80 s of each judged shard
+ * (2026-11-11). A file another module imports (states.tsx imports CloudStartView.gallery) is still built for that
+ * importer: only the registry's own imports are swapped. Unset, empty or naming a mock-app entry: everything. */
+export function galleryEntrySubset(entries = process.env.CMUX_GALLERY_ENTRIES): Plugin {
+  const ids = (entries ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const keep = ids.length ? entrySubsetFiles(ids) : undefined;
+  return {
+    name: "cmux-gallery-entry-subset",
+    apply: "build",
+    enforce: "pre",
+    buildStart() {
+      if (keep) this.info(`gallery entry subset: ${keep.size} of the entry files (${ids.join(",")})`);
+    },
+    async resolveId(source, importer, options) {
+      if (!keep || !importer || importer.split("?")[0] !== REGISTRY || !/\.gallery\.tsx?$/.test(source)) return null;
+      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
+      if (!resolved || keep.has(resolved.id.split("?")[0])) return resolved;
+      return `${SKIPPED_ENTRY}?${encodeURIComponent(resolved.id)}`;
+    },
+    load(id) {
+      return id.startsWith(SKIPPED_ENTRY) ? "export default undefined;" : null;
+    },
+  };
+}
+
 export function galleryModules(): Plugin {
   return {
     name: "cmux-gallery-modules",

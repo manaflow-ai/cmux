@@ -7,6 +7,7 @@
 //! notifications will hook in later.
 
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use cmux_tui_core::{AgentStatus, BrowserStatus, Rect, ShownProgramStatus, SurfaceKind};
 use ghostty_vt::{ProgramStatusState, RenderState};
@@ -584,7 +585,12 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         .render_states
         .entry(area.surface)
         .or_insert_with(|| RenderState::new().expect("render state alloc"));
-    let Ok(render) = surface.render_frame(rs) else {
+    // A synchronized update draws as one frame (app/synchronized_output.rs).
+    let synchronized = surface.synchronized_update();
+    let Ok(render) =
+        app.synchronized_output
+            .frame(area.surface, synchronized, Instant::now(), || surface.render_frame(rs))
+    else {
         return DrawCursors::default();
     };
     let source_x = area.content_source_x();

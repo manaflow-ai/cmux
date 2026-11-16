@@ -59,9 +59,12 @@ export interface RunElsewhereClient {
   stop(taskId: string): Promise<unknown>;
 }
 
-/** One row's run: choosing (the panel is open), then running and ended. */
+/** One row's run: loading, then a one-line note (the command stays here, or nothing can take it),
+ * or choosing (the panel is open), then running and ended. */
 export type RunState =
   | { phase: "loading" }
+  /** `retry`: the answer may change (no machine yet, a lost connection), so the chip stays. */
+  | { phase: "note"; text: string; retry?: boolean }
   | { phase: "choosing"; plan: RunPlan; machine?: string; send: string[]; error?: string; starting?: boolean }
   | {
       phase: "running" | "ended";
@@ -76,10 +79,36 @@ export type RunState =
       state?: string;
     };
 
-/** The rows' store: each tool call's run, and a listener set per tool call. */
+/** Whether this app's host relays the run's requests. It answers for the whole page (every chat
+ * of this pane goes through one host), so once it refused, no row offers the run again. */
+let hostRelays = true;
+
+/** The rows' store: each tool call's run, a listener set per tool call, and whether the host
+ * relays the run's requests at all. */
 export class RunElsewhereStore {
   private runs = new Map<string, RunState>();
   private listeners = new Map<string, Set<() => void>>();
+  private relayListeners = new Set<() => void>();
+  /** A chat opened after the host refused starts knowing it. */
+  private relaying = hostRelays;
+
+  /** False once the pane's host refused to relay a plan: the chip shows on no row after that. */
+  relays(): boolean {
+    return this.relaying;
+  }
+
+  /** The host refused the run's requests: every chip goes, the asking row keeps its note. */
+  hostRefused() {
+    hostRelays = false;
+    if (!this.relaying) return;
+    this.relaying = false;
+    for (const listener of this.relayListeners) listener();
+  }
+
+  subscribeRelays(listener: () => void): () => void {
+    this.relayListeners.add(listener);
+    return () => this.relayListeners.delete(listener);
+  }
 
   get(toolCallId: string): RunState | undefined {
     return this.runs.get(toolCallId);
@@ -119,15 +148,42 @@ export function useRun(runs: RunElsewhere | undefined, toolCallId: string): RunS
   return useSyncExternalStore(runs ? (listener) => runs.store.subscribe(toolCallId, listener) : NONE, read, read);
 }
 
-/** When the chip shows: a shell call with a command line, still running, from `startedAt` +
- * {@link RUN_ELSEWHERE_AFTER_MS}. Undefined when it never does (not a shell, ended, no start). */
+/** Whether the pane's host relays the run's requests, re-read when it refuses one. */
+export function useHostRelays(runs: RunElsewhere | undefined): boolean {
+  const read = () => runs?.store.relays() ?? false;
+  return useSyncExternalStore(runs ? (listener) => runs.store.subscribeRelays(listener) : NONE, read, read);
+}
+
+/** Back to a fresh page: stores made from now on take the host as relaying (tests, the gallery). */
+export function resetHostRelays() {
+  hostRelays = true;
+}
+
+/** Whether a shell call went to the background: acpmux tracks it as a background task, or the
+ * harness started it there (Claude's Bash `run_in_background`, in its raw input). A background
+ * command already leaves the chat free, so it is never offered another machine. */
+export function inBackground(tool: { background?: unknown; inputSummary?: string }): boolean {
+  if (tool.background) return true;
+  return /"run_in_background"\s*:\s*true/.test(tool.inputSummary ?? "");
+}
+
+/** When the chip shows: a shell call with a command line, still running in the foreground, from
+ * `startedAt` + {@link RUN_ELSEWHERE_AFTER_MS}. Undefined when it never does (not a shell, ended,
+ * in the background, no start). */
 export function chipDueAt(tool: {
   kind?: string;
   command?: string;
   startedAt?: number;
   running: boolean;
+  background?: boolean;
 }): number | undefined {
-  if (tool.kind !== "execute" || !tool.command?.trim() || !tool.running || tool.startedAt === undefined)
+  if (
+    tool.kind !== "execute" ||
+    !tool.command?.trim() ||
+    !tool.running ||
+    tool.background ||
+    tool.startedAt === undefined
+  )
     return undefined;
   return tool.startedAt + RUN_ELSEWHERE_AFTER_MS;
 }

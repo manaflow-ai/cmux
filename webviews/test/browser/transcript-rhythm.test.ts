@@ -1,3 +1,6 @@
+// The grid-rhythm cases test the `runs` arm of live-turn-work, not the shipped `line` arm: the tool rows
+// they measure are finished calls of a turn that still runs, which only `runs` draws
+// (support/liveTurnRuns.ts). The other cases take the shipped arms.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
@@ -11,6 +14,8 @@ import {
   TRANSCRIPT_FOOTER_GAP,
   gridLength,
 } from "../../src/agent-session/acpmux/transcriptGrid";
+import { pinLiveTurnRuns } from "../support/liveTurnRuns";
+import { CLOCK_ON_LINE, pinArms } from "../support/pinArms";
 import { requireBrowserLane } from "../support/requireBrowserLane";
 
 await requireBrowserLane("transcript-rhythm.test.ts", async () => {
@@ -47,6 +52,10 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
+        await pinLiveTurnRuns(page);
+        // The live line under the run, as the gaps below measure it; the clock over the work
+        // (liveTurnClock.experiment.ts `top`) is transcript-live-turn-clock.test.ts's.
+        await pinArms(page, CLOCK_ON_LINE);
         await page.goto(
           `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", {
             variant: "grid-rhythm",

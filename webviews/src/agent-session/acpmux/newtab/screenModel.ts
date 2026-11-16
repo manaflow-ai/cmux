@@ -5,11 +5,14 @@ import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../newTabModel";
 import {
   EMPTY_OMNIBAR,
+  foldedScore,
+  foldedTexts,
   matchScore,
   omnibarRows,
   type OmnibarContext,
   type OmnibarProfile,
   type OmnibarRow,
+  stepSelection,
 } from "../omnibar";
 import { activityTime, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
@@ -18,6 +21,15 @@ import type { DeviceChat } from "./deviceChats";
 import { translateNewTab } from "./strings";
 import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
 import { TOP_SITES } from "./topSites";
+import {
+  chatRows,
+  type ChatRow,
+  type FolderListing,
+  launchRows,
+  type LaunchAgent,
+  type LaunchRow,
+  type OmnibarChat,
+} from "./launchRows";
 
 export type ScreenAgent = { id: string; name: string };
 
@@ -38,7 +50,8 @@ export type ScreenRow =
   /// The text as a prompt to `harness`, named `agent` (its `model` when known).
   | { type: "ask"; text: string; harness: string; agent: string; model?: string }
   /// A create action (cx-ag5.7): New terminal, New browser tab or New chat, as under the field.
-  /// `strip`: drawn in the quiet strip under the rows, not as a row; still in the arrow keys' order.
+  /// `strip`: drawn in the quiet strip under the rows, not as a row. ↓ and ↑ reach the strip as one
+  /// line (at the action last selected there), ← and → step along it (``arrowStep``, ``stripStep``).
   | { type: "create"; kind: CreateKind; strip?: true }
   /// Open in Profile… (Lawrence 2026-11-05): the field becomes a search of every browser profile,
   /// for the address `url` that `text` resolved to (``profileRows``).
@@ -47,7 +60,87 @@ export type ScreenRow =
   /// default name ("Profile 3").
   | { type: "newProfile"; url: string; name?: string }
   /// Open `url` in the browser profile `id` (a row of the profile search).
-  | { type: "profile"; url: string; id: string; name: string; color?: string };
+  | { type: "profile"; url: string; id: string; name: string; color?: string }
+  /// A chat that matches the text (launchRows.ts): opens it.
+  | ChatRow
+  /// Start an agent in a folder (launchRows.ts): "Codex in ~/fun/cmux".
+  | LaunchRow;
+
+/// The omnibar's agent sources: the chats to search, the folders and agents to start, and the
+/// disk's answer for a typed path (``FolderListing``). All optional: without them the rows are as
+/// before.
+export type ScreenAgentSources = {
+  chats?: readonly OmnibarChat[];
+  folders?: readonly string[];
+  agents?: readonly LaunchAgent[];
+  defaultAgent?: string;
+  listing?: FolderListing;
+};
+
+/// The headed groups of the rows, in their order (Lawrence 2026-11-13, "ranked sections"): what
+/// Return takes leads unheaded, then open tabs and workspaces, chats, agents to start, visited
+/// pages, palette actions and the web search.
+export type ScreenSection = "lead" | "open" | "chats" | "start" | "pages" | "actions" | "web" | "create";
+
+/// The section `row` lists under; `lead` for the rows above the first header.
+export function rowSection(row: ScreenRow): ScreenSection {
+  switch (row.type) {
+    case "tab":
+    case "workspace":
+      return "open";
+    case "chat":
+      return "chats";
+    case "launch":
+      return "start";
+    case "history":
+      return "pages";
+    case "action":
+      return "actions";
+    case "search":
+      return "web";
+    case "create":
+      return "create";
+    default:
+      return "lead";
+  }
+}
+
+/// How many rows lead, unheaded: through the Ask row (an agent start the text named, the address
+/// or the exact name above it), else the top row alone (``navigationRows``).
+export function leadLength(rows: readonly ScreenRow[]): number {
+  const ask = rows.findIndex((row) => row.type === "ask");
+  if (ask >= 0) return ask + 1;
+  // No Ask row: the named starts lead together, else the top row alone.
+  const starts = rows.findIndex((row) => row.type !== "launch");
+  if (starts < 0) return rows.length;
+  return starts > 0 ? starts + 1 : 1;
+}
+
+/// The header to draw above row `index`, when it starts a section after the lead: never in the
+/// lead, over the web search or the create rows, nor between two rows of one section.
+export function sectionHeader(
+  rows: readonly ScreenRow[],
+  index: number,
+  lead = leadLength(rows),
+): ScreenSection | undefined {
+  const row = rows[index];
+  if (!row || index < lead) return undefined;
+  const section = rowSection(row);
+  if (section === "lead" || section === "create" || section === "web") return undefined;
+  if (index > lead && rowSection(rows[index - 1]!) === section) return undefined;
+  return section;
+}
+
+/// The web search row searches the draft's words, as `words` reads them: never an attachment's
+/// token, whose id is no text the person wrote, which a pasted image's search row showed and
+/// searched for (#41016). A draft of attachments alone searches nothing.
+export function searchWords(rows: readonly ScreenRow[], words: (text: string) => string): ScreenRow[] {
+  return rows.flatMap((row): ScreenRow[] => {
+    if (row.type !== "search") return [row];
+    const text = words(row.text).trim();
+    return text ? [{ ...row, text }] : [];
+  });
+}
 
 /// What a create row opens, in the order the rows list them.
 export type CreateKind = "terminal" | "browser" | "chat";
@@ -63,6 +156,9 @@ export const MAX_SUGGESTIONS = 8;
 export const MAX_COMPLETIONS = 3;
 /// The shortest word an address completes: "go" or "no" stays a prompt, not google.com or notion.so.
 const MIN_COMPLETION_LENGTH = 3;
+/// Agent starts listed for text that names no agent (a path, a folder's name): the best two; named
+/// ("codex cmux") they lead, up to launchRows' own cap.
+export const MAX_UNNAMED_LAUNCH_ROWS = 2;
 /// Commands palette actions shown under the matches.
 export const MAX_ACTION_ROWS = 3;
 /// Chat cards under the field.
@@ -104,7 +200,7 @@ export function screenRows(
     /// The create actions' names in the pane's language (English when unset).
     createNames?: Partial<Record<CreateKind, string>>;
     order?: SuggestionOrder;
-  },
+  } & ScreenAgentSources,
 ): ScreenRow[] {
   const rows = withProfileRows(navigationRows(text, context), text, context);
   if (!rows.length) return rows;
@@ -184,6 +280,29 @@ export function inStrip(row: ScreenRow): boolean {
   return row.type === "create" && row.strip === true;
 }
 
+/// The row ↑ or ↓ selects from `current` (-1: the text): the rows one line each, then the create
+/// strip as one line under them (the strip ends the list, ``screenRows``). The strip is entered at
+/// action `column` (the one last selected there; 0, its first, by default), clamped to its length.
+/// Down never steps along the strip's actions one by one; ← and → do (``stripStep``).
+export function arrowStep(rows: readonly ScreenRow[], current: number, step: 1 | -1, column = 0): number {
+  const strip = rows.findIndex(inStrip);
+  const listed = strip < 0 ? rows.length : strip;
+  const lines = strip < 0 ? listed : listed + 1;
+  // The strip's line is index `listed`.
+  const line = stepSelection(current < 0 ? -1 : Math.min(current, listed), step, lines);
+  if (strip < 0 || line !== listed) return line;
+  return listed + Math.max(0, Math.min(column, rows.length - listed - 1));
+}
+
+/// The strip action ← or → selects from `current`, staying at the strip's ends; undefined when
+/// `current` is not a strip action, so the keys keep their meaning in the text.
+export function stripStep(rows: readonly ScreenRow[], current: number, step: 1 | -1): number | undefined {
+  const row = rows[current];
+  if (!row || !inStrip(row)) return undefined;
+  const next = rows[current + step];
+  return next && inStrip(next) ? current + step : current;
+}
+
 /// An address with its port still to come (`localhost:`, `example.com:`): the address it was a key
 /// ago, so its row stays put while the port is typed instead of leaving for one key and coming
 /// back (the rows under it jumped 28 px down, up and down again; agent-pane.new-tab#create-strip-narrow).
@@ -196,7 +315,7 @@ function typingPort(text: string, home?: string): { kind: "url"; url: string } |
 
 function navigationRows(
   text: string,
-  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; order?: SuggestionOrder },
+  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; order?: SuggestionOrder } & ScreenAgentSources,
 ): ScreenRow[] {
   const intent =
     typingPort(text, context.home) ?? classifyNewTabInput(text, context.home ? { home: context.home } : {});
@@ -215,15 +334,70 @@ function navigationRows(
   const top = open.length || namesSite(query, completed[0]) ? found[0] : exactMatch(query, found, context.omnibar);
   const rest = found.filter((row) => row !== top);
   const cap = order === "minimal" ? MINIMAL_MATCH_ROWS : MAX_MATCH_ROWS;
-  const fit = (lead: ScreenRow[]) =>
-    ranked(rest, context.omnibar.uses).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
+  // The open tabs and workspaces, then the chats and the agents to start, then the visited pages:
+  // each section ranked inside itself (`ranked` keeps tabs, workspaces, pages in that order).
+  // An agent named with a folder ("codex ~/fun/cmux") leads: what Return starts. Never over an
+  // address or an exact name ("claude" completing to claude.ai, a workspace named "codex"): those
+  // keep Return and the starts list under them.
+  const agentFound = agentRows(query, context);
+  const agent = top && agentFound.named ? { ...agentFound, named: false } : agentFound;
+  const named = agent.named ? agent.launch : [];
+  // The rows under the lead share what is left of MAX_SUGGESTIONS (the named starts, the lead and
+  // the web search count): one row per section in turn, so each section the text finds keeps a row
+  // and no section's many push the others out; each keeps its own order.
+  const fit = (lead: ScreenRow[]) => {
+    // The tabs, workspaces and pages keep their cap together, as before the agent rows.
+    const kept = ranked(rest, context.omnibar.uses).slice(0, cap);
+    return share(
+      [
+        kept.filter((row) => rowSection(row) === "open"),
+        agent.chats,
+        agent.named ? [] : agent.launch.slice(0, MAX_UNNAMED_LAUNCH_ROWS),
+        kept.filter((row) => rowSection(row) !== "open"),
+      ],
+      MAX_SUGGESTIONS - named.length - lead.length - search.length,
+    );
+  };
   // No agent to ask: a question or a word is searched, an address still opens first.
   if (!ask.length) {
-    if (!top) return [...search, ...fit(search), ...actionRows(query, context.omnibar)];
-    return [top, ...fit([top]), ...actionRows(query, context.omnibar), ...search];
+    if (!top) return [...named, ...search, ...fit(search), ...actionRows(query, context.omnibar)];
+    return [...named, top, ...fit([top]), ...actionRows(query, context.omnibar), ...search];
   }
   const lead = top ? (order === "chat" ? [...ask, top] : [top, ...ask]) : ask;
-  return [...lead, ...fit(lead), ...actionRows(query, context.omnibar), ...search];
+  return [...named, ...lead, ...fit(lead), ...actionRows(query, context.omnibar), ...search];
+}
+
+/// Up to `room` rows from `sections`, taken one per section in turn, listed section by section.
+function share(sections: readonly (readonly ScreenRow[])[], room: number): ScreenRow[] {
+  const counts = sections.map(() => 0);
+  for (let taken = 0, more = true; more && taken < room;) {
+    more = false;
+    for (let index = 0; index < sections.length && taken < room; index += 1) {
+      if (counts[index]! >= sections[index]!.length) continue;
+      counts[index]! += 1;
+      taken += 1;
+      more = true;
+    }
+  }
+  return sections.flatMap((rows, index) => rows.slice(0, counts[index]));
+}
+
+/// The chats the text finds and the agent starts it names (launchRows.ts); `named` when the text
+/// named an agent, so its starts lead.
+function agentRows(
+  query: string,
+  context: ScreenAgentSources & { home?: string },
+): { chats: ScreenRow[]; launch: ScreenRow[]; named: boolean } {
+  const chats = context.chats?.length ? chatRows(query, context.chats) : [];
+  if (!context.agents?.length) return { chats, launch: [], named: false };
+  const launch = launchRows(query, {
+    agents: context.agents,
+    folders: context.folders ?? [],
+    ...(context.defaultAgent ? { defaultAgent: context.defaultAgent } : {}),
+    ...(context.home ? { home: context.home } : {}),
+    ...(context.listing ? { listing: context.listing } : {}),
+  });
+  return { chats, launch: launch.rows, named: launch.named && launch.rows.length > 0 };
 }
 
 /// The Commands palette actions the text names, best match first (the palette's order breaks
@@ -232,15 +406,25 @@ export function actionRows(query: string, omnibar: OmnibarContext, limit = MAX_A
   const actions = omnibar.actions ?? [];
   if (!actions.length || !query) return [];
   const uses = omnibar.uses ?? {};
+  const needle = query.trim().toLowerCase();
+  // Every palette action's title and keywords lowercased once per list, not on every key (2,000 of
+  // them: the keystroke's largest pass, foldedTexts).
+  const folded = foldedTexts(actions, "actions", (list) =>
+    list.map((action) => [action.title, ...action.keywords].map((text) => text.toLowerCase())),
+  );
+  const score = (index: number) => {
+    let best = 0;
+    for (const text of folded[index]!) {
+      best = Math.max(best, foldedScore(needle, text));
+      if (best === 3) break;
+    }
+    return best;
+  };
   return (
     actions
-      .map((action, index) => ({
-        action,
-        index,
-        score: matchScore(query, action.title, ...action.keywords),
-        used: uses[`action:${action.id}`] ?? 0,
-      }))
+      .map((action, index) => ({ action, index, score: score(index), used: 0 }))
       .filter((entry) => entry.score >= 2 || (entry.score > 0 && query.length >= SUBSTRING_MATCH_LENGTH))
+      .map((entry) => ({ ...entry, used: uses[`action:${entry.action.id}`] ?? 0 }))
       // Within a match tier, the palette's pick history: what the person runs often and lately first.
       .sort((a, b) => b.score - a.score || b.used - a.used || a.index - b.index)
       .slice(0, limit)
@@ -300,7 +484,14 @@ export function defaultSelection(rows: readonly ScreenRow[]): number {
 export function inlineCompletion(text: string, rows: readonly ScreenRow[]): string | undefined {
   const query = text.trim();
   const row = rows[0];
-  const completion = row?.type === "open" ? row.text : row?.type === "history" ? canonicalAddress(row.url) : undefined;
+  const completion =
+    row?.type === "open"
+      ? row.text
+      : row?.type === "history"
+        ? canonicalAddress(row.url)
+        : row?.type === "launch"
+          ? row.fill
+          : undefined;
   if (!query || !completion || completion.length <= query.length) return undefined;
   if (!completion.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())) return undefined;
   return completion;

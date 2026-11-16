@@ -31,8 +31,17 @@ REVIEWED_TYPES = {
     # harness session. One optional string; it names no program, directory or environment.
     "SendExpectAgent": ("an agent's harness session id that a send must still match; it only narrows the write",
                         "201877f6931063f5"),
+    # `list-workspaces` `known` (list-workspaces-known-v1): the ids and revisions of the tree the phone
+    # holds, five plain strings and numbers; the daemon only compares them to its own.
+    "ListWorkspacesKnown": ("the registry ids and revisions of the tree the client holds; the daemon only "
+                            "compares them", "addc7ffa128980b5"),
 }
 REVIEWED_FIELDS = {
+    # The same browser tab new-frontend-browser-tab makes (a URL, an engine name and display strings),
+    # made as the new workspace's first tab; no program, directory or environment.
+    ("create-workspace", "first_tab"): ("WorkspaceFirstTab: a browser tab's url, engine, title, favicon, profile, "
+                                         "owner, size, activate and idempotency key",
+                                         "c7e82d092e3ba83a"),
     ("put-frontend-projection", "projection"): ("the phone's own personal projection; the lane checks scope and subject",
                                                 "d7e14019f9227131"),
     ("move-tab-to-column", "dock"): ("ColumnPin: an edge and a width for docking a column",

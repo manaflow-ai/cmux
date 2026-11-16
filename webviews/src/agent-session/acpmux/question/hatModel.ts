@@ -11,8 +11,10 @@
 //   answer (arrows, number keys, Other, Skip); the hat points to it and answers the rest in a click.
 // - the tagged ask the chat's last turn ended on (conversation/nextStepAsk.ts, `[physical] Can you
 //   ...?`): the transcript's next-step card, while no prompt of the person's followed it.
-// - the questions of the chats this one started (needsYou/jumpPillModel.ts `pillAsks`): the pane can only
-//   answer the chat it shows, so these open their chat.
+// - the questions of the chats this one started (needsYou/jumpPillModel.ts `pillAsks`): answered in the
+//   hat as their own card would answer them, a choice or a typed answer, which the host sends for
+//   the chat this pane does not show (homeInboxModel.ts `replyElsewhere`). Leo, 2026-11-10, of one
+//   he could only open: "this is unusable to respond to i necessarily have to open... this is bad ui".
 //
 // Relevance fade (Leo: "what happens if they respond to it in another way, right? ... the question
 // fade from relevance is a thing that needs to be accounted for"): a tagged ask leaves the hat once
@@ -25,10 +27,12 @@ import { NEXT_STEP } from "../conversation/turns";
 import { askKey } from "../conversation/waitingAskStore";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
 import { pillAsks } from "../needsYou/jumpPillModel";
-import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../needsYou/model";
+import { answersInPlace, needsYouItems, type NeedsYouItem, type WatchedAsk } from "../needsYou/model";
 import { sessionIndex } from "../sessionIndex";
-import type { AcpmuxSessionEntry } from "../sessionList";
-import { hasPreviews, isPending, type AgentQuestion } from "./model";
+import { sessionTitle, type AcpmuxSessionEntry } from "../sessionList";
+import { harnessName } from "../permissions/planBuild";
+import type { Translate } from "../i18n";
+import { hasPreviews, isPending, recommendedLabel, type AgentQuestion } from "./model";
 
 /// The rulebook's tags for an ask only a person can answer, plus a check-in (a yes-or-no "still
 /// want this?"). A question's header chip that names one counts as its tag.
@@ -46,7 +50,7 @@ export const hatTag = (text: string | undefined): HatTag | undefined => {
 
 /// One answer the hat draws as a button. `key` names the pane's own words for an answer the
 /// next-step card made up (Yes, Not now).
-export type HatAnswer = { id: string; label: string; key?: "recap.yes" | "recap.notNow" };
+export type HatAnswer = { id: string; label: string; key?: "recap.yes" | "recap.notNow"; recommended?: boolean };
 
 export type HatQuestion = {
   /// Stable while it waits: the permission id, or `next:<row id>` for a tagged ask.
@@ -61,8 +65,11 @@ export type HatQuestion = {
   prompt: string;
   /// The question's second line: a tagged ask's words after its question, or what else it asks.
   detail?: string;
-  /// The asking chat's name, for a started chat's question.
+  /// Who asks, for a started chat's question: the chat's own name, else its agent ("Claude"),
+  /// never its long title.
   who?: string;
+  /// What it is about: the question's header ("Cleanup"), for a started chat's question.
+  about?: string;
   /// One click sends one of these. Empty when the question needs more than a click (several
   /// questions in one ask, a multi-select, previews, a form): the card under the hat takes it.
   answers: HatAnswer[];
@@ -83,7 +90,10 @@ export function oneClickAnswers(question: AgentQuestion): HatAnswer[] {
   if (question.items.length !== 1) return [];
   const item = question.items[0]!;
   if (item.multiSelect || item.options.length === 0 || item.options.length > ONE_CLICK || hasPreviews(item)) return [];
-  return item.options.map((option) => ({ id: option.id, label: option.label }));
+  return item.options.map((option) => {
+    const { label, recommended } = recommendedLabel(option.label);
+    return { id: option.id, label, ...(recommended ? { recommended } : {}) };
+  });
 }
 
 function ownQuestion(permission: AcpmuxPermission | undefined, onCard = false): HatQuestion | undefined {
@@ -211,20 +221,37 @@ function childQuestions(
     if (item.sessionId === sessionId || !item.sessionId) continue;
     if (item.kind !== "decision" && item.kind !== "verify") continue;
     const first = item.question?.items[0];
+    const header = first?.header?.trim();
+    const tag = hatTag(header);
+    // A one-question ask with an id to answer is answered here: its choices as buttons, and a
+    // typed answer when it takes one. Anything longer opens its chat, where its card takes it.
+    const answerable = Boolean(
+      item.question && item.permissionId && item.question.items.length === 1 && answersInPlace(item.question),
+    );
     out.push({
       id: item.id,
       source: "child",
       sessionId: item.sessionId,
-      ...(hatTag(first?.header) ? { tag: hatTag(first?.header) } : {}),
+      ...(tag ? { tag } : {}),
+      ...(header && !tag ? { about: header } : {}),
       prompt: first?.prompt ?? item.ask,
-      who: item.who.name,
-      answers: [],
-      typed: false,
+      who: askerName(index.get(item.sessionId), item.who.name),
+      answers: answerable && item.question ? oneClickAnswers(item.question) : [],
+      typed: answerable && Boolean(first?.allowsOther) && !first?.multiSelect && !(first && hasPreviews(first)),
       ...(item.question ? { question: item.question } : {}),
     });
   }
   // Oldest first: they join the hat's end as they come (needsYouItems lists newest first).
   return out.reverse();
+}
+
+/// Who asks a started chat's question, short: the chat's own name when it has one (`sessionTitle`
+/// without its title and prompt), else its agent's name, else what Needs you calls it.
+const NO_WORDS: Translate = () => "";
+function askerName(session: AcpmuxSessionEntry | undefined, fallback: string): string {
+  if (!session) return fallback;
+  const named = sessionTitle({ ...session, title: "", lastPrompt: "" }, NO_WORDS);
+  return named || (session.harness ? harnessName(session.harness) : fallback);
 }
 
 /// Whether the hat has anything to show: a question only the card's own is answered on the card,
@@ -311,12 +338,17 @@ export function sameHatQuestions(a: readonly HatQuestion[], b: readonly HatQuest
         question.detail === other.detail &&
         question.tag === other.tag &&
         question.who === other.who &&
+        question.about === other.about &&
+        question.question?.id === other.question?.id &&
         question.typed === other.typed &&
         question.onCard === other.onCard &&
         question.permission === other.permission &&
         question.answers.length === other.answers.length &&
         question.answers.every(
-          (answer, at) => answer.id === other.answers[at]!.id && answer.label === other.answers[at]!.label,
+          (answer, at) =>
+            answer.id === other.answers[at]!.id &&
+            answer.label === other.answers[at]!.label &&
+            answer.recommended === other.answers[at]!.recommended,
         )
       );
     })

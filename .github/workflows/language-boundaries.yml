@@ -6,7 +6,10 @@ name: language boundaries
 # feat-cmux-next or main that deletes or moves an area's files out of its language, adds a foreign language there,
 # or adds Swift to a Swift-minimal area fails the `language-boundaries` check unless Leo approved the port (the
 # `leo-approved-port` label added by teamleaderleo plus his `leo-approved-port:` PR comment, not a review; the
-# script's docstring has the limit). Adding or removing a label re-runs it.
+# script's docstring has the limit). A pull request anywhere that removes Swift and adds React/web code (a Swift-to-
+# React port) fails too unless Lawrence or Leo added `react-port-ok` (Lawrence, relayed by Leo, 2026-11-11: "also
+# let's not move stuff to react anymore unless we talk about it / swift->rust is usually fine though"). Adding or
+# removing a label re-runs it.
 #
 # scripts/ci/language_boundaries.py decides, run from the base commit with the base's manifest, never the pull
 # request's code; the head is read only as a list of changed files. It runs on pull_request_target, so this file is
@@ -92,8 +95,8 @@ jobs:
           fi
           set -- --files "$files" --format "$format" --labels-json "$LABELS_JSON"
           if [ -n "$CHANGED_FILES" ]; then set -- "$@" --expected-files "$CHANGED_FILES"; fi
-          if printf '%s' "$LABELS_JSON" | grep -q '"leo-approved-port"'; then
-            # Only with the label on: who added it, and Leo's approval line, one compact JSON object per line
+          if printf '%s' "$LABELS_JSON" | grep -qE '"(leo-approved-port|react-port-ok)"'; then
+            # Only with an approval label on: who added it, and Leo's approval line, one compact JSON object per line
             # (`tojson`, so a body's newlines stay escaped). Each carries its author's type (User, Bot) and the
             # GitHub App it went through. GitHub reports no app for a review (REST or GraphQL), so a review is
             # marked `source: "review"` and never approves: an app acting for Leo would look like him.

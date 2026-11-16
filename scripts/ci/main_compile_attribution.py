@@ -60,6 +60,7 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import glaeda_log  # noqa: E402
 from guard_attribution import (  # noqa: E402
     GitHub,
     Writer,
@@ -204,7 +205,9 @@ class Source:
         return self.gh.get(f"repos/{self.gh.repo}/actions/jobs/{job_id}")  # type: ignore[return-value]
 
     def log(self, job_id: int) -> str:
-        return str(self.gh.request("GET", f"repos/{self.gh.repo}/actions/jobs/{job_id}/logs", text=True))
+        kept = glaeda_log.cached_job_log(self.gh.repo, job_id)  # this host's glaeda-gh kept it: no API call
+        return kept if kept is not None else str(
+            self.gh.request("GET", f"repos/{self.gh.repo}/actions/jobs/{job_id}/logs", text=True))
 
 
 def wait_for_log(source: Source, job: Mapping, wait_seconds: float) -> str:

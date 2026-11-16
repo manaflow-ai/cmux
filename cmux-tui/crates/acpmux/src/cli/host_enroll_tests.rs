@@ -213,7 +213,7 @@ fn ssh_stderr_is_classified() {
         ),
         (
             "No ED25519 host key is known for box and you have requested strict checking.\nHost key verification failed.",
-            SshFailure::HostKeyUntrusted,
+            SshFailure::HostKeyUnknown,
         ),
         ("kex_exchange_identification: read: Connection reset by peer", SshFailure::Other),
     ];
@@ -1374,4 +1374,49 @@ fn a_host_without_bwrap_warns_at_the_daemon_step_and_fix_installs_it() {
     let (result, _) = daemon(&fake("broken", true), "box", Some(47811), true);
     assert_eq!(result.state, StepState::Warn, "{result:?}");
     assert!(result.detail.contains("cannot make a sandbox"), "{result:?}");
+}
+
+#[test]
+fn first_contact_revoked_key_recovery_never_suggests_acceptance_or_removal() {
+    for stderr in [
+        "WARNING: REVOKED HOST KEY DETECTED!\nHost key verification failed.",
+        "Host key ED25519 SHA256:example revoked by file /tmp/revoked_keys\nHost key verification failed.",
+    ] {
+        let fake = Fake::new(|script, _| {
+            assert_eq!(script, "true");
+            RemoteOut { ok: false, stderr: stderr.into(), ..RemoteOut::default() }
+        });
+        let result = reach(&fake, true);
+        assert_eq!(result.state, StepState::Fail);
+        assert!(result.detail.contains("revoked"), "{}", result.detail);
+        let fix = result.fix.as_deref().unwrap();
+        assert!(fix.contains("revoked"), "{fix}");
+        assert!(!fix.contains("accept-new-host-key"), "{fix}");
+        assert!(!fix.contains("ssh-keygen -R"), "{fix}");
+    }
+}
+
+#[test]
+fn first_contact_verification_errors_do_not_offer_unknown_key_acceptance() {
+    for (stderr, class, advice) in [
+        (
+            "Error checking host key ED25519 SHA256:example in revoked keys file /tmp/revoked_keys: No such file or directory\nHost key verification failed.",
+            SshFailure::HostKeyConfigInvalid,
+            "Restore a readable, valid revocation file",
+        ),
+        ("Host key verification failed.", SshFailure::HostKeyUntrusted, "host and IP fingerprints"),
+    ] {
+        assert_eq!(SshFailure::of(stderr), class);
+        let fake = Fake::new(|_, _| RemoteOut {
+            ok: false,
+            stderr: stderr.into(),
+            ..RemoteOut::default()
+        });
+        let result = reach(&fake, true);
+        assert_eq!(result.state, StepState::Fail);
+        let fix = result.fix.as_deref().unwrap();
+        assert!(fix.contains(advice), "{fix}");
+        assert!(!fix.contains("accept-new-host-key"), "{fix}");
+        assert!(!fix.contains("ssh-keygen -R"), "{fix}");
+    }
 }

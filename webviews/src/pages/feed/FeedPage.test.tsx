@@ -2,10 +2,11 @@
 // anatomy, request cards, the Inbox's groups, detail and toolbar, Needs you in each style, the
 // reports basket, empty and disconnected states), keys move and open, and a long list keeps only
 // the rows near the viewport.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -49,7 +50,8 @@ afterEach(() => {
   root = undefined;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [name, value] of saved) {
     if (value === undefined) delete scope[name];
@@ -60,7 +62,7 @@ afterAll(() => {
 const { createRoot } = await import("react-dom/client");
 const { FeedPage, rejectText } = await import("./FeedPage");
 const { UiProvider } = await import("../../ui/UiProvider");
-const { setLastingGrace } = await import("../../ui/lasting");
+const { LASTING_MS, setLastingGrace } = await import("../../ui/lasting");
 const { createStrings } = await import("../shared/i18n");
 const table = (await import("./generated/strings.json")).default as Record<string, Record<string, string>>;
 const { MockFeedProvider, manyNotices, sampleFeed } = await import("./mockProvider");
@@ -282,7 +284,7 @@ test("the Reports tab: the basket and a reply", async () => {
 });
 
 test("Needs you: rows with one-click answers, cards, and the one-line bar", async () => {
-  const { provider } = await mount("#/needs-you");
+  await mount("#/needs-you");
   expect(host.querySelector(".feed-needs-title")!.textContent).toBe("Needs you");
   expect(host.querySelector(".feed-needs-count")!.textContent).toBe("11");
   expect(host.querySelector(".feed-needs-more")!.textContent).toBe("8 more");
@@ -290,8 +292,8 @@ test("Needs you: rows with one-click answers, cards, and the one-line bar", asyn
   // A question or a choice needs typing or picking: its row opens instead of answering in place.
   const choice = all(".feed-needs-row").find((row) => row.dataset.item === "fi_claude_choice")!;
   expect(choice.querySelector(".feed-needs-answers")).toBeNull();
-  await click(host.querySelector<HTMLElement>(".feed-needs-more")!);
-  expect(provider.calls.at(-1)!.params).toEqual({ action: "feed.openItem", args: {} });
+  // The count past the limit is text, not a control: the Inbox it opened is gone.
+  expect(host.querySelector(".feed-needs-more")!.tagName).toBe("SPAN");
   act(() => root?.unmount());
 
   await mount("#/needs-you?style=cards");
@@ -313,6 +315,23 @@ test("a disconnected owner shows the banner and turns the answers off", async ()
   expect(host.querySelector(".feed-banner")!.textContent).toBe("Feed is unreachable");
   expect(button("Allow").hasAttribute("disabled") || button("Allow").hasAttribute("data-disabled")).toBe(true);
   setLastingGrace(25_000);
+});
+
+test("a disconnected owner shows no banner until it lasts (a daemon restart drops it for seconds)", async () => {
+  jest.useFakeTimers();
+  try {
+    await mount("#/list", { connection: { state: "disconnected", reason: "" } });
+    await act(async () => {
+      jest.advanceTimersByTime(LASTING_MS - 100);
+    });
+    expect(host.querySelector(".feed-banner")).toBeNull();
+    await act(async () => {
+      jest.advanceTimersByTime(200);
+    });
+    expect(host.querySelector(".feed-banner")!.textContent).toBe("Feed is unreachable");
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("past 200 rows the list draws only the rows near the viewport", async () => {

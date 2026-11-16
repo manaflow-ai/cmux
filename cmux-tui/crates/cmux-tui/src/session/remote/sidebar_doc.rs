@@ -76,7 +76,16 @@ pub(crate) struct RemoteSidebarDoc {
     /// path. A timeout or a closed transport does not set it.
     unavailable: AtomicBool,
     next_id: AtomicU64,
+    /// Wakes the app loop when the stream falls back to timed reads: its
+    /// idle wait then ends at the next read (`sidebar_doc_fallback_at`).
+    idle_waker: Mutex<Option<IdleWaker>>,
+    /// Runs once in `protocol2_request` right before its answer slot is
+    /// inserted (the window a shutdown may land in).
+    #[cfg(test)]
+    before_pending_insert: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
+
+type IdleWaker = Box<dyn Fn() + Send + Sync>;
 
 /// A poisoned lock still holds a usable read model: a panic elsewhere must
 /// not take the TUI down with it.
@@ -232,6 +241,31 @@ impl RemoteSession {
             *last = Some(now);
         }
         self.start_sidebar_doc_worker(true);
+    }
+
+    /// When `tick_sidebar_doc` reads the document next: only while the
+    /// stream is closed past its restart limit. The app loop's idle wait
+    /// ends there.
+    pub(crate) fn sidebar_doc_fallback_at(&self) -> Option<Instant> {
+        if self.sidebar_doc.stream_restarts.load(Ordering::Acquire) <= MAX_STREAM_RESTARTS
+            || !self.sidebar_doc_wanted()
+            || self.sidebar_doc.stream().is_some()
+        {
+            return None;
+        }
+        let last = *lock(&self.sidebar_doc.fallback_read_at);
+        Some(last.map_or_else(Instant::now, |last| last + FALLBACK_READ_INTERVAL))
+    }
+
+    /// See [`crate::session::Session::set_idle_waker`].
+    pub(crate) fn set_idle_waker(&self, wake: impl Fn() + Send + Sync + 'static) {
+        *lock(&self.sidebar_doc.idle_waker) = Some(Box::new(wake));
+    }
+
+    fn wake_idle_loop(&self) {
+        if let Some(wake) = lock(&self.sidebar_doc.idle_waker).as_ref() {
+            wake();
+        }
     }
 
     fn load_sidebar_doc(&self) -> anyhow::Result<bool> {
@@ -400,10 +434,25 @@ impl RemoteSession {
         }
         let message = serde_json::to_string(&request)?;
         let (tx, rx) = channel();
+        #[cfg(test)]
+        if let Some(hook) = lock(&self.sidebar_doc.before_pending_insert).take() {
+            hook();
+        }
         self.sidebar_doc.pending().insert(id.clone(), tx);
         let forget = || {
             self.sidebar_doc.pending().remove(&id);
         };
+        // A shutdown sets the flag before it wakes every waiting request
+        // (`begin_shutdown`): one that came after the check above and before
+        // this insert missed this request, which would wait for an answer
+        // that never comes. Nothing was sent yet.
+        if self.shutdown.load(Ordering::Acquire) {
+            forget();
+            return Err(self
+                .request_shutdown_error()
+                .unwrap_or(RemoteRequestError::Shutdown)
+                .into());
+        }
         let sequence = match self.interactive_writer.enqueue(message, false) {
             Ok(sequence) => sequence,
             Err(error) => {
@@ -495,6 +544,10 @@ impl RemoteSession {
                     );
                     if ends <= MAX_STREAM_RESTARTS {
                         self.start_sidebar_doc_worker(true);
+                    } else {
+                        // Past the limit the app loop reads the document on
+                        // a timer of its own; it may be blocked with none.
+                        self.wake_idle_loop();
                     }
                     return;
                 }
@@ -521,3 +574,7 @@ impl RemoteSession {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "sidebar_doc_tests.rs"]
+mod tests;

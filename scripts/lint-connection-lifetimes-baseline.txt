@@ -1,0 +1,494 @@
+# Today's connection and lifetime hits (scripts/lint-connection-lifetimes.py), one per line:
+#   RULE | PATH | FINGERPRINT | LINE TEXT (for reading; the fingerprint is of this text)
+# The fingerprint is of the hit line's text, not its number, so an edit elsewhere does not churn it. Fix a hit and
+# drop its line (`python3 scripts/lint-connection-lifetimes.py --update-baseline`); never add one by hand: a hit that
+# is right as written carries `// lifetime-ok: <reason>` instead. Why and how: cmuxterm-hq docs/handbook/connections-and-lifetimes.md
+R1 | cmux-tui/crates/acpmux/src/agent_host/link.rs | fa5f4d7c10c5 | let stream = UnixStream::connect(&record.socket)
+R1 | cmux-tui/crates/acpmux/src/claude_peers.rs | ae8824870d56 | let mut stream = tokio::net::UnixStream::connect(socket).await.map_err(|e| {
+R1 | cmux-tui/crates/acpmux/src/cli/daemon_service.rs | 86ab62c37913 | std::os::unix::net::UnixStream::connect(crate::config::socket_path()).is_ok()
+R1 | cmux-tui/crates/acpmux/src/cli/host_join_doctor.rs | 508c12d735c9 | std::os::unix::net::UnixStream::connect(crate::config::socket_path()).is_ok();
+R1 | cmux-tui/crates/acpmux/src/cli/pairing.rs | 1b0865fbeb62 | let (mut ws, _) = tokio_tungstenite::connect_async(req)
+R1 | cmux-tui/crates/acpmux/src/codex_desktop.rs | 2140d5fd698b | let stream = tokio::net::UnixStream::connect(socket).await.map_err(|e| {
+R1 | cmux-tui/crates/acpmux/src/cua_v2.rs | 6900f0fdedab | let stream = UnixStream::connect(&endpoint.socket)
+R1 | cmux-tui/crates/acpmux/src/cua_v2/liveness.rs | f9325c6017b8 | match std::os::unix::net::UnixStream::connect(socket) {
+R1 | cmux-tui/crates/acpmux/src/daemon.rs | 27b2c783ea42 | if !running && tokio::net::UnixStream::connect(path).await.is_err() {
+R1 | cmux-tui/crates/acpmux/src/daemon/app_orphan.rs | bf89894d15e8 | std::os::unix::net::UnixStream::connect(socket).is_ok()
+R1 | cmux-tui/crates/acpmux/src/github_status.rs | 01718568ebb2 | let mut stream = tokio::net::UnixStream::connect(socket).await.ok()?;
+R1 | cmux-tui/crates/acpmux/src/github_status.rs | b0afbd998ccf | let http = reqwest::Client::builder()
+R1 | cmux-tui/crates/acpmux/src/harness_install.rs | 2e427703e6cf | let client = reqwest::Client::builder().https_only(true).build()?;
+R1 | cmux-tui/crates/acpmux/src/hub_carrier.rs | 4e53c36ff980 | let Ok(local) = tokio::net::TcpStream::connect(self.websocket).await else {
+R1 | cmux-tui/crates/acpmux/src/linux_sandbox/keeper.rs | e7aa997bf6b8 | match UnixStream::connect(path) {
+R1 | cmux-tui/crates/acpmux/src/local_stream.rs | f11c3d208a2f | tokio::net::UnixStream::connect(path).await
+R1 | cmux-tui/crates/acpmux/src/machine_wake.rs | 83833bd75619 | let client = reqwest::Client::new();
+R1 | cmux-tui/crates/acpmux/src/mesh_http.rs | b0afbd998ccf | let http = reqwest::Client::builder()
+R1 | cmux-tui/crates/acpmux/src/peer_carriers.rs | 043517134c01 | let tcp = tokio::net::TcpStream::connect((host.as_str(), port))
+R1 | cmux-tui/crates/acpmux/src/peer_carriers.rs | b16078132f0c | let mut stream = tokio::net::UnixStream::connect(socket)
+R1 | cmux-tui/crates/acpmux/src/server/carrier.rs | 36b44afe266d | if tokio::net::UnixStream::connect(path).await.is_ok() {
+R1 | cmux-tui/crates/acpmux/src/server/mod.rs | 36b44afe266d | if tokio::net::UnixStream::connect(path).await.is_ok() {
+R1 | cmux-tui/crates/acpmux/src/worktree_sessions.rs | 7c9bc322f402 | std::os::unix::net::UnixStream::connect(state.join("acpmux.sock")).is_ok()
+R1 | cmux-tui/crates/chatmux-relay/src/main.rs | 0b48e01190e2 | Runtime { backend, web_base, config_path, interactive, http: reqwest::Client::new() };
+R1 | cmux-tui/crates/chatmux-relay/src/pairing.rs | 811144dd020e | let (mut socket, _response) = connect_async(socket_url.as_str())
+R1 | cmux-tui/crates/chatmux-relay/src/preview_proxy.rs | 602ca5d5fe6c | let stream = tokio::net::TcpStream::connect(("127.0.0.1", shared.target_port)).await.map_err(
+R1 | cmux-tui/crates/chatmux-relay/src/session.rs | fa9ca2405e52 | let connect = connect_async_with_config(socket_url.as_str(), Some(websocket_config), true);
+R1 | cmux-tui/crates/cmux-browser-host/src/bin/cmux-browser-host.rs | 2d43726c6dea | if let Ok(stream) = UnixStream::connect(&options.socket) {
+R1 | cmux-tui/crates/cmux-browser-host/src/server.rs | 75d2b3e3112d | if UnixStream::connect(path).is_ok() {
+R1 | cmux-tui/crates/cmux-cloud-api/src/http.rs | ed3eaf62af68 | let client = reqwest::Client::builder()
+R1 | cmux-tui/crates/cmux-cloud-api/src/machine_io.rs | 891504ff8ef4 | reqwest::Client::builder()
+R1 | cmux-tui/crates/cmux-holder-v3/src/client.rs | 5197bebf12fb | let stream = UnixStream::connect(socket)?;
+R1 | cmux-tui/crates/cmux-holder-v3/src/lib.rs | e4fa4d41726f | if UnixStream::connect(&socket).is_ok() {
+R1 | cmux-tui/crates/cmux-holder/src/client.rs | 5197bebf12fb | let stream = UnixStream::connect(socket)?;
+R1 | cmux-tui/crates/cmux-holder/src/lib.rs | e4fa4d41726f | if UnixStream::connect(&socket).is_ok() {
+R1 | cmux-tui/crates/cmux-host/src/cli.rs | eadc3f047e0f | match std::os::unix::net::UnixStream::connect(crate::cloud::carrier_server::CARRIER_SOCKET)
+R1 | cmux-tui/crates/cmux-host/src/cloud/role.rs | 2a570221cfaa | let mut stream = UnixStream::connect(&socket)?;
+R1 | cmux-tui/crates/cmux-host/src/cloud/trajectory_thread.rs | e033d21bed85 | UnixStream::connect(&self.socket).is_ok()
+R1 | cmux-tui/crates/cmux-host/src/github_cli.rs | d15f3399a282 | let stream = UnixStream::connect(socket).map_err(|e| {
+R1 | cmux-tui/crates/cmux-link/src/registration.rs | 9729cf26cacc | std::os::unix::net::UnixStream::connect(socket).ok()
+R1 | cmux-tui/crates/cmux-pane-protocol/src/bin/example_provider.rs | 76fb186f8044 | Ok(path) => transport::unix(tokio::net::UnixStream::connect(path).await?),
+R1 | cmux-tui/crates/cmux-pane-protocol/src/net.rs | 61e854cea511 | let stream = TcpStream::connect(address).await?;
+R1 | cmux-tui/crates/cmux-rd-host/src/bench.rs | a854700b1f42 | let tcp = TcpStream::connect(addr)?;
+R1 | cmux-tui/crates/cmux-remote/src/admin.rs | 0b22a84a5d1e | let stream = UnixStream::connect(path).await?;
+R1 | cmux-tui/crates/cmux-remote/src/admin.rs | 0b22a84a5d1e | let stream = UnixStream::connect(path).await?;
+R1 | cmux-tui/crates/cmux-remote/src/admin/mux_binding.rs | 8ef85741251d | let owner = UnixStream::connect(expected_mux).await?;
+R1 | cmux-tui/crates/cmux-remote/src/admin/mux_binding.rs | eaf63359c182 | let admin = UnixStream::connect(admin_path).await?;
+R1 | cmux-tui/crates/cmux-remote/src/provider/dial.rs | 4e8336da918c | match TcpStream::connect(address).await {
+R1 | cmux-tui/crates/cmux-remote/src/provider/dial.rs | b6df8f66c7fd | let mut stream = UnixStream::connect(&self.path).await.map_err(|error| {
+R1 | cmux-tui/crates/cmux-remote/src/provider/overlay.rs | ca18e7e85687 | UnixStream::connect(link_socket).await.map_err(OverlayDialError::LinkUnavailable)?;
+R1 | cmux-tui/crates/cmux-remote/src/provider/relay.rs | a3f5e57799ac | match connect_async_with_config(request, Some(config), true).await {
+R1 | cmux-tui/crates/cmux-remote/src/provider/unix.rs | 41e435769f79 | let stream = UnixStream::connect(&self.path).await.map_err(|error| {
+R1 | cmux-tui/crates/cmux-remote/src/services.rs | a682a7e1e0ff | let stream = tokio::net::UnixStream::connect(path).await?;
+R1 | cmux-tui/crates/cmux-remote/src/services.rs | bc7641265f42 | let socket = match tokio::net::UnixStream::connect(target).await {
+R1 | cmux-tui/crates/cmux-tasks/src/client.rs | 1c313ba96ae0 | if let Ok(stream) = std::os::unix::net::UnixStream::connect(&owner.socket) {
+R1 | cmux-tui/crates/cmux-tui-core/src/browser_host_activation.rs | 75d2b3e3112d | if UnixStream::connect(path).is_ok() {
+R1 | cmux-tui/crates/cmux-tui-core/src/holder_runtime/service.rs | edc0083fa232 | Err(_) if std::os::unix::net::UnixStream::connect(&self.socket).is_ok() => {
+R1 | cmux-tui/crates/cmux-tui-core/src/mux/agent_chat_notices.rs | cb65358ce552 | let stream = match UnixStream::connect(socket) {
+R1 | cmux-tui/crates/cmux-tui-core/src/mux/project_chats.rs | 81d72e8ec504 | let Ok(stream) = UnixStream::connect(socket) else { continue };
+R1 | cmux-tui/crates/cmux-tui-core/src/remote_host/unix.rs | a24162d8accd | let stream = std::os::unix::net::UnixStream::connect(&record.socket)
+R1 | cmux-tui/crates/cmux-tui-core/src/server/remote_entry.rs | b2e3a1b4a148 | let woke = UnixStream::connect(&self.path).is_ok();
+R1 | cmux-tui/crates/cmux-tui-core/src/server/remote_entry.rs | e7aa997bf6b8 | match UnixStream::connect(path) {
+R1 | cmux-tui/crates/cmux-tui-core/src/server/websocket_listener.rs | f5d09b8d6c7b | if let Ok(stream) = TcpStream::connect(self.local_addr) {
+R1 | cmux-tui/crates/cmux-tui-core/src/terminal_backend/relay.rs | 27e9d7d386e2 | let _ = UnixStream::connect(&relay.path);
+R1 | cmux-tui/crates/cmux-tui/src/carrier/ssh.rs | bf89894d15e8 | std::os::unix::net::UnixStream::connect(socket).is_ok()
+R1 | cmux-tui/crates/cmux-tui/src/cli/app.rs | 5197bebf12fb | let stream = UnixStream::connect(socket)?;
+R1 | cmux-tui/crates/cmux-tui/src/cli/apps_run.rs | 9c57582c8161 | let stream = tokio::net::UnixStream::connect(&socket)
+R1 | cmux-tui/crates/cmux-tui/src/cli/chief/registry.rs | 448a7d6b537d | let mut stream = match std::os::unix::net::UnixStream::connect(&socket) {
+R1 | cmux-tui/crates/cmux-tui/src/cli/chief/shutdown.rs | e0dede1deef4 | if std::os::unix::net::UnixStream::connect(&socket).is_err() {
+R1 | cmux-tui/crates/cmux-tui/src/cli/cloud_client_session.rs | ed3eaf62af68 | let client = reqwest::Client::builder()
+R1 | cmux-tui/crates/cmux-tui/src/cli/cloud_environment.rs | 67189e4b97bf | let mut stream = match UnixStream::connect(socket) {
+R1 | cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs | b0afbd998ccf | let http = reqwest::Client::builder()
+R1 | cmux-tui/crates/cmux-tui/src/cli/machine_join.rs | ed3eaf62af68 | let client = reqwest::Client::builder()
+R1 | cmux-tui/crates/cmux-tui/src/cli/machine_link.rs | 2d782925dc9a | let mut stream = UnixStream::connect(socket).map_err(|error| {
+R1 | cmux-tui/crates/cmux-tui/src/cli/mcp/transport.rs | 8fe9499c4aa8 | let mut stream = std::os::unix::net::UnixStream::connect(&socket).map_err(|error| {
+R1 | cmux-tui/crates/cmux-tui/src/cli/pane_context.rs | e94b40216ed1 | path.is_some_and(|path| std::os::unix::net::UnixStream::connect(path).is_ok())
+R1 | cmux-tui/crates/cmux-tui/src/cli/script.rs | c11e20bc1748 | let stream = tokio::net::UnixStream::connect(socket)
+R1 | cmux-tui/crates/cmux-tui/src/link/agent_cli/daemon.rs | 92dbe625de9e | let stream = UnixStream::connect(socket)
+R1 | cmux-tui/crates/cmux-tui/src/link/inbound.rs | 52eb90327106 | let mut entry = tokio::net::UnixStream::connect(daemon_entry(session_socket))
+R1 | cmux-tui/crates/cmux-tui/src/link/inbound.rs | c11e20bc1748 | let stream = tokio::net::UnixStream::connect(socket)
+R1 | cmux-tui/crates/cmux-tui/src/link/machine_update/apply.rs | c4ebcf27aa2a | let stream = std::os::unix::net::UnixStream::connect(socket)
+R1 | cmux-tui/crates/cmux-tui/src/link/mod.rs | 5d96258866b0 | let Ok(mut stream) = tokio::net::UnixStream::connect(socket).await else { return false };
+R1 | cmux-tui/crates/cmux-tui/src/link/mod.rs | 8b4b9d0ceec0 | if std::os::unix::net::UnixStream::connect(path).is_ok() {
+R1 | cmux-tui/crates/cmux-tui/src/remote_cli/acpmux_peer.rs | 39982a47ca2f | tokio_tungstenite::connect_async(request).await.map_err(|e| e.to_string())?;
+R1 | cmux-tui/crates/cmux-tui/src/remote_cli/daemon_lifecycle.rs | 1d3a1d617566 | && UnixStream::connect(&default_admin).is_err() =>
+R1 | cmux-tui/crates/cmux-tui/src/remote_cli/daemon_lifecycle.rs | 7014182ace65 | let stream = UnixStream::connect(path)?;
+R1 | cmux-tui/crates/cmux-tui/src/remote_cli/daemon_lifecycle.rs | 776a9bf630f0 | if UnixStream::connect(&default_link).is_err()
+R1 | cmux-tui/crates/cmux-tui/src/remote_runtime/daemon_state.rs | ff8d2c9c8583 | match bounded_unix_socket_connect(tokio::net::UnixStream::connect(socket)).await {
+R1 | cmux-tui/crates/cmux-unix-socket/src/lib.rs | 48affb7add0a | std::os::unix::net::UnixStream::connect(path)
+R1 | cmux-tui/crates/cmux-weft/src/client/mod.rs | 82ca953b5af8 | if let Ok(mut tcp) = TcpStream::connect(target).await {
+R2 | cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs | 51d0b58bd49d | let Ok(mut child) = Command::new("/usr/bin/codesign")
+R2 | cmux-tui/crates/acpmux/src/bg_run.rs | 36f8174306b8 | let mut cmd = std::process::Command::new(shell.unwrap_or("/bin/sh"));
+R2 | cmux-tui/crates/acpmux/src/cli/daemon_service.rs | 7adecbec8593 | let mut child = Command::new(program)
+R2 | cmux-tui/crates/acpmux/src/cli/harness_secret.rs | 0d6ebb079cdb | let mut child = Command::new(&cmd.argv[0])
+R2 | cmux-tui/crates/acpmux/src/cli/host_join_doctor.rs | 7adecbec8593 | let mut child = Command::new(program)
+R2 | cmux-tui/crates/acpmux/src/cli/host_self_update.rs | 2114d6c31416 | let mut command = Command::new("sh");
+R2 | cmux-tui/crates/acpmux/src/cli/host_self_update.rs | 2114d6c31416 | let mut command = Command::new("sh");
+R2 | cmux-tui/crates/acpmux/src/cli/host_vault.rs | 987da81a8f49 | let Ok(mut child) = Command::new("/usr/bin/security")
+R2 | cmux-tui/crates/acpmux/src/cli/hosts.rs | 93e84bdc2e8b | let mut child = Command::new("ssh")
+R2 | cmux-tui/crates/acpmux/src/cli/hosts.rs | aae7023f9b35 | Command::new("ssh")
+R2 | cmux-tui/crates/acpmux/src/cli/run/extra.rs | 4e89aae29ee9 | if let Err(e) = std::process::Command::new(opener)
+R2 | cmux-tui/crates/acpmux/src/cli/run/launch.rs | ee134ecfca5d | let mut command = Command::new(path);
+R2 | cmux-tui/crates/acpmux/src/cli/send_relay.rs | 2d638282abbf | let mut cmd = Command::new(program);
+R2 | cmux-tui/crates/acpmux/src/cli/send_relay.rs | 2d638282abbf | let mut cmd = Command::new(program);
+R2 | cmux-tui/crates/acpmux/src/config/launchers.rs | 2e4e259e7132 | let mut cmd = std::process::Command::new(&argv[0]);
+R2 | cmux-tui/crates/acpmux/src/config/profile_env.rs | 70672617bfb1 | let mut c = std::process::Command::new("secret-tool");
+R2 | cmux-tui/crates/acpmux/src/daemon/app_orphan.rs | c7648514df73 | let Ok(mut child) = std::process::Command::new("/usr/bin/mdfind")
+R2 | cmux-tui/crates/acpmux/src/daemon/login_session.rs | 76b1ce898ca8 | let mut child = std::process::Command::new("/bin/launchctl")
+R2 | cmux-tui/crates/acpmux/src/daemon/managed_unit.rs | f8b82a44d072 | let mut child = tokio::process::Command::new(systemctl).args(args).spawn()?;
+R2 | cmux-tui/crates/acpmux/src/daemon/notify.rs | 58ca879cddc8 | let mut c = tokio::process::Command::new("sh");
+R2 | cmux-tui/crates/acpmux/src/deps/archive.rs | 4b54d4232e55 | Command::new("zstd")
+R2 | cmux-tui/crates/acpmux/src/deps/archive.rs | 4b54d4232e55 | Command::new("zstd")
+R2 | cmux-tui/crates/acpmux/src/deps/warm.rs | f7a18811c202 | let mut cmd = std::process::Command::new(exe);
+R2 | cmux-tui/crates/acpmux/src/desktop_link.rs | 1409e614a14b | let mut command = std::process::Command::new(cli);
+R2 | cmux-tui/crates/acpmux/src/harness_health/probe.rs | 2d638282abbf | let mut cmd = Command::new(program);
+R2 | cmux-tui/crates/acpmux/src/linux_sandbox/bwrap.rs | b677e973a2d5 | let mut child = Command::new(bwrap)
+R2 | cmux-tui/crates/acpmux/src/tailnet.rs | a60f155a21a2 | let mut child = Command::new(&self.bin)
+R2 | cmux-tui/crates/acpmux/src/tui/actions.rs | 614d074c61ea | let _ = std::process::Command::new(if cfg!(target_os = "macos") {
+R2 | cmux-tui/crates/acpmux/src/tui/links.rs | 084e6558d267 | let _ = std::process::Command::new(opener).arg(target).spawn();
+R2 | cmux-tui/crates/acpmux/src/tui/links.rs | 0f7616ec9b13 | let mut cmd = std::process::Command::new(bin);
+R2 | cmux-tui/crates/acpmux/src/tui/links.rs | deacf06b1919 | let _ = std::process::Command::new(opener).arg(&abs).spawn();
+R2 | cmux-tui/crates/acpmux/src/vault/store.rs | ab34437124cc | let mut c = Command::new("secret-tool");
+R2 | cmux-tui/crates/chatmux-relay/src/pty_deps.rs | 2ff1b8f8ff25 | let mut command = tokio::process::Command::new(&cmux_tui.file);
+R2 | cmux-tui/crates/cmux-automations/src/exec.rs | 7d62e4f904ba | let child = Command::new(&self.program)
+R2 | cmux-tui/crates/cmux-browser-host/src/bin/cmux-browser-host.rs | 8e138099c320 | std::process::Command::new(exe)
+R2 | cmux-tui/crates/cmux-cloud-codex-holder/src/session.rs | 15cb9adf05ec | let mut command = tokio::process::Command::new(executable);
+R2 | cmux-tui/crates/cmux-git/src/run.rs | 19994bf7fa98 | let mut command = Command::new(PROGRAM);
+R2 | cmux-tui/crates/cmux-holder-v3/src/client.rs | 3a5480fe10c0 | let mut command = Command::new(binary);
+R2 | cmux-tui/crates/cmux-holder/src/client.rs | 3a5480fe10c0 | let mut command = Command::new(binary);
+R2 | cmux-tui/crates/cmux-host/src/cloud/role.rs | 79ec5362f959 | let mut child = Command::new("wg")
+R2 | cmux-tui/crates/cmux-host/src/linux/spawn.rs | 723b1fbf36a1 | let mut command = Command::new(program);
+R2 | cmux-tui/crates/cmux-host/src/proc_roles/spawn.rs | 09bd3ab0e2f6 | let mut command = Command::new(&program);
+R2 | cmux-tui/crates/cmux-host/src/updater/role.rs | 09e1a6878be3 | let mut cmd = Command::new("curl");
+R2 | cmux-tui/crates/cmux-imessage/src/send.rs | 7adecbec8593 | let mut child = Command::new(program)
+R2 | cmux-tui/crates/cmux-rd-host/src/browser.rs | 8988bd3faefc | let mut c = Command::new(&cmd.program);
+R2 | cmux-tui/crates/cmux-server/src/pairing/machine_join.rs | 0df6edc99e4d | let mut child = Command::new(acpmux())
+R2 | cmux-tui/crates/cmux-server/src/process.rs | 2fc516519c9d | let mut command = Command::new(&cmd.program);
+R2 | cmux-tui/crates/cmux-tui-core/src/apps/servers.rs | e6a1571d7cf5 | let mut child = Command::new(binary)
+R2 | cmux-tui/crates/cmux-tui-core/src/chief_brains.rs | 2ab92584c294 | let spawned = std::process::Command::new(&self.config.executable)
+R2 | cmux-tui/crates/cmux-tui-core/src/feed_client/github.rs | 15a571033714 | let mut child = cmux_process::Command::new(program)
+R2 | cmux-tui/crates/cmux-tui-core/src/git_ops/user_run.rs | 6d9dcf13b5d2 | let mut command = Command::new("git");
+R2 | cmux-tui/crates/cmux-tui-core/src/git_ops/worktree_setup.rs | da763fae4bd4 | let mut command = Command::new(&shell);
+R2 | cmux-tui/crates/cmux-tui-core/src/holder_runtime/service.rs | 8820a328c754 | let mut command = cmux_process::Command::new(&path);
+R2 | cmux-tui/crates/cmux-tui-core/src/journal_hooks.rs | 723b1fbf36a1 | let mut command = Command::new(program);
+R2 | cmux-tui/crates/cmux-tui-core/src/remote_host/macos.rs | 98f1c081ef06 | let mut command = Command::new(&staged.executable);
+R2 | cmux-tui/crates/cmux-tui-core/src/server/browser_runtime.rs | 8fabf9800632 | let mut command = Command::new(executable);
+R2 | cmux-tui/crates/cmux-tui-core/src/shell_integration/fork_watch.rs | 5bd8047efc26 | let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+R2 | cmux-tui/crates/cmux-tui-core/src/shell_integration/fork_watch.rs | abf6a57b23f4 | let mut child = std::process::Command::new("/bin/sh")
+R2 | cmux-tui/crates/cmux-tui-core/src/shell_runs.rs | ba3108f2ec43 | let mut builder = cmux_process::Command::new(&self.config.shell);
+R2 | cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/adopt_launch.rs | 3a5480fe10c0 | let mut command = Command::new(binary);
+R2 | cmux-tui/crates/cmux-tui-platform/src/host_exe.rs | 3606f24560c9 | let mut command = cmux_process::Command::new(binary);
+R2 | cmux-tui/crates/cmux-tui-platform/src/host_exe.rs | f372f21ae721 | let mut command = std::process::Command::new(binary);
+R2 | cmux-tui/crates/cmux-tui/src/acp.rs | 434d12e7c947 | let mut command = cmux_process::Command::new(exe);
+R2 | cmux-tui/crates/cmux-tui/src/app/status_command.rs | 4d3bd30eb2d6 | let mut command = std::process::Command::new(program);
+R2 | cmux-tui/crates/cmux-tui/src/app/status_command.rs | 4d3bd30eb2d6 | let mut command = std::process::Command::new(program);
+R2 | cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs | d4449bf34932 | let mut command = Command::new(exe);
+R2 | cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs | d4449bf34932 | let mut command = Command::new(exe);
+R2 | cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/tmux_route.rs | 6505897c4a3c | let mut child = Command::new("tmux")
+R2 | cmux-tui/crates/cmux-tui/src/carrier/tunnel.rs | 2cef053a2aa8 | let mut child = cmux_process::Command::new(&self.exe)
+R2 | cmux-tui/crates/cmux-tui/src/cli/agents_doctor.rs | d3d32b7da5c6 | let mut child = std::process::Command::new(cli)
+R2 | cmux-tui/crates/cmux-tui/src/cli/app/open_link.rs | 585fd5845ca7 | let mut child = Command::new("/bin/sh")
+R2 | cmux-tui/crates/cmux-tui/src/cli/automation/teleport.rs | d4b8b648fdc9 | let spawned = cmux_process::Command::new(SSH)
+R2 | cmux-tui/crates/cmux-tui/src/cli/codex_app_server.rs | 7adecbec8593 | let mut child = Command::new(program)
+R2 | cmux-tui/crates/cmux-tui/src/cli/ext/dev.rs | ac158d9debe9 | let child = Command::new(exe)
+R2 | cmux-tui/crates/cmux-tui/src/cli/inference_gateway.rs | 1989c9305afc | let mut child = cmux_process::Command::new(&program)
+R2 | cmux-tui/crates/cmux-tui/src/cli/machine_join/bootstrap.rs | 0ab500846d4f | let mut command = cmux_process::Command::new(program);
+R2 | cmux-tui/crates/cmux-tui/src/cli/mcp/upstream.rs | e3d690ac4243 | let mut child = Command::new(&self.spec.command)
+R2 | cmux-tui/crates/cmux-tui/src/cli/repo_hold.rs | e9dc032d6c62 | let mut child = Command::new(program);
+R2 | cmux-tui/crates/cmux-tui/src/cli/setup/mcp.rs | 74e7f653f8dc | let mut child = std::process::Command::new(client.id())
+R2 | cmux-tui/crates/cmux-tui/src/cli/status.rs | 53cb04a127a0 | let mut child = match Command::new(&run.argv[0]).args(&run.argv[1..]).spawn() {
+R2 | cmux-tui/crates/cmux-tui/src/config/ghostty_theme_mode.rs | 723b1fbf36a1 | let mut command = Command::new(program);
+R2 | cmux-tui/crates/cmux-tui/src/link/ensure.rs | aefa6dcf6713 | let mut command = std::process::Command::new(std::env::current_exe()?);
+R2 | cmux-tui/crates/cmux-tui/src/link/seed_cli/held.rs | 2bac7b10e25b | let mut child = cmux_process::Command::new(program);
+R2 | cmux-tui/crates/cmux-tui/src/link/sync_cli/pull.rs | 02e690b056aa | let mut child = Command::new("git")
+R2 | cmux-tui/crates/cmux-tui/src/machine_agent/transport.rs | 93e84bdc2e8b | let mut child = Command::new("ssh")
+R2 | cmux-tui/crates/cmux-tui/src/main.rs | 1749cb3b4633 | let mut command = cmux_process::Command::new(&exe);
+R2 | cmux-tui/crates/cmux-tui/src/plugin_manager.rs | 02e690b056aa | let mut child = Command::new("git")
+R2 | cmux-tui/crates/cmux-tui/src/remote_cli/daemon_lifecycle.rs | 8fabf9800632 | let mut command = Command::new(executable);
+R2 | cmux-tui/crates/cmux-tui/src/remote_cli/daemon_lifecycle.rs | f21841f8f9e0 | let mut mux_owner = Command::new(&executable);
+R2 | cmux-tui/crates/cmux-tui/src/remote_host/serve.rs | 09ca73757edf | let mut child = Command::new(exe)
+R2 | cmux-tui/crates/cmux-tui/src/remote_host/service.rs | d4449bf34932 | let mut command = Command::new(exe);
+R2 | cmux-tui/crates/cmux-tui/src/staged_update.rs | cac1639bb3f4 | let mut child = cmux_process::Command::new(staged)
+R2 | cmux-tui/crates/cmux-tui/src/terminal_paste.rs | 33a940a14551 | let child = Command::new(&bridge.executable)
+R3 | cmux-tui/crates/acpmux/src/agent_host/host.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host/orphan.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host/orphan.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host/orphan.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/host/orphan.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/link.rs | 15cc43ad062d | tokio::spawn(watch_host_end(host.clone()));
+R3 | cmux-tui/crates/acpmux/src/agent_host/link.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/link.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_host/link.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/agent_login.rs | 47dcd10856cf | tokio::spawn(pump(pipe, output.clone(), notify.clone(), ended.clone()));
+R3 | cmux-tui/crates/acpmux/src/agent_login.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/cli/cli_agent.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/client.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/client.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/daemon.rs | 29ab2d26a903 | tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
+R3 | cmux-tui/crates/acpmux/src/daemon.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/daemon.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/daemon.rs | ac6929b371d2 | tokio::spawn(home_watch::watch(owned_home.clone(), None, &home(), &socket_path()));
+R3 | cmux-tui/crates/acpmux/src/daemon.rs | c6931759e621 | tokio::spawn(cloud_activity::activity_loop(hub.clone()));
+R3 | cmux-tui/crates/acpmux/src/hand/agent.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hand/agent.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hand/agent.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hand/link.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hand/link.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hand/link.rs | ca156bd3ac84 | tokio::spawn(async {
+R3 | cmux-tui/crates/acpmux/src/hub/agent_pairs.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/agent_pairs.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/agent_pairs.rs | f2339d0d54b5 | tokio::spawn(async move { hub.drain_pair((a, b)).await });
+R3 | cmux-tui/crates/acpmux/src/hub/auto_background.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/auto_resume/compact_first.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/auto_resume/restore.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/auto_resume/restore.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/away_recap.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/away_recap.rs | eba386ed2b84 | tokio::spawn(async move { hub.ask_recap(&session, turns).await });
+R3 | cmux-tui/crates/acpmux/src/hub/bg_tasks.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/bg_tasks.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/cancel.rs | 6396b5da3143 | tokio::spawn(self.clone().escalate_stop(session.clone(), turn.clone()));
+R3 | cmux-tui/crates/acpmux/src/hub/carried_turn.rs | 67c6a8e73081 | tokio::spawn(Box::pin(
+R3 | cmux-tui/crates/acpmux/src/hub/carried_turn.rs | 6f1e905e0327 | tokio::spawn(Box::pin(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/cold_archive.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/digest.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/file_uploads.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/fork.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/fork_cancel.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/forum.rs | 66b1d7525773 | tokio::spawn(
+R3 | cmux-tui/crates/acpmux/src/hub/goal_tools.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/handoff/ops.rs | 66b1d7525773 | tokio::spawn(
+R3 | cmux-tui/crates/acpmux/src/hub/health_view.rs | 284efc3f698b | tokio::spawn(async move { hub.auto_update_harnesses().await });
+R3 | cmux-tui/crates/acpmux/src/hub/health_view.rs | 4d11a6d792d9 | tokio::spawn(self.clone().run_health());
+R3 | cmux-tui/crates/acpmux/src/hub/health_view.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/hosts.rs | 97833baad101 | tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
+R3 | cmux-tui/crates/acpmux/src/hub/hosts.rs | 97833baad101 | tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
+R3 | cmux-tui/crates/acpmux/src/hub/hosts.rs | 98b468376db4 | tokio::spawn(async move { hub.inbound_loop(s, rx).await });
+R3 | cmux-tui/crates/acpmux/src/hub/hosts.rs | a584ae88b84e | tokio::spawn(async move { hub.retry_missed_adoptions(missed).await });
+R3 | cmux-tui/crates/acpmux/src/hub/hosts.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/hosts.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/hosts.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/hosts.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/idle.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/idle.rs | ee389912cc4b | tokio::spawn(async move { Self::idle_reaper_loop(weak, wake).await });
+R3 | cmux-tui/crates/acpmux/src/hub/inbox.rs | 5a7b4397c9a9 | tokio::spawn(async move { hub.prompt_with(&t, blocks, "acpmux-inbox", true, opts).await });
+R3 | cmux-tui/crates/acpmux/src/hub/inbox.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/inbox_digest.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/lane_reports.rs | 944bcae7797b | tokio::spawn(async move { hub.prompt_with(&p, blocks, "acpmux", false, opts).await });
+R3 | cmux-tui/crates/acpmux/src/hub/lane_reports.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/lane_reports.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/lifecycle.rs | 98b468376db4 | tokio::spawn(async move { hub.inbound_loop(s, rx).await });
+R3 | cmux-tui/crates/acpmux/src/hub/lifecycle.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/list_guard.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/live_models.rs | 36df74ecce79 | tokio::spawn(async move { hub.probe_live_models(false, Some(due)).await });
+R3 | cmux-tui/crates/acpmux/src/hub/live_models.rs | 87d7cc57ecad | tokio::spawn(async move { hub.probe_models_with(false, false, Some(names)).await });
+R3 | cmux-tui/crates/acpmux/src/hub/live_name.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/memory_inbox.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/message_events.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/message_events.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/offer_results.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/peer_snapshot/warm.rs | d0ae9c181c20 | tokio::spawn(warm_loop(Arc::downgrade(self)));
+R3 | cmux-tui/crates/acpmux/src/hub/peers.rs | 7b564b2861d6 | tokio::spawn(peer.run());
+R3 | cmux-tui/crates/acpmux/src/hub/permission_groups.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/permissions.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/permissions.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/pool/mod.rs | 25343b5c5b5b | tokio::spawn(end_pooled(p));
+R3 | cmux-tui/crates/acpmux/src/hub/pool/mod.rs | 25343b5c5b5b | tokio::spawn(end_pooled(p));
+R3 | cmux-tui/crates/acpmux/src/hub/pool/mod.rs | 46f28cf9f92e | tokio::spawn(async move { hub.pool_after_ready().await });
+R3 | cmux-tui/crates/acpmux/src/hub/pool/mod.rs | 98b468376db4 | tokio::spawn(async move { hub.inbound_loop(s, rx).await });
+R3 | cmux-tui/crates/acpmux/src/hub/pool/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/pool/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/pool/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/pool/spare.rs | 8ecddd420c9d | tokio::spawn(self.clone().spare_worker());
+R3 | cmux-tui/crates/acpmux/src/hub/pool/spare.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/process_preview.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/profile_respawn.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/prompt_coach.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/question_replies.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/queue.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/queue.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/races.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/route_switch.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/route_switch.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/silent_turn.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/stale_host_respawn.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/stalled_turn.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/startup.rs | 65be9e6b6c09 | tokio::spawn(async move { hub.follow_default_policy().await });
+R3 | cmux-tui/crates/acpmux/src/hub/startup.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/startup.rs | c61e26725145 | tokio::spawn(async move { hub.restore_spares().await });
+R3 | cmux-tui/crates/acpmux/src/hub/subagent_retry.rs | 92e886fd8a03 | tokio::spawn(async move { hub.schedule_subagent_retry(&session, &id).await });
+R3 | cmux-tui/crates/acpmux/src/hub/subagent_retry.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/subagent_retry_manual.rs | 09af16657992 | tokio::spawn(async move { hub.after_manual(&s, &id, idle).await });
+R3 | cmux-tui/crates/acpmux/src/hub/subagent_retry_manual.rs | 3dfe1e87a659 | tokio::spawn(async move { hub.run_subagent_retry(&session, &id, wait, delay).await });
+R3 | cmux-tui/crates/acpmux/src/hub/subagent_retry_manual.rs | 92e886fd8a03 | tokio::spawn(async move { hub.schedule_subagent_retry(&session, &id).await });
+R3 | cmux-tui/crates/acpmux/src/hub/tasks.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/tasks.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/titles.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/titles.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/touched.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/transfer_out.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/transfer_watch.rs | 054c9a2adef8 | tokio::spawn(async move { hub.transfer_watch(&session, &watch.transfer_id).await });
+R3 | cmux-tui/crates/acpmux/src/hub/turn_cap.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/turn_retry.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/turns.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/usage_view.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/vm_host.rs | f63083b6b5cd | drop(tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/watch.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/watch_tick.rs | 0428f19d30c9 | tokio::spawn(run(self.state.clone()));
+R3 | cmux-tui/crates/acpmux/src/hub/withdraw.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub/worktree_care.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/hub_carrier.rs | 4079f61ea777 | tokio::spawn(async move { pump(Box::new(secure), theirs, &stats).await });
+R3 | cmux-tui/crates/acpmux/src/peer.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/peer_carriers.rs | d7211a1b5ed4 | tokio::spawn(self.clone().probe(via));
+R3 | cmux-tui/crates/acpmux/src/peer_health.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/peer_overlay.rs | 3859255fd222 | tokio::spawn(self.clone().probe(Via::Link));
+R3 | cmux-tui/crates/acpmux/src/secret_mcp.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/carrier.rs | 24aba3c747b5 | tokio::spawn(serve_one(hub.clone(), stream));
+R3 | cmux-tui/crates/acpmux/src/server/carrier.rs | f3cd0e6011b9 | tokio::spawn(serve(hub.clone(), listener));
+R3 | cmux-tui/crates/acpmux/src/server/durable_gate.rs | 87c09da3020d | tokio::spawn(run(lines, out, Arc::clone(&gate), Journal { durable, written }, stalled));
+R3 | cmux-tui/crates/acpmux/src/server/fix_from_link.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/media_forward.rs | 81d666893029 | tokio::spawn(async move { close_on(&peer, &session, &handle).await });
+R3 | cmux-tui/crates/acpmux/src/server/mesh_relay.rs | c3c1fabbd130 | tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Peer));
+R3 | cmux-tui/crates/acpmux/src/server/mod.rs | 4f4d8f40d30f | tokio::spawn(refuse_ws_transport(stream, 503, "handshake_capacity"));
+R3 | cmux-tui/crates/acpmux/src/server/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/outbound.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/outbound.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/outbox.rs | 47e8bc69779d | tokio::spawn(super::serve_outbox_connection(hub.clone(), in_rx, out_tx, origin));
+R3 | cmux-tui/crates/acpmux/src/server/outbox.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/requests.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/requests/briefs.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/requests/cancel_refused.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/requests/info.rs | dfa4e725f3ce | tokio::spawn(async move { later.refresh_usage_stats().await });
+R3 | cmux-tui/crates/acpmux/src/server/review_queue.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/stream.rs | 01e049384a87 | tokio::spawn(write_lines(wr, out_rx, last_rx));
+R3 | cmux-tui/crates/acpmux/src/server/stream.rs | b5ff15b5bcbf | tokio::spawn(read_lines(rd, in_tx, last_tx, limits));
+R3 | cmux-tui/crates/acpmux/src/server/trigger_chat.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/update_cost_bench.rs | 4b6f474cdf2a | tokio::spawn(super::serve_connection_with(hub.clone(), incoming, output, super::Origin::Local));
+R3 | cmux-tui/crates/acpmux/src/server/upload_frames.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/windows_socket.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/server/windows_socket.rs | d84e8cf365bc | tokio::spawn(super::stream::serve_stream(
+R3 | cmux-tui/crates/acpmux/src/tui/actions.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/actions.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/run.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/run.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/session_ops.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/session_ops.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/session_ops.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/session_ops.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/session_ops.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/tui/session_ops.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/acpmux/src/vault.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/chatmux-relay/src/control.rs | 0d5bcba926ed | tokio::spawn(write_loop(writer, writer_rx, Arc::clone(&shared)));
+R3 | cmux-tui/crates/chatmux-relay/src/control.rs | e32fe8ceb880 | tokio::spawn(read_loop(read_half, Arc::clone(&shared)));
+R3 | cmux-tui/crates/chatmux-relay/src/tunnel_terminal.rs | 0b811f78982b | tokio::spawn(serve_connection(stream, manager, child));
+R3 | cmux-tui/crates/cmux-cloud-codex-holder/src/broker_renewal.rs | bb0a8ca125bf | tokio::spawn(async move { this.revoke(&Cx::never(), &target, false).await });
+R3 | cmux-tui/crates/cmux-cloud-codex-holder/src/cx.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-cloud-codex-holder/src/serve.rs | 6e68cb334c76 | tokio::spawn(async move { this.reply(message).await });
+R3 | cmux-tui/crates/cmux-cloud-codex-holder/src/serve.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-cloud-codex-holder/src/session.rs | 017e40a76c02 | tokio::spawn(read_replies(output, pending, weak));
+R3 | cmux-tui/crates/cmux-cloud-codex-holder/src/session.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-cloud-codex-holder/src/session.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-coderouter/src/lib.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-coderouter/src/lib.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-pane-protocol/src/example.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-pane-protocol/src/provider.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-pane-protocol/src/router/control.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-pane-protocol/src/router/serve.rs | b594611addc1 | tokio::spawn(connection);
+R3 | cmux-tui/crates/cmux-pane-protocol/src/router/serve.rs | c7b23b86e33b | tokio::spawn(router.serve_connection(transport::unix(stream), admission));
+R3 | cmux-tui/crates/cmux-pane-protocol/src/rpc.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-pane-protocol/src/transport.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-pane-protocol/src/ws.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-pane-protocol/src/ws.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-pane-protocol/src/ws.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/connection.rs | 52880f869f75 | tokio::spawn(run_heartbeat(weak, interval, timeout));
+R3 | cmux-tui/crates/cmux-remote/src/connection.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/daemon.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/daemon.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/daemon.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/identity.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/provider/relay.rs | 7bb1b499e8c6 | tokio::spawn(run_batched_relay_sender(sender, receiver, terminal.clone()));
+R3 | cmux-tui/crates/cmux-remote/src/provider/ssh.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/service.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/service.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/session.rs | 0bbd5a1766ab | tokio::spawn(run_ack_sender(
+R3 | cmux-tui/crates/cmux-remote/src/session.rs | 7d190434b799 | tokio::spawn(run_lane_sender(
+R3 | cmux-tui/crates/cmux-remote/src/ssh_artifacts.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/workspace/process.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/workspace/process.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/workspace/process.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/workspace/process.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-remote/src/workspace/process.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-tui-core/src/server/agent_session_share_relay.rs | 55c7c532ebea | tokio::spawn(run(BufReader::new(read), link, receiver));
+R3 | cmux-tui/crates/cmux-tui-core/src/server/agent_session_share_room.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-tui/src/carrier/adopt.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-tui/src/carrier/held.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-tui/src/carrier/held.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-tui/src/carrier/held.rs | ec491da54cb6 | tokio::spawn(async move { gone.close().await });
+R3 | cmux-tui/crates/cmux-tui/src/carrier/ssh.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-tui/src/link/control.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-tui/src/link/control.rs | c96c3a196545 | tokio::spawn(serve_local_request(stream, overlay.clone(), peers.clone(), status.clone()));
+R3 | cmux-tui/crates/cmux-vault-egress/src/proxy.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-vault-egress/src/proxy.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-weft/src/client/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-weft/src/client/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-weft/src/client/mod.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-wg/src/net_timers.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-wg/src/testing/sim.rs | a89573bdb26a | tokio::spawn(async move {
+R3 | cmux-tui/crates/cmux-wg/src/testing/sim.rs | a89573bdb26a | tokio::spawn(async move {
+R4 | webviews/src/agent-session/acpmux/App.tsx | c65c3e835a21 | setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
+R4 | webviews/src/agent-session/acpmux/App.tsx | c65c3e835a21 | setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
+R4 | webviews/src/agent-session/acpmux/App.tsx | c65c3e835a21 | setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
+R4 | webviews/src/agent-session/acpmux/App.tsx | c65c3e835a21 | setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
+R4 | webviews/src/agent-session/acpmux/ComposerQueue.tsx | a78f11634fcb | setTimeout(() => {
+R4 | webviews/src/agent-session/acpmux/conversation/turnFold.ts | 0110ccb4e44d | setTimeout(drop, Math.max(0, fold.until - now));
+R4 | webviews/src/agent-session/acpmux/conversation/turnFold.ts | 53d6bfae8230 | setTimeout(() => endTurnFold(thread, fold), ms + FOLD_SETTLE_MS);
+R4 | webviews/src/agent-session/acpmux/direct.ts | a78f11634fcb | setTimeout(() => {
+R4 | webviews/src/agent-session/acpmux/direct.ts | a78f11634fcb | setTimeout(() => {
+R4 | webviews/src/agent-session/acpmux/hoverPrefetch.ts | fb3f850b18c9 | setTimeout(run: () => void, ms: number): unknown;
+R4 | webviews/src/agent-session/acpmux/links.ts | 473cf88cab9b | setTimeout(() => row.classList.remove(REVEALED_TURN_CLASS), REVEALED_TURN_MS);
+R4 | webviews/src/agent-session/guest/appLink.ts | f4665d26fe3d | setTimeout(handler: () => void, ms: number): number;
+R4 | webviews/src/diff-viewer/RevertControls.tsx | 704827af6fb7 | setTimeout(() => setNotice((current) => (current === message ? undefined : current)), REVERT_NOTICE_MS);
+R4 | webviews/src/gallery/frame/main.ts | 377f31ca9c2e | window.setTimeout(finish, 2000);
+R4 | webviews/src/gallery/shell/Shell.tsx | 4771eb183b0b | window.setTimeout(() => setCopied(false), 1600);
+R4 | webviews/src/pages/changelog/surface.tsx | a78f11634fcb | setTimeout(() => {
+R4 | webviews/src/pages/home-messages/viewer/MediaViewer.tsx | d6c049bbd058 | setTimeout(() => URL.revokeObjectURL(url), 10_000);
+R5 | cmux-tui/crates/acpmux-hot/src/host.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/chats/mod.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/cli/process.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/daemon.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/daemon/handover.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/daemon/persist_retry.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/daemon/person_key.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/daemon/running.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/daemon/unused_exit.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/hub/auto_background.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/hub/desktop_bridge.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/hub/silent_turn.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/hub_carrier.rs | 36b955bae087 | let answer = loop {
+R5 | cmux-tui/crates/acpmux/src/peer.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/server/wait.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/server/windows_socket.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/acpmux/src/server/windows_socket.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/cmux-tui-core/src/mux/terminal_adoption.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/cmux-tui-core/src/mux/terminal_exit.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/cmux-tui-core/src/mux/terminal_host_records.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/cmux-tui-core/src/surface/spawn.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/cmux-tui/src/client_log.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/cmux-tui/src/launchd_refresh.rs | 8a1046633eab | let outcome = loop {
+R5 | cmux-tui/crates/cmux-weft/src/client/mod.rs | 58538eae1412 | loop {
+R5 | cmux-tui/crates/cmux-wg/src/underlay.rs | 753d2aa490ab | while let Some((datagram, peer)) = self.pending.front() {
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment+BuildHomeAdoption.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneSocket.swift | 581e56f5d411 | let task = session.webSocketTask(with: request)
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextApp/SessionTransfer/SessionTransferService+Chats.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyMacLock.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/VerificationAutofill/VerificationScriptRunning.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall/CLIPathInstaller.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextChromiumRuntime/TarChromiumRuntimeUnpacker.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudMachineStatePush.swift | 581e56f5d411 | let task = session.webSocketTask(with: request)
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudEnvironmentBootstrap.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudMachineWire.swift | 5af59a7033c8 | let task = URLSession.shared.webSocketTask(with: request)
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextDevices/DeviceHubSocket.swift | 24730ad225fe | let task = session.webSocketTask(with: handshake.request)
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextDictation/VoiceRoom/VoiceRoomWebSocketEvents.swift | 4eda3c6fe28d | let socket = session.webSocketTask(with: url)
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextFiles/FileOperator+Extras.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefMemoryTool.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefUsageTool.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeBrainHost.swift | c410142e6027 | let shell = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenRdProcess.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/PairInviteService+Cloud.swift | 59f7c50ecc2e | let task = URLSession.shared.webSocketTask(with: url, protocols: PairInviteFrame.protocols(secret: invite.watchSecret))
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/AppCopyGuide.swift | 337b25472ee9 | let helper = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/SingleInstanceHandoff.swift | 53a563dcccef | let process = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/ReleasePushListener.swift | 8ea6bdedc0df | socket = session.webSocketTask(with: url)
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateDropBack.swift | 337b25472ee9 | let helper = Process()
+R6 | Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/WebUpdates/WebUpdateStore.swift | 53a563dcccef | let process = Process()

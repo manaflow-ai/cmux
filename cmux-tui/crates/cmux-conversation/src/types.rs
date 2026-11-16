@@ -135,8 +135,9 @@ pub enum Part {
     /// it; only `question.answer` moves it out of pending, except the
     /// author's edit that cancels it.
     Question(crate::question::Question),
-    /// An agent's widget (widget.rs): drawn natively by a client with the
-    /// app, else shown as its fallback text. Only agents post it.
+    /// An extension's widget (widget.rs): drawn by a client with that
+    /// extension, else shown as its fallback text. Only agents post it, and
+    /// never one naming a first-party app (cmux ships no widgets of its own).
     Widget(crate::widget::Widget),
     /// A part this build cannot read: a type it does not know (a newer
     /// writer's), or a known type whose fields do not decode. Kept as its

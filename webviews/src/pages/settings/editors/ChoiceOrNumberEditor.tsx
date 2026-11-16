@@ -26,6 +26,17 @@ export function ChoiceOrNumberEditor({ row, value, disabled, labelId }: EditorPr
   const showCustom = isNumber || customPicked;
   return (
     <span className="choice-or-number">
+      {/* The field opens left of the menu, so the menu the person just used stays in place. */}
+      {showCustom && (
+        <NumberField
+          value={isNumber ? value : null}
+          range={row.range}
+          placeholder={String(row.range?.placeholder ?? "")}
+          disabled={disabled}
+          labelId={labelId}
+          onCommit={(next) => void store.set(row.key, next)}
+        />
+      )}
       <Select
         value={showCustom ? custom : String(value ?? "")}
         disabled={disabled}
@@ -44,16 +55,6 @@ export function ChoiceOrNumberEditor({ row, value, disabled, labelId }: EditorPr
         ))}
         <option value={custom}>{t("settingsPage.custom")}</option>
       </Select>
-      {showCustom && (
-        <NumberField
-          value={isNumber ? value : null}
-          range={row.range}
-          placeholder={String(row.range?.placeholder ?? "")}
-          disabled={disabled}
-          labelId={labelId}
-          onCommit={(next) => void store.set(row.key, next)}
-        />
-      )}
     </span>
   );
 }

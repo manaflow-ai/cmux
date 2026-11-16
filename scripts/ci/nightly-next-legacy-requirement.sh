@@ -53,10 +53,11 @@ fi
 # 40340830337); ancestry needs only the commit graph, fetched without trees or blobs, and
 # costs no API call. NIGHTLY_LEGACY_GIT_URL (default the repository on github.com) names
 # the remote; set empty, only the compare API answers.
-# Run "$@" for at most $1 seconds (timeout(1) on Linux; perl's alarm on macOS, which has no timeout).
+# Run "$@" for at most $1 seconds (scripts/ci/timeout.sh: GNU timeout's contract, macOS included).
+ci_timeout="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/timeout.sh"
 bounded() {
   local seconds="$1"; shift
-  if command -v timeout >/dev/null 2>&1; then timeout "$seconds" "$@"; else perl -e 'alarm shift; exec @ARGV' "$seconds" "$@"; fi
+  bash "$ci_timeout" "$seconds" "$@"
 }
 git_ancestry() {
   local url="${NIGHTLY_LEGACY_GIT_URL-https://github.com/$repo.git}" dir rc

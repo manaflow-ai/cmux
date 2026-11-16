@@ -77,10 +77,12 @@ extension CEFTab {
         // the ask is kept and the hold's end grants it, so nothing re-arms a grant each pass meanwhile.
         let hosting = host.hostView.layerHosting
         if hosting.holdsFirstFrame() {
+            host.lifecycleTrace.record(id, "grant kept: first-frame hold")
             pendingFocus = true
             return
         }
         if hosting.pageTakesFocus() {
+            host.lifecycleTrace.record(id, "grant kept: motion")
             pendingFocus = true
             AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
             return

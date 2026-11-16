@@ -26,7 +26,12 @@ fn acpmux_config(doomed: bool) -> Value {
 
 /// A machine whose acpmux runs the test agent, its work folder trusted.
 fn machine(name: &str) -> Daemon {
-    let daemon = Daemon::start_with(name, None, Some(acpmux_config(true)));
+    machine_with(name, acpmux_config(true))
+}
+
+/// `machine`, its acpmux running `config`.
+fn machine_with(name: &str, config: Value) -> Daemon {
+    let daemon = Daemon::start_with(name, None, Some(config));
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
     let trust = json!({work.to_str().unwrap(): "trusted"});
     fs::write(daemon.dir.join("acpmux/trust.json"), trust.to_string()).unwrap();
@@ -744,6 +749,140 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
     assert_eq!(tool("agents_chat_new")["inputSchema"]["additionalProperties"], false);
 }
 
+/// A fake cmux app control socket at `socket` whose `cloud.machines` answers `machines`;
+/// anything else is not in this app. Serves until the test process ends.
+fn fake_app_with_cloud(socket: &std::path::Path, machines: Value) {
+    let listener = UnixListener::bind(socket).unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let machines = machines.clone();
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut writer = stream;
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                    let request: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
+                    line.clear();
+                    let response = match request["method"].as_str() {
+                        Some("cloud.machines") => json!({"id": request["id"], "ok": true,
+                            "result": {"machines": machines}}),
+                        _ => json!({"id": request["id"], "ok": false, "error": {
+                            "code": "unavailable", "message": "not in this fake app", "data": {}}}),
+                    };
+                    if writeln!(writer, "{response}").is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+}
+
+/// `cmux agents chat new --workspace X` takes every selector `cmux workspace list` prints, over
+/// the rows it prints (Leo, 2026-11-15: "Small CLI bug: `agents chat new --workspace X` says
+/// \"not found\" for a workspace that `workspace list` shows in the same session. Fix it."):
+/// a workspace's id, a unique id prefix and its name start the chat there; a name several
+/// rows share (local or Cloud) is refused with their ids; a Cloud workspace (its panes are in
+/// the Cloud machine's daemon) is refused with the command that starts a chat on its machine.
+#[test]
+fn chat_new_takes_every_workspace_selector_workspace_list_prints() {
+    let daemon = machine("chat-new-selectors");
+    for name in ["reviewer", "twin", "twin", "shared"] {
+        let made = daemon.rpc(json!({"id": 2, "cmd": "new-workspace", "name": name}));
+        assert_eq!(made["ok"], true, "{made}");
+    }
+    let cloud_id = "ws_15a06b228aa5f1e264d671a46559153f";
+    let app_socket = daemon.dir.join("cloud-app.sock");
+    fake_app_with_cloud(
+        &app_socket,
+        json!([{"id": "vm-ccc", "title": "cloud-box", "daemon": "connected", "workspaces": [
+            {"id": "b1", "name": "cloud-only", "resource_id": cloud_id},
+            {"id": "b2", "name": "shared", "resource_id": "ws_25a06b228aa5f1e264d671a46559153f"},
+        ]}]),
+    );
+    let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
+    // The person's `cmux` in the app's session: no `--socket`, so `workspace list` adds the
+    // app's Cloud rows, as the bundled CLI's does.
+    let person = || {
+        let mut command = Command::new(bin());
+        command
+            .arg("--app-socket")
+            .arg(&app_socket)
+            .env("CMUX_TUI_SOCKET", &daemon.socket)
+            .env("HOME", daemon.dir.join("home"))
+            .env("ACPMUX_HOME", daemon.dir.join("acpmux"))
+            .env("ACPMUX_SOCKET", daemon.dir.join("acpmux/acpmux.sock"))
+            .env("CMUX_TUI_CONFIG", daemon.dir.join("config.json"))
+            .env_remove("CMUX_MUX_SOCKET")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .env_remove("CMUX_LAUNCH_CREDENTIAL")
+            .env_remove("CMUX_AGENT_SESSION")
+            .env_remove("ACPMUX_SESSION_ID")
+            .env_remove("CMUX_SOCKET_PATH")
+            .env_remove("CMUX_NEXT_CONFIG_FILE");
+        command
+    };
+    let output = person().args(["--json", "workspace", "list"]).output().unwrap();
+    let listed: Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|_| panic!("workspace list: {}", String::from_utf8_lossy(&output.stderr)));
+    let rows = listed.get("items").unwrap_or(&listed).as_array().cloned().unwrap_or_default();
+    let ids_named = |name: &str| -> Vec<String> {
+        rows.iter()
+            .filter(|row| row["name"] == name && row["origin"] != "cloud")
+            .filter_map(|row| row["id"].as_str().map(str::to_owned))
+            .collect()
+    };
+    assert!(rows.iter().any(|row| row["id"] == cloud_id), "the list shows the Cloud row: {listed}");
+    let reviewer = ids_named("reviewer").pop().unwrap_or_else(|| panic!("{listed}"));
+    let new_in = |workspace: &str| {
+        chat_json(person(), &["new", "--workspace", workspace, "--cwd", work.to_str().unwrap()])
+    };
+    let key_of = |created: &Value| {
+        let chat = created["result"]["chat"].as_str().unwrap_or_else(|| panic!("{created}"));
+        let info = Acp::connect(&daemon).call("_acpmux/info", json!({"sessionId": chat}));
+        info["result"]["sessionEnv"]["CMUX_WORKSPACE_ID"].as_str().map(str::to_owned)
+    };
+
+    // Its id, as before; then its name and a unique prefix of its id reach the same workspace.
+    let (code, by_id) = new_in(&reviewer);
+    assert_eq!(code, Some(0), "{by_id}");
+    let workspace = key_of(&by_id);
+    for selector in ["reviewer".to_owned(), "name:reviewer".to_owned(), reviewer[..10].to_owned()] {
+        let (code, created) = new_in(&selector);
+        assert_eq!(code, Some(0), "{selector}: {created}");
+        assert_eq!(key_of(&created), workspace, "{selector}: {created}");
+    }
+
+    // A name two local workspaces share names neither: both ids are in the refusal.
+    let (code, twins) = new_in("twin");
+    assert_eq!(code, Some(3), "{twins}");
+    let error = error_of(&twins);
+    assert_eq!(error["code"], "selector.ambiguous", "{twins}");
+    for id in ids_named("twin") {
+        assert!(error["message"].as_str().unwrap().contains(&id), "{id}: {twins}");
+    }
+
+    // A name a local and a Cloud workspace share is as ambiguous.
+    let (code, shared) = new_in("shared");
+    assert_eq!(code, Some(3), "{shared}");
+    assert_eq!(error_of(&shared)["code"], "selector.ambiguous", "{shared}");
+    assert!(shared.to_string().contains("vm-ccc"), "{shared}");
+
+    // A Cloud workspace, by its id or its name: refused with the way to reach it, never "not found".
+    for selector in [cloud_id, "cloud-only"] {
+        let (code, cloud) = new_in(selector);
+        assert_eq!(code, Some(3), "{selector}: {cloud}");
+        let error = error_of(&cloud);
+        assert_eq!(error["code"], "workspace.on_cloud_machine", "{selector}: {cloud}");
+        assert!(error["message"].as_str().unwrap().contains("--on vm:vm-ccc"), "{cloud}");
+    }
+
+    // A workspace no row names is still not found.
+    let (code, unknown) = new_in("nobody-has-this-name");
+    assert_eq!(code, Some(3), "{unknown}");
+    assert_eq!(error_of(&unknown)["code"], "selector.not_found", "{unknown}");
+}
+
 /// A fake cmux app control socket at `socket`: `agent.acpmux` names `acpmux` (the app's own
 /// acpmux), `action.run` answers a run with a tab, anything else is not in this app. Serves
 /// until the test process ends.
@@ -1043,4 +1182,75 @@ fn cmux_chat_here_checks_its_files_before_it_starts_a_chat() {
         .unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(text)));
     assert_ne!(output.status.code(), Some(0), "{answer}");
     assert_eq!(error_of(&answer)["code"], "attach.not_found", "{answer}");
+}
+
+/// acpmux's stand-in Claude Code: a prompt `peer-hold: <JSON>` writes the
+/// `system/peer_message_hold` line Claude Code 2.1.322 writes for another
+/// session's message it holds instead of giving it to the model.
+const FAKE_CLAUDE: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_claude_auto.py");
+
+/// Bench round 6 (W7-A): a chat's Claude Code held another session's message
+/// and nothing showed it. `chat state` (and the `agents_chat_state` tool that
+/// runs it) shows each held message as `held_messages`, from acpmux's
+/// `heldMessages`, until Claude Code says it was dropped.
+#[test]
+fn w7a_chat_state_shows_the_messages_a_chat_s_claude_code_holds() {
+    let mut config = acpmux_config(false);
+    config["harnesses"]["claude"] =
+        json!({"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"});
+    config["titles"] = json!({"generate": false});
+    let daemon = machine_with("chat-held", config);
+    let workspace = workspace(&daemon);
+    let caller = chat(&daemon, Some(&workspace));
+    let held_by = chat_of(&daemon, Some(&workspace), "claude");
+    let no_app = daemon.dir.join("no-app.sock");
+    let as_caller = || {
+        let mut command = cmux(&daemon, Some(&caller));
+        command.arg("--app-socket").arg(&no_app);
+        command
+    };
+    let (code, state) = chat_json(as_caller(), &["state", &held_by]);
+    assert_eq!(code, Some(0), "{state}");
+    assert_eq!(state["result"]["held_messages"], json!([]), "nothing held yet: {state}");
+
+    let prompt = |line: Value| {
+        let prompted = Acp::connect(&daemon).call(
+            "session/prompt",
+            json!({"sessionId": held_by,
+                   "prompt": [{"type": "text", "text": format!("peer-hold: {line}")}]}),
+        );
+        assert!(prompted.get("error").is_none(), "{prompted}");
+    };
+    // State until `done` holds, for up to twenty seconds.
+    let state_until = |done: &dyn Fn(&Value) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let (code, state) = chat_json(as_caller(), &["state", &held_by]);
+            assert_eq!(code, Some(0), "{state}");
+            if done(&state["result"]["held_messages"]) {
+                return state;
+            }
+            assert!(Instant::now() < deadline, "held_messages never got there: {state}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+    prompt(json!({"state": "held", "message_uuid": "m-1", "from": "uds:/tmp/cc-socks/1.sock",
+                  "from_name": "alpha", "cause": "mode-mismatch"}));
+    let state = state_until(&|held| held.as_array().is_some_and(|rows| !rows.is_empty()));
+    let held = state["result"]["held_messages"].as_array().unwrap();
+    assert_eq!(held.len(), 1, "{state}");
+    assert_eq!(held[0]["messageUuid"], "m-1", "{state}");
+    assert_eq!(held[0]["fromName"], "alpha", "{state}");
+    assert_eq!(held[0]["cause"], "mode-mismatch", "{state}");
+
+    // The same over MCP, as another agent reads it.
+    let (_, results) = mcp(&daemon, &caller, &[("agents_chat_state", json!({"target": held_by}))]);
+    assert_eq!(results[0]["isError"], false, "{}", results[0]);
+    let over_mcp = &results[0]["structuredContent"]["result"]["held_messages"];
+    assert_eq!(over_mcp[0]["fromName"], "alpha", "{}", results[0]);
+
+    // Claude Code dropped it: it leaves the state.
+    prompt(json!({"state": "dropped", "message_uuid": "m-1", "outcome": "expired"}));
+    state_until(&|held| held == &json!([]));
 }

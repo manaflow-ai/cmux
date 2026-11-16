@@ -304,7 +304,8 @@ pub fn start_event(
     let run = Run {
         id: event_run_id(&a.id, key),
         automation: a.id.clone(),
-        trigger: "watch".into(),
+        // `CMUX_AUTOMATION_TRIGGER`: `event` for `--when NAME`, `watch` for `--watch CMD`.
+        trigger: if matches!(a.trigger, Trigger::Event { .. }) { "event" } else { "watch" }.into(),
         event: Some(clip_event(event)),
         dropped: store.take_dropped(&a.id)?,
         scheduled_at: None,

@@ -24,7 +24,8 @@
  * when no cell failed.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,13 +33,16 @@ export type Cell = {
   id: string;
   agent: string;
   signIn: string;
-  proof: "live" | "stubbed" | "expect";
+  proof: "live" | "stubbed" | "expect" | "start";
   args: string[];
   /** Environment the cell needs; absent, the cell is skipped with this reason. */
   needs?: { env: string; why: string };
   /** For `expect` cells: the step that must fail, its error, and the most it may take. */
   expect?: { step: string; error: RegExp; withinMs: number };
 };
+
+/** The harnesses the Cloud chat picker offers: the app's LOGIN_AGENTS (cloudAgentLogin.ts) and opencode. */
+export const PICKER_HARNESSES = ["claude", "codex", "gemini", "grok", "cursor", "opencode"] as const;
 
 export const CELLS: Cell[] = [
   {
@@ -90,7 +94,42 @@ export const CELLS: Cell[] = [
   },
   // No Cursor, Grok (SuperGrok, xAI key) or third-party provider-key cells: Leo has none of those accounts (Leo,
   // 2026-11-10: "I only have ChatGPT and Google ... Or else I ask the company to get me basic accounts later").
+  // The `start` cells below need no account: a signed-out agent passes by naming itself.
+  ...PICKER_HARNESSES.map(appStartCell),
+  // TODO(hq#11225 PR4): gemini and grok through the team's inference gateway (a second machine), once gateway
+  // routing for those harnesses lands: a started session there, never sign_in_required.
 ];
+
+/**
+ * A fresh machine, each harness the Cloud chat picker offers, started the way the app starts it
+ * (`agent-session-start` over the carrier, cloud-journey.ts `--start-via app`). Leo, 2026-11-15: "so does cloud work?
+ * on our thing? just automatically? or switching environments? claude and codex alike, through gui? and other
+ * harnesses/etc too? and alternatively can pick enviornments?" (hq#11225). Pass: a started session, or exactly
+ * `agent_session.sign_in_required` naming that harness (the app then offers that agent's own sign-in); a bare refusal,
+ * a hang or another harness's name fails. Mirrors cmux-tui's cloud_harness_start.rs test and the app's LOGIN_AGENTS
+ * (webviews/src/agent-session/acpmux/cloudAgentLogin.ts), plus opencode.
+ */
+function appStartCell(harness: string): Cell {
+  return {
+    id: `${harness}-app-start`,
+    agent: harness,
+    signIn: "whatever a fresh machine has: started, or sign_in_required naming the harness",
+    proof: "start",
+    args: ["--agent", harness, "--start-via", "app", "--cmux", "$CMUX_BIN"],
+    needs: { env: "CMUX_BIN", why: "a cmux CLI for the carrier dial the app's start goes over" },
+  };
+}
+
+/** What the journey's `start agent (H)` step says of the app's start (cloud-journey.ts `--start-via app`). */
+export function appStartDetail(reply: any): { ok: boolean; detail: string } {
+  if (reply?.ok === true) {
+    const session = String(reply?.data?.session ?? "");
+    return session ? { ok: true, detail: `started: session ${session}` } : { ok: false, detail: `started with no session: ${JSON.stringify(reply).slice(0, 200)}` };
+  }
+  const code = String(reply?.error_code ?? reply?.error?.code ?? "no error_code");
+  const harness = typeof reply?.data?.harness === "string" ? reply.data.harness : "-";
+  return { ok: false, detail: `refused: ${code} harness=${harness}: ${String(reply?.error?.message ?? reply?.error ?? "").slice(0, 160)}` };
+}
 
 /** The steps a row reports, with their latencies. */
 const TIMED = ["create machine", "reply", "turn 2 (same session)", "pause", "resume", "turn after resume"] as const;
@@ -108,6 +147,19 @@ export function judge(cell: Cell, steps: Step[], exit: number): Row {
   }
   const reply = steps.find((x) => x.step === "reply" && x.status === "pass")?.detail;
   const failed = steps.filter((x) => x.status === "fail" && !x.step.startsWith("prod:"));
+  if (cell.proof === "start") {
+    // The app's start: a session, or exactly sign_in_required naming this harness. Any other failure fails it.
+    const name = `start agent (${cell.agent})`;
+    const s = steps.find((x) => x.step === name);
+    const others = failed.filter((x) => x.step !== name);
+    if (others.length) return { cell, verdict: "fail", why: `${others[0]!.step}: ${(others[0]!.detail ?? "").slice(0, 200)}`, ms };
+    if (!s || s.status === "skip") return { cell, verdict: "fail", why: `${name} did not run: ${(s?.detail ?? "not run").slice(0, 200)}`, ms };
+    const detail = s.detail ?? "";
+    if (s.status === "pass" && detail.startsWith("started: session ")) return { cell, verdict: "pass", why: `${detail.slice(0, 160)} in ${s.ms} ms`, ms };
+    const named = /^refused: agent_session\.sign_in_required harness=(\S+):/.exec(detail);
+    if (s.status === "fail" && named?.[1] === cell.agent) return { cell, verdict: "pass", why: `signed out, named ${cell.agent} in ${s.ms} ms`, ms };
+    return { cell, verdict: "fail", why: `${name}: ${detail.slice(0, 200)}`, ms };
+  }
   if (cell.expect) {
     const want = cell.expect;
     const s = steps.find((x) => x.step === want.step);
@@ -152,7 +204,9 @@ export function main(argv: string[]): number {
     return 2;
   }
   const cells = want ? CELLS.filter((c) => want.includes(c.id)) : CELLS;
-  const out = path.resolve(argValue("--out", argv) ?? `/tmp/cloud-chat-matrix-${Date.now().toString(36)}`);
+  // The default is a folder mkdtemp makes, never a guessable /tmp name another account could make first.
+  const given = argValue("--out", argv);
+  const out = given ? path.resolve(given) : mkdtempSync(path.join(os.tmpdir(), "cloud-chat-matrix-"));
   mkdirSync(out, { recursive: true });
   // Everything but this script's own flags goes to every journey (--backend, --credentials, --team, --cmux).
   const own = new Set(["--cells", "--out"]);

@@ -62,22 +62,6 @@ root = "Native/OptChat/optchat-chief"
 run = true
 
 [[workspace]]
-root = "Native/OptChat/chief-kernel"
-run = true
-
-[[workspace]]
-root = "Native/OptChat/optchat-core"
-run = true
-
-[[workspace]]
-root = "Native/OptChat/optchat-host"
-run = true
-
-[[workspace]]
-root = "Native/OptChat/optchat-wasm"
-run = true
-
-[[workspace]]
 root = "cmux-next-ios/rust"
 run = true
 
@@ -121,18 +105,6 @@ run = true
 root = "cmux-tui/crates/cmux-app-ffi"
 run = true
 
-[[workspace]]
-root = "cmux-tui/crates/cmux-layout-reducer-ffi"
-run = true
-
-[[workspace]]
-root = "cmux-tui/crates/cmux-rd-ffi"
-run = true
-
-[[workspace]]
-root = "cmux-tui/crates/cmux-sdk-ffi"
-run = true
-
 # The bench feature set is the one that builds without x264 (OpenH264 from source),
 # as in scripts/ci/cmux-tui-rust-check.sh rd-host.
 [[workspace]]
@@ -147,6 +119,10 @@ skip = "wasm32-wasip2 guest of the dev-only acpmux-hot prototype; built and run 
 [[workspace]]
 root = "cmux-tui/crates/cmux-cellgrid-bench"
 skip = "measurement tool run by hand (cell grid against video, HQ#7146 G5); not linked into the app"
+
+[[workspace]]
+root = "cmux-tui/crates/cmux-codecs"
+skip = "VP9 and AV1 screen-share adapters and codec-bench, run by hand on the fleet (`cmux-ci test`); builds libvpx from source, not linked into the app"
 
 [[workspace]]
 root = "cmux-tui/crates/cmux-remote-browser-host"

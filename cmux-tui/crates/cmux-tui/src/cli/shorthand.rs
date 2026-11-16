@@ -175,7 +175,12 @@ pub(super) fn normalize(args: &[String], surface: Surface) -> Result<Vec<String>
             } else {
                 flag.to_string()
             });
-            if inline.is_none() && !super::command::is_boolean_flag(flag.trim_start_matches("--")) {
+            if inline.is_none()
+                && !super::command::flag_takes_no_value(
+                    flag.trim_start_matches("--"),
+                    args.get(index + 1).map(String::as_str),
+                )
+            {
                 index += 1;
                 options.push(args.get(index).cloned().ok_or_else(|| error(arg))?);
             }

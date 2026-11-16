@@ -488,14 +488,18 @@ async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
     }
     let kind = field("kind").and_then(Value::as_str).unwrap_or("unknown");
     // The machine's own call: the edge steers it to the gateway, which answers from the person's proxy or login.
-    let probe = format!(
-        "curl -sS -o /dev/null -w '%{{http_code}}' --max-time 60 -H 'authorization: Bearer {PLACEHOLDER}' \
-         'https://coderouter.cmux.internal/v1/models?client_version=0.0.0'"
-    );
-    let (_, status) = machine.exec(&probe, 90_000).await?;
-    let status = status.trim();
+    // Its status comes first; then the answer's header lines (every hop's, and trailers after the body), its first
+    // bytes and curl's own error, so a refusal names the hop that made it (the machine's proxy, the edge, cmux or the
+    // gateway).
+    let mark = probe_mark();
+    let probe = probe_command(&mark);
+    let (_, out) = machine.exec(&probe, 90_000).await?;
+    let status = out.lines().next().unwrap_or("").trim();
     if status != "200" {
-        return Err(format!("the machine's model call through the gateway answered HTTP {status}"));
+        return Err(format!(
+            "the machine's model call through the gateway answered HTTP {status}\n{}",
+            shown_answer(&out, &mark)
+        ));
     }
     let holds = machine.exec(login_present(), 30_000).await?.0 == 0;
     say(&format!(
@@ -508,6 +512,87 @@ async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
         "This machine holds no Codex login."
     });
     Ok(())
+}
+
+/// The gateway probe run on the machine; `mark` starts its marker lines (probe_mark). Headers and body are written
+/// apart (`-D`, `-o`) and printed after a marker line holding a nonce the answer cannot know, so no body line or
+/// trailer passes for the other. The raw headers hold credentials until shown_answer filters them, so all three files
+/// live in a private directory (mktemp -d, umask 077) that a trap removes however the shell ends.
+fn probe_command(mark: &str) -> String {
+    format!(
+        "umask 077; d=$(mktemp -d) || exit 1; trap 'rm -rf \"$d\"' 0; trap 'exit 1' 1 2 13 15; \
+         code=$(curl -sS -D \"$d/headers\" -o \"$d/body\" -w '%{{http_code}}' --max-time 60 \
+         -H 'authorization: Bearer {PLACEHOLDER}' \
+         'https://coderouter.cmux.internal/v1/models?client_version=0.0.0' 2>\"$d/error\"); \
+         echo \"$code\"; echo '{mark}headers'; head -c {PROBE_HEADERS_READ} \"$d/headers\"; echo; echo '{mark}body'; \
+         head -c {PROBE_EXCERPT} \"$d/body\"; echo; echo '{mark}error'; head -c 300 \"$d/error\""
+    )
+}
+
+/// How much of the probe's answer comes back to name a refusal: of the header lines once filtered, and of the body.
+const PROBE_EXCERPT: usize = 1500;
+
+/// How much of the header lines is read for filtering: a long cookie, dropped, never takes the room of the headers
+/// after it (a hop's `server`, the next hop's status line).
+const PROBE_HEADERS_READ: usize = 16 * 1024;
+
+/// The start of the probe's marker lines: random per probe, so neither the answer nor a hop can write one.
+fn probe_mark() -> String {
+    use std::hash::BuildHasher;
+    format!("@@probe-{:016x}-", std::collections::hash_map::RandomState::new().hash_one(now_ms()))
+}
+
+/// The probe's output (`mark` the start of its marker lines) as it may be printed. Every line of the header part (each
+/// hop's headers, and trailers after the body) is a header: one that can carry a credential (a cookie, an
+/// authorization, a token) is dropped with its folded continuation lines, and so is one with no name. The body and
+/// curl's error are shown as they are. Control characters other than line breaks are left out. The header lines kept
+/// are held to PROBE_EXCERPT bytes, after filtering, and a line says when more were left out.
+fn shown_answer(out: &str, mark: &str) -> String {
+    let secret = |name: &str| {
+        let name = name.trim().to_ascii_lowercase();
+        ["cookie", "authorization", "token", "secret", "key"].iter().any(|s| name.contains(s))
+    };
+    let (mut part, mut dropping) = ("", false);
+    let (mut header_bytes, mut headers_cut) = (0, false);
+    let mut shown = Vec::new();
+    for line in out.lines().skip(1) {
+        if let Some(next) = line.strip_prefix(mark) {
+            if part == "headers" && headers_cut {
+                shown.push("[more header lines not shown]".to_owned());
+            }
+            (part, dropping) = (next, false);
+            continue;
+        }
+        if part == "headers" {
+            if line.starts_with("HTTP/") || line.trim_end_matches('\r').is_empty() {
+                // A hop's status line, or the empty line that ends a hop's headers or comes before trailers.
+                dropping = false;
+            } else if line.starts_with([' ', '\t']) {
+                // A folded header goes on with the one before it, a line of only whitespace too.
+                if dropping {
+                    continue;
+                }
+            } else {
+                dropping = line.split_once(':').is_none_or(|(name, _)| secret(name));
+                if dropping {
+                    continue;
+                }
+            }
+        } else if part != "body" && part != "error" {
+            // Nothing comes before the first marker; anything else would be unlooked at.
+            continue;
+        }
+        let line = line.chars().filter(|c| !c.is_control()).collect::<String>();
+        if part == "headers" {
+            header_bytes += line.len() + 1;
+            if header_bytes > PROBE_EXCERPT {
+                headers_cut = true;
+                continue;
+            }
+        }
+        shown.push(line);
+    }
+    shown.join("\n").trim().to_owned()
 }
 
 fn login_present() -> &'static str {
@@ -637,6 +722,166 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    /// What the probe prints: its status, then the header file, the body and curl's error after their markers.
+    fn probe_out(mark: &str, headers: &str, body: &str) -> String {
+        format!("403\n{mark}headers\n{headers}\n{mark}body\n{body}\n{mark}error\n")
+    }
+
+    #[test]
+    fn a_refused_probe_shows_its_answer_without_credentials() {
+        let mark = probe_mark();
+        let headers = "HTTP/1.1 403 Forbidden\r\nserver: edge-proxy\r\nset-cookie: sid=abc\r\nAuthorization: Bearer x\r\n\
+                       x-api-key: k\r\ncontent-type: text/plain\r\n\r\n";
+        let shown = shown_answer(
+            &probe_out(&mark, headers, "host not allowed: coderouter\u{1b}[0m"),
+            &mark,
+        );
+        assert_eq!(
+            shown,
+            "HTTP/1.1 403 Forbidden\nserver: edge-proxy\ncontent-type: text/plain\n\n\nhost not allowed: coderouter[0m"
+        );
+        assert!(
+            !shown.contains("sid=") && !shown.contains("Bearer") && !shown.contains("x-api-key")
+        );
+        // A body line that merely mentions a key word is kept: only header lines are matched.
+        let shown = shown_answer(&probe_out(&mark, "", "the token you sent: none"), &mark);
+        assert_eq!(shown, "the token you sent: none");
+    }
+
+    #[test]
+    fn a_folded_credential_header_is_dropped_with_its_continuations() {
+        let mark = probe_mark();
+        let headers = "HTTP/1.1 200 Connection established\r\nproxy-agent: p\r\n\r\n\
+                       HTTP/1.1 403 Forbidden\r\nSet-Cookie:\r\n\tsid=abc\r\n  more=def\r\nx-trace: t1\r\n\
+                       \tcontinued\r\nAuthorization:\r\n Bearer zzz\r\n\r\n";
+        let shown = shown_answer(&probe_out(&mark, headers, "  indented body line"), &mark);
+        assert_eq!(
+            shown,
+            "HTTP/1.1 200 Connection established\nproxy-agent: p\n\nHTTP/1.1 403 Forbidden\nx-trace: t1\ncontinued\n\n\n  indented body line"
+        );
+        assert!(!shown.contains("sid=") && !shown.contains("more=") && !shown.contains("zzz"));
+    }
+
+    #[test]
+    fn a_whitespace_only_continuation_keeps_the_header_it_folds() {
+        // A continuation of only whitespace neither ends the headers nor the dropped header it goes on with.
+        let mark = probe_mark();
+        let headers = "HTTP/1.1 403 Forbidden\r\nSet-Cookie:\r\n \r\n sid=private-session\r\n\
+                       Authorization: Bearer private-token\r\nserver: edge\r\n\t\r\n\r\n";
+        let shown = shown_answer(&probe_out(&mark, headers, "refused"), &mark);
+        assert!(!shown.contains("private-session") && !shown.contains("private-token"), "{shown}");
+        assert_eq!(shown, "HTTP/1.1 403 Forbidden\nserver: edge\n\n\n\nrefused");
+    }
+
+    #[test]
+    fn trailers_after_the_body_are_filtered_as_headers() {
+        // curl writes a chunked answer's trailers to the header file after an empty line (checked with curl 8.5).
+        let mark = probe_mark();
+        let headers = "HTTP/1.1 403 Forbidden\r\nTransfer-Encoding: chunked\r\nserver: edge\r\n\r\n\
+                       Set-Cookie: sid=trailer-secret\r\n continued-secret\r\nX-Api-Key: trailer-key\r\nx-hop: gw\r\n";
+        let shown = shown_answer(&probe_out(&mark, headers, "refused"), &mark);
+        for secret in ["trailer-secret", "continued-secret", "trailer-key"] {
+            assert!(!shown.contains(secret), "{shown}");
+        }
+        assert!(
+            shown.contains("server: edge")
+                && shown.contains("x-hop: gw")
+                && shown.ends_with("refused")
+        );
+    }
+
+    #[test]
+    fn a_long_dropped_cookie_leaves_room_for_the_headers_after_it() {
+        // The excerpt holds the headers kept, not the raw ones: a cookie past the whole budget is dropped and the next
+        // hop's status and server still show; headers past the budget are cut with a line that says so.
+        let mark = probe_mark();
+        let cookie = "x".repeat(PROBE_EXCERPT * 2);
+        let headers = format!(
+            "HTTP/1.1 200 Connection established\r\nSet-Cookie: sid={cookie}\r\n\r\n\
+             HTTP/1.1 403 Forbidden\r\nserver: the-refusing-hop\r\n\r\n"
+        );
+        let shown = shown_answer(&probe_out(&mark, &headers, "refused"), &mark);
+        assert!(
+            shown.contains("HTTP/1.1 403 Forbidden\nserver: the-refusing-hop")
+                && !shown.contains("sid="),
+            "{shown}"
+        );
+        assert!(!shown.contains("not shown"), "{shown}");
+        let many = "x-hop: value\r\n".repeat(200);
+        let shown = shown_answer(
+            &probe_out(&mark, &format!("HTTP/1.1 403 Forbidden\r\n{many}"), "refused"),
+            &mark,
+        );
+        let header_part = shown.split("[more header lines not shown]").next().unwrap_or("");
+        assert!(
+            header_part.len() <= PROBE_EXCERPT && shown.contains("[more header lines not shown]"),
+            "{shown}"
+        );
+        assert!(shown.ends_with("refused"), "{shown}");
+    }
+
+    #[test]
+    fn a_body_cannot_pass_for_the_header_part() {
+        // The marker's nonce is new each probe, so a body that writes a marker line of its own stays body, and nothing
+        // in the body is read as headers; an answer written before the first marker is never shown.
+        let mark = probe_mark();
+        assert_ne!(mark, probe_mark());
+        let body = "@@probe-0000000000000000-headers\nSet-Cookie: kept-as-body";
+        let shown = shown_answer(
+            &format!("403\nstray-before-marker\n{}", &probe_out(&mark, "", body)[4..]),
+            &mark,
+        );
+        assert!(
+            shown.contains("Set-Cookie: kept-as-body") && !shown.contains("stray-before-marker"),
+            "{shown}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_raw_headers_stay_private_and_are_removed() {
+        // A stand-in curl, first on PATH: it writes a credential header and records, while the request runs, who may
+        // read the probe's directory and its header file. After the probe, the directory is gone.
+        use std::os::unix::fs::PermissionsExt;
+        let bin = std::env::temp_dir().join(format!("probe-test-{}", std::process::id()));
+        std::fs::create_dir_all(&bin).unwrap();
+        let log = bin.join("log");
+        let curl = bin.join("curl");
+        std::fs::write(
+            &curl,
+            "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in -D) h=$2; shift;; -o) b=$2; shift;; esac; shift; done\n\
+             printf 'HTTP/1.1 403 Forbidden\\r\\nSet-Cookie: sid=raw-secret\\r\\nserver: edge\\r\\n\\r\\n' > \"$h\"\n\
+             printf 'refused' > \"$b\"\n\
+             { dirname \"$h\"; ls -ld \"$(dirname \"$h\")\" \"$h\"; } > \"$PROBE_LOG\"\nprintf 403\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&curl, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mark = probe_mark();
+        let out = cmux_process::Command::new("sh")
+            .arg("-c")
+            .arg(probe_command(&mark))
+            .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()))
+            .env("PROBE_LOG", &log)
+            .output()
+            .unwrap();
+        let out = String::from_utf8_lossy(&out.stdout).into_owned();
+        let seen = std::fs::read_to_string(&log).unwrap();
+        std::fs::remove_dir_all(&bin).unwrap();
+        let mut lines = seen.lines();
+        let dir = lines.next().unwrap();
+        let modes: Vec<&str> = lines.map(|l| l.split_whitespace().next().unwrap_or("")).collect();
+        assert_eq!(modes, ["drwx------", "-rw-------"], "{seen}");
+        assert!(!std::path::Path::new(dir).exists(), "{dir} was left behind");
+        assert!(out.starts_with("403\n"), "{out}");
+        let shown = shown_answer(&out, &mark);
+        assert!(
+            !shown.contains("raw-secret")
+                && shown.contains("server: edge")
+                && shown.contains("refused"),
+            "{shown}"
+        );
     }
 
     #[test]

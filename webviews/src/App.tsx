@@ -76,6 +76,11 @@ import {
 } from "./diff-viewer/state";
 import { FileHeader } from "./diff-viewer/FileHeader";
 import { diffGitSource, useDiffStageAction } from "./diff-viewer/git";
+import {
+  PullRequestActionButton,
+  PullRequestActionStatus,
+  usePullRequestAction,
+} from "./diff-viewer/PullRequestAction";
 import { diffRevertSource, revertScopeOf } from "./diff-viewer/revert";
 import {
   DIFF_BULK_BAR_ROOM,
@@ -897,6 +902,8 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (op === "commit") setCommitOpen(false);
     if (op !== "push") refreshRef.current();
   });
+  const pullRequestAction = usePullRequestAction(gitSource);
+  const pullRequestDisabled = commitOpen || git.state?.phase === "busy" || git.status?.detached === true;
   const stageAction = useDiffStageAction(
     gitSource,
     resolvedSessionSource ?? activeSessionSource,
@@ -1009,7 +1016,9 @@ export function App({ config, initialStatus }: ConfigProps) {
                   git={git}
                   formOpen={commitOpen}
                   onToggleForm={() => setCommitOpen((open) => !open)}
+                  disabled={pullRequestAction.busy}
                 />
+                <PullRequestActionButton action={pullRequestAction} disabled={pullRequestDisabled} />
               </span>
             ) : null}
             <DiffPill
@@ -1052,7 +1061,13 @@ export function App({ config, initialStatus }: ConfigProps) {
             instead of the pill's Commit and Push below 600 px. */}
         {gitTools ? (
           <span className="diff-git-tools diff-git-tools-row">
-            <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
+            <GitToolbarButtons
+              git={git}
+              formOpen={commitOpen}
+              onToggleForm={() => setCommitOpen((open) => !open)}
+              disabled={pullRequestAction.busy}
+            />
+            <PullRequestActionButton action={pullRequestAction} disabled={pullRequestDisabled} />
           </span>
         ) : null}
         {(filesChanged || machineUnavailable) && (
@@ -1063,10 +1078,12 @@ export function App({ config, initialStatus }: ConfigProps) {
             </button>
           </output>
         )}
+        {gitTools && <PullRequestActionStatus action={pullRequestAction} />}
         <GitWriteBar
           git={git}
           formOpen={commitOpen}
           onCloseForm={() => setCommitOpen(false)}
+          disabled={pullRequestAction.busy}
           reloadKey={state.renderGeneration}
         />
         {reviewBrief ? (

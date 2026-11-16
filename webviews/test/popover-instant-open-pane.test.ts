@@ -1,8 +1,8 @@
-// Popovers and menus open in one frame and fade only as they close (Leo 2026-10-24: "When you open
-// it up, no animation. When you close it, animation for closing... No fade in ever for any of
-// these."), on the real agent pane: the chat header's vertical ellipsis (a Base UI Menu,
+// Popovers and menus open and close in one frame (Leo 2026-10-24: "No fade in ever for any of
+// these."; 2026-11-11: "the fade-in, the fade-out, is just so stupid... It's just sluggish."), on
+// the real agent pane: the chat header's vertical ellipsis (a Base UI Menu,
 // header/ChatHeaderTools.tsx ChatMenu) draws at full opacity, unscaled, with nothing running on it,
-// in the frame it mounts and the next, and fades out on Escape. popover-instant-open.test.ts holds
+// in the frame it mounts and the next, and goes on Escape with no fade. popover-instant-open.test.ts holds
 // every stylesheet to the same rule. The page is the pane's dev entry talking to a stand-in acpmux
 // (support/papercutChat.ts). Chromium; locally:
 // CMUX_BROWSER_TESTS=1 bun test test/popover-instant-open-pane.test.ts
@@ -33,7 +33,7 @@ await requireBrowserLane("popover-instant-open-pane.test.ts", async () => {
   });
 
   for (const reducedMotion of ["no-preference", "reduce"] as const)
-    test(`the header's ... menu opens at full opacity with nothing running, and fades out (${reducedMotion})`, async () => {
+    test(`the header's ... menu opens at full opacity with nothing running, and closes with no fade (${reducedMotion})`, async () => {
       const page = await pane!.open();
       try {
         await page.emulateMedia({ reducedMotion });
@@ -79,7 +79,7 @@ await requireBrowserLane("popover-instant-open-pane.test.ts", async () => {
         expect(opened.started).toEqual([]);
         await page.keyboard.press("Escape");
         await menu.waitFor({ state: "detached" });
-        expect((await probe()).started).toContain("opacity transition");
+        expect((await probe()).started).toEqual([]);
       } finally {
         await page.close();
       }

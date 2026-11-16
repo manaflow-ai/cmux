@@ -78,7 +78,7 @@ pub(super) fn claude_transcript_through_checked(
         expected.is_none_or(|n| prompts == n && answered),
         "native history does not cover the complete recorded prefix"
     );
-    let mut copy = std::fs::OpenOptions::new()
+    let mut copy = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(file.with_file_name(format!("{id}.jsonl")))?;
@@ -158,7 +158,7 @@ pub(super) fn claude_transcript_now(store: &Path, parent: &str) -> anyhow::Resul
         }
         lines.push(serde_json::to_string(&result)?);
     }
-    let mut copy = std::fs::OpenOptions::new()
+    let mut copy = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(file.with_file_name(format!("{id}.jsonl")))?;
@@ -257,7 +257,7 @@ pub(super) fn codex_rollout_through_checked(
         expected.is_none_or(|n| turns == n && complete && user && answer),
         "native history does not cover the complete recorded prefix"
     );
-    let mut copy = std::fs::OpenOptions::new()
+    let mut copy = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(file.with_file_name(copy_name))?;

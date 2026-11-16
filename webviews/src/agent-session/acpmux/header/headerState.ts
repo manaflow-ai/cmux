@@ -89,7 +89,7 @@ const stateSince = new Map<string, { state: string; at: number }>();
 /// When the App first reported pull request `url` in the state it has now.
 export const pullRequestStateSince = (url: string): number | undefined => stateSince.get(url)?.at;
 
-let current: HeaderState = {
+const INITIAL: HeaderState = {
   pinned: false,
   sideTabs: false,
   lit: [],
@@ -102,7 +102,15 @@ let current: HeaderState = {
   moveTargets: [],
   version: 0,
 };
+let current: HeaderState = INITIAL;
 const listeners = new Set<() => void>();
+
+/// Tests: the header as a new page starts it, before the App's first push (version 0). A test that
+/// pushes header state calls it in teardown, so a later file's lower versions are not dropped as old.
+export function resetHeaderStateForTests(): void {
+  current = INITIAL;
+  stateSince.clear();
+}
 
 /// The `moveReasons` object: each non-empty string reason by action id.
 function moveReasonsOf(value: unknown): Record<string, string> {

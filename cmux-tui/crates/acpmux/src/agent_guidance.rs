@@ -375,31 +375,33 @@ fn materialize_within(
     if dir.join(".claude-plugin/plugin.json").is_file() {
         return Ok(Some(dir));
     }
+    // Written through the folder this daemon holds (`home_fs`): a home replaced after the check
+    // never gets the plugin.
     crate::config::refuse_lost_home(state_dir)?;
-    std::fs::create_dir_all(state_dir)?;
+    crate::home_fs::create_dir_all(state_dir, 0o777)?;
     let tmp = state_dir.join(format!(".tmp-user-{}", uuid::Uuid::now_v7()));
     let write = || -> anyhow::Result<()> {
         for (path, bytes) in &files {
             let file = tmp.join(path);
             if let Some(parent) = file.parent() {
-                std::fs::create_dir_all(parent)?;
+                crate::home_fs::create_dir_all(parent, 0o777)?;
             }
-            std::fs::write(file, bytes)?;
+            crate::home_fs::write_synced(&file, bytes)?;
         }
         Ok(())
     };
     if let Err(e) = write() {
-        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = crate::home_fs::remove_dir_all(&tmp);
         return Err(e);
     }
-    match std::fs::rename(&tmp, &dir) {
+    match crate::home_fs::rename(&tmp, &dir) {
         Ok(()) => Ok(Some(dir)),
         Err(_) if dir.join(".claude-plugin/plugin.json").is_file() => {
-            let _ = std::fs::remove_dir_all(&tmp);
+            let _ = crate::home_fs::remove_dir_all(&tmp);
             Ok(Some(dir))
         }
         Err(e) => {
-            let _ = std::fs::remove_dir_all(&tmp);
+            let _ = crate::home_fs::remove_dir_all(&tmp);
             Err(e.into())
         }
     }

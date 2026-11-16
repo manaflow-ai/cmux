@@ -11,6 +11,31 @@ describe("TeamTag", () => {
     expect(activeTeamFromReply(undefined)).toBeUndefined();
   });
 
+  test("a team the account's list no longer has is never named: the person's own team instead", () => {
+    const personal = { id: "t0", name: "Personal", personal: true };
+    const shared = { id: "t1", name: "cmux", personal: false };
+    expect(activeTeamFromReply({ name: "cmux", personal: false }, [personal, shared])).toEqual({
+      name: "cmux",
+      personal: false,
+    });
+    expect(activeTeamFromReply({ name: "gone", personal: false }, [personal, shared])).toEqual({
+      name: "Personal",
+      personal: true,
+    });
+    expect(activeTeamFromReply({ name: "gone", personal: false }, [shared])).toBeUndefined();
+    // By id where the app names one: a removed team that shares a listed team's name is still gone.
+    expect(activeTeamFromReply({ id: "t9", name: "cmux", personal: false }, [personal, shared])).toEqual({
+      name: "Personal",
+      personal: true,
+    });
+    expect(activeTeamFromReply({ id: "t1", name: "cmux", personal: false }, [personal, shared])).toEqual({
+      name: "cmux",
+      personal: false,
+    });
+    // No list in the reply (an older app): the team as named.
+    expect(activeTeamFromReply({ name: "gone", personal: false })).toEqual({ name: "gone", personal: false });
+  });
+
   test("a person icon for the person's own team, people for a shared one", () => {
     expect(teamIconName({ name: "Personal", personal: true })).toBe("account");
     expect(teamIconName({ name: "cmux", personal: false })).toBe("team");

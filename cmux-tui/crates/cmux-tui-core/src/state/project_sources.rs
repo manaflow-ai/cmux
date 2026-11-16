@@ -130,29 +130,31 @@ pub(crate) fn enabled() -> bool {
     std::env::var_os("CMUX_PROJECT_SOURCES").is_none_or(|value| value != "off")
 }
 
-/// The folders whose files the sources read, for the file watch, and the
-/// file names (prefixes, so `-wal` and `-journal` count) that matter there.
-pub(crate) const WATCHED_NAMES: [&str; 7] = [
-    "state.vscdb",
-    "storage.json",
-    "db.sqlite",
-    ".codex-global-state.json",
-    "statev2.sqlite",
-    "state.sqlite",
-    "conductor.db",
-];
-
 impl Layout {
-    pub(crate) fn watch_dirs(&self) -> Vec<PathBuf> {
-        let mut dirs: Vec<PathBuf> = vscode::PRODUCTS
-            .iter()
-            .map(|(product, _)| self.vscode_user_dir(product).join("globalStorage"))
-            .collect();
-        dirs.extend(self.zed_db().parent().map(Path::to_path_buf));
-        dirs.push(self.codex_home.clone());
-        dirs.extend(self.t3code_dbs()[0].parent().map(Path::to_path_buf));
-        dirs.extend(self.conductor_db().parent().map(Path::to_path_buf));
-        dirs
+    /// Every file the sources read, for the file watch: each state file, and
+    /// each database with its write-ahead log (a commit writes only the log
+    /// until a checkpoint). Not a database's shared-memory index (`-shm`):
+    /// the scan's own read-only open writes it, so watching it would make
+    /// every scan wake the next one.
+    pub(crate) fn watch_files(&self) -> Vec<PathBuf> {
+        let with_log = |db: PathBuf| {
+            let mut log = db.clone().into_os_string();
+            log.push("-wal");
+            [db, PathBuf::from(log)]
+        };
+        let mut files = Vec::new();
+        for (product, _) in vscode::PRODUCTS {
+            let storage = self.vscode_user_dir(product).join("globalStorage");
+            files.extend(with_log(storage.join("state.vscdb")));
+            files.push(storage.join("storage.json"));
+        }
+        files.extend(with_log(self.zed_db()));
+        files.push(self.codex_global_state());
+        for db in self.t3code_dbs() {
+            files.extend(with_log(db));
+        }
+        files.extend(with_log(self.conductor_db()));
+        files
     }
 }
 

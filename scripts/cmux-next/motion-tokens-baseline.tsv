@@ -22,7 +22,6 @@ colour	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThinScroller.swift	1
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/WallpaperTint.swift	3
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialView.swift	1
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/CaptureBackdropPattern.swift	2
-colour	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorsService.swift	2
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextIcons/CGContext+Icon.swift	1
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconRasters.swift	1
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ChiefPanelView.swift	1
@@ -60,7 +59,6 @@ colour	webviews/src/pages/editor/settings.ts	2
 colour	webviews/src/pages/editor/view.ts	1
 colour	webviews/src/pages/github/styles.css	1
 colour	webviews/src/pages/group-editor/fixtures.ts	10
-colour	webviews/src/pages/home-chat-colors/host.ts	3
 colour	webviews/src/pages/home-messages/transcript/colors.ts	1
 colour	webviews/src/pages/home-messages/transcript/transcript.css	4
 colour	webviews/src/pages/home-messages/viewer/pictureModel.ts	1

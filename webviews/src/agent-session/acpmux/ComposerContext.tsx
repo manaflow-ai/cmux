@@ -1,3 +1,4 @@
+import { acpmuxPerf } from "./perf";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -58,6 +59,7 @@ import type { BrowseRequest } from "./AddProjectPanel";
 import type { BrowseResult } from "./addProjectPanelModel";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
+import { MacBookGlyph } from "./MacBookGlyph";
 import { projectSuffixes } from "./projectSuffix";
 import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel, SessionsBy } from "./sessionList";
@@ -319,6 +321,7 @@ export function ComposerContext({
   unavailableGroup?: UnavailableGroup;
   unavailableExpanded?: boolean;
 }) {
+  acpmuxPerf.render("composer:context");
   // The machines and folders read only where each chat runs (`placeFields`): another chat's status,
   // unread, title or cost changing leaves the list they are made from as it is, so they are not made
   // again from every listed chat (sessionList.ts `SessionsBy`).
@@ -1437,11 +1440,11 @@ function FolderIcon() {
 function ComputerIcon({ name }: { name?: string }) {
   return (
     <svg
-      className="acpmux-icon acpmux-location-icon ui-ghost-icon"
+      className={`acpmux-icon acpmux-location-icon ui-ghost-icon${name ? "" : " acpmux-macbook-icon"}`}
       style={name ? { color: machineColor(name) } : undefined}
       width={14}
       height={14}
-      viewBox="0 0 16 16"
+      viewBox={name ? "0 0 16 16" : "0 0 20 16"}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.25}
@@ -1449,8 +1452,14 @@ function ComputerIcon({ name }: { name?: string }) {
       aria-hidden="true"
       focusable="false"
     >
-      <rect x="3" y="3.5" width="10" height="7" rx="1.2" />
-      <path d="M1.75 12.5h12.5" strokeLinecap="round" />
+      {name ? (
+        <>
+          <rect x="3" y="3.5" width="10" height="7" rx="1.2" />
+          <path d="M1.75 12.5h12.5" strokeLinecap="round" />
+        </>
+      ) : (
+        <MacBookGlyph />
+      )}
     </svg>
   );
 }
@@ -1583,13 +1592,12 @@ function LocationPicker({
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={kind === "computer" ? label + ": " + value : label}
-        aria-haspopup="dialog"
-        aria-expanded={open}
         {...press}
       >
         {button}
       </button>
       <Popover
+        id={press["aria-controls"]}
         open={open}
         onOpenChange={changeOpen}
         anchor={open ? anchor : null}

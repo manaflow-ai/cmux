@@ -8,6 +8,7 @@
 // opening to its Shell block. A command that went on in the background shows how it stands there
 // instead (BackgroundMark.tsx), and its time once it ends; while it serves a page, the page's chip
 // (PreviewChip.tsx).
+import { useToolRowCount } from "./toolRowCount";
 import { useFindReveal } from "./chatFind";
 import { memo, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
@@ -18,10 +19,11 @@ import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
 import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
+import { inBackground } from "./runElsewhereModel";
 import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
-import { Check, ChevronRight, TerminalSquare } from "./icons";
+import { ChevronRight, TerminalSquare } from "./icons";
 import { isRunning, toolDuration } from "./toolGroups";
 import { useRowDisclosure } from "./transcriptDisclosureModel";
 import { commandLine, commandLook, commandSaid } from "./commandActions";
@@ -36,6 +38,7 @@ import { failureWord, useInStep } from "./toolFailureCauseModel";
 // render/output work; the row's own disclosure, Find and language subscriptions still update it.
 export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
+  useToolRowCount(item.tool?.id, item.tool?.kind);
   const step = useInStep();
   const tool = item.tool!;
   // The Verbose transcript view opens the command to its output.
@@ -63,11 +66,9 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   // Claude Code says its exit code only in the output ("Exit code 1"): the Shell block says it once.
   const output = (failure?.output ?? tool.output)?.replace(/\n$/, "");
   const duration = toolDuration(t, tool);
-  // A failed call says so in a red word right after its title, before its chevron, as Claude Code
-  // desktop tags one ("Count the fixture cases Failed ⌄"; Leo, 2026-11-03: "claude code desktop's
-  // summarization of tool calls/parsing of them seem kinda good?"). A step of an opened run says
-  // "failed" (drawn "Failed", conversation.css `.cv-command > .cv-command__failed`) and its opened Shell block says
-  // "Exit code N"; a lone command keeps its "Exit 1". A background command that failed says it too.
+  // Codex marks no command as passed or failed (Lawrence and Lucas, 2026-11-11 standup): the row
+  // draws no check and no time once it ends. A failed call's word ("failed", "Exit 1") stays for
+  // screen readers only (conversation.css clips it away); the opened Shell block says "Exit code N".
   const tag = tool.background
     ? tool.background.state === "failed"
       ? t("tools.failed")
@@ -161,15 +162,12 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
             command={tool.command}
             startedAt={tool.startedAt}
             running={running}
+            background={inBackground(tool)}
           />
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
-          {foreground || tag ? null : tool.background ? (
-            <BackgroundMark background={tool.background} />
-          ) : failure ? null : (
-            <Check size={14} className="cv-command__ok" />
-          )}
-          {duration && <span className="cv-command__time">{duration}</span>}
+          {!foreground && !tag && tool.background && <BackgroundMark background={tool.background} />}
+          {running && duration && <span className="cv-command__time">{duration}</span>}
         </span>
         <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>

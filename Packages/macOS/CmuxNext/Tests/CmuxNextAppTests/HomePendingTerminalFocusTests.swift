@@ -30,6 +30,91 @@ struct HomePendingTerminalFocusTests {
                                       charactersIgnoringModifiers: String(character), isARepeat: false, keyCode: 0))
     }
 
+    /// Home shows, the person asks for a new terminal (`newTab`), and until that terminal has the keyboard Home's message
+    /// box neither takes the keyboard (its pane focused again by the app) nor gets a typed key.
+    @Test func keysTypedForAPersonsNewTerminalOverHomeNeverReachTheChiefMessageBox() async throws {
+        // Held keys run again as `CmuxApplication.sendEvent` runs a key (the key router, then the window): a test window is
+        // never key, so `NSApp.sendEvent` would deliver them nowhere.
+        try await PasswordManagerRouteTests.withApp(heldKeyReplay: { event, window, router in
+            if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+        }) { services, connection in
+            let (window, home) = try await HomeSplitKeysTests.showHome(services, connection)
+            let shell = try #require(window.window)
+            defer { shell.closeWithHomePopovers() } // the Chief Settings panel its Home host made up front
+            let dockKey = try #require(window.focusedPane?.paneKey, "Home's dock has no focus")
+            // The dock pane's content: Home's page, whose view is the docked Home (Messages, its default view).
+            @MainActor func dockView() -> HomeDockView? {
+                guard case .page(let view)? = window.content?.paneController(key: dockKey)?.currentContent else { return nil }
+                return view.content as? HomeDockView
+            }
+            try await PasswordManagerRouteTests.until({ dockView()?.messages != nil }, report: {
+                "Home's dock pane shows \(String(describing: window.content?.paneController(key: dockKey)?.currentContent))"
+            })
+            let page = try #require(dockView()?.messages)
+            page.show(ConversationID("conv_pending_terminal"))
+            try await PasswordManagerRouteTests.until({ page.host?.primaryInputView is NSTextView }, report: { "Home's message box never appeared" })
+            let host = try #require(page.host)
+            let box = try #require(host.primaryInputView as? NSTextView)
+            // The keyboard is in Home but not in its box (a click on a bubble): the box takes it whenever Home's pane is
+            // focused again, which is what the app does by itself at launch and on each topology.
+            let holder = Holder(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+            host.addSubview(holder)
+            defer { holder.removeFromSuperview() }
+            @MainActor func state() -> String {
+                let focus = window.focus.state
+                return "responder \(String(describing: shell.firstResponder)), focus \(focus.resolved.kind) pane \(focus.pane ?? "-") generation \(focus.generation)"
+            }
+            let coordinator = services.keyRouter.creationInputCoordinator
+            coordinator.holdLimit = .seconds(15) // the keys must reach the terminal because it showed, not at the hold's bound
+            #expect(!coordinator.isHolding(in: shell), "a key hold was open before the request")
+            let holds = shell.makeFirstResponder(holder) && shell.firstResponder === holder
+            try #require(holds, "the test view did not take the keyboard")
+
+            // The person's new workspace with one terminal (a terminal-first Cmd-N; `command` makes it a terminal, not
+            // the New Tab page a person's New Workspace opens by default).
+            let request = ActionInvocation(arguments: ["name": .string("pending-terminal"), "command": .string("/bin/sh")], origin: .user)
+            #expect(services.registry.perform("newTab", invocation: request))
+            // From this moment the window's keys are the new terminal's: the key router holds them for it.
+            let held = coordinator.isHolding(in: shell)
+            #expect(held, "nothing holds the keys typed for the new terminal: they go to Home (\(state()))")
+
+            // In the same turn, before the daemon made the terminal: the app focuses Home's pane again by itself.
+            window.focus.send(.focusPane(dockKey, source: .programmatic))
+            let boxTookKeyboard = shell.firstResponder === box
+            #expect(!boxTookKeyboard, "Home's message box took the keyboard while a new terminal was pending: \(state())")
+            // The keys typed for the new terminal, as the app dispatches them (the router first, then the window).
+            var passed: [Character] = []
+            for character in "echo ok" {
+                let event = try Self.key(character, in: shell)
+                if !services.keyRouter.interceptKeyDown(event, in: shell) {
+                    passed.append(character)
+                    shell.sendEvent(event)
+                }
+            }
+            #expect(passed.isEmpty, "keys typed for the new terminal were not held for it: \(String(passed)), \(state())")
+            let boxText = box.string
+            #expect(boxText.isEmpty, "keys typed for the new terminal went to Home's message box: \"\(boxText)\", \(state())")
+
+            // The new terminal shows in the window and has the keyboard; the box never got a key.
+            try await PasswordManagerRouteTests.until({
+                window.state.workspaceID != home.id && shell.firstResponder is TerminalSurfaceView
+            }, report: {
+                "workspace \(String(describing: window.state.workspaceID)) (Home \(home.id)), responder \(String(describing: shell.firstResponder))"
+            })
+            let finalText = box.string
+            #expect(finalText.isEmpty, "keys typed for the new terminal went to Home's message box: \"\(finalText)\"")
+            // Review of #31865: the held keys reach the new terminal (none dropped), and the hold ended because it showed.
+            let surface = try #require(services.daemon.store.workspaces.first { $0.name == "pending-terminal" }?.screens
+                .flatMap(\.panes).flatMap(\.tabs).first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }?.surface,
+                "the new workspace has no terminal")
+            let screen = try? await connection.request(WaitForTextRequest(surface: surface, pattern: "echo ok", timeoutMs: 20_000), timeout: .seconds(25))
+            #expect(screen?.matched == true, "the keys typed for the new terminal never reached it: \(screen?.text.suffix(300) ?? "unreadable")")
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: shell) }, report: { "the hold never ended" })
+            let end = coordinator.lastHoldEnd(in: shell)
+            #expect(end != .limitReached, "the hold ended at its bound, not when the terminal showed: \(String(describing: end))")
+        }
+    }
+
     /// Automation never competes with the person: a script's new terminal with focus, sent while the person types in a
     /// text input of the window, holds none of their keys and leaves the window where it is; the new workspace is listed,
     /// not shown.

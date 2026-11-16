@@ -95,7 +95,7 @@ extension AgentTabStore {
         // A default model pick is omitted by the page. After a harness switch it must remain
         // that harness's default, rather than restoring the previous harness's seeded model.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
-        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model)) } catch { result = .failure(error) }
+        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, startMode: ownerLink != nil && harness == seed?.harness ? seed?.mode : nil)) } catch { result = .failure(error) } // the Cloud send's mode pick, own machine only
         let phases = await client.startPhases
         await client.close()
         switch result {
@@ -112,8 +112,8 @@ extension AgentTabStore {
             }
             // A link that came up as a teammate's while the start connected is refused as one.
             let code = AgentSessionAttachError.classified(error.code, teammate: await teammate?() ?? false)
-            throw AgentRemoteStartRefusal(code: code, machine: machineName ?? machine, folder: fallback, detail: error.message,
-                                          keyedRestartSafe: error.keyedRestartSafe)
+            throw AgentRemoteStartRefusal.refused(error, code: code, machine: machineName ?? machine, folder: fallback, harness: harness,
+                                                  name: \String.chiefHarnessName) // an agent not signed in there, by name (hq#11225)
         case .failure(let error):
             throw error
         }

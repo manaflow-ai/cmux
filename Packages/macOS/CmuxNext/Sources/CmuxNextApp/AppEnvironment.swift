@@ -18,7 +18,7 @@ struct AppEnvironment: Sendable {
     let noActivate: Bool
     /// DEBUG showcase profile requested by `--showcase` or `CMUX_NEXT_SHOWCASE=1`.
     let showcase: Bool
-    /// The showcase, `CMUX_NEXT_SKIP_ONBOARDING=1` or `--skip-onboarding` (capture builds): no first-run onboarding page opens; accounts and agents stay real.
+    /// No first-run onboarding (off for now, Lawrence 2026-11-09) unless `CMUX_NEXT_ONBOARDING=1` / `--onboarding`; never with the showcase, `CMUX_NEXT_SKIP_ONBOARDING=1` or `--skip-onboarding`.
     let skipsOnboarding: Bool
     /// DEBUG-only auth capture fixture. This composes isolated, offline auth
     /// dependencies for fleet captures; it is never enabled in release builds.
@@ -114,7 +114,7 @@ struct AppEnvironment: Sendable {
         return AppEnvironment(
             launch: launch,
             noActivate: noActivate,
-            showcase: showcase, skipsOnboarding: showcase || environment["CMUX_NEXT_SKIP_ONBOARDING"] == "1" || arguments.contains("--skip-onboarding"),
+            showcase: showcase, skipsOnboarding: showcase || environment["CMUX_NEXT_SKIP_ONBOARDING"] == "1" || arguments.contains("--skip-onboarding") || !(environment["CMUX_NEXT_ONBOARDING"] == "1" || arguments.contains("--onboarding")),
             authCaptureFixture: authCaptureFixture,
             captureShellHome: captureShellHome(environment),
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),

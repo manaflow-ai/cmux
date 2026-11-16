@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
-use super::trust::trusted_at;
+use super::trust::{level_at, trusted_at};
 use super::{
     Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
     origin_url, percent_segment, pin, plan, plan_with, remote_name, setup_state, too_broad,
@@ -107,6 +107,58 @@ fn a_tab_retry_keeps_its_target_pane_on_the_pinned_machine() {
     assert_eq!(answer["target_pane"], "pane_durable");
     assert_eq!(pin(&path, &key, ACCOUNT, "vm-b", None)["ok"], true);
     assert_eq!(plan(&path, &retry)["target_pane"], Value::Null);
+}
+
+/// Codex review F1 on #40957: a start that can't go on deletes the machine made for it only when
+/// it is still that start's alone. A second chat from the same workspace that planned onto the
+/// machine first keeps it; one that plans after the strand never finds it.
+#[test]
+fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let on = |key: &str| {
+        json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "user": ME, "loaded": true,
+            "machines": [{"id": "vm-new", "title": "cloud-chats", "created_by": ME, "status": "running"}]})
+        .to_string()
+    };
+    // The first start made vm-new and pinned it; a second chat of ws-1 planned onto it while the first copied.
+    let (first, second) = (key(), key());
+    assert_eq!(pin(&path, &first, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
+    assert_eq!(plan(&path, &on(&second))["machine"], "vm-new");
+    // The first start fails for good: the machine is the second chat's too, so it is released, not deleted.
+    assert_eq!(
+        super::strand(&path, &first, ACCOUNT, "vm-new"),
+        json!({"ok": true, "delete": false})
+    );
+    assert_eq!(plan(&path, &on(&key()))["machine"], "vm-new", "the workspace keeps its machine");
+    // The second fails for good too, after the third planned onto it: still shared.
+    let third = key();
+    assert_eq!(plan(&path, &on(&third))["machine"], "vm-new");
+    assert_eq!(super::strand(&path, &second, ACCOUNT, "vm-new")["delete"], false);
+
+    // Alone on its machine: the strand deletes it, and the workspace's next send never finds it.
+    let lone = scratch_ledger();
+    let mine = key();
+    assert_eq!(pin(&lone.1, &mine, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
+    assert_eq!(
+        super::strand(&lone.1, &mine, ACCOUNT, "vm-new"),
+        json!({"ok": true, "delete": true})
+    );
+    assert_eq!(
+        plan(&lone.1, &on(&key()))["machine"],
+        Value::Null,
+        "a later send makes a new machine"
+    );
+    // A strand of a send whose pin is already gone deletes nothing another send holds.
+    let other = key();
+    assert_eq!(pin(&lone.1, &other, ACCOUNT, "vm-kept", None)["ok"], true);
+    assert_eq!(super::strand(&lone.1, &key(), ACCOUNT, "vm-kept")["delete"], false);
+}
+
+fn scratch_ledger() -> (tempfile::TempDir, PathBuf) {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    (dir, path)
 }
 
 fn send(key: &str) -> Send {
@@ -621,6 +673,7 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
         record: record.to_path_buf(),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     let record = home.join("trust.json");
     let folder = project.to_string_lossy().into_owned();
@@ -648,6 +701,49 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
     let failed = StartCopy { key: key(), ..copy }
         .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(("sync_failed".into(), "no".into())));
     assert!(failed.get("source_trusted").is_none(), "a failed copy answers no trust: {failed}");
+}
+
+/// Live journey (2026-11-10): `cmux chat --on vm:new --from-folder` from a folder this Mac had never
+/// trusted leased a machine, copied the folder, and only then was refused "… is not a trusted folder on
+/// chat-…. Trust it on that machine". The copy is trusted there only when this Mac trusts the folder, so
+/// `trust` reads this Mac's answer before any machine is taken: the App refuses the start here, with the fix
+/// on this Mac. Unreadable trust answers `trust_unreadable`, never a level the App would refuse on.
+#[test]
+fn trust_reads_this_macs_level_before_any_machine() {
+    let dir = scratch();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let project = root.join("paint");
+    std::fs::create_dir_all(&project).unwrap();
+    let record = root.join("trust.json");
+    let paths = acpmux::trust::Paths {
+        claude_json: root.join("claude.json"),
+        codex_config: root.join("codex.toml"),
+        record: record.clone(),
+        agent_home: None,
+        cmux_worktrees: None,
+        peer_scratch: None,
+    };
+    let folder = project.to_string_lossy().into_owned();
+    let unknown = level_at(&paths, &folder);
+    assert_eq!(unknown["ok"], json!(true), "{unknown}");
+    assert_eq!(unknown["level"], json!("unknown"), "{unknown}");
+    assert_eq!(unknown["folder"], json!(folder));
+    std::fs::write(&record, json!({ (folder.clone()): "trusted" }).to_string()).unwrap();
+    assert_eq!(level_at(&paths, &folder)["level"], json!("trusted"));
+    std::fs::write(&record, json!({ (folder.clone()): "untrusted" }).to_string()).unwrap();
+    assert_eq!(level_at(&paths, &folder)["level"], json!("untrusted"));
+    std::fs::write(&record, "not json").unwrap();
+    let unreadable = level_at(&paths, &folder);
+    assert_eq!(unreadable["ok"], json!(false), "{unreadable}");
+    assert_eq!(unreadable["error_code"], json!("trust_unreadable"));
+
+    // Usage: an absolute folder and an absolute acpmux home, each once.
+    let flags = |args: &[&str]| {
+        Flags::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+    };
+    assert!(super::trust::cli(&flags(&["--folder", "paint", "--acpmux-home", "/h"])).is_none());
+    assert!(super::trust::cli(&flags(&["--folder", "/w/paint", "--acpmux-home", "h"])).is_none());
+    assert!(super::trust::cli(&flags(&["--folder", "/w/paint"])).is_none());
 }
 
 #[test]
@@ -1555,19 +1651,22 @@ fn ensures_line_names_the_machine_or_the_platforms_code() {
         (json!(false), Value::Null)
     );
     assert_eq!(ensure_answer(Ok(json!({"created": true})))["error_code"], json!("bad_answer"));
-    let not_found =
-        ensure_answer(Err(E::Status { status: 404, code: "cloud_environment.not_found" }));
+    let not_found = ensure_answer(Err(E::Status {
+        status: 404,
+        code: "cloud_environment.not_found",
+        facts: None,
+    }));
     assert_eq!(not_found["error_code"], json!("cloud_environment.not_found"));
     assert_eq!(
-        ensure_answer(Err(E::Status { status: 404, code: "" }))["error_code"],
+        ensure_answer(Err(E::Status { status: 404, code: "", facts: None }))["error_code"],
         json!("unavailable")
     );
     assert_eq!(
-        ensure_answer(Err(E::Status { status: 404, code: "not_found" }))["error_code"],
+        ensure_answer(Err(E::Status { status: 404, code: "not_found", facts: None }))["error_code"],
         json!("unavailable")
     );
     assert_eq!(
-        ensure_answer(Err(E::Status { status: 500, code: "" }))["error_code"],
+        ensure_answer(Err(E::Status { status: 500, code: "", facts: None }))["error_code"],
         json!("refused")
     );
     assert_eq!(ensure_answer(Err(E::Unreachable("x".into())))["error_code"], json!("unreachable"));
@@ -1641,8 +1740,9 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(plan_with(&path, &flagless, &mut "t\n".as_bytes(), &never)["machine"], Value::Null);
 
     // A platform that made no machine (no route here, no sign-in) leaves it to the App; no credential reads as 401.
-    let no_route =
-        |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status: 404, code: "" }) };
+    let no_route = |_: &Ensure, _: &str| -> Result<Value, E> {
+        Err(E::Status { status: 404, code: "", facts: None })
+    };
     let fallback =
         plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &no_route);
     assert_eq!(
@@ -1659,7 +1759,7 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
 
     // A refused environment, or a failure after which the machine may exist, refuses the send.
     let theirs = |_: &Ensure, _: &str| -> Result<Value, E> {
-        Err(E::Status { status: 404, code: "cloud_environment.not_found" })
+        Err(E::Status { status: 404, code: "cloud_environment.not_found", facts: None })
     };
     let refused =
         plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &theirs);
@@ -1670,9 +1770,85 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
         plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &lost)["error_code"],
         json!("unreachable")
     );
-    assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
-    assert!(!made_no_machine(&E::Status { status: 503, code: "machine.placement_unavailable" }));
-    assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict" }));
+    assert!(made_no_machine(&E::Status {
+        status: 503,
+        code: "workspace_machine.unconfigured",
+        facts: None
+    }));
+    assert!(!made_no_machine(&E::Status {
+        status: 503,
+        code: "machine.placement_unavailable",
+        facts: None
+    }));
+    assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict", facts: None }));
+
+    // A cap: the App's own create would meet the same cap, so the send is refused with its code.
+    let capped = |_: &Ensure, _: &str| -> Result<Value, E> {
+        let facts = cmux_cloud_machine::refusals::Facts {
+            retryable: Some(false),
+            limit: Some(20),
+            used: Some(20),
+            orphans: Some(3),
+            ..Default::default()
+        };
+        Err(E::Status { status: 403, code: "cloud.quota.vm_limit", facts: Some(facts) })
+    };
+    let refused =
+        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &capped);
+    assert_eq!(
+        (refused["ok"].clone(), refused["error_code"].clone()),
+        (json!(false), json!("cloud.quota.vm_limit")),
+        "{refused}"
+    );
+    // Shown with its reason, final.
+    let error = refused["error"].as_str().unwrap();
+    assert!(
+        error.contains("20 of 20 machines") && error.contains("3 of them left over"),
+        "{error}"
+    );
+    assert_eq!(
+        (refused["handling"].clone(), refused["retryable"].clone()),
+        (json!("final"), json!(false))
+    );
+
+    // A rate limit: the line says to wait its window.
+    let limited = ensure_answer(Err(E::Status {
+        status: 429,
+        code: "cloud.rate_limited",
+        facts: Some(cmux_cloud_machine::refusals::Facts {
+            retryable: Some(true),
+            retry_after_s: Some(42),
+            ..Default::default()
+        }),
+    }));
+    assert_eq!(
+        (
+            limited["handling"].clone(),
+            limited["retryable"].clone(),
+            limited["retry_after_s"].clone()
+        ),
+        (json!("retry_after"), json!(true), json!(42)),
+        "{limited}"
+    );
+}
+
+/// Every code of cmux-platform's refusal table (cmux-platform#1192) is the platform's answer for
+/// the send: a cap, a plan, a rate limit or a machine's state is shown or retried, never left to
+/// the App's own create, which would meet it again. Only a refused sign-in (`auth.forbidden`,
+/// the case #30574 wrote the fallback for) still falls back.
+#[test]
+fn no_platform_refusal_falls_back_to_the_apps_create() {
+    use crate::cli::PlatformCallError as E;
+    for row in cmux_cloud_machine::refusals::PLATFORM {
+        let error = E::Status { status: row.status, code: row.code, facts: None };
+        assert_eq!(
+            made_no_machine(&error),
+            row.code == "auth.forbidden",
+            "{} {}",
+            row.status,
+            row.code
+        );
+    }
 }
 
 /// The reserve's and the bind's plan refusal reach the App with its code (the pane's "This team has
@@ -1680,8 +1856,11 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
 #[test]
 fn a_reservation_plan_refusal_keeps_its_code() {
     use crate::cli::PlatformCallError as E;
-    let answer =
-        super::reservations::answer(Err(E::Status { status: 403, code: "cloud.plan.required" }));
+    let answer = super::reservations::answer(Err(E::Status {
+        status: 403,
+        code: "cloud.plan.required",
+        facts: None,
+    }));
     assert_eq!(answer["error_code"], json!("cloud.plan.required"));
     assert_eq!(answer["ok"], json!(false));
 }
@@ -1945,8 +2124,8 @@ fn an_uncertain_bind_never_turns_into_a_second_paid_cold_create() {
     for error in [
         E::Unreachable("answer lost".into()),
         E::Unreadable(200),
-        E::Status { status: 500, code: "" },
-        E::Status { status: 409, code: "reservation.bound" },
+        E::Status { status: 500, code: "", facts: None },
+        E::Status { status: 409, code: "reservation.bound", facts: None },
     ] {
         let bind = |call: &Call, _: &str| {
             assert_eq!(call.send_key.as_deref(), Some(send.to_lowercase().as_str()));
@@ -1979,9 +2158,9 @@ fn an_uncertain_bind_never_turns_into_a_second_paid_cold_create() {
         "vm_0123456789abcdef0123"
     );
     for error in [
-        E::Status { status: 404, code: "lease.not_found" },
-        E::Status { status: 409, code: "reservation.expired" },
-        E::Status { status: 409, code: "reservation.terminal" },
+        E::Status { status: 404, code: "lease.not_found", facts: None },
+        E::Status { status: 409, code: "reservation.expired", facts: None },
+        E::Status { status: 409, code: "reservation.terminal", facts: None },
     ] {
         let request = json!({"key": key(), "account": ACCOUNT, "reservation_key": key(), "credential_on_stdin": true}).to_string();
         let bind = |_: &Call, _: &str| Err(error.clone());

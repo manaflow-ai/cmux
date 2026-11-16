@@ -11,7 +11,7 @@ import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
 import type { HomeDraft } from "./drafts";
 import { MessageActions } from "./MessageActions";
-import { MAX_THREAD_INDENT, messageText, mentionsMe, partText } from "./model";
+import { MAX_THREAD_INDENT, messageText, mentionsMe } from "./model";
 import { MessageRuns, RunsContext } from "./RunCard";
 import type { HomeAttachment, HomeMessage, HomeParticipant, HomePart } from "./types";
 
@@ -261,10 +261,6 @@ function Part({ part, strings }: { part: HomePart; strings: Strings }) {
       return null;
     case "other":
       return <p className="hc-msg-other">{part.text}</p>;
-    case "question":
-    case "link_preview":
-    case "location":
-      return <p className="hc-msg-other">{partText(part)}</p>;
   }
 }
 

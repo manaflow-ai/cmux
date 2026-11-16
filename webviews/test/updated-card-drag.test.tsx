@@ -23,6 +23,7 @@ import {
   type CardPlace,
   type CardRow,
 } from "../src/pages/changelog/updatedCardDrag";
+import { settleReact } from "./support/domTeardown";
 
 const atBottom: CardPlace = { anchor: "bottom", above: 400, below: 0 };
 
@@ -433,6 +434,7 @@ test("the sidebar's surface drags only once the host says where the card rests, 
     expect(dom.window.localStorage.getItem("cmux.sidebar.card.updated")).toBe("top");
     expect(drags).toEqual([]);
   } finally {
+    await settleReact();
     dom.window.close();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;

@@ -129,3 +129,72 @@ fn a_failed_write_is_compared_again_on_retry() {
     assert_eq!(retry, breakdown(9));
     assert!(log(&mut repeats, "session_info_update", &mut breakdown(9)));
 }
+
+/// Claude Code's raw answer to `initialize`, as the log keeps it (`claude.control_response`).
+fn init_answer(pid: u64, commands: &Value) -> Value {
+    json!({"type": "control_response", "response": {"subtype": "success", "request_id": "init-1",
+        "response": {"pid": pid, "commands": commands, "agents": [{"name": "general-purpose"}],
+            "models": [{"value": "opus"}], "account": {"apiProvider": "firstParty"}}}})
+}
+
+/// The ACP `initialize` response translated from it.
+fn initialize_response(commands: &Value) -> Value {
+    json!({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": 1,
+        "agentCapabilities": {"loadSession": true},
+        "_meta": {"claude": {"capabilities": ["ui_surface_v1"], "commands": commands}}}})
+}
+
+/// An agent's process starts again with the same lists: both answers to `initialize` are logged,
+/// without the lists the start before logged; their other fields stay; a changed list is logged
+/// whole. The harness of the PR's numbers: 2 starts of a chat (a busy machine, 2026-11-11: 57 starts
+/// of 29 chats in 16 minutes, 42 KB of commands in each answer).
+#[test]
+fn a_restarted_agents_answers_to_initialize_leave_out_the_lists_it_logged() {
+    let commands: Value = (0..300)
+        .map(|i| {
+            json!({"name": format!("plugin:command-{i:03}"), "description": "Runs a command the person asked for.", "argumentHint": ""})
+        })
+        .collect();
+    let mut repeats = UpdateRepeats::default();
+    let (mut before, mut after) = (0usize, 0usize);
+    let mut write = |kind: &str, mut line: Value| {
+        before += serde_json::to_vec(&line).unwrap().len();
+        assert!(!log(&mut repeats, kind, &mut line), "an answer to initialize was not logged");
+        after += serde_json::to_vec(&line).unwrap().len();
+        line
+    };
+    let starts = 10u64;
+    let mut last = (Value::Null, Value::Null);
+    for start in 0..starts {
+        last = (
+            write("claude.control_response", init_answer(1_000 + start, &commands)),
+            write("response", initialize_response(&commands)),
+        );
+        if start == 0 {
+            assert_eq!(last.0, init_answer(1_000, &commands), "the first start is logged whole");
+            assert_eq!(last.1, initialize_response(&commands));
+        }
+    }
+    eprintln!(
+        "STRESS {starts} starts of one chat: answers to initialize {before} bytes before, {after} after ({} per start before, {} per later start after)",
+        before / starts as usize,
+        (after - (before / starts as usize)) / (starts as usize - 1),
+    );
+    assert!(after * 4 < before, "{starts} starts: {before} bytes before, {after} after");
+    let (answer, response) = last;
+    assert!(answer.pointer("/response/response/commands").is_none());
+    assert_eq!(answer["response"]["response"]["pid"], 1_009, "its scalars stay");
+    assert_eq!(answer["response"]["request_id"], "init-1");
+    assert!(response.pointer("/result/_meta/claude/commands").is_none());
+    assert_eq!(response["id"], 1, "the response keeps its id");
+    assert_eq!(response["result"]["_meta"]["claude"]["capabilities"], json!(["ui_surface_v1"]));
+
+    // A start with another list logs it whole; a response to anything else is untouched.
+    let grown: Value = json!([{"name": "new-skill"}]);
+    let mut changed = initialize_response(&grown);
+    assert!(!log(&mut repeats, "response", &mut changed));
+    assert_eq!(changed, initialize_response(&grown));
+    let mut prompt = json!({"jsonrpc": "2.0", "id": 7, "result": {"stopReason": "end_turn"}});
+    assert!(!log(&mut repeats, "response", &mut prompt));
+    assert_eq!(prompt, json!({"jsonrpc": "2.0", "id": 7, "result": {"stopReason": "end_turn"}}));
+}

@@ -16,11 +16,10 @@ use std::path::{Path, PathBuf};
 /// The size past which no line is appended.
 pub(super) const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
-/// `<workspace state dir>/carrier/connect.log` (`CMUX_TUI_STATE_DIR` overrides
+/// `<carrier state root>/carrier/connect.log` ([`super::state_root`]; `CMUX_TUI_STATE_DIR` overrides
 /// the state dir), or None with no state dir.
 pub(super) fn default_path() -> Option<PathBuf> {
-    cmux_tui_core::platform::workspace_state_dir()
-        .map(|dir| dir.join("carrier").join("connect.log"))
+    super::state_root::state_root().map(|dir| dir.join("carrier").join("connect.log"))
 }
 
 /// Appends `line` to `path`: folder 0700, file 0600, never through a symlink,

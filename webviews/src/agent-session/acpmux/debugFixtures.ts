@@ -2,7 +2,7 @@
 export { syntheticRows } from "./synthetic";
 export { workedTurnRows } from "./workedTurn";
 export { incomingRows } from "./incomingFixture";
-export { linkRows } from "./linkFixture";
+export { LINKED_GITHUB_PULL_REQUEST, linkRows } from "./linkFixture";
 export { organizationRows } from "./organizationFixture";
 export { toolSummaryRows } from "./toolSummaryFixture";
 export { SUBAGENT_TRAY_STEPS, subagentTrayRows } from "./subagentsFixture";

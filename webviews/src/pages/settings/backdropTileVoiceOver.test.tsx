@@ -17,7 +17,7 @@ const described = (tile: HTMLElement) =>
     .join(" ");
 
 test("a moving wallpaper's tile says it is a video; a still one says nothing extra", async () => {
-  const page = await renderPage({ path: "/settings/appearance" });
+  const page = await renderPage({ path: "/settings/personalization" });
   const video = page.container.querySelector<HTMLButtonElement>('[aria-label="Sonoma Graphic"]')!;
   expect(described(video)).toBe("Video");
   const still = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
@@ -29,7 +29,7 @@ test("a moving wallpaper's tile says it is a video; a still one says nothing ext
 });
 
 test("a wallpaper macOS has not downloaded says where a click takes you", async () => {
-  const page = await renderPage({ path: "/settings/appearance" });
+  const page = await renderPage({ path: "/settings/personalization" });
   await act(async () =>
     page.provider.setHost({
       ...page.provider.host,

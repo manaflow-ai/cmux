@@ -200,7 +200,10 @@
     "signupPendingBody": "Wenn du bereits ein Konto hast, melde dich mit der zuvor verwendeten Methode an. Wenn du gerade ein Konto erstellt hast, bestätige deine E-Mail-Adresse, bevor du dich anmeldest.",
     "genericTitle": "Anmeldung konnte nicht abgeschlossen werden",
     "genericBody": "Bitte versuche es erneut. Wenn das Problem bestehen bleibt, wende dich an den Support.",
-    "backToSignIn": "Zur Anmeldung"
+    "backToSignIn": "Zur Anmeldung",
+    "chatgptLinkTitle": "Einmal anmelden, um ChatGPT zu verbinden",
+    "chatgptLinkBody": "Für diese E-Mail-Adresse gibt es bereits ein cmux-Konto. Melde dich mit der bisherigen Methode an, dann wird ChatGPT mit diesem Konto verbunden.",
+    "chatgptEmailUnverifiedBody": "Die E-Mail-Adresse deines ChatGPT-Kontos ist nicht bestätigt. Bestätige sie bei OpenAI oder melde dich anders an."
   },
   "cloudPublicationAccess": {
     "title": "Du hast keinen Zugriff",
@@ -2504,7 +2507,7 @@
       "socketModeDesc": "Zugriffsmodus überschreiben (cmuxOnly, allowAll, off). Akzeptiert auch cmux-only/cmux_only und allow-all/allow_all",
       "workspaceIdDesc": "Automatisch gesetzt: Aktuelle Workspace-ID",
       "surfaceIdDesc": "Automatisch gesetzt: Aktuelle Oberflächen-ID",
-      "termProgramDesc": "Gesetzt auf ghostty",
+      "termProgramDesc": "Gesetzt auf cmux",
       "termDesc": "Gesetzt auf xterm-ghostty",
       "envCallout": "Legacy-Werte für CMUX_SOCKET_MODE full und notifications werden aus Kompatibilitätsgründen weiterhin akzeptiert.",
       "detectingCmux": "cmux erkennen",

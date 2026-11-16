@@ -36,12 +36,12 @@ pub struct PastTurn {
 }
 
 /// At most this many turns (the newest) and this much text per answer: a long chat stays cheap.
-const MAX_TURNS: usize = 200;
+pub(crate) const MAX_TURNS: usize = 200;
 const MAX_ANSWER: usize = 20_000;
 /// At most this many tool calls per turn (the first).
 const MAX_TOOLS: usize = 400;
 /// A transcript bigger than this is read for its newest part only.
-const MAX_BYTES: u64 = 64 << 20;
+pub(crate) const MAX_BYTES: u64 = 64 << 20;
 
 /// The turns of `file`, a `family` (`claude`, `codex`) transcript; empty when unreadable.
 pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
@@ -55,53 +55,163 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
     // No further than the file was when opened: what the harness appends meanwhile waits for the
     // next read, so one read is bounded however fast the chat grows.
     let f = f.take(len.min(MAX_BYTES));
-    let mut turns: Vec<PastTurn> = Vec::new();
+    let mut fold = Fold::new(family, true);
+    let mut reader = BufReader::new(f);
+    let mut line = Vec::new();
+    let mut first = true;
+    loop {
+        line.clear();
+        if !matches!(reader.read_until(b'\n', &mut line), Ok(n) if n > 0) {
+            break;
+        }
+        if !std::mem::take(&mut first) || !skip_first {
+            fold.line(&line);
+        }
+    }
+    fold.finish()
+}
+
+/// What [`read`] makes of a transcript, one line at a time, so a reader that follows a growing
+/// transcript (`chats/text.rs`) folds its new lines by the same rules.
+#[derive(Debug)]
+pub struct Fold {
+    codex: bool,
+    /// Tool calls are kept (a replay draws them; the chats page's text does not).
+    tools: bool,
+    turns: Vec<PastTurn>,
     // Codex's message items before its rollout turns current (items annotated with their kinds):
     // older Codex also wrote each turn as event messages, which are read instead, so no turn
     // shows twice; a rollout with no event messages at all is read from these.
-    let mut items: Vec<PastTurn> = Vec::new();
+    items: Vec<PastTurn>,
+    /// How many turns and items [`Self::settle`] let go of, oldest first.
+    turns_settled: usize,
+    items_settled: usize,
     // Current Codex writes no event messages: from its first annotated item on (a chat begun on
     // an older Codex and resumed on a current one), items are the turns.
-    let mut current = false;
+    current: bool,
     // Current Codex records each finished tool call as an `item_completed` event; older Codex
     // wrote `exec_command_end` and patch events, read until the first such item.
-    let mut tool_items = false;
-    for (index, line) in BufReader::new(f).lines().map_while(Result::ok).enumerate() {
-        if skip_first && index == 0 {
-            continue;
+    tool_items: bool,
+    /// What the last line folded was, as a reader that starts later sees it ([`ItemLine`]).
+    last: ItemLine,
+}
+
+/// A Codex line, as it decides where a read that starts at a later line folds message items.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemLine {
+    /// Neither below.
+    Other,
+    /// A message item annotated with its kinds: from it on, items are the turns.
+    Annotated,
+    /// A prompt item without kinds, folded as a turn only because an earlier line was
+    /// annotated: a read that starts past every annotated line before it folds it as an item.
+    PlainPrompt,
+}
+
+impl Fold {
+    /// An empty fold of a `family` (`claude`, `codex`) transcript.
+    pub fn new(family: &str, tools: bool) -> Self {
+        Self {
+            codex: family == "codex",
+            tools,
+            turns: Vec::new(),
+            items: Vec::new(),
+            turns_settled: 0,
+            items_settled: 0,
+            current: false,
+            tool_items: false,
+            last: ItemLine::Other,
         }
-        let Ok(record) = serde_json::from_str::<Value>(&line) else { continue };
+    }
+
+    /// Folds one line (a record; anything that does not parse is skipped).
+    pub fn line(&mut self, line: &[u8]) {
+        self.last = ItemLine::Other;
+        let Ok(record) = serde_json::from_slice::<Value>(line) else { return };
         let at = record.get("timestamp").and_then(Value::as_str).and_then(parse_ms);
-        match family {
-            "codex" => {
-                current = current || has_item_kinds(&record);
-                if let Some((tool, item)) = crate::adopt_tools::codex_tool(&record, at) {
-                    tool_items = tool_items || item;
-                    if item || !tool_items {
-                        // With the turns that are being read: event messages, else items.
-                        let into =
-                            if current || !turns.is_empty() { &mut turns } else { &mut items };
-                        add(into, tool.map_or_else(Step::ToolResult, Step::Tool), at);
-                    }
-                } else if let Some(step) = codex_step(&record) {
-                    add(&mut turns, step, at);
-                } else if let Some(step) = codex_item_step(&record) {
-                    add(if current { &mut turns } else { &mut items }, step, at);
+        if !self.codex {
+            for step in claude_steps(&record, at) {
+                if self.tools || matches!(step, Step::Prompt(_) | Step::Answer(_)) {
+                    add(&mut self.turns, step, at);
                 }
             }
-            _ => {
-                for step in claude_steps(&record, at) {
-                    add(&mut turns, step, at);
-                }
+            return;
+        }
+        let kinds = has_item_kinds(&record);
+        let was_current = self.current;
+        self.current = self.current || kinds;
+        if kinds {
+            self.last = ItemLine::Annotated;
+        }
+        if let Some((tool, item)) = crate::adopt_tools::codex_tool(&record, at) {
+            self.tool_items = self.tool_items || item;
+            if self.tools && (item || !self.tool_items) {
+                // With the turns that are being read: event messages, else items.
+                let into = if self.current || self.turns_seen() > 0 {
+                    &mut self.turns
+                } else {
+                    &mut self.items
+                };
+                add(into, tool.map_or_else(Step::ToolResult, Step::Tool), at);
             }
+        } else if let Some(step) = codex_step(&record) {
+            add(&mut self.turns, step, at);
+        } else if let Some(step) = codex_item_step(&record) {
+            if was_current && !kinds && matches!(step, Step::Prompt(_)) {
+                self.last = ItemLine::PlainPrompt;
+            }
+            add(if self.current { &mut self.turns } else { &mut self.items }, step, at);
         }
     }
-    if turns.is_empty() {
-        turns = items;
+
+    /// A Codex message item annotated with its kinds was folded: items are the turns from it on.
+    pub fn current(&self) -> bool {
+        self.current
     }
-    let skip = turns.len().saturating_sub(MAX_TURNS);
-    turns.drain(..skip);
-    turns
+
+    /// What the last line folded was ([`ItemLine`]).
+    pub fn last_line(&self) -> ItemLine {
+        self.last
+    }
+
+    /// How many turns (event messages, or Claude Code's) and Codex items were folded so far.
+    pub fn turns_seen(&self) -> usize {
+        self.turns_settled + self.turns.len()
+    }
+
+    pub fn items_seen(&self) -> usize {
+        self.items_settled + self.items.len()
+    }
+
+    /// The held turns (`items`: Codex's items) and the number of the first among all folded.
+    pub fn held(&self, items: bool) -> (usize, &[PastTurn]) {
+        if items { (self.items_settled, &self.items) } else { (self.turns_settled, &self.turns) }
+    }
+
+    /// Lets go of every turn and item but the newest `keep` (at least one) of each: a later line
+    /// changes only the newest (an answer, a tool call or its result joins it) or starts another.
+    pub fn settle(&mut self, keep: usize) {
+        let keep = keep.max(1);
+        let turns = self.turns.len().saturating_sub(keep);
+        self.turns.drain(..turns);
+        self.turns_settled += turns;
+        let items = self.items.len().saturating_sub(keep);
+        self.items.drain(..items);
+        self.items_settled += items;
+    }
+
+    /// How many turns and items are held (not let go of by [`Self::settle`]).
+    pub fn held_len(&self) -> usize {
+        self.turns.len().max(self.items.len())
+    }
+
+    /// The turns read, newest [`MAX_TURNS`]: the event-message turns, else Codex's items.
+    pub fn finish(self) -> Vec<PastTurn> {
+        let mut turns = if self.turns.is_empty() { self.items } else { self.turns };
+        let skip = turns.len().saturating_sub(MAX_TURNS);
+        turns.drain(..skip);
+        turns
+    }
 }
 
 /// What one transcript record adds: a person's prompt, or answer text.

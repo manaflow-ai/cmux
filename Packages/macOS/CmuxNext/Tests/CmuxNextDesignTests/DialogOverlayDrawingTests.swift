@@ -128,7 +128,7 @@ import Testing
     /// but never shown, and giving the center a drawing host later left it there. The dialog moves to the
     /// new host and shows.
     @Test func aDialogShownBeforeTheDrawingIsWiredShowsOnceItIs() {
-        let center = CmuxDialogCenter()
+        let center = CmuxDialogCenter(host: CmuxDialogOverlayHost(drawing: nil, activate: {}, isAppActive: { true }))
         let (window, _) = Self.window()
         defer { window.close() }
         let id = center.present(CmuxDialogSpec(title: "Close?", buttons: [.cancel(), .ok()]), in: .window(window)) { _ in }

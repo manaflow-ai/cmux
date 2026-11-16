@@ -54,6 +54,8 @@ public final class DiffPageProvider: PageProvider {
     let git: (any DiffGitRunning)?
     /// Asks before Revert throws work away (DiffPageProvider+Revert.swift); nil reverts no file.
     public var confirmRevert: DiffRevertConfirming?
+    /// Opens a pull request through this tab's existing external-link route.
+    public var onPullRequestOpened: ((URL) -> Void)? = { url in LinkRouter.shared.open(url) }
     /// The hunks Undo can put back, and the gesture the last revert spent.
     var revertState = DiffRevertState()
     /// Sessions of the current grant this tab named or was given, not closed yet.

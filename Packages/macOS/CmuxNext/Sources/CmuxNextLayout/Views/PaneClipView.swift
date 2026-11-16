@@ -40,6 +40,8 @@ final class PaneClipView: NSView {
     /// It is measured from where the content IS, not from the pane's edges: the content has its tabs with it (a strip
     /// `header` points high at its top edge or `footer` points high at its bottom edge, a vertical list `leading`
     /// points wide), and no ground goes behind them or beside their rows (Leo 2026-11-03: no backing behind the tabs).
+    /// The header and the list are where the content's own area starts (`NSView.paneGroundInsets`), not the header its
+    /// pane reports for its ring: a chat with no strip paints from its top edge, so its ground is there too.
     /// Nothing waits and no content lays out again. Nil, a translucent color or content that covers this view removes it.
     func showHeldGround(_ color: CGColor?, around content: CGRect = .zero, header: CGFloat = 0, footer: CGFloat = 0, leading: CGFloat = 0) {
         let color = color.flatMap { $0.alpha >= 1 ? $0 : nil }
@@ -59,26 +61,32 @@ final class PaneClipView: NSView {
         }
     }
 
+    /// The largest gap between held content's edge and its pane's that is no gap: under a hundredth of a point, which is
+    /// less than a pixel at every backing scale.
+    static let heldGroundSlack: CGFloat = 0.01
+
     /// The parts of `clip` that held content at `content` leaves open and its ground fills (both in one flipped space:
     /// minY is the top). The content's area is `content` less its own tabs. Beyond the content's top or bottom edge: the
     /// columns of that area (below a strip at the bottom, above a strip at the top; a vertical list's column stays
     /// clear). Beside the content: the rows of that area, and the rows of the part beyond (the corner). Content is
-    /// pinned at one edge of each axis, so there are at most two parts.
+    /// pinned at one edge of each axis, so there are at most two parts. A part one pixel thick is a part: a 2x screen
+    /// places a spring's last frames half a point from the rest, and that pixel showed the window's color at the far
+    /// edge. Only a difference no screen can show (``heldGroundSlack``, float noise of the frame math) is none.
     static func heldGroundRects(clip: CGRect, content: CGRect, header: CGFloat, footer: CGFloat, leading: CGFloat) -> [CGRect] {
         let columns = (min: min(content.minX + max(0, leading), content.maxX), max: content.maxX)
         var rows = (min: min(content.minY + max(0, header), content.maxY), max: max(content.maxY - max(0, footer), content.minY))
         guard columns.max - columns.min > 0, rows.max - rows.min > 0 else { return [] }
         var rects: [CGRect] = []
-        if content.maxY < clip.maxY - 0.5 {
+        if content.maxY < clip.maxY - heldGroundSlack {
             rects.append(CGRect(x: columns.min, y: content.maxY, width: columns.max - columns.min, height: clip.maxY - content.maxY))
             rows.max = clip.maxY
-        } else if content.minY > clip.minY + 0.5 {
+        } else if content.minY > clip.minY + heldGroundSlack {
             rects.append(CGRect(x: columns.min, y: clip.minY, width: columns.max - columns.min, height: content.minY - clip.minY))
             rows.min = clip.minY
         }
-        if content.maxX < clip.maxX - 0.5 {
+        if content.maxX < clip.maxX - heldGroundSlack {
             rects.append(CGRect(x: content.maxX, y: rows.min, width: clip.maxX - content.maxX, height: rows.max - rows.min))
-        } else if content.minX > clip.minX + 0.5 {
+        } else if content.minX > clip.minX + heldGroundSlack {
             rects.append(CGRect(x: clip.minX, y: rows.min, width: content.minX - clip.minX, height: rows.max - rows.min))
         }
         return rects

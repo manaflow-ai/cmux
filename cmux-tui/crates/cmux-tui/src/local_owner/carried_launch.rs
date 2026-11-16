@@ -14,18 +14,49 @@
 //! ([`super::spawn_detached_owner`]) are carried; anything else on the old
 //! argv, and every other variable, is not.
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use super::{EXIT_WITH_PID_ARG, EnsureWebSocket, ExitWith, OwnerSpec};
 
 /// The environment keys of the detached owner's launch contract.
-const CARRIED_ENV: [&str; 4] = [
+const CARRIED_ENV: [&str; 5] = [
     "CMUX_TUI_CHIEF_TOOLS_SOCKET",
     cmux_tui_core::chief_brains::ENV,
     cmux_tui_core::first_party_dir::ENV,
     cmux_tui_core::first_party_dir::DIRS_ENV,
+    // The settings file the owner was started on: a restart from a client
+    // without the variable must not move the settings owner to the default
+    // file (settings.snapshot `path`, plans/cmux-next/settings-react.md).
+    cmux_config::CONFIG_OVERRIDE,
 ];
+
+/// The settings file this client names for the owner it spawns: its own
+/// `CMUX_NEXT_CONFIG_FILE`, absolute. A relative value is taken from this
+/// client's directory once, here (and a leading `~` from its `HOME`, as
+/// `cmux_config::config_path` reads it), so the owner and every owner a
+/// `server restart` starts after it, from any directory, keep one file: the
+/// restart carries the owner's value as it is. `None` without the variable
+/// or with an empty one, which means unset (`cmux_config::config_path`).
+fn own_settings_file() -> Option<PathBuf> {
+    std::env::var_os(cmux_config::CONFIG_OVERRIDE).filter(|value| !value.is_empty())?;
+    let path = cmux_config::config_path();
+    Some(std::path::absolute(&path).unwrap_or(path))
+}
+
+/// The launch environment of the owner this client starts, in the order to
+/// set it: the values a restart carried, then this client's own settings
+/// file, which wins over a carried one and goes to the owner absolute
+/// ([`own_settings_file`]).
+pub(super) fn launch_env(carried: &[(String, String)]) -> Vec<(OsString, OsString)> {
+    let mut env: Vec<(OsString, OsString)> =
+        carried.iter().map(|(key, value)| (key.into(), value.into())).collect();
+    if let Some(file) = own_settings_file() {
+        env.push((cmux_config::CONFIG_OVERRIDE.into(), file.into_os_string()));
+    }
+    env
+}
 
 /// The launch of a running owner that the next owner repeats.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -49,7 +80,16 @@ impl CarriedLaunch {
             return Self::default();
         }
         cmux_tui_core::platform::process_launch(pid, &CARRIED_ENV)
-            .map(|launch| Self::from_launch(&launch.argv, launch.env))
+            .map(|mut launch| {
+                // A settings file this client names itself wins, like its
+                // own flags: the owner it spawns gets that one
+                // ([`own_settings_file`]). An empty value names no file, so
+                // the carried one stays.
+                if own_settings_file().is_some() {
+                    launch.env.retain(|(key, _)| key != cmux_config::CONFIG_OVERRIDE);
+                }
+                Self::from_launch(&launch.argv, launch.env)
+            })
             .unwrap_or_default()
     }
 

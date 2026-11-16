@@ -198,7 +198,10 @@ fn accept_loop(
         if shutdown.load(Ordering::Acquire) {
             return;
         }
-        let Some(permit) = claim_connection(&connections) else { continue };
+        let Some(permit) = claim_connection(&connections) else {
+            connections.commands().connection_refused(crate::diagnostics::ClientKind::Remote);
+            continue;
+        };
         let (mux, verifier, gate, render_service) =
             (mux.clone(), verifier.clone(), gate.clone(), render_service.clone());
         let _ = std::thread::Builder::new().name("mux-remote-conn".into()).spawn(move || {

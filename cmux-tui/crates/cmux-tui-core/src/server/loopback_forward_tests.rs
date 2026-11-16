@@ -476,6 +476,43 @@ fn loopback_streams_close_when_the_control_connection_ends() {
     assert!(matches!(read, Ok(0)) || read.is_err(), "the target must see the stream end");
 }
 
+/// A disconnect ends the connection's loopback streams first and closes its
+/// writer later (`ClientRegistry::remove`, then `disconnect_client`). A
+/// stream whose open thread connected in between found the writer still
+/// open, so it was inserted after the streams were ended. It must still end
+/// when the writer closes: otherwise its two threads, its slot and the TCP
+/// connection to a quiet target (an idle dev server) live on with no client.
+#[test]
+fn a_stream_opened_during_its_connections_disconnect_ends_when_the_writer_closes() {
+    let mux = mux("loopback-open-during-disconnect");
+    let (listener, port) = target();
+    let (writer, _outbound) = tests::captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    // The disconnect's first half, before the open thread inserts its stream.
+    mux.control_clients.loopback.disconnect(client);
+    assert!(mux.control_clients.loopback.reserve_for_test(client, 1));
+    let loopback = classify_target("127.0.0.1").unwrap();
+    loopback_forward::open_for_test(&mux, client, 1, port, loopback, &writer);
+    let (mut socket, _) = listener.accept().unwrap();
+    assert_eq!(mux.control_clients.loopback.open_streams_for_test(), 1);
+
+    // Its second half: the connection's writer closes.
+    writer.close();
+
+    socket.set_read_timeout(Some(WAIT)).unwrap();
+    let mut buffer = [0_u8; 16];
+    let read = socket.read(&mut buffer);
+    assert!(
+        matches!(read, Ok(0)),
+        "the target never saw the stream end after its connection closed: {read:?}"
+    );
+    assert_eq!(
+        mux.control_clients.loopback.open_streams_for_test(),
+        0,
+        "the stream kept its slot after its connection closed"
+    );
+}
+
 #[test]
 fn loopback_streams_are_limited_per_client() {
     let forwarder = loopback_forward::LoopbackForwarder::default();

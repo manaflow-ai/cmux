@@ -3,6 +3,9 @@
 use super::*;
 use serde_json::json;
 
+/// How long a test waits for a thread to reach its hold before it fails instead of hanging.
+const ARRIVE: std::time::Duration = std::time::Duration::from_secs(30);
+
 struct Home(PathBuf);
 
 impl Home {
@@ -347,8 +350,9 @@ fn a_second_archive_waits_for_a_commit_between_its_renames() {
             store.commit_cold("c", staged).unwrap()
         })
     };
-    let (arrived, release) = rx.recv().unwrap();
-    arrived.recv().unwrap();
+    let (arrived, release) =
+        rx.recv_timeout(ARRIVE).expect("the commit thread never installed its hold");
+    arrived.recv_timeout(ARRIVE).expect("the commit never reached HOLD_AFTER_COLD_PUBLISH");
     assert!(store.cold_path("c").exists() && store.dir("c").join("events").exists());
     // The second archive: it says when it reaches the cold lock, or that it is done.
     let (said, heard) = std::sync::mpsc::channel::<&'static str>();
@@ -361,7 +365,8 @@ fn a_second_archive_waits_for_a_commit_between_its_renames() {
             staged.unwrap().is_some()
         })
     };
-    assert_eq!(heard.recv().unwrap(), "settle", "the settle waits for the commit");
+    let heard = heard.recv_timeout(ARRIVE).expect("the second archive never reached the cold lock");
+    assert_eq!(heard, "settle", "the settle waits for the commit");
     release.send(()).unwrap();
     assert!(first.join().unwrap());
     assert!(!second.join().unwrap(), "the log is archived: nothing left to stage");
@@ -391,8 +396,9 @@ fn a_sealed_store_does_not_settle_the_next_daemons_archive() {
             next.commit_cold("c", staged).unwrap()
         })
     };
-    let (arrived, release) = rx.recv().unwrap();
-    arrived.recv().unwrap();
+    let (arrived, release) =
+        rx.recv_timeout(ARRIVE).expect("the commit thread never installed its hold");
+    arrived.recv_timeout(ARRIVE).expect("the commit never reached HOLD_AFTER_COLD_PUBLISH");
     assert!(next.cold_path("c").exists() && next.dir("c").join("events").exists());
     assert!(old.stage_cold("c").is_err(), "the sealed store settles nothing");
     assert!(old.cold_path("c").exists(), "the next daemon's archive is still there");
@@ -423,8 +429,9 @@ fn an_append_during_another_rehydrate_goes_on_in_the_last_segment() {
             store.rehydrate("c").unwrap()
         })
     };
-    let (arrived, release) = rx.recv().unwrap();
-    arrived.recv().unwrap();
+    let (arrived, release) =
+        rx.recv_timeout(ARRIVE).expect("the rehydrate thread never installed its hold");
+    arrived.recv_timeout(ARRIVE).expect("the rehydrate never reached HOLD_BEFORE_THAW");
     // The append: it lists no segment, finds the archive, and reaches the cold lock the reader
     // holds.
     let next = record(records.len() as u64 + 1, "mux", "status", json!({"status": "idle"}));
@@ -438,7 +445,8 @@ fn an_append_during_another_rehydrate_goes_on_in_the_last_segment() {
             store.close_log("c");
         })
     };
-    assert_eq!(heard.recv().unwrap(), "rehydrate");
+    let heard = heard.recv_timeout(ARRIVE).expect("the append never reached the cold lock");
+    assert_eq!(heard, "rehydrate");
     release.send(()).unwrap();
     assert!(reader.join().unwrap());
     appender.join().unwrap();
@@ -451,4 +459,194 @@ fn an_append_during_another_rehydrate_goes_on_in_the_last_segment() {
         }
     }
     assert_eq!(Store::events(&*store, "c", 0, usize::MAX).unwrap(), records);
+}
+
+/// Forced lost-home races for the cold archive (#41372 review F2): a settle or a rehydrate held
+/// past its home check, the home then replaced by a copy of itself (the new daemon's session
+/// tree, as restored from the old one). Every removal and rename lands in the held home; the new
+/// one is never changed. Each runs in a process of its own (`lost_home_race_tests::isolated`).
+#[cfg(unix)]
+mod lost_home {
+    use super::*;
+    use crate::lost_home_race_tests::{copy_tree, forced, isolated, replace, tree};
+
+    /// A chat archived beside its log (a crash before the commit moved the log aside), so a
+    /// settle removes the archive.
+    #[test]
+    fn a_cold_settle_held_past_its_check() {
+        isolated(
+            module_path!(),
+            "a_cold_settle_held_past_its_check",
+            |home| {
+                let store = LocalStore::new(home.join("sessions"), 64 * 1024).unwrap();
+                closed(&store, "c");
+                chat(&store, "c", 1);
+                archive(&store, "c");
+                let copy = std::fs::read(store.cold_path("c")).unwrap();
+                assert!(store.rehydrate("c").unwrap());
+                std::fs::write(store.cold_path("c"), &copy).unwrap();
+                let target = store.dir("c");
+                let old = home.with_extension("old");
+                let seed = move |home: &Path| copy_tree(&home.with_extension("old"), home);
+                forced(home, target, seed, None, move || {
+                    let _ = store.settle_cold("c");
+                });
+                assert!(
+                    !old.join("sessions").join("c").join(COLD_FILE).exists(),
+                    "the held home's covered archive was not removed"
+                );
+            },
+            |_, _| {},
+        );
+    }
+
+    /// #41462 review F1: the held home holds archive A and no log; the home that replaces it
+    /// holds another archive, B, beside a log that holds B. A settle held past its home check
+    /// must read the archive and its log in the held home, where A has no copy beside it, so A
+    /// is kept: read in the replacement, B is "covered" and the removal in the held home takes
+    /// A, the chat's only history.
+    #[test]
+    fn a_cold_settle_reads_the_held_home_not_its_replacement() {
+        isolated(
+            module_path!(),
+            "a_cold_settle_reads_the_held_home_not_its_replacement",
+            |home| {
+                let store = LocalStore::new(home.join("sessions"), 64 * 1024).unwrap();
+                closed(&store, "a");
+                chat(&store, "a", 1);
+                archive(&store, "a");
+                let a = std::fs::read(store.cold_path("a")).unwrap();
+                closed(&store, "c");
+                chat(&store, "c", 2);
+                archive(&store, "c");
+                let b = std::fs::read(store.cold_path("c")).unwrap();
+                assert_ne!(a, b, "the two archives must differ");
+                assert!(store.rehydrate("c").unwrap());
+                let b_log = home.with_extension("b-log");
+                copy_tree(&store.dir("c").join("events"), &b_log);
+                // The held home: the chat's only history is archive A, with no log beside it.
+                std::fs::remove_dir_all(store.dir("c").join("events")).unwrap();
+                std::fs::write(store.cold_path("c"), &a).unwrap();
+                let target = store.dir("c");
+                let old = home.with_extension("old");
+                let seed = move |home: &Path| {
+                    copy_tree(&home.with_extension("old"), home);
+                    let chat = home.join("sessions").join("c");
+                    std::fs::write(chat.join(COLD_FILE), &b).unwrap();
+                    copy_tree(&b_log, &chat.join("events"));
+                };
+                forced(home, target, seed, Some("sessions/c/cold.zst"), move || {
+                    let _ = store.settle_cold("c");
+                });
+                let kept = std::fs::read(old.join("sessions").join("c").join(COLD_FILE)).unwrap();
+                assert_eq!(kept, a, "the held home's archive A changed");
+            },
+            |_, _| {},
+        );
+    }
+
+    /// #41697 review F1: the held home holds the chat's archive and no log; the home that
+    /// replaces it holds neither. A rehydrate must read the archive in the held home: read by
+    /// path it finds none and answers "not archived" (Ok(false)), so the caller reads the chat
+    /// as empty while its history sits in the held home. Read there, it finds the archive and
+    /// goes on to thaw it, which a lost home refuses: an error, never "not archived", and the
+    /// held home's archive and the new home stay as they were.
+    #[test]
+    fn a_cold_rehydrate_reads_the_held_home_not_its_replacement() {
+        isolated(
+            module_path!(),
+            "a_cold_rehydrate_reads_the_held_home_not_its_replacement",
+            |home| {
+                let store = LocalStore::new(home.join("sessions"), 64 * 1024).unwrap();
+                closed(&store, "c");
+                chat(&store, "c", 1);
+                archive(&store, "c");
+                assert!(store.is_cold("c"), "the fixture is archived");
+                let archived = std::fs::read(store.cold_path("c")).unwrap();
+                crate::config::hold_home();
+                replace(home);
+                copy_tree(&home.with_extension("old"), home);
+                std::fs::remove_file(store.cold_path("c")).unwrap();
+                let seeded = tree(home);
+                let back = store.rehydrate("c");
+                assert!(
+                    back.is_err(),
+                    "the rehydrate read the replacement's missing archive, not the held \
+                     home's: {back:?}"
+                );
+                let old = home.with_extension("old").join("sessions").join("c").join(COLD_FILE);
+                assert_eq!(std::fs::read(old).unwrap(), archived, "the held home's archive");
+                assert_eq!(tree(home), seeded, "the rehydrate changed the new home");
+            },
+            |_, _| {},
+        );
+    }
+
+    /// A cold chat's first read decodes its archive into a folder beside it, then renames it to
+    /// `events/` and removes the archive: held at the check of the last file it decodes.
+    #[test]
+    fn a_cold_rehydrate_held_past_its_check() {
+        isolated(
+            module_path!(),
+            "a_cold_rehydrate_held_past_its_check",
+            |home| {
+                let store = LocalStore::new(home.join("sessions"), 64 * 1024).unwrap();
+                closed(&store, "c");
+                chat(&store, "c", 1);
+                let last = hashes(&store, "c").into_keys().last().unwrap();
+                archive(&store, "c");
+                let target = store.dir("c").join(THAW_DIR).join(&last);
+                let kept = format!("sessions/c/events/{last}");
+                let seed = |home: &Path| copy_tree(&home.with_extension("old"), home);
+                forced(home, target, seed, Some(&kept), move || {
+                    let _ = store.rehydrate("c");
+                });
+            },
+            |_, _| {},
+        );
+    }
+}
+
+/// #41721 review F1, on Windows: `rehydrate`'s check of the archive went by path there
+/// (`home_fs::exists_nofollow` had no held-home check off Unix), so a replacement home without
+/// the archive answered "not archived" (Ok(false)) while the held home still held it. Now the
+/// check is made between two checks of the home's file id (`home_fs::held_read`): the home was
+/// replaced, so the rehydrate is an error, and neither home changes. The Unix twin is
+/// `lost_home::a_cold_rehydrate_reads_the_held_home_not_its_replacement`.
+#[cfg(windows)]
+mod lost_home_windows {
+    use super::*;
+    use crate::lost_home_race_tests::{copy_tree, isolated, replace, tree};
+
+    #[test]
+    fn a_cold_rehydrate_reads_the_held_home_not_its_replacement() {
+        isolated(
+            module_path!(),
+            "a_cold_rehydrate_reads_the_held_home_not_its_replacement",
+            |home| {
+                let store = LocalStore::new(home.join("sessions"), 64 * 1024).unwrap();
+                closed(&store, "c");
+                chat(&store, "c", 1);
+                archive(&store, "c");
+                assert!(store.is_cold("c"), "the fixture is archived");
+                let archived = std::fs::read(store.cold_path("c")).unwrap();
+                crate::config::hold_home();
+                replace(home);
+                copy_tree(&home.with_extension("old"), home);
+                std::fs::remove_file(store.cold_path("c")).unwrap();
+                let seeded = tree(home);
+                let back = store.rehydrate("c");
+                assert!(
+                    back.is_err(),
+                    "the rehydrate read the replacement's missing archive, not the held \
+                     home's: {back:?}"
+                );
+                assert!(!store.is_cold("c"), "a lost home reads as not cold");
+                let old = home.with_extension("old").join("sessions").join("c").join(COLD_FILE);
+                assert_eq!(std::fs::read(old).unwrap(), archived, "the held home's archive");
+                assert_eq!(tree(home), seeded, "the rehydrate changed the new home");
+            },
+            |_, _| {},
+        );
+    }
 }

@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -23,12 +24,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const HOUR = 3_600_000;
@@ -285,18 +283,16 @@ test("a sent prompt draws no Retry: the last turn's reply footer has it", async 
   expect(host.querySelector(".cv-turn-retry-menu")).toBeNull();
 });
 
-// The Messages view draws no footer for a turn that ended well (messagesRows.ts), so a prompt there
-// keeps the Retry it had, which sends it again.
-test("in the Messages view a sent prompt keeps its Retry", async () => {
+// Both presentations keep resend in the message menu, without a prompt fallback.
+test("in the Messages view a sent prompt has no inline Retry", async () => {
   const sent: [string, string][] = [];
   await draw(
     { id: "user-4", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Cover it" },
     { retry: (rowId: string, prompt: string) => sent.push([rowId, prompt]) },
     "messages",
   );
-  const retry = host.querySelector<HTMLButtonElement>('.cv-message-retry button[aria-label="Retry"]')!;
-  act(() => retry.click());
-  expect(sent).toEqual([["user-4", "Cover it"]]);
+  expect(host.querySelector('.cv-message-retry button[aria-label="Retry"]')).toBeNull();
+  expect(sent).toEqual([]);
 });
 
 test("a recorded steer has no receipt checks in its normal hover actions", async () => {

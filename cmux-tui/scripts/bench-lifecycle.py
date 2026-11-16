@@ -13,7 +13,9 @@ create/close command from send to reply on one control connection:
   new-workspace (sized)          -> close-workspace end_terminals
 
 Prints one LIFECYCLE line per operation (p50/p95/max/N, ms) and writes JSON
-with every sample to --out.
+with every sample to --out. --gap-ms pauses before each create, as a person
+does between commands; without it creates run back to back, so background
+work one create starts (the spare host refill) competes with the next.
 """
 
 import argparse
@@ -114,6 +116,9 @@ def main():
     ap.add_argument("--background", type=int, default=0,
                     help="extra idle workspaces (one terminal each) that make the session larger")
     ap.add_argument("--spans", action="store_true", help="set CMUX_TUI_DEBUG_SPANS and keep the file")
+    ap.add_argument("--gap-ms", type=float, default=0.0,
+                    help="pause before each timed create, as a person leaves between commands, so "
+                         "background work a create starts (the spare host refill) ends before the next")
     args = ap.parse_args()
 
     root = tempfile.mkdtemp(prefix="lc-", dir=args.root_dir)
@@ -141,7 +146,7 @@ def main():
         stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True,
     )
     result = {"label": args.label, "platform": platform.platform(), "rounds": args.rounds,
-              "background": args.background, "ops": {}}
+              "background": args.background, "gap_ms": args.gap_ms, "ops": {}}
     try:
         deadline = time.time() + 30
         while True:
@@ -177,14 +182,19 @@ def main():
             if counted:
                 samples.setdefault(name, []).append(ms)
 
+        def create(cmd, **params):
+            if args.gap_ms:
+                time.sleep(args.gap_ms / 1000.0)
+            return timed(c, cmd, **params)
+
         for i in range(args.warmup + args.rounds):
             counted = i >= args.warmup
-            data, ms = timed(c, "new-tab", pane=base_pane, **sized)
+            data, ms = create("new-tab", pane=base_pane, **sized)
             rec("new-tab terminal", ms, counted)
             _, ms = timed(c, "close-surface", surface=data["surface"])
             rec("close-surface terminal", ms, counted)
 
-            data, ms = timed(c, "new-browser-tab", url="about:blank", pane=base_pane, **sized)
+            data, ms = create("new-browser-tab", url="about:blank", pane=base_pane, **sized)
             rec("new-tab browser", ms, counted)
             _, ms = timed(c, "close-surface", surface=data["surface"])
             rec("close-surface browser", ms, counted)
@@ -194,13 +204,13 @@ def main():
                 ("split down", {"dir": "down", **sized}),
                 ("split right unsized", {"dir": "right"}),
             ):
-                data, ms = timed(c, "split", pane=base_pane, **params)
+                data, ms = create("split", pane=base_pane, **params)
                 rec(name, ms, counted)
                 pane = data.get("pane") or pane_of(c, data["surface"])[0]
                 _, ms = timed(c, "close-pane", pane=pane, end_terminals=True)
                 rec("close-pane (" + name + ")", ms, counted)
 
-            data, ms = timed(c, "new-workspace", name=f"w{i}", **sized)
+            data, ms = create("new-workspace", name=f"w{i}", **sized)
             rec("new-workspace", ms, counted)
             _, ws = pane_of(c, data["surface"])
             _, ms = timed(c, "close-workspace", workspace=ws, end_terminals=True)

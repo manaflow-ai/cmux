@@ -41,8 +41,11 @@
 // Cost: one MutationObserver (added nodes and the marker attribute only), and while a marked surface
 // moves (an open, a fade, a resize, a scroll), one rect and opacity read per surface per frame. The loop
 // stops after STABLE_FRAMES unchanged frames; a resize, a style write, a transition or a scroll starts it
-// again. Nothing runs while no marked surface is mounted, and the App's answer is the only other work.
+// again, and so does a trackpad pinch (the visual viewport's resize and scroll), since each box is sent
+// where it shows on the zoomed screen (ui/visualViewportBox.ts). Nothing runs while no marked surface is
+// mounted, and the App's answer is the only other work.
 import { LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
+import { onVisualViewport, visualViewportScale } from "../visualViewportBox";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./seeThroughBlur";
 
 /** pages/shared/desktop.ts SEE_THROUGH_ATTRIBUTE: the page sits on the window glass. */
@@ -64,7 +67,8 @@ export const HOST_GLASS_ENDING_ATTRIBUTE = "data-ending-style";
 export type HostGlassLevel = "popover" | "menu" | "chip";
 const LEVELS: ReadonlySet<string> = new Set<HostGlassLevel>(["popover", "menu", "chip"]);
 
-/** One surface's box in the page's viewport (CSS px), its corner radius and its own opacity (a fade). */
+/** One surface's box in the page's viewport (CSS px, where it shows under a pinch zoom), its corner
+ * radius and its own opacity (a fade). */
 export type HostGlassSurface = {
   id: string;
   level: HostGlassLevel;
@@ -108,9 +112,13 @@ export function hostGlassSurface(element: Element, id: string): HostGlassSurface
   if (!LEVELS.has(level) || !element.isConnected || element.closest("[hidden],[data-escaped]")) return undefined;
   const style = element.ownerDocument.defaultView?.getComputedStyle(element);
   if (style && (style.display === "none" || style.visibility === "hidden")) return undefined;
-  const box = element.getBoundingClientRect();
-  if (!(box.width > 0 && box.height > 0)) return undefined;
-  const radius = Number.parseFloat(style?.borderTopLeftRadius ?? "") || 0;
+  const layout = element.getBoundingClientRect();
+  if (!(layout.width > 0 && layout.height > 0)) return undefined;
+  // Where it shows under a trackpad pinch, so the App's glass zooms and pans with its content.
+  const view = element.ownerDocument.defaultView;
+  const box = onVisualViewport(layout, view);
+  const scale = visualViewportScale(view);
+  const radius = (Number.parseFloat(style?.borderTopLeftRadius ?? "") || 0) * scale;
   const opacity = Number.parseFloat(style?.opacity ?? "1");
   return {
     id,
@@ -119,7 +127,7 @@ export function hostGlassSurface(element: Element, id: string): HostGlassSurface
     top: round(box.top),
     right: round(box.right),
     bottom: round(box.bottom),
-    radius: round(Math.min(radius, box.width / 2, box.height / 2)),
+    radius: round(Math.min(radius, (box.right - box.left) / 2, (box.bottom - box.top) / 2)),
     opacity: Number.isFinite(opacity) ? round(Math.min(1, Math.max(0, opacity))) : 1,
   };
 }
@@ -412,6 +420,9 @@ export function reportHostGlass(
   };
   view.addEventListener("scroll", follow, { capture: true, passive: true });
   view.addEventListener("resize", follow);
+  // A trackpad pinch zooms and pans the visual viewport with no layout change: the boxes move on screen.
+  view.visualViewport?.addEventListener("resize", follow);
+  view.visualViewport?.addEventListener("scroll", follow);
   doc.addEventListener("transitionrun", follow, true);
   doc.addEventListener("transitionend", follow, true);
   doc.addEventListener("animationstart", follow, true);
@@ -424,6 +435,8 @@ export function reportHostGlass(
     restyled.disconnect();
     view.removeEventListener("scroll", follow, { capture: true });
     view.removeEventListener("resize", follow);
+    view.visualViewport?.removeEventListener("resize", follow);
+    view.visualViewport?.removeEventListener("scroll", follow);
     doc.removeEventListener("transitionrun", follow, true);
     doc.removeEventListener("transitionend", follow, true);
     doc.removeEventListener("animationstart", follow, true);

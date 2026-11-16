@@ -98,7 +98,10 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
             }
             let streamed = streamGap(event, cursor: &cursor, replay: replay)
             host.apply(.confine(session: session, bounds: clip))
-            if !animatesMovement() {
+            if replay {
+                // Not an agent action: no travel, and the idle hide keeps its time.
+                host.apply(.reposition(session: session, point: target, indicates: false))
+            } else if !animatesMovement() {
                 // Reduce Motion: the cursor appears where the input lands.
                 host.apply(.place(session: session, point: drop ?? target))
             } else if let from = cursor.point, let gap = streamed, drop == nil {
@@ -131,7 +134,8 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
                 host.apply(.pulse(session: session))
             }
         case let .hidden(anchor):
-            host.apply(.indicate(session: session, anchor: CGPoint(x: anchor.midX, y: anchor.midY)))
+            let point = CGPoint(x: anchor.midX, y: anchor.midY)
+            host.apply(replay ? .reposition(session: session, point: point, indicates: true) : .indicate(session: session, anchor: point))
             cursor.point = nil
         case .elsewhere:
             host.apply(.hide(session: session))
@@ -166,6 +170,17 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
                   let event = cursor.lastEvent, event.targetID == target else { continue }
             draw(event, cursor: &cursor, pulse: false, replay: true)
             cursors[session] = cursor
+        }
+    }
+
+    /// `session` no longer holds `target`'s lease (released, stopped, taken over or the tab is
+    /// gone) and may still hold others: a cursor whose last input went to `target` leaves it.
+    public func leaseEnded(target: String, session: String) {
+        guard cursors[session]?.lastEvent?.targetID == target else { return }
+        cursors.removeValue(forKey: session)
+        host.apply(.remove(session: session))
+        if !cursors.values.contains(where: { $0.lastEvent?.targetID == target }) {
+            onUntrack?(target)
         }
     }
 

@@ -128,4 +128,17 @@ import Testing
         let corner = Self.sidebar(detailed: false, style: .corner, programAsks: true)
         #expect(try Self.badge(corner, Self.asking).states == [.waiting(kind: .question)])
     }
+
+    /// A done glyph settles in only when the row's work finishes: a spinner showed, none shows now,
+    /// and a done glyph does. Not on an error, a question, an unread that came while work runs on,
+    /// or a row that showed nothing before.
+    @Test func onlyFinishedWorkSettles() {
+        #expect(WorkspaceRowBadges.settles(from: [.working], to: [.success]))
+        #expect(WorkspaceRowBadges.settles(from: [.busy], to: [.success]))
+        #expect(!WorkspaceRowBadges.settles(from: [], to: [.success]))
+        #expect(!WorkspaceRowBadges.settles(from: [.success], to: [.success]))
+        #expect(!WorkspaceRowBadges.settles(from: [.working], to: [.error]))
+        #expect(!WorkspaceRowBadges.settles(from: [.working], to: []))
+        #expect(!WorkspaceRowBadges.settles(from: [.working], to: [.working, .success]))
+    }
 }

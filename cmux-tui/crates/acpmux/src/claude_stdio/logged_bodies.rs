@@ -59,6 +59,59 @@ pub fn leave_out_bodies(kind: &str, line: &mut Value) {
     }
 }
 
+/// A prompt body this long or longer leaves acpmux's outbound copies of the prompt
+/// ([`leave_out_prompt_bodies`]); a shorter one (a typed prompt, a `/compact`) stays.
+pub const PROMPT_BODY_KEPT_UNDER: usize = 1024;
+/// The fields of a prompt block that hold its body.
+const PROMPT_BODY_KEYS: [&str; 4] = ["text", "data", "resource", "blob"];
+
+/// `msg`, an outbound copy of a prompt as it is about to be logged (`dir: "out"`), without the
+/// long bodies its `user_message` record holds: the ACP `session/prompt` request (each block of
+/// `params.prompt`) and Claude Code's stdin line of it (`claude.stdin`, a `type: "user"` line's
+/// `message.content`). Every other field stays (the request's id and `_meta`, which `hosts.rs`
+/// pairs the turn by; each block's type, `_meta`, name and uri). Other kinds and other stdin
+/// lines (control requests) are left as they are.
+///
+/// Each prompt was in the log four times: `user_message` (its text and, for one text block, its
+/// `inlineParts` again), the request, and the stdin line. A Chief compactor's 3.1 MB prompt logged
+/// 12.5 MB and the journal wrote it again (Leo's laptop, 2026-11-11: 549 GB in 23.6 h, hang-watch
+/// `a79ee8e8dd`, cmuxterm-hq#9263). No reader takes a body from either copy: a retry, a resend
+/// and a restart read the prompt from `user_message` (`auto_resume/retry_turn.rs`,
+/// `unstarted_prompt.rs`), the timing reads the records' times (`history_timing.rs`).
+pub fn leave_out_prompt_bodies(kind: &str, msg: &mut Value) {
+    let body = match kind {
+        crate::rpc::method::SESSION_PROMPT => msg.pointer_mut("/params/prompt"),
+        "claude.stdin" if msg.get("type").and_then(Value::as_str) == Some("user") => {
+            msg.pointer_mut("/message/content")
+        }
+        _ => return,
+    };
+    let mut left_out: usize = 0;
+    match body {
+        Some(Value::String(text)) if text.len() >= PROMPT_BODY_KEPT_UNDER => {
+            left_out = bytes(&Value::String(std::mem::take(text)));
+        }
+        Some(Value::Array(blocks)) => {
+            for block in blocks.iter_mut().filter_map(Value::as_object_mut) {
+                for key in PROMPT_BODY_KEYS {
+                    let long = block.get(key).map_or(0, bytes);
+                    if long >= PROMPT_BODY_KEPT_UNDER {
+                        block.remove(key);
+                        left_out = left_out.saturating_add(key.len()).saturating_add(long);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    if left_out > 0
+        && let Some(fields) = msg.as_object_mut()
+        && let Some(note) = fields.entry("_acpmux").or_insert_with(|| json!({})).as_object_mut()
+    {
+        note.insert("bodiesLeftOut".into(), Value::from(left_out));
+    }
+}
+
 /// Removes every field of `block` but [`BLOCK_KEEPS`]; the bytes removed.
 fn keep_only(block: &mut Map<String, Value>) -> usize {
     let mut removed: usize = 0;

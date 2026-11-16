@@ -4,10 +4,18 @@ import AppKit
 /// as drawn, before its blur, where it lies, its blur and the wash over it.
 extension WindowMaterialView {
     /// The art pages may refract now: nil under the solid sheet, without art, under a moving
-    /// wallpaper, or where the desktop shows through the art (Clear Glass lowers its opacity).
+    /// wallpaper, or where the desktop shows through more than a little of the art.
     var glassStill: NSImage? {
-        guard !isHidden, !hidesArt, !artView.isHidden, !showsVideo, artOpacity >= 0.98 else { return nil }
+        guard !isHidden, !hidesArt, !artView.isHidden, !showsVideo, Self.refractsArt(opacity: artOpacity) else { return nil }
         return artImage
+    }
+
+    /// Whether pages refract art drawn at `opacity`: opaque art, and Window Glass's (Clear Glass over
+    /// art), which the desktop shows through only a little. Under Window Glass the art is what the
+    /// page's glass shows, not plain blur (Leo, 2026-11-07: "the point is to have the art show through
+    /// and be shown nicely").
+    static func refractsArt(opacity: Float) -> Bool {
+        opacity >= Float(WindowBackdrop.windowGlassArtOpacity) - 0.001
     }
 
     /// The art layer's frame in window coordinates; its image is aspect-filled into it.

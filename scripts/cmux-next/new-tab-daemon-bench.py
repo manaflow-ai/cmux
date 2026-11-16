@@ -15,6 +15,8 @@ an attached client, which this bench does not have).
 Run it on a fleet Mac, never on the laptop.
 """
 import json, os, socket, subprocess, sys, time, tempfile, shutil, statistics
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 BIN = sys.argv[1]
 RUNS = int(sys.argv[2]) if len(sys.argv) > 2 else 20
@@ -74,16 +76,16 @@ try:
         r = req(cmd)
         dt = (time.perf_counter() - t0) * 1000
         if not r.get("ok"):
-            print("fail", r); break
+            safe_print("fail", r); break
         tpid = records().get(r["data"].get("terminal_id"))
         time.sleep(float(os.environ.get("GAP", "0.6")))  # let refill finish
         hit = tpid in spare
         adopted += hit
         times.append(dt)
-        print(f"run {i:2d}: {dt:7.1f} ms  spare={sorted(spare)} host={tpid} adopted={hit}", flush=True)
+        safe_print(f"run {i:2d}: {dt:7.1f} ms  spare={sorted(spare)} host={tpid} adopted={hit}", flush=True)
     s = sorted(times)
     p = lambda q: s[min(len(s) - 1, int(q * len(s)))]
-    print(f"adopted {adopted}/{len(times)} p50={p(0.5):.1f} p95={p(0.95):.1f} min={s[0]:.1f}")
+    safe_print(f"adopted {adopted}/{len(times)} p50={p(0.5):.1f} p95={p(0.95):.1f} min={s[0]:.1f}")
     if sampler: sampler.wait()
     if os.environ.get("SPANS") and os.path.exists(spans_path):
         gaps = {}
@@ -116,21 +118,21 @@ try:
         if os.environ.get("SPANS_DUMP"):
             import shutil as _sh
             _sh.copy(spans_path, os.environ["SPANS_DUMP"])
-        print(f"spans over {n} new-tab traces; daemon total p50 {sorted(totals)[n // 2]:.1f} ms")
-        print(f"{'gap before mark':58s} {'count':>5s} {'sum/tab':>8s} {'mean':>7s} {'p95':>7s}")
+        safe_print(f"spans over {n} new-tab traces; daemon total p50 {sorted(totals)[n // 2]:.1f} ms")
+        safe_print(f"{'gap before mark':58s} {'count':>5s} {'sum/tab':>8s} {'mean':>7s} {'p95':>7s}")
         for key in order:
             values = sorted(gaps[key])
-            print(f"{key[:58]:58s} {len(values):5d} {sum(values) / n:8.2f} {sum(values) / len(values):7.2f} {values[min(len(values) - 1, int(0.95 * len(values)))]:7.2f}")
-        print(f"{'request arrival to first-output mark':58s} {'count':>5s} {'p50':>8s} {'p95':>7s}")
+            safe_print(f"{key[:58]:58s} {len(values):5d} {sum(values) / n:8.2f} {sum(values) / len(values):7.2f} {values[min(len(values) - 1, int(0.95 * len(values)))]:7.2f}")
+        safe_print(f"{'request arrival to first-output mark':58s} {'count':>5s} {'p50':>8s} {'p95':>7s}")
         for name in ("host.first_output", "first_printable_output", "first_prompt_mark", "attach.first_output_sent"):
             values = sorted(follow.get(name, []))
             if not values:
-                print(f"{name:58s} {0:5d} {'-':>8s} {'-':>7s}")
+                safe_print(f"{name:58s} {0:5d} {'-':>8s} {'-':>7s}")
                 continue
-            print(f"{name:58s} {len(values):5d} {values[len(values) // 2]:8.2f} {values[min(len(values) - 1, int(0.95 * len(values)))]:7.2f}")
+            safe_print(f"{name:58s} {len(values):5d} {values[len(values) // 2]:8.2f} {values[min(len(values) - 1, int(0.95 * len(values)))]:7.2f}")
 finally:
     daemon.terminate()
     try: daemon.wait(5)
     except Exception: daemon.kill()
-    print(open(os.path.join(d, "err.log")).read()[-2000:])
+    safe_print(open(os.path.join(d, "err.log")).read()[-2000:])
     shutil.rmtree(d, ignore_errors=True)

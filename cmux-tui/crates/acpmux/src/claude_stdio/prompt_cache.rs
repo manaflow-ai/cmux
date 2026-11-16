@@ -21,6 +21,7 @@
 
 use super::Translator;
 use crate::no_panic::JsonExt;
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -61,10 +62,6 @@ pub fn now_ms() -> u64 {
     crate::store::now_ms()
 }
 
-fn tokens(usage: &Value, key: &str) -> u64 {
-    usage.get(key).and_then(Value::as_u64).unwrap_or(0)
-}
-
 impl CacheClock {
     /// A main-loop call started at `at_ms`, with the usage its start names.
     fn started(&self, usage: Option<&Value>, at_ms: u64) {
@@ -79,8 +76,8 @@ impl CacheClock {
         if let Some(ttl) = reported_ttl_ms(usage) {
             self.ttl_ms.store(ttl, Ordering::SeqCst);
         }
-        let cache =
-            tokens(usage, "cache_read_input_tokens") + tokens(usage, "cache_creation_input_tokens");
+        let cache = usage.get_u64("cache_read_input_tokens").unwrap_or(0)
+            + usage.get_u64("cache_creation_input_tokens").unwrap_or(0);
         if cache == 0 {
             return self.expires_at();
         }
@@ -113,9 +110,10 @@ impl Translator {
         // `used` is the context held by the last request. It is the prompt side of the usage,
         // including cache reads/writes, and deliberately excludes output: the context ring must
         // not grow from generated text.
-        let (input, output) = (tokens(u, "input_tokens"), tokens(u, "output_tokens"));
-        let cache_read = tokens(u, "cache_read_input_tokens");
-        let cache_write = tokens(u, "cache_creation_input_tokens");
+        let (input, output) =
+            (u.get_u64("input_tokens").unwrap_or(0), u.get_u64("output_tokens").unwrap_or(0));
+        let cache_read = u.get_u64("cache_read_input_tokens").unwrap_or(0);
+        let cache_write = u.get_u64("cache_creation_input_tokens").unwrap_or(0);
         let used = input + cache_read + cache_write;
         let mut acpmux = json!({"call": true});
         // A subagent's usage is its own context, not the chat's, and its cache is its own too.

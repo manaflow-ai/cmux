@@ -3,7 +3,7 @@
 
 Launches the tagged app with no activation, makes a local channel with one message of mine through
 the Home data path (debug.home.api), opens it, then presses Return through the field's own send path
-(home_page.py send) with an empty field and with only spaces and new lines. Each must be refused
+(debug.home.drive send) with an empty field and with only spaces and new lines. Each must be refused
 (empty_draft) and change nothing: the view's texts, HomeStore's transcript and the owner's log
 stay as they were. A real send after it still goes. Screenshots before and after.
 Socket only, no system input. Runs on cmux-lawrence-2; ends with the DEBUG quit fixture and the tag's
@@ -16,7 +16,6 @@ import re
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
-import home_page  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -102,11 +101,11 @@ try:
             rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": conversation}, "focus": True})
             time.sleep(1)  # test harness: one request per second while Home starts
             return None
-        return first in ((home_page.drive(rpc, {"action": "texts"}) or {}).get("texts") or [])
-    check("Home shows my message", bool(poll(opened, timeout=180)), home_page.drive(rpc, {"action": "texts"}))
+        return first in ((rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts") or [])
+    check("Home shows my message", bool(poll(opened, timeout=180)), rpc("debug.home.drive", {"action": "texts"}))
 
     def state():
-        view = (home_page.drive(rpc, {"action": "texts"}) or {}).get("texts")
+        view = (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts")
         store = [i.get("text") for i in (api(call="store", conversation=conversation) or {}).get("items") or []]
         owner = [m.get("text") for m in (api(call="snapshot", conversation=conversation, tail=20) or {}).get("messages") or []]
         return {"view": view, "store": store, "owner": owner}
@@ -114,16 +113,16 @@ try:
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "before.png")})
     for label, typed in (("an empty field", ""), ("only spaces and new lines", "   \n  ")):
         if typed:
-            home_page.drive(rpc, {"action": "focus"})
-            home_page.drive(rpc, {"action": "type", "text": typed})
-        reply = home_page.drive(rpc, {"action": "send"}) or {}
+            rpc("debug.home.drive", {"action": "focus"})
+            rpc("debug.home.drive", {"action": "type", "text": typed})
+        reply = rpc("debug.home.drive", {"action": "send"}) or {}
         check(f"Return on {label} is refused", "empty_draft" in str(reply.get("refused", "")), reply)
         time.sleep(1.0)  # test harness: give a wrong send time to reach the owner before comparing
         check(f"Return on {label} changes nothing (view, HomeStore, owner)", state() == before, {"before": before, "after": state()})
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "after-empty-returns.png")})
     real = f"Real send {stamp}"
-    home_page.drive(rpc, {"action": "type", "text": real})
-    sent = home_page.drive(rpc, {"action": "send"}) or {}
+    rpc("debug.home.drive", {"action": "type", "text": real})
+    sent = rpc("debug.home.drive", {"action": "send"}) or {}
     check("a real send still goes", bool(sent.get("ok")), sent)
     check("the owner has the real send",
           bool(poll(lambda: real in [m.get("text").strip() for m in (api(call="snapshot", conversation=conversation, tail=20) or {}).get("messages") or []])),

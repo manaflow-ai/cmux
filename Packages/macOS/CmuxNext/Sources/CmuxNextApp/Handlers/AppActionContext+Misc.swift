@@ -56,7 +56,7 @@ extension AppActionContext {
     /// Nothing when the run may not change this client's view.
     func reveal(_ located: LocatedTab) {
         guard ActionRunScope.viewChangeAllowed(), let controller = window(showing: located.workspace.id) else { return }
-        controller.state.selection.select(located.tab.id, in: located.pane.id)
+        controller.state.selection.jump(to: located.tab.id, in: located.pane.id, byPerson: ActionRunScope.isPersonsAction())
         services.paneController(for: located.pane)?.select(StripTabID(located.tab.id))
     }
 

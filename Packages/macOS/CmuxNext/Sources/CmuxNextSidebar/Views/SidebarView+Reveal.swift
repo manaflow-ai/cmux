@@ -1,8 +1,8 @@
 import AppKit
 import CmuxNextDesign
 
-// The pointer over the sidebar reveals, with Show Sidebar Controls Only on Hover (`sidebar.controlsOnHover`,
-// Lawrence 2026-10-27), its New Workspace button, spaces strip, profile control and Search
+// The pointer over the sidebar reveals, in Minimal Mode (`sidebar.minimal`, user 2026-11-15) or with Show Sidebar
+// Controls Only on Hover (`sidebar.controlsOnHover`, Lawrence 2026-10-27), its New Workspace button, spaces strip, profile control and Search
 // button; in Hide Bands Until Hover (`sidebar.minimalMode`, R54) the chosen pinned bands; and,
 // with the thin scrollers' opt-in auto-hide, the scrollers. By default the controls always show.
 extension SidebarViewComponents {
@@ -42,6 +42,20 @@ extension SidebarViewComponents {
             liveModeBadge?.animator().alphaValue = target.footer
         }
         fadeLine(aboveLine, to: target.topBand)
+        // The faded footer's height goes to the list (or comes back) with the fade (``SidebarFooterCollapseMotion``).
+        needsLayout = true
+    }
+
+    /// The height the list takes from the sidebar's bottom chrome now (``SidebarFooterCollapseMotion``): in
+    /// Minimal Mode with the pointer away, the footer section when it and the spaces strip (which may share its
+    /// row) are faded out, and the footer row of `footerRowHeight` too when no accessory (a status view) shows in
+    /// it. 0 by default, with `sidebar.spacesVisibility` Always (what still shows keeps its room), and under the
+    /// older Show Sidebar Controls Only on Hover alone, whose controls fade in place with nothing moving.
+    func footerCollapseTarget(footerRowHeight: CGFloat, hasAccessories: Bool) -> CGFloat {
+        guard design.sidebarSections.minimal else { return 0 }
+        let reveal = appliedChromeReveal ?? chromeReveal(revealed: isChromeRevealed)
+        guard reveal.footer == 0, reveal.spaces == 0 else { return 0 }
+        return footerRegion.layoutResult.height + (hasAccessories ? 0 : footerRowHeight)
     }
 
     /// A menu from a hover-revealed titlebar control opened (`true`) or closed (`false`). On the
@@ -62,7 +76,7 @@ extension SidebarViewComponents {
     func chromeReveal(revealed: Bool) -> SidebarChromeReveal {
         let sections = design.sidebarSections
         return SidebarChromeReveal(revealed: revealed, minimalMode: sections.minimalMode,
-                                   controlsOnHover: sections.controlsOnHover, spacesVisibility: spacesVisibility)
+                                   controlsOnHover: sections.hidesControlsUntilHover, spacesVisibility: spacesVisibility)
     }
 
     /// The spaces strip's opacity: shown unless controls-on-hover hides it with the pointer away

@@ -14,7 +14,7 @@ import CmuxNextWakeups
 // restore, fork, and snapshot deletion.
 extension CloudHandlers {
     static func bindMachineActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        let cloud = context.services.cloud, rules = CloudHandlerRules()
+        let cloud = context.services.cloud, rules = CloudHandlerRules(), palette = context.services.palette; palette.sources.extraProviders.append(MachinePaletteRows(actions: MachinePaletteRows.standard(targets: { [weak palette] in palette?.sources.targets }, sshDestinations: { [weak services = context.services] in services?.machines.ssh.map(\.host).oneByDestination.map { PaletteTargetOption(id: $0.destination.description, title: $0.label, symbol: "server.rack") } ?? [] })).provider(registry: registry)) // "Connect to Machine: devbox" rows
         bind("cloudOpenMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             // An app link waits for the user after it ended: opening the
@@ -25,8 +25,41 @@ extension CloudHandlers {
                 show(try await firstWorkspace(on: session, context), context)
             }
         }
-        bind("cloudOpenDesktop", registry, reason: reason) { invocation in
-            try openDesktop(try machine(invocation, context), context, viewer: invocation["viewer"]?.stringValue)
+        registry.bindEffect("cloudOpenDesktop", unavailable: reason) { invocation in
+            do {
+                let session = try machine(invocation, context)
+                return registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.notConnected)) {
+                    runTracked("open Cloud desktop", context) {
+                        // A paused machine resumes through the same user-owned attach
+                        // path as Open Machine. Opening the carrier desktop then dials
+                        // its socket-activated service.
+                        try await attached(session, invocation, waitsForLink: true)
+                        try Task.checkCancellation()
+                        try openDesktop(session, context, viewer: invocation["viewer"]?.stringValue)
+                    }
+                    return nil
+                }
+            } catch {
+                return .refused(RefusalStrings.describe(error))
+            }
+        }
+        registry.bindEffect("cloudSetupDesktop", unavailable: reason) { invocation in
+            do {
+                let session = try machine(invocation, context)
+                return registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.notConnected)) {
+                    runTracked("set up Cloud desktop", context) {
+                        try await attached(session, invocation, waitsForLink: true)
+                        try Task.checkCancellation()
+                        try await cloud.machineAPI.setupDesktop(session.machineID)
+                        await cloud.refresh()
+                        let repaired = try machine(invocation, context)
+                        try openDesktop(repaired, context, viewer: invocation["viewer"]?.stringValue)
+                    }
+                    return nil
+                }
+            } catch {
+                return .refused(RefusalStrings.describe(error))
+            }
         }
         bind("cloudSSH", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)

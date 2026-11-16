@@ -28,6 +28,9 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import runs_on_values as check  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 WORKFLOWS = ROOT / ".github" / "workflows"
 ONE = "glaeda-runner-mini-ios-internal"
 
@@ -312,7 +315,7 @@ class Wiring(unittest.TestCase):
         # The org's glaeda group is where the minis register (pr_runner_pool.GitHub.runners()).
         self.assertEqual(mint["with"].get("permission-organization-self-hosted-runners"), "read")
         # The App key stays out of the check job, whose runs-on a variable can move.
-        self.assertNotIn("secrets.", yaml.safe_dump(jobs["check"]))
+        self.assertEqual(workflow_jobs.secret_names(jobs["check"]), set())
 
 if __name__ == "__main__":
     unittest.main()

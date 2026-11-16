@@ -98,6 +98,9 @@ struct HomeChiefControl {
 
 /// The stop-all toast's words. Keys live in Resources/Localizable.xcstrings.
 enum HomeStopAllStrings {
+    static var stopToolTip: String {
+        String(localized: "home.stop.toolTip", defaultValue: "Stop the Chief (Option-click: Stop All Agents)", bundle: .module)
+    }
     static var restart: String { String(localized: "home.stopAll.restart", defaultValue: "Restart", bundle: .module) }
     static var stoppedNone: String {
         String(localized: "home.stopAll.none", defaultValue: "No agents were running", bundle: .module)

@@ -201,7 +201,8 @@ impl Mux {
         if let BatchCloseTarget::Workspace(workspace) = &request.target {
             let index = state.workspace_index(*workspace).context("close target disappeared")?;
             Self::require_empty_workspace_for_close(&state, index, request.if_empty)?;
-            closed_workspace = Some((state.workspaces[index].public_id.clone(), index));
+            let closed = state.workspaces.get(index).context("close target disappeared")?;
+            closed_workspace = Some((closed.public_id.clone(), index));
         }
 
         let mut tab_groups = None;
@@ -305,15 +306,16 @@ impl Mux {
         // walk that meets a change outside its scope falls back to the full projection, as for a
         // tab close; the other closes of this path keep the full projection.
         let projection = match closed_workspace {
-            Some((workspace, index)) if registry.public_fold_seeded() => self
-                .resource_effect_projection_scoped_rows_locked(
-                    &registry,
-                    &mut plan.state,
-                    &[workspace],
-                    WorkspaceRows::From(index),
-                    json!({}),
-                )?,
-            _ => self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?,
+            Some((workspace, index)) => self.resource_effect_projection_scoped_rows_locked(
+                &registry,
+                &mut plan.state,
+                &[workspace],
+                WorkspaceRows::From(index),
+                json!({}),
+            )?,
+            None => {
+                self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?
+            }
         };
         let committed: TopologyCloseCommit = registry.commit_topology_close(
             request.mutation,
@@ -340,6 +342,7 @@ impl Mux {
                 replayed: true,
             });
         }
+        registry.mark_workspaces_whole(committed.resource.revision, &projection.restated);
         let mut effects =
             plan.install(&mut state, committed.resource.revision, committed.workspace_revision);
         drop(state);

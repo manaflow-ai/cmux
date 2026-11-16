@@ -88,4 +88,71 @@ struct AgentPaneCaptureTests {
         #expect(answer["mimeType"] as? String == "image/png")
         #expect(answer["data"] as? String == png.base64EncodedString())
     }
+
+    // Record Screen… (Leo, 2026-11-07, ask-b640c4d6fa): the system toolbar's recording is kept for
+    // the person and attached by its path; a still from the same toolbar is a screenshot.
+
+    @Test func aRecordingOpensTheSystemToolbarInItsVideoModeShowingClicks() {
+        let file = URL(fileURLWithPath: "/tmp/r.mov")
+        #expect(AgentPaneCapture.arguments(for: .video, to: file) == ["-i", "-U", "-J", "video", "-k", "-x", "/tmp/r.mov"])
+        // The stills keep their arguments (aFailedPickLeavesNoFile writes the screen pick's 5th).
+        #expect(AgentPaneCapture.arguments(for: .screen, to: file) == ["-i", "-x", "-t", "png", "/tmp/r.mov"])
+        #expect(AgentPaneCapture.arguments(for: .window, to: file) == ["-i", "-W", "-o", "-x", "-t", "png", "/tmp/r.mov"])
+    }
+
+    /// A fresh folder with `bytes` written where the toolbar would write them, and the folder kept recordings go to.
+    private static func recorded(_ bytes: Data) throws -> (file: URL, folder: URL, root: URL) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-record-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("cmux-recording.mov")
+        if !bytes.isEmpty { try bytes.write(to: file) }
+        return (file, root.appendingPathComponent("Movies/cmux"), root)
+    }
+
+    /// A QuickTime file's opening atom: no image ImageIO reads.
+    private static let movie = Data([0, 0, 0, 0x14, 0x66, 0x74, 0x79, 0x70, 0x71, 0x74, 0x20, 0x20,
+                                     0, 0, 0, 0, 0x71, 0x74, 0x20, 0x20, 0, 0, 0, 8, 0x77, 0x69, 0x64, 0x65])
+
+    @Test func aRecordingIsKeptForThePersonAndAnsweredByItsPath() throws {
+        let made = try Self.recorded(Self.movie)
+        defer { try? FileManager.default.removeItem(at: made.root) }
+        let answer = AgentPaneCapture.keepRecording(made.file, taken: Self.taken, in: made.folder)
+        let kept = made.folder.appendingPathComponent("Screen Recording 2026-10-11 14.32.05.mov")
+        #expect(answer["path"] as? String == kept.path)
+        #expect(answer["name"] as? String == "Screen Recording 2026-10-11 14.32.05.mov")
+        #expect(answer["mimeType"] as? String == "video/quicktime")
+        #expect(answer["data"] == nil)
+        #expect(FileManager.default.fileExists(atPath: kept.path))
+        #expect(!FileManager.default.fileExists(atPath: made.file.path), "the temporary recording was left behind")
+    }
+
+    @Test func aSecondRecordingInTheSameSecondKeepsTheFirst() throws {
+        let first = try Self.recorded(Self.movie)
+        defer { try? FileManager.default.removeItem(at: first.root) }
+        _ = AgentPaneCapture.keepRecording(first.file, taken: Self.taken, in: first.folder)
+        try Self.movie.write(to: first.file)
+        let answer = AgentPaneCapture.keepRecording(first.file, taken: Self.taken, in: first.folder)
+        #expect(answer["name"] as? String == "Screen Recording 2026-10-11 14.32.05 2.mov")
+        #expect(FileManager.default.fileExists(atPath: first.folder.appendingPathComponent("Screen Recording 2026-10-11 14.32.05.mov").path))
+    }
+
+    @Test func aStillTakenFromTheRecordingToolbarIsAScreenshot() throws {
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!
+        let made = try Self.recorded(png)
+        defer { try? FileManager.default.removeItem(at: made.root) }
+        let answer = AgentPaneCapture.keepRecording(made.file, taken: Self.taken, in: made.folder)
+        #expect(answer["name"] as? String == "Screenshot 2026-10-11 14.32.05.png")
+        #expect(answer["data"] as? String == png.base64EncodedString())
+        #expect(answer["path"] == nil)
+        #expect(!FileManager.default.fileExists(atPath: made.file.path), "the still's temporary file was left behind")
+        #expect(!FileManager.default.fileExists(atPath: made.folder.path), "a still made the recordings folder")
+    }
+
+    @Test func aRecordingClosedWithoutOneCancels() throws {
+        let made = try Self.recorded(Data())
+        defer { try? FileManager.default.removeItem(at: made.root) }
+        let answer = AgentPaneCapture.keepRecording(made.file, taken: Self.taken, in: made.folder)
+        #expect(answer["cancelled"] as? Bool == true)
+        #expect(answer["path"] == nil)
+    }
 }

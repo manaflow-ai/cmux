@@ -3,6 +3,7 @@ import { act, memo } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { useStableHandlers } from "./stableHandlers";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "IS_REACT_ACT_ENVIRONMENT"];
@@ -12,12 +13,8 @@ beforeAll(() => {
   dom = new JSDOM("<!doctype html><main id=root></main>");
   Object.assign(scope, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
 });
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 type Props = { label: string; onPick?: (value: number) => number; render?: () => string };

@@ -289,9 +289,19 @@ export function toolFiles(tools: readonly Tool[], { known = false }: { known?: b
   return list;
 }
 
+/// Each change's edit, kept while the change is the same object: a live turn's rows are read again on
+/// every record that lands in it (EditedFilesCard, App's last edited turn), and every edit of the turn
+/// was diffed again each time, O(the turn's edits × their lines) per tool call. A change is never
+/// edited in place (a record that changes a call builds a new one), and nothing writes to an edit.
+const editsOf = new WeakMap<AcpmuxFileDiff, DiffEdit>();
+
 function fileEdit(toolId: string, change: AcpmuxFileDiff): DiffEdit {
+  const kept = editsOf.get(change);
+  if (kept?.toolId === toolId) return kept;
   const numbered = change.oldText == null || change.line !== undefined;
-  return { toolId, hunks: diffHunks(diffLines(change.oldText, change.newText), change.line ?? 1), numbered };
+  const edit = { toolId, hunks: diffHunks(diffLines(change.oldText, change.newText), change.line ?? 1), numbered };
+  editsOf.set(change, edit);
+  return edit;
 }
 
 /// One edit as a unified patch Pierre can render, with the edit's hunks and line numbers.

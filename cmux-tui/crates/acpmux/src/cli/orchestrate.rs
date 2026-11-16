@@ -210,15 +210,21 @@ async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Resu
         let status = s.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
         let pending = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
         let failed = failed_turn(s);
-        let reply = match (opts.print || json_out, failed.is_some()) {
-            (false, _) => String::new(),
-            // A failed turn's own output, never the reply of the turn before it.
-            (true, true) => match s.pointer("/lastTurn/turnId").and_then(Value::as_str) {
-                Some(turn) => turn_reply(&client, &id, turn).await.ok().flatten(),
-                None => None,
+        // The last turn's own reply, empty when it said nothing, never the reply of the turn
+        // before it. Only when its start is out of reach (no `lastTurn`, an older daemon, a
+        // trimmed log) does an ended turn fall back to the chat's last reply; a failed one
+        // then prints none.
+        let own = match s.pointer("/lastTurn/turnId").and_then(Value::as_str) {
+            Some(turn) if opts.print || json_out => {
+                turn_reply(&client, &id, turn).await.ok().flatten()
             }
-            .unwrap_or_default(),
-            (true, false) => {
+            _ => None,
+        };
+        let reply = match (opts.print || json_out, own, failed.is_some()) {
+            (false, _, _) => String::new(),
+            (true, Some(own), _) => own,
+            (true, None, true) => String::new(),
+            (true, None, false) => {
                 last_replies(&client, &id, 1).await.unwrap_or_default().pop().unwrap_or_default()
             }
         };

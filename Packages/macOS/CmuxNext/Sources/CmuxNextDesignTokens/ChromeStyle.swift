@@ -86,7 +86,7 @@ public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
         case .flatSidebarLine: true
         case .bare: false
         case .panes: true
-        case .twoTone: false
+        case .twoTone: true
         case .floating: false
         case .blocks: false
         }

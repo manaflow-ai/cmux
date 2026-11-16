@@ -7,12 +7,13 @@
 // and the replies and the steer it never hides (cmux#37245), and no run line beside them; opened, its
 // run lines draw already open. A turn without a steer folds as before.
 // Gallery: agent-pane.one-fold-per-turn.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { layoutConversation, type AcpmuxActivity, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
 const row = (id: string, kind: string, second: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -61,6 +62,11 @@ const view = (rows: AcpmuxRow[], family: string | undefined, open = false) =>
 /// A row that folds something away at the top level: the turn's Worked for or a run's line.
 const folds = (rows: AcpmuxRow[]) => rows.filter((shown) => shown.kind === WORKED || shown.kind === "activity");
 
+// The one-fold arms (turnFoldSteered `nested-open`, the default before the in-order fold); the
+// in-order default is turn-fold-in-order.test.ts's.
+beforeEach(() => {
+  globalThis.cmuxExperiments = { "turn-fold-steered": "nested-open" };
+});
 afterEach(() => {
   globalThis.cmuxExperiments = undefined;
 });
@@ -122,12 +128,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 async function render(shown: AcpmuxRow) {

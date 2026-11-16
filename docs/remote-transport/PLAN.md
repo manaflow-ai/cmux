@@ -2,8 +2,8 @@
 
 Status: plan, 2026-10-18. Base: `origin/feat-cmux-next` at `1b8b4ef5039`.
 Author: a Claude Code planning agent for the Chief. Companion:
-[`REPORT.md`](../../REPORT.md) (inventory with commits and authors).
-Cloud workspaces, templates and billing are planned separately in
+[`REPORT.md`](https://github.com/manaflow-ai/cmux/blob/99dea7b3734/REPORT.md) (inventory with commits and authors; its last copy,
+from before the root notes were removed). Cloud workspaces, templates and billing are planned separately in
 `~/fun/cmux-worktrees/cloud-orchestration/PLAN.md`; this plan does not repeat
 them. A Cloud VM is one more kind of remote computer here.
 

@@ -64,6 +64,9 @@ impl Hub {
 
     /// At a start: watches every task of every chat folder whose end is still owed (asked for,
     /// not marked sent). One that ended while no daemon ran is sent at once.
+    ///
+    /// It reads only the records whose folder listing shows no `.notified` mark: on the owner's
+    /// Mac 5,000 of 6,043 records had one (2026-11-11).
     pub(super) fn bg_notify_resume(self: &Arc<Self>) {
         let root = crate::config::home().join("bg");
         for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
@@ -72,11 +75,49 @@ impl Hub {
                 continue;
             }
             let dir = entry.path();
-            for record in self.bg_records(&dir) {
-                if record.notify && !bg_run::notified_path(&dir, &record.id).exists() {
+            let Ok(generation) = bg_generation(&dir, false) else { continue };
+            let names: std::collections::HashSet<String> = std::fs::read_dir(&dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|e| e.file_name().into_string().ok())
+                .collect();
+            for name in &names {
+                let Some(id) = name.strip_suffix(".json") else { continue };
+                if names.contains(&format!("{id}.notified")) {
+                    continue;
+                }
+                if let Some(record) = bg_run::read_record(&dir, id)
+                    && record.generation == generation
+                    && record.notify
+                    && !bg_run::notified_path(&dir, &record.id).exists()
+                {
                     self.bg_watch(&dir, &record);
                 }
             }
+        }
+    }
+
+    /// [`Self::bg_notify_resume`] on a thread of its own, after the store is ready: it reads a
+    /// file per task of every chat, thousands at a start, cold after an update (8.9 s on a
+    /// fleet Mac's disk), and nothing that answers a request or adopts an agent waits on it.
+    /// A task's end it finds owed reaches its chat a little later, as one that ends now does.
+    pub(super) fn bg_notify_resume_in_background(self: &Arc<Self>) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return self.bg_notify_resume();
+        };
+        // Weak: the pass never keeps a dropped hub alive.
+        let hub = Arc::downgrade(self);
+        let spawned =
+            std::thread::Builder::new().name("acpmux-bg-resume".into()).spawn(move || {
+                // Its watches spawn onto the daemon's runtime (`bg_watch`).
+                let _runtime = runtime.enter();
+                if let Some(hub) = hub.upgrade() {
+                    hub.bg_notify_resume();
+                }
+            });
+        if let Err(e) = spawned {
+            tracing::warn!("the owed ends of background tasks cannot be watched: {e}");
         }
     }
 
@@ -120,20 +161,40 @@ impl Hub {
     ) {
         let id = record.id.as_str();
         let notice = end_notice(dir, record);
-        let mut body = notice_body(dir, record);
+        let (mut body, wrote) = notice_body(dir, record);
         if let Some(label) = super::lane_report_subagents::label(ended) {
             body.push_str(&format!(
                 "\nThis task end is for your {label}, which started the task and has ended, so it \
 comes to you."
             ));
         }
+        let display = orphan_display(ended.is_some(), wrote, &notice);
+        let mark = bg_run::notified_path(dir, id);
+        // A task end with nothing to say to anyone (its subagent ended, it went well, it wrote
+        // nothing) is not sent: it counts as sent, so no restart owes it (Leo, 2026-11-12, on a
+        // chat of such ends: "What the h*** is this?").
+        if display == Some("none") {
+            if let Err(e) = crate::home_fs::write(&mark, b"") {
+                tracing::warn!(mark = %mark.display(), "a dropped task end was not marked: {e}");
+            }
+            return;
+        }
         let text = crate::prompt_provenance::notice_text(&notice, &body);
         let mut provenance = crate::prompt_provenance::notice(&notice, &session.id);
         provenance.set("bgTaskId", json!(id));
+        // What the chat's chip calls it: its own description, else "Background task".
+        if let Some(description) =
+            record.description.as_deref().map(str::trim).filter(|d| !d.is_empty())
+        {
+            provenance.set("bgTaskDescription", json!(description));
+        }
         if let Some(sub) = ended {
             provenance.set(super::lane_report_subagents::FOR_SUBAGENT, sub.clone());
         }
-        let mark = bg_run::notified_path(dir, id);
+        // How the chat draws it: one quiet line; the agent reads the whole text.
+        if let Some(display) = display {
+            provenance.set(DISPLAY, json!(display));
+        }
         let opts = PromptOptions {
             prompt_id: Some(format!("{PROMPT_PREFIX}{id}")),
             // A send the chat took before a restart is answered from its log, never run again.
@@ -143,7 +204,7 @@ comes to you."
             class: Some(crate::prompt_class::PromptClass::Result),
             // Taken (or a duplicate of one taken): never sent again.
             on_accepted: Some(Box::new(move |_| {
-                if let Err(e) = std::fs::write(&mark, b"") {
+                if let Err(e) = crate::home_fs::write(&mark, b"") {
                     tracing::warn!(mark = %mark.display(), "a sent task end was not marked: {e}");
                 }
             })),
@@ -178,7 +239,7 @@ impl Hub {
         let notice = end_notice(dir, record);
         let text = format!(
             "[acpmux] A background task you started ended:\n{}",
-            crate::prompt_provenance::notice_text(&notice, &notice_body(dir, record))
+            crate::prompt_provenance::notice_text(&notice, &notice_body(dir, record).0)
         );
         // Only the task's id: the sweep finds its folder from the chat (`bg_end_swept`).
         let left = json!({"text": text, "bgTask": record.id, "forSubagent": sub});
@@ -186,7 +247,7 @@ impl Hub {
         if !self.subagent_notice_leave(session, sub, &prompt_id, &left) {
             return false;
         }
-        if let Err(e) = std::fs::write(bg_run::notified_path(dir, &record.id), b"") {
+        if let Err(e) = crate::home_fs::write(bg_run::notified_path(dir, &record.id), b"") {
             tracing::warn!(task = %record.id, "a task end left for a subagent was not marked: {e}");
         }
         true
@@ -215,7 +276,7 @@ impl Hub {
         else {
             return;
         };
-        let _ = std::fs::remove_file(bg_run::notified_path(&dir, id));
+        let _ = crate::home_fs::remove_file(bg_run::notified_path(&dir, id));
         if self.stopping.load(Ordering::SeqCst)
             || session.closing.load(Ordering::SeqCst)
             || session.purged.load(Ordering::SeqCst)
@@ -235,8 +296,26 @@ fn end_notice(dir: &Path, record: &Record) -> Value {
     json!({"sender": SENDER, "severity": severity, "title": summary})
 }
 
-/// The message's body: the task's id and command, and its last [`NOTICE_LINES`] lines.
-fn notice_body(dir: &Path, record: &Record) -> String {
+/// The provenance field that says how the chat draws a task end (`"none"` or `"line"`).
+const DISPLAY: &str = "display";
+
+/// What happens to a task end whose subagent ended before it (`orphan`), so it would come to the
+/// lead: one that went well and wrote nothing tells no one anything and is not sent (`"none"`);
+/// any other is sent and draws as one quiet line, its output behind it (`"line"`). A failure
+/// with no output is still sent: its exit is the news. A task end for the chat's own agent keeps
+/// its usual row (`None`) (Leo, 2026-11-12, on such an end drawn as a card: "hm? what happened
+/// here").
+fn orphan_display(orphan: bool, wrote: bool, notice: &Value) -> Option<&'static str> {
+    if !orphan {
+        return None;
+    }
+    let ok = notice.get("severity").and_then(Value::as_str) == Some("info");
+    Some(if ok && !wrote { "none" } else { "line" })
+}
+
+/// The message's body: the task's id and command, and its last [`NOTICE_LINES`] lines; and
+/// whether the task wrote any output.
+fn notice_body(dir: &Path, record: &Record) -> (String, bool) {
     let read = bg_run::read_output(dir, &record.id, None, NOTICE_TAIL).unwrap_or_default();
     let text = String::from_utf8_lossy(&read.data);
     let mut lines: Vec<&str> = text.lines().collect();
@@ -254,14 +333,16 @@ fn notice_body(dir: &Path, record: &Record) -> String {
         body.push_str(&tail.join("\n"));
         body.push_str("\n(bg_output reads all of it.)");
     }
-    body
+    (body, !tail.is_empty())
 }
 
 /// Blocks until nothing holds the lock at `path` (a missing file holds nothing), then lets go.
 #[cfg(unix)]
 fn wait_unlocked(path: &Path) {
     use std::os::fd::AsRawFd;
-    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(path) else { return };
+    let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(path) else {
+        return;
+    };
     loop {
         // SAFETY: flock on a descriptor this function owns; it blocks until the runner let go.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
@@ -289,11 +370,26 @@ mod tests {
         let out: String = (0..30).map(|i| format!("line-{i}\n")).collect();
         spool.write(out.as_bytes()).unwrap();
         let record = Record { id: "t".into(), command: "make  test\n".into(), ..Record::default() };
-        let body = notice_body(dir.path(), &record);
+        let (body, wrote) = notice_body(dir.path(), &record);
+        assert!(wrote);
         assert!(body.starts_with("Task t: make test\nLast 20 lines"), "{body}");
         assert!(body.contains("line-10\n") && body.contains("line-29\n"), "{body}");
         assert!(!body.contains("line-9\n"), "{body}");
         let quiet = Record { id: "none".into(), command: "true".into(), ..Record::default() };
-        assert!(notice_body(dir.path(), &quiet).ends_with("It wrote no output."));
+        let (body, wrote) = notice_body(dir.path(), &quiet);
+        assert!(!wrote);
+        assert!(body.ends_with("It wrote no output."));
+    }
+
+    /// A task end whose subagent ended draws nothing when it went well with no output, one quiet
+    /// line otherwise; the chat's own task end keeps its row.
+    #[test]
+    fn an_orphan_task_end_is_quiet() {
+        let ok = json!({"severity": "info"});
+        let failed = json!({"severity": "warn"});
+        assert_eq!(orphan_display(true, false, &ok), Some("none"));
+        assert_eq!(orphan_display(true, true, &ok), Some("line"));
+        assert_eq!(orphan_display(true, false, &failed), Some("line"));
+        assert_eq!(orphan_display(false, false, &ok), None);
     }
 }

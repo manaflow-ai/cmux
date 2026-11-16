@@ -72,6 +72,23 @@ public struct AgentTabMap<Value>: Sequence {
     /// The keys of tab id `key` on every machine that has one.
     public func keys(ofTab key: String) -> [AgentTabKey] { machines[key]?.map { AgentTabKey(machine: $0, key: key) } ?? [] }
 
+    /// Whether a key here can be what an `aliases` resolution of `key` lands on: its own key, the alias `key` has on
+    /// that key's machine, a key whose alias is `key`, or the machine-less key `key`'s only alias names. O(count + aliases),
+    /// and nothing else is read: a tab no entry answers to (a terminal, a browser tab) is answered without the
+    /// walk of every listed chat that `AgentTabStore.tabKey` does (3-4.6 s main-thread hangs in a workspace
+    /// hibernation pass, which asks this for every tab of every workspace; hang files 2026-11-09).
+    public func hasKey(answering key: String, aliases: AgentTabMap<String>) -> Bool {
+        var resolved: String?  // `key` through its only alias, read once and only for a machine-less entry
+        return storage.keys.contains { made in
+            if made.key == key || aliases[AgentTabKey(machine: made.machine, key: key)] == made.key
+                || aliases[made] == key { return true }
+            guard made.machine.isEmpty else { return false }
+            let target = resolved ?? (aliases.onlyKey(ofTab: key).flatMap { aliases[$0] } ?? key)
+            resolved = target
+            return made.key == target
+        }
+    }
+
     /// The values by tab id of the ids exactly one machine has (an id two machines share names neither).
     public var unambiguousIDs: [String: Value] {
         let shared = Self.duplicateIDs(Array(storage.keys))

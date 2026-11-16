@@ -108,16 +108,45 @@ fn rows(registry: &WorkspaceRegistry) -> Vec<Row> {
         .unwrap()
 }
 
-/// One commit on a registry of `count` workspaces (see [`registry_with`] for `stored_change`):
-/// `desired` are the indexes of the workspaces that stay, in the new order, and `renamed` gets a
-/// new name in the same commit. `moved` is the path that the commit must take: `Some(n)` when it
-/// is a plain removal with `n` rows after the removed one (the two-statement move), `None` when
-/// each changed row is written by itself.
+/// What a commit changes on one remaining workspace (its index), besides the removal.
+#[derive(Debug, Clone, Copy)]
+enum Change {
+    None,
+    /// A new name, with the next name revision.
+    Renamed(usize),
+    /// Another group, and nothing else.
+    Regrouped(usize),
+    /// Another numeric id at the same key, and nothing else.
+    Renumbered(usize),
+}
+
+/// The numeric id of [`Change::Renumbered`]: no workspace of a fixture has it.
+const OTHER_NUMERIC_ID: u64 = 100;
+
+/// [`check_rows_after_change`] with a rename, or with no other change.
 fn check_rows_after(
     count: usize,
     stored_change: &str,
     desired: &[usize],
     renamed: Option<usize>,
+    moved: Option<usize>,
+    what: &str,
+) {
+    let change = renamed.map_or(Change::None, Change::Renamed);
+    check_rows_after_change(count, stored_change, desired, change, moved, what);
+}
+
+/// One commit on a registry of `count` workspaces (see [`registry_with`] for `stored_change`):
+/// `desired` are the indexes of the workspaces that stay, in the new order (an index from `count`
+/// up is a workspace that the commit adds), and `change` is what the same commit changes on one
+/// of them. `moved` is the path that the commit must take: `Some(n)` when it is a plain removal
+/// with `n` rows after the removed one (the two-statement move), `None` when each changed row is
+/// written by itself.
+fn check_rows_after_change(
+    count: usize,
+    stored_change: &str,
+    desired: &[usize],
+    change: Change,
     moved: Option<usize>,
     what: &str,
 ) {
@@ -137,9 +166,14 @@ fn check_rows_after(
         .iter()
         .map(|index| {
             let mut workspace = workspace(*index);
-            if renamed == Some(*index) {
-                workspace.name = "renamed".into();
-                workspace.name_revision = 1;
+            match change {
+                Change::Renamed(at) if at == *index => {
+                    workspace.name = "renamed".into();
+                    workspace.name_revision = 1;
+                }
+                Change::Regrouped(at) if at == *index => workspace.group_key = "other".into(),
+                Change::Renumbered(at) if at == *index => workspace.id = OTHER_NUMERIC_ID,
+                _ => {}
             }
             workspace
         })
@@ -190,7 +224,26 @@ fn check_rows_after(
     assert_eq!(after, rows(&each_row), "{what}: the commit's rows, then `write_changed_rows`'s");
     assert_eq!(written, written_each_row, "{what}: the keys whose row the commit wrote");
 
-    let expected = before
+    // A workspace that the commit adds: a new live row at its place, made by this commit.
+    let added = desired.iter().enumerate().filter(|(_, index)| **index >= count).map(
+        |(position, index)| {
+            let workspace = workspace(*index);
+            Row {
+                key: workspace.key,
+                numeric_id: i64::try_from(workspace.id).unwrap(),
+                name: workspace.name,
+                group_key: workspace.group_key,
+                position: i64::try_from(position).ok(),
+                tombstoned: 0,
+                created_revision: revision,
+                updated_revision: revision,
+                deleted_revision: None,
+                name_source: "user".into(),
+                name_revision: 0,
+            }
+        },
+    );
+    let mut expected = before
         .iter()
         .enumerate()
         .map(|(index, row)| match desired.iter().position(|live| *live == index) {
@@ -203,10 +256,19 @@ fn check_rows_after(
             },
             Some(position) => {
                 let position = i64::try_from(position).ok();
-                let is_renamed = renamed == Some(index);
-                let changed = position != row.position || is_renamed;
+                let is_renamed = matches!(change, Change::Renamed(at) if at == index);
+                let is_regrouped = matches!(change, Change::Regrouped(at) if at == index);
+                let is_renumbered = matches!(change, Change::Renumbered(at) if at == index);
+                let changed =
+                    position != row.position || is_renamed || is_regrouped || is_renumbered;
                 Row {
+                    numeric_id: if is_renumbered {
+                        i64::try_from(OTHER_NUMERIC_ID).unwrap()
+                    } else {
+                        row.numeric_id
+                    },
                     name: if is_renamed { "renamed".into() } else { row.name.clone() },
+                    group_key: if is_regrouped { "other".into() } else { row.group_key.clone() },
                     name_revision: i64::from(is_renamed),
                     position,
                     updated_revision: if changed { revision } else { row.updated_revision },
@@ -214,7 +276,10 @@ fn check_rows_after(
                 }
             }
         })
+        .chain(added)
         .collect::<Vec<_>>();
+    // `rows` reads in the order of the numeric id, which `Change::Renumbered` changes.
+    expected.sort_by_key(|row| row.numeric_id);
     assert_eq!(after, expected, "{what}: the commit's rows, then the rule's");
 }
 
@@ -258,4 +323,72 @@ fn a_removal_from_stored_positions_with_a_gap_or_below_zero_writes_each_row() {
     check_rows_after(7, last_two, &[0, 1, 2, 3, 4, 5], None, None, "the last one, after a gap");
     check_rows_after(7, last_one, &[0, 1, 2, 3, 4, 5], None, Some(0), "only the last one moved");
     check_rows_after(7, below_zero, &[0, 1, 2, 4, 5, 6], None, None, "every position below zero");
+}
+
+/// A stored live row with no position (as above: no commit of today stores one). The move needs
+/// the stored position of the removed row and of each remaining one, so it is not taken when the
+/// removed row has none, or when a row after it has none.
+#[test]
+fn a_removal_from_a_stored_row_with_no_position_writes_each_row() {
+    let removed = "UPDATE workspaces SET position = NULL WHERE position = 3";
+    let later = "UPDATE workspaces SET position = NULL WHERE position = 5";
+    check_rows_after(7, removed, &[0, 1, 2, 4, 5, 6], None, None, "the removed row, no position");
+    check_rows_after(7, later, &[0, 1, 2, 4, 5, 6], None, None, "a later row, no position");
+}
+
+/// As many stored rows as the desired workspaces and one more, but two rows removed and one
+/// added (index 7): the count is that of a plain removal, the rows are not.
+#[test]
+fn two_removals_and_one_added_workspace_write_each_changed_row() {
+    check_rows_after(7, "", &[0, 1, 2, 4, 5, 7], None, None, "two removed, one added");
+    check_rows_after(7, "", &[7, 0, 1, 2, 4, 5], None, None, "two removed, one added first");
+}
+
+/// One column of one remaining workspace changed, with no new name: the group alone, the numeric
+/// id alone (no commit of today gives a key another numeric id; the move must not hide such a
+/// write). On a workspace after the removed one and on a workspace before it, which keeps its
+/// position.
+#[test]
+fn a_removal_with_another_group_or_numeric_id_writes_each_changed_row() {
+    let desired = [0, 1, 2, 4, 5, 6];
+    for at in [5, 1] {
+        let (group, id) = (Change::Regrouped(at), Change::Renumbered(at));
+        check_rows_after_change(7, "", &desired, group, None, &format!("{at} in another group"));
+        check_rows_after_change(7, "", &desired, id, None, &format!("{at}, another numeric id"));
+    }
+}
+
+/// The name's source alone (the automatic namer takes a user's name, at the stored name
+/// revision): not a plain removal, so the row is written by itself, and that write's fence of the
+/// stored name refuses the commit (`workspace_name_store::fence_stored_name`). The move has no
+/// fence: it is safe only because `one_removed_row` gives no row when a name's provenance differs.
+#[test]
+fn a_removal_with_another_name_source_is_not_a_plain_removal_and_is_refused() {
+    let registry = registry_with(7, "");
+    let mut remaining = [0, 1, 2, 4, 5, 6].into_iter().map(workspace).collect::<Vec<_>>();
+    remaining[4].name_source = NameSource::Auto;
+    let current = registry.snapshot().unwrap().revision;
+    let connection = registry.connection.get();
+    let transaction = connection.unchecked_transaction().unwrap();
+    let stored = live_rows(&transaction).unwrap();
+    let found = one_removed_row(&stored, &desired_rows(&remaining), &remaining).unwrap();
+    assert!(found.is_none(), "another name source: the commit finds a plain removal");
+    let Err(refused) = commit_workspace_rows_in_transaction(
+        &transaction,
+        &WorkspaceMutation::daemon("the-commit-under-test", "test").unwrap(),
+        "fingerprint",
+        Some(current),
+        "workspace-closed",
+        "key-3",
+        &remaining,
+        "{}",
+    ) else {
+        panic!("another name source at the stored name revision: the commit is not refused");
+    };
+    let conflict = refused.downcast_ref::<crate::resource::ResourceError>();
+    assert_eq!(
+        conflict.map(|error| error.code.as_str()),
+        Some("revision.conflict"),
+        "the refusal: {refused:#}"
+    );
 }

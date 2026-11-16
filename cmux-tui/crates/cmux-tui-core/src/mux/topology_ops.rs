@@ -149,6 +149,28 @@ impl Mux {
         self.ordinary_created_surface(&commit)
     }
 
+    /// A browser tab at `url` in `workspace`'s active pane, or in a new first
+    /// pane of an empty workspace (its first tab), in one commit. The target
+    /// is the workspace named, never the active one.
+    pub(crate) fn new_browser_tab_in_workspace_with_fields_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        url: String,
+        workspace: WorkspaceId,
+        extra_fields: Map<String, Value>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let selectors = self
+            .ordinary_workspace_selectors(workspace)
+            .with_context(|| format!("unknown workspace {workspace}"))?;
+        let mut fields = Map::from_iter([("url".into(), Value::String(url))]);
+        fields.extend(extra_fields);
+        let operation = ResourceOperation::TabCreateBrowser;
+        let commit =
+            self.commit_ordinary_topology_operation_by(actor, operation, selectors, fields)?;
+        self.emit_resource_topology_legacy_events(operation, &commit);
+        self.ordinary_created_surface(&commit)
+    }
+
     /// `new_pane_right` with a directory, extra environment, and an optional
     /// caller-chosen terminal id (`terminal-placement-env-v1`).
     pub fn new_pane_right_with_options_as(

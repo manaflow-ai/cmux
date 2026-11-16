@@ -85,7 +85,7 @@ async fn the_delegators_next_send_runs_as_its_own_turn_and_answers_with_it() {
     let done = tokio::time::timeout(WAIT, next).await.unwrap().unwrap().unwrap();
     assert_eq!(done["stopReason"], "end_turn", "{done}");
     assert_eq!(turns(&hub, &s), [json!("p-1"), json!("p-2")], "its own turn, its own prompt");
-    assert!(s.inbox.lock().unwrap().items.is_empty(), "nothing waits in the inbox");
+    assert!(s.inbox().items.is_empty(), "nothing waits in the inbox");
 }
 
 /// The eval's A5: an agent's `send --wait --timeout 300` to an idle chat it did not start hung all
@@ -102,7 +102,7 @@ async fn a_waiting_send_that_cannot_wake_an_idle_chat_is_refused_at_once() {
         .expect_err("a held message is no answer");
     assert_eq!(refused.data.as_ref().unwrap()["reason"], "send.not_woken", "{refused:?}");
     assert!(refused.message.contains("--class question"), "names the fix: {}", refused.message);
-    assert!(s.inbox.lock().unwrap().items.is_empty(), "nothing was delivered");
+    assert!(s.inbox().items.is_empty(), "nothing was delivered");
     assert!(!hub.work_coming(&s.id), "no turn comes for it");
 
     // The same message that does not wait (`send --no-wait`) is held, and says so.
@@ -143,7 +143,7 @@ async fn a_waiting_fyi_is_refused_while_a_continuation_may_fire() {
         .unwrap()
         .expect_err("a held FYI is no answer");
     assert_eq!(refused.data.as_ref().unwrap()["reason"], "send.not_woken", "{refused:?}");
-    assert!(s.inbox.lock().unwrap().items.is_empty(), "nothing was delivered");
+    assert!(s.inbox().items.is_empty(), "nothing was delivered");
 
     // A result from someone else is held for the continuation, never refused, as before.
     let (held, accepted) = send(&hub, &s, "s-other", "p-r", "done", PromptClass::Result, true);
@@ -152,4 +152,51 @@ async fn a_waiting_fyi_is_refused_while_a_continuation_may_fire() {
     assert!(accepted.get(crate::cli::output::HELD_IN_INBOX).is_none(), "{accepted}");
     held.abort();
     hub.set_ending_for_test(&s, None);
+}
+
+/// A prompt queued behind a turn starts when that turn ends: between the end and its start (the
+/// turn taken, the chat not running) a turn still comes, so a `wait` for the end does not answer
+/// with the turn before it (the `send --no-wait` then `wait` of a queued prompt printed the
+/// previous turn's reply). A held prompt (a failed turn holds the queue) brings no turn by itself.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_prompt_queued_behind_the_ending_turn_is_work_coming() {
+    let (hub, s) = chat().await;
+    let run = |prompt_id: &str, text: &str| {
+        let opts =
+            PromptOptions { prompt_id: Some(prompt_id.to_owned()), ..PromptOptions::default() };
+        let blocks = vec![json!({"type": "text", "text": text})];
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", false, opts).await })
+    };
+    let first = run("p-a", "until-cancel");
+    let running = async {
+        while s.turn().is_none() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    tokio::time::timeout(WAIT, running).await.expect("the first turn started");
+    let second = run("p-b", "hello");
+    // In the queue, as its `queued` acceptance says: the `queued` count goes up first (under
+    // `admit`), and the prompt joins the queue only after it, so the count alone does not mean
+    // there is a prompt in the queue yet.
+    let queued = async {
+        while s.queue().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    tokio::time::timeout(WAIT, queued).await.expect("the second prompt queued");
+    // Hold the first turn's end once it has taken the turn.
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.finish_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let turn_id = s.turn().unwrap().turn_id;
+    hub.cancel_turn(&s, &turn_id).await;
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    assert!(s.turn().is_none(), "the end took the turn");
+    assert!(hub.work_coming(&s.id), "the queued prompt's turn is still coming");
+    let _ = release.send(());
+    let _ = tokio::time::timeout(WAIT, first).await.unwrap().unwrap();
+    let done = tokio::time::timeout(WAIT, second).await.unwrap().unwrap().unwrap();
+    assert_eq!(done["stopReason"], "end_turn", "{done}");
+    assert!(!hub.work_coming(&s.id), "nothing more comes once it ran");
 }

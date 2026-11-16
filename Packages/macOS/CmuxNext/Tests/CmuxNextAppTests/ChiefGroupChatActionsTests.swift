@@ -107,4 +107,32 @@ struct ChiefGroupChatActionsTests {
     func theRepliesArgumentParses(_ text: String, _ policy: ChiefReplyPolicy?) {
         #expect(ChiefReplyPolicy(argument: text) == policy)
     }
+
+    // MARK: New Message's Chiefs (listed under To: before anything is typed)
+
+    @Test func newMessageOffersEachChiefNotChosenYet() {
+        let ada = HomeContact(id: ParticipantID("ada"), name: "Ada", source: .team)
+        let chief = HomeContact(id: self.chief, name: "Chief", source: .agent)
+        let unii = HomeContact(id: ParticipantID("agent_unii"), name: "Unii", source: .agent)
+        var draft = HomeNewMessageDraft()
+        #expect(draft.chiefShortcuts(contacts: [ada, chief, unii]) == [chief, unii])
+        draft.add(.contact(chief))
+        #expect(draft.chiefShortcuts(contacts: [ada, chief, unii]) == [unii])
+        draft.add(.contact(unii))
+        #expect(draft.chiefShortcuts(contacts: [ada, chief, unii]).isEmpty)
+    }
+
+    @Test func newMessageListsAtMostSixChiefs() {
+        let many = (0..<9).map { HomeContact(id: ParticipantID("agent_\($0)"), name: "Chief \($0)", source: .agent) }
+        #expect(HomeNewMessageDraft().chiefShortcuts(contacts: many).count == 6)
+    }
+
+    /// Picking two Chiefs in New Message makes a group (not a DM), as the first send does.
+    @Test func twoChiefsMakeAGroup() {
+        var draft = HomeNewMessageDraft()
+        draft.add(.contact(HomeContact(id: chief, name: "Chief", source: .agent)))
+        #expect(!draft.isGroup)
+        draft.add(.contact(HomeContact(id: release, name: "Release Chief", source: .agent)))
+        #expect(draft.isGroup)
+    }
 }

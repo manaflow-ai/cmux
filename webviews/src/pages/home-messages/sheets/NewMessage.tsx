@@ -7,7 +7,6 @@
 // The conversation and the message box are the transcript's (render props); the draft is the
 // page's, so it stays while the person looks at another conversation.
 import { useMemo, useState, type ReactNode } from "react";
-import type { PendingSend } from "../../home-channels/store";
 import type { Strings } from "../../shared/i18n";
 import type { ComposeActions } from "./actions";
 import { composeCloses, composeMessage } from "./model";
@@ -36,9 +35,8 @@ export interface NewMessageProps {
   /** The active team's name (an "Invite … to <team>" row under a typed address); null: none. */
   inviteTeam?: string | null;
   look?(recipient: HomeRecipient): RecipientLook;
-  /** The first send made this conversation: the page shows it (with the send, not sent, when it
-   * got no answer: `pending`). */
-  onSent(conversation: string, pending?: readonly PendingSend[]): void;
+  /** The first send made this conversation: the page shows it. */
+  onSent(conversation: string): void;
   /** Escape with nothing chosen or typed: the page may end the draft (if its message box is empty). */
   onEscape(): void;
   /** Return or Tab with nothing typed in To:: the message box takes the keyboard. */
@@ -86,7 +84,7 @@ export function NewMessage({
     const outcome = await actions.start(draftRecipients(draft), text);
     const close = composeCloses(outcome);
     if (close.closes) {
-      if (close.conversation) onSent(close.conversation, close.pending);
+      if (close.conversation) onSent(close.conversation);
       return true;
     }
     setNotice(composeMessage(outcome, strings) ?? strings.t("home.compose.needsRecipient"));

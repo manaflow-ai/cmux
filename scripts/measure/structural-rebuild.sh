@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fleet entry for the structural rebuild timing (fast-swift-rebuild): how long a Swift change that cannot be
 # injected (a new stored property in CmuxNextApp) takes to reach a relaunched tagged DEV app. It builds the
-# tagged app at this checkout once, then for each edit adds one stored property to HomeConversationPage, rebuilds with
+# tagged app at this checkout once, then for each edit adds one stored property to HomeHostView, rebuilds with
 # scripts/reload.sh in place (the warm DerivedData the step keeps in .build) and relaunches the app until its
 # socket answers. Each edit records the reload's wall time, xcodebuild's timing summary, the Swift files the
 # driver compiled, and the relaunch to usable time. The edits are taken back when the run ends.

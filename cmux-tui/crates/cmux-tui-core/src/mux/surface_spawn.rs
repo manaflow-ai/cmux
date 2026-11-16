@@ -155,26 +155,41 @@ impl Mux {
                     Arc::downgrade(self),
                 ),
                 None => self.spawn_identity(tab_id, incognito).and_then(|identity| {
-                    Surface::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
-                        id,
-                        opts,
-                        Arc::downgrade(self),
-                        crate::surface::HostLaunch {
-                            terminal_id: Some(terminal_id),
-                            // Reopen Closed of an archived terminal (ARCHIVE-1).
-                            seed: &self
-                                .terminal_respawns
-                                .take_seed(&terminal_hex)
-                                .unwrap_or_default(),
-                            // Its first record names the workspace, so the
-                            // recovery mirror below needs no second synced write.
-                            workspace_key,
-                            standby: None,
-                        },
-                        Some(identity),
-                        crate::surface::PtyLifetime::SessionOwned,
-                        cell_pixels,
-                    )
+                    // Reopen Closed of an archived terminal (ARCHIVE-1).
+                    let seed = self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default();
+                    let launch = |standby| {
+                        Surface::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
+                            id,
+                            opts.clone(),
+                            Arc::downgrade(self),
+                            crate::surface::HostLaunch {
+                                terminal_id: Some(terminal_id),
+                                seed: &seed,
+                                // Its first record names the workspace, so the
+                                // recovery mirror below needs no second synced write.
+                                workspace_key,
+                                standby,
+                            },
+                            Some(identity.clone()),
+                            crate::surface::PtyLifetime::SessionOwned,
+                            cell_pixels,
+                        )
+                    };
+                    // A create that could not launch ahead (a split or pane
+                    // without a size, a new screen or workspace) still takes
+                    // the spare host process, as a new tab does (R81): it
+                    // skips starting a process in the creation. A spare that
+                    // died after its liveness check fails before bootstrap:
+                    // launch on a fresh process, so the create never fails
+                    // or slows down because of the spare.
+                    let standby = self.take_spare_terminal_host();
+                    let used_spare = standby.is_some();
+                    let mut spawned = launch(standby);
+                    if spawned.is_err() && used_spare {
+                        spawned = launch(None);
+                    }
+                    self.refill_spare_terminal_host();
+                    spawned
                 }),
             };
             let surface = match spawned {

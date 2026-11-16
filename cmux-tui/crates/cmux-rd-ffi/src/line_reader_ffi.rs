@@ -25,6 +25,7 @@ pub const CMUX_RD_LINE_PATH_RTT: u32 = 1 << 8;
 pub const CMUX_RD_LINE_DISPLAYS: u32 = 1 << 9;
 pub const CMUX_RD_LINE_CURRENT: u32 = 1 << 10;
 pub const CMUX_RD_LINE_ERROR: u32 = 1 << 11;
+pub const CMUX_RD_LINE_FALLBACK_WEBRTC: u32 = 1 << 12;
 
 /// One typed line (`CmuxRdLine`). A text field is UTF-8 bytes, not
 /// NUL-terminated; it and `displays` point into the reader and stay valid
@@ -130,6 +131,17 @@ fn view(line: &AppLine, displays: &[u32]) -> CmuxRdLine {
     if let Some(current) = line.current {
         out.fields |= CMUX_RD_LINE_CURRENT;
         out.current = u64::try_from(current).unwrap_or(u64::MAX);
+    }
+    // An ended/failed/already-connected line never permits a carrier retry,
+    // even if a producer mistakenly combines it with a fallback decision.
+    if !line.connected
+        && line.ended.is_none()
+        && line.error.is_none()
+        && line.fallback.as_ref().is_some_and(|fallback| {
+            matches!(fallback.retry, cmux_rd_proto::app_line::RetryCarrier::WebRtc)
+        })
+    {
+        out.fields |= CMUX_RD_LINE_FALLBACK_WEBRTC;
     }
     out
 }

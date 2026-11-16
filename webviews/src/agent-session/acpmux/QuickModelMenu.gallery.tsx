@@ -23,6 +23,7 @@ type Props = {
   widthLook?: QuickMenu["widthLook"];
   /** Leo's rail: Claude Code with claude-sr2 and a work login, Codex with its app server and an SR route. */
   routes?: boolean;
+  noFamilies?: boolean;
 };
 
 const models = (family: string, names: string[]) =>
@@ -34,6 +35,11 @@ const models = (family: string, names: string[]) =>
     // variants leave inlineEffort false and retain their standalone Effort row.
     efforts: ["low", "medium", "high"],
   }));
+
+const plainModels = models(
+  "plain",
+  Array.from({ length: 28 }, (_, index) => `Plain model ${index + 1}`),
+).map(({ family: _family, ...model }) => model);
 
 const families: QuickFamily[] = [
   {
@@ -136,6 +142,7 @@ export default componentEntry<Props>({
           routeLayout,
           widthLook,
           routes,
+          noFamilies,
         }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
@@ -176,7 +183,7 @@ export default componentEntry<Props>({
                   trigger={trigger}
                   chip={{ "data-menu": "model", label: "Model", title: "Model" }}
                   menu={{
-                    models: [],
+                    models: noFamilies ? plainModels : [],
                     current: "claude/Opus 5.5",
                     onModel: () => undefined,
                     ...extras,
@@ -213,23 +220,29 @@ export default componentEntry<Props>({
                       },
                     },
                     fast: { checked: isFast, onChange: setFast },
-                    families: {
-                      list,
-                      current: tab ?? "claude",
-                      onPick: (model) =>
-                        setSelection(JSON.stringify({ family: model.family, model: model.id, effort: model.effort })),
-                      onLaunch: (harness) => setSelection(harness),
-                      onAddHarness: () => undefined,
-                      stars: {
-                        has: (model) => stars.has(model.id),
-                        toggle: (model) =>
-                          setStars((current) => {
-                            const next = new Set(current);
-                            if (!next.delete(model.id)) next.add(model.id);
-                            return next;
-                          }),
-                      },
-                    },
+                    ...(noFamilies
+                      ? {}
+                      : {
+                          families: {
+                            list,
+                            current: tab ?? "claude",
+                            onPick: (model) =>
+                              setSelection(
+                                JSON.stringify({ family: model.family, model: model.id, effort: model.effort }),
+                              ),
+                            onLaunch: (harness) => setSelection(harness),
+                            onAddHarness: () => undefined,
+                            stars: {
+                              has: (model) => stars.has(model.id),
+                              toggle: (model) =>
+                                setStars((current) => {
+                                  const next = new Set(current);
+                                  if (!next.delete(model.id)) next.add(model.id);
+                                  return next;
+                                }),
+                            },
+                          },
+                        }),
                   }}
                   onMore={() => undefined}
                 >
@@ -274,6 +287,7 @@ export default componentEntry<Props>({
         await ctx.click({ selector: ".acpmux-quick-disclosure" });
       },
     },
+    "plain-overflow": { height: 320, props: { noFamilies: true }, play: open },
     "newtab-midpoint": { props: { anchorMiddle: true }, play: open },
     "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
     "claude-many-harnesses": { props: { many: true }, play: open },

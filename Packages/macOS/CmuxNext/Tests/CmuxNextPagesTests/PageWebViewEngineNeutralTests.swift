@@ -52,6 +52,20 @@ struct PageWebViewEngineNeutralTests {
         view.close()
     }
 
+    /// A script that awaits on purpose (`cmux app chat perf`'s timed capture) gets the deadline its
+    /// caller names, not DevTools' 5 s default; a call that names none keeps the default.
+    @Test func aScriptCallPassesItsDeadlineToChromium() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await started(hosting)
+        let before = page.devToolsTimeouts
+        _ = try await view.callPageScript("return 1;")
+        #expect(page.devToolsTimeouts == before)
+        _ = try await view.callPageScript("return 1;", timeout: .seconds(70))
+        #expect(page.devToolsTimeouts == before + [.seconds(70)])
+        view.close()
+    }
+
     /// A Chromium page that is never made does not hold a script call for good: once the wait runs
     /// out the call returns nil, and it never ran in the hidden WebKit view (cmux#34154).
     @Test(.timeLimit(.minutes(1))) func aScriptCallReturnsNilWhenTheChromiumStartNeverEnds() async throws {

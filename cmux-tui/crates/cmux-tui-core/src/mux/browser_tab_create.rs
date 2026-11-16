@@ -264,6 +264,7 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                         transaction: None,
+                        mutation: None,
                     }
                 };
                 self.emit(MuxEvent::TreeDelta(delta));
@@ -363,6 +364,7 @@ impl Mux {
                     entity,
                     workspace_revision: Some(workspace_revision),
                     transaction: None,
+                    mutation: None,
                 }
             };
             let selection_resync = delta.index.is_some_and(|index| index > 0);
@@ -438,6 +440,7 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                         transaction,
+                        mutation: None,
                     })
                 }
                 None => {

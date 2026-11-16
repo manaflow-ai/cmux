@@ -24,6 +24,13 @@ import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
@@ -575,6 +582,29 @@ class ParallelUploadsOfAClaimedPrefix(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         order = self.uploads("cmux-relay")
         self.assertEqual(order, sorted(order))
+
+    def test_the_tree_markers_the_download_merges_in_are_not_published(self) -> None:
+        # The download's `cmux-tui-*` also matches the tree markers (cmux-tui-tree-owner-<key>,
+        # -feat-builder-<key>, -deferred-<key>). The checksums never named their files, so every
+        # feat-cmux-next publish sent cmux-tui/<sha>/ one file at a time (33 files in 72 s at
+        # 9fd2f115) and wrote tree-owner.json after manifest.json.
+        assets = self.box.repo / "assets"
+        for prefix in ("cmux-tui", "cmux-relay", "chatmux-relay"):
+            (assets / prefix).mkdir(parents=True)
+            for target in ("aarch64-apple-darwin", "x86_64-apple-darwin",
+                           "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"):
+                (assets / prefix / f"{prefix}-{target}").write_text(f"{prefix} {target}\n")
+        markers = {"tree-owner.json", "feat-builder-key", "deferred-key"}
+        for marker in markers:
+            (assets / "cmux-tui" / marker).write_text("marker\n")
+        result = self.box.run(step_script("publish", "Build manifest and checksums"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = self.box.run(self.upload, FAKE_UPLOAD_LOG=str(self.log))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        order = self.uploads("cmux-tui")
+        self.assertFalse(markers & set(order), order)
+        self.assertTrue(order[0].endswith("-checksums.txt"), order)
+        self.assertEqual(order[-1], "manifest.json", order)
 
     def test_a_failed_upload_writes_no_manifest(self) -> None:
         self.box.build("1", real_checksums=True)

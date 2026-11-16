@@ -9,6 +9,10 @@ from pathlib import Path
 import unittest
 
 import yaml
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,8 +35,9 @@ class WebPerfValidationBoundaryTests(unittest.TestCase):
         validate_id, validator = validating[0]
         self.assertNotEqual(measure_id, validate_id, "head code can overwrite same-runner policy and tools")
         self.assertIn(measure_id, validator["needs"])
-        self.assertIn("blacksmith-4vcpu-ubuntu-2404", validator["runs-on"])
-        self.assertNotIn("vars.LINUX_RUNNER", validator["runs-on"])
+        runs_on = workflow_jobs.single_runs_on(validator)
+        self.assertIn("blacksmith-4vcpu-ubuntu-2404", runs_on)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         checkouts = [step for step in validator["steps"] if step.get("uses", "").startswith("actions/checkout@")]
         self.assertEqual(len(checkouts), 1)
         self.assertIn("github.event.pull_request.base.sha", checkouts[0]["with"]["ref"])

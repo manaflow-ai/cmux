@@ -222,7 +222,8 @@ struct RowSpec: Hashable {
     var width: CGFloat = Fixture.windowWidth
     /// Height estimated from another width (lazy re-measure after a resize).
     var estimated = false
-    /// cmux: how far right of the incoming side an incoming "N Replies" label moves (a group's avatar column); 0 elsewhere.
+    /// cmux: how far right of the incoming side an incoming row that is not a part moves (a group's avatar column: "N Replies",
+    /// "Edited", the status line, the typing bubble); 0 elsewhere.
     var cmuxIndent: CGFloat = 0
     var metrics: Metrics { Metrics(width: width) }
     /// The height in this row a thread connector's arc hangs from (row coordinates): its vertical middle.
@@ -1298,12 +1299,12 @@ enum RowBuilder {
                 }
                 if m.edits?.isEmpty == false {
                     rows.append(RowSpec(key: "edited:\(m.id)", kind: .label(text: Strings.edited, outgoing: outgoing, color: .link),
-                                        gap: 1, height: 14))
+                                        gap: 1, height: 14, cmuxIndent: inGroup ? SenderAvatar.bubbleInset : 0))
                 }
                 if case .failed = m.status {
                     // cmux: "May Not Have Been Delivered" for a send that reached the owner unanswered.
                     rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: CmuxStrings.failedLabel(m.status), outgoing: outgoing, color: .failure),
-                                        gap: 1, height: 14))
+                                        gap: 1, height: 14, cmuxIndent: inGroup ? SenderAvatar.bubbleInset : 0))
                 }
                 // cmux: one reply further down says "1 Reply" too (Messages, 2026-10-29 group reference); a reply right under
                 // its root shows the thread with its line instead.
@@ -1316,7 +1317,8 @@ enum RowBuilder {
                 // branch (drill-in). `threadCounts` is nil in `.messages` mode and in the transcript.
                 if threadMode, let n = threadCounts?[m.id], n >= 1 {
                     rows.append(RowSpec(key: "replies:\(m.id)", kind: .replies(count: n, root: PartRef(messageId: m.id, partIndex: 0),
-                                                                               outgoing: outgoing), gap: 0, height: 22))
+                                                                               outgoing: outgoing), gap: 0, height: 22,
+                                        cmuxIndent: inGroup ? SenderAvatar.bubbleInset : 0))
                 }
                 if let r = receipts[m.id] {
                     rows.append(RowSpec(key: "receipt:\(m.id)", kind: .receipt(bold: r.0, rest: r.1), gap: 0, height: 16))
@@ -1338,7 +1340,8 @@ enum RowBuilder {
         var statusLine = false
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
             // cmux: one caption row per line (the running indicator's folded steps, narration and step: HomeNoticeRows).
-            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
+            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice),
+                                cmuxIndent: group ? SenderAvatar.bubbleInset : 0)) // cmux: the bubbles' column
             statusLine = true
         }
         // cmux (user 2026-10-30, "make it just one line with shimmer text"): the status line, shimmering
@@ -1353,7 +1356,8 @@ enum RowBuilder {
             case .part, .unsent: gap = Self.typingGapUnderBubble
             default: break
             }
-            rows.append(RowSpec(key: "typing", kind: .typing, gap: gap, height: 35))
+            rows.append(RowSpec(key: "typing", kind: .typing, gap: gap, height: 35,
+                                cmuxIndent: group ? SenderAvatar.bubbleInset : 0)) // cmux: the bubbles' column
         }
         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
         return rows

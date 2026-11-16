@@ -12,6 +12,7 @@ import { diffSessionRequest, HIDE_WHITESPACE_CAPABILITY, hideWhitespaceAvailable
 import { NO_HOST_CAPABILITIES, overflowMenuItems } from "../src/toolbar-model";
 import { blobFingerprint, patchFingerprint, toggleViewedItem, viewedStateOfItem } from "../src/viewed-files";
 import { sanitizeViewerPrefs } from "../src/viewer-prefs";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -51,12 +52,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const transport = {} as DiffTransport;

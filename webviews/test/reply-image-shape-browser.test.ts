@@ -87,6 +87,9 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
             ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
           );
           expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
+          // A call's images show once its row opens, one small image at its edge until then (Lucas,
+          // 2026-11-11): open it to the images this case measures.
+          if (image.startsWith(".cv-tool-images")) await page.locator("button.cv-tool").first().click();
           await page.waitForFunction((selector) => {
             const all = [...document.querySelectorAll<HTMLImageElement>(selector)];
             return all.length > 0 && all.every((img) => img.complete && img.naturalWidth > 0);

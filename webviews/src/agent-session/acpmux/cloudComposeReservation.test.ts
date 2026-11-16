@@ -395,3 +395,29 @@ test("a reserve the platform refuses for the team's plan never holds the Send: i
   expect(sent?.[1].reservationKey).toBeUndefined();
   expect(await answer).toEqual({ ok: true });
 });
+
+test("a Send refused before its reservation was bound gives the machine back, and the next Send names none", async () => {
+  const h = harness();
+  h.reservation.selected();
+  await settle();
+  const key = h.reservation.handoff();
+  expect(key).toBe("compose-1");
+  // Another key, or before any handoff, gives nothing back.
+  h.reservation.returned("compose-9");
+  await settle();
+  expect(h.calls.filter(([method]) => method === "cloud.releaseReservation")).toEqual([]);
+  h.reservation.returned(key!);
+  h.reservation.returned(key!);
+  await settle();
+  expect(h.calls.filter(([method]) => method === "cloud.releaseReservation")).toEqual([
+    ["cloud.releaseReservation", { composeKey: "compose-1" }],
+  ]);
+  expect(h.reservation.handoff()).toBeUndefined();
+  // Picking Cloud again reserves a new machine for the next compose.
+  h.reservation.selected();
+  await settle();
+  expect(h.calls.filter(([method]) => method === "cloud.reserve").at(-1)).toEqual([
+    "cloud.reserve",
+    { composeKey: "compose-2" },
+  ]);
+});

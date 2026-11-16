@@ -12,8 +12,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageView.swif
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsPopup.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionHostView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionListView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultListView.swift
@@ -36,7 +34,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HairlineDivider.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppKit.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionInFlight.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverflowButton+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/CmuxOverlayModifier.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SignInButton+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/ThemedSpinner+SwiftUI.swift
@@ -47,6 +44,12 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThinScrollers+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastModifier.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/ThemedHelpModifier.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Vault/VaultColors.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupAvatar.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupContactRow.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoColors.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoSheet.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoView.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupMemberRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/McpConnect/McpConnectBubble.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/McpConnect/McpConnectCardColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/McpConnect/McpConnectCardParts.swift
@@ -71,6 +74,8 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugSettin
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugTunableControls.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugTunableRowView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/SettingsPane.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/TuningPanel/TuningPanelView.swift  # Debug panel built from SwiftUI helpers in 6 allowlisted files (2 Debug settings controls, SettingsStyle, 3 shared ones); no Swift code opens it yet
+Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/TuningPanel/TuningPanelWindow.swift  # hosts TuningPanelView in an NSHostingView; no Swift code opens it yet
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Views/ScrollEdgeFadeModifier.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Views/SettingsStyle.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview/UiLayerPreviewView.swift

@@ -149,13 +149,15 @@ pub(super) fn input_surface(
         }
         return Ok((surface, InputReply::Written));
     }
-    if let Some((surface, can_type)) = mux.control_clients.attached_input_surface(client, id) {
+    if let Some((surface, can_type)) =
+        mux.control_clients.attached_input_surface(client, id, &mux.route_generations)
+    {
         if can_type {
             writer.input_lane.mark_person_input();
         }
         return Ok((surface, InputReply::Written));
     }
-    let generation = crate::route_table::route_generation(id);
+    let generation = mux.route_generations.of(id);
     let surface = get_surface(mux, id)?;
     if mux.control_clients.remember_attached_input(client, id, &surface, generation) {
         writer.input_lane.mark_person_input();

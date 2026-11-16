@@ -61,4 +61,22 @@ export interface StatsSummary {
   /** Working ms per hour of the day, 0 to 23. */
   hours: number[];
   streak: { current: number; longest: number };
+  /** The person's opt-in usage patterns on this machine (cmux-usage-patterns); absent from an older acpmux. */
+  usagePatterns?: UsagePatterns;
+}
+
+/** Opt-in local counters: `enabled` is the `diagnostics.usagePatterns` setting now. */
+export interface UsagePatterns {
+  enabled: boolean;
+  rollup: {
+    /** Unix ms of the first count kept, 0 for none. */
+    since: number;
+    updated: number;
+    /** family → key → count. Keys are identifiers (command names, harness kinds), never content. */
+    counts: Record<string, Record<string, number>>;
+    /** UTC day → family → count. */
+    days: Record<string, Record<string, number>>;
+    hours: number[];
+    peaks: Record<string, number>;
+  };
 }

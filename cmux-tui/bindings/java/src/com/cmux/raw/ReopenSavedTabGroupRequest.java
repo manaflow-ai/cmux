@@ -34,7 +34,7 @@ public final class ReopenSavedTabGroupRequest implements WireValue {
         Map<String, Object> object = Wire.object(value, "ReopenSavedTabGroupRequest");
         Builder builder = builder();
         Object rawPane = Wire.required(object, "pane");
-        builder.pane(Wire.immutableJson(rawPane));
+        builder.pane(Wire.immutableJson(ProtocolSupport.nonNull(rawPane, "ReopenSavedTabGroupRequest.pane")));
         Object rawSaved = Wire.required(object, "saved");
         builder.saved(Wire.string(rawSaved, "ReopenSavedTabGroupRequest.saved"));
         Object rawTransaction = Wire.optional(object, "transaction");

@@ -911,9 +911,28 @@ fn notification_workspace_scope_names_the_workspace_and_clears_only_it() {
 /// cmux on iPhone reaches only that program (cmux-next-ios `mailbox_apply.rs`).
 #[test]
 fn a_posted_notification_remembers_its_event_number_and_poster() {
-    let mux = Mux::new("notification-poster", SurfaceOptions::default());
-    let surface = mux.new_workspace(None, None).unwrap();
+    // The terminal runs `cat` on a file, then on its input: its foreground group is `cat` from
+    // its exec on, and its first output says the exec happened. A shell (the default) may still
+    // start up while the test posts, so the poster and a later read named two programs (a full
+    // --lib round: left 91199, right 91155; or no poster yet).
+    let dir = std::env::temp_dir()
+        .join(format!("cmux-notification-poster-{}", WorkspacePublicId::random().unwrap()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let ready = dir.join("ready");
+    std::fs::write(&ready, "ready\n").unwrap();
+    let options = SurfaceOptions {
+        command: Some(vec!["/bin/cat".into(), ready.display().to_string(), "-".into()]),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::new("notification-poster", options);
     let events = mux.subscribe();
+    let surface = mux.new_workspace(None, None).unwrap();
+    loop {
+        match events.recv_timeout(Duration::from_secs(30)).expect("cat printed its file") {
+            MuxEvent::SurfaceOutput(id) if id == surface.id => break,
+            _ => {}
+        }
+    }
     mux.post_notification_as(
         &Actor::Daemon,
         "osc".into(),
@@ -946,6 +965,7 @@ fn a_posted_notification_remembers_its_event_number_and_poster() {
     let plain = mux.resource_notifications(1).remove(0);
     assert_eq!(mux.notification_post(&plain.id).unwrap().poster, None);
     mux.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// W1-B: a terminal bell's mark is a `Notification` event with `desktop: false`
@@ -974,4 +994,47 @@ fn attention_a_bell_posts_one_notification_event_without_a_desktop_banner() {
     assert!(!bell.desktop);
     assert_eq!(bell.surface, Some(surface.id));
     assert_eq!(bell.source, NotificationSource::Terminal);
+}
+
+/// A cleared notification leaves nothing behind in memory: its post record (event number and
+/// poster) goes with its ledger row. Before, `notification_posts` dropped a post only when its
+/// row was evicted from the 256-row ledger, which a cleared row never is: every post that was
+/// cleared stayed for the daemon's life (agents post at each turn end; the panel clears them).
+#[test]
+fn clearing_notifications_frees_their_post_records() {
+    let mux = test_mux();
+    let terminal = mux.new_workspace(None, None).unwrap();
+    for round in 0..300 {
+        mux.create_durable_notification(
+            &Actor::Daemon,
+            &format!("post-{round}"),
+            "turn ended".into(),
+            None,
+            "".into(),
+            NotificationLevel::Info,
+            Some(terminal.id),
+            NotificationSource::Cli,
+        )
+        .unwrap();
+        let clear = WorkspaceMutation::daemon(format!("clear-{round}"), "test").unwrap();
+        mux.clear_notifications(&clear, None, None).unwrap();
+    }
+    assert!(mux.resource_notifications(8).is_empty());
+    let posts = mux.notification_posts.lock().unwrap().len();
+    assert_eq!(posts, 0, "cleared notifications keep {posts} post records");
+}
+
+/// The foreground group changes between two lookups (a shell starting a program): the poster must
+/// name the leader it reports, never pair one program's PID with another's executable.
+#[test]
+fn a_poster_names_the_leader_it_reports() {
+    let lookups = std::cell::Cell::new(0_u32);
+    let group = |_pid: u32| {
+        lookups.set(lookups.get() + 1);
+        Some(if lookups.get() == 1 { 100 } else { 200 })
+    };
+    let poster =
+        NotificationPoster::of_terminal(7, group, |leader| Some(format!("/bin/program-{leader}")))
+            .expect("a poster");
+    assert_eq!(poster.executable, format!("/bin/program-{}", poster.pid));
 }

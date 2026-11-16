@@ -17,6 +17,8 @@ ignores them; its results say which configurations it could not set.
 Usage: motion-proof.py --app APP --tag TAG [--out DIR] [--configs default,panes-on,...]
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 # Phase 3 (hq-1d 2026-10-14): every kind is off by default (instant, no spring); each opt-in alone,
 # and all of them under Reduce Motion (which still moves nothing). No configuration bounces: the
@@ -333,7 +335,7 @@ try:
            "CMUX_NEXT_TEST_WINDOW_FRAME": f"40,40,{WIDTH},{HEIGHT}"}
     log = open(os.path.join(opts.out, f"app-{opts.tag}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 120):
         sys.exit("the tagged app did not come up")
     time.sleep(3)  # test harness wait: first frame and the New Tab spare settle
@@ -354,7 +356,7 @@ try:
         report["loop"] = {"opens": opts.loop, "work": loop.get("work"), "spans": len(loop.get("spans") or []),
                           "sidebar_frames": sum(1 for x in loop.get("samples") or [] if x.get("name") == "sidebar.travel"),
                           "state": {k: loop.get(k) for k in ("enabled_kinds", "pane_animations", "display_links")}}
-        print("loop", json.dumps(report["loop"]), flush=True)
+        safe_print("loop", json.dumps(report["loop"]), flush=True)
         json.dump(report["loop"], open(os.path.join(opts.out, "loop.json"), "w"), indent=1)
     for name in ([] if opts.loop else opts.configs.split(",")):
         report["configs"][name] = run_config(name, CONFIGS[name])
@@ -365,13 +367,13 @@ try:
     state = rpc("debug.motion", {"action": "read"}) or {}
     report["idle"] = {"display_links": state.get("display_links"), "active_clients": state.get("active_clients"),
                       "cpu_percent_samples": idle_cpu(app.pid)}
-    print("idle", report["idle"], flush=True)
+    safe_print("idle", report["idle"], flush=True)
     json.dump(report, open(os.path.join(opts.out, "results.json"), "w"), indent=1)
 finally:
     if app and app.poll() is None:
         # The DEBUG quit fixture (a scripted quitEndSessions is user-only since cx-zk9t).
         reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
-        print("quit:", json.dumps(reply)[:200], flush=True)
+        safe_print("quit:", json.dumps(reply)[:200], flush=True)
         try:
             app.wait(30)
         except subprocess.TimeoutExpired:
@@ -389,4 +391,4 @@ finally:
                        env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
     ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
     left = [line for line in ps.splitlines() if (opts.app + "/") in line]
-    print(f"leftovers of this bundle: {len(left)}", flush=True)
+    safe_print(f"leftovers of this bundle: {len(left)}", flush=True)

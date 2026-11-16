@@ -56,6 +56,15 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 TREE = Path(__file__).resolve().parents[2]
 QUIT_TIMEOUT_S = 30
@@ -794,8 +803,8 @@ def watch(args):
             last_save = time.monotonic()
             applied = apply_edits(tree, entry, patchable)
             refused = (refused | set(patchable)) if applied["exit"] else (refused - set(patchable))
-            print(f"{now()} saved {len(patchable) + len(waiting)} file(s): patch exit {applied['exit']}"
-                  + (f"; waiting for the stop build: {', '.join(waiting)}" if waiting else ""), flush=True)
+            safe_print(f"{now()} saved {len(patchable) + len(waiting)} file(s): patch exit {applied['exit']}"
+                       + (f"; waiting for the stop build: {', '.join(waiting)}" if waiting else ""), flush=True)
             # What waits is what differs from the live build now: a reverted file no longer waits.
             patchable_now, waiting_now = changed_sources(load_sources(entry / "sources.json"), now_sources)
             refused &= set(patchable_now)  # a reverted file no longer waits
@@ -818,9 +827,9 @@ def watch(args):
                     built = build_optimized(tree, tag, root, app, root / "live-mode.log", wanted=still_live)
                     if built is None:
                         break  # a stop ran while this waited for the lock: live mode is off
-                    print(f"{now()} optimized build of {built['tree'][:12]} ready in {built['built_s']} s", flush=True)
+                    safe_print(f"{now()} optimized build of {built['tree'][:12]} ready in {built['built_s']} s", flush=True)
                 except Refused as failure:
-                    print(f"{now()} {failure}", flush=True)
+                    safe_print(f"{now()} {failure}", flush=True)
             built_tree = tree_id
     pid_file.unlink(missing_ok=True)
     return 0

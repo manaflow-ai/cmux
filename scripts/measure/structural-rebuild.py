@@ -8,7 +8,7 @@ This times that path, one phase at a time, so a change to the build can show wha
 
   1. One reload.sh build at this checkout (warm when the step's .build kept a DerivedData, cold otherwise), then a
      launch, so the edits below start from a built, running app.
-  2. Per edit: add one stored property to HomeConversationPage, stop the app, rebuild with reload.sh, launch again.
+  2. Per edit: add one stored property to HomeHostView, stop the app, rebuild with reload.sh, launch again.
      Each row has the reload's wall time, xcodebuild's timing summary (task time per kind of task, which is not
      wall time: tasks overlap), the swift-driver's incremental decisions (files queued, cascaded, invalidated;
      incremental turned off), and the launch to usable time.
@@ -24,8 +24,8 @@ sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
 from bench_launch import BenchApp, LaunchError  # noqa: E402
 
 TAG = "srebuild"
-EDIT_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeConversationPage.swift"
-ANCHOR = re.compile(r"^final class HomeConversationPage: NSView \{$", re.M)
+EDIT_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift"
+ANCHOR = re.compile(r"^final class HomeHostView: NSView \{$", re.M)
 # How long the reload's process group gets after SIGTERM before SIGKILL.
 GROUP_GRACE_S = 30
 STOP_SIGNALS = {signal.SIGTERM, signal.SIGHUP}
@@ -144,7 +144,7 @@ def add_property(index):
     text = open(path).read()
     match = ANCHOR.search(text)
     if not match:
-        raise SystemExit(f"structural-rebuild: {EDIT_FILE} has no `final class HomeConversationPage: NSView {{` line")
+        raise SystemExit(f"structural-rebuild: {EDIT_FILE} has no `final class HomeHostView: NSView {{` line")
     line = f"\n    var structuralRebuildProbe{index} = {index}"
     open(path, "w").write(text[:match.end()] + line + text[match.end():])
 
@@ -194,7 +194,7 @@ def main():
             launcher = launcher_for(app, opts.out)
             launcher.launch(timeout=180)
             ready = launcher.ready_seconds
-            record({"build": i, "edit": f"stored property {i} on HomeConversationPage", "stop_s": stop_s,
+            record({"build": i, "edit": f"stored property {i} on HomeHostView", "stop_s": stop_s,
                     "reload_s": seconds, "launch_to_usable_s": ready,
                     "edit_to_usable_s": round(stop_s + seconds + (ready or 0), 1), **build_facts(log, started)})
     except LaunchError as error:

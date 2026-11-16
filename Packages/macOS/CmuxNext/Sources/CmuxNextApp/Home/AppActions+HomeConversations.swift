@@ -18,8 +18,8 @@ extension AppActions {
         let registry = services.registry
         registry.bind("home.newMessage", invoke: { invocation in
             guard let to = invocation["to"]?.stringValue?.trimmingCharacters(in: .whitespaces), !to.isEmpty else {
-                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newMessage, services) { $0.present(.newMessage) } }
-                homePage(services)?.present(.newMessage)
+                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newMessage, services) { $0.presentNewMessage() } }
+                homePage(services)?.presentNewMessage()
                 return
             }
             // Comma-separated: several people make a group (`title` names it).
@@ -28,17 +28,16 @@ extension AppActions {
             runHome(services) { await services.home.startConversation(recipients, title: title) }
         })
         // Close New Message (the draft row's x, Escape in To:, palette, CLI, MCP) acts only on an open draft.
-        // The docked Messages page ends its draft itself (`home.messages.present {sheet: closeNewMessage}`).
         registry.bindEffect("home.closeNewMessage", unavailable: {
-            listedPage(services) == nil ? RefusalStrings.noNewMessage : nil
+            newMessagePage(services) == nil ? RefusalStrings.noNewMessage : nil
         }, effect: { _ in
-            guard let messages = listedPage(services) else { return .refused(RefusalStrings.noNewMessage) }
-            messages.present(.closeNewMessage); return .done
+            guard let page = newMessagePage(services) else { return .refused(RefusalStrings.noNewMessage) }
+            page.closeNewMessage(); return .done
         })
         registry.bind("home.invite", invoke: { invocation in
             guard let text = invocation["email"]?.stringValue, !text.isEmpty else {
-                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newInvite, services) { $0.present(.invite, prefill: "") } }
-                homePage(services)?.present(.invite, prefill: "")
+                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newInvite, services) { $0.presentInvite(prefill: "") } }
+                homePage(services)?.presentInvite(prefill: "")
                 return
             }
             guard let address = ContactAddress.parse(text), address.isEmail else {
@@ -58,8 +57,8 @@ extension AppActions {
         })
         registry.bind("home.newChief", invoke: { invocation in
             guard let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
-                guard services.home.dock.isClassic else { return openChannelsRoute(HomeDockRoute.newChief, services) { $0.present(.newChief) } }
-                homePage(services)?.present(.newChief)
+                guard services.home.dock.isClassic else { return openChannelsRoute(HomeDockRoute.newChief, services) { $0.presentNewChief() } }
+                homePage(services)?.presentNewChief()
                 return
             }
             let backendName = invocation["harness"]?.stringValue
@@ -112,6 +111,10 @@ extension AppActions {
         // the list, wrapping as a pane's tabs do; opening it gives its message box the keyboard.
         for (id, offset) in [("home.previousConversation", -1), ("home.nextConversation", 1)] as [(ActionID, Int)] {
             registry.bind(id) {
+                let step: @MainActor (TopHomePageView) -> Void = { page in
+                    guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset, wrapping: true) else { return }
+                    page.open(next)
+                }
                 // The docked Home steps its Messages list, or asks the Channels page to move through
                 // its own list (`home.moveConversation`, the page's Option-Up/Down).
                 guard services.home.dock.isClassic else {
@@ -126,35 +129,31 @@ extension AppActions {
                             return
                         }
                         guard let page = dock.messages else { return }
-                        // task-owner: one page call; ends with its answer (bounded by HomeMessagesPage.answerDeadline)
-                        // main-hop-allow: already on main (the action's turn); the task only awaits the page's answer
-                        Task { @MainActor in _ = await page.move(by: offset) }
+                        step(page)
                     }
                 }
                 guard let page = homePage(services) else { return }
-                // task-owner: one page call; ends with its answer (bounded by HomeMessagesPage.answerDeadline)
-                // main-hop-allow: already on main (the action's turn); the task only awaits the page's answer
-                Task { @MainActor in _ = await page.move(by: offset) }
+                step(page)
             }
         }
         // Ctrl-1…9 on Home: the nth conversation in the list, 9 the last (as Select Tab 1…9).
         registry.bind("home.selectConversationByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue else { return registry.refuse(RefusalStrings.indexRequired) }
+            let pick: @MainActor (TopHomePageView) -> Void = { page in
+                guard let id = page.sidebar.model().conversation(number: number) else { return }
+                page.open(id)
+            }
             guard services.home.dock.isClassic else {
                 return withDock(services) { dock in
                     // The Channels page keeps its own list; it has no numbered pick.
                     guard dock.mode != .channels, let page = dock.messages else {
                         return registry.refuse(MiscHandlerStrings.channelsCannotStep, quiet: true)
                     }
-                    // task-owner: one page call; ends with its answer (bounded by HomeMessagesPage.answerDeadline)
-                    // main-hop-allow: already on main (the action's turn); the task only awaits the page's answer
-                    Task { @MainActor in _ = await page.select(number: number) }
+                    pick(page)
                 }
             }
             guard let page = homePage(services) else { return }
-            // task-owner: one page call; ends with its answer (bounded by HomeMessagesPage.answerDeadline)
-            // main-hop-allow: already on main (the action's turn); the task only awaits the page's answer
-            Task { @MainActor in _ = await page.select(number: number) }
+            pick(page)
         })
         registry.bind("home.switchView", invoke: { switchHomeView(services, $0) })
         registry.bind("home.openConversation", invoke: { invocation in
@@ -177,13 +176,18 @@ extension AppActions {
     /// The Home page of the active window, shown (nil, refused, when no
     /// window may show it). A run that may not change the view (a socket
     /// run without focus) is told so, not that Home is not ready.
-    static func homePage(_ services: AppServices) -> HomeMessagesPage? {
+    /// The active window's Home page (classic, else the docked Home's) holding a New Message draft.
+    static func newMessagePage(_ services: AppServices) -> TopHomePageView? {
+        [services.windows.active?.topPages.views[.home] as? TopHomePageView, HomeDockTab.view(services)?.messages].lazy.compactMap { $0 }.first { $0.newMessage != nil }
+    }
+
+    static func homePage(_ services: AppServices) -> TopHomePageView? {
         guard ActionRunScope.viewChangeAllowed() else {
             services.registry.refuse(RefusalStrings.homeNeedsFocus)
             return nil
         }
         guard TopPages.show(.home, services: services) != nil,
-              let page = services.windows.active?.topPages.views[.home] as? HomeMessagesPage else {
+              let page = services.windows.active?.topPages.views[.home] as? TopHomePageView else {
             services.registry.refuse(RefusalStrings.homeNotReady)
             return nil
         }

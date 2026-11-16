@@ -87,11 +87,31 @@ struct AppHealthStrings {
     }
     static var pageHost: String { String(localized: "appHealth.part.pageHost", defaultValue: "Page server", table: "AppHealth", bundle: .module) }
 
-    /// The footer line, as the web's indicator says it: "Session service: Not responding", or with no
-    /// unhealthy part the newest queued action ("Reconnecting; will close Background task when back").
+    /// The page parts' names in plain words: a page's own name is its resource ("agent-pane"), which reads as
+    /// code ("Agent pane"); the agent chat is what the person calls it.
+    static func pageLabel(resource: String, fallback: String) -> String {
+        switch resource {
+        case "agent-pane":
+            String(localized: "appHealth.part.agentChat", defaultValue: "Agent chat", table: "AppHealth", bundle: .module)
+        default: fallback
+        }
+    }
+
+    /// The footer line, as the web's indicator says it: what is wrong with which part, in a sentence the
+    /// person can act on ("Agent chat isn't responding": the click opens Repair now; "Reloading Agent chat…":
+    /// the app is on it), or with no unhealthy part the newest queued action ("Reconnecting; will close
+    /// Background task when back"). A part that is only slow has no line (``AppHealth/headline(of:)``).
     static func line(_ headline: AppHealth.Headline) -> String? {
-        if let label = headline.label, let state = headline.state.flatMap(Self.state) {
-            return String(format: String(localized: "appHealth.line", defaultValue: "%1$@: %2$@", table: "AppHealth", bundle: .module), label, state)
+        if let label = headline.label, let state = headline.state {
+            switch state {
+            case .healthy, .slow: break
+            case .stuck:
+                return String(format: String(localized: "appHealth.line.stuck", defaultValue: "%@ isn’t responding", table: "AppHealth", bundle: .module), label)
+            case .repairing:
+                return String(format: String(localized: "appHealth.line.repairing", defaultValue: "Repairing %@…", table: "AppHealth", bundle: .module), label)
+            case .failed:
+                return String(format: String(localized: "appHealth.line.failed", defaultValue: "%@ needs a repair", table: "AppHealth", bundle: .module), label)
+            }
         }
         return headline.pending.map {
             String(format: String(localized: "appHealth.pending", defaultValue: "Reconnecting; will %@ when back", table: "AppHealth", bundle: .module), $0)

@@ -27,6 +27,8 @@ import argparse, glob, http.server, importlib.util, json, os, plistlib, subproce
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 _spec = importlib.util.spec_from_file_location("browser_engine_bench", os.path.join(HERE, "..", "perf", "browser_engine_bench.py"))
 bench = importlib.util.module_from_spec(_spec)
@@ -264,7 +266,7 @@ try:
                                           "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY,
                                           **dict(item.split("=", 1) for item in opts.env)},
                            stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT)
-    print(f"app pid {app.pid}, origin {ORIGIN}, out {opts.out}, cef.log {CEF_LOG}", flush=True)
+    safe_print(f"app pid {app.pid}, origin {ORIGIN}, out {opts.out}, cef.log {CEF_LOG}", flush=True)
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
     rpc("action.run", {"action": "workspace.selectFirst"})
     rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
@@ -290,7 +292,7 @@ try:
         chatty = next(p for p in results["phases"] if p["phase"] == "chatty")
         check(chatty["console_calls"] >= 3 * opts.idle_s, f"the chatty page logs while measured ({chatty['console_calls']} calls)")
     results["console_marker_lines_on_disk"] = lines
-    print(f"cef.log lines with the page's console marker: {lines}", flush=True)
+    safe_print(f"cef.log lines with the page's console marker: {lines}", flush=True)
     if opts.budget:
         with open(opts.budget) as f:
             budget = json.load(f)

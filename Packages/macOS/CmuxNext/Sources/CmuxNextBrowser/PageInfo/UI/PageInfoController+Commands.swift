@@ -31,10 +31,13 @@ extension PageInfoController {
             windows.showSiteSettings(origin: origin, site: site, store: store, provider: provider, send: { [weak self] in self?.send($0) })
         case .manageSiteData:
             guard let provider else { return }
+            // Managing the site's data can change its counts: the next opening waits for the engine.
+            siteDataMemory.forget(site)
             close()
             windows.showSiteData(site: site, provider: provider, send: { [weak self] in self?.send($0) })
         case .deleteSiteData(let domain):
             guard let provider else { return }
+            siteDataMemory.forget(site)
             let host = site.host
             Task { [weak self] in
                 let targets: [String]
@@ -128,11 +131,11 @@ extension PageInfoController {
         if warningsOff != model.certificateWarningsOff || scope != model.certificateWarningScope {
             model.certificateWarningsOff = warningsOff
             model.certificateWarningScope = scope
-            if isOpen, model.page == .security { render() }
+            if isShown, model.page == .security { render() }
         }
         if rows != model.permissions {
             model.permissions = rows
-            if isOpen { render() }
+            if isShown { render() }
         }
     }
 
@@ -154,11 +157,12 @@ extension PageInfoController {
             let chain = await provider.pageInfoCertificateChain()
             guard !Task.isCancelled, let self else { return }
             self.model.certificates = chain.compactMap { try? PageInfoCertificate(der: $0) }
-            if self.isOpen, self.model.page == .security { self.render() }
+            if self.isShown, self.model.page == .security { self.render() }
             let data = await provider.pageInfoSiteData(pageHost: host)
             guard !Task.isCancelled else { return }
             self.model.siteData = data
-            if self.isOpen, self.model.page == .cookies { self.render() }
+            self.siteDataMemory.remember(data, for: self.model.site)
+            if self.isShown, self.model.page == .cookies { self.render() }
         }
     }
 
@@ -167,9 +171,12 @@ extension PageInfoController {
         let host = model.site.host
         Task { [weak self] in
             let data = await provider.pageInfoSiteData(pageHost: host)
-            self?.model.siteData = data
-            self?.windows.siteDataChanged(data)
-            if self?.isOpen == true, self?.model.page == .cookies { self?.render() }
+            guard let self else { return }
+            self.model.siteData = data
+            self.windows.siteDataChanged(data)
+            guard self.isShown else { return }
+            self.siteDataMemory.remember(data, for: self.model.site)
+            if self.model.page == .cookies { self.render() }
         }
     }
 }

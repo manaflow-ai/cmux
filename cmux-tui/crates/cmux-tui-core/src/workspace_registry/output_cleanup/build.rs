@@ -40,14 +40,16 @@ use super::super::session_journal::{
 };
 use super::chunks::{CHUNK_RECORD_LIMIT, ChunkReader, StagedRecord, insert_chunk};
 use super::codec::{SegmentWriter, encode_hex};
+use super::journal_compact::{Folded, fold_record};
 use super::session_puts::{Put, SessionPuts};
 use super::stage::{
-    inflated_segment_records, progress_log_interval, sealed_records, staged_records, state,
-    state_u64,
+    SegmentGaps, inflated_segment_records, progress_log_interval, sealed_records, staged_records,
+    state, state_u64,
 };
+use super::stated_fold::{FoldDelta, StatedFold};
 use super::{
-    OUTPUT_KIND, PRUNED_RANGES_SCHEMA, REBUILT_TABLES, free_space_refusal, kept_refusal,
-    live_records, staged_bytes_refusal,
+    CleanupMode, OUTPUT_KIND, PRUNED_RANGES_SCHEMA, REBUILT_TABLES, free_space_refusal,
+    kept_refusal_in, live_records_within, max_kept_records, staged_bytes_refusal,
 };
 
 pub(super) const STEP_LIVE: &str = "live";
@@ -208,10 +210,13 @@ fn build_refusal(source: &Connection, staging: &Connection) -> anyhow::Result<Op
     if let Some(reason) = staged_bytes_refusal(staging)? {
         return Ok(Some(reason));
     }
+    let mode = CleanupMode::of(staging)?;
     let (staged_kept, staged_total) = staged_records(staging)?;
     let tail = sealed_records(source, state_u64(staging, "staged_through")?)?;
-    let (live_kept, live_total) = live_records(source, Some(&SessionPuts::load(staging)?))?;
-    Ok(kept_refusal(
+    let (live_kept, live_total) =
+        live_records_within(source, Some(&SessionPuts::load(staging)?), max_kept_records(mode))?;
+    Ok(kept_refusal_in(
+        mode,
         staged_kept + tail.kept_at_most + live_kept,
         staged_total + tail.total + live_total,
     ))
@@ -638,20 +643,22 @@ fn pack_closed(
 ) -> anyhow::Result<Packed> {
     let mut since_space_check = 0_u64;
     let mut last_log = Instant::now();
+    let mut fold = stated_fold(staging)?;
     loop {
         if !(control.next_step)() {
             return Ok(Packed::Stopped);
         }
         let start = state_u64(staging, "pack_next_start")?;
         let after = state_u64(staging, "packed_through")?;
-        let (segment, full) = collect_segment(staging, after, start)?;
+        let (segment, full) = collect_segment(staging, after, start, fold.as_ref())?;
         if !full {
             return Ok(Packed::Done);
         }
         let end = segment.last;
         let tx = staging.unchecked_transaction()?;
         let kept = segment.sequences.len();
-        write_segment(&tx, source, segment, end)?;
+        let (_, compacted) = write_segment(&tx, source, segment, end)?;
+        commit_compacted(&tx, fold.as_mut(), compacted)?;
         forget_packed(&tx, start, end)?;
         set_state(&tx, "pack_next_start", &(end + 1).to_string())?;
         set_state(&tx, "packed_through", &end.to_string())?;
@@ -709,6 +716,7 @@ fn collect_segment(
     staging: &Connection,
     after: u64,
     start: u64,
+    fold: Option<&StatedFold>,
 ) -> anyhow::Result<(OpenSegment, bool)> {
     let limit = segment_record_limit();
     let mut statement = staging.prepare(
@@ -721,6 +729,14 @@ fn collect_segment(
     while let Some(row) = rows.next()? {
         let sequence = u64::try_from(row.get::<_, i64>(0)?)?;
         let json = chunks.record(staging, row.get::<_, i64>(2)?, sequence)?;
+        // A compaction packs the record without the upserts it restates
+        // (`journal_compact.rs`); the fold moves only once the record is in.
+        let folded = match fold {
+            Some(fold) => fold_record(json, fold, &segment.compacted.delta)
+                .with_context(|| format!("compact journal record {sequence}"))?,
+            None => Folded::default(),
+        };
+        let json = folded.rewritten.as_ref().map_or(json, |rewritten| rewritten.json.as_slice());
         if segment.writer.records() == limit
             || (segment.writer.records() > 0 && !segment.writer.fits(json))
         {
@@ -728,6 +744,11 @@ fn collect_segment(
         }
         anyhow::ensure!(sequence >= start, "kept journal record {sequence} is before {start}");
         segment.writer.push(json);
+        segment.compacted.delta.extend(folded.delta);
+        if let Some(rewritten) = folded.rewritten {
+            segment.compacted.removed += rewritten.removed;
+            segment.compacted.subjects.push((sequence, rewritten.subjects));
+        }
         segment.sequences.push(sequence);
         segment.last = sequence;
         segment.kinds.insert(row.get::<_, String>(1)?);
@@ -739,13 +760,14 @@ fn collect_segment(
 }
 
 /// Writes `segment` over `start..=end` with its pruned ranges and the index
-/// rows of its records. Returns its pruned ranges.
+/// rows of its records. Returns its pruned ranges and what a compaction did
+/// to its records, for the caller to commit in the same transaction.
 fn write_segment(
     staging: &Connection,
     source: &Connection,
-    segment: OpenSegment,
+    mut segment: OpenSegment,
     end: u64,
-) -> anyhow::Result<u64> {
+) -> anyhow::Result<(u64, Compacted)> {
     let mut previous = segment.start - 1;
     let mut pruned = 0;
     for &sequence in &segment.sequences {
@@ -763,12 +785,25 @@ fn write_segment(
         insert_pruned(staging, previous + 1, end)?;
         pruned += 1;
     }
+    // Before the index rows are derived: a rewritten record's subjects.
+    if !segment.compacted.subjects.is_empty() {
+        let mut update = staging.prepare_cached(
+            "UPDATE main.output_cleanup_records
+             SET index_json = json_set(index_json, '$.subjects', json(?2))
+             WHERE sequence = ?1",
+        )?;
+        for (sequence, subjects) in &segment.compacted.subjects {
+            let changed = update.execute(params![i64::try_from(*sequence)?, subjects])?;
+            anyhow::ensure!(changed == 1, "staged journal record {sequence} is missing");
+        }
+    }
     copy_index_rows(staging, source, segment.start, end, &segment.sequences)?;
     let with_actors = table_columns(staging, "main", "journal_segments")?
         .iter()
         .any(|name| name == "actors_json");
+    let compacted = std::mem::take(&mut segment.compacted);
     segment.insert(staging, end, i64::try_from(unix_epoch_ms()?)?, with_actors)?;
-    Ok(pruned)
+    Ok((pruned, compacted))
 }
 
 /// At the swap: packs every staged record after `after` into segments from
@@ -782,15 +817,18 @@ pub(super) fn pack_rest(
 ) -> anyhow::Result<(u64, u64)> {
     let mut segments = 0;
     let mut pruned = 0;
+    let mut fold = stated_fold(staging)?;
     // Each pass packs at least one staged record (or fails), so it ends.
     loop {
-        let (segment, full) = collect_segment(staging, after, start)?;
+        let (segment, full) = collect_segment(staging, after, start, fold.as_ref())?;
         anyhow::ensure!(
             !segment.sequences.is_empty(),
             "no kept record is left for the last journal segment"
         );
         let end = if full { segment.last } else { head };
-        pruned += write_segment(staging, source, segment, end)?;
+        let (ranges, compacted) = write_segment(staging, source, segment, end)?;
+        pruned += ranges;
+        commit_compacted(staging, fold.as_mut(), compacted)?;
         forget_packed(staging, start, end)?;
         segments += 1;
         if !full {
@@ -972,6 +1010,49 @@ struct OpenSegment {
     writer: SegmentWriter,
     kinds: BTreeSet<String>,
     actors: BTreeMap<String, String>,
+    compacted: Compacted,
+}
+
+/// What a compaction did to the records of one open segment
+/// (`journal_compact.rs`); empty for an output cleanup.
+#[derive(Default)]
+struct Compacted {
+    /// The records' changes to the stated fold.
+    delta: FoldDelta,
+    /// The narrowed subjects of each rewritten record, by sequence.
+    subjects: Vec<(u64, String)>,
+    /// Changes removed from the rewritten records.
+    removed: u64,
+}
+
+/// The stated fold of a compaction's staging file; `None` for an output
+/// cleanup, whose pack copies every record as it is.
+fn stated_fold(staging: &Connection) -> anyhow::Result<Option<StatedFold>> {
+    match CleanupMode::of(staging)? {
+        CleanupMode::Output => Ok(None),
+        CleanupMode::Compact => StatedFold::load(staging).map(Some),
+    }
+}
+
+/// Commits what a packed segment's records did to the fold, with the
+/// compaction's counts, in that segment's staging transaction.
+fn commit_compacted(
+    transaction: &Connection,
+    fold: Option<&mut StatedFold>,
+    compacted: Compacted,
+) -> anyhow::Result<()> {
+    let Some(fold) = fold else { return Ok(()) };
+    for (key, count) in [
+        ("compact_rewritten", compacted.subjects.len() as u64),
+        ("compact_removed_changes", compacted.removed),
+    ] {
+        transaction.execute(
+            "UPDATE main.output_cleanup_state SET value = CAST(value AS INTEGER) + ?1
+             WHERE key = ?2",
+            params![i64::try_from(count)?, key],
+        )?;
+    }
+    fold.commit(transaction, compacted.delta)
 }
 
 impl OpenSegment {
@@ -983,6 +1064,7 @@ impl OpenSegment {
             writer: SegmentWriter::new(),
             kinds: BTreeSet::new(),
             actors: BTreeMap::new(),
+            compacted: Compacted::default(),
         }
     }
 
@@ -1130,6 +1212,8 @@ pub(super) fn stage_range(
                 u64::try_from(start)?,
                 u64::try_from(end)?,
                 count,
+                // Sealed after the build began, from live rows: whole.
+                SegmentGaps::Damage,
             )?;
             for record in records {
                 if record.0 > after && record.0 <= through {

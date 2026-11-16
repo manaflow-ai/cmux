@@ -30,6 +30,13 @@ run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', in
 # `cloud pause-machine`, opens the Cloud page, fails unless the machine's row says "a month while paused"
 # (cmux-platform#1150's paused_hourly_rate_usd, webviews/src/pages/cloud/cost.ts), uploads the page and window
 # images as cloud-paused-price-staging and kills the machine, as the chat proof kills its own.
+# Claude login: nobody answers the start's login question in CI (cmux-cloud-start-core harness_login.rs), so the
+# chat and matrix lines pass --grant-claude-login (the launched app's own scratch cmux.json says yes to the one-time
+# consent a Release-rules build, build=published, waits for), --cache-claude-login (the repository's
+# CLAUDE_CODE_OAUTH_TOKEN, the agent test account's `claude setup-token` login, becomes the signed-in account's cached
+# Claude login for the run, stored as the app stores one and removed at the end) and --login pass (the start copies
+# that login to its own machine: install-cached on build=tagged, after the consent on build=published). --login none
+# copied nothing and left Claude signed out on a team the gateway does not serve (run 42940662878). Claude chats only.
 on:
   workflow_dispatch:
     inputs:
@@ -342,7 +349,7 @@ jobs:
           git diff --exit-code "$client_commit" HEAD -- cmux-tui ghostty ghostty-next
           client_bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
           mkdir -p "$client_bundle/Contents"
-          env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" \
+          env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" --arch native \
             --manifest-url "https://files.cmux.com/cmux-tui/$client_commit/manifest.json" \
             --expected-commit "$client_commit" --require-capability wireguard-hub \
             --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
@@ -467,6 +474,8 @@ jobs:
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
           PROOF_AGENT: ${{ inputs.agent }}
+          # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PROOF_FROM_FOLDER: ${{ inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail
@@ -474,6 +483,7 @@ jobs:
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
             --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend staging \
             --expected-api-origin https://cloud-api-staging.cmux.dev --credentials-file "$credentials" \
+            --grant-claude-login --cache-claude-login --login pass \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json"
 
       - name: Staging paused price capture
@@ -500,13 +510,15 @@ jobs:
         timeout-minutes: 90
         env:
           PROOF_AGENT: ${{ inputs.agent }}
+          # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-chat-proof/matrix-staging"
           status=0
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" \
             --agents "$PROOF_AGENT" --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev \
-            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --out "$out" || status=$?
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --cache-claude-login --login pass --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
@@ -699,6 +711,8 @@ jobs:
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
           PROOF_AGENT: ${{ inputs.agent }}
+          # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PROOF_FROM_FOLDER: ${{ inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail
@@ -706,6 +720,7 @@ jobs:
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
             --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend prod \
             --expected-api-origin https://cloud-api.cmux.dev --credentials-file "$credentials" \
+            --grant-claude-login --cache-claude-login --login pass \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json"
 
       - name: Prod Cloud workspace matrix
@@ -713,13 +728,15 @@ jobs:
         timeout-minutes: 90
         env:
           PROOF_AGENT: ${{ inputs.agent }}
+          # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-chat-proof/matrix-prod"
           status=0
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" \
             --agents "$PROOF_AGENT" --cloud-backend prod --expected-api-origin https://cloud-api.cmux.dev \
-            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --out "$out" || status=$?
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --cache-claude-login --login pass --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
