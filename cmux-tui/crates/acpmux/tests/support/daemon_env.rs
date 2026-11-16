@@ -238,7 +238,15 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
 /// [`moved_scratch_base`] on the boot volume and is removed when the process exits.
 #[cfg(unix)]
 fn scratch_base() -> PathBuf {
-    let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    // Cargo defines this for integration tests, but not for the fixture-capture unit test.
+    // In that case stay beside the test executable, still under Cargo's build directory.
+    let target = option_env!("CARGO_TARGET_TMPDIR").map(PathBuf::from).unwrap_or_else(|| {
+        std::env::current_exe()
+            .expect("test executable")
+            .parent()
+            .expect("test executable directory")
+            .join("test-tmp")
+    });
     // With the host's HOME still: a checkout in ~/Documents is guarded too.
     if acpmux::protected_folders::unasked_refusal(&target).is_none() {
         return target;
