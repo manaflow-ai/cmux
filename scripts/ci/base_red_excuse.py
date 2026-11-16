@@ -2153,6 +2153,11 @@ def passed_on_base_verdict(repo: str, base: str, name: str, head: UnplacedSignat
     (run, job, signature)) name one that each of those verdicts ran and passed; returns None when no base log says
     so. A refusal only: it never excuses a red."""
     markers: set = set()
+    # Whether merging the base clears the whole red, so whether that is said: no extra error line of the head names
+    # another script, and no failed step is the head's alone. A line naming no script at all (a check's own summary,
+    # `FAIL: convention violations found`) cannot be told from the passed check's own output, so it does not count
+    # against it; a line naming a script that did not pass on the base is other work a base merge leaves.
+    whole = True
     for _, job, found in seen:
         extra = sorted((head.errors - found.errors).elements())
         if not extra:
@@ -2162,15 +2167,24 @@ def passed_on_base_verdict(repo: str, base: str, name: str, head: UnplacedSignat
         asked = {marker for marker in asked if check_passed_in(log, marker)}
         if not asked:
             return None
+        whole = whole and not any(sub_checks(error) and not (sub_checks(error) & asked) for error in extra)
         markers = asked if not markers else markers & asked
         if not markers:
             return None
+    # No base verdict was read at all (every log read failed): there is nothing to name.
+    if not seen or not markers:
+        return None
+    if head.steps - sum((found.steps for _, _, found in seen), Counter()):
+        whole = False  # a failed step of its own, beside these lines
     run = seen[0][0]
     url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
     said = "; ".join(sorted(markers))[:200]
     raise Refused(f"'{name}': {base} run {run['id']} ran {said} in '{name}' and it passed there ({url}), so this red "
-                  f"is not {base}'s; when {base} fixed what it reports after this PR's merge-base, merge {base} into "
-                  f"the branch and the red goes")
+                  f"is not {base}'s"
+                  + (f"; when {base} fixed what it reports after this PR's merge-base, merge {base} into the branch "
+                     "and the red goes" if whole
+                     else f"; {base} may have fixed what it reports after this PR's merge-base, and this head fails "
+                          "more besides, which a base merge does not clear"))
 
 
 

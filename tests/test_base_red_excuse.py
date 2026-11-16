@@ -10688,6 +10688,25 @@ class SubCheckThePassedOnTheBase(unittest.TestCase):
         self.assertEqual(excuse.sub_checks(f"##[error]{self.LINT} failed"),
                          frozenset({"scripts/lint-ios-package-conventions.sh"}))
 
+    def test_no_base_evidence_at_all_says_nothing(self):
+        # Review F1: with no base verdict read there is nothing to name, and nothing to raise about.
+        self.assertIsNone(excuse.passed_on_base_verdict(REPO, "feat-cmux-next", self.CHECKS,
+                                                        excuse.UnplacedSignature(Counter(), Counter(), Counter(),
+                                                                                 frozenset(), ()),
+                                                        [], None))
+
+    def test_a_head_that_fails_more_besides_is_not_told_a_base_merge_clears_it(self):
+        # Review F2: a line naming another script (one the base did not pass) is work a base merge leaves, so the
+        # merge sentence is not said. A summary line naming no script is the passed check's own output and does not
+        # count against it, which the case above covers.
+        with self.assertRaises(excuse.Refused) as raised:
+            self.judge(self.github(head_lines=(*self.HEAD_LINES,
+                                               "##[error]./scripts/check-motion.sh: 2 ungated animations")))
+        said = str(raised.exception)
+        self.assertIn("it passed there", said)
+        self.assertIn("fails more besides", said)
+        self.assertNotIn("and the red goes", said)
+
     def test_only_the_runners_ok_line_counts_as_passed(self):
         # A step that merely echoes the script's name (its `Run` body, a usage line) never counts as having passed it.
         self.assertTrue(excuse.check_passed_in(f"##[group]{self.LINT}: ok, 22s", "scripts/lint-ios-package-conventions.sh"))
