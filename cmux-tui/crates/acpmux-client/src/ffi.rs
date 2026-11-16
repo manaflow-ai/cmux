@@ -5,7 +5,7 @@
 //! the ABI boundary.
 
 use crate::chat::{ChatBlobRequest, ChatChange, ChatPageRequest, ChatSubRequest};
-use crate::page::{ListDriver, NextRequest, OpenRequest, PageRequest};
+use crate::page::{DriverError, ListDriver, NextRequest, OpenRequest, PageRequest};
 use crate::wire::{FolderPageResult, FolderWindow, ListKey, Page, Sub};
 use crate::{Change, Client};
 use serde_json::{Value, json};
@@ -45,6 +45,29 @@ pub const ACPMUX_CLIENT_ERR_INVALID: i32 = -2;
 pub const ACPMUX_CLIENT_ERR_UNKNOWN: i32 = -3;
 /// A panic was caught inside the ABI boundary.
 pub const ACPMUX_CLIENT_ERR_PANIC: i32 = -4;
+/// The page operation is busy with another batch or question.
+pub const ACPMUX_PAGE_ERR_BUSY: i32 = -5;
+/// A page operation exceeded a bounded list limit.
+pub const ACPMUX_PAGE_ERR_LIMIT: i32 = -6;
+/// The page operation named no open sid or question.
+pub const ACPMUX_PAGE_ERR_SID: i32 = -7;
+/// The page operation was refused by its page contract.
+pub const ACPMUX_PAGE_ERR_REQUEST: i32 = -8;
+
+fn page_error(error: DriverError) -> i32 {
+    match error {
+        DriverError::Busy => ACPMUX_PAGE_ERR_BUSY,
+        DriverError::Limit(_) => ACPMUX_PAGE_ERR_LIMIT,
+        DriverError::MissingQuestion => ACPMUX_PAGE_ERR_SID,
+        DriverError::Invalid(code) if code == "list.sid" => ACPMUX_PAGE_ERR_SID,
+        DriverError::Invalid(code)
+            if code == "list.request" || code == "list.unsupported" || code == "list.page" =>
+        {
+            ACPMUX_PAGE_ERR_REQUEST
+        }
+        DriverError::Invalid(_) => ACPMUX_CLIENT_ERR_INVALID,
+    }
+}
 
 #[repr(C)]
 pub struct Bytes {
@@ -351,7 +374,7 @@ pub unsafe extern "C" fn acpmux_client_subscribe(
         };
         let sub = match serde_json::from_slice::<Sub>(bytes) {
             Ok(sub) => sub,
-            Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
+            Err(error) => return page_error(error),
         };
         let client = match handle_mut(handle) {
             Ok(client) => client,
@@ -359,7 +382,7 @@ pub unsafe extern "C" fn acpmux_client_subscribe(
         };
         match client.subscribe(sub) {
             Ok(sid) => output(out, serde_json::to_vec(&json!({"sid":sid})).unwrap_or_default()),
-            Err(_) => ACPMUX_CLIENT_ERR_INVALID,
+            Err(error) => page_error(error),
         }
     })
 }
@@ -748,7 +771,7 @@ pub unsafe extern "C" fn acpmux_page_driver_next_event(
         let batch = match driver.next_batch() {
             Ok(Some(batch)) => batch,
             Ok(None) => return output(out, Vec::new()),
-            Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
+            Err(error) => return page_error(error),
         };
         match batch.json() {
             Ok(bytes) => output(out, bytes),
@@ -765,8 +788,8 @@ pub unsafe extern "C" fn acpmux_page_driver_next_event(
 pub unsafe extern "C" fn acpmux_page_driver_taken(handle: *mut c_void, number: u64) -> i32 {
     guarded(|| {
         page_driver_mut(handle).map_or_else(
-            |_| ACPMUX_CLIENT_ERR_INVALID,
-            |driver| driver.taken(number).map_or(ACPMUX_CLIENT_ERR_INVALID, |_| ACPMUX_CLIENT_OK),
+            |error| error,
+            |driver| driver.taken(number).map_or_else(page_error, |_| ACPMUX_CLIENT_OK),
         )
     })
 }
@@ -797,7 +820,7 @@ pub unsafe extern "C" fn acpmux_page_driver_open(
         };
         match driver.open(request) {
             Ok(sid) => output(out, serde_json::to_vec(&json!({"sid": sid})).unwrap_or_default()),
-            Err(_) => ACPMUX_CLIENT_ERR_INVALID,
+            Err(error) => page_error(error),
         }
     })
 }
@@ -828,7 +851,7 @@ pub unsafe extern "C" fn acpmux_page_driver_close(
             Ok(driver) => driver,
             Err(error) => return error,
         };
-        driver.close(sid).map_or(ACPMUX_CLIENT_ERR_INVALID, |_| ACPMUX_CLIENT_OK)
+        driver.close(sid).map_or_else(page_error, |_| ACPMUX_CLIENT_OK)
     })
 }
 
@@ -855,9 +878,7 @@ pub unsafe extern "C" fn acpmux_page_driver_want(
             Ok(driver) => driver,
             Err(error) => return error,
         };
-        driver
-            .want(&request.sid, request.keys)
-            .map_or(ACPMUX_CLIENT_ERR_INVALID, |_| ACPMUX_CLIENT_OK)
+        driver.want(&request.sid, request.keys).map_or_else(page_error, |_| ACPMUX_CLIENT_OK)
     })
 }
 
@@ -884,9 +905,7 @@ pub unsafe extern "C" fn acpmux_page_driver_unwant(
             Ok(driver) => driver,
             Err(error) => return error,
         };
-        driver
-            .unwant(&request.sid, request.keys)
-            .map_or(ACPMUX_CLIENT_ERR_INVALID, |_| ACPMUX_CLIENT_OK)
+        driver.unwant(&request.sid, request.keys).map_or_else(page_error, |_| ACPMUX_CLIENT_OK)
     })
 }
 
@@ -916,7 +935,7 @@ pub unsafe extern "C" fn acpmux_page_driver_page(
         };
         match driver.page(request) {
             Ok(id) => output(out, serde_json::to_vec(&json!({"id": id})).unwrap_or_default()),
-            Err(_) => ACPMUX_CLIENT_ERR_INVALID,
+            Err(error) => page_error(error),
         }
     })
 }
@@ -944,8 +963,6 @@ pub unsafe extern "C" fn acpmux_page_driver_next(
             Ok(driver) => driver,
             Err(error) => return error,
         };
-        driver
-            .next(&request.sid, &request.id)
-            .map_or(ACPMUX_CLIENT_ERR_INVALID, |_| ACPMUX_CLIENT_OK)
+        driver.next(&request.sid, &request.id).map_or_else(page_error, |_| ACPMUX_CLIENT_OK)
     })
 }
