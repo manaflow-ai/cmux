@@ -102,8 +102,9 @@ final class AppsProviderChannel {
         didSet { if let turnedOff { answerRunningDisabled(turnedOff) } }
     }
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "apps.provider")
-    /// `apps-page-styles`: the daemon's full site-style snapshot, sent to the `page` family's connection.
-    @ObservationIgnored var onPageStyles: (@MainActor (AppJSON) -> Void)?
+    /// `apps-site-styles`: the daemon's full site-style snapshot, sent to the `browser.site` family's
+    /// connection at any time (right after the registration, possibly before its reply).
+    @ObservationIgnored var onSiteStyles: (@MainActor (AppJSON) -> Void)?
 
     init(link: AppsProviderLink, backoff: Backoff = AppsProviderChannel.registerBackoff) {
         self.link = link
@@ -132,13 +133,13 @@ final class AppsProviderChannel {
         register()
     }
 
-    /// `apps-provider-request`, `apps-provider-cancel` and `apps-page-styles` (true; a call of a
+    /// `apps-provider-request`, `apps-provider-cancel` and `apps-site-styles` (true; a call of a
     /// family this channel does not serve is left to its own provider);
     /// other events are not the provider's.
     func handle(name: String, payload: CmuxNextDaemon.JSONValue) -> Bool {
         switch name {
-        case "apps-page-styles":
-            onPageStyles?(AppJSON(payload))
+        case "apps-site-styles":
+            onSiteStyles?(AppJSON(payload))
             return true
         case "apps-provider-request":
             guard let call = RoutedAppCall(AppJSON(payload)) else { return true }
@@ -159,7 +160,7 @@ final class AppsProviderChannel {
     /// Source-aware production entrypoint; a retained old event cannot become a new call.
     func handle(_ envelope: DaemonEventEnvelope) -> Bool {
         guard case .unknown(let name, let payload) = envelope.event else { return false }
-        guard link.accepts(envelope) else { return name.hasPrefix("apps-provider-") || name == "apps-page-styles" }
+        guard link.accepts(envelope) else { return name.hasPrefix("apps-provider-") || name == "apps-site-styles" }
         return handle(name: name, payload: payload)
     }
 

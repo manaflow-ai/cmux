@@ -50,6 +50,35 @@ struct AppsProviderChannelNewerFamilyTests {
         #expect(seen == [["coderouter", "memory", "toast"], ["coderouter", "memory"]])
     }
 
+    /// A daemon that knows `browser.page` but predates `browser.site` keeps `browser.page` and the rest.
+    @Test func aDaemonWithoutBrowserSiteKeepsBrowserPage() async {
+        let (attempts, sink) = AsyncStream.makeStream(of: [String].self)
+        let connection = NSObject()
+        let link = AppsProviderLink(connection: { connection }, register: { _, families in
+            sink.yield(families)
+            if families.contains("browser.site") { return "bad-request" }
+            sink.finish()
+            return nil
+        }, answer: { _, _, _, _ in })
+        let channel = AppsProviderChannel(link: link)
+        channel.attach(AppHostCapabilities([Owner(families: ["browser.page"]), Owner(families: ["browser.site"]), Owner(families: ["toast"])]))
+        channel.connectionChanged(epoch: 1)
+        var seen: [[String]] = []
+        for await families in attempts { seen.append(families) }
+        #expect(seen == [["browser.page", "browser.site", "toast"], ["browser.page", "toast"]])
+    }
+
+    /// `apps-site-styles` reaches its handler whether or not the registration has answered yet.
+    @Test func aSiteStylesSnapshotIsHandledAtAnyTime() {
+        let link = AppsProviderLink(connection: { nil }, register: { _, _ in nil }, answer: { _, _, _, _ in })
+        let channel = AppsProviderChannel(link: link)
+        var received: [AppJSON] = []
+        channel.onSiteStyles = { received.append($0) }
+        #expect(channel.handle(name: "apps-site-styles", payload: .object(["styles": .array([])])))
+        #expect(received == [["styles": []]])
+        #expect(!channel.handle(name: "apps-page-styles", payload: .object([:])), "the old name is not the provider's")
+    }
+
     @Test func aCurrentDaemonRegistersEveryFamilyOnce() async {
         let (attempts, sink) = AsyncStream.makeStream(of: [String].self)
         let connection = NSObject()

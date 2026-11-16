@@ -26,7 +26,7 @@ public final class BrowserSharedStores {
     package let httpCredentials: any BrowserHTTPCredentialStoring
     /// Scripts the App runs in the isolated world of each document that commits for an origin
     /// (`scheme://host[:port]`), in both engines, before its first paint: extension site styles
-    /// (`apps-page-styles`). Empty by default.
+    /// (`apps-site-styles`). Empty by default.
     public var documentCommitScripts: @MainActor (_ origin: String) -> [String] = { _ in [] }
 
     /// Stores over `offTheRecord`.
