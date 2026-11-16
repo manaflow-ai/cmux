@@ -171,7 +171,9 @@ pub const VIEW_STATE_OPS: &[&str] = &[
 /// Provider ops that open UI (a file panel) need a gesture the same way.
 /// Listed here before the provider's op joins scopes.json, so a VM can never
 /// open a panel without one.
-pub const PANEL_OPS: &[&str] = &["fs.pick"];
+/// `system_calendar.access.request` shows the system Calendars prompt (or
+/// opens Privacy & Security after a refusal): only in answer to a tap.
+pub const PANEL_OPS: &[&str] = &["fs.pick", "system_calendar.access.request"];
 
 /// Ops that change what the person has seen or chosen about their chats: an app
 /// marks a chat read or pins it only in answer to a tap, never on its own.

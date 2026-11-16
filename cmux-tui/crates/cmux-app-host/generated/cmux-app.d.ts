@@ -580,6 +580,12 @@ interface CmuxPageRead {
 }
 /** A link-hint label `page.hints` drew: type it to `page.follow` it. `href` is null for a button, field or other non-link. */
 interface CmuxPageHint { label: string; text: string; href: string | null }
+/** Whether this Mac lets cmux read its calendars: `not_determined` until the person answers the system prompt. */
+type CmuxSystemCalendarAccess = "granted" | "not_determined" | "denied" | "restricted"
+/** One event of the Mac's calendars. Times are Unix milliseconds; an all-day event spans whole local days. `color` is the calendar's color (`#rrggbb`). */
+interface CmuxSystemCalendarEvent { id: string; title: string; start: number; end: number; all_day: boolean; calendar: string; calendar_title: string; color: string; location?: string }
+/** `system_calendar.events.list`'s answer: events only when `access` is `granted`, ordered by start. */
+interface CmuxSystemCalendarEvents { access: CmuxSystemCalendarAccess; events: CmuxSystemCalendarEvent[] }
 
 interface CmuxGlobal {
   agent: {
@@ -1919,6 +1925,13 @@ interface CmuxGlobal {
     hints: CmuxOp<{ tab?: string; action: "show" | "clear" }, { tab: string; hints: CmuxPageHint[] }>
     /** `page.follow` (mutation, scope `page:write`, needs a gesture): clicks the element of a shown hint, or with `new_split` opens its link in a new browser split (the built-in `F`), then clears the hints. `followed` is false when the label is not shown (any more), or `new_split` names a hint with no link. */
     follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
+  }
+  /** The Mac's own calendars (EventKit), read by the cmux Mac app. macOS asks the person once; until then reads answer `access: "not_determined"` with no events. */
+  system_calendar: {
+    /** `system_calendar.events.list` (read, scope `system_calendar:read`): the events between `from` and `to` (Unix ms, at most 32 days apart), at most `limit` (default 50, up to 200), from every calendar or the named ones. Cached for 30 s. */
+    events: { list: CmuxOp<{ from: number; to: number; limit?: number; calendars?: string[] }, CmuxSystemCalendarEvents> }
+    /** `system_calendar.access.request` (scope `system_calendar:read`, needs a gesture): shows the system Calendars prompt, or after a refusal opens Privacy & Security > Calendars, and answers the access then. */
+    access: { request: CmuxOp<Record<string, never>, { access: CmuxSystemCalendarAccess }> }
   }
   palette: CmuxPalette
   act: typeof act

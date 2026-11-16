@@ -411,6 +411,8 @@
     "stash.import",
     "stash.list",
     "stash.restore",
+    "system_calendar.access.request",
+    "system_calendar.events.list",
     "tab.create_browser",
     "tab.create_terminal",
     "tab.focus",

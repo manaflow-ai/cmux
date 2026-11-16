@@ -273,3 +273,25 @@ export function onChange<T>(live: Live<T>, fn: (value: T) => void, options: { in
     untrack(() => fn(value))
   })
 }
+
+// ---------------------------------------------------------------------------------------------
+// The Mac's own calendars (EventKit), read by the cmux Mac app. Scope `system_calendar:read`; macOS
+// asks the person once, and until then a read answers `access: "not_determined"` with no events.
+
+/** Whether this Mac lets cmux read its calendars. */
+export type CalendarAccess = CmuxSystemCalendarAccess
+/** One event: Unix ms times, the calendar's id, name and `#rrggbb` color. */
+export type CalendarEvent = CmuxSystemCalendarEvent
+
+/** The events between `from` and `to` (Unix ms, at most 32 days apart), ordered by start, with the access. */
+export function calendarEvents(range: { from: number; to: number; limit?: number; calendars?: string[] }): Promise<CmuxSystemCalendarEvents> {
+  return cmux.call<CmuxSystemCalendarEvents>("system_calendar.events.list", range)
+}
+
+/**
+ * Asks macOS for calendar access: its prompt the first time, Privacy & Security > Calendars after a
+ * refusal. Call it from a button's action (it needs the person's tap) and read the events again after.
+ */
+export function requestCalendarAccess(): Promise<CalendarAccess> {
+  return cmux.call<{ access: CalendarAccess }>("system_calendar.access.request", {}, { gesture: cmux.gesture() ?? undefined }).then((r) => r.access)
+}
