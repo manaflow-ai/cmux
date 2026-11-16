@@ -24,7 +24,7 @@ extension TabContentCache {
         session.showsTerminal(daemon.terminalIdentity(of: tab), carrying: nil)
         let entry = TerminalEntry(validity: daemon.terminalViewValidity(of: tab), session: session, io: io,
                                   themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab), store: daemon.store, surface: tab.surface)
-        guestSessions[ObjectIdentifier(session)] = tab.id
+        guestTerminals[ObjectIdentifier(session)] = (tab.id, entry)
         session.delegate = sessionDelegate // after the session resolves to its tab (`tabKey(for:)`)
         session.isRenderingSuspended = !visible
         return entry
@@ -32,7 +32,7 @@ extension TabContentCache {
 
     /// The pane that showed guest view `entry` let it go.
     func closeGuestTerminal(_ entry: TerminalEntry) {
-        guestSessions[ObjectIdentifier(entry.session)] = nil
+        guestTerminals[ObjectIdentifier(entry.session)] = nil
         entry.close()
     }
 }

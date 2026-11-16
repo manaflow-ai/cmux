@@ -260,7 +260,7 @@ final class ThemeCoordinator {
     func apply(forceSurfaces: Bool = false) {
         applies.advance()
         for controller in services.windows.controllers { windowDidChange(controller) }
-        if forceSurfaces { for entry in services.cache.terminals.values { entry.themeBinding.syncSurface(force: true) } }
+        if forceSurfaces { for entry in Array(services.cache.terminals.values) + services.cache.guestTerminals.values.map(\.entry) { entry.themeBinding.syncSurface(force: true) } }
     }
 
     func setTheme(of scope: ThemeScope, to text: String?) {
