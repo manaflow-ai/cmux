@@ -99,14 +99,16 @@ async function until(check: () => boolean, what: string, within = 15_000) {
 const newTab = { template: "default", cwd: "/tmp/spare-project", projects: ["/tmp/spare-project"] };
 
 /// The pane on a host that answers with the in-page mock daemon: a spare New Tab page (`spare`),
-/// or the mock's chat opened directly.
-async function mount(kind: "spare" | "direct") {
+/// the mock's chat opened directly (`direct`), or a new chat's page with no New Tab context (`new`).
+async function mount(kind: "spare" | "direct" | "new") {
   const { WORKED_SESSION } = await import("../src/agent-session/acpmux/mockFixture");
   if (kind === "spare") Object.assign(dom.window, { __cmuxNewTabContext: newTab });
   const ready =
     kind === "spare"
       ? { protocolVersion: 1, transport: "mock", newSession: true, machineName: "Mac", newTab }
-      : { protocolVersion: 1, transport: "mock", sessionId: WORKED_SESSION, machineName: "Mac" };
+      : kind === "new"
+        ? { protocolVersion: 1, transport: "mock", newSession: true, machineName: "Mac" }
+        : { protocolVersion: 1, transport: "mock", sessionId: WORKED_SESSION, machineName: "Mac" };
   Object.assign(dom.window, {
     webkit: {
       messageHandlers: {
@@ -153,6 +155,9 @@ test("a spare holds the chat view hidden, and its adopt shows those nodes instea
   await until(() => dock() !== null && stage() !== null, "the spare built the chat view");
   const builtDock = dock()!;
   const builtStage = stage()!;
+  // The transcript too: the adopt draws the chat's rows into the scroller the spare built.
+  const builtScroller = host.querySelector(".acpmux-scroll");
+  expect(builtScroller, "the spare built the transcript").not.toBeNull();
   expect(shown(builtDock), "the built chat view is hidden while New Tab shows").toBe(false);
   expect(shown(builtStage)).toBe(false);
   expect(rows()).toBe(0);
@@ -171,6 +176,7 @@ test("a spare holds the chat view hidden, and its adopt shows those nodes instea
   expect(shown(builtStage)).toBe(true);
   await until(() => rows() > 0, "the adopted chat draws its rows");
   expect(dock()).toBe(builtDock);
+  expect(host.querySelector(".acpmux-scroll"), "the rows drew in the scroller the spare built").toBe(builtScroller);
 }, 60_000);
 
 test("the chat a spare took shows what the same chat opened directly shows", async () => {
@@ -205,8 +211,12 @@ test("the chat a spare took shows what the same chat opened directly shows", asy
 }, 60_000);
 
 test("a chat view that goes under a New Tab page (Cmd-T in the page) is built again, not kept", async () => {
-  await mount("direct");
-  await until(() => rows() > 0 && host.querySelector(".acpmux-composer-prompt [contenteditable]") !== null, "the chat");
+  await mount("new");
+  await until(() => host.querySelector(".acpmux-composer-prompt [contenteditable]") !== null, "the new chat's view");
+  await until(
+    () => (dom.window as unknown as { cmuxAcpmuxActions?: Record<string, unknown> }).cmuxAcpmuxActions !== undefined,
+    "the chat connects",
+  );
   const typed = host.querySelector(".acpmux-composer-prompt") as {
     acpmuxMarkdownField?: { type(text: string): unknown };
   };
