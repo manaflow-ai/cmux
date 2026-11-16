@@ -1007,6 +1007,25 @@ mod tests {
         dir
     }
 
+    /// `enable` finds the encoder a session needs: an installed copy is used as it is, with no
+    /// download (the only test that reads `XDG_DATA_HOME`).
+    #[cfg(feature = "openh264")]
+    #[test]
+    fn enable_finds_an_installed_openh264() {
+        let platform = cmux_encode::openh264::Platform::current().unwrap();
+        let data = consent_dir("openh264");
+        let dir = cmux_encode::cisco::dir_from("linux", |key| {
+            (key == "XDG_DATA_HOME").then(|| data.clone().into_os_string())
+        })
+        .unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let lib = cmux_encode::cisco::library_path(&dir, platform);
+        std::fs::write(&lib, b"stand-in").unwrap();
+        std::env::set_var("XDG_DATA_HOME", &data);
+        assert_eq!(openh264_line(), format!("OpenH264 is at {}", lib.display()));
+        std::fs::remove_dir_all(&data).unwrap();
+    }
+
     #[test]
     fn consent_is_read_again_for_each_ticket() {
         let dir = consent_dir("admit");
