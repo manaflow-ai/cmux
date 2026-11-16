@@ -4,7 +4,9 @@
 #   cmux-ci run --class exclusive --measurement --label measure --display --key KEY \
 #     --script scripts/measure/launch-ready.sh --ref <sha> [--arg=dmg=nightly|URL|build] [--arg=base=<sha>] \
 #     [--arg=head=<sha>] [--arg=runs=5] [--arg=profile=1] --artifact .build/launch-ready/report.tgz --timeout 3600
-#   dmg=nightly  the newest build the NIGHTLY feed offers (default); dmg=https://... one DMG
+#   dmg=nightly  the newest build the NIGHTLY feed offers (default); dmg=https://... one DMG; dmg=/path.dmg a DMG on
+#                this Mac (a fleet build of a pull request, run by hand on a leased Mac)
+#   base_dmg=/path.dmg  with dmg=/path.dmg: a second DMG on this Mac as the base side, interleaved as base= is
 #   dmg=build    this checkout built as nightly-fresh-launch.sh builds it (a tagged Release app, ad-hoc signed)
 #   base=SHA     with dmg=build: SHA built too, its runs interleaved with this checkout's (base 1, head 1, ...)
 #   head=SHA     with dmg=build: build SHA as the head instead of this checkout (a pull request's head: the controller
@@ -20,11 +22,12 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly base="" basedmg="" headsha="" runs=5 profile=0 arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   for arg in "$@"; do
     case "$arg" in
-      dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
+      dmg=nightly|dmg=build|dmg=https://*|dmg=/*.dmg) dmg="${arg#dmg=}" ;;
+      base_dmg=/*.dmg) basedmg="${arg#base_dmg=}" ;;
       base=*) base="${arg#base=}" ;;
       head=*) headsha="${arg#head=}" ;;
       runs=*) runs="${arg#runs=}" ;;
@@ -35,6 +38,7 @@ main() {
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
+  [[ -z "$basedmg" || "$dmg" == /* ]] || { echo "base_dmg= takes a DMG on this Mac, with dmg=/path.dmg" >&2; exit 2; }
   echo "LR host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   # Everything this run reads from the checkout is compiled or copied now: the builds below check out other commits.
   xcrun swiftc -O -o "$out/launch-ready" scripts/measure/launch-ready.swift >"$out/swiftc.log" 2>&1 \
@@ -63,6 +67,16 @@ main() {
     build_dmg "$out" head release; rc=$?
     git -c advice.detachedHead=false checkout --quiet --detach "$here" || exit 3
     [[ $rc == 0 ]] || exit "$rc"
+  elif [[ "$dmg" == /* ]]; then
+    [[ -f "$dmg" ]] || { echo "LR no DMG at $dmg"; exit 3; }
+    cp "$dmg" "$out/head.dmg" || exit 3
+    echo "LR dmg head $dmg"
+    if [[ -n "$basedmg" ]]; then
+      [[ -f "$basedmg" ]] || { echo "LR no DMG at $basedmg"; exit 3; }
+      cp "$basedmg" "$out/base.dmg" || exit 3
+      echo "LR dmg base $basedmg"
+      sides=(base head)
+    fi
   else
     if [[ "$dmg" == nightly ]]; then
       dmg="$(curl -fsSL --proto '=https' --retry 3 -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
