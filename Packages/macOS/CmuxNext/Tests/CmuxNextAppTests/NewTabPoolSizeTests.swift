@@ -17,6 +17,9 @@ import Testing
 ///
 /// The pages are inert (each counts as loaded, drawn and connected to acpmux). The refill's wait and the 60 s run on a
 /// clock the test moves; the frames are the app's own.
+///
+/// No test polls: each waits for the moment a timer sleeps on that clock, and for the pool's own events (a page was
+/// made, the refiller's counts changed). A limit on the wall clock only ends a test that fails.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
                   .closesItsWindows)
 struct NewTabPoolSizeTests {
@@ -26,6 +29,8 @@ struct NewTabPoolSizeTests {
         let window: NSWindow
         let clock = ManualClock()
         let rig = NewTabRapidPairTests.Rig()
+        /// What the pool did (a page was made, the refiller's counts changed), as events a test waits for.
+        let events = ChatSpareRefillTests.Events()
         /// Pages made while an input event was in dispatch, and pages made inside an open's own dispatch. The rule is 0.
         var madeInInput = 0
         private var opened = 0
@@ -46,6 +51,7 @@ struct NewTabPoolSizeTests {
             model.clientReady = true
             if services.inputDispatch.event != nil { madeInInput += 1 }
             rig.made.append(view)
+            events.note()
             return view
         }
 
@@ -73,18 +79,14 @@ struct NewTabPoolSizeTests {
             return pages
         }
 
-        /// The refill's wait passes on the pool's clock, in steps, until the pool holds `count` pages. The steps sum
-        /// to 5 s at most, far from the 60 s of the release.
+        /// The refill's wait of the last handout is asleep on the pool's clock (the release's 60 s sleep there too,
+        /// and are due much later), then it passes: the pages come at the app's frames until the pool holds `count`.
         func fills(to count: Int, _ what: String) async throws {
-            var moved = Duration.zero
-            try await PasswordManagerRouteTests.until({
-                if pool.spares.count >= count { return true }
-                if moved < .seconds(5) {
-                    clock.advance(by: .milliseconds(50))
-                    moved += .milliseconds(50)
-                }
-                return false
-            }, within: .seconds(10), report: { "\(what); \(NewTabRapidPairTests.poolState(services, rig))" })
+            try await clock.waitForSleeper(dueBy: clock.now.advanced(by: AgentPaneSpareRefiller.settle))
+            clock.advance(by: AgentPaneSpareRefiller.settle)
+            try await events.wait(until: { pool.spares.count >= count }, report: {
+                "\(what); \(pool.refills.counts); \(NewTabRapidPairTests.poolState(services, rig))"
+            })
             #expect(pool.spares.count == count, "the pool holds \(pool.spares.count) pages, the rule gives \(count)")
         }
 
@@ -109,10 +111,13 @@ struct NewTabPoolSizeTests {
             let pool = services.newTabSpares
             pool.dropAll()
             pool.makeSpare = { [unowned fixture] page in fixture.page(page, html: html) }
+            pool.refills.onCounts = { [events = fixture.events] _ in events.note() }
+            defer { pool.refills.onCounts = nil }
             pool.retarget(window)
             pool.prewarm()
             pool.start()
-            try await PasswordManagerRouteTests.until({ fixture.rig.made.count == 1 && pool.spare != nil }, within: .seconds(5), report: {
+            // The pool parks a page in the turn that made it, so the wait's own turn finds it parked.
+            try await fixture.events.wait(until: { fixture.rig.made.count == 1 && pool.spare != nil }, report: {
                 "no page at the start; \(NewTabRapidPairTests.poolState(services, fixture.rig))"
             })
             // A Mac in Low Power Mode or at a serious thermal state hands no page to a chat (AgentPaneSpareReadiness).
@@ -148,7 +153,8 @@ struct NewTabPoolSizeTests {
         }
     }
 
-    /// 60 s with no open: the pool is back to one page, the one the next open gets. At 59 s it still holds three.
+    /// 60 s with no open: the pool is back to one page, the one the next open gets. One second before, it still
+    /// holds three.
     @Test func sixtySecondsWithNoOpenPutThePoolBackToOnePage() async throws {
         try await Self.withPool("cn-pool-size-release") { fixture in
             let pool = fixture.pool, clock = fixture.clock
@@ -157,14 +163,21 @@ struct NewTabPoolSizeTests {
             try await fixture.fills(to: 3, "no 3 pages followed the burst")
             let next = try #require(pool.spare?.view), others = pool.spares.filter { $0 !== next }
 
-            clock.advance(by: lastOpen + .seconds(59) - clock.now.offset)
+            // The refill's wait ended, so the one timer asleep on the clock is the release. Its 60 s count from the
+            // moment its timer went to sleep: at the last open, or some steps of the test's clock later.
+            try await clock.waitForSleeper()
+            #expect(clock.sleeperDeadlines.count == 1, "\(clock.sleeperDeadlines.count) timers sleep on the pool's clock after the refill")
+            let due = try #require(clock.sleeperDeadlines.first).offset
+            #expect(due >= lastOpen + AgentPaneSpareDemand.release && due <= clock.now.offset + AgentPaneSpareDemand.release,
+                    "the release is due \(due - lastOpen) after the last open")
+
+            clock.advance(by: due - .seconds(1) - clock.now.offset)
             for _ in 0..<5 { await Fixture.frameCommit() }
             #expect(pool.spares.count == 3, "the pool released pages \(clock.now.offset - lastOpen) after the last open")
 
-            // 10 ms more than the second: the release's timer can go to sleep on the clock one step of the burst late.
-            clock.advance(by: .seconds(1) + .milliseconds(10))
-            try await PasswordManagerRouteTests.until({ pool.spares.count == 1 }, within: .seconds(5), report: {
-                "60 s after the last open; \(NewTabRapidPairTests.poolState(fixture.services, fixture.rig))"
+            clock.advance(by: .seconds(1))
+            try await fixture.events.wait(until: { pool.spares.count == 1 }, report: {
+                "60 s after the last open; \(pool.refills.counts); \(NewTabRapidPairTests.poolState(fixture.services, fixture.rig))"
             })
             #expect(pool.capacity == 1, "the pool's size is \(pool.capacity) after the release")
             #expect(pool.spare?.view === next, "the release took the page the next open gets")
@@ -187,31 +200,35 @@ struct NewTabPoolSizeTests {
             let pool = NewTabSparePool(services: services, memoryPressure: MemoryPressureEvents(source: source))
             defer {
                 pool.makeSpare = nil
+                pool.refills.onCounts = nil
                 pool.dropAll()
                 fixture.rig.made.forEach { $0.close() }
                 try? FileManager.default.removeItem(at: folder)
             }
             pool.makeSpare = { [unowned fixture] page in fixture.page(page, html: html) }
+            pool.refills.onCounts = { [events = fixture.events] _ in events.note() }
             pool.idleInput = .milliseconds(50)
             pool.retarget(window)
             pool.prewarm()
-            try await PasswordManagerRouteTests.until({ pool.spares.count == 1 }, within: .seconds(5), report: { "no page at the start" })
+            // The pool parks a page in the turn that made it, so the wait's own turn finds it parked.
+            try await fixture.events.wait(until: { pool.spares.count == 1 }, report: { "no page at the start" })
 
             // Three Cmd-T in one second: each key asks the pool.
             let size = NSSize(width: 640, height: 480)
             let taken = (0..<3).map { _ in pool.take(for: window, size: size)?.view }
             #expect(taken.map { $0 != nil } == [true, false, false])
-            try await PasswordManagerRouteTests.until({ pool.spares.count == 3 }, within: .seconds(5), report: {
-                "no 3 pages followed the burst: \(pool.spares.count) pages, size \(pool.capacity)"
+            try await fixture.events.wait(until: { pool.spares.count == 3 }, report: {
+                "no 3 pages followed the burst: \(pool.spares.count) pages, size \(pool.capacity); \(pool.refills.counts)"
             })
 
             source.send(.warning)
             #expect(pool.spares.isEmpty, "memory pressure kept \(pool.spares.count) pages")
             #expect(pool.capacity == 1, "memory pressure kept the burst's size: \(pool.capacity)")
             source.send(.normal)
-            try await PasswordManagerRouteTests.until({ pool.spares.count == 1 }, within: .seconds(5), report: { "no page after the pressure ended" })
-            // Past the quiet-input warm again: still one page.
-            try await Task.sleep(for: .milliseconds(500))
+            try await fixture.events.wait(until: { pool.spares.count == 1 }, report: { "no page after the pressure ended" })
+            // A pool of size 1 that holds its page has no room: some more passes of the run loop make no page. (No
+            // wait on the wall clock follows; the size is the fact that stops a second page.)
+            for _ in 0..<5 { await Fixture.frameCommit() }
             #expect(pool.spares.count == 1 && pool.capacity == 1, "\(pool.spares.count) pages, size \(pool.capacity), after the pressure ended")
         }
     }
