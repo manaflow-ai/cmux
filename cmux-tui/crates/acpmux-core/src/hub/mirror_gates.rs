@@ -398,11 +398,11 @@ fn turn_cap_compare() {
         let best = capped[side].iter().min().copied().unwrap_or(1);
         let mut drain = drains[side].clone();
         drain.sort_unstable();
+        let drain_p50 = drain[drain.len() / 2];
+        let drain_p95 = p95(&mut drain);
         eprintln!(
             "turn_cap_compare cap {cap}: capped p95 best of rounds {best} rounds {:?}; drain p50 {} p95 {} ns",
-            capped[side],
-            drain[drain.len() / 2],
-            p95(&mut drain)
+            capped[side], drain_p50, drain_p95
         );
     }
 }
