@@ -183,6 +183,7 @@
           "libthai-data": "0.1.29-2build1",
           "libthai0": "0.1.29-2build1",
           "libtiff6": "4.5.1+git230720-4ubuntu2.5",
+          "libutempter0": "1.2.1-3build1",
           "libwebp7": "1.3.2-0.4build3",
           "libwebpdemux2": "1.3.2-0.4build3",
           "libxcb-render0": "1.15-1ubuntu2",
@@ -193,8 +194,10 @@
           "libxinerama1": "2:1.1.4-3build1",
           "openbox": "3.6.1-12build5",
           "poppler-data": "0.4.12-1",
+          "xbitmaps": "1.1.1-2.2",
           "xfonts-encodings": "1:1.0.5-0ubuntu2",
-          "xfonts-utils": "1:7.7+6build3"
+          "xfonts-utils": "1:7.7+6build3",
+          "xterm": "390-1ubuntu3"
         },
         "cua-video": {
           "ffmpeg": "7:6.1.1-3ubuntu5",
@@ -383,27 +386,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "2b2a04135275042a01b818891eecc103f63c577f",
-      "url": "https://files.cmux.com/cmux-tui/2b2a04135275042a01b818891eecc103f63c577f/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "96027fc2d6cb5cf60060a524067188d239a070aa83c2c30126c3a3725e5461ac",
-      "size": 158634352,
+      "version": "c2ccb8326c93be65aac31d76c30a64951b658954",
+      "url": "https://files.cmux.com/cmux-tui/c2ccb8326c93be65aac31d76c30a64951b658954/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "5f9cc1ab283522854f01d9083fa80abc809171c0f574641f91589722297fbbac",
+      "size": 158718576,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/2b2a04135275042a01b818891eecc103f63c577f/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/43870559208; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/c2ccb8326c93be65aac31d76c30a64951b658954/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/43922253590; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "2b2a04135275042a01b818891eecc103f63c577f",
-      "url": "https://files.cmux.com/cmux-tui/2b2a04135275042a01b818891eecc103f63c577f/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "version": "c2ccb8326c93be65aac31d76c30a64951b658954",
+      "url": "https://files.cmux.com/cmux-tui/c2ccb8326c93be65aac31d76c30a64951b658954/cmux-tui-hook-x86_64-unknown-linux-musl",
       "sha256": "ca03f68a4df656b9bcdc95107dcbb0c26750fe1ab33ba115209ff7c1d4bf6aef",
       "size": 4868240,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/2b2a04135275042a01b818891eecc103f63c577f/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/43870559208; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/c2ccb8326c93be65aac31d76c30a64951b658954/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/43922253590; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "coderouter",
@@ -634,7 +637,7 @@
   "roles": {
     "fonts": { "default": "on", "apt": ["fonts-noto-cjk"] },
     "display": { "default": "off", "apt": ["xvfb", "xauth", "at-spi2-core", "libxtst6", "libxi6", "libxkbcommon0"] },
-    "display-wm": { "default": "off", "firstUse": true, "apt": ["openbox"] },
+    "display-wm": { "default": "off", "firstUse": true, "apt": ["openbox", "xterm"] },
     "cua-video": { "default": "off", "firstUse": true, "apt": ["ffmpeg"] },
     "browser": {
       "default": "off",

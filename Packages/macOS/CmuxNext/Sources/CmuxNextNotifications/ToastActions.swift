@@ -51,12 +51,16 @@ package struct ToastActions {
     /// Binds the actions in `registry`.
     package func bind(into registry: ActionRegistry) {
         let center = center, openTuning = openTuning, window = window, themeColors = themeColors
-        let playground = CmuxToastPlaygroundWindow(center: center, window: window, cards: cards)
+        let keycaps = CmuxKeycapPlaygroundWindow()
+        // The Toast Playground opens the Keycap Playground too: its button works before the pinned app FFI has
+        // `debug.keycapPlayground` (the palette shows that action after the re-pin).
+        let playground = CmuxToastPlaygroundWindow(center: center, window: window, cards: cards) {
+            keycaps.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
+        }
         registry.bindEffect("debug.toastPlayground", effect: { _ in
             playground.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
             return .done
         })
-        let keycaps = CmuxKeycapPlaygroundWindow()
         registry.bindEffect("debug.keycapPlayground", effect: { _ in
             keycaps.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
             return .done
