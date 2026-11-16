@@ -21,9 +21,11 @@
 #   --config=NAME    reload.sh's build configuration (default bench)
 #   --allow-no-chromium  the build may have no Chromium engine (a measure of WebKit). Without it the build requires
 #                    Chromium, the default engine of a chat's page (decision 2026-11-16: each measure says its
-#                    engine; scripts/measure/require-chromium.sh), so a host with no engine fails at its build.
-#                    With --app or a reused --skip-build app nothing is built: the table's `page engine` lines say
-#                    which engine each case's opens ran in.
+#                    engine; scripts/measure/require-chromium.sh), so a host with no engine fails at its build,
+#                    and the bench gets --page-engine=cef: an open in another engine makes its case FAILED and the
+#                    step exits 1 (an app given by --app or reused by --skip-build is held to that too). With this
+#                    option the bench refuses no open, and the table's `page engine` lines say what each case ran
+#                    in; --page-engine=webkit after it holds each open to WebKit.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 . scripts/measure/require-chromium.sh
@@ -44,6 +46,10 @@ for arg in "$@"; do
   esac
 done
 set -- ${bench_args[@]+"${bench_args[@]}"}
+# Before the caller's arguments: a --page-engine of the caller's own wins.
+if [[ "$require_chromium" == 1 ]]; then
+  set -- --page-engine=cef "$@"
+fi
 # The commit, configuration and architecture an app was built for: --skip-build reuses only a match.
 # (and whether the build required Chromium: an app built with --allow-no-chromium is not one that required it).
 build_id="$(git rev-parse HEAD)/${reload_config[1]}/${CMUX_RELOAD_NATIVE_ARCH:-default}/chromium-required-$require_chromium/${reload_args[*]:-}"
@@ -73,7 +79,7 @@ else
   if [[ "$require_chromium" == 1 ]]; then
     echo "chat-open: the build requires the Chromium engine (CMUX_NEXT_REQUIRE_CEF=1)"
   else
-    echo "chat-open: --allow-no-chromium: the build may have no Chromium engine; the table says each case's page engine"
+    echo "chat-open: --allow-no-chromium: the build may have no Chromium engine; the bench refuses no open, and the table says each case's page engine"
   fi
   reload_status=0
   CMUX_NEXT_REQUIRE_CEF="$require_chromium" CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" "${reload_config[@]}" ${reload_args[@]+"${reload_args[@]}"} 2>&1 | tee "$out/reload.log" || reload_status=$?
