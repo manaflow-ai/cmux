@@ -149,6 +149,42 @@ crate::framework! {
     }
 }
 
+// The quality cap, bound apart for the same reason (MaxAllowedFrameQP is macOS 12+ and applies
+// to the low-latency rate control this session enables).
+crate::framework! {
+    mod vt_qp_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        static kVTCompressionPropertyKey_MaxAllowedFrameQP: CFStringRef;
+    }
+}
+
+/// The highest QP a frame may take (H.264's scale is 0-51; +6 doubles the quantizer step).
+/// Under low-latency rate control a frame with a big change (a scroll, a window drag, a
+/// video) gets about bitrate/fps bytes, so VideoToolbox raises its QP into the 40s and the
+/// picture smears until later frames refine it. At 34 small UI text stays legible in a
+/// motion frame; 30 is crisper but costs about 1.6x the bytes per motion frame, and 38 and
+/// up blurs 11-13 px text. The frame overshoots its share of the target instead; congestion
+/// control and pacing absorb that, and an oversized frame still takes the engine's
+/// drop-and-halve path. `CMUX_RD_VT_MAX_QP` overrides it for measurement (0 turns it off).
+const MAX_FRAME_QP: i32 = 34;
+
+/// Whether the session prefers encode speed over quality per bit. Off: the media engine
+/// encodes a 4K frame in a few ms either way (encode_thread.rs: 4-10 ms, off the input
+/// loop), small against the glass-to-glass gap, while speed mode spends more bits for the
+/// same picture, which under the QP cap means larger frames and under a bitrate cap a
+/// higher QP. `CMUX_RD_VT_SPEED=1` turns it back on for measurement.
+const PRIORITIZE_SPEED: bool = false;
+
+/// [`MAX_FRAME_QP`], or the `CMUX_RD_VT_MAX_QP` override; `None` when 0 or out of range.
+fn max_frame_qp(env: Option<&str>) -> Option<i32> {
+    let qp = env.and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(MAX_FRAME_QP);
+    (1..=51).contains(&qp).then_some(qp)
+}
+
+/// [`PRIORITIZE_SPEED`], or the `CMUX_RD_VT_SPEED` override (`1` on, anything else off).
+fn prioritize_speed(env: Option<&str>) -> bool {
+    env.map_or(PRIORITIZE_SPEED, |v| v.trim() == "1")
+}
+
 /// Loads the frameworks the encoder binds at run time (crate::dynlib); an error says which
 /// framework or symbol is missing.
 // Each module's `available` also arrives through its glob import; the path names which one.
@@ -365,17 +401,25 @@ fn create_session(
         let rate = number_f64(f64::from(fps.max(1)));
         set(kVTCompressionPropertyKey_ExpectedFrameRate(), rate);
         CFRelease(rate);
-        // Lower latency per frame: speed over quality (as the app's SurfaceFrameEncoder sets),
-        // and no frame held back inside the encoder. Optional: an OS without the keys, or an
-        // encoder that refuses one, keeps the session as built above.
+        // No frame held back inside the encoder, and speed over quality only when asked
+        // (PRIORITIZE_SPEED). Optional: an OS without the keys, or an encoder that refuses
+        // one, keeps the session as built above.
         if vt_speed_sys::available().is_ok() {
+            let speed = prioritize_speed(std::env::var("CMUX_RD_VT_SPEED").ok().as_deref());
             set(
                 vt_speed_sys::kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality(),
-                kCFBooleanTrue(),
+                if speed { kCFBooleanTrue() } else { kCFBooleanFalse() },
             );
             let no_delay = number_i32(0);
             set(vt_speed_sys::kVTCompressionPropertyKey_MaxFrameDelayCount(), no_delay);
             CFRelease(no_delay);
+        }
+        // The quality cap (MAX_FRAME_QP): optional and silent like the speed keys.
+        let qp = max_frame_qp(std::env::var("CMUX_RD_VT_MAX_QP").ok().as_deref());
+        if let (Ok(()), Some(qp)) = (vt_qp_sys::available(), qp) {
+            let qp = number_i32(qp);
+            set(vt_qp_sys::kVTCompressionPropertyKey_MaxAllowedFrameQP(), qp);
+            CFRelease(qp);
         }
     }
     Ok(session)
@@ -655,5 +699,17 @@ mod tests {
         assert!(!bitrate_change_applies(10_000, 10_400), "a 4% rise");
         assert!(bitrate_change_applies(10_000, 10_500), "a 5% rise");
         assert!(!bitrate_change_applies(10_000, 10_000));
+    }
+
+    #[test]
+    fn the_qp_cap_and_speed_key_follow_their_overrides() {
+        assert_eq!(max_frame_qp(None), Some(MAX_FRAME_QP));
+        assert_eq!(max_frame_qp(Some("30")), Some(30));
+        assert_eq!(max_frame_qp(Some("0")), None, "0 turns the cap off");
+        assert_eq!(max_frame_qp(Some("52")), None, "past H.264's QP range");
+        assert_eq!(max_frame_qp(Some("x")), Some(MAX_FRAME_QP));
+        assert!(!prioritize_speed(None));
+        assert!(prioritize_speed(Some("1")));
+        assert!(!prioritize_speed(Some("0")));
     }
 }
