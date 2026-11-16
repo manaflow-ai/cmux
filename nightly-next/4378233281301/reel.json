@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4378233281301",
+  "notes": "notes/4378233281301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43421,
+      "title": "Settings > Personalization: the Customization Library, every customization you keep as layers you turn on and off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43974,
+      "title": "cmux NEXT: the classic import prompt reads as sentences; one-line toast with Import… after its Not Now",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44002,
+      "title": "perf-cron: the terminal-throughput part measures the bench configuration, not Debug (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44020,
+      "title": "fix(tab-switch): an action's own name argument reaches it; setup faults no longer stop the run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44004,
+      "title": "refactor(acpmux): move the queue rebuild into hub/queue_restore.rs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43917,
+      "title": "perf(ghostty-vt): vt_write step breakdown and its side work (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44015,
+      "title": "customize library: keybindings stack per binding, exact off, a profile entry's own description",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44012,
+      "title": "test(next): a launch never offers classic's workspaces while an idle classic runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43984,
+      "title": "/side's slash menu description matches /fork's",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42281,
+      "title": "CEF helpers: link with -dead_strip (1.33 MB smaller app, 10 helper copies)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
