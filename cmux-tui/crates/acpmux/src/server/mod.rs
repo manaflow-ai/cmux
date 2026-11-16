@@ -59,6 +59,10 @@ pub struct SubOpts {
     pub quiet_hidden: bool,
     /// Stream records left out since the chat was last shown here (`quiet_hidden`).
     pub left_out: u64,
+    /// The cursor before the first of them (its seq less one): the show's `_acpmux/lagged` names it
+    /// as `afterSeq`, since the turn ends and status records that still went out moved the client's
+    /// own cursor past the chunks it never got (`view.rs`).
+    pub left_from: u64,
 }
 
 /// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
@@ -697,10 +701,13 @@ impl Conn {
     /// `_acpmux/view` shows it under, so the `_acpmux/lagged` of that show covers every record
     /// left out, and every record after it goes out (`view.rs` `view`).
     // perf-hot: 1us acpmux-token-fanout (every streamed token, per hidden quiet attachment)
-    fn leaves_out_hidden(&self, session_id: &str) -> bool {
+    fn leaves_out_hidden(&self, session_id: &str, seq: u64) -> bool {
         let mut subs = self.subs.lock_or_recover();
         match subs.get_mut(session_id) {
             Some(sub) if sub.quiet_hidden && sub.hidden && !sub.remote => {
+                if sub.left_out == 0 {
+                    sub.left_from = seq.saturating_sub(1);
+                }
                 sub.left_out += 1;
                 true
             }
@@ -2178,7 +2185,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             && rec.dir == "in"
             && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
             && (!sub.event_stream || sub.filter.matches_live(rec))
-            && conn.leaves_out_hidden(&ev.session_id);
+            && conn.leaves_out_hidden(&ev.session_id, rec.seq);
         if repeat || quiet {
             // Sent by the replay, or left out while hidden.
         } else if sub.event_stream {

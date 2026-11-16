@@ -5507,7 +5507,7 @@ export class AcpmuxDirectClient {
     }
     this.emit("resyncing");
     void this.permissions.refresh().catch(() => {});
-    this.readMissedAfterLag(sessionId, this.selectionGeneration, this.lastSeq, 0);
+    this.readMissedAfterLag(sessionId, this.selectionGeneration, lagCursor(params, this.lastSeq), 0);
   }
 
   /// Reads the events a lag dropped, again after a failed read: a daemon too busy to answer
@@ -16410,6 +16410,19 @@ function pageShown(): boolean {
 /// What acpmux hears as `visible`, so a turn that ends while they are away is unread.
 function readerHere(): boolean {
   return pageShown() && (pageAttention()?.present() ?? true);
+}
+
+/// Where a lag's read of what acpmux left out starts: the page's cursor, or the notice's `afterSeq`
+/// when that is older. A chat hidden with `quietHidden` hears no `session/update` while hidden but
+/// still hears its turn ends and status, which move the cursor past the chunks it never got; the
+/// show's `_acpmux/lagged {reason: "hidden", afterSeq}` names where the first one left out was
+/// (acpmux server/view.rs), so the read gets every chunk back in order (`fetchMissedEvents` merges
+/// by seq, so records the page already has are not drawn twice).
+export function lagCursor(params: unknown, lastSeq: number): number {
+  const afterSeq = (params as { afterSeq?: unknown } | null | undefined)?.afterSeq;
+  return typeof afterSeq === "number" && Number.isFinite(afterSeq) && afterSeq >= 0
+    ? Math.min(lastSeq, afterSeq)
+    : lastSeq;
 }
 
 /// What acpmux hears of the reader on a plain attach and on `_acpmux/view`: whether the page is on
