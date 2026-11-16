@@ -562,6 +562,7 @@ public final class AgentPaneModel {
             onRenderRate?(full)
             return AgentPaneReply.success()
         case .painted(let fromKeptTail, let settled, let appliedWake):
+            AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted") // here: both page hosts answer through `respond`
             AgentPanePaintReport(fromKeptTail: fromKeptTail, settled: settled, appliedWake: appliedWake).apply(to: self)
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
