@@ -378,12 +378,12 @@ struct CloudCreationFlow {
                 let existing = creation.session, session: CloudMachineSession
                 if let existing { session = existing } else { session = try await create(creation) }
                 try Task.checkCancellation()
-                // Before attach: a caller waiting for the machine reads the bootstrap's outcome with it.
+                // Attached first: a create answers once attached (30 s); the bootstrap waits up to 180 s for the machine to run.
+                if existing == nil { creation.attach(session) }
                 if Self.needsBootstrap(creation) {
                     await bootstrap(creation, session)
                     try Task.checkCancellation()
                 }
-                if existing == nil { creation.attach(session) }
                 guard await Self.ready(creation) else { return }
                 creation.markReady()
                 let id = try await open(session)
