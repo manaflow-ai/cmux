@@ -618,6 +618,24 @@ export class SettingsStore {
     return reply.value.error ?? null;
   }
 
+  /** Settings > Devices: Control between my devices for the whole account on or off, then re-read the host
+   * lists. Answers the line to show, like `setRemoteControl`. */
+  async setRemoteControlAccount(on: boolean): Promise<string | null> {
+    const reply = await this.request("cmux.settings.devices.remote_control_account", { on });
+    await this.refreshHost();
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.value.error ?? null;
+  }
+
+  /** Settings > Devices: Refresh trusted Macs (this Mac collects its peers' keys again), then re-read the host
+   * lists. Answers the line to show, like `setRemoteControl`. */
+  async refreshTrust(): Promise<string | null> {
+    const reply = await this.request("cmux.settings.devices.trust_refresh", {});
+    await this.refreshHost();
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.value.error ?? null;
+  }
+
   /** Settings > Devices on the target Mac: trust another Mac's key (its one-time ask), or remove or
    * dismiss it, then re-read the host lists. Answers the line to show, like `setRemoteControl`. */
   async setGrantorTrust(id: string, trusted: boolean): Promise<string | null> {

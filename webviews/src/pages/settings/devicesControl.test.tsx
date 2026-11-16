@@ -30,7 +30,7 @@ test("one row per owned machine with its switch state, detail and this Mac's wor
   const page = await renderPage({ path: "/settings/devices", mock: { devicesControl: mockDevicesControl } });
   await settle();
   const element = group(page.container)!;
-  expect(element.querySelector(".group-title")!.textContent).toBe("Control from this Mac");
+  expect(element.querySelector(".group-title")!.textContent).toBe("Control between my devices");
   expect(element.querySelector("[data-devices-control-this-words]")!.textContent).toContain(
     "maple orbit lantern quiet",
   );
@@ -41,7 +41,7 @@ test("one row per owned machine with its switch state, detail and this Mac's wor
   expect(row(page.container, "m_mini").querySelector(".row-title")!.textContent).toBe("mini-7");
   expect(toggle(page.container, "m_mini").getAttribute("aria-checked")).toBe("true");
   expect(toggle(page.container, "m_studio").getAttribute("aria-checked")).toBe("false");
-  expect(row(page.container, "m_mini").textContent).toContain("Turned on from this Mac · 5 min ago");
+  expect(row(page.container, "m_mini").textContent).toContain("On for all your devices");
   // Offline: the switch cannot be used.
   expect(toggle(page.container, "m_air").hasAttribute("disabled")).toBe(true);
   // A failed status reads as an alert.
@@ -138,5 +138,80 @@ test("a trusted Mac is listed with Remove, which sends trusted=false", async () 
     { id: mockGrantors[0]!.id, trusted: false },
   ]);
   expect(page.container.querySelector(`[data-devices-grantor="${mockGrantors[0]!.id}"]`)).toBeNull();
+  page.unmount();
+});
+
+// v2: an account-wide switch at the top of the group (on by default) and a quiet Refresh trusted Macs.
+const account = (container: HTMLElement) =>
+  group(container)!.querySelector<HTMLElement>("[data-devices-control-account]");
+const accountSwitch = (container: HTMLElement) =>
+  account(container)!.querySelector<HTMLButtonElement>('[role="switch"]')!;
+
+test("the account switch is the group's first row, on, with the host's title and help", async () => {
+  const page = await renderPage({ path: "/settings/devices", mock: { devicesControl: mockDevicesControl } });
+  await settle();
+  const element = group(page.container)!;
+  const first = element.querySelector<HTMLElement>("[data-devices-control-account], [data-devices-control-row]")!;
+  expect(first.hasAttribute("data-devices-control-account")).toBe(true);
+  expect(account(page.container)!.textContent).toContain(mockDevicesControl.account!.title);
+  expect(account(page.container)!.textContent).toContain(mockDevicesControl.account!.help);
+  expect(accountSwitch(page.container).getAttribute("aria-checked")).toBe("true");
+  page.unmount();
+});
+
+test("turning the account switch off sends remote_control_account and turns off the rows that follow it", async () => {
+  const page = await renderPage({ path: "/settings/devices", mock: { devicesControl: mockDevicesControl } });
+  await settle();
+  await act(async () => accountSwitch(page.container).click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.devices.remote_control_account")).toEqual([{ on: false }]);
+  expect(accountSwitch(page.container).getAttribute("aria-checked")).toBe("false");
+  // mini-7 followed the account; studio has its own per-machine setting and keeps it.
+  expect(toggle(page.container, "m_mini").getAttribute("aria-checked")).toBe("false");
+  expect(row(page.container, "m_studio").dataset.devicesControlStatus).toBe("off");
+  page.unmount();
+});
+
+test("while the account write runs its switch is disabled; a refusal is an alert", async () => {
+  const busy = await renderPage({
+    path: "/settings/devices",
+    mock: { devicesControl: { ...mockDevicesControl, account: { ...mockDevicesControl.account!, busy: true } } },
+  });
+  await settle();
+  expect(accountSwitch(busy.container).hasAttribute("disabled")).toBe(true);
+  busy.unmount();
+
+  const refused = await renderPage({
+    path: "/settings/devices",
+    mock: {
+      devicesControl: mockDevicesControl,
+      failing: { "cmux.settings.devices.remote_control_account": "cmux.settings.refused" },
+    },
+  });
+  await settle();
+  await act(async () => accountSwitch(refused.container).click());
+  await settle();
+  expect(account(refused.container)!.querySelector('[role="alert"]')).not.toBeNull();
+  refused.unmount();
+});
+
+test("Refresh trusted Macs sends trust_refresh once", async () => {
+  const page = await renderPage({ path: "/settings/devices", mock: { devicesControl: mockDevicesControl } });
+  await settle();
+  const refresh = group(page.container)!.querySelector<HTMLButtonElement>('[data-devices-control-action="refresh"]')!;
+  expect(refresh.textContent).toBe(mockDevicesControl.refresh!);
+  await act(async () => refresh.click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.devices.trust_refresh")).toEqual([{}]);
+  page.unmount();
+});
+
+test("a host without the account fields draws no account switch and no refresh button", async () => {
+  const { account: _account, refresh: _refresh, ...older } = mockDevicesControl;
+  const page = await renderPage({ path: "/settings/devices", mock: { devicesControl: older } });
+  await settle();
+  expect(group(page.container)).not.toBeNull();
+  expect(account(page.container)).toBeNull();
+  expect(group(page.container)!.querySelector('[data-devices-control-action="refresh"]')).toBeNull();
   page.unmount();
 });

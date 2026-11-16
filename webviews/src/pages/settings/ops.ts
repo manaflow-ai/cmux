@@ -246,7 +246,15 @@ export type DevicesControlState = {
   this_mac_words: string[] | null;
   error: string | null;
   rows: DevicesControlRow[];
+  /** The account-wide switch at the top of the group (on for every device of the account; a row
+   * narrows it). Absent on an older host, null when the host does not offer it. */
+  account?: DevicesControlAccount | null;
+  /** The label of the quiet Refresh trusted Macs button; absent or null: no button. */
+  refresh?: string | null;
 };
+
+/** Control between my devices for the whole account (`devices_control.account`), texts localized. */
+export type DevicesControlAccount = { title: string; help: string; on: boolean; busy: boolean };
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
 export type HostLists = {
@@ -1306,6 +1314,11 @@ export type SettingsOps = {
   "cmux.settings.devices.remote_control": [{ id: string; on: boolean }, { error?: string }];
   /** Native: on the target Mac, trust (the person's gesture and Touch ID) or remove/dismiss another Mac's key. */
   "cmux.settings.devices.grantor_trust": [{ id: string; trusted: boolean }, { error?: string }];
+  /** Native: Settings > Devices' account switch: an account-wide grant for every device of the account
+   * (on: the person's gesture and Touch ID; off: none). */
+  "cmux.settings.devices.remote_control_account": [{ on: boolean }, { error?: string }];
+  /** Native: Settings > Devices' Refresh trusted Macs: this Mac collects its peers' keys again (the person's gesture). */
+  "cmux.settings.devices.trust_refresh": [Record<string, never>, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Server's Restart…: opens the host's confirm, never restarts by itself (the person's gesture only). */

@@ -127,12 +127,28 @@ export const mockDevicesJoin: DevicesJoinState = {
 /** This Mac's key as four words (the mock's; the app derives them from the key). */
 const mockThisMacWords = ["maple", "orbit", "lantern", "quiet"];
 
-/** Control from this Mac: one owned machine on, one off, one offline and one whose status failed. */
+/** Where each mock machine's switch comes from: the account switch, or its own per-machine setting. */
+const mockControlSources: Record<string, "account" | "machine"> = {
+  m_mini: "account",
+  m_studio: "machine",
+  m_air: "account",
+  m_lab: "machine",
+};
+
+/** Control between my devices: the account switch on; one machine on with it, one turned off on its own,
+ * one offline and one whose status failed. */
 export const mockDevicesControl: DevicesControlState = {
-  title: "Control from this Mac",
-  help: "Turn on Control and screen sharing on your other machines from here. Each machine asks once, on itself, to trust this Mac.",
+  title: "Control between my devices",
+  help: "Your devices signed in to this account can see and control each other. Turn one off below to leave it out.",
   this_mac_words: mockThisMacWords,
   error: null,
+  account: {
+    title: "All my devices",
+    help: "On for every device signed in to your account, including ones you add later",
+    on: true,
+    busy: false,
+  },
+  refresh: "Refresh Trusted Macs",
   rows: [
     {
       id: "m_mini",
@@ -142,7 +158,7 @@ export const mockDevicesControl: DevicesControlState = {
       on: true,
       busy: false,
       status: "on",
-      detail: "Turned on from this Mac · 5 min ago",
+      detail: "On for all your devices",
       words: null,
       log: [
         { time: "5 min ago", what: "Turned on from this Mac" },
@@ -157,7 +173,7 @@ export const mockDevicesControl: DevicesControlState = {
       on: false,
       busy: false,
       status: "off",
-      detail: "Off",
+      detail: "Off on this machine",
       words: null,
       log: [],
     },
@@ -411,11 +427,12 @@ export class MockSettingsProvider {
                   detail: `Allow once on ${r.name}: check the words ${(words ?? []).join(" ")}`,
                   words,
                 };
+              this.controlSources.set(r.id, "machine");
               return {
                 ...r,
                 on,
                 status: on ? "on" : "off",
-                detail: on ? "Turned on from this Mac · now" : "Off",
+                detail: on ? "On on this machine" : "Off on this machine",
                 words: null,
               };
             }),
@@ -423,6 +440,31 @@ export class MockSettingsProvider {
         });
         return {};
       },
+      "cmux.settings.devices.remote_control_account": (params) => {
+        const control = this.host.devices_control;
+        if (!control?.account) return {};
+        const on = params.on === true;
+        this.setHost({
+          ...this.host,
+          devices_control: {
+            ...control,
+            account: { ...control.account, on },
+            // Rows that follow the account switch follow it; an offline or failed row keeps its line.
+            rows: control.rows.map((r) =>
+              this.controlSources.get(r.id) !== "account" || r.status === "offline" || r.status === "error"
+                ? r
+                : {
+                    ...r,
+                    on,
+                    status: on ? "on" : "off",
+                    detail: on ? "On for all your devices" : "Off for all your devices",
+                  },
+            ),
+          },
+        });
+        return {};
+      },
+      "cmux.settings.devices.trust_refresh": () => ({}),
       "cmux.settings.devices.grantor_trust": (params) => {
         const join = this.host.devices_join;
         if (!join) return {};
@@ -842,6 +884,8 @@ export class MockSettingsProvider {
       "cmux.settings.devices.join_consent",
       "cmux.settings.devices.remote_control",
       "cmux.settings.devices.grantor_trust",
+      "cmux.settings.devices.remote_control_account",
+      "cmux.settings.devices.trust_refresh",
       "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
@@ -1033,6 +1077,8 @@ export class MockSettingsProvider {
   tryOn: CustomizeTryOn | null = null;
   /** Machines whose Control on waits for their one-time ask (options.devicesControlAsk). */
   controlAsk = new Set<string>();
+  /** Where each machine's Control comes from: the account switch, or its own per-machine setting. */
+  controlSources = new Map<string, "account" | "machine">(Object.entries(mockControlSources));
   /** Every try-on verb the page ran but status, in order (tests). */
   customizeVerbs: string[] = [];
 
