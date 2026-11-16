@@ -56,6 +56,16 @@ use std::time::Duration;
 /// The most records one restore takes.
 pub const MAX_RECORDS: usize = 4096;
 
+/// The `initialize` feature of a machine that takes a restore in pages (cmuxterm-hq
+/// `docs/design/remote-cloud-durability.md` 4.5, F19): a request whose `throughSeq` is past its
+/// last record is one page of a restore that ends there. The page goes in as any try does, and
+/// once it is in whole the try stops short on purpose: answered `append_failed` with `page:
+/// true` and its `lastSeq`, the chat held for the owner's next page (`RESTORE_HOLD`), and only
+/// the page that reaches `throughSeq` settles the log. So a link cut midway costs the page in
+/// flight, never the pages before it: the next link's restore goes on from where the journal
+/// ends. A machine without the feature takes the whole restore in one request, as before.
+pub const PAGES_FEATURE: &str = "journalRestorePages";
+
 /// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
 /// history, for the tests and the move simulation to replay (0: the rules of now). Each later
 /// head's fixes are missing from an earlier one too. 918d2403's: the twenty-fifth review's F1
@@ -345,13 +355,15 @@ impl Hub {
         let hub = self.clone();
         let held = session.clone();
         let files = files_of(params)?;
+        // A page of a longer restore names where the whole restore ends ([`PAGES_FEATURE`]).
+        let through = params.get("throughSeq").and_then(Value::as_u64);
         let old = self.at_ff3d();
         let result = blocking(move || {
             // ff3da306 wrote the files before it decided (review of #37284 at ff3da306, F2).
             if old {
                 restore_files(&held, &files, true)?;
             }
-            hub.restore_records(&held, after, records, resumed, &files)
+            hub.restore_records(&held, after, records, resumed, &files, through)
         });
         // (5) Stopped short: the chat stays held for the owner's next try, at most
         // [`RESTORE_HOLD`], so no prompt takes the seqs the rest of the records need.
@@ -374,6 +386,7 @@ impl Hub {
         records: Vec<EventRecord>,
         resumed: bool,
         files: &[(std::path::PathBuf, Vec<u8>)],
+        through: Option<u64>,
     ) -> Result<Value, RpcError> {
         // The chat's log is read first, now, when a deferred start has not read it yet (review
         // of #37284 at 98b4575a, F3): the restore settles the log it writes into, and only then
@@ -388,7 +401,7 @@ impl Hub {
         if !*loaded {
             return Err(refused("busy", "this chat's log is not read yet", session));
         }
-        let result = self.write_restored(session, after, &records, resumed, files);
+        let result = self.write_restored(session, after, &records, resumed, files, through);
         if result.as_ref().is_err_and(|e| reason_of(e) != Some("append_failed")) {
             self.recover_pending(session, None);
         }
@@ -407,6 +420,7 @@ impl Hub {
         records: &[EventRecord],
         resumed: bool,
         files: &[(std::path::PathBuf, Vec<u8>)],
+        through_seq: Option<u64>,
     ) -> Result<Value, RpcError> {
         let old = self.at_ff3d();
         let (at, failed, flush_failed) = {
@@ -568,11 +582,18 @@ impl Hub {
             self.save_meta(session);
         }
         let last = session.seq.load(Ordering::SeqCst);
-        let through = records.last().map_or(after, |r| r.seq);
+        let page_end = records.last().map_or(after, |r| r.seq);
+        // A page of a longer restore ([`PAGES_FEATURE`]) ends where the whole restore does.
+        let through = page_end.max(through_seq.unwrap_or(0));
         // Only every record in and flushed to stable storage is a restore: until then nothing
         // settles the log, and the owner keeps its copy and delivers nothing again
         // (`peer_snapshot/restore.rs`). A flush that failed fails it however far the log reads.
         let short = last < through;
+        // A page taken whole is a try that stopped short on purpose: held for the next page,
+        // as a try the disk stopped is, and the owner goes on from `lastSeq`.
+        if short && flush_failed.is_none() && failed.is_none() && last >= page_end {
+            return Err(page_taken(session, last, through));
+        }
         if let Some(e) = flush_failed
             .or_else(|| failed.filter(|_| short))
             .or_else(|| short.then(|| anyhow::anyhow!("the journal ends at {last}, not {through}")))
@@ -1023,6 +1044,14 @@ fn hold_for_next_try(hub: &Arc<Hub>, session: &Arc<Session>) {
 
 fn reason_of(e: &RpcError) -> Option<&str> {
     e.data.as_ref()?.get("reason")?.as_str()
+}
+
+/// One page of a longer restore went in whole: the answer of a try that stopped short
+/// (`append_failed`, so the chat is held for the next page), marked `page`, at `last`.
+fn page_taken(session: &Session, last: u64, through: u64) -> RpcError {
+    tracing::debug!(session = %session.id, last, through, "journal restore: a page went in");
+    RpcError::internal(format!("journal restore: a page went in, through {last} of {through}"))
+        .with_data(json!({"reason": "append_failed", "lastSeq": last, "page": true}))
 }
 
 fn stopped(session: &Session, e: &anyhow::Error) -> RpcError {

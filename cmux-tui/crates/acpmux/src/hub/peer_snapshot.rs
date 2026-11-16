@@ -319,6 +319,8 @@ pub struct PeerSnapshots {
     warm: warm::Warm,
     /// The peers whose journals are being given back their records (`restore.rs`).
     restoring: restore::Gate,
+    /// Each restore of a copy under way: its holder, step and deadline (`restore.rs` `Holds`).
+    holds: restore::Holds,
     /// Told the prompts each write of a copy put on disk (`Hub::new` sets it).
     pub(crate) written: Arc<StdMutex<Option<Written>>>,
 }
@@ -336,6 +338,7 @@ impl PeerSnapshots {
             untaken: Arc::default(),
             warm: warm::Warm::default(),
             restoring: restore::Gate::default(),
+            holds: restore::Holds::default(),
             written: Arc::default(),
         }
     }
