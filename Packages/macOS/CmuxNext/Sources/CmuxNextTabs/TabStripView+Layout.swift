@@ -61,7 +61,7 @@ extension TabStripView {
         var previousMaxX: CGFloat?
         var starts: [TabID: TabPlace] = [:]
         for slot in result.slots where slot.id != Self.placeholderID {
-            defer { if grows { previousMaxX = starts[slot.id]?.maxX ?? shownMaxX(slot.id) ?? slot.maxX } }
+            defer { if grows { previousMaxX = starts[slot.id]?.maxX ?? shownMaxX(slot.id, at: move?.begin) ?? slot.maxX } }
             guard var place = placed[slot.id] else { continue }
             if added.contains(slot.id), move != nil {
                 if let pendingDrop, pendingDrop.id == slot.id {
@@ -236,18 +236,18 @@ extension TabStripView {
         goesAt[id] = max(goesAt[id] ?? 0, end)
     }
 
-    /// Where `id`'s cell shows now, its right edge in content coordinates (the presentation layer
-    /// includes every move in flight); nil when it has no cell.
-    func shownMaxX(_ id: TabID) -> CGFloat? {
+    /// Where `id`'s cell shows at media time `time` (nil: now), its right edge in content coordinates, with every
+    /// move in flight (`TabStripMove.shownFrame`, also those added since the last commit); nil when it has no cell.
+    func shownMaxX(_ id: TabID, at time: CFTimeInterval? = nil) -> CGFloat? {
         guard let layer = cells[id]?.layer ?? id.chipGroupID.flatMap({ groups.chips[$0]?.layer }) else { return nil }
-        let frame = (layer.presentation() ?? layer).frame
+        let frame = TabStripMove.shownFrame(layer, at: time ?? CACurrentMediaTime())
         return scrollMapping.contentX(frame.maxX, isPinned: cells[id]?.item.isPinned ?? false)
     }
 
     /// Where `id`'s cell shows now, its left edge in content coordinates.
     func shownX(_ id: TabID) -> CGFloat? {
         guard let cell = cells[id] else { return nil }
-        return scrollMapping.contentX((cell.layer.presentation() ?? cell.layer).frame.minX, isPinned: cell.item.isPinned)
+        return scrollMapping.contentX(TabStripMove.shownFrame(cell.layer).minX, isPinned: cell.item.isPinned)
     }
 
     /// The strip's scroll mapping now: pinned tabs fixed, unpinned tabs at the scroll's current value.
