@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e886a510ff75a8c85a2b295523007222553407c8125c7e914fdb72236f68cedf'
+IR_SHA256 = 'cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea'
 
 
 @dataclass(frozen=True)
@@ -1513,6 +1513,20 @@ COMMANDS = {
             'by': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'client': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(12, 'shared-sizing-v1'),
+        },
+    ),
+    'device-setup': CommandMetadata(
+        'device-setup',
+        'local-admin',
+        12,
+        'device-setup-v1',
+        ('local-admin',),
+        None,
+        {
+            'allow_agents': CommandFieldMetadata(None, None),
+            'device': CommandFieldMetadata(None, None),
+            'dry_run': CommandFieldMetadata(None, None),
+            'verb': CommandFieldMetadata(None, None),
         },
     ),
     'export-layout': CommandMetadata(
@@ -4124,6 +4138,7 @@ EVENTS = {
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'device-setup-step': EventMetadata('device-setup-step', 12, None, ('control',), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'feed-reports-changed': EventMetadata('feed-reports-changed', 12, 'feed-client-v1', ('subscribe',), 'emitted'),
     'feed-view-changed': EventMetadata('feed-view-changed', 12, 'feed-client-v1', ('subscribe',), 'emitted'),
