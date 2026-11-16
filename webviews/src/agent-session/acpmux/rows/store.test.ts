@@ -1,9 +1,25 @@
 // The page's thin store for a chat's rows, fed hand-written change strings of the shapes the
 // client core gives (acpmux-client chat.rs `ChatChange`, its shape tests in chat/tests.rs) through
-// the host client, as the host's event carries them.
+// the document's receiver, as the host's event carries them.
 import { describe, expect, test } from "bun:test";
-import { ChatRowsHost, CHAT_ROWS_LOST, CHAT_ROWS_OFF, chatRowsNamer } from "./host";
-import { STORE_MAX_BYTES, STORE_MAX_ROWS, type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
+import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
+import {
+  ChatRowsHost,
+  CHAT_ROWS_LOST,
+  CHAT_ROWS_OFF,
+  CHAT_ROWS_OTHER_SID,
+  type ChatRowsPost,
+  chatRowsNamer,
+} from "./host";
+import {
+  STORE_MAX_BYTES,
+  STORE_MAX_HEADS,
+  STORE_MAX_HEAD_BYTES,
+  STORE_MAX_ROWS,
+  type ChatFall,
+  ChatRowStore,
+  type ChatRowsSnapshot,
+} from "./store";
 import type { ChatRow } from "./wire";
 
 type Call = { method: string; params: Record<string, unknown> };
@@ -25,25 +41,20 @@ function testNamer(): () => string {
 function harness(answer: (call: Call) => unknown = echo) {
   const calls: Call[] = [];
   const falls: ChatFall[] = [];
-  const store = new ChatRowStore({ onFall: (fall) => falls.push(fall) });
-  const host = new ChatRowsHost(
-    async (method, params) => {
-      const call = { method, params };
-      calls.push(call);
-      const value = await answer(call);
-      if (value instanceof Error) throw value;
-      return value;
-    },
-    store,
-    testNamer(),
-  );
-  let batch = 0;
+  const pageEnds: string[] = [];
+  const store = new ChatRowStore({ onFall: (fall) => falls.push(fall), onPageEnd: (sid) => pageEnds.push(sid) });
+  const post: ChatRowsPost = async (method, params) => {
+    const call = { method, params };
+    calls.push(call);
+    const value = await answer(call);
+    if (value instanceof Error) throw value;
+    return value;
+  };
+  const host = new ChatRowsHost(post, store, testNamer());
+  const feed = chatRowsFeed(host, post);
   const send = (...changes: unknown[]) =>
-    host.receive({
-      batch: ++batch,
-      changes: changes.map((change) => (typeof change === "string" ? change : JSON.stringify(change))),
-    });
-  return { calls, falls, store, host, send };
+    feed(changes.map((change) => (typeof change === "string" ? change : JSON.stringify(change))));
+  return { calls, falls, pageEnds, store, host, send };
 }
 
 const row = (id: number, extra: Partial<ChatRow> = {}): ChatRow => ({
@@ -160,7 +171,7 @@ describe("chatWindow", () => {
     send(window([row(4, { rev: 2, body: { text: "new" } }), row(5), row(6)], {}, false));
     const rows = store.snapshot("c")!.rows;
     expect(rows.map((entry) => entry.id)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(rows.filter((entry) => entry.unconfirmed).map((entry) => entry.id)).toEqual([1, 2, 3]);
+    expect([...store.snapshot("c")!.unconfirmed]).toEqual([1, 2, 3]);
     expect(rows[3]!.rev).toBe(2);
     // The edge before is still the old window's.
     expect(store.snapshot("c")!.hasBefore).toBe(true);
@@ -339,6 +350,7 @@ describe("chatPage", () => {
     const { send, store, host } = await opened();
     send(window(range(4, 5), { hasBefore: true }));
     send(window([row(7), row(8)], {}, false));
+    expect([...store.snapshot("c")!.unconfirmed]).toEqual([5, 6]);
     host.page("c", "before");
     const kept = store.snapshot("c")!.rows[1]!;
     send({
@@ -348,8 +360,9 @@ describe("chatPage", () => {
     const rows = store.snapshot("c")!.rows;
     expect(rows.map((entry) => entry.id)).toEqual([4, 5, 6, 7, 8]);
     expect(rows[1]!.rev).toBe(2);
-    expect(rows.some((entry) => entry.unconfirmed)).toBe(false);
-    expect(kept.unconfirmed).toBe(true);
+    expect(store.snapshot("c")!.unconfirmed.size).toBe(0);
+    // Row 6, the same settled row at the same rev, keeps its object: confirming it redraws nothing.
+    expect(rows[2]!.row).toBe(kept.row);
   });
 
   test("a page lets go of an unconfirmed row it neither gives nor refuses; a confirmed one stays", async () => {
@@ -367,7 +380,7 @@ describe("chatPage", () => {
     const rows = store.snapshot("c")!.rows;
     // 6 is gone; 1 and 2 are outside the page and stay unconfirmed; the page reached 3 and 5.
     expect(rows.map((entry) => entry.id)).toEqual([1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12]);
-    expect(rows.filter((entry) => entry.unconfirmed).map((entry) => entry.id)).toEqual([1, 2]);
+    expect([...store.snapshot("c")!.unconfirmed].sort((a, b) => a - b)).toEqual([1, 2]);
     expect(rows.some((entry) => entry.gapBefore)).toBe(false);
   });
 
@@ -391,7 +404,8 @@ describe("chatPage", () => {
     send({ kind: "chatPage", page: { sid: "c", edition: 1, rows: range(14), hasBefore: false, hasAfter: true } });
     rows = store.snapshot("c")!.rows;
     expect(rows.map((entry) => entry.id)).toEqual(range(22).map((r) => r.id));
-    expect(rows.some((entry) => entry.gapBefore || entry.unconfirmed)).toBe(false);
+    expect(rows.some((entry) => entry.gapBefore)).toBe(false);
+    expect(store.snapshot("c")!.unconfirmed.size).toBe(0);
   });
 
   test("a page asks from the row it is given", async () => {
@@ -402,12 +416,14 @@ describe("chatPage", () => {
   });
 
   test("a page error drops that ask and nothing else", async () => {
-    const { send, store, host } = await opened();
+    const { send, store, host, pageEnds } = await opened();
     send(window(range(3), { hasBefore: true }));
     host.page("c", "before");
     const before = store.snapshot("c");
     send({ kind: "chatError", sid: "c", method: "page", id: null, code: "stale_edition" });
     expect(store.snapshot("c")).toBe(before);
+    // No snapshot, but who waits on the page learns it ended.
+    expect(pageEnds).toEqual(["c"]);
     expect(store.has("c")).toBe(true);
     expect(host.page("c", "before")).toBe(true);
   });
@@ -515,9 +531,15 @@ describe("the fall to v1", () => {
       expect(store.has("c")).toBe(false);
     });
 
-  test("an open answered with another sid is a host without the operation", async () => {
-    const { host, store } = harness((call) => (call.method === "chat.rows.open" ? { sid: "theirs" } : {}));
+  test("an open answered with no sid is a host without the operation", async () => {
+    const { host, store } = harness(() => ({}));
     expect(await host.open("chat-1")).toEqual({ fallen: CHAT_ROWS_OFF });
+    expect(store.has("c")).toBe(false);
+  });
+
+  test("an open answered with another sid falls that chat only", async () => {
+    const { host, store } = harness((call) => (call.method === "chat.rows.open" ? { sid: "theirs" } : {}));
+    expect(await host.open("chat-1")).toEqual({ fallen: CHAT_ROWS_OTHER_SID });
     expect(store.has("c")).toBe(false);
     expect(store.has("theirs")).toBe(false);
   });
@@ -640,5 +662,139 @@ describe("the cap", () => {
     expect(held.bytes).toBeLessThanOrEqual(STORE_MAX_BYTES);
     expect(store.snapshot("c")!.hasBefore).toBe(true);
     expect(store.snapshot("c")!.rows.at(-1)!.id).toBe(80);
+  });
+});
+
+describe("the page of turns", () => {
+  const group = (id: number, extra: Partial<ChatRow> = {}): ChatRow =>
+    row(id, {
+      kind: "group",
+      turn: id - 1,
+      body: { head: `prompt ${id - 1}`, prompt: id - 1, last: id + 1 },
+      ...extra,
+    });
+  const turnsPage = (rows: ChatRow[], extra: Record<string, unknown> = {}) => ({
+    kind: "chatPage",
+    page: { sid: "c", edition: 1, rows, hasBefore: false, hasAfter: false, turns: true, ...extra },
+  });
+
+  test("asks with turns and holds the group rows as heads, never as rows of the stretch", async () => {
+    const { host, store, send, calls } = await opened();
+    send(window(range(5, 100)));
+    expect(host.page("c", "before", { from: 105, turns: true })).toBe(true);
+    expect(calls.at(-1)).toEqual({ method: "chat.rows.page", params: { sid: "c", before: 105, turns: true } });
+    send(turnsPage([group(7), group(12)], { hasBefore: true }));
+    const snapshot = store.snapshot("c")!;
+    expect(snapshot.heads?.rows.map((head) => head.id)).toEqual([7, 12]);
+    expect(snapshot.heads?.hasBefore).toBe(true);
+    expect(ids(snapshot)).toEqual([100, 101, 102, 103, 104]);
+    expect(store.pageOut("c")).toBe(false);
+  });
+
+  test("turns_unsupported: no heads, the page slot is free and a new snapshot says so", async () => {
+    const { host, store, send, drawn } = await opened();
+    send(window(range(3)));
+    host.page("c", "before", { from: 4, turns: true });
+    const before = drawn.length;
+    send({ kind: "chatError", sid: "c", method: "page", id: null, code: "turns_unsupported" });
+    expect(store.snapshot("c")!.heads).toEqual({ rows: [], hasBefore: false, hasAfter: false, unsupported: true });
+    expect(store.pageOut("c")).toBe(false);
+    expect(drawn.length).toBe(before + 1);
+    // A turn that settles after is not a head of a daemon with none.
+    send(op({ op: "row", row: group(9) }));
+    expect(store.snapshot("c")!.heads?.rows).toEqual([]);
+  });
+
+  test("a group row that settles adjoining the run's last head is appended; past a jump it is not", async () => {
+    const { host, store, send } = await opened();
+    send(window(range(3, 20)));
+    host.page("c", "before", { from: 23, turns: true });
+    send(turnsPage([group(7), group(12)]));
+    send(op({ op: "row", row: group(22, { open: true }) }));
+    expect(store.snapshot("c")!.heads?.rows.map((head) => head.id)).toEqual([7, 12]);
+    send(op({ op: "patch", row: group(22, { rev: 2 }) }));
+    expect(store.snapshot("c")!.heads?.rows.map((head) => head.id)).toEqual([7, 12, 22]);
+    // A newer rev of a held head replaces it in place.
+    send(op({ op: "patch", row: group(12, { rev: 3, body: { head: "edited", prompt: 11 } }) }));
+    expect(store.snapshot("c")!.heads?.rows[1]!.rev).toBe(3);
+    // A rail jump's older page that does not adjoin: the run says rows follow it and takes no append.
+    host.page("c", "before", { from: 7, turns: true });
+    send(turnsPage([group(3)], { hasAfter: true }));
+    send(op({ op: "row", row: group(30) }));
+    expect(store.snapshot("c")!.heads?.rows.map((head) => head.id)).toEqual([3]);
+    expect(store.snapshot("c")!.heads?.hasAfter).toBe(true);
+  });
+
+  test("the heads stay within their cap: an append past it lets the oldest go", async () => {
+    const { host, store, send } = await opened();
+    send(window(range(3, 5000)));
+    host.page("c", "before", { from: 5003, turns: true });
+    const many = Array.from({ length: STORE_MAX_HEADS }, (_, index) => group(10 + index * 10));
+    send(turnsPage(many));
+    send(op({ op: "row", row: group(4990) }));
+    const heads = store.snapshot("c")!.heads!;
+    expect(heads.rows.length).toBe(STORE_MAX_HEADS);
+    expect(heads.rows[0]!.id).toBe(20);
+    expect(heads.hasBefore).toBe(true);
+    // Bytes too: a page of heads past STORE_MAX_HEAD_BYTES keeps those nearest the row asked from.
+    host.page("c", "before", { from: 5003, turns: true });
+    const big = Array.from({ length: 10 }, (_, index) =>
+      group(100 + index, { body: { head: "x".repeat(STORE_MAX_HEAD_BYTES / 4), prompt: 99 + index } }),
+    );
+    send(turnsPage(big));
+    const kept = store.snapshot("c")!.heads!;
+    expect(kept.rows.at(-1)!.id).toBe(109);
+    expect(kept.rows.length).toBeLessThan(10);
+    expect(kept.hasBefore).toBe(true);
+  });
+
+  test("another edition lets go of the heads; the same edition keeps them", async () => {
+    const { host, store, send } = await opened();
+    send(window(range(3)));
+    host.page("c", "before", { from: 4, turns: true });
+    send(turnsPage([group(2)]));
+    send(window(range(3)));
+    expect(store.snapshot("c")!.heads?.rows.length).toBe(1);
+    send(window(range(3), { edition: 2 }));
+    expect(store.snapshot("c")!.heads).toBeNull();
+    expect(store.snapshot("c")!.edition).toBe(2);
+  });
+
+  test("a page after a row not held marks what lies between as missing, on both sides", async () => {
+    const { host, store, send } = await opened();
+    send(window(range(10, 100), { hasBefore: true }));
+    expect(host.page("c", "after", { from: 40 })).toBe(true);
+    send({ kind: "chatPage", page: { sid: "c", edition: 1, rows: range(5, 41), hasBefore: true, hasAfter: true } });
+    const snapshot = store.snapshot("c")!;
+    expect(ids(snapshot)).toEqual([41, 42, 43, 44, 45, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109]);
+    const gaps = snapshot.rows.filter((entry) => entry.gapBefore).map((entry) => entry.id);
+    expect(gaps).toEqual([100]);
+    expect(snapshot.hasBefore).toBe(true);
+  });
+});
+
+describe("one row object per (id, rev)", () => {
+  test("a window of the same edition keeps the rows it holds again; a new rev is a new row", async () => {
+    const { send, store } = await opened();
+    send(window(range(5)));
+    const before = store.snapshot("c")!;
+    send(window([row(3), row(4, { rev: 2, body: { text: "now" } }), row(5)], {}, false));
+    const after = store.snapshot("c")!;
+    expect(after.rows[0]).toBe(before.rows[0]!);
+    expect(after.rows[2]!.row).toBe(before.rows[2]!.row);
+    expect(after.rows[3]!.row).not.toBe(before.rows[3]!.row);
+    expect(after.rows[3]!.row!.body).toEqual({ text: "now" });
+    // Marking rows unconfirmed made no new row objects.
+    expect([...after.unconfirmed]).toEqual([1, 2]);
+    expect(after.rows[1]).toBe(before.rows[1]!);
+  });
+
+  test("an open row is never taken for the same: its body grows under one rev", async () => {
+    const { send, store } = await opened();
+    send(window(range(2), { open: [{ row: row(3, { open: true, body: { text: "a" } }) }] }));
+    const before = store.snapshot("c")!.rows[2]!.row;
+    send(window(range(2), { open: [{ row: row(3, { open: true, body: { text: "ab" } }) }] }, false));
+    expect(store.snapshot("c")!.rows[2]!.row).not.toBe(before);
+    expect(store.snapshot("c")!.rows[2]!.row!.body).toEqual({ text: "ab" });
   });
 });

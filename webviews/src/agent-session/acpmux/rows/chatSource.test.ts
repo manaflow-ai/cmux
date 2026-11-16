@@ -3,10 +3,18 @@
 // kept windows, one chat on the store a pane, and the falls to v1. The recording's rows are of kind
 // `assistant`, which the adapter draws nothing of; here they are read as `text` rows, so each one
 // draws one view row.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { ChatSource, HOLD_ATTACH_CAPABILITY, KEPT_WINDOWS, chatRowsState, resetChatRowsState } from "./chatSource";
-import { CHAT_ROWS_LATE, CHAT_ROWS_LOST, OPEN_ANSWER_MS } from "./host";
+import {
+  ChatSource,
+  HOLD_ATTACH_CAPABILITY,
+  KEPT_WINDOWS,
+  REREAD_SCREENS,
+  chatRowsOtherSids,
+  chatRowsState,
+  resetChatRowsState,
+} from "./chatSource";
+import { CHAT_ROWS_LATE, CHAT_ROWS_LOST, CHAT_ROWS_SLOW, OPEN_ANSWER_MS } from "./host";
 import { receiveChatRows, resetChatRowsReceiver } from "./receiver";
 
 const FIXTURES = `${import.meta.dir}/../../../../../Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream`;
@@ -66,6 +74,7 @@ afterEach(() => {
   for (const rows of made.splice(0)) rows.dispose();
   resetChatRowsState();
   resetChatRowsReceiver();
+  jest.useRealTimers();
 });
 
 test("no open is asked of a daemon without the hold, and a host's off is remembered", async () => {
@@ -312,4 +321,326 @@ test("one store's throw leaves the other stores' changes applied and the batch t
   expect(two.rows.view("chat-b")!.rows.length).toBe(11);
   const taken = [...one.posts, ...two.posts].filter((post) => post.method === "chat.rows.taken");
   expect(taken).toEqual([{ method: "chat.rows.taken", params: { batch: 10 } }]);
+});
+
+test("a chat whose first window does not come in time falls to v1 and its sid is closed", async () => {
+  jest.useFakeTimers();
+  const { rows, posts, fell, feed, opens } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  jest.advanceTimersByTime(rows.firstWindowMs - 1);
+  expect(fell).toHaveLength(0);
+  jest.advanceTimersByTime(1);
+  expect(fell).toEqual([{ chat: "chat-a", code: CHAT_ROWS_SLOW }]);
+  expect(posts.at(-1)).toEqual({ method: "chat.rows.close", params: { sid: "rows.1" } });
+  expect(rows.holds("chat-a")).toBe(false);
+  // What comes for it after is dropped, and the chat stays v1 until another is chosen.
+  feed(chat.get("window")!);
+  expect(rows.view("chat-a")).toBeUndefined();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(false);
+  expect(opens()).toBe(1);
+  // A first window in time stops the deadline.
+  expect(await rows.choose("chat-b", HOLDS)).toBe(true);
+  feed(renamed(chat.get("window")!, "rows.2"));
+  jest.advanceTimersByTime(rows.firstWindowMs * 2);
+  expect(fell).toHaveLength(1);
+  expect(rows.holds("chat-b")).toBe(true);
+});
+
+test("an open answered with another sid falls that chat once, counted, and the switch stays", async () => {
+  let other = true;
+  const { rows, opens } = source((post) =>
+    post.method === "chat.rows.open" && other ? Promise.resolve({ sid: "theirs" }) : undefined,
+  );
+  expect(await rows.choose("chat-a", HOLDS)).toBe(false);
+  expect(chatRowsOtherSids()).toBe(1);
+  expect(chatRowsState()).toBe("unknown");
+  other = false;
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  expect(opens()).toBe(2);
+});
+
+test("a second choose of the chat whose open is out waits on that open, posting none", async () => {
+  let answer = () => {};
+  const gate = new Promise<void>((resolve) => (answer = resolve));
+  const { rows, posts, opens } = source((post) =>
+    post.method === "chat.rows.open" ? gate.then(() => ({ sid: post.params.sid })) : undefined,
+  );
+  const first = rows.choose("chat-a", HOLDS);
+  const second = rows.choose("chat-a", HOLDS);
+  answer();
+  expect(await first).toBe(true);
+  expect(await second).toBe(true);
+  expect(opens()).toBe(1);
+  expect(posts.some((post) => post.method === "chat.rows.close")).toBe(false);
+  expect(rows.holds("chat-a")).toBe(true);
+});
+
+const pageAsks = (posts: readonly Post[]) => posts.filter((post) => post.method === "chat.rows.page");
+
+test("the page of turns is asked once an edition, after the first window, from past the last row", async () => {
+  const { rows, posts, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  expect(pageAsks(posts)).toEqual([]);
+  feed(chat.get("window")!);
+  expect(pageAsks(posts)).toEqual([{ method: "chat.rows.page", params: { sid: "rows.1", before: 12, turns: true } }]);
+  // The recording's page of turns: its group rows are the heads, and the rail's earlier prompts
+  // are those older than the first row held (none here: the window holds rows 1 to 10).
+  feed(chat.get("page-turns")!);
+  expect(rows.host.store.snapshot("rows.1")!.heads?.rows.map((head) => head.id)).toEqual([7, 12]);
+  expect(rows.view("chat-a")!.earlierPrompts).toBeUndefined();
+  // The same edition again asks nothing; another edition asks once more.
+  feed(chat.get("window-same-edition")!);
+  expect(pageAsks(posts)).toHaveLength(1);
+  feed(chat.get("window-new-edition")!);
+  expect(pageAsks(posts)).toHaveLength(2);
+});
+
+test("a daemon with no page of turns: no earlier prompts, and none asked again this edition", async () => {
+  const { rows, posts, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  feed(chat.get("window")!);
+  feed(chat.get("page-turns-unsupported")!);
+  expect(rows.host.store.snapshot("rows.1")!.heads?.unsupported).toBe(true);
+  expect(rows.view("chat-a")!.earlierPrompts).toBeUndefined();
+  feed(chat.get("ops")!);
+  expect(pageAsks(posts)).toHaveLength(1);
+});
+
+const changeOf = (value: unknown) => JSON.stringify(value);
+const groupRow = (id: number, prompt: number, open = false) => ({
+  id,
+  rev: 1,
+  kind: "group",
+  turn: prompt,
+  at: 1794480726,
+  open,
+  body: { head: `prompt ${prompt}`, prompt, promptId: `p${prompt}` },
+  est: 1,
+});
+const textRow = (id: number, turn: number) => ({
+  id,
+  rev: 1,
+  kind: "text",
+  turn,
+  at: 1794480726,
+  open: false,
+  body: { text: `r${id}` },
+  est: 1,
+});
+const handWindow = (rows: unknown[], extra: Record<string, unknown> = {}) =>
+  changeOf({
+    kind: "chatWindow",
+    replaces: true,
+    window: { sid: "rows.1", cursor: 99, edition: 1, rows, hasBefore: true, hasAfter: false, ...extra },
+  });
+
+test("asked from the open turn's group row, and behind a page out: a person's page goes first", async () => {
+  const { rows, posts, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  // The open turn's group row is held apart, open, with its prompt and a reply in the stretch.
+  feed([
+    handWindow([textRow(50, 49), textRow(51, 49)], {
+      open: [{ row: groupRow(52, 52, true) }],
+    }),
+  ]);
+  expect(pageAsks(posts).at(-1)!.params).toEqual({ sid: "rows.1", before: 52, turns: true });
+  // The page of turns lands; a new edition comes while a person's page is out.
+  feed([
+    changeOf({
+      kind: "chatPage",
+      page: { sid: "rows.1", edition: 1, rows: [], hasBefore: false, hasAfter: false, turns: true },
+    }),
+  ]);
+  expect(rows.page("chat-a")).toBe(true);
+  feed([handWindow([textRow(60, 59)], { edition: 2 })]);
+  // The new edition's window ends the person's page (a window lets go of a page out), so the page
+  // of turns is asked at once from past the last row.
+  expect(pageAsks(posts).at(-1)!.params).toEqual({ sid: "rows.1", before: 61, turns: true });
+});
+
+test("not while the page is hidden: asked when it is seen again", async () => {
+  const doc = globalThis as { document?: unknown };
+  const had = Object.getOwnPropertyDescriptor(globalThis, "document");
+  let state = "hidden";
+  const listeners = new Set<() => void>();
+  doc.document = {
+    get visibilityState() {
+      return state;
+    },
+    addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+    removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+  };
+  try {
+    const { rows, posts, feed } = source();
+    expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+    feed(chat.get("window")!);
+    expect(pageAsks(posts)).toEqual([]);
+    state = "visible";
+    for (const listener of listeners) listener();
+    expect(pageAsks(posts)).toHaveLength(1);
+  } finally {
+    if (had) Object.defineProperty(globalThis, "document", had);
+    else delete doc.document;
+  }
+});
+
+test("a rail jump pages after the turn's prompt and resolves once it is held, or false", async () => {
+  const { rows, posts, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  feed([handWindow([textRow(90, 89), textRow(91, 89)])]);
+  feed([
+    changeOf({
+      kind: "chatPage",
+      page: {
+        sid: "rows.1",
+        edition: 1,
+        rows: [groupRow(31, 30), groupRow(61, 60)],
+        hasBefore: false,
+        hasAfter: false,
+        turns: true,
+      },
+    }),
+  ]);
+  expect(rows.view("chat-a")!.earlierPrompts!.map((prompt) => prompt.id)).toEqual(["row-30", "row-60"]);
+  const jump = rows.through("chat-a", 30);
+  expect(pageAsks(posts).at(-1)!.params).toEqual({ sid: "rows.1", after: 29 });
+  feed([
+    changeOf({
+      kind: "chatPage",
+      page: {
+        sid: "rows.1",
+        edition: 1,
+        rows: [textRow(30, 30), groupRow(31, 30), textRow(32, 30)],
+        hasBefore: true,
+        hasAfter: true,
+      },
+    }),
+  ]);
+  expect(await jump).toBe(true);
+  // Held now: the prompt is no earlier prompt, and the jump to it answers at once.
+  expect(rows.view("chat-a")!.earlierPrompts).toBeUndefined();
+  expect(await rows.through("chat-a", 30)).toBe(true);
+  // A refused page answers false; so does a chat left while its page is out.
+  const refused = rows.through("chat-a", 60);
+  feed([changeOf({ kind: "chatError", sid: "rows.1", method: "page", id: null, code: "refused" })]);
+  expect(await refused).toBe(false);
+  const left = rows.through("chat-a", 60);
+  rows.close();
+  expect(await left).toBe(false);
+});
+
+const opensOf = (posts: readonly Post[]) => posts.filter((post) => post.method === "chat.rows.open");
+const rowsWindow = (from: number, to: number, extra: Record<string, unknown> = {}, replaces = true) =>
+  changeOf({
+    kind: "chatWindow",
+    replaces,
+    window: {
+      sid: "rows.1",
+      cursor: 999,
+      edition: 1,
+      rows: Array.from({ length: to - from + 1 }, (_, index) => textRow(from + index, from)),
+      hasBefore: from > 1,
+      hasAfter: false,
+      ...extra,
+    },
+  });
+
+test("loadOlder's page resolves when it lands, is refused, the chat is left or its edition changes", async () => {
+  const { rows, posts, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  feed([rowsWindow(50, 60)]);
+  const noTurns = (edition: number) =>
+    feed([
+      changeOf({
+        kind: "chatPage",
+        page: { sid: "rows.1", edition, rows: [], hasBefore: false, hasAfter: false, turns: true },
+      }),
+    ]);
+  // The page of turns asked after the first window takes the one slot first.
+  noTurns(1);
+  const pageOut = () => rows.host.store.pageOut("rows.1");
+  // Lands.
+  let done = false;
+  const landed = rows.pageOlder("chat-a").then(() => (done = true));
+  expect(pageAsks(posts).at(-1)!.params).toEqual({ sid: "rows.1", before: 50 });
+  await Promise.resolve();
+  expect(done).toBe(false);
+  feed([
+    changeOf({
+      kind: "chatPage",
+      page: { sid: "rows.1", edition: 1, rows: [textRow(49, 40)], hasBefore: true, hasAfter: true },
+    }),
+  ]);
+  await landed;
+  expect(pageOut()).toBe(false);
+  // Refused.
+  const refused = rows.pageOlder("chat-a");
+  feed([changeOf({ kind: "chatError", sid: "rows.1", method: "page", id: null, code: "refused" })]);
+  await refused;
+  // A new edition's window lets go of the page out.
+  const edition = rows.pageOlder("chat-a");
+  feed([rowsWindow(70, 80, { edition: 2 })]);
+  await edition;
+  expect(pageOut()).toBe(true);
+  noTurns(2);
+  expect(pageOut()).toBe(false);
+  // A second ask while one is out resolves with it; the chat left resolves it too.
+  const first = rows.pageOlder("chat-a");
+  const second = rows.pageOlder("chat-a");
+  expect(pageAsks(posts).filter((post) => !post.params.turns)).toHaveLength(4);
+  rows.close();
+  await Promise.all([first, second]);
+});
+
+test("a chat reopens around the row its pane rested on; a row it no longer has opens at the end, once", async () => {
+  const { rows, posts, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS, "row-55")).toBe(true);
+  expect(opensOf(posts)[0]!.params.anchor).toEqual({ rowId: 55, side: "around" });
+  feed([rowsWindow(50, 60)]);
+  expect(rows.view("chat-a")!.rows.some((row) => row.id === "row-55")).toBe(true);
+  // Rested on a row the daemon no longer has: its window does not hold it, so the chat opens again
+  // at the end, and nothing of the first window is drawn.
+  rows.close();
+  expect(await rows.choose("chat-b", HOLDS, "row-5")).toBe(true);
+  feed(renamed([rowsWindow(50, 60)], "rows.2"));
+  expect(rows.view("chat-b")?.rows.some((row) => row.id === "row-50")).not.toBe(true);
+  expect(opensOf(posts).at(-1)!.params).toMatchObject({ chat: "chat-b", anchor: "end" });
+  expect(opensOf(posts)).toHaveLength(3);
+  // A v1 id opens at the end.
+  rows.close();
+  expect(await rows.choose("chat-c", HOLDS, "user-12")).toBe(true);
+  expect(opensOf(posts).at(-1)!.params).toMatchObject({ chat: "chat-c", anchor: "end" });
+});
+
+test("a window of the same edition while the pane reads far above it: no row leaves and one page is asked, near the reading", async () => {
+  const { rows, posts, feed } = source();
+  expect(await rows.choose("chat-a", HOLDS)).toBe(true);
+  // A long held stretch: rows 1 to 1000, a line each, the pane reading at row 100.
+  feed([rowsWindow(1, 1000, { hasBefore: false })]);
+  feed([
+    changeOf({
+      kind: "chatPage",
+      page: { sid: "rows.1", edition: 1, rows: [], hasBefore: false, hasAfter: false, turns: true },
+    }),
+  ]);
+  const before = rows.view("chat-a")!.rows;
+  rows.readingAt("chat-a", "row-100");
+  const asked = pageAsks(posts).length;
+  // A reconnect's window of the same edition at the end: it holds only rows 990 to 1010.
+  feed([rowsWindow(990, 1010, { hasBefore: true }, false)]);
+  const after = rows.view("chat-a")!.rows;
+  // No row leaves, and the rows held keep their view objects.
+  expect(after.length).toBe(1010);
+  for (let index = 0; index < 989; index += 1) expect(after[index]).toBe(before[index]!);
+  // Exactly one page, from past the newest unconfirmed row within two screens of row 100.
+  const pages = pageAsks(posts).slice(asked);
+  expect(pages).toHaveLength(1);
+  const from = pages[0]!.params.before as number;
+  const height = typeof window !== "undefined" && window.innerHeight > 0 ? window.innerHeight : 800;
+  const reach = REREAD_SCREENS * Math.ceil(height / 20);
+  expect(from).toBeGreaterThan(100);
+  expect(from).toBeLessThanOrEqual(100 + reach + 2);
+  // Nothing more is asked while it is out, or for rows far from the reading.
+  rows.readingAt("chat-a", "row-100");
+  expect(pageAsks(posts).slice(asked)).toHaveLength(1);
 });

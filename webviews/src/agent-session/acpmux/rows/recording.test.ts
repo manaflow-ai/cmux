@@ -1,9 +1,10 @@
 // The page's row store fed the one recording of a daemon's chat stream (decision 242, row 6b):
-// each step's change strings as the client core gave them, through the host client, with the
-// page's calls in between as the recording made them. Nothing here is recorded again.
+// each step's change strings as the client core gave them, through the document's receiver, with
+// the page's calls in between as the recording made them. Nothing here is recorded again.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { ChatRowsHost } from "./host";
+import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
+import { ChatRowsHost, type ChatRowsPost } from "./host";
 import { type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
 
 const FIXTURES = `${import.meta.dir}/../../../../../Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream`;
@@ -36,18 +37,14 @@ function recorded(sids: string[]) {
   let blobs = 0;
   const names = [...sids];
   const store = new ChatRowStore({ onFall: (fall) => falls.push(fall) });
-  const host = new ChatRowsHost(
-    async (method, params) => {
-      posts.push({ method, params });
-      if (method === "chat.rows.open") return { sid: params.sid };
-      if (method === "chat.rows.blob") return { id: params.id };
-      return {};
-    },
-    store,
-    () => names.shift() ?? `blob.${++blobs}`,
-  );
-  let batch = 0;
-  const feed = (changes: string[]) => host.receive({ batch: ++batch, changes });
+  const post: ChatRowsPost = async (method, params) => {
+    posts.push({ method, params });
+    if (method === "chat.rows.open") return { sid: params.sid };
+    if (method === "chat.rows.blob") return { id: params.id };
+    return {};
+  };
+  const host = new ChatRowsHost(post, store, () => names.shift() ?? `blob.${++blobs}`);
+  const feed = chatRowsFeed(host, post);
   return { host, store, posts, falls, feed };
 }
 
@@ -56,9 +53,8 @@ const range = (from: number, to: number) => Array.from({ length: to - from + 1 }
 
 test("the chat recording, step by step", async () => {
   const recording = steps("chat");
-  // Steps recorded for a later piece: the page of turns' PR (6d) replays them and empties this.
-  // Any other new step fails here.
-  const NOT_YET = ["page-turns", "page-turns-unsupported"];
+  // Any new step fails here.
+  const NOT_YET: string[] = [];
   expect([...recording.keys()].filter((name) => !NOT_YET.includes(name))).toEqual([
     "upgrade",
     "not-ready",
@@ -73,6 +69,8 @@ test("the chat recording, step by step", async () => {
     "blob-open-first",
     "blob-open-rest",
     "dropped",
+    "page-turns",
+    "page-turns-unsupported",
     "sub-error",
     "after-end",
   ]);
@@ -122,18 +120,15 @@ test("the chat recording, step by step", async () => {
       .rows.filter((entry) => entry.gapBefore)
       .map((entry) => entry.id),
   ).toEqual([31]);
-  expect(
-    snapshot()
-      .rows.filter((entry) => entry.unconfirmed)
-      .map((entry) => entry.id),
-  ).toEqual(range(1, 14));
+  expect([...snapshot().unconfirmed].sort((a, b) => a - b)).toEqual(range(1, 14));
   expect(store.edge("rows.1", "before")).toBe(31);
 
   // A new edition replaces everything; its open row's body is behind `blob`.
   step("window-new-edition");
   expect(ids(snapshot())).toEqual(range(21, 30));
   expect(snapshot().rows.at(-1)!.bodyLen).toBe(37);
-  expect(snapshot().rows.some((entry) => entry.gapBefore || entry.unconfirmed)).toBe(false);
+  expect(snapshot().rows.some((entry) => entry.gapBefore)).toBe(false);
+  expect(snapshot().unconfirmed.size).toBe(0);
 
   expect(host.page("rows.1", "before")).toBe(true);
   asked("page");
@@ -169,6 +164,19 @@ test("the chat recording, step by step", async () => {
   expect(ids(snapshot())).toEqual(range(18, 30));
   expect(snapshot().rows.at(-1)!.row!.open).toBeFalsy();
   expect(snapshot().rows.some((entry) => entry.gapBefore)).toBe(false);
+
+  // The page of turns: its heads beside the rows, then a core with none says so once.
+  expect(host.page("rows.1", "before", { from: 13, turns: true })).toBe(true);
+  asked("page-turns");
+  step("page-turns");
+  expect(snapshot().heads!.rows.length).toBeGreaterThan(0);
+  expect(snapshot().heads!.rows.every((head) => head.kind === "group" && !head.open)).toBe(true);
+  expect(ids(snapshot())).toEqual(range(18, 30));
+  expect(host.page("rows.1", "before", { from: 13, turns: true })).toBe(true);
+  asked("page-turns-unsupported");
+  step("page-turns-unsupported");
+  expect(snapshot().heads!.unsupported).toBe(true);
+  expect(store.pageOut("rows.1")).toBe(false);
 
   expect(falls).toEqual([]);
   step("sub-error");

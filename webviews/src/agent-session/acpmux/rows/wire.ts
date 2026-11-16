@@ -72,6 +72,9 @@ export type ChatPageResult = {
   hasBefore: boolean;
   hasAfter: boolean;
   refused?: number[];
+  /// A page of turns (`turns` asked): the settled turns' group rows alone, nearest the row asked
+  /// from first.
+  turns?: boolean;
 };
 
 export type ChatBlobHead = {

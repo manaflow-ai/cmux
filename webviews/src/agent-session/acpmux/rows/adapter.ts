@@ -30,7 +30,59 @@ export type AdaptedChat = {
   rows: AcpmuxRow[];
   queue: QueuedPrompt[];
   canLoadOlder: boolean;
+  /// The first row held (its rowId): the list keys its ask for older rows on it, as on v1's first seq.
+  historyFrom: number | undefined;
+  /// The page of turns' prompts older than the rows held (the snapshot's `earlierPrompts`), for
+  /// the thread rail: absent until a page of turns came, and for a daemon with none.
+  earlierPrompts?: readonly AcpmuxRow[];
+  /// Whether the heads and the rows held name every prompt of the chat: the window holds it all,
+  /// or the page of turns answered with none before or after its run. Until then the pane sends the
+  /// summary's `promptCount`, so the rail starts at its full height.
+  promptsHeld: boolean;
 };
+
+/// Every prompt is held: the window has no rows before or after it, or the heads' run has none.
+function promptsHeld(snapshot: ChatRowsSnapshot): boolean {
+  if (!snapshot.hasBefore && !snapshot.hasAfter) return true;
+  const heads = snapshot.heads;
+  return !!heads && !heads.unsupported && !heads.hasBefore && !heads.hasAfter;
+}
+
+const NO_EARLIER: readonly AcpmuxRow[] = Object.freeze([]);
+
+/// A turn's head as the rail's earlier prompt: a `user` row named as its prompt's row is
+/// (`row-<rowId>`, the turn's `turn`), so a rail jump to it lands on that row once a page holds it.
+/// The prompt's text is the head's start of it (`body.head`).
+function earlierPrompt(head: ChatRow): AcpmuxRow | undefined {
+  const body = (head.body ?? {}) as { head?: unknown; promptId?: unknown; prompt?: unknown };
+  const prompt = typeof body.prompt === "number" ? body.prompt : head.turn;
+  if (prompt === undefined) return undefined;
+  return {
+    id: `row-${prompt}`,
+    version: head.rev,
+    kind: "user",
+    at: head.at * 1000,
+    text: typeof body.head === "string" ? body.head : "",
+    turnId: String(prompt),
+    ...(typeof body.promptId === "string" && body.promptId ? { promptId: body.promptId } : {}),
+  };
+}
+
+/// The heads whose prompts are older than the first row held, in order. One list while neither
+/// the heads nor the first row held changed.
+function earlierPrompts(snapshot: ChatRowsSnapshot): readonly AcpmuxRow[] {
+  const heads = snapshot.heads?.rows ?? NO_EARLIER_HEADS;
+  const first = snapshot.rows[0]?.id ?? Infinity;
+  const list: AcpmuxRow[] = [];
+  for (const head of heads) {
+    const row = earlierPrompt(head);
+    if (!row) continue;
+    if (Number(row.turnId) >= first) break;
+    list.push(row);
+  }
+  return list.length ? list : NO_EARLIER;
+}
+const NO_EARLIER_HEADS: readonly ChatRow[] = Object.freeze([]);
 
 /// One snapshot's view, adapted whole: the parity test's reading. A page adapts through a
 /// `ChatAdapter`, which keeps the rows that did not change.
@@ -43,19 +95,49 @@ export function adaptChat(snapshot: ChatRowsSnapshot, context: ChatRowsContext):
 /// keeps its view rows' objects, so the view's turn shaping (`turnViewFrom`) keeps the turns before
 /// the first changed one. A new context is a new adapter.
 export class ChatAdapter {
-  readonly #made = new WeakMap<ChatRow, { group: ChatRow | undefined; rows: AcpmuxRow[] }>();
+  #made = new WeakMap<ChatRow, { group: ChatRow | undefined; rows: AcpmuxRow[] }>();
+  /// The harness the made rows were adapted under. The page's context reads it from the chat list
+  /// as each row is adapted, so a chat chosen before its list row is known learns it later: then
+  /// every made row goes, and a decided ask's mode is named by that harness.
+  #harness: string | undefined;
+  /// `earlierPrompts`' last answer, by the heads and the first row held it was read from: a text
+  /// delta or a settled row below the first makes no new list.
+  #earlier: { heads: ChatRowsSnapshot["heads"]; first: number | undefined; list: readonly AcpmuxRow[] } | undefined;
+  /// The line drawn for each hole, by row id: a hole has no ChatRow to key `#made` by, so its line
+  /// is kept while its rev and time stay, and only the holes the last snapshot held are kept.
+  #holes = new Map<number, AcpmuxRow>();
 
   constructor(readonly context: ChatRowsContext) {}
 
+  /// A kept chat keeps no heads (decision 378): its earlier prompts' memo goes with them.
+  dropHeads(): void {
+    this.#earlier = undefined;
+  }
+
   adapt(snapshot: ChatRowsSnapshot): AdaptedChat {
+    const harness = this.context.harness;
+    if (harness !== this.#harness) {
+      this.#harness = harness;
+      this.#made = new WeakMap();
+    }
     const held = new Map<number, ChatRow>();
     for (const entry of snapshot.rows) if (entry.row) held.set(entry.id, entry.row);
     for (const entry of snapshot.apart) if (entry.row) held.set(entry.id, entry.row);
     const rows: AcpmuxRow[] = [];
+    const holes = new Map<number, AcpmuxRow>();
     for (const entries of [snapshot.rows, snapshot.apart])
-      for (const entry of entries) {
+      for (const [index, entry] of entries.entries()) {
         const row = entry.row;
-        if (!row) continue;
+        if (!row) {
+          // The view's rows are in time order (turns.ts finds a change by `at`): a hole takes the
+          // time of the row before it, or of the first held row after it when it leads.
+          const at = rows.at(-1)?.at ?? nextAt(entries, index);
+          let line = this.#holes.get(entry.id);
+          if (!line || line.version !== holeVersion(entry) || line.at !== at) line = holeRow(entry, at);
+          holes.set(entry.id, line);
+          rows.push(line);
+          continue;
+        }
         const group = row.kind === "notice" && row.group ? held.get(row.group) : undefined;
         let made = this.#made.get(row);
         if (!made || made.group !== group) {
@@ -64,7 +146,14 @@ export class ChatAdapter {
         }
         rows.push(...made.rows);
       }
+    this.#holes = holes;
+    const first = snapshot.rows[0]?.id;
+    let earlier = this.#earlier;
+    if (!earlier || earlier.heads !== snapshot.heads || earlier.first !== first)
+      this.#earlier = earlier = { heads: snapshot.heads, first, list: earlierPrompts(snapshot) };
     return {
+      ...(earlier.list.length ? { earlierPrompts: earlier.list } : {}),
+      promptsHeld: promptsHeld(snapshot),
       rows,
       // A cut entry's whole text is a `prompt:<id>` blob once read.
       queue: snapshot.queue.entries.map((entry) => {
@@ -72,11 +161,38 @@ export class ChatAdapter {
         return { id: entry.id, prompt: typeof whole === "string" ? whole : entry.text };
       }),
       canLoadOlder: snapshot.hasBefore,
+      historyFrom: snapshot.rows[0]?.id,
     };
   }
 }
 
-/// One held row as the view's rows: none for a group row (the turn's shape reads it) or a hole.
+/// A hole's version: below every real rev, so the row that fills it (same id, `row-<id>`) is a
+/// new version of that one row, never mistaken for the line (decision 377(e)).
+const holeVersion = (entry: ChatRowEntry): number => -1 - entry.rev;
+
+/// A refused row as one line where the row will be: the id the filled row will have, so the list
+/// sees one row change in place when a later window or page holds it.
+function holeRow(entry: ChatRowEntry, at: number): AcpmuxRow {
+  return {
+    id: `row-${entry.id}`,
+    version: holeVersion(entry),
+    at,
+    kind: "notice",
+    text: translate("transcript.rowRefused"),
+  };
+}
+
+/// The time of the first held row after `index` (ms), 0 when none is held.
+function nextAt(entries: readonly ChatRowEntry[], index: number): number {
+  for (let next = index + 1; next < entries.length; next += 1) {
+    const row = entries[next]!.row;
+    if (row) return row.at * 1000;
+  }
+  return 0;
+}
+
+/// One held row as the view's rows: none for a group row (the turn's shape reads it) or a hole
+/// (the adapter draws a hole's line, timed by its neighbours).
 export function adaptRow(
   entry: ChatRowEntry,
   held: ReadonlyMap<number, ChatRow>,

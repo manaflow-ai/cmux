@@ -2,7 +2,10 @@
 // map by rowId and the ids in order, per sid. No history, no rebuild, no clear: a window swaps the
 // rows in one step, an op replaces one row, a page adds a stretch at an edge, and past the cap the
 // stretch farthest from where the person reads is let go (a page brings it back). The wire's
-// rules stay in Rust: this keeps no cursor and no credit, compares no edition and asks for nothing.
+// rules stay in Rust: this keeps no cursor and no credit and asks for nothing; an edition is read
+// only to let go of the turn heads of the one before. Beside the rows, one page of turn heads (a
+// page of turns, decision 235) for the thread rail. A shown sid holds at most the rows' cap and the
+// heads' cap: 1 MiB and 256 KiB, 1.25 MiB of rows in all.
 // The field table (FIELDS.md) says what of a chat's view comes from here.
 import type {
   ChatBlobHead,
@@ -26,6 +29,23 @@ export const STORE_MAX_BYTES = 4 * 256 * 1024;
 /// The most bytes of whole blob bodies (a 5 MB tool output read for the view) one sid keeps, the
 /// least recently read let go first: a body is read again on demand, so the cap costs one read.
 export const STORE_MAX_BLOB_BYTES = 4 * 1024 * 1024;
+/// The most turn heads and head bytes one sid holds: one page of turns, the core's bound on it
+/// (acpmux-book read.rs `read_turns`: MAX_ROWS, 400 rows; MAX_PAGE_BYTES, 256 KiB).
+export const STORE_MAX_HEADS = 400;
+export const STORE_MAX_HEAD_BYTES = 256 * 1024;
+/// The page code for a daemon with no page of turns (acpmux-client chat.rs `accept_chat_page`).
+export const TURNS_UNSUPPORTED = "turns_unsupported";
+
+/// The settled turns' group rows (`kind: "group"`), in rowId order: one run of adjoining turns.
+/// `hasAfter` once a rail jump replaced the run with an older page, so a turn that settles is not
+/// appended to it. `unsupported` for a daemon with no page of turns: no heads, none asked again
+/// this edition.
+export type ChatHeads = {
+  readonly rows: readonly ChatRow[];
+  readonly hasBefore: boolean;
+  readonly hasAfter: boolean;
+  readonly unsupported?: true;
+};
 
 /// One row as held. `row` is null for a hole: a row whose record a read refused, kept in its place
 /// with its size (`est`, the lines of the row it stood for, 1 when none was held).
@@ -36,8 +56,6 @@ export type ChatRowEntry = {
   /// The body's length when the daemon left an open row's body out (read by `blob`).
   readonly bodyLen?: number;
   readonly est: number;
-  /// Held outside the last window's range and not covered by a page since.
-  readonly unconfirmed?: true;
   readonly refused?: true;
   /// Rows are missing between the entry before this one and this one: the store holds two
   /// stretches (a window in place of a resume, or a page that did not reach the other). A page
@@ -53,6 +71,9 @@ export type ChatRowsSnapshot = {
   readonly sid: string;
   /// In rowId order, which is the order the page draws.
   readonly rows: readonly ChatRowEntry[];
+  /// The rows held outside the last window's range and not covered by a page since, by id. Kept
+  /// beside the rows, never in them: marking or confirming one makes no new row and no redraw.
+  readonly unconfirmed: ReadonlySet<number>;
   /// Open rows past the rows held (decision 243): the stretch does not reach them, so they are
   /// drawn apart from `rows`, in rowId order. They join `rows` when a page reaches them.
   readonly apart: readonly ChatRowEntry[];
@@ -66,6 +87,10 @@ export type ChatRowsSnapshot = {
   readonly bodies: ReadonlyMap<string, unknown>;
   /// False until the first window: nothing to draw yet, and nothing was cleared.
   readonly ready: boolean;
+  /// The last window's edition, once one came.
+  readonly edition: number | undefined;
+  /// The page of turns, once one came this edition: null before it.
+  readonly heads: ChatHeads | null;
 };
 
 /// Why a chat falls to v1 (decision 225): an `open` the host refused, or a `sub` error other
@@ -76,7 +101,7 @@ export type BlobTarget = { rowId: number } | { prompt: string };
 export const blobKey = (target: BlobTarget): string =>
   "rowId" in target ? `row:${target.rowId}` : `prompt:${target.prompt}`;
 
-type PageAsk = { side: "before" | "after"; rowId: number; fold?: number };
+type PageAsk = { side: "before" | "after"; rowId: number; fold?: number; turns?: true };
 type Assembly = { parts: string[]; nextStart: number; gen?: string };
 type BlobAsk = { key: string; rowId?: number };
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
@@ -85,10 +110,18 @@ const EMPTY_QUEUE: ChatQueueHead = Object.freeze({ entries: [], count: 0 }) as C
 const NO_FOLDS: readonly number[] = Object.freeze([]);
 const NO_ENTRIES: readonly ChatRowEntry[] = Object.freeze([]);
 const NO_BODIES: ReadonlyMap<string, unknown> = new Map();
+const NO_HEADS: ChatHeads = Object.freeze({
+  rows: Object.freeze([]),
+  hasBefore: false,
+  hasAfter: false,
+  unsupported: true,
+});
 // The core keeps at most 64 queue entries in a head (wire.rs QueueHead).
 const QUEUE_HEAD_MAX = 64;
 
-const entryBytes = (entry: ChatRowEntry): number => (entry.row ? JSON.stringify(entry.row).length : 16);
+/// A row's size as the caps count it, for held rows and heads alike.
+const rowBytes = (row: ChatRow): number => JSON.stringify(row).length;
+const entryBytes = (entry: ChatRowEntry): number => (entry.row ? rowBytes(entry.row) : 16);
 const isOpen = (entry: ChatRowEntry | undefined): boolean => entry?.row?.open === true;
 
 function entryOf(row: ChatRow, bodyLen?: number): ChatRowEntry {
@@ -126,6 +159,8 @@ class SidRows {
   anchor: ChatAnchor;
   private entries = new Map<number, ChatRowEntry>();
   private ids: number[] = [];
+  private unconfirmed = new Set<number>();
+  private unconfirmedChanged = false;
   /// Each entry's bytes, kept so a text op adds its delta instead of measuring the row again.
   private sizes = new Map<number, number>();
   private bytes = 0;
@@ -137,9 +172,16 @@ class SidRows {
   private seen: number | undefined;
   private folds: readonly number[] = NO_FOLDS;
   private ready = false;
+  private edition: number | undefined;
+  private heads: ChatHeads | null = null;
+  private headBytes = 0;
+  /// Each head's place in `heads.rows` by its id, so a window's rows find theirs in O(1).
+  private headAt = new Map<number, number>();
   /// A resume's ops, applied in one step at its end.
   private replayed: ChatOp[] = [];
   private page: PageAsk | null = null;
+  /// A page error let go of the page out since the store last read it.
+  pageEnded = false;
   private assemblies = new Map<string, Assembly>();
   private bodies = new Map<string, { value: unknown; bytes: number }>();
   private bodyBytes = 0;
@@ -213,10 +255,65 @@ class SidRows {
         // The core subscribed again under the same sid; what follows is a resume or a window.
         return;
       case "chatError":
-        if (change.method === "page") this.page = null;
-        else if (change.method === "blob" && change.id) this.blobFailed(change.id);
+        if (change.method === "page") {
+          if (this.page?.turns && change.code === TURNS_UNSUPPORTED) this.setHeads(NO_HEADS, 0);
+          this.page = null;
+          // No new snapshot: whoever waits on the page learns it is no longer out from `onPageEnd`.
+          this.pageEnded = true;
+        } else if (change.method === "blob" && change.id) this.blobFailed(change.id);
         return;
     }
+  }
+
+  private setHeads(heads: ChatHeads | null, bytes: number): void {
+    this.heads = heads;
+    this.headBytes = bytes;
+    this.headAt = new Map(heads?.rows.map((head, at) => [head.id, at]));
+    this.changed = true;
+  }
+
+  /// A page of turns: the run it gives replaces the one held, at most the heads' cap of it, the
+  /// heads nearest the row asked from kept (the core gives them nearest first, within its bound).
+  private mergeHeads(page: ChatPageResult): void {
+    const rows = page.rows.filter((row) => row.kind === "group" && !row.open).sort((a, b) => a.id - b.id);
+    let bytes = 0;
+    for (const row of rows) bytes += rowBytes(row);
+    let from = 0;
+    while (rows.length - from > STORE_MAX_HEADS || (bytes > STORE_MAX_HEAD_BYTES && from < rows.length - 1))
+      bytes -= rowBytes(rows[from++]!);
+    this.setHeads(
+      { rows: from ? rows.slice(from) : rows, hasBefore: page.hasBefore || from > 0, hasAfter: page.hasAfter },
+      bytes,
+    );
+  }
+
+  /// A group row that settled, or changed after: the run takes it when it adjoins the run's last
+  /// head (nothing past the run, `hasAfter` false), the oldest head let go past the cap. A head the
+  /// run holds is replaced by its newer rev.
+  private noteHead(row: ChatRow): void {
+    const heads = this.heads;
+    if (row.kind !== "group" || row.open || !heads || heads.unsupported) return;
+    const list = heads.rows;
+    const last = list[list.length - 1];
+    if (last && row.id <= last.id) {
+      const at = this.headAt.get(row.id) ?? -1;
+      const held = at >= 0 ? list[at]! : undefined;
+      if (!held || held.rev >= row.rev) return;
+      const next = list.slice();
+      next[at] = row;
+      this.setHeads({ ...heads, rows: next }, this.headBytes - rowBytes(held) + rowBytes(row));
+      return;
+    }
+    if (heads.hasAfter) return;
+    const next = [...list, row];
+    let bytes = this.headBytes + rowBytes(row);
+    let from = 0;
+    while (next.length - from > STORE_MAX_HEADS || (bytes > STORE_MAX_HEAD_BYTES && from < next.length - 1))
+      bytes -= rowBytes(next[from++]!);
+    this.setHeads(
+      { rows: from ? next.slice(from) : next, hasBefore: heads.hasBefore || from > 0, hasAfter: false },
+      bytes,
+    );
   }
 
   /// Ends a batch: lets go past the cap, then makes the new snapshot if anything changed.
@@ -224,7 +321,7 @@ class SidRows {
     if (!this.changed) return null;
     this.trim();
     this.snapshot = this.build(this.rowsChanged, this.apartChanged, this.bodiesChanged);
-    this.changed = this.rowsChanged = this.apartChanged = this.bodiesChanged = false;
+    this.changed = this.rowsChanged = this.apartChanged = this.bodiesChanged = this.unconfirmedChanged = false;
     return this.snapshot;
   }
 
@@ -252,6 +349,7 @@ class SidRows {
       this.bytes -= this.sizes.get(entry.id)!;
       if (was.gapBefore && !entry.gapBefore) entry = marked(entry, true);
     } else this.ids.splice(lowerBound(this.ids, entry.id), 0, entry.id);
+    this.confirm(entry.id);
     if (this.apart.delete(entry.id)) this.touchApart();
     this.entries.set(entry.id, entry);
     this.sizes.set(entry.id, size);
@@ -266,8 +364,13 @@ class SidRows {
     this.bytes -= this.sizes.get(id)!;
     this.sizes.delete(id);
     this.entries.delete(id);
+    this.confirm(id);
     this.assemblies.delete(`row:${id}`);
     this.touchRows();
+  }
+
+  private confirm(id: number): void {
+    if (this.unconfirmed.delete(id)) this.changed = this.unconfirmedChanged = true;
   }
 
   private setGap(id: number, gap: boolean): void {
@@ -280,6 +383,13 @@ class SidRows {
   private holdApart(entry: ChatRowEntry): void {
     this.apart.set(entry.id, entry.gapBefore ? marked(entry, false) : entry);
     this.touchApart();
+  }
+
+  /// The row held for `row`'s id when it is the same settled row (same rev, neither open), else
+  /// `row`. An open row's body grows under one rev, so it is never taken for the same.
+  private sameRow(row: ChatRow): ChatRow {
+    const held = this.entries.get(row.id)?.row;
+    return held && !held.open && !row.open && held.rev === row.rev ? held : row;
   }
 
   private inside(id: number): boolean {
@@ -307,7 +417,15 @@ class SidRows {
   private window(replaces: boolean, window: ChatWindow): void {
     // A window in place of a resume: the ops held for it are behind what it holds.
     this.replayed = [];
-    const incoming: ChatRowEntry[] = window.rows.map((row) => entryOf(row));
+    // Another edition's rowIds name other rows: its heads go, and the page asks the new one's.
+    if (window.edition !== this.edition) {
+      this.edition = window.edition;
+      if (this.heads) this.setHeads(null, 0);
+    }
+    for (const row of window.rows) this.noteHead(row);
+    // A settled row held at the same rev keeps its object: the list draws one row object per (id,
+    // rev), so a window of the same edition redraws nothing it held.
+    const incoming: ChatRowEntry[] = window.rows.map((row) => entryOf(this.sameRow(row)));
     for (const open of window.open ?? []) incoming.push(openEntry(open));
     for (const id of window.refused ?? []) incoming.push(hole(id, this.entries.get(id)));
     if (replaces || !this.ready) {
@@ -323,6 +441,10 @@ class SidRows {
       }
       if (this.apart.size) this.touchApart();
       this.apart.clear();
+      if (this.unconfirmed.size) {
+        this.unconfirmed.clear();
+        this.unconfirmedChanged = true;
+      }
       this.hasBefore = window.hasBefore;
       this.hasAfter = window.hasAfter;
       this.page = null;
@@ -338,9 +460,16 @@ class SidRows {
       const aboveAt = lowerBound(this.ids, hi + 1);
       const above = aboveAt < this.ids.length ? this.ids[aboveAt]! : undefined;
       // Rows held that this window does not hold stay, unconfirmed until a page covers them.
-      for (const [id, entry] of this.entries)
-        if (!fresh.has(id) && !entry.unconfirmed) this.entries.set(id, { ...entry, unconfirmed: true });
-      for (const entry of incoming) this.put(entry);
+      for (const id of this.ids)
+        if (!fresh.has(id) && !this.unconfirmed.has(id)) {
+          this.unconfirmed.add(id);
+          this.unconfirmedChanged = true;
+        }
+      for (const entry of incoming) {
+        // The same row held: nothing to put, only its mark to lift.
+        if (this.entries.get(entry.id)?.row === entry.row && entry.row) this.confirm(entry.id);
+        else this.put(entry);
+      }
       if (ids.length && !reaches) {
         if (below && window.hasBefore) this.setGap(lo, true);
         if (above !== undefined && window.hasAfter) this.setGap(above, true);
@@ -362,6 +491,7 @@ class SidRows {
     switch (op.op) {
       case "row": {
         const id = op.row.id;
+        this.noteHead(op.row);
         const held = this.entries.get(id);
         if (held) {
           if (held.row && held.rev > op.row.rev) return;
@@ -390,6 +520,7 @@ class SidRows {
         return;
       }
       case "patch": {
+        this.noteHead(op.row);
         const held = this.entries.get(op.row.id);
         if (held) {
           if (!held.row || held.rev < op.row.rev) this.put(entryOf(op.row));
@@ -434,6 +565,12 @@ class SidRows {
     const ask = this.page;
     this.page = null;
     if (!ask || !this.ready) return;
+    // A page of turns holds group rows for the rail, never rows of the stretch.
+    if (ask.turns) {
+      if (page.turns) this.mergeHeads(page);
+      else this.changed = true;
+      return;
+    }
     const given = [...page.rows.map((row) => row.id), ...(page.refused ?? [])];
     const reaches = given.some((id) => this.entries.has(id));
     const low = given.length ? Math.min(...given) : undefined;
@@ -458,24 +595,22 @@ class SidRows {
     const stale: number[] = [];
     for (let at = lowerBound(this.ids, lo); at < this.ids.length && this.ids[at]! <= hi; at += 1) {
       const id = this.ids[at]!;
-      if (!kept.has(id) && this.entries.get(id)!.unconfirmed) stale.push(id);
+      if (!kept.has(id) && this.unconfirmed.has(id)) stale.push(id);
     }
     for (const id of stale) this.remove(id);
     for (const row of page.rows) {
       const held = this.entries.get(row.id);
-      if (held && held.row && held.rev === row.rev && !held.unconfirmed && !held.refused) continue;
+      // The same settled row held keeps its object: the page only lifts its mark.
+      if (held && held.row && held.rev === row.rev && !held.row.open && !row.open && !held.refused) {
+        this.confirm(row.id);
+        continue;
+      }
       this.put(entryOf(row));
     }
     for (const id of page.refused ?? []) this.put(hole(id, this.entries.get(id)));
     // The page covers its range: what it held there is confirmed.
-    for (let at = lowerBound(this.ids, lo); at < this.ids.length && this.ids[at]! <= hi; at += 1) {
-      const entry = this.entries.get(this.ids[at]!)!;
-      if (entry.unconfirmed) {
-        const confirmed: Mutable<ChatRowEntry> = { ...entry };
-        delete confirmed.unconfirmed;
-        this.entries.set(entry.id, confirmed);
-      }
-    }
+    for (let at = lowerBound(this.ids, lo); at < this.ids.length && this.ids[at]! <= hi; at += 1)
+      this.confirm(this.ids[at]!);
     if (ask.fold === undefined) {
       // A page runs on from the row asked from: nothing is missing inside it.
       for (const id of given) this.setGap(id, false);
@@ -485,9 +620,13 @@ class SidRows {
         if (!this.ids.length || this.ids[0]! >= edge) this.hasBefore = page.hasBefore;
         else if (!reaches && page.hasBefore) this.setGap(edge, true);
       } else {
+        // A page after a row the store does not hold (a rail jump to an older turn): what lies
+        // between the rows held below and the page is missing.
+        if (low !== undefined && !this.entries.has(ask.rowId) && this.ids[0]! < low) this.setGap(low, true);
         const next = this.ids[lowerBound(this.ids, (high ?? ask.rowId) + 1)];
         if (next === undefined) this.hasAfter = page.hasAfter;
         else if (reaches || !page.hasAfter) this.setGap(next, false);
+        else this.setGap(next, true);
       }
       // The person reads where they paged to: the cap lets go of the other end.
       this.anchor = { rowId: ask.rowId, side: ask.side };
@@ -575,6 +714,7 @@ class SidRows {
       this.entries.delete(id);
       this.sizes.delete(id);
       this.bytes -= size;
+      this.confirm(id);
       if (isOpen(entry)) {
         this.holdApart(entry);
         continue;
@@ -601,6 +741,7 @@ class SidRows {
     return Object.freeze({
       sid: this.sid,
       rows: list,
+      unconfirmed: this.unconfirmedChanged || !was ? new Set(this.unconfirmed) : was.unconfirmed,
       apart: apartList,
       hasBefore: this.hasBefore,
       hasAfter: this.hasAfter,
@@ -609,6 +750,8 @@ class SidRows {
       folds: this.folds,
       bodies: bodyMap,
       ready: this.ready,
+      edition: this.edition,
+      heads: this.heads,
     });
   }
 }
@@ -625,9 +768,12 @@ export class ChatRowStore {
   private sids = new Map<string, SidRows>();
   private listeners = new Map<string, Set<Listener>>();
   private onFall: (fall: ChatFall) => void;
+  private onPageEnd: (sid: string) => void;
 
-  constructor(options: { onFall?: (fall: ChatFall) => void } = {}) {
+  /// `onPageEnd`: a sid's page out ended with an error, which makes no snapshot.
+  constructor(options: { onFall?: (fall: ChatFall) => void; onPageEnd?: (sid: string) => void } = {}) {
     this.onFall = options.onFall ?? (() => {});
+    this.onPageEnd = options.onPageEnd ?? (() => {});
   }
 
   open(sid: string, anchor: ChatAnchor = "end"): void {
@@ -660,8 +806,8 @@ export class ChatRowStore {
     return this.sids.get(sid)?.pageOut() ?? false;
   }
 
-  pageAsked(sid: string, side: "before" | "after", rowId: number, fold?: number): void {
-    this.sids.get(sid)?.pageAsked({ side, rowId, fold });
+  pageAsked(sid: string, side: "before" | "after", rowId: number, fold?: number, turns?: boolean): void {
+    this.sids.get(sid)?.pageAsked({ side, rowId, fold, ...(turns ? { turns: true as const } : {}) });
   }
 
   /// A blob read the page named, recorded before it is posted: its reply may come before the
@@ -714,6 +860,11 @@ export class ChatRowStore {
       touched.add(rows);
     }
     for (const rows of touched) this.notify(rows);
+    for (const rows of touched)
+      if (rows.pageEnded) {
+        rows.pageEnded = false;
+        if (this.sids.get(rows.sid) === rows) this.onPageEnd(rows.sid);
+      }
   }
 
   private notify(rows: SidRows): void {
