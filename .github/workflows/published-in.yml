@@ -41,10 +41,11 @@ jobs:
       # Dropping the shallow .git lets the checkout fetch fresh (treeless, about a minute).
       - name: Drop a reused shallow checkout
         shell: bash
+        working-directory: ${{ github.workspace }}
         run: |
-          if [[ -f .git/shallow ]]; then
+          if [[ -f "$GITHUB_WORKSPACE/.git/shallow" ]]; then
             echo "reused shallow checkout: removing its .git so the checkout fetches fresh"
-            rm -rf .git
+            rm -rf "$GITHUB_WORKSPACE/.git"
           fi
 
       - name: Checkout commit history

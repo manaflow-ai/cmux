@@ -273,10 +273,11 @@ jobs:
       # Dropping the shallow .git lets the checkout fetch fresh (treeless, about a minute).
       - name: Drop a reused shallow checkout
         shell: bash
+        working-directory: ${{ github.workspace }}
         run: |
-          if [[ -f .relay-tools/.git/shallow ]]; then
+          if [[ -f "$GITHUB_WORKSPACE/.relay-tools/.git/shallow" ]]; then
             echo "reused shallow checkout: removing its .git so the checkout fetches fresh"
-            rm -rf .relay-tools/.git
+            rm -rf "$GITHUB_WORKSPACE/.relay-tools/.git"
           fi
 
       - name: Checkout the release rails
@@ -577,10 +578,11 @@ jobs:
       # Dropping the shallow .git lets the checkout fetch fresh (treeless, about a minute).
       - name: Drop a reused shallow checkout
         shell: bash
+        working-directory: ${{ github.workspace }}
         run: |
-          if [[ -f .relay-tools/.git/shallow ]]; then
+          if [[ -f "$GITHUB_WORKSPACE/.relay-tools/.git/shallow" ]]; then
             echo "reused shallow checkout: removing its .git so the checkout fetches fresh"
-            rm -rf .relay-tools/.git
+            rm -rf "$GITHUB_WORKSPACE/.relay-tools/.git"
           fi
 
       - name: Checkout the release rails
