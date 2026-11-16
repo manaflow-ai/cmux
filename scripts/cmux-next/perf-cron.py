@@ -634,20 +634,28 @@ def paired_ratio_rows(rounds):
     god / small ratio (god_ratio_rows over that round's PERF_ROW lines, both chats played at once), and the row is the
     median over the rounds, with its 95% interval (ci_lo, ci_hi, ci_width), the per-round ratios and their count. A row
     needs GOD_PAIRED_MIN_ROUNDS rounds that measured it. Run one after the other, a round's ratio swung 0.5x to 1.9x on
-    the same code; paired, about 0.08x (cmux#43874)."""
+    the same code; paired, about 0.08x (cmux#43874).
+    The small chat's least value (GOD_RATIO_MIN) is judged on the median of the rounds' small p95, not per round: in a
+    paired round both chats run on the runner at the same speed, so a fast round (small token p95 3.6 ms, god 4.4 ms)
+    is as good a pair as a slow one. Judged per round, that one fast round of five dropped the token and thought rows
+    under GOD_PAIRED_MIN_ROUNDS, and the board read the one-run ratio (1.578) in place of the paired median (1.384) at
+    83b6f50f (perf cron run 43797713590)."""
     per = {}
     for each in rounds:
-        rows = each.get("rows") if isinstance(each, dict) else None
-        for name, r in god_ratio_rows(webui_rows(rows)).items():
+        for name, r in _paired_round_ratios(each).items():
             per.setdefault(name, []).append(r)
     out = {}
     for name, rs in sorted(per.items()):
         if len(rs) < GOD_PAIRED_MIN_ROUNDS:
             continue
+        small = median([r["small_p95"] for r in rs])
+        if small <= max(rs[0].get("twin_floor") or 0, rs[0]["least"]):
+            continue
         ratios = [r["p95"] for r in rs]
         mid = round(median(ratios), 3)
         lo, hi = median_interval(ratios)
-        out[name] = {**rs[0], "p50": mid, "p95": mid, "god_p95": round(median([r["god_p95"] for r in rs]), 4),
+        first = {k: v for k, v in rs[0].items() if k not in ("least", "twin_floor")}
+        out[name] = {**first, "p50": mid, "p95": mid, "god_p95": round(median([r["god_p95"] for r in rs]), 4),
                      "small_p95": round(median([r["small_p95"] for r in rs]), 4), "paired": True, "rounds": len(rs),
                      "ci_lo": round(lo, 3), "ci_hi": round(hi, 3), "ci_width": round(hi - lo, 3),
                      "round_ratios": ratios, "measure_version": max(r["measure_version"] for r in rs)}
@@ -659,14 +667,26 @@ def paired_settled(rounds):
     GOD_PAIRED_MIN_ROUNDS or more rounds whose 95% interval is narrower than GOD_PAIRED_CI_WIDTH."""
     if len(rounds) < GOD_PAIRED_MIN_ROUNDS:
         return False
-    board = [r for n, r in paired_ratio_rows(rounds).items() if GOD_PAIRED_BOARD_RE.match(n)]
-    return bool(board) and all(r["ci_width"] < GOD_PAIRED_CI_WIDTH for r in board)
+    # Every board row the rounds measured must have its median, not just the ones that did: a board row with no
+    # median (heap settled, token and thought short of rounds) stopped the rounds at five at 83b6f50f.
+    measured = {n for each in rounds for n in _paired_round_ratios(each) if GOD_PAIRED_BOARD_RE.match(n)}
+    published = paired_ratio_rows(rounds)
+    return bool(measured) and all(n in published and published[n]["ci_width"] < GOD_PAIRED_CI_WIDTH
+                                  for n in measured)
 
 
-def god_ratio_rows(rows):
+def _paired_round_ratios(each):
+    """One paired round's {webui.god_ratio.<twin>: row} (pure), with no least-twin cut (paired_ratio_rows judges
+    that on the rounds' median) and the twin's floor and least kept as twin_floor and least for it."""
+    rows = each.get("rows") if isinstance(each, dict) else None
+    return god_ratio_rows(webui_rows(rows), least_twin=False)
+
+
+def god_ratio_rows(rows, least_twin=True):
     """{webui.god_ratio.<twin>: row} for each god row with an ordinary twin in ROWS (pure): god p95 / twin p95, unit
     x, budget GOD_RATIO_MAX. Rows of another unit, slopes and per-operation rows, and twins at or under their noise
-    floor get none."""
+    floor get none. With least_twin False that last cut is left to the caller, and each row carries the twin's floor
+    and least value (twin_floor, least)."""
     out = {}
     for name, god in rows.items():
         m = re.match(r"^webui\.([a-z0-9_]+)\.god\.(.+)$", name)
@@ -681,13 +701,15 @@ def god_ratio_rows(rows):
         if not isinstance(small, (int, float)) or not isinstance(big, (int, float)) or small <= 0:
             continue
         least = GOD_RATIO_MIN_RATE if name.endswith("_per_s") else GOD_RATIO_MIN[unit]
-        if small <= max(twin.get("floor") or 0, least):
+        if least_twin and small <= max(twin.get("floor") or 0, least):
             continue
         ratio = round(big / small, 3)
         version = max(god.get("measure_version") or DIFF_LEGACY_VERSION, twin.get("measure_version") or DIFF_LEGACY_VERSION)
-        out[f"webui.god_ratio.{m.group(1)}.{m.group(2)}"] = {
-            "p50": ratio, "p95": ratio, "unit": "x", "budget": GOD_RATIO_MAX, "floor": 0.1, "measure_version": version,
-            "god_p95": big, "small_p95": small}
+        key = f"webui.god_ratio.{m.group(1)}.{m.group(2)}"
+        out[key] = {"p50": ratio, "p95": ratio, "unit": "x", "budget": GOD_RATIO_MAX, "floor": 0.1,
+                    "measure_version": version, "god_p95": big, "small_p95": small}
+        if not least_twin:
+            out[key].update(twin_floor=twin.get("floor") or 0, least=least)
     return out
 
 

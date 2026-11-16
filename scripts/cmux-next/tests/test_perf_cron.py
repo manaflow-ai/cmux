@@ -807,6 +807,36 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(rows["webui.god_ratio.transcript_replay.long.thought_ms"]["p95"], 1.356,
                          "under GOD_PAIRED_MIN_ROUNDS rounds the paired median is not published")
 
+    def test_one_fast_paired_round_keeps_the_paired_median(self):
+        # Perf cron run 43797713590 at 83b6f50f: five paired rounds, the fifth on a fast runner (small token 3.588 ms,
+        # thought 4.433 ms, under GOD_RATIO_MIN's 5 ms). Cut per round, token and thought had four rounds, no paired
+        # median, and the board read the one-run ratio 1.578 in place of the paired 1.384.
+        pairs = [((8.274, 5.978), (10.998, 6.427)), ((9.01, 5.843), (7.834, 7.512)), ((8.461, 5.99), (10.653, 7.696)),
+                 ((5.411, 5.61), (9.014, 6.459)), ((4.445, 3.588), (4.33, 4.433))]
+        rounds = []
+        for (god_token, small_token), (god_thought, small_thought) in pairs:
+            rows = [{"name": "transcript_replay.long.heap_mb", "p95": 30.0, "unit": "MB", "floor": 4},
+                    {"name": "transcript_replay.god.long.heap_mb", "p95": 36.0, "unit": "MB", "floor": 4}]
+            for kind, god, small in (("token_ms", god_token, small_token), ("thought_ms", god_thought, small_thought)):
+                rows.append({"name": f"transcript_replay.long.{kind}", "p95": small, "floor": 0.5, "target": 10})
+                rows.append({"name": f"transcript_replay.god.long.{kind}", "p95": god, "floor": 0.5, "target": 10})
+            rounds.append({"rows": rows, "seconds": 190, "exit": 0})
+        report = {"rows": [
+            {"name": "transcript_replay.long.token_ms", "p95": 5.506, "floor": 0.5, "target": 10},
+            {"name": "transcript_replay.god.long.token_ms", "p95": 8.689, "floor": 0.5, "target": 10},
+        ], "failed": [], "paired": {"rounds": rounds, "stopped": "settled"}}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["web-ui-god"], report, budgets_mod, {"rows": {}})
+        token = rows["webui.god_ratio.transcript_replay.long.token_ms"]
+        self.assertEqual((token["p95"], token["rounds"], token.get("paired")), (1.384, 5, True),
+                         "the paired median over all five rounds, not the one-run 1.578")
+        self.assertNotIn("least", token)
+        self.assertEqual(rows["webui.god_ratio.transcript_replay.long.thought_ms"]["rounds"], 5)
+        self.assertFalse(cron.paired_settled(rounds),
+                         "token's interval is wider than 0.1, so the rounds go on, not stop at heap's narrow one")
+        tiny = [{"rows": [{"name": "transcript_replay.long.token_ms", "p95": 2.0, "floor": 0.5},
+                          {"name": "transcript_replay.god.long.token_ms", "p95": 4.0, "floor": 0.5}]}] * 5
+        self.assertEqual(cron.paired_ratio_rows(tiny), {}, "a small chat under 5 ms on the median still gets no ratio")
+
     def test_paired_rounds_run_until_the_board_interval_is_narrow_or_the_deadline(self):
         now = [0.0]
 
