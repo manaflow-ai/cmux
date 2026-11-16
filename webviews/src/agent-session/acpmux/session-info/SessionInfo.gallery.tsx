@@ -32,6 +32,7 @@ import { outputArtifacts } from "./outputsSectionModel";
 import { DEFAULT_SECTIONS } from "./sessionInfoState";
 import { sessionEntry, type AcpmuxSessionEntry } from "../sessionList";
 import type { SessionUsageStats } from "../usageStats";
+import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 
 type Props = ComponentProps<typeof SessionInfo> & {
   placement?: SessionInfoPlacement;
@@ -1958,12 +1959,12 @@ export default componentEntry<Props>({
       play: hoverFirstHead,
     },
     "fold-settle": {
-      note: 'Chosen. Changes folds into its head and opens again: its rows, the sections under it and the panel\'s edge move together on the settle (--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1) over 180 ms), fast at first and decelerating into the end, never past it, and the chevron turns with it (Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key").',
+      note: `Chosen. Changes folds into its head and opens again: its rows, the sections under it and the panel\'s edge move together on the settle (--cmux-ease-settle, ${MOTION_SETTLE} over ${MOTION_SETTLE_MS} ms), fast at first and decelerating into the end, never past it, and the chevron turns with it (Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key").`,
       props: { ...full, placement: "push" },
       play: foldAndOpen,
     },
     "fold-flat-ease": {
-      note: "Compared, not chosen: the same fold on the flat ease-out (--cmux-ease-out over 180 ms). It starts slowly and stops with no tail, where the reference's starts at full speed and settles.",
+      note: `Compared, not chosen: the same fold on the flat ease-out (--cmux-ease-out over ${MOTION_SETTLE_MS} ms). It starts slowly and stops with no tail, where the reference's starts at full speed and settles.`,
       props: { ...full, placement: "push", look: "flat-ease" },
       play: foldAndOpen,
     },

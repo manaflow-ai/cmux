@@ -160,6 +160,7 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
 
   for (const { name, row, control } of ROWS) {
     test(`${name}: an 80 ms brush shows and hides the controls without a fade`, async () => {
+      // motion-allow: the pointer's dwell, not motion
       const page = await open();
       try {
         await slowAnimations(page);

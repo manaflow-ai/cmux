@@ -83,7 +83,7 @@ describe("design token ratchet", () => {
     ["font-weight", "bold", "font-weight"],
     ["font-weight", "600", undefined],
     ["font-weight", "var(--weight-strong)", undefined],
-    ["transition", "opacity 120ms", "duration"],
+    ["transition", "opacity 120ms", "duration"], // motion-allow: scanner fixture, a raw literal
     ["transition", "opacity var(--cmux-motion-micro) var(--cmux-ease-out)", undefined],
     ["transition", "opacity var(--cmux-motion-micro) ease-out", "easing"],
     ["animation-duration", "0s", undefined],
@@ -131,9 +131,9 @@ describe("token-only surfaces", () => {
   test.each([
     ["--cv-since-tint", "var(--cmux-status-unread, #3982f5)", "a colour literal"],
     ["color", "rgba(0, 0, 0, 0.4)", "a colour literal"],
-    ["transition", "opacity 120ms ease-out", "a duration literal"],
-    ["transition", "opacity var(--agent-motion-in, 120ms) var(--agent-ease-out)", "a duration literal"],
-    ["transition", "opacity var(--agent-motion-in) cubic-bezier(0, 0, 0.58, 1)", "an easing literal"],
+    ["transition", "opacity 120ms ease-out", "a duration literal"], // motion-allow: scanner fixture, a raw literal
+    ["transition", "opacity var(--agent-motion-in, 120ms) var(--agent-ease-out)", "a duration literal"], // motion-allow: scanner fixture, a raw literal
+    ["transition", "opacity var(--agent-motion-in) cubic-bezier(0, 0, 0.58, 1)", "an easing literal"], // motion-allow: scanner fixture, a raw literal
     ["border-radius", "6px", "a radius that is not a token"],
   ] as const)("refuses %s: %s", (property, value, why) => {
     expect(tokenOnlyKind(property, value)).toBe(why);
