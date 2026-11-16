@@ -47061,7 +47061,7 @@ constexpr std::array<CommandMetadata, 303> kCommands{{
     {"delete-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"detach-attached-view", "frontend", 10U, "view-attachment-detach-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand107FieldRequirements)},
     {"detach-client", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand108FieldRequirements)},
-    {"device-setup", "local-admin", 12U, "device-setup-v1", true, "subscribe", "", std::span<const CommandFieldRequirement>{}},
+    {"device-setup", "local-admin", 12U, "device-setup-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"export-layout", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"feed-local-handoff-abort", "local-admin", 12U, "feed-local-owner-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"feed-local-handoff-begin", "local-admin", 12U, "feed-local-owner-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -48572,13 +48572,15 @@ Result<EmptyResult> Client::detach_client(
     return decode_value<EmptyResult>(response.value());
 }
 
-Result<EventStream> Client::device_setup(
+Result<JsonValue> Client::device_setup(
     const DeviceSetupRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
     auto parameters = encoded.value().as_object();
     if (!parameters) return std::move(parameters).error();
-    return open_event_stream("device-setup", *parameters.value(), "", options);
+    auto response = core_.request("device-setup", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<JsonValue>(response.value());
 }
 
 Result<ExportLayoutResult> Client::export_layout(

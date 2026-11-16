@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "f0fed33bb44cc546614c821fb864db7d8c89916c527cdeca9f692ea15fc6db13";
+pub const ir_sha256 = "9472b6d8bde5d2eb228ed1b17a04635d764ff9f7e53ef03324fbac7af2729d96";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6423,8 +6423,9 @@ pub const DeviceSetupRequest = struct {
 
 pub const DeviceSetupResult = JsonValue;
 
-pub fn deviceSetup(client: anytype, request: DeviceSetupRequest) !client_runtime.Stream {
-    return client.openStream(
+pub fn deviceSetup(client: anytype, request: DeviceSetupRequest) !wire.Decoded(DeviceSetupResult) {
+    return client.callTyped(
+        DeviceSetupResult,
         .{
             .name = "device-setup",
             .authority = "local-admin",
@@ -6432,7 +6433,6 @@ pub fn deviceSetup(client: anytype, request: DeviceSetupRequest) !client_runtime
             .capability = "device-setup-v1",
         },
         request,
-        null,
     );
 }
 
@@ -12712,7 +12712,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "delete-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "detach-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-detach-v1", .stream = null },
     .{ .name = "detach-client", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "device-setup", .authority = "local-admin", .since = 12, .capability = "device-setup-v1", .stream = "subscribe" },
+    .{ .name = "device-setup", .authority = "local-admin", .since = 12, .capability = "device-setup-v1", .stream = null },
     .{ .name = "export-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "feed-local-handoff-abort", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "feed-local-handoff-begin", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },

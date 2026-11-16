@@ -11274,7 +11274,8 @@ keeps running and starts cmux NIGHTLY on a Mac that is already the person's, ove
 Only the verified app connection may send it (`origin.forbidden` otherwise); it runs on a wait
 worker, off the connection's dispatcher. Each step streams as a `device-setup-step` event
 ([events.md](events.md#device-setup-step)) carrying the step line `cmux device setup --json`
-prints; the reply's data is the summary line `{device, summary, changed, failed}`. It never quits
+prints, as a control event before the reply; the reply's data is the summary line `{device, summary,
+changed, failed}` and ends the request (no stream stays open after it). It never quits
 or replaces a running app and never turns sharing on; `allow_agents` asks the app to turn on "My
 agents can turn screen sharing and control on my machines" (`remote.confirm {"action":"allow_agents",
 "on":true}`), and the app asks the person. Capability `device-setup-v1`.

@@ -119,7 +119,7 @@ public final class Commands {
     public static final CommandMetadata DELETE_WORKSPACE_GROUP = new CommandMetadata("delete-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DETACH_ATTACHED_VIEW = new CommandMetadata("detach-attached-view", Authority.FRONTEND, 10, "view-attachment-detach-v1", StreamKind.NONE, Map.ofEntries(Map.entry("view", 12L)), Map.ofEntries(Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata DETACH_CLIENT = new CommandMetadata("detach-client", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("by", 12L), Map.entry("surface", 12L)), Map.ofEntries(Map.entry("by", "shared-sizing-v1"), Map.entry("surface", "shared-sizing-v1")));
-    public static final CommandMetadata DEVICE_SETUP = new CommandMetadata("device-setup", Authority.LOCAL_ADMIN, 12, "device-setup-v1", StreamKind.SUBSCRIBE, Map.of(), Map.of());
+    public static final CommandMetadata DEVICE_SETUP = new CommandMetadata("device-setup", Authority.LOCAL_ADMIN, 12, "device-setup-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata EXPORT_LAYOUT = new CommandMetadata("export-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_HANDOFF_ABORT = new CommandMetadata("feed-local-handoff-abort", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_HANDOFF_BEGIN = new CommandMetadata("feed-local-handoff-begin", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR f0fed33bb44cc546614c821fb864db7d8c89916c527cdeca9f692ea15fc6db13. */
+/* cmux-tui mux protocol 12, IR 9472b6d8bde5d2eb228ed1b17a04635d764ff9f7e53ef03324fbac7af2729d96. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "f0fed33bb44cc546614c821fb864db7d8c89916c527cdeca9f692ea15fc6db13" as const;
+export const SDK_IR_SHA256 = "9472b6d8bde5d2eb228ed1b17a04635d764ff9f7e53ef03324fbac7af2729d96" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1366,16 +1366,10 @@ export const COMMAND_METADATA = {
     "since": 12,
     "capability": "device-setup-v1",
     "fields": {},
-    "stream": {
-      "event_names": [
-        "device-setup-step"
-      ],
-      "kind": "subscribe",
-      "ordering": "One device-setup-step event per step, in step order, then the reply (the summary line); no replay.",
-      "terminal_event": null
-    },
+    "stream": null,
     "constraints": [
       "cmux device setup|start for the verified app connection only (origin.forbidden otherwise); runs off the connection's dispatcher.",
+      "Each step comes first as a device-setup-step control event on the asking connection; the reply (the summary line) ends the request, so no stream stays open.",
       "Never quits or replaces a running app and never turns sharing on; the agents permission only with allow_agents."
     ]
   },

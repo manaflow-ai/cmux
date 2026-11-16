@@ -28,7 +28,7 @@ impl Asking for ThisMachine {
     }
 
     fn mint_handoff(&self) -> Result<String, AskError> {
-        let out = super::cmux()
+        let out = super::super::cmux()
             .map_err(|e| AskError::Failed(e.to_string()))?
             .args(["auth", "handoff", "mint", "--json"])
             .stdin(Stdio::null())
@@ -78,7 +78,7 @@ impl Asking for ThisMachine {
 /// `cmux <args>` on this machine as JSON (stdout may be empty); an unknown verb (exit 2, or a
 /// usage or unknown-command answer) is [`AskError::Unsupported`].
 pub(super) fn local_json(args: &[&str]) -> Result<Value, AskError> {
-    let out = super::cmux()
+    let out = super::super::cmux()
         .map_err(|e| AskError::Failed(e.to_string()))?
         .args(args)
         .stdin(Stdio::null())
@@ -169,7 +169,7 @@ pub(crate) fn run_one(
                 step: "reach",
                 state: StepState::Fail,
                 detail: why,
-                fix: format!("cmux device add {}", super::shell_word(target)),
+                fix: format!("cmux device add {}", super::super::shell_word(target)),
             };
             emit(target, &line);
             Run { device: target.to_owned(), lines: vec![line], changed: Vec::new() }
@@ -218,7 +218,7 @@ pub(crate) fn daemon_run(
     request: &cmux_tui_core::device_setup::DeviceSetupRequest,
     step: &mut dyn FnMut(Value),
 ) -> Result<Value, String> {
-    let flags = super::Flags::parse(&[], &[], &[]).map_err(|e| e.to_string())?;
+    let flags = super::super::Flags::parse(&[], &[], &[]).map_err(|e| e.to_string())?;
     let here = Here::read(&flags).map_err(|e| format!("{e:#}"))?;
     Ok(serve(&here, request, step))
 }
@@ -230,15 +230,15 @@ pub(super) struct Here {
 }
 
 impl Here {
-    fn read(flags: &super::Flags) -> anyhow::Result<Self> {
-        let auth = super::JoinAuth::read(flags)?;
-        let net = super::network::pick(
-            super::choice(flags)?,
-            Box::new(super::network::WeftNetwork),
-            || Box::new(super::network::TailscaleNetwork::read()),
+    fn read(flags: &super::super::Flags) -> anyhow::Result<Self> {
+        let auth = super::super::JoinAuth::read(flags)?;
+        let net = super::super::network::pick(
+            super::super::choice(flags)?,
+            Box::new(super::super::network::WeftNetwork),
+            || Box::new(super::super::network::TailscaleNetwork::read()),
         );
         let mut notes = Vec::new();
-        let sources = super::read_sources(&auth, &mut notes);
+        let sources = super::super::read_sources(&auth, &mut notes);
         let listing = model::merge(&sources, net.status(), &net.nodes());
         Ok(Self { listing, sources })
     }
@@ -261,7 +261,7 @@ impl World for Here {
     }
 
     fn record(&self, event: &str, fields: Value) {
-        super::record(event, fields);
+        super::super::record(event, fields);
     }
 }
 
@@ -272,7 +272,7 @@ pub(crate) fn verb(args: &[String], mode: Mode) -> anyhow::Result<()> {
         Mode::Setup => &["json", "dry-run", "all", "allow-agents"],
         Mode::Start => &["json"],
     };
-    let flags = super::Flags::parse(args, &["network"], booleans)?;
+    let flags = super::super::Flags::parse(args, &["network"], booleans)?;
     let json_out = flags.has("json");
     let options =
         Options { dry_run: flags.has("dry-run"), allow_agents: flags.has("allow-agents") };
@@ -281,7 +281,7 @@ pub(crate) fn verb(args: &[String], mode: Mode) -> anyhow::Result<()> {
         ([], true) => None,
         ([device], false) => Some(device.clone()),
         _ => {
-            return Err(super::usage(if mode == Mode::Setup {
+            return Err(super::super::usage(if mode == Mode::Setup {
                 "needs one DEVICE, or --all"
             } else {
                 "needs one DEVICE"
@@ -347,8 +347,12 @@ pub(crate) fn verb(args: &[String], mode: Mode) -> anyhow::Result<()> {
 /// What the MCP tools run: `cmux device <args> --json` as a child (its stdout is not the MCP
 /// channel), every JSON line it printed, and whether it exited 0.
 pub(crate) fn run_json_lines(args: &[&str]) -> anyhow::Result<(bool, Vec<Value>, String)> {
-    let out =
-        super::cmux()?.arg("device").args(args).arg("--json").stdin(Stdio::null()).output()?;
+    let out = super::super::cmux()?
+        .arg("device")
+        .args(args)
+        .arg("--json")
+        .stdin(Stdio::null())
+        .output()?;
     let lines = String::from_utf8_lossy(&out.stdout)
         .lines()
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())

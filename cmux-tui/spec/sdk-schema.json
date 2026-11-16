@@ -26482,16 +26482,10 @@
     "kind": "ref",
     "name": "JsonValue"
    },
-   "stream": {
-    "kind": "subscribe",
-    "event_names": [
-     "device-setup-step"
-    ],
-    "ordering": "One device-setup-step event per step, in step order, then the reply (the summary line); no replay.",
-    "terminal_event": null
-   },
+   "stream": null,
    "constraints": [
     "cmux device setup|start for the verified app connection only (origin.forbidden otherwise); runs off the connection's dispatcher.",
+    "Each step comes first as a device-setup-step control event on the asking connection; the reply (the summary line) ends the request, so no stream stays open.",
     "Never quits or replaces a running app and never turns sharing on; the agents permission only with allow_agents."
    ]
   },

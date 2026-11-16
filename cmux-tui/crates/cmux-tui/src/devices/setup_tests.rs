@@ -538,6 +538,8 @@ fn device(id: &str, name: &str, kind: Kind, os: Option<&str>, via: Via) -> Devic
         id: id.into(),
         name: name.into(),
         kind,
+        device: cmux_device_kind::DeviceKind::Generic,
+        symbol: cmux_device_kind::DeviceKind::Generic.symbol(),
         roles: vec![Role::RunsAgents],
         state: State::Offline,
         os: os.map(str::to_owned),
