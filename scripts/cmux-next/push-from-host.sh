@@ -43,7 +43,8 @@
 # Exit: 0 pushed (or already there), 1 refused by the hook or by GitHub (output above), 2 usage or setup (also: every
 # host reserved or unreachable). Without --rebase a non-fast-forward is refused by GitHub as always. It never forces.
 #
-# Environment: CMUX_PUSH_HOST [registry candidates], CMUX_FLEET_REGISTRY [fleet-registry.json],
+# Environment: CMUX_PUSH_HOST [registry candidates], CMUX_FLEET_REGISTRY [leo-workspace's fleet-registry.json, else
+# this repo's scripts/cmux-next/push-hosts.json when that file is absent],
 # CMUX_PUSH_HOST_REPO [fun/cmux, relative to HOST's home], CMUX_FLEET_RESERVATIONS
 # [~/Projects/leo-workspace/tools/fleet_reservations.py, the reader reach uses],
 # and the hook's own CMUX_WEB_LINT_SKIP_REASON / CMUX_NEXT_CHECKS_SKIP_REASON, passed through.
@@ -56,7 +57,15 @@ ci_next() {
     echo "next: cmux-ci test -- python3 scripts/cmux-next/prepush-gate.py" >&2
     echo "push-from-host: if a remaining gate requires macOS, use a cmux-ci exclusive step or lease an authorized fleet Mac with: cmux-ci lease take HOST --for 1h --reason 'macOS push gate' (release after)." >&2
 }
+# The fleet registry: CMUX_FLEET_REGISTRY, else leo-workspace's. With neither named nor present, the reviewed one in
+# this repo (push-hosts.json: fleet builders only, today cmux-lawrence-2). On 2026-11-16 no Mac had leo-workspace's
+# file, so every push stopped before SSH and agents pushed by hand through cmux-lawrence-2; one printed a gh token
+# doing so. A registry that is named but missing, or present but malformed, still stops the push (fail closed).
 REGISTRY="${CMUX_FLEET_REGISTRY:-$HOME/Projects/leo-workspace/machines/fleet-registry.json}"
+if [[ -z "${CMUX_FLEET_REGISTRY:-}" && ! -e "$REGISTRY" ]]; then
+    REGISTRY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/push-hosts.json"
+    echo "push-from-host: no fleet registry at ~/Projects/leo-workspace; using scripts/cmux-next/push-hosts.json." >&2
+fi
 DEFAULT_HOSTS=()
 HOSTS=()
 WHICH_HOST=0
