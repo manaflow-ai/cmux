@@ -24,7 +24,7 @@ use cmux_rd_proto::{
 use serde_json::json;
 use std::os::fd::RawFd;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
@@ -56,6 +56,28 @@ pub struct Ended {
 /// A pipe a thread waits on: a byte means "look at your queue".
 #[derive(Clone)]
 pub struct Waker(Arc<Pipe>);
+
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+/// The write end of the pipe a Ctrl-C wakes; -1 before [`Waker::wake_on_interrupt`].
+static INTERRUPT_FD: AtomicI32 = AtomicI32::new(-1);
+
+extern "C" fn on_interrupt(_: libc::c_int) {
+    if INTERRUPTED.swap(true, Ordering::SeqCst) {
+        // A second Ctrl-C while the session is still ending: stop now.
+        // SAFETY: _exit(2) is async-signal-safe.
+        unsafe { libc::_exit(130) };
+    }
+    let fd = INTERRUPT_FD.load(Ordering::SeqCst);
+    if fd >= 0 {
+        // SAFETY: write(2) is async-signal-safe; the pipe outlives the session.
+        unsafe { libc::write(fd, [1u8].as_ptr().cast(), 1) };
+    }
+}
+
+/// Whether Ctrl-C or SIGTERM asked the viewer to stop.
+pub fn interrupted() -> bool {
+    INTERRUPTED.load(Ordering::SeqCst)
+}
 
 struct Pipe {
     read: RawFd,
@@ -89,6 +111,26 @@ impl Waker {
 
     pub fn fd(&self) -> RawFd {
         self.0.read
+    }
+
+    /// Ctrl-C (SIGINT) or SIGTERM wakes this pipe and sets [`interrupted`], so the viewer ends
+    /// the session (Stop, bye, the report) instead of dying mid-stream.
+    pub fn wake_on_interrupt(&self) -> Res<()> {
+        INTERRUPT_FD.store(self.0.write, Ordering::SeqCst);
+        // SAFETY: the handler only stores to an atomic and writes one byte to a pipe, both
+        // async-signal-safe; the zeroed sigaction is then filled in before use.
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = on_interrupt as extern "C" fn(libc::c_int) as libc::sighandler_t;
+            action.sa_flags = libc::SA_RESTART;
+            libc::sigemptyset(&mut action.sa_mask);
+            for sig in [libc::SIGINT, libc::SIGTERM] {
+                if libc::sigaction(sig, &action, std::ptr::null_mut()) != 0 {
+                    return Err(std::io::Error::last_os_error().into());
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Clears the wake-ups.
@@ -157,6 +199,7 @@ pub fn run(
     let mailbox: SharedMailbox = Arc::default();
     let present_waker = Waker::new()?;
     let input_waker = Waker::new()?;
+    input_waker.wake_on_interrupt()?;
     let (input_tx, input_rx) = mpsc::channel::<InputEvent>();
     let window_done = Arc::new(AtomicBool::new(false));
     let win = Window::open(&config.display, &config.title, config.control)?;
@@ -205,6 +248,9 @@ pub fn run(
         }
         if window_done.load(Ordering::SeqCst) {
             break 'run "the window was closed".into();
+        }
+        if interrupted() {
+            break 'run "stopped (Ctrl-C)".into();
         }
         for event in net.events() {
             match event {
@@ -569,5 +615,19 @@ mod tests {
             (Some(3.0), Some(5.0), Some(5))
         );
         assert!(pct(&mut []).is_null());
+    }
+
+    #[test]
+    fn ctrl_c_wakes_the_session_loop_and_marks_it_interrupted() {
+        let w = Waker::new().unwrap();
+        INTERRUPT_FD.store(w.0.write, Ordering::SeqCst);
+        assert!(!interrupted());
+        on_interrupt(libc::SIGINT);
+        assert!(interrupted());
+        wait_readable(&[w.fd()], Some(1_000_000_000)).unwrap();
+        let mut buf = [0u8; 4];
+        // SAFETY: a read into our buffer from our own non-blocking pipe.
+        assert_eq!(unsafe { libc::read(w.fd(), buf.as_mut_ptr().cast(), 4) }, 1);
+        INTERRUPT_FD.store(-1, Ordering::SeqCst);
     }
 }
