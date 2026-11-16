@@ -52,7 +52,7 @@ extension HoverCardPanel {
 
     /// The leaving content goes now, its fade ended. It stays clear: made whole while still in the
     /// window, it drew at full strength for one frame before AppKit took its layer out (the live
-    /// recording of the first fix). `present` makes it whole when it shows again.
+    /// recording of the first fix). `present` makes it whole and shown when it shows again.
     func endLeaving() {
         guard let view = leavingBody else { return }
         leavingBody = nil
@@ -60,9 +60,11 @@ extension HoverCardPanel {
             layer.removeAnimation(forKey: "opacity")
             Motion.setModel(layer, "opacity", Float(0))
         }
-        view.removeFromSuperview()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.autoresizingMask = []
+        // Hidden where it is (frame-placed, no constraints), for the next swap to show again; one view
+        // at most waits so (another source's body that left goes out of the window).
+        view.isHidden = true
+        if let parked = parkedBody, parked !== view, parked !== body { parked.removeFromSuperview() }
+        parkedBody = view
     }
 }
 

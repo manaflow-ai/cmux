@@ -114,11 +114,11 @@ import Testing
         f.present(tab: 0, body: a)
         f.present(tab: 1, body: b)
         f.panel.endLeaving()
-        #expect(a.superview == nil, "the last content stayed in the card")
+        #expect(a.superview == nil || a.isHidden, "the last content stayed shown in the card")
         #expect(a.layer?.opacity == 0, "the last content was made whole while it left (a one-frame flash)")
         Motion.reduceMotionOverride = true
         f.present(tab: 0, body: a)
-        #expect(a.layer?.opacity == 1, "content shown again without a fade stayed clear")
+        #expect(a.layer?.opacity == 1 && !a.isHidden, "content shown again without a fade stayed clear")
     }
 
     @Test func movingOnMidGlideRetargetsTheGlideFromWhereTheCardIsDrawn() throws {

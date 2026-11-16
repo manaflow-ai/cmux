@@ -70,6 +70,10 @@ final class HoverCardPanel: NSPanel {
     /// The last card's content fading out at its own size, pinned to the fixed corner, while the
     /// next card's fades in over it (a tab card's glide, `HoverCardPanel+Glide.swift`).
     var leavingBody: NSView?
+    /// The last glide's content after its fade: hidden in the card, not taken out of the window, so the
+    /// tab card's next swap (which shows it again, `TabHoverCardController`'s two views) lays out no
+    /// view new to the window (msg 34360's cost check: 2 ms a show when it left the window).
+    var parkedBody: NSView?
     /// How the last show moved (`debug.hover_cards` `last_present`): flags only, formatted when read.
     private(set) var lastPresent = HoverCardPresentNote()
     /// A refit asked for while a morph runs (nil: none; true: it animates): it runs when the morph
@@ -204,12 +208,16 @@ final class HoverCardPanel: NSPanel {
             // SPINNER VIEW"). Another target's content (`sliding`) still fades over the last.
             crossfadeContent()
         }
-        if body !== newBody {
+        if body !== newBody { MotionTrace.measure("hoverCard.swap") {
             if newBody === leavingBody { endLeaving() }
             if fadesBodies, let body { leave(body) } else { body?.removeFromSuperview() }
-            newBody.translatesAutoresizingMaskIntoConstraints = false
             let container = glass.contentView
-            container.addSubview(newBody)
+            if newBody === parkedBody {
+                parkedBody = nil
+                newBody.isHidden = false
+            }
+            newBody.translatesAutoresizingMaskIntoConstraints = false
+            if newBody.superview !== container { container.addSubview(newBody) }
             // Bottom and trailing just below required: `place()` lays the glass out at the last
             // card's size before it measures and resizes, and a required pair there conflicted
             // with the new body's fixed rows and width limits on every hover retarget (about 650
@@ -231,7 +239,7 @@ final class HoverCardPanel: NSPanel {
             body = newBody
             // A view that left a glide stays clear (`endLeaving`); it shows whole unless it fades in.
             if fadesBodies { fadeIn(newBody) } else if let layer = newBody.layer { Motion.setModel(layer, "opacity", Float(1)) }
-        }
+        } }
         isInteractive = interactive
         ignoresMouseEvents = !interactive
         acceptsMouseMovedEvents = interactive
