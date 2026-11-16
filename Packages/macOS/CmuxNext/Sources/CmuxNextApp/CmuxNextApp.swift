@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
@@ -68,8 +69,8 @@ public struct CmuxNextApp {
         // from here, while AppKit starts, so each pane's first frame can use them without waiting.
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork()
         let launchSnapshot = LaunchSnapshot.readAtLaunch(work: work, build: environment.launch.build) // first on the lane: the launch window is drawn from it
-        let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
-        launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
+        let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state), chromium = CEFLaunchPrefetch()
+        launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }; chromium.start(on: work, when: launchImages.savedPagesExist) // a restored Chromium page's framework
         TerminalLaunchFrames.beside(state).prefetch(on: work, mark: { DebugTimings.markLaunch($0) }, markAt: { DebugTimings.markLaunch($0, at: $1) })
         relaunchWake.begin(on: work)
         // The bundled CLI's Cloud environment read, off the main thread while AppKit starts; the daemon starts after it.
@@ -81,11 +82,10 @@ public struct CmuxNextApp {
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
         let delegate = AppDelegate(environment: environment, daemonPrestart: nil,
-                                   launchReads: (work, launchImages, relaunchWake), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
+                                   launchReads: (work, launchImages, relaunchWake, chromium), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
         app.delegate = delegate
         app.setActivationPolicy(.regular)
-        DebugTimings.markLaunch("main.nsapp")
-        DebugTimings.markLaunch("main.run")
+        DebugTimings.markLaunch("main.nsapp"); DebugTimings.markLaunch("main.run")
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {
             app.run()
