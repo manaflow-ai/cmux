@@ -63,6 +63,19 @@ extension AppearanceSettingsSchema {
                 keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize"]
             ),
             SettingDescriptor(
+                FontSmoothingSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.fontSmoothing", "Text Smoothing"),
+                help: SettingsText.keyed("settings.appearance.fontSmoothing.help", "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts."),
+                kind: .choice([
+                    SettingChoice(FontSmoothing.antialiased.rawValue, SettingsText.keyed("settings.choice.fontSmoothingThin", "Thin")),
+                    SettingChoice(FontSmoothing.system.rawValue, SettingsText.keyed("settings.choice.fontSmoothingSystem", "System")),
+                ]),
+                default: .string(FontSmoothingSetting.fallback.rawValue),
+                keywords: ["font", "text", "smoothing", "antialiasing", "antialiased", "thin", "bold", "weight", "rendering", "crisp", "AppleFontSmoothing"]
+            ),
+            SettingDescriptor(
                 InterfaceScaleSetting.configPath,
                 section: .appearance,
                 group: group,

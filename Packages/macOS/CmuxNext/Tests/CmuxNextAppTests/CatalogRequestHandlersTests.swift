@@ -71,6 +71,23 @@ struct CatalogRequestHandlersTests {
         #expect(CatalogRequestHandlers.cases(from: wrapped, nested) == [ActionEnumCase(value: "ab", title: "x failed")])
     }
 
+    /// A destructive request row asks before it runs (review of #43867: Clear Recently Closed
+    /// ran unasked because no hand-written question listed it); a row that is not destructive,
+    /// or names no request, is not asked about here.
+    @Test func aDestructiveRequestRowAsks() throws {
+        let (requests, _) = RustActionCatalog.catalogRequests([Self.row])
+        let request = try #require(requests["closed.delete"])
+        let clear = ActionDescriptor(id: "closed.clear", title: "Clear Recently Closed…", category: .window, destructive: true)
+        let asked = try #require(CatalogRequestHandlers.confirmation(for: clear, request: request))
+        #expect(asked.title == "Clear Recently Closed…")
+        #expect(asked.button == "Clear Recently Closed")
+        #expect(asked.body == CatalogRequestStrings.destructiveBody)
+        let plain = ActionDescriptor(id: "errors.clear", title: "Clear Error Journal", category: .window)
+        #expect(CatalogRequestHandlers.confirmation(for: plain, request: request) == nil)
+        let handWritten = ActionDescriptor(id: "x.delete", title: "Delete X…", category: .window, destructive: true)
+        #expect(CatalogRequestHandlers.confirmation(for: handWritten) == nil)
+    }
+
     /// Default deny: a run relayed from another device never sends a catalog request.
     @Test func aRelayedRunIsRefused() {
         #expect(CatalogRequestHandlers.refusal(ActionInvocation(origin: .remote)) == CatalogRequestStrings.remote)

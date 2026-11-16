@@ -476,6 +476,9 @@
    "note": "Canonical reference glyph (window with sidebar), unchanged.",
    "replaces": [
     "rectangle.stack"
+   ],
+   "overrides": [
+    "rectangle.stack"
    ]
   },
   {

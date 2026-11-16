@@ -959,6 +959,44 @@ mark {
   align-items: center;
 }
 
+/* Settings > Keys (design/settings-keys.md): a request is a row with its name, purpose and asker
+   over one line of field, Store and Decline (the Accounts paste form's field, at row width); a
+   key's state uses the Devices status dot. Names and commands are in the mono face. */
+.keys-name,
+.keys-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+}
+
+.keys-request {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.keys-purpose {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.keys-answer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.keys-answer > .keys-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 320px;
+}
+
+.keys-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .host-footer,
 .host-actions {
   display: flex;
@@ -1602,6 +1640,99 @@ mark {
   font-size: 12px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Switch Automatically (wallpaper schedule): the modes, then the chosen mode's editor. It sits
+   under the first tile row, so an editor opening never moves the grid above it. */
+.wallpaper-switch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: var(--ds-space-3) 0;
+}
+
+.wallpaper-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+  align-items: center;
+}
+
+.wallpaper-help {
+  margin: 0;
+}
+
+.wallpaper-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-card);
+}
+
+.wallpaper-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: var(--ds-space-2);
+}
+
+.wallpaper-slot[aria-expanded="true"] .backdrop-thumb {
+  border-color: var(--text);
+}
+
+.wallpaper-slot-label {
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+/* A slot's pictures: the card's tiles, three rows tall, scrolling inside the editor. */
+.wallpaper-slot-picker {
+  max-height: calc(3 * (68px + var(--ds-space-5)));
+  margin-top: 0;
+  overflow-y: auto;
+}
+
+.wallpaper-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+
+/* When | time or offset | picture | remove, on one line; the picture slot keeps a tile's width. */
+.wallpaper-when {
+  display: grid;
+  grid-template-columns: auto auto minmax(112px, 160px) auto;
+  gap: var(--ds-space-2);
+  align-items: center;
+  justify-content: start;
+}
+
+.wallpaper-time,
+.wallpaper-location {
+  width: auto;
+}
+
+/* The timeline design: the day as a strip, each picture from where it starts. */
+.wallpaper-strip {
+  position: relative;
+  height: var(--ds-control-row);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-control);
+}
+
+.wallpaper-strip-span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--border);
+}
+
+.wallpaper-strip-span .backdrop-thumb {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
 }
 
 /* Key and value lists (browser.siteEngines). */
@@ -2364,6 +2495,111 @@ button.menu-disclosure {
 .personalization-more-links {
   display: flex;
   gap: 4px;
+}
+
+/* Personalization > Customization Library (CustomizeLibraryCard): one row per entry, top first.
+   The mark is the entry's swatches (its thumbnail is its colors and keys, never a capture); its
+   order buttons show on hover and focus like the menu rows'; an entry that is off reads dimmed. */
+.library-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-control-row);
+  height: var(--ds-control-row);
+  overflow: hidden;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-md);
+  color: var(--ds-color-muted);
+}
+
+.library-mark[data-wide] {
+  width: 100%;
+  height: var(--ds-space-48);
+}
+
+/* The swatch's color is the entry's own, set inline as other swatches are. */
+.library-swatch {
+  flex: 1;
+  align-self: stretch;
+}
+
+.library-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.library-order {
+  display: inline-flex;
+  opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
+}
+
+[data-library-entry]:hover .library-order,
+[data-library-entry]:has(:focus-visible) .library-order,
+[data-library-entry]:has([data-popup-open]) .library-order {
+  opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+
+[data-library-entry]:has(:focus-visible) .library-order {
+  transition: none;
+}
+
+[data-library-entry]:not([data-on]) :is(.library-mark, .row-title, .library-detail) {
+  opacity: 0.55;
+}
+
+.library-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.library-beaten {
+  color: var(--ds-color-attention);
+}
+
+.library-position {
+  flex: none;
+  min-width: var(--ds-space-4);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.library-line .row-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.library-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-lg);
+}
+
+.library-tile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.library-tile .library-order {
+  align-self: flex-end;
 }
 
 /* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.

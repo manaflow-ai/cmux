@@ -36027,133 +36027,657 @@
         }
       }
     },
-    "macScreen.actions.invalidDevice": {
+    "macScreen.actions.ambiguousDevice": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اختر جهازًا من مشاركة الشاشة."
+            "value": "يحمل أكثر من جهاز الاسم “%@”: %@. مرّر معرّف الجهاز الذي تريد فتحه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odaberite uređaj u dijeljenju ekrana."
+            "value": "Više uređaja se zove “%@”: %@. Proslijedite ID onog koji želite otvoriti."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vælg en enhed i Skærmdeling."
+            "value": "Mere end én enhed hedder “%@”: %@. Angiv id’et på den, der skal åbnes."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wähle ein Gerät in der Bildschirmfreigabe."
+            "value": "Mehr als ein Gerät heißt „%@“: %@. Gib die ID des Geräts an, das geöffnet werden soll."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a device from Screen Sharing."
+            "value": "More than one device is named “%@”: %@. Pass the id of the one to open."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elige un dispositivo en Compartir pantalla."
+            "value": "Hay más de un dispositivo llamado “%@”: %@. Indica el ID del que quieres abrir."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choisissez un appareil dans le partage d’écran."
+            "value": "Plusieurs appareils s’appellent « %@ » : %@. Indiquez l’identifiant de celui à ouvrir."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scegli un dispositivo in Condivisione schermo."
+            "value": "Più di un dispositivo si chiama “%@”: %@. Indica l’ID di quello da aprire."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "画面共有からデバイスを選択してください。"
+            "value": "“%@”という名前のデバイスが複数あります: %@。開くデバイスのIDを指定してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ជ្រើសឧបករណ៍ពីការចែករំលែកអេក្រង់។"
+            "value": "មានឧបករណ៍ច្រើនជាងមួយដែលមានឈ្មោះ “%@”៖ %@។ សូមផ្ដល់ ID របស់ឧបករណ៍ដែលត្រូវបើក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "화면 공유에서 기기를 선택하세요."
+            "value": "“%@”(이)라는 이름의 기기가 여러 개 있습니다: %@. 열 기기의 ID를 전달하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Velg en enhet i Skjermdeling."
+            "value": "Mer enn én enhet heter “%@”: %@. Oppgi ID-en til den som skal åpnes."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wybierz urządzenie w udostępnianiu ekranu."
+            "value": "Więcej niż jedno urządzenie ma nazwę „%@”: %@. Podaj identyfikator tego, które chcesz otworzyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escolha um dispositivo no Compartilhamento de Tela."
+            "value": "Mais de um dispositivo se chama “%@”: %@. Informe o ID do que deseja abrir."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Выберите устройство в разделе общего доступа к экрану."
+            "value": "Несколько устройств называются «%@»: %@. Укажите ID нужного устройства."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เลือกอุปกรณ์จากการแชร์หน้าจอ"
+            "value": "มีอุปกรณ์มากกว่าหนึ่งเครื่องชื่อ “%@”: %@ ระบุ ID ของเครื่องที่จะเปิด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ekran Paylaşımı bölümünden bir aygıt seçin."
+            "value": "Birden fazla cihazın adı “%@”: %@. Açılacak cihazın kimliğini verin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Виберіть пристрій у розділі спільного доступу до екрана."
+            "value": "Кілька пристроїв мають назву «%@»: %@. Укажіть ID потрібного пристрою."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chọn một thiết bị trong Chia sẻ màn hình."
+            "value": "Có nhiều thiết bị tên “%@”: %@. Hãy truyền ID của thiết bị cần mở."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "从屏幕共享中选择设备。"
+            "value": "有多台设备名为“%@”：%@。请传入要打开的设备 ID。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "從螢幕共享中選擇裝置。"
+            "value": "有多部裝置名為「%@」：%@。請傳入要開啟的裝置 ID。"
+          }
+        }
+      }
+    },
+    "macScreen.actions.missingDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر اسم جهاز أو معرّفه. أجهزتك: %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite naziv ili ID uređaja. Vaši uređaji: %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv et enhedsnavn eller id. Dine enheder: %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib einen Gerätenamen oder eine ID an. Deine Geräte: %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass a device name or id. Your devices: %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica un nombre o ID de dispositivo. Tus dispositivos: %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez un nom ou un identifiant d’appareil. Vos appareils : %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica il nome o l’ID di un dispositivo. I tuoi dispositivi: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス名またはIDを指定してください。あなたのデバイス: %@。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមផ្ដល់ឈ្មោះ ឬ ID ឧបករណ៍។ ឧបករណ៍របស់អ្នក៖ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 이름이나 ID를 전달하세요. 내 기기: %@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi et enhetsnavn eller en ID. Enhetene dine: %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj nazwę lub identyfikator urządzenia. Twoje urządzenia: %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe o nome ou o ID de um dispositivo. Seus dispositivos: %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите имя или ID устройства. Ваши устройства: %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุชื่อหรือ ID ของอุปกรณ์ อุปกรณ์ของคุณ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir cihaz adı veya kimliği verin. Cihazlarınız: %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажіть назву або ID пристрою. Ваші пристрої: %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy truyền tên hoặc ID thiết bị. Thiết bị của bạn: %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请传入设备名称或 ID。你的设备：%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請傳入裝置名稱或 ID。你的裝置：%@。"
+          }
+        }
+      }
+    },
+    "macScreen.actions.missingDeviceNoneListed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر اسم جهاز أو معرّفه. لا توجد أجهزة مدرجة: سجّل الدخول إلى cmux على جهازي Mac وشغّل السماح بـ Mac Screen على الـ Mac الآخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite naziv ili ID uređaja. Nema navedenih uređaja: prijavite se u cmux na oba Maca i uključite Dozvoli Mac Screen na drugom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv et enhedsnavn eller id. Ingen enheder er vist: Log ind på cmux på begge Mac-computere, og slå Tillad Mac Screen til på den anden Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib einen Gerätenamen oder eine ID an. Es sind keine Geräte aufgeführt: Melde dich auf beiden Macs bei cmux an und aktiviere auf dem anderen Mac „Mac Screen erlauben“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass a device name or id. No devices are listed: sign in to cmux on both Macs and turn on Allow Mac Screen on the other Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica un nombre o ID de dispositivo. No hay dispositivos en la lista: inicia sesión en cmux en ambos Mac y activa Permitir Mac Screen en el otro Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez un nom ou un identifiant d’appareil. Aucun appareil n’est listé : connectez-vous à cmux sur les deux Mac et activez Autoriser Mac Screen sur l’autre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica il nome o l’ID di un dispositivo. Nessun dispositivo in elenco: accedi a cmux su entrambi i Mac e attiva Consenti Mac Screen sull’altro Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス名またはIDを指定してください。表示できるデバイスがありません。両方のMacでcmuxにサインインし、もう一方のMacで「Mac Screenを許可」をオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមផ្ដល់ឈ្មោះ ឬ ID ឧបករណ៍។ គ្មានឧបករណ៍ក្នុងបញ្ជីទេ៖ ចូល cmux នៅលើ Mac ទាំងពីរ ហើយបើក អនុញ្ញាត Mac Screen នៅលើ Mac ផ្សេងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 이름이나 ID를 전달하세요. 표시된 기기가 없습니다. 두 Mac 모두에서 cmux에 로그인하고 다른 Mac에서 Mac Screen 허용을 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi et enhetsnavn eller en ID. Ingen enheter er oppført: Logg på cmux på begge Mac-maskinene, og slå på Tillat Mac Screen på den andre Mac-en."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj nazwę lub identyfikator urządzenia. Brak urządzeń na liście: zaloguj się do cmux na obu Macach i włącz Pozwalaj na Mac Screen na drugim Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe o nome ou o ID de um dispositivo. Nenhum dispositivo listado: entre no cmux nos dois Macs e ative Permitir Mac Screen no outro Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите имя или ID устройства. Устройств нет в списке: войдите в cmux на обоих Mac и включите «Разрешить Mac Screen» на другом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุชื่อหรือ ID ของอุปกรณ์ ไม่มีอุปกรณ์ในรายการ: ลงชื่อเข้าใช้ cmux บน Mac ทั้งสองเครื่อง แล้วเปิด อนุญาต Mac Screen บน Mac อีกเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir cihaz adı veya kimliği verin. Listelenen cihaz yok: iki Mac’te de cmux’a giriş yapın ve diğer Mac’te Mac Screen’e izin ver’i açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажіть назву або ID пристрою. Немає пристроїв у списку: увійдіть у cmux на обох Mac і ввімкніть «Дозволити Mac Screen» на іншому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy truyền tên hoặc ID thiết bị. Không có thiết bị nào trong danh sách: đăng nhập cmux trên cả hai máy Mac và bật Cho phép Mac Screen trên máy Mac còn lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请传入设备名称或 ID。没有列出任何设备：请在两台 Mac 上都登录 cmux，并在另一台 Mac 上打开“允许使用 Mac Screen”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請傳入裝置名稱或 ID。沒有列出任何裝置：請在兩部 Mac 上都登入 cmux，並在另一部 Mac 上開啟「允許使用 Mac Screen」。"
+          }
+        }
+      }
+    },
+    "macScreen.actions.unknownDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد جهاز باسم “%@”. أجهزتك: %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan uređaj se ne zove “%@”. Vaši uređaji: %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen enhed hedder “%@”. Dine enheder: %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Gerät heißt „%@“. Deine Geräte: %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No device is named “%@”. Your devices: %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ningún dispositivo se llama “%@”. Tus dispositivos: %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun appareil ne s’appelle « %@ ». Vos appareils : %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun dispositivo si chiama “%@”. I tuoi dispositivi: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”という名前のデバイスはありません。あなたのデバイス: %@。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានឧបករណ៍ឈ្មោះ “%@” ទេ។ ឧបករណ៍របស់អ្នក៖ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”(이)라는 이름의 기기가 없습니다. 내 기기: %@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen enhet heter “%@”. Enhetene dine: %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żadne urządzenie nie ma nazwy „%@”. Twoje urządzenia: %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum dispositivo se chama “%@”. Seus dispositivos: %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет устройства с именем «%@». Ваши устройства: %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีอุปกรณ์ชื่อ “%@” อุปกรณ์ของคุณ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” adında bir cihaz yok. Cihazlarınız: %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає пристрою з назвою «%@». Ваші пристрої: %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có thiết bị nào tên “%@”. Thiết bị của bạn: %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有名为“%@”的设备。你的设备：%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有名為「%@」的裝置。你的裝置：%@。"
+          }
+        }
+      }
+    },
+    "macScreen.actions.unknownDeviceNoneListed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد جهاز باسم “%@”، ولا توجد أجهزة مدرجة: سجّل الدخول إلى cmux على جهازي Mac وشغّل السماح بـ Mac Screen على الـ Mac الآخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan uređaj se ne zove “%@” i nema navedenih uređaja: prijavite se u cmux na oba Maca i uključite Dozvoli Mac Screen na drugom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen enhed hedder “%@”, og ingen enheder er vist: Log ind på cmux på begge Mac-computere, og slå Tillad Mac Screen til på den anden Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Gerät heißt „%@“, und es sind keine Geräte aufgeführt: Melde dich auf beiden Macs bei cmux an und aktiviere auf dem anderen Mac „Mac Screen erlauben“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No device is named “%@”, and no devices are listed: sign in to cmux on both Macs and turn on Allow Mac Screen on the other Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ningún dispositivo se llama “%@” y no hay dispositivos en la lista: inicia sesión en cmux en ambos Mac y activa Permitir Mac Screen en el otro Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun appareil ne s’appelle « %@ » et aucun appareil n’est listé : connectez-vous à cmux sur les deux Mac et activez Autoriser Mac Screen sur l’autre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun dispositivo si chiama “%@” e nessun dispositivo è in elenco: accedi a cmux su entrambi i Mac e attiva Consenti Mac Screen sull’altro Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”という名前のデバイスはなく、表示できるデバイスもありません。両方のMacでcmuxにサインインし、もう一方のMacで「Mac Screenを許可」をオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានឧបករណ៍ឈ្មោះ “%@” ទេ ហើយគ្មានឧបករណ៍ក្នុងបញ្ជីទេ៖ ចូល cmux នៅលើ Mac ទាំងពីរ ហើយបើក អនុញ្ញាត Mac Screen នៅលើ Mac ផ្សេងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”(이)라는 이름의 기기가 없고 표시된 기기도 없습니다. 두 Mac 모두에서 cmux에 로그인하고 다른 Mac에서 Mac Screen 허용을 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen enhet heter “%@”, og ingen enheter er oppført: Logg på cmux på begge Mac-maskinene, og slå på Tillat Mac Screen på den andre Mac-en."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żadne urządzenie nie ma nazwy „%@” i brak urządzeń na liście: zaloguj się do cmux na obu Macach i włącz Pozwalaj na Mac Screen na drugim Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum dispositivo se chama “%@” e nenhum dispositivo está listado: entre no cmux nos dois Macs e ative Permitir Mac Screen no outro Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет устройства с именем «%@», и устройств нет в списке: войдите в cmux на обоих Mac и включите «Разрешить Mac Screen» на другом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีอุปกรณ์ชื่อ “%@” และไม่มีอุปกรณ์ในรายการ: ลงชื่อเข้าใช้ cmux บน Mac ทั้งสองเครื่อง แล้วเปิด อนุญาต Mac Screen บน Mac อีกเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” adında bir cihaz yok ve listelenen cihaz da yok: iki Mac’te de cmux’a giriş yapın ve diğer Mac’te Mac Screen’e izin ver’i açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає пристрою з назвою «%@», і немає пристроїв у списку: увійдіть у cmux на обох Mac і ввімкніть «Дозволити Mac Screen» на іншому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có thiết bị nào tên “%@” và không có thiết bị nào trong danh sách: đăng nhập cmux trên cả hai máy Mac và bật Cho phép Mac Screen trên máy Mac còn lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有名为“%@”的设备，也没有列出任何设备：请在两台 Mac 上都登录 cmux，并在另一台 Mac 上打开“允许使用 Mac Screen”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有名為「%@」的裝置，也沒有列出任何裝置：請在兩部 Mac 上都登入 cmux，並在另一部 Mac 上開啟「允許使用 Mac Screen」。"
           }
         }
       }
@@ -36285,6 +36809,530 @@
           "stringUnit": {
             "state": "translated",
             "value": "選擇窗格或分頁以開啟螢幕共享。"
+          }
+        }
+      }
+    },
+    "macScreen.actions.noStream": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر علامة تبويب مشاركة شاشة تعرض شاشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite karticu dijeljenja ekrana koja prikazuje ekran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg en skærmdelingsfane, der viser en skærm."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle einen Bildschirmfreigabe-Tab, der einen Bildschirm zeigt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a Screen Sharing tab that is showing a screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una pestaña de Compartir pantalla que esté mostrando una pantalla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un onglet Partage d’écran qui affiche un écran."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli una scheda Condivisione schermo che mostra uno schermo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面を表示している画面共有タブを選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសផ្ទាំងការចែករំលែកអេក្រង់ដែលកំពុងបង្ហាញអេក្រង់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면을 표시 중인 화면 공유 탭을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg en skjermdelingsfane som viser en skjerm."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz kartę udostępniania ekranu, która pokazuje ekran."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha uma aba de Compartilhamento de Tela que esteja mostrando uma tela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите вкладку общего экрана, на которой показан экран."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกแท็บการแชร์หน้าจอที่กำลังแสดงหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran gösteren bir Ekran Paylaşma sekmesi seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть вкладку спільного екрана, яка показує екран."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy chọn một tab Chia sẻ màn hình đang hiển thị màn hình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择正在显示屏幕的屏幕共享标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請選擇正在顯示螢幕的螢幕共享分頁。"
+          }
+        }
+      }
+    },
+    "macScreen.actions.noReconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر علامة تبويب مشاركة شاشة منقطعة لإعادة الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite prekinutu karticu dijeljenja ekrana da se ponovo povežete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg en afbrudt skærmdelingsfane for at genoprette forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle einen getrennten Bildschirmfreigabe-Tab, um erneut zu verbinden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a disconnected Screen Sharing tab to reconnect."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una pestaña de Compartir pantalla desconectada para volver a conectar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un onglet Partage d’écran déconnecté pour vous reconnecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli una scheda Condivisione schermo disconnessa per riconnetterti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続するには、切断された画面共有タブを選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសផ្ទាំងការចែករំលែកអេក្រង់ដែលបានផ្ដាច់ ដើម្បីភ្ជាប់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 연결하려면 연결이 끊긴 화면 공유 탭을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg en frakoblet skjermdelingsfane for å koble til på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz rozłączoną kartę udostępniania ekranu, aby połączyć ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha uma aba de Compartilhamento de Tela desconectada para reconectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите отключённую вкладку общего экрана, чтобы подключиться снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกแท็บการแชร์หน้าจอที่ตัดการเชื่อมต่อแล้วเพื่อเชื่อมต่อใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden bağlanmak için bağlantısı kesilmiş bir Ekran Paylaşma sekmesi seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть від’єднану вкладку спільного екрана, щоб під’єднатися знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy chọn một tab Chia sẻ màn hình đã ngắt kết nối để kết nối lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择已断开连接的屏幕共享标签页以重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請選擇已中斷連線的螢幕共享分頁以重新連線。"
+          }
+        }
+      }
+    },
+    "macScreen.actions.alreadyScope": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم جلسة مشاركة الشاشة هذه %@ بالفعل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova sesija dijeljenja ekrana već koristi %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne skærmdelingssession bruger allerede %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Bildschirmfreigabe-Sitzung verwendet bereits %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Screen Sharing session already uses %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta sesión de Compartir pantalla ya usa %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette session de partage d’écran utilise déjà %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa sessione di Condivisione schermo usa già %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画面共有セッションはすでに%@です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វគ្គការចែករំលែកអេក្រង់នេះកំពុងប្រើ %@ រួចហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 화면 공유 세션은 이미 %@ 상태입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne skjermdelingsøkten bruker allerede %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta sesja udostępniania ekranu już używa trybu %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta sessão de Compartilhamento de Tela já usa %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот сеанс общего экрана уже в режиме «%@»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชันการแชร์หน้าจอนี้ใช้ %@ อยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Ekran Paylaşma oturumu zaten %@ kullanıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей сеанс спільного екрана вже в режимі «%@»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phiên Chia sẻ màn hình này đã dùng %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此屏幕共享会话已在使用%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此螢幕共享工作階段已在使用%@。"
+          }
+        }
+      }
+    },
+    "macScreen.actions.noSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد جلسة مشاركة شاشة مفتوحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedna sesija dijeljenja ekrana nije otvorena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen skærmdelingssession er åben."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Bildschirmfreigabe-Sitzung ist geöffnet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Screen Sharing session is open."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ninguna sesión de Compartir pantalla abierta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune session de partage d’écran n’est ouverte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna sessione di Condivisione schermo è aperta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いている画面共有セッションはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានវគ្គការចែករំលែកអេក្រង់ណាមួយបើកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열려 있는 화면 공유 세션이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen skjermdelingsøkt er åpen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żadna sesja udostępniania ekranu nie jest otwarta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma sessão de Compartilhamento de Tela está aberta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет открытых сеансов общего экрана."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเซสชันการแชร์หน้าจอที่เปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık bir Ekran Paylaşma oturumu yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає відкритих сеансів спільного екрана."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có phiên Chia sẻ màn hình nào đang mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有打开的屏幕共享会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有開啟的螢幕共享工作階段。"
           }
         }
       }
