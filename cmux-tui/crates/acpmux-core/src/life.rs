@@ -12,6 +12,33 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep};
+use tokio_util::sync::{CancellationToken, WaitForCancellationFutureOwned};
+
+/// A daemon-wide stop fence. Unlike an owner scope this carries no tasks: it is the
+/// cancellation edge that request futures and blocking workers borrow, while the hub scope
+/// remains alive long enough to flush durable state.
+#[derive(Clone, Default)]
+pub struct StopFence {
+    token: CancellationToken,
+}
+
+impl StopFence {
+    pub fn new() -> Self {
+        Self { token: CancellationToken::new() }
+    }
+
+    pub fn cancel(&self) {
+        self.token.cancel();
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.token.is_cancelled()
+    }
+
+    pub fn cancelled(&self) -> WaitForCancellationFutureOwned {
+        self.token.clone().cancelled_owned()
+    }
+}
 
 /// The single v2 handle a daemon keeps after its listener is ready.
 ///
@@ -203,6 +230,19 @@ mod tests {
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
+
+    #[tokio::test]
+    async fn stop_fence_wakes_owned_waiters() {
+        let fence = StopFence::new();
+        let waiter = fence.clone();
+        let task = tokio::spawn(async move {
+            waiter.cancelled().await;
+            true
+        });
+        fence.cancel();
+        assert!(task.await.unwrap());
+        assert!(fence.is_cancelled());
+    }
 
     #[tokio::test(start_paused = true)]
     async fn a_panic_restarts_through_the_factory_after_a_wait() {

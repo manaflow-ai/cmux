@@ -13,6 +13,7 @@
 //! request here and keeps what it did before.
 
 use crate::rpc::RpcError;
+use acpmux_core::life::StopFence;
 use serde_json::{Value, json};
 use std::future::Future;
 use std::sync::Arc;
@@ -78,6 +79,32 @@ pub async fn until_either<F: Future>(
     also: Option<oneshot::Receiver<()>>,
     fut: F,
 ) -> Option<F::Output> {
+    until_either_with_stop(cancel, also, None, fut).await
+}
+
+/// [`until_either`] with the daemon stop fence. The ordinary client-cancel behavior remains
+/// unchanged; shutdown is the only additional owner that may drop the request future.
+pub async fn until_shutdown<F: Future>(
+    cancel: oneshot::Receiver<()>,
+    also: Option<oneshot::Receiver<()>>,
+    stop: StopFence,
+    fut: F,
+) -> Option<F::Output> {
+    until_either_with_stop(cancel, also, Some(stop), fut).await
+}
+
+/// Runs work until the daemon stop fence fires before a request has a ticket.
+pub async fn until_stop<F: Future>(stop: StopFence, fut: F) -> Option<F::Output> {
+    let (_never, cancel) = oneshot::channel();
+    until_either_with_stop(cancel, None, Some(stop), fut).await
+}
+
+async fn until_either_with_stop<F: Future>(
+    cancel: oneshot::Receiver<()>,
+    also: Option<oneshot::Receiver<()>>,
+    stop: Option<StopFence>,
+    fut: F,
+) -> Option<F::Output> {
     // A receiver whose sender is dropped never fires.
     let fired = |rx: Option<oneshot::Receiver<()>>| async move {
         let fired = match rx {
@@ -88,6 +115,12 @@ pub async fn until_either<F: Future>(
             std::future::pending::<()>().await;
         }
     };
+    let stopped = async move {
+        match stop {
+            Some(stop) => stop.cancelled().await,
+            None => std::future::pending::<()>().await,
+        }
+    };
     let flag = Arc::new(AtomicBool::new(false));
     let scoped = CANCELLED.scope(flag.clone(), fut);
     tokio::pin!(scoped);
@@ -96,6 +129,7 @@ pub async fn until_either<F: Future>(
         out = &mut scoped => Some(out),
         () = fired(Some(cancel)) => None,
         () = fired(also) => None,
+        () = stopped => None,
     };
     if out.is_none() {
         flag.store(true, Ordering::SeqCst);

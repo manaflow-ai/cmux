@@ -176,13 +176,14 @@ impl<R: AsyncRead + Unpin> Upgrade<R> {
             }
             _ => list,
         };
-        acpmux_core::conn::run(
+        acpmux_core::conn::run_with_stop(
             self.reader,
             writer,
             source,
             daemon_id,
             &self.surfaces,
             acpmux_core::conn::Role::Local,
+            Some(v1.request_stop.clone()),
         )
         .await
     }

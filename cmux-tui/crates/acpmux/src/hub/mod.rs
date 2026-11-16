@@ -884,6 +884,9 @@ pub struct Hub {
     /// The approvals audit trail (`audit_log.rs`).
     pub(crate) audit: audit_log::AuditLog,
     pub shutdown: Notify,
+    /// Latched when shutdown begins. Request work borrows this fence; the hub task scope stays
+    /// alive so persistence can finish after request futures are dropped.
+    pub(crate) request_stop: acpmux_core::life::StopFence,
     /// The owner of the hub's own tasks (`cmux_scope`). Every task that lives off the hub (the
     /// idle reaper, each chat's inbound loop, pool starts, carried turns, retries, message
     /// projections) is spawned here, never with a bare `tokio::spawn`: then the shutdown cancels
@@ -1410,6 +1413,7 @@ impl Hub {
             review_index: Default::default(),
             audit,
             shutdown: Notify::new(),
+            request_stop: acpmux_core::life::StopFence::new(),
             scope: cmux_scope::Scope::new("acpmux hub"),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),

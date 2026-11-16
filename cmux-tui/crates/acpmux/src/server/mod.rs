@@ -1254,7 +1254,7 @@ pub async fn serve_ws_until(
             // Answered through the connection's outbound queue once it is made, in order with
             // every other line and counted against its byte bound (`outbound.rs`).
             let (uploads, replies) = tokio::sync::watch::channel(None);
-            let frames = upload_frames::spawn(hub.clone(), origin, proof, replies);
+            let frames = upload_frames::spawn(hub.clone(), origin, proof, replies, hub.request_stop.clone());
             let read_shutdown = shutdown.clone();
             let reader_end = crate::link_v2::ReaderEnd::new(slot.clone());
             let reader = tokio::spawn(async move {
@@ -1784,6 +1784,10 @@ async fn serve_connection_from(
                         continue;
                     }
                 };
+                if hub.request_stop.is_cancelled() {
+                    drop(slot);
+                    break;
+                }
                 // In order, before the request is spawned: a later request
                 // on this connection sees the person decided.
                 if m == method::INITIALIZE
@@ -1792,10 +1796,18 @@ async fn serve_connection_from(
                         params.as_ref().and_then(|p| p.pointer("/_meta/acpmux/callerSession"))
                     && let Some(id) = caller.get("sessionId").and_then(Value::as_str)
                 {
-                    hub.session_meta(id).await;
-                    // Known once adoption has read the earlier run's token (`settle_caller`).
-                    if let Some(token) = caller.get("token").and_then(Value::as_str) {
-                        hub.settle_caller(id, token).await;
+                    let stop = hub.request_stop.clone();
+                    let initialized = crate::request_cancel::until_stop(stop, async {
+                        hub.session_meta(id).await;
+                        // Known once adoption has read the earlier run's token (`settle_caller`).
+                        if let Some(token) = caller.get("token").and_then(Value::as_str) {
+                            hub.settle_caller(id, token).await;
+                        }
+                    })
+                    .await;
+                    if initialized.is_none() {
+                        drop(slot);
+                        break;
                     }
                 }
                 // The host's sender token (`sender_token.rs`) leaves the request here, before
@@ -1826,16 +1838,34 @@ async fn serve_connection_from(
                 let owner = conn.clone();
                 let hub = hub.clone();
                 let conn = conn.clone();
+                let stop = hub.request_stop.clone();
                 owner.scope.spawn_named("conn-request", async move {
-                    let mut first = match dual_requests::before_run(dual).await {
-                        Ok(first) => first,
-                        Err(answer) => {
+                    let mut first = match crate::request_cancel::until_stop(
+                        stop.clone(),
+                        dual_requests::before_run(dual),
+                    )
+                    .await
+                    {
+                        Some(Ok(first)) => first,
+                        Some(Err(answer)) => {
                             // A cancel's part on this connection is its own (`dual_requests.rs`).
                             if m == method::SESSION_CANCEL {
                                 requests::cancel_on_connection(&hub, &conn, params.as_ref());
                             }
                             if conn.in_flight.finish(&ticket) {
                                 conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
+                            }
+                            return;
+                        }
+                        None => {
+                            if conn.in_flight.finish(&ticket) {
+                                conn.send_replying(
+                                    &dual_requests::reply(
+                                        id,
+                                        crate::request_cancel::cancelled_error(),
+                                    ),
+                                    Some(&m),
+                                );
                             }
                             return;
                         }
@@ -1853,7 +1883,8 @@ async fn serve_connection_from(
                     };
                     // A cancel of its copy on another connection stops it too (`dual_requests.rs`).
                     let also = first.as_mut().and_then(dual_requests::First::take_stop);
-                    let served = crate::request_cancel::until_either(cancel, also, serve).await;
+                    let served =
+                        crate::request_cancel::until_shutdown(cancel, also, stop, serve).await;
                     // Cancelled: the cancel answered it, and a copy sent on another path gets
                     // that answer too (`dual_requests.rs`).
                     let Some((result, sent)) = served.filter(|_| conn.in_flight.finish(&ticket))

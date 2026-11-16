@@ -31,6 +31,7 @@ use super::outbound::Outbound;
 use super::{ConnAuth, Hub, Origin};
 use crate::hub::file_uploads::{self, CHUNK_BYTES};
 use crate::rpc::{Message, RpcError, method};
+use acpmux_core::life::StopFence;
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
@@ -81,11 +82,15 @@ impl InFlight {
 pub(super) struct Frames {
     tx: mpsc::Sender<Bytes>,
     pub(super) in_flight: Arc<InFlight>,
+    stop: StopFence,
 }
 
 impl Frames {
     /// Queues `frame`, waiting for room in the window; false once the worker ended.
     pub(super) async fn send(&self, frame: Bytes) -> bool {
+        if self.stop.is_cancelled() {
+            return false;
+        }
         self.in_flight.count.fetch_add(1, Ordering::SeqCst);
         let sent = self.tx.send(frame).await.is_ok();
         if !sent {
@@ -107,13 +112,22 @@ pub(super) fn spawn(
     origin: Origin,
     auth: ConnAuth,
     mut replies: watch::Receiver<Option<Weak<Outbound>>>,
+    stop: StopFence,
 ) -> Frames {
     let (tx, mut rx) = mpsc::channel::<Bytes>(WINDOW);
     let in_flight = Arc::new(InFlight::default());
     let counted = in_flight.clone();
     tokio::spawn(async move {
-        while let Some(frame) = rx.recv().await {
-            let reply = handle(&hub, origin, auth, frame).await;
+        while let Some(frame) = tokio::select! {
+            biased;
+            _ = stop.cancelled() => None,
+            frame = rx.recv() => frame,
+        } {
+            let reply = tokio::select! {
+                biased;
+                _ = stop.cancelled() => break,
+                reply = handle(&hub, origin, auth, frame) => reply,
+            };
             let out = match replies.wait_for(Option::is_some).await {
                 Ok(out) => out.as_ref().and_then(Weak::upgrade),
                 Err(_) => None,
@@ -130,7 +144,7 @@ pub(super) fn spawn(
             counted.done();
         }
     });
-    Frames { tx, in_flight }
+    Frames { tx, in_flight, stop }
 }
 
 /// The header's id, params and where the bytes start.

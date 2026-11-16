@@ -29,7 +29,7 @@ struct Entry {
 #[derive(Default)]
 pub(crate) struct InFlight {
     next: AtomicU64,
-    by_id: Mutex<HashMap<String, Entry>>,
+    by_id: Arc<Mutex<HashMap<String, Entry>>>,
     /// Entries of every connection of the hub together (`Hub::requests_in_flight`).
     gauge: Arc<AtomicUsize>,
 }
@@ -41,6 +41,12 @@ pub(crate) struct Ticket {
     claim: Option<Claim>,
     pub cancel: oneshot::Receiver<()>,
     _slot: Option<OwnedSemaphorePermit>,
+    cleanup: Option<Cleanup>,
+}
+
+struct Cleanup {
+    by_id: Arc<Mutex<HashMap<String, Entry>>>,
+    gauge: Arc<AtomicUsize>,
 }
 
 /// What takes a request's entry for its own answer ([`InFlight::claim`]): its key and
@@ -56,6 +62,21 @@ impl Ticket {
     /// Its claim, for an answer sent before its request ends (`list_reply.rs`).
     pub(crate) fn claim(&self) -> Option<Claim> {
         self.claim.clone()
+    }
+}
+
+impl Drop for Ticket {
+    fn drop(&mut self) {
+        let Some(claim) = self.claim.as_ref() else { return };
+        if claim.won.load(Ordering::SeqCst) {
+            return;
+        }
+        let Some(cleanup) = self.cleanup.as_ref() else { return };
+        let mut map = cleanup.by_id.lock().unwrap_or_else(|e| e.into_inner());
+        if map.get(&claim.key).is_some_and(|entry| entry.generation == claim.generation) {
+            map.remove(&claim.key);
+            cleanup.gauge.fetch_sub(1, Ordering::Relaxed);
+        }
     }
 }
 
@@ -88,7 +109,7 @@ impl InFlight {
         let key = id.to_string();
         let mut map = self.map();
         if id.is_null() || map.contains_key(&key) {
-            return Ticket { claim: None, cancel: rx, _slot: slot };
+            return Ticket { claim: None, cancel: rx, _slot: slot, cleanup: None };
         }
         let generation = self.next.fetch_add(1, Ordering::Relaxed);
         map.insert(
@@ -97,7 +118,15 @@ impl InFlight {
         );
         self.gauge.fetch_add(1, Ordering::Relaxed);
         let won = Arc::default();
-        Ticket { claim: Some(Claim { key, generation, won }), cancel: rx, _slot: None }
+        Ticket {
+            claim: Some(Claim { key, generation, won }),
+            cancel: rx,
+            _slot: None,
+            cleanup: Some(Cleanup {
+                by_id: Arc::clone(&self.by_id),
+                gauge: Arc::clone(&self.gauge),
+            }),
+        }
     }
 
     /// The client cancelled request `id`: its method and dual key when it was in flight. Its
@@ -175,6 +204,28 @@ mod tests {
         assert_eq!(gauge.load(Ordering::Relaxed), 1);
         drop(flights);
         assert_eq!(gauge.load(Ordering::Relaxed), 0, "a closed connection leaves the count");
+    }
+
+    #[test]
+    fn dropping_a_request_ticket_abandons_its_entry_and_slot() {
+        let slots = Arc::new(Semaphore::new(1));
+        let gauge = Arc::new(AtomicUsize::new(0));
+        let flights = InFlight::counted(gauge.clone());
+        let ticket = flights.begin(
+            &json!(1),
+            "held",
+            Some(slots.clone().try_acquire_owned().unwrap()),
+            None,
+        );
+        assert_eq!(
+            (flights.len(), gauge.load(Ordering::Relaxed), slots.available_permits()),
+            (1, 1, 0)
+        );
+        drop(ticket);
+        assert_eq!(
+            (flights.len(), gauge.load(Ordering::Relaxed), slots.available_permits()),
+            (0, 0, 1)
+        );
     }
 
     #[test]

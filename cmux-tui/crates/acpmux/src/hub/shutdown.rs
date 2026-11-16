@@ -133,6 +133,7 @@ impl Hub {
         let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
         let mut plan = self.shutdown_plan.lock().unwrap();
         plan.started = true;
+        self.request_stop.cancel();
         (plan.end_agents, plan.keep.clone())
     }
 
