@@ -24,7 +24,7 @@
 //! range, never the number of sessions or the length of their logs.
 
 mod query;
-mod store;
+pub(crate) mod store;
 
 pub use query::{LedgerQuery, LedgerReply, Rollup, Row};
 
