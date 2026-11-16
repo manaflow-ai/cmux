@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43870880225",
+  "recorded_at": "2026-11-16T13:14:01Z",
+  "reason": "cmux-tui 2019844e5c56 changes the image's cmux-tui (pinned ac180a2e56eb)",
+  "dry_run": false,
+  "cmux_tui": "2019844e5c5663aa9190ca207fd6c3094a03fd15",
+  "fixes": [
+    {
+      "sha": "2019844e5c5663aa9190ca207fd6c3094a03fd15",
+      "mergedAt": "2026-11-16T04:37:32-08:00",
+      "subject": "cmux-git, cmux-tui-core: the open refuses a linked work tree's git folder with no record, reads core.worktree from the git folder's own config files, and a refused checkpoint request makes no folder (#44445)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T13:14:01Z",
+    "snapshot_id": "sh-dedd210577f347a296f1ce0b095556af",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43870880225): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5a8d3a0385454a6eec9365cebecd3986db49740a",
+    "image": "cloud-native-auto-2019844e-43870880225-1",
+    "revision": "ci-43870880225-1",
+    "at": "2026-11-16T13:14:01Z"
+  },
+  "rolled_back": false
+}
