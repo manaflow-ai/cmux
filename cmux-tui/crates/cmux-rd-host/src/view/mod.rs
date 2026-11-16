@@ -47,6 +47,10 @@ const ANSWER_WITHIN: Duration = Duration::from_secs(30);
 const PING_EVERY: Duration = Duration::from_secs(30);
 
 pub fn run_cli(args: &[String]) -> i32 {
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("{USAGE}");
+        return 0;
+    }
     let (device, rest) = match args.first() {
         Some(first) if !first.starts_with("--") => (Some(first.clone()), &args[1..]),
         _ => (None, args),
