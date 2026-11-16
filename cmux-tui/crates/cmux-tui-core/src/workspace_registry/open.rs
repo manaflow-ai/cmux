@@ -200,7 +200,7 @@ impl WorkspaceRegistry {
             };
         #[cfg(not(debug_assertions))]
         let first = open_once(&mut session_guard, &mut lease);
-        let registry = match first {
+        let mut registry = match first {
             Ok(mut registry) => {
                 // Also true on a later start when the swap start never got
                 // through a full start (killed during restore).
@@ -225,6 +225,9 @@ impl WorkspaceRegistry {
                 open_guard::keep_with_quarantined(&db_path, quarantined);
             }
         })?;
+        // Under this open's locks: what the owner before said of its
+        // release goes into this owner's start line, and the file goes.
+        registry.previous_owner_release = owner_release::take_record(&session_dir);
         // A roster the next build folded beside the previous owner.
         premigrate::adopt(&registry);
         Ok(registry)
@@ -704,6 +707,7 @@ impl WorkspaceRegistry {
             session_guard: session_guard.take(),
             lease: lease.take(),
             output_cleanup_swapped: false,
+            previous_owner_release: None,
         })
     }
 

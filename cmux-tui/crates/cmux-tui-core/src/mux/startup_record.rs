@@ -36,11 +36,11 @@ impl Mux {
     /// persistent owner only: an in-memory mux has no session directory) and
     /// logs their summary. A failed write is logged, never fatal.
     pub fn record_startup_timings(&self, timings: &StartupTimings) {
-        let database = self
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .session_journal_database_path();
+        let (database, previous_owner_release) = {
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            (registry.session_journal_database_path(), registry.previous_owner_release.take())
+        };
         let Some(session_dir) = database.as_deref().and_then(Path::parent) else { return };
         self.open_slow_request_log(session_dir, database.as_deref(), unix_now_ms);
         let (pid, at_ms) = (std::process::id(), unix_now_ms());
@@ -51,6 +51,13 @@ impl Mux {
             && let Some(fields) = line.as_object_mut()
         {
             fields.insert("after_ready".into(), laps);
+        }
+        // What the owner before said of its release: a join of its journal
+        // writer that ran out, or that it kept the session until its exit.
+        if let Some(record) = previous_owner_release
+            && let Some(fields) = line.as_object_mut()
+        {
+            fields.insert("previous_owner_release".into(), record);
         }
         match append_startup_timings(session_dir, &line) {
             Ok(()) => after_ready.line = Some((session_dir.to_path_buf(), pid, at_ms)),

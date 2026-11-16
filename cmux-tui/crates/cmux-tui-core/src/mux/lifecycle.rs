@@ -31,6 +31,24 @@ pub enum OwnershipRelease {
     },
 }
 
+/// Writes this owner's release record into its session's folder
+/// (`workspace_registry::owner_release`). The owner holds the session's
+/// locks. A write that fails is said on stderr: it never stops the release.
+fn write_release_record(
+    session_dir: Option<&Path>,
+    kept: bool,
+    alive: &[&'static str],
+    began: Instant,
+    writer_join: Option<String>,
+) {
+    use crate::workspace_registry::owner_release::{ReleaseRecord, write_record};
+    let Some(session_dir) = session_dir else { return };
+    let record = ReleaseRecord { kept, alive, waited: began.elapsed(), writer_join };
+    if let Err(error) = write_record(session_dir, &record) {
+        eprintln!("cmux-tui: could not write the record of this owner's release: {error}");
+    }
+}
+
 impl Mux {
     /// Drop per-surface metadata for a surface that has left the tree.
     /// `SurfaceId` is monotonic, so without this every closed tab would
@@ -223,6 +241,11 @@ impl Mux {
     /// owner's value, and the kernel frees them when the process ended. The
     /// owner stays the one writer of its stores until then. The control
     /// socket is removed in both cases: this owner serves nobody from here.
+    ///
+    /// An owner that keeps its session, or whose journal writer ended after
+    /// its join ran out, writes a record of that into the session's folder
+    /// while it holds the locks. The next owner reads it into its start
+    /// line (`previous_owner_release`).
     pub fn release_ownership(&self, socket_path: &Path) -> OwnershipRelease {
         let began = Instant::now();
         let deadline = began + RELEASE_WAIT;
@@ -233,12 +256,21 @@ impl Mux {
         if !self.output_cleanup_ended_by(deadline) {
             alive.push(OUTPUT_CLEANUP_WORKER);
         }
+        // A join of the journal writer that ran out, in this shutdown or
+        // before it: stderr is often lost, the record is not.
+        let writer_join = self.journal_ingress.late_writer_join();
         let release = {
             let mut registry = self.workspace_registry.lock().unwrap_or_else(|e| e.into_inner());
+            let database = registry.session_journal_database_path();
+            let session_dir = database.as_deref().and_then(Path::parent);
             let held =
                 if alive.is_empty() { self.registry_connection.get_until(deadline) } else { None };
             match held {
                 Some(held) => {
+                    // The record first: its writer holds the session.
+                    if writer_join.is_some() {
+                        write_release_record(session_dir, false, &alive, began, writer_join);
+                    }
                     // One step under the connection lock: the release, then
                     // the writer lease, then the session guard.
                     self.registry_connection.mark_released(&held);
@@ -250,12 +282,11 @@ impl Mux {
                     if alive.is_empty() {
                         alive.push(STORE_WRITE);
                     }
-                    let database = registry.session_journal_database_path();
-                    let session_dir = database.as_deref().and_then(Path::parent);
                     crate::workspace_registry::owner_release::keep_until_exit(
                         session_dir.unwrap_or(Path::new("")),
                         registry.lease.take().into_iter().chain(registry.session_guard.take()),
                     );
+                    write_release_record(session_dir, true, &alive, began, writer_join);
                     let waited = began.elapsed();
                     eprintln!(
                         "cmux-tui: this daemon keeps its session until it exits: {} did not \

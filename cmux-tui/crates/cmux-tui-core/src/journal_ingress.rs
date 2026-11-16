@@ -464,6 +464,7 @@ impl JournalWriter {
         self,
         deadline: Instant,
         completion: Arc<JournalWriterCompletion>,
+        end: &writer_end::WriterEnd,
     ) -> anyhow::Result<()> {
         let Self { thread, finished } = self;
         if thread.thread().id() == std::thread::current().id() {
@@ -492,11 +493,17 @@ impl JournalWriter {
             Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => thread
                 .join()
                 .map_err(|_| "session journal writer panicked during shutdown".to_string()),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(format!(
-                "session journal writer did not stop within {} ms; an admitted commit remains \
-                 owned by the detached writer and its idempotency receipt will resolve recovery",
-                wait.as_millis()
-            )),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                let text = format!(
+                    "session journal writer did not stop within {} ms; an admitted commit \
+                     remains owned by the detached writer and its idempotency receipt will \
+                     resolve recovery",
+                    wait.as_millis()
+                );
+                // The owner's release reads it for its record: stderr is often lost.
+                end.note_late_join(&text);
+                Err(text)
+            }
         };
         completion.finish(result.clone());
         result.map_err(anyhow::Error::msg)
@@ -883,6 +890,11 @@ impl JournalIngressSender {
         self.state.writer_end.ended_by(deadline)
     }
 
+    /// What a join of the writer said when it ran out, if one did.
+    pub(crate) fn late_writer_join(&self) -> Option<String> {
+        self.state.writer_end.late_join()
+    }
+
     fn close_and_join_until(&self, deadline: Instant) -> anyhow::Result<()> {
         self.state.close_admission();
         if let Some(wake) = &self.wake_sender {
@@ -913,7 +925,9 @@ impl JournalIngressSender {
             }
         };
         match action {
-            CloseAction::Join(writer, completion) => writer.join_until(deadline, completion),
+            CloseAction::Join(writer, completion) => {
+                writer.join_until(deadline, completion, &self.state.writer_end)
+            }
             CloseAction::Wait(completion) => completion.wait_until(deadline),
             CloseAction::Done => Ok(()),
         }

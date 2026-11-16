@@ -903,6 +903,9 @@ pub struct WorkspaceRegistry {
     pub(crate) session_guard: Option<SessionLease>,
     /// This open swapped in a registry without stored output.
     output_cleanup_swapped: bool,
+    /// What the owner before said of its release (`owner_release`), until
+    /// this owner's start line takes it.
+    pub(crate) previous_owner_release: Option<Value>,
 }
 
 /// Prepared statements each registry connection keeps compiled
