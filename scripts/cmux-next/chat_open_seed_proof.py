@@ -4,20 +4,22 @@
 The bench seeds its subagent template through a daemon of its own (idle_cost_load.PeerDaemon) and its test agent
 (chat_open_agent.py): a new chat with `turn: 0`, then `turn: 1`, then `subagents: K`. A seed whose event log has
 no `subagent_spawned` line for each of the K subagents stops the bench (`subagent_template_fault`). This script
-makes the same chat by the same calls and prints what the daemon stored, so that a red seed has a cause:
+makes the same chat by the same calls and prints what the daemon stored, so that a red seed has a cause. It does
+that 2 times, each on a new daemon: the subagent chat alone, then the subagent chat after the bench's `small` chat
+(the bench's order when its seed cache is empty). For each it prints:
 
   - each `session/prompt` request in the event log: its blocks in their order (type, `_meta`, the start of the
     text), and the text that the agent's own rule reads from them;
-  - the count of stored lines for each direction and kind, read while the daemon runs (as the bench reads them)
-    and again after its stop;
+  - the count of stored lines for each direction and kind, in the bench's own read (while the daemon runs) and
+    again after the daemon's stop;
   - the count of subagents with a `subagent_spawned` line, against K;
   - the end of the daemon's log.
 
 It needs no app and no display.
 
-    python3 scripts/cmux-next/chat_open_seed_proof.py --acpmux PATH [--subagents 4]
+    python3 scripts/cmux-next/chat_open_seed_proof.py --acpmux PATH [--subagents 4] [--small-turns 30]
 
-Exit 0: the K subagents are stored. Exit 1: they are not. Exit 2: the chat was not made.
+Exit 0: the K subagents are stored in each of the 2 chats. Exit 1: they are not. Exit 2: a chat was not made.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -56,20 +59,29 @@ sys.modules["bench_memory"] = types.SimpleNamespace(FAKE_AGENT_ID="bench-memory-
 import idle_cost_load as icl  # noqa: E402
 
 
-def stored(home, session):
-    """The chat's stored event lines in the order of their files, and the count of lines that are no JSON object."""
-    lines, bad = [], 0
+def files(home, session):
+    """{file name: bytes} of the chat's event log segments, as idle_cost_load.read_chat gives them."""
+    events = {}
     for path in sorted(glob.glob(os.path.join(home, "sessions", session, "events", "*.ndjson"))):
         with open(path, "rb") as handle:
-            for raw in handle.read().splitlines():
-                try:
-                    value = json.loads(raw)
-                except ValueError:
-                    value = None
-                if isinstance(value, dict):
-                    lines.append(value)
-                else:
-                    bad += 1
+            events[os.path.basename(path)] = handle.read()
+    return events
+
+
+def parsed(events):
+    """The stored event lines of `events` (`files`) in the order of the files, and the count of lines that are
+    no JSON object."""
+    lines, bad = [], 0
+    for name in sorted(events):
+        for raw in events[name].splitlines():
+            try:
+                value = json.loads(raw)
+            except ValueError:
+                value = None
+            if isinstance(value, dict):
+                lines.append(value)
+            else:
+                bad += 1
     return lines, bad
 
 
@@ -142,38 +154,59 @@ def show_log(path, last=30):
         print(f"  {cut(line, 300)}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--acpmux", required=True, help="the acpmux binary of the build")
-    parser.add_argument("--subagents", type=int, default=4, help="K of the `subagents: K` prompt (default 4)")
-    opts = parser.parse_args()
-    binary = os.path.realpath(opts.acpmux)
-    if not os.access(binary, os.X_OK):
-        raise SystemExit(f"seed-proof: no acpmux binary at {binary}")
-    print(f"seed-proof: {platform.platform()}, Python {platform.python_version()} ({sys.executable})", flush=True)
+def send(peer, session, text):
+    try:
+        sent = peer.acpmux("send", session, text, timeout=120)
+    except subprocess.TimeoutExpired:
+        print(f"send {text!r}: no end in 120 s", flush=True)
+        return False
+    if sent.returncode != 0 or text.startswith("subagents:"):
+        print(f"send {text!r}: exit {sent.returncode}, {len(sent.stdout)} characters of output, its end: "
+              f"{sent.stdout.strip()[-160:]!r}" + (f", stderr: {sent.stderr.strip()[-400:]!r}" if sent.stderr.strip() else ""),
+              flush=True)
+    return sent.returncode == 0
+
+
+def bench_read(peer, session):
+    """The chat's event log by the bench's own read (it waits for the daemon's next checkpoint); the files as
+    they are when that read fails."""
+    try:
+        return icl.read_chat(peer.home, session)["events"]
+    except RuntimeError as error:
+        print(f"the bench's read failed: {error}", flush=True)
+        return files(peer.home, session)
+
+
+def seed(binary, agent, subagents, small_turns):
+    """One daemon of its own: the bench's `small` chat first when `small_turns` is not 0, then the subagent chat.
+    Prints what the daemon stored for the subagent chat. 0 when each subagent is stored, 1 when not, 2 when a chat
+    was not made."""
+    began = time.monotonic()
     root = tempfile.mkdtemp(prefix="seed-proof-")
     try:
         # A PeerDaemon takes its acpmux out of an app bundle: a folder with the binary at a bundle's place.
         bundle = os.path.join(root, "bundle")
         os.makedirs(os.path.join(bundle, "Contents", "MacOS"))
         shutil.copy2(binary, os.path.join(bundle, "Contents", "MacOS", "acpmux"))
-        peer = icl.PeerDaemon(bundle, root, os.path.join(HERE, "chat_open_agent.py"))
-        session, live, live_bad = None, [], 0
+        peer = icl.PeerDaemon(bundle, root, agent)
+        session, live = None, {}
         try:
             peer.start()
+            if small_turns:
+                small = peer.new_chat("turn: 0")
+                if small:
+                    ended = sum(1 for i in range(1, small_turns) if send(peer, small, f"turn: {i}"))
+                    lines, _ = parsed(bench_read(peer, small))
+                    print(f"the small chat: {ended + 1} of {small_turns} turns ended, {len(lines)} stored lines, "
+                          f"{time.monotonic() - began:.1f} s", flush=True)
+                else:
+                    print("the small chat was NOT made", flush=True)
             session = peer.new_chat("turn: 0")
-            print(f"new chat with 'turn: 0': {'made' if session else 'NOT made'}", flush=True)
-            for text in ("turn: 1", f"subagents: {opts.subagents}") if session else ():
-                try:
-                    sent = peer.acpmux("send", session, text, timeout=120)
-                except subprocess.TimeoutExpired:
-                    print(f"send {text!r}: no end in 120 s", flush=True)
-                    continue
-                print(f"send {text!r}: exit {sent.returncode}, {len(sent.stdout)} characters of output, its end: "
-                      f"{sent.stdout.strip()[-160:]!r}" + (f", stderr: {sent.stderr.strip()[-400:]!r}" if sent.stderr.strip() else ""),
-                      flush=True)
+            print(f"the subagent chat with 'turn: 0': {'made' if session else 'NOT made'}", flush=True)
             if session:
-                live, live_bad = stored(peer.home, session)
+                send(peer, session, "turn: 1")
+                send(peer, session, f"subagents: {subagents}")
+                live = bench_read(peer, session)
         finally:
             peer.stop()
         log = os.path.join(peer.home, "daemon.log")
@@ -181,19 +214,39 @@ def main():
             show_log(log)
             print("SEED-PROOF: the chat was not made")
             return 2
-        after, after_bad = stored(peer.home, session)
+        (live_lines, live_bad), (after, after_bad) = parsed(live), parsed(files(peer.home, session))
         prompts = show_prompts(after)
-        live_counts = show_counts("STORED while the daemon runs (the bench's read)", live, live_bad)
+        live_counts = show_counts("STORED in the bench's read, while the daemon runs", live_lines, live_bad)
         if show_counts("STORED after the daemon's stop", after, after_bad) == live_counts:
             print("  the 2 reads have the same counts")
         show_log(log)
-        found, found_live = spawned(after), spawned(live)
-        print(f"SEED-PROOF: {len(found)} of {opts.subagents} subagents have a `subagent_spawned` line after the stop, "
-              f"{len(found_live)} in the read while the daemon runs; {prompts} prompt{'' if prompts == 1 else 's'} printed",
-              flush=True)
-        return 0 if len(found) == len(found_live) == opts.subagents else 1
+        found, found_live = spawned(after), spawned(live_lines)
+        print(f"SEED-PROOF: {len(found)} of {subagents} subagents have a `subagent_spawned` line after the stop, "
+              f"{len(found_live)} in the bench's read; {prompts} prompt{'' if prompts == 1 else 's'} printed; "
+              f"{time.monotonic() - began:.1f} s", flush=True)
+        return 0 if len(found) == len(found_live) == subagents else 1
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--acpmux", required=True, help="the acpmux binary of the build")
+    parser.add_argument("--subagents", type=int, default=4, help="K of the `subagents: K` prompt (default 4)")
+    parser.add_argument("--small-turns", type=int, default=30,
+                        help="the turns of the `small` chat before the second subagent chat (the bench's default, 30)")
+    opts = parser.parse_args()
+    binary = os.path.realpath(opts.acpmux)
+    if not os.access(binary, os.X_OK):
+        raise SystemExit(f"seed-proof: no acpmux binary at {binary}")
+    agent = os.path.join(HERE, "chat_open_agent.py")
+    print(f"seed-proof: {platform.platform()}, Python {platform.python_version()} ({sys.executable})", flush=True)
+    print("=== SEED-PROOF 1 of 2: the subagent chat alone", flush=True)
+    alone = seed(binary, agent, opts.subagents, 0)
+    print(f"=== SEED-PROOF 2 of 2: the subagent chat after a small chat of {opts.small_turns} turns", flush=True)
+    after_small = seed(binary, agent, opts.subagents, opts.small_turns)
+    print(f"SEED-PROOF END: alone = exit {alone}, after the small chat = exit {after_small}", flush=True)
+    return max(alone, after_small)
 
 
 if __name__ == "__main__":
