@@ -739,7 +739,13 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     // that refuses it here, so nothing starts on a machine that would not keep the promise
     // (`mesh_start.rs`, `mesh.trust_unsupported`).
     let version = body.get("version").and_then(serde_json::Value::as_u64);
-    let marked = body.pointer("/params/_meta/acpmux/via").is_some();
+    // A mark this daemon gates by (`app`, `web` or `device`), as `via` below takes it: a `null` or
+    // any other value is no mark, so its start is no version 2 start (review of #38377 at
+    // 5a5c988d, P2).
+    let marked = body
+        .pointer("/params/_meta/acpmux/via")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|via| matches!(via, "app" | "web" | "device"));
     match (version, op) {
         (Some(1), _) => {}
         (Some(2), "start") if marked => {}

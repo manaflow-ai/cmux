@@ -903,6 +903,57 @@ pub(super) fn person_start(conn: &Conn, params: &Value) -> bool {
             == crate::hub::Control::Local
 }
 
+/// A `session/new` this daemon forwards to machine `host`, made the one way for a linked peer and
+/// for a machine only the mesh hub reaches (`mesh_start.rs`), so the two cannot drift apart:
+/// this daemon's own meta stripped, the mark of whom it is for (`remote_guard::mark_forwarded`),
+/// an approved no-prompt preset expanded or the refusal that asks for its approval
+/// (`unattended_presets.rs`), a full-access starter's policy or the person's start level
+/// (`hub/full_access_children.rs`), and who creates it (`created_by`).
+pub(super) struct ForwardedStart {
+    /// The params to send.
+    pub(super) params: Value,
+    /// The approved preset's name and digest [`ForwardedStart::holds`] checks again.
+    pub(super) unattended: Option<(String, String)>,
+    /// Which start level went with it.
+    pub(super) carried: crate::hub::full_access_children::Carried,
+}
+
+pub(super) async fn forwarded_start(
+    hub: &Arc<Hub>,
+    conn: &Conn,
+    params: &Value,
+    host: &str,
+    created_by: Value,
+) -> Result<ForwardedStart, RpcError> {
+    let mut p = params.clone();
+    super::peer_forward::strip_new_meta(&mut p);
+    super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+    // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
+    let unattended = hub.forward_unattended_preset(conn.caller(), host, &mut p).await?;
+    // A full-access starter's chat runs in full access there too, and the person's own start at
+    // the person's start level (`hub/full_access_children.rs`).
+    let carried = hub.forward_start_policy(person_start(conn, params), conn.caller(), &mut p).await;
+    crate::hub::merge_mux_meta(&mut p, created_by);
+    Ok(ForwardedStart { params: p, unattended, carried })
+}
+
+impl ForwardedStart {
+    /// The last check before the start leaves: the approved preset is still what was approved.
+    pub(super) async fn holds(&self, hub: &Hub) -> Result<(), RpcError> {
+        match &self.unattended {
+            Some((name, digest)) => hub.unattended_preset_holds(name, digest).await,
+            None => Ok(()),
+        }
+    }
+
+    /// Logs a start that runs unattended there, once that machine made chat `id`.
+    pub(super) fn started(&self, hub: &Hub, host: &str, conn: &Conn, id: Option<&str>) {
+        if let Some(approved) = &self.unattended {
+            hub.log_unattended_start(approved, host, conn.caller(), id);
+        }
+    }
+}
+
 /// `_meta.acpmux` for a start this daemon forwards to a peer: who creates it, as this daemon
 /// decides it (`hub/created_by.rs`); the peer takes it from this link only.
 fn created_by_stamp(hub: &Hub, conn: &Conn, params: &Value) -> Value {
@@ -1606,18 +1657,10 @@ async fn dispatch_request_with_identity(
                 if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
                     return Err(super::trust_gate::peer_unsupported(&peer.name));
                 }
-                let mut p = params.clone();
-                super::peer_forward::strip_new_meta(&mut p);
-                super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
-                // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
-                let unattended =
-                    hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
-                // A full-access starter's chat runs in full access there too, and the person's
-                // own start at the person's start level (`hub/full_access_children.rs`).
-                let carried = hub
-                    .forward_start_policy(person_start(conn, &params), conn.caller(), &mut p)
-                    .await;
-                crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
+                // Made as a hub start's is (`forwarded_start`).
+                let created_by = created_by_stamp(hub, conn, &params);
+                let forwarded = forwarded_start(hub, conn, &params, &peer.name, created_by).await?;
+                let (mut p, carried) = (forwarded.params.clone(), forwarded.carried);
                 // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
                 // for the person's own clients here only (`vm_boundary::owner`): a saved
                 // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
@@ -1634,9 +1677,7 @@ async fn dispatch_request_with_identity(
                         json!({crate::hub::vm_boundary::FIELD: true}),
                     );
                 }
-                if let Some((name, digest)) = &unattended {
-                    hub.unattended_preset_holds(name, digest).await?;
-                }
+                forwarded.holds(hub).await?;
                 // A peer that takes no full access from this machine still starts the person's
                 // own chat, asking, as before the start level was carried (`Carried::Person`).
                 let asking = (carried == crate::hub::full_access_children::Carried::Person)
@@ -1653,10 +1694,8 @@ async fn dispatch_request_with_identity(
                     }
                     r => r?,
                 };
-                if let Some(approved) = &unattended {
-                    let id = result.get("sessionId").and_then(Value::as_str);
-                    hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
-                }
+                let id = result.get("sessionId").and_then(Value::as_str);
+                forwarded.started(hub, &peer.name, conn, id);
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     view::subscribe_remote(hub, conn, id, None);
                     peer.mark_attached(id);

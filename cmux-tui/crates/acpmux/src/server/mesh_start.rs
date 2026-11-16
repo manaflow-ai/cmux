@@ -81,16 +81,14 @@ async fn start(
     host: &str,
     created_by: Value,
 ) -> Result<Value, RpcError> {
-    let mut start = params.clone();
-    super::super::peer_forward::strip_new_meta(&mut start);
-    // As a linked peer's start is marked: whom it is for (the machine gates `app` and `web`
-    // there), a full-access starter's policy or the person's own start level
-    // (`hub/full_access_children.rs`), and who creates it.
-    super::super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut start);
-    let person = super::super::requests::person_start(conn, params);
-    hub.forward_start_policy(person, conn.caller(), &mut start).await;
-    crate::hub::merge_mux_meta(&mut start, created_by);
-    let start = start
+    // Made as a linked peer's start is (`requests::forwarded_start`): whom it is for (the machine
+    // gates `app` and `web` there), an approved no-prompt preset expanded or refused for its
+    // approval, a full-access starter's policy or the person's own start level, and who creates
+    // it (review P1 of #38377 at 5a5c988d: the preset went by name, unchecked).
+    let forwarded =
+        super::super::requests::forwarded_start(hub, conn, params, host, created_by).await?;
+    let start = forwarded
+        .params
         .as_object()
         .cloned()
         .ok_or_else(|| RpcError::invalid_params("session/new params must be an object"))?;
@@ -111,6 +109,7 @@ async fn start(
         ..Sender::default()
     };
     let relay = MeshControlRelay::new(mesh.clone(), sender);
+    forwarded.holds(hub).await?;
     let mut receipt =
         crate::mesh_control::submit(&relay, &request).await.map_err(|e| refusal(host, e))?;
     let deadline = tokio::time::Instant::now() + START_WAIT;
@@ -161,6 +160,7 @@ async fn start(
     let id = receipt.detail.filter(|id| !id.is_empty() && !id.contains('/')).ok_or_else(|| {
         RpcError::internal(format!("{host} started the chat but did not say its session id"))
     })?;
+    forwarded.started(hub, host, conn, Some(&id));
     let name = meta("name").unwrap_or_else(|| id.clone());
     hub.mesh_book_started(host, &id, &name, &meta("harness").unwrap_or_default());
     follow::follow(
