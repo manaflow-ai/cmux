@@ -224,9 +224,9 @@ fn outside_session_file_sizes(root: &std::path::Path) -> BTreeMap<String, u64> {
     sizes
 }
 
-fn outside_file_summary(
-    samples: &Option<(BTreeMap<String, u64>, BTreeMap<String, u64>)>,
-) -> serde_json::Value {
+type OutsideFileSamples = Option<(BTreeMap<String, u64>, BTreeMap<String, u64>)>;
+
+fn outside_file_summary(samples: &OutsideFileSamples) -> serde_json::Value {
     match samples {
         Some((first, last)) => json!({"first": first, "last": last}),
         None => serde_json::Value::Null,
@@ -285,8 +285,7 @@ fn v2_pr09_listen_start() {
     let mut startup_phases =
         [Vec::with_capacity(ROUNDS * SAMPLES), Vec::with_capacity(ROUNDS * SAMPLES)];
     let mut diagnostic_threads = [Vec::with_capacity(1), Vec::with_capacity(1)];
-    let mut outside_files: Vec<Option<(BTreeMap<String, u64>, BTreeMap<String, u64>)>> =
-        vec![None, None];
+    let mut outside_files: Vec<OutsideFileSamples> = vec![None, None];
     let mut forced_kills = 0;
     for round in 0..ROUNDS {
         let mut small_round = Vec::with_capacity(SAMPLES);
