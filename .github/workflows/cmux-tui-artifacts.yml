@@ -1944,6 +1944,11 @@ jobs:
           # 42189372955). Its .dSYM folders are never published (sentry-dsyms reads its
           # own copy), and `sha256sum cmux-tui-*` fails on a folder.
           find assets/cmux-tui -maxdepth 1 -type d -name '*.dSYM' -prune -exec rm -rf {} +
+          # It also matches the tree markers (cmux-tui-tree-owner-<key>, -feat-builder-<key>,
+          # -deferred-<key>). The checksums below never named their files, so "Upload to R2"
+          # sent all of cmux-tui/<sha>/ one file at a time (33 files in 72 s at 9fd2f115)
+          # and wrote tree-owner.json after manifest.json. Only cmux-tui-* is build output.
+          find assets/cmux-tui -maxdepth 1 -type f ! -name 'cmux-tui-*' -print -delete
           build_manifest() {
             local directory="$1"
             local binary_prefix="$2"
@@ -2530,10 +2535,14 @@ jobs:
                 return
               fi
               [[ "$status" == 0 ]] || exit "$status"
-              for file in "$directory"/*; do
+              # Largest first (ls -S), so the 130-160 MB daemons do not start
+              # last and run alone at the end: by name the x86_64 ones sorted
+              # last of 33 files (run 43751227908's prefix took 72 s at 8 at once).
+              # The order inside this pool does not matter to the race handling.
+              while IFS= read -r file; do
                 [[ "$file" == "$claim" || "$(basename "$file")" == manifest.json ]] && continue
                 pool_run upload_object "$file" "$prefix" "$cache" true
-              done
+              done < <(ls -1S -- "$directory"/*)
               status=0
               pool_wait || status=$?
               if [[ "$status" == 75 ]]; then

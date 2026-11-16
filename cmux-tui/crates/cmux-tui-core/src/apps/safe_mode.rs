@@ -277,7 +277,7 @@ impl Supervisor {
         self.emit(outs);
         if leaving {
             // Saves made in safe mode were held; apply them now.
-            self.reload_local_apps_since_last();
+            self.reload_local_apps_now();
         }
         Ok(answer)
     }
