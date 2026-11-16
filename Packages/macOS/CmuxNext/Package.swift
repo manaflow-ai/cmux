@@ -2423,6 +2423,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextBrowser",
                 "CmuxNextTabs",
+                "CmuxNextWakeups",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2640,6 +2641,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextDiff",
+                "CmuxNextFavicons",
                 "CmuxNextFeedClient",
                 "CmuxNextFileGrid",
                 "CmuxNextFiles",
