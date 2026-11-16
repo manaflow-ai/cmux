@@ -10,6 +10,10 @@
 #   build=N      the nightly build to measure (default: the newest the NIGHTLY feed offers); the update rounds
 #                start on the feed's build before it
 #   paths=, states=, many=, long_turns=, video=   passed to the check (--paths, --states, --many, --long-turns, --video)
+#   paths=sparkle-update   the update as a person gets it (CMUX-119): the feed's previous build stages the update with
+#                its own Sparkle and pre-warm, installs it on quit, and is reopened; then a second launch of the same
+#                build. Sparkle installs the feed's newest, so leave build= unset. Prints GAMUT-RATIO lines
+#                (first/second for first window, settled, prior chat front and prior chat live)
 # Prints GAMUT-ROUND lines, one GAMUT {json} and the table; keeps gamut.json, gamut.md, app.log and videos in report.tgz.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
