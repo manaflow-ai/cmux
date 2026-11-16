@@ -6683,9 +6683,10 @@ a.cv-sha:focus-visible {
 .acpmux-scroll[data-fade-top] {
   --acpmux-fade-top: 18px;
 }
-.acpmux-scroll[data-fade-bottom] {
-  --acpmux-fade-bottom: 18px;
-}
+/* No soft edge above the composer: rows keep full ink down to the stack's top and stop there, as
+   the Codex app's do under its composer (Lucas, 2026-11-17: "remove the fade and just make it white
+   like how codex does it", of a line and its icons washed out at the composer's corner). The mask
+   still hides the rows under the stack; `--acpmux-fade-bottom` stays 0. */
 /* Jump to latest keeps its own glass. It does not widen the transcript's soft edge: a 56px band
    washed out almost three lines above the composer (Leo, 2026-10-27). */
 /* Find in Chat's bar sits in the top band. The band keeps fading the rows under the header while it
