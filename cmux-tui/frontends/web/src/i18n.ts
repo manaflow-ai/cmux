@@ -50,8 +50,7 @@ const messages = {
     unknownError: "Unable to connect.",
     wrongApp: "Expected a cmux-tui server, but received {app}.",
     wrongProtocol: "Protocol {required} is required; the server reported protocol {protocol}.",
-    attachOverflowRecoveryFailed:
-      "Terminal output overflowed repeatedly. Reconnect to resume safely.",
+    attachOverflowRecoveryFailed: "Terminal output overflowed repeatedly. Reconnect to resume safely.",
     openWorkspaces: "Open workspaces",
     closeWorkspaces: "Close workspaces",
     extraKeys: "Terminal extra keys",
@@ -160,9 +159,7 @@ type MessageKey = keyof typeof messages.en;
 type Params = Record<string, string | number>;
 
 export function locale(): Locale {
-  return typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("ja")
-    ? "ja"
-    : "en";
+  return typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("ja") ? "ja" : "en";
 }
 
 export function t(key: MessageKey, params: Params = {}): string {

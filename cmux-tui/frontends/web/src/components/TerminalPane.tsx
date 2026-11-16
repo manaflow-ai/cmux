@@ -38,9 +38,7 @@ interface TerminalPaneProps {
 
 type PaneMenuState = { open: false } | { open: true; point: ContextMenuPoint; surface: Id | null };
 
-type PaneMenuAction =
-  | { type: "open"; point: ContextMenuPoint; surface: Id | null }
-  | { type: "close" };
+type PaneMenuAction = { type: "open"; point: ContextMenuPoint; surface: Id | null } | { type: "close" };
 
 function paneMenuReducer(state: PaneMenuState, action: PaneMenuAction): PaneMenuState {
   if (action.type === "close") return { open: false };
@@ -70,9 +68,7 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
   const [rename, dispatchRename] = useReducer(renameReducer, null);
   const trigger = useContextTrigger((point) => dispatchMenu({ type: "open", point }));
   const titleWords = tab.title.toLowerCase().split(/[^a-z0-9_-]+/);
-  const agent = ["claude", "codex", "opencode", "pi"].find((candidate) =>
-    titleWords.includes(candidate),
-  );
+  const agent = ["claude", "codex", "opencode", "pi"].find((candidate) => titleWords.includes(candidate));
   const label = tab.name || `${index + 1}${agent ? ` ${agent}` : ""}`;
   const commit = () => {
     if (!renameCanCommit(rename)) return;
@@ -90,11 +86,7 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
           onCancel={() => dispatchRename({ type: "cancel" })}
         />
       ) : (
-        <button
-          className={pane.active_tab === BigInt(index) ? "active" : ""}
-          onClick={onSelect}
-          type="button"
-        >
+        <button className={pane.active_tab === BigInt(index) ? "active" : ""} onClick={onSelect} type="button">
           <span className="tab-rail" aria-hidden="true">
             {pane.active_tab === BigInt(index) ? "▎" : " "}
           </span>
@@ -178,22 +170,15 @@ function PaneLeaf({
     detach: onDetachClient,
   };
   const clientMenuSummary = clientMenu.open ? paneClientSummary(clients, clientMenu.surface) : null;
-  const clientMenuItems = clientMenuSummary
-    ? clientSizingMenuItems(clientMenuSummary, sizingActions)
-    : [];
+  const clientMenuItems = clientMenuSummary ? clientSizingMenuItems(clientMenuSummary, sizingActions) : [];
   const paneMenuSummary = menu.open ? paneClientSummary(clients, menu.surface) : null;
-  const paneMenuClientItems = paneMenuSummary
-    ? clientSizingMenuItems(paneMenuSummary, sizingActions)
-    : [];
+  const paneMenuClientItems = paneMenuSummary ? clientSizingMenuItems(paneMenuSummary, sizingActions) : [];
   const reportError = useCallback(
     (error: Error) => setErrorState({ client, surface, message: error.message }),
     [client, surface],
   );
   const terminalError =
-    connected &&
-    errorState !== null &&
-    errorState.client === client &&
-    errorState.surface === surface
+    connected && errorState !== null && errorState.client === client && errorState.surface === surface
       ? errorState.message
       : null;
   const commitPaneRename = () => {
@@ -237,12 +222,7 @@ function PaneLeaf({
             onRename={onRenameSurface}
           />
         ))}
-        <button
-          className="new-tab"
-          aria-label={t("newTab")}
-          onClick={() => onNewTab(paneId)}
-          type="button"
-        >
+        <button className="new-tab" aria-label={t("newTab")} onClick={() => onNewTab(paneId)} type="button">
           {" "}
           +{" "}
         </button>
@@ -274,9 +254,7 @@ function PaneLeaf({
           ) : (
             <div className="terminal-stage">
               {!tab && <div className="terminal-empty">{t("noSurface")}</div>}
-              {tab?.kind === "browser" && (
-                <div className="terminal-empty">{t("browserSurface")}</div>
-              )}
+              {tab?.kind === "browser" && <div className="terminal-empty">{t("browserSurface")}</div>}
               {terminalError && (
                 <div className="terminal-error" role="alert">
                   {terminalError}
@@ -341,9 +319,7 @@ function PaneLeaf({
               label: zoomed ? t("restorePane") : t("zoomPane"),
               onSelect: () => onZoomPane(paneId),
             },
-            ...(paneMenuSummary
-              ? [{ label: paneMenuSummary.label, children: paneMenuClientItems }]
-              : []),
+            ...(paneMenuSummary ? [{ label: paneMenuSummary.label, children: paneMenuClientItems }] : []),
             { label: t("closePane"), danger: true, onSelect: () => onClosePane(paneId) },
           ]}
         />
@@ -375,11 +351,7 @@ interface StackPaneHeaderProps {
   onSelect(pane: Id): void;
 }
 
-const StackPaneHeader = memo(function StackPaneHeader({
-  label,
-  pane,
-  onSelect,
-}: StackPaneHeaderProps) {
+const StackPaneHeader = memo(function StackPaneHeader({ label, pane, onSelect }: StackPaneHeaderProps) {
   return (
     <div className="pane-leaf collapsed">
       <button
@@ -396,14 +368,7 @@ const StackPaneHeader = memo(function StackPaneHeader({
   );
 });
 
-function LayoutStackNode({
-  node,
-  screen,
-  paneById,
-  basis,
-  onSelectPane,
-  ...actions
-}: LayoutStackNodeProps) {
+function LayoutStackNode({ node, screen, paneById, basis, onSelectPane, ...actions }: LayoutStackNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
   const panes = visibleStackPanes(node.panes, node.expanded, null);
   const expandedIndex = panes.indexOf(node.expanded);
@@ -420,17 +385,12 @@ function LayoutStackNode({
     const livePane = paneById.get(pane) ?? null;
     const activeTab = livePane?.tabs[Number(livePane.active_tab)] ?? null;
     const label =
-      livePane?.name ||
-      activeTab?.name ||
-      (activeTab && shownTitle(activeTab)) ||
-      t("pane", { number: String(pane) });
+      livePane?.name || activeTab?.name || (activeTab && shownTitle(activeTab)) || t("pane", { number: String(pane) });
     return <StackPaneHeader key={pane} label={label} pane={pane} onSelect={selectHeader} />;
   };
   return (
     <div className="pane-stack" style={style}>
-      <div className="stack-pane-headers before">
-        {panes.slice(0, expandedIndex).map(renderHeader)}
-      </div>
+      <div className="stack-pane-headers before">{panes.slice(0, expandedIndex).map(renderHeader)}</div>
       <div className="pane-leaf expanded" key={node.expanded}>
         <PaneLeaf
           {...actions}
@@ -442,9 +402,7 @@ function LayoutStackNode({
           zoomed={screen.zoomedPane === node.expanded}
         />
       </div>
-      <div className="stack-pane-headers after">
-        {panes.slice(expandedIndex + 1).map(renderHeader)}
-      </div>
+      <div className="stack-pane-headers after">{panes.slice(expandedIndex + 1).map(renderHeader)}</div>
     </div>
   );
 }
@@ -510,13 +468,10 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
     [pendingConfirmed],
   );
 
-  const firstRatio =
-    previewRatio ??
-    (pendingValid && pendingRatio !== null ? pendingRatio.ratio : authoritativeRatio);
+  const firstRatio = previewRatio ?? (pendingValid && pendingRatio !== null ? pendingRatio.ratio : authoritativeRatio);
   const firstPercent = firstRatio * 100;
   const secondPercent = 100 - firstPercent;
-  const dividerStyle =
-    node.direction === "row" ? { left: `${firstPercent}%` } : { top: `${firstPercent}%` };
+  const dividerStyle = node.direction === "row" ? { left: `${firstPercent}%` } : { top: `${firstPercent}%` };
 
   const commitRatio = (previousRatio: number, nextRatio: number) => {
     const ratio = splitRatioToCommit(previousRatio, nextRatio);
@@ -547,12 +502,10 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
   };
 
   function scheduleKeyboardResize(resize: NonNullable<typeof keyboardResize.current>) {
-    if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation)
-      return;
+    if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
     if (resize.scheduled !== null) clearTimeout(resize.scheduled);
     resize.scheduled = setTimeout(() => {
-      if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation)
-        return;
+      if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
       resize.scheduled = null;
       pumpKeyboardResize(resize);
     }, KEYBOARD_RESIZE_DEBOUNCE_MS);
@@ -566,8 +519,7 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
       .onSetSplitRatio(resize.split, ratio)
       .catch(() => false)
       .then((succeeded) => {
-        if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation)
-          return;
+        if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
         resize.inFlightRatio = null;
         if (!succeeded) {
           keyboardGeneration.current += 1;
@@ -587,13 +539,7 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
 
   return (
     <div className={`pane-group ${node.direction}`} style={style}>
-      <LayoutNode
-        {...actions}
-        node={node.first}
-        screen={screen}
-        paneById={paneById}
-        basis={firstPercent}
-      />
+      <LayoutNode {...actions} node={node.first} screen={screen} paneById={paneById} basis={firstPercent} />
       <div
         aria-valuemax={95}
         aria-valuemin={5}
@@ -627,8 +573,7 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
             keyboardResize.current = null;
           }
           const existingResize = keyboardResize.current;
-          const canReuseResize =
-            existingResize?.split === target.split && (pendingValid || pendingConfirmed);
+          const canReuseResize = existingResize?.split === target.split && (pendingValid || pendingConfirmed);
           const baseRatio = canReuseResize
             ? existingResize.desiredRatio
             : pendingValid && pendingRatio !== null
@@ -703,13 +648,7 @@ function LayoutGroupNode({ node, screen, paneById, basis, ...actions }: LayoutGr
           setPreviewRatio(null);
         }}
       />
-      <LayoutNode
-        {...actions}
-        node={node.second}
-        screen={screen}
-        paneById={paneById}
-        basis={secondPercent}
-      />
+      <LayoutNode {...actions} node={node.second} screen={screen} paneById={paneById} basis={secondPercent} />
     </div>
   );
 }
@@ -731,9 +670,7 @@ function LayoutNode({ node, screen, paneById, basis, ...actions }: LayoutNodePro
     );
   }
   if (node.type === "stack") {
-    return (
-      <LayoutStackNode {...actions} node={node} screen={screen} paneById={paneById} basis={basis} />
-    );
+    return <LayoutStackNode {...actions} node={node} screen={screen} paneById={paneById} basis={basis} />;
   }
   return (
     <div className="pane-leaf" style={style}>
@@ -749,10 +686,7 @@ function LayoutNode({ node, screen, paneById, basis, ...actions }: LayoutNodePro
 }
 
 export function TerminalPane({ screen, ...props }: TerminalPaneProps) {
-  const paneById = useMemo(
-    () => new Map(screen?.panes.map((pane) => [pane.id, pane] as const) ?? []),
-    [screen?.panes],
-  );
+  const paneById = useMemo(() => new Map(screen?.panes.map((pane) => [pane.id, pane] as const) ?? []), [screen?.panes]);
   if (!screen) return <section className="terminal-empty terminal-root">{t("noSurface")}</section>;
   const node = layoutToViewModel(screen.layout, screen.zoomedPane, screen.activePane);
   return (

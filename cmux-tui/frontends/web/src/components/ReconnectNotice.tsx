@@ -3,13 +3,7 @@ import { t } from "../i18n";
 
 const RECONNECT_NOTICE_DELAY_MS = 10_000;
 
-export function ReconnectNotice({
-  needsAction = false,
-  onRetry,
-}: {
-  needsAction?: boolean;
-  onRetry(): void;
-}) {
+export function ReconnectNotice({ needsAction = false, onRetry }: { needsAction?: boolean; onRetry(): void }) {
   const [expired, setExpired] = useState(false);
   useEffect(() => {
     setExpired(false);

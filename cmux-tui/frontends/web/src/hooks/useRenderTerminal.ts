@@ -17,11 +17,7 @@ import { syncCanvasBackground } from "../lib/canvasTheme";
 import { nextFitSize, type TerminalSize } from "../lib/fit";
 import { createFrameBatch } from "../lib/frameBatch";
 import { encodeTerminalKey } from "../lib/keyEncoding";
-import {
-  beginTerminalSelection,
-  clampTerminalSelection,
-  releaseTerminalSelection,
-} from "../lib/terminalSelection";
+import { beginTerminalSelection, clampTerminalSelection, releaseTerminalSelection } from "../lib/terminalSelection";
 import {
   applyDelta,
   applySnapshot,
@@ -143,13 +139,7 @@ interface HistoryLoadOptions {
   request?: ScrollbackRequest;
 }
 
-export function useRenderTerminal({
-  client,
-  surface,
-  active,
-  focusOnMount = false,
-  onError,
-}: RenderTerminalOptions) {
+export function useRenderTerminal({ client, surface, active, focusOnMount = false, onError }: RenderTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [state, dispatch] = useReducer(renderTerminalViewReducer, initialState);
   const controllerRef = useRef<RenderTerminalController | null>(null);
@@ -161,8 +151,7 @@ export function useRenderTerminal({
 
   useEffect(() => {
     const stage = host?.closest<HTMLElement>(".terminal-stage");
-    const background =
-      state.model?.defaultBg ?? stage?.style.getPropertyValue("--surface-background");
+    const background = state.model?.defaultBg ?? stage?.style.getPropertyValue("--surface-background");
     if (!host || !background) return;
     syncCanvasBackground(host, background, active);
   }, [active, host, state.model?.defaultBg]);
@@ -205,15 +194,11 @@ export function useRenderTerminal({
           resolve();
         }, delayMs);
       });
-    const unsubscribeGraphicsBudget = subscribeRenderModelGraphicsBudget(
-      graphicsBudget,
-      graphicsBudgetOwner,
-      () => {
-        if (cancelled || graphicsResnapshotRequested) return;
-        graphicsResnapshotRequested = true;
-        stream?.close();
-      },
-    );
+    const unsubscribeGraphicsBudget = subscribeRenderModelGraphicsBudget(graphicsBudget, graphicsBudgetOwner, () => {
+      if (cancelled || graphicsResnapshotRequested) return;
+      graphicsResnapshotRequested = true;
+      stream?.close();
+    });
 
     dispatch({ type: "bind", client, surface });
     const frameBatch = createFrameBatch<void>(() => {
@@ -312,10 +297,7 @@ export function useRenderTerminal({
       cache = createScrollbackWindow(total);
       if (publish) publishHistory();
     };
-    const loadHistoryPage = async (
-      direction: "latest" | "previous" | "next",
-      options: HistoryLoadOptions = {},
-    ) => {
+    const loadHistoryPage = async (direction: "latest" | "previous" | "next", options: HistoryLoadOptions = {}) => {
       if (cancelled || historyLoading) return;
       const request =
         options.request ??
@@ -333,9 +315,7 @@ export function useRenderTerminal({
         const page = await client.readScrollback(surface, request.start, request.count);
         if (cancelled || generation !== cacheGeneration) return;
         const stablePage =
-          page.total < cache.total && cache.total > requestTotal
-            ? { ...page, total: cache.total }
-            : page;
+          page.total < cache.total && cache.total > requestTotal ? { ...page, total: cache.total } : page;
         const previousCache = cache;
         const anchorScrollTop = scroller?.scrollTop ?? 0;
         const nextCache = mergeScrollbackPage(previousCache, stablePage);
@@ -350,10 +330,7 @@ export function useRenderTerminal({
           if (options.preserveScrollAnchor) {
             scroller.scrollTop = anchorScrollTop;
           } else if (direction === "latest") {
-            scroller.scrollTop = Math.max(
-              0,
-              scroller.scrollHeight - scroller.clientHeight - metrics.height,
-            );
+            scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight - metrics.height);
           } else {
             scroller.scrollTop = Math.max(0, anchorScrollTop + anchorDelta * metrics.height);
           }
@@ -378,14 +355,7 @@ export function useRenderTerminal({
       historyRefreshScheduled = true;
       queueMicrotask(() => {
         historyRefreshScheduled = false;
-        if (
-          cancelled ||
-          !historyActive ||
-          !historyRefreshPending ||
-          historyLoading ||
-          currentModel === null
-        )
-          return;
+        if (cancelled || !historyActive || !historyRefreshPending || historyLoading || currentModel === null) return;
         if (cache.epoch === currentModel.historyEpoch) {
           historyRefreshPending = false;
           return;
@@ -414,10 +384,7 @@ export function useRenderTerminal({
       } else {
         scheduleAfterRender(() => {
           if (scroller !== null) {
-            scroller.scrollTop = Math.max(
-              0,
-              scroller.scrollHeight - scroller.clientHeight - metrics.height,
-            );
+            scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight - metrics.height);
           }
         });
       }
@@ -467,8 +434,7 @@ export function useRenderTerminal({
       const selection = window.getSelection();
       const hasSelection = selection !== null && !selection.isCollapsed;
       const lowerKey = event.key.toLowerCase();
-      if (hasSelection && lowerKey === "c" && (event.metaKey || (event.ctrlKey && event.shiftKey)))
-        return;
+      if (hasSelection && lowerKey === "c" && (event.metaKey || (event.ctrlKey && event.shiftKey))) return;
       if (lowerKey === "v" && (event.metaKey || (event.ctrlKey && event.shiftKey))) return;
       const action = encodeTerminalKey(event);
       if (action === null) return;
@@ -512,11 +478,7 @@ export function useRenderTerminal({
           scroller === null
             ? Number.POSITIVE_INFINITY
             : scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
-        if (
-          event.deltaY > 0 &&
-          bottomDistance <= metrics.height * 2 &&
-          nextScrollbackRequest(cache) !== null
-        ) {
+        if (event.deltaY > 0 && bottomDistance <= metrics.height * 2 && nextScrollbackRequest(cache) !== null) {
           event.preventDefault();
           void loadHistoryPage("next");
         }
@@ -604,11 +566,7 @@ export function useRenderTerminal({
               return;
             }
             if (event.event === "render-state") {
-              currentModel = applySnapshot(
-                event as RenderStateEvent,
-                graphicsBudget,
-                graphicsBudgetOwner,
-              );
+              currentModel = applySnapshot(event as RenderStateEvent, graphicsBudget, graphicsBudgetOwner);
               resetHistoryCache(currentModel.scrollbackRows, false);
               applySurfaceBackground(currentModel.defaultBg);
               applyFit();
@@ -621,12 +579,7 @@ export function useRenderTerminal({
             } else if (event.event === "render-delta" && currentModel !== null) {
               const renderDelta = event as RenderDeltaEvent;
               const previous: RenderModel = currentModel;
-              const nextModel: RenderModel = applyDelta(
-                previous,
-                renderDelta,
-                graphicsBudget,
-                graphicsBudgetOwner,
-              );
+              const nextModel: RenderModel = applyDelta(previous, renderDelta, graphicsBudget, graphicsBudgetOwner);
               currentModel = nextModel;
               if (nextModel === previous) continue;
               const reconciliation = reconcileScrollbackWindow(
@@ -644,11 +597,7 @@ export function useRenderTerminal({
               } else if (reconciliation.window !== cache) {
                 cache = reconciliation.window;
               }
-              if (
-                !reconciliation.invalidated &&
-                historyActive &&
-                cache.epoch !== nextModel.historyEpoch
-              )
+              if (!reconciliation.invalidated && historyActive && cache.epoch !== nextModel.historyEpoch)
                 requestHistoryEpochRefresh();
               applySurfaceBackground(nextModel.defaultBg);
               if (!historyActive) {

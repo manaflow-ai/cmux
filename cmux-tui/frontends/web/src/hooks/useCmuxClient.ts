@@ -15,11 +15,7 @@ import {
 } from "cmux/raw";
 import { browserClientName } from "../lib/clientName";
 import { createCoalescedRefresh, type CoalescedRefresh } from "../lib/coalescedRefresh";
-import {
-  initialLocalSelectionState,
-  localSelectionReducer,
-  selectionSnapshot,
-} from "../lib/localSelection";
+import { initialLocalSelectionState, localSelectionReducer, selectionSnapshot } from "../lib/localSelection";
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
 import { SUPPORTED_PROTOCOL, supportsProtocol } from "../lib/protocol";
 import { activeScreen, locateSurface, SurfaceTitleReconciler, treeToViewModel } from "../lib/tree";
@@ -32,14 +28,7 @@ export interface ConnectionConfig {
 
 export interface Toast extends NotificationEvent {}
 
-type ConnectionStatus =
-  | "idle"
-  | "connecting"
-  | "pairing"
-  | "connected"
-  | "reconnecting"
-  | "reconnect-failed"
-  | "error";
+type ConnectionStatus = "idle" | "connecting" | "pairing" | "connected" | "reconnecting" | "reconnect-failed" | "error";
 
 interface ConnectionState {
   status: ConnectionStatus;
@@ -68,10 +57,7 @@ export function useCmuxClient() {
   const [state, setState] = useState<ConnectionState>(initialState);
   const [unread, setUnread] = useState<Set<Id>>(() => new Set());
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [selection, dispatchSelection] = useReducer(
-    localSelectionReducer,
-    initialLocalSelectionState,
-  );
+  const [selection, dispatchSelection] = useReducer(localSelectionReducer, initialLocalSelectionState);
   const refreshRef = useRef<(() => Promise<Tree | null>) | null>(null);
   const clientsRefreshRef = useRef<(() => void) | null>(null);
   const localToastId = useRef(-1n);
@@ -138,11 +124,7 @@ export function useCmuxClient() {
       treeRefreshQueue = null;
       clientsRefreshQueue = null;
     };
-    const makeRefreshQueues = (
-      generation: number,
-      client: CmuxClient,
-      reconciler: SurfaceTitleReconciler,
-    ) => {
+    const makeRefreshQueues = (generation: number, client: CmuxClient, reconciler: SurfaceTitleReconciler) => {
       cancelRefreshQueues();
       const queueTreeRefresh = createCoalescedRefresh(async () => {
         await refresh(client, reconciler);
@@ -195,11 +177,7 @@ export function useCmuxClient() {
       const client = new CmuxClient({ transport });
       activeClient = client;
       const reconciler = titleReconciler;
-      const { queueClientsRefresh, queueTreeRefresh } = makeRefreshQueues(
-        generation,
-        client,
-        reconciler,
-      );
+      const { queueClientsRefresh, queueTreeRefresh } = makeRefreshQueues(generation, client, reconciler);
 
       const scheduleRetry = () => {
         if (cancelled || dropHandled || generation !== transportGeneration) return;
@@ -241,10 +219,7 @@ export function useCmuxClient() {
         // failing the whole connect.
         await client.setClientInfo(browserClientName(), "web").catch(() => undefined);
         const events = await client.subscribe();
-        const [tree, clients] = await Promise.all([
-          client.listWorkspaces(),
-          client.listClients().catch(() => []),
-        ]);
+        const [tree, clients] = await Promise.all([client.listWorkspaces(), client.listClients().catch(() => [])]);
         if (cancelled) return;
         canReconnect = true;
         // A successful (re)connect resets the retry baseline so the next drop
@@ -306,11 +281,7 @@ export function useCmuxClient() {
             // `surface-resized` carries only cell dimensions; neither is a
             // complete workspace tree, so keep the authoritative fetch but
             // coalesce it instead of patching incomplete payloads locally.
-            if (
-              ["tree-changed", "layout-changed", "surface-resized", "surface-exited"].includes(
-                event.event,
-              )
-            ) {
+            if (["tree-changed", "layout-changed", "surface-resized", "surface-exited"].includes(event.event)) {
               discardPendingSurfaceTitles();
               queueTreeRefresh();
             }
@@ -475,8 +446,7 @@ export function useCmuxClient() {
       newWorkspace: () => createAndFollow((client) => client.newWorkspace()),
       newScreen: (workspace: Id) => createAndFollow((client) => client.newScreen({ workspace })),
       newTab: (pane: Id) => runMutation((client) => client.newTab({ pane })),
-      newBrowserTab: (pane: Id, url: string) =>
-        runMutation((client) => client.newBrowserTab(url, { pane })),
+      newBrowserTab: (pane: Id, url: string) => runMutation((client) => client.newBrowserTab(url, { pane })),
       split: (pane: Id, dir: "right" | "down") => runMutation((client) => client.split(pane, dir)),
       closeWorkspace: (workspace: Id) => runMutation((client) => client.closeWorkspace(workspace)),
       closeScreen: (screen: Id) => runMutation((client) => client.closeScreen(screen)),
@@ -484,17 +454,13 @@ export function useCmuxClient() {
       closeSurface: (surface: Id) => runMutation((client) => client.closeSurface(surface)),
       renameWorkspace: (workspace: Id, name: string) =>
         runMutation((client) => client.renameWorkspace(workspace, name)),
-      renameScreen: (screen: Id, name: string) =>
-        runMutation((client) => client.renameScreen(screen, name)),
-      renamePane: (pane: Id, name: string) =>
-        runMutation((client) => client.renamePane(pane, name)),
-      renameSurface: (surface: Id, name: string) =>
-        runMutation((client) => client.renameSurface(surface, name)),
+      renameScreen: (screen: Id, name: string) => runMutation((client) => client.renameScreen(screen, name)),
+      renamePane: (pane: Id, name: string) => runMutation((client) => client.renamePane(pane, name)),
+      renameSurface: (surface: Id, name: string) => runMutation((client) => client.renameSurface(surface, name)),
       zoomPane: (pane: Id) => runMutation((client) => client.zoomPane({ pane, mode: "toggle" })),
       swapPane: (pane: Id, dir: "left" | "right" | "up" | "down") =>
         runMutation((client) => client.swapPane({ pane, dir })),
-      setSplitRatio: (split: Id, ratio: number) =>
-        runMutation((client) => client.setSplitRatio(split, ratio)),
+      setSplitRatio: (split: Id, ratio: number) => runMutation((client) => client.setSplitRatio(split, ratio)),
       setClientSizing: (surface: Id, clientId: Id, enabled: boolean) =>
         runMutation(async (client) => {
           await client.setClientSizing(surface, clientId, enabled);

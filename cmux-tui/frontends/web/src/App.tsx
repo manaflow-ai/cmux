@@ -41,10 +41,7 @@ function AppContent() {
 
   return (
     <main className={`app-shell drawer-${drawer}`}>
-      <ReconnectNotice
-        needsAction={connection.status === "reconnect-failed"}
-        onRetry={connection.retryConnection}
-      />
+      <ReconnectNotice needsAction={connection.status === "reconnect-failed"} onRetry={connection.retryConnection} />
       <header className="mobile-toolbar">
         <button
           type="button"
