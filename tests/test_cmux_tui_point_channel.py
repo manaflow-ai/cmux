@@ -76,7 +76,17 @@ if name == "completion.json":
     }})
     open(out, "w").write(body)
     sys.exit(0)
-if url.endswith("/channels/feat-cmux-next.json"):
+if name == "completion-windows.json":
+    if os.environ.get("FAKE_WINDOWS", "1") != "1":
+        sys.exit(22)
+    key = url.split("/tree/")[1].split("/")[0]
+    body = json.dumps({"key": key, "binaries": {
+        "cmux-tui-acpmux-x86_64-pc-windows-gnu.exe": "4" * 64,
+        "cmux-tui-x86_64-pc-windows-gnu.exe": "5" * 64,
+    }})
+    open(out, "w").write(body)
+    sys.exit(0)
+if url.endswith(f"/channels/{os.environ.get('CHANNEL', 'feat-cmux-next')}.json"):
     path = os.path.join(state, "object")
     code = os.environ.get("FAKE_READ_CODE") or ("200" if os.path.exists(path) else "404")
     if code == "200":
@@ -118,7 +128,7 @@ def pointer(commit, key=KEY):
     return json.dumps({"key": key, "commit": commit, "binaries": {}}, indent=2, sort_keys=True)
 
 
-def run(current=None, race=None, **env):
+def run(current=None, race=None, channel="feat-cmux-next", **env):
     """The script for SHA with the channel at `current` (text, or None for no
     file); its exit, output, the channel afterwards and the uploads."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -139,8 +149,8 @@ def run(current=None, race=None, **env):
         full = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=state, GITHUB_SHA=SHA,
                     GITHUB_RUN_ID="5", GITHUB_API_URL="https://api.github.invalid",
                     GITHUB_REPOSITORY="manaflow-ai/cmux", GH_TOKEN="x", R2_ENDPOINT="https://r2.invalid",
-                    FAKE_ORDER=",".join(ORDER), **env)
-        result = subprocess.run(["bash", script, "feat-cmux-next", KEY], env=full, capture_output=True,
+                    FAKE_ORDER=",".join(ORDER), CHANNEL=channel, **env)
+        result = subprocess.run(["bash", script, channel, KEY], env=full, capture_output=True,
                                 text=True, timeout=60)
         path = os.path.join(state, "object")
         after = open(path).read() if os.path.exists(path) else None
@@ -216,6 +226,18 @@ def main():
     # A tree that is not daemon-tested is not pointed at.
     result, after, uploads = run(pointer(OLD), FAKE_MARKER="0")
     _check(result.returncode == 0 and commit_of(after) == OLD and not uploads, "an untested tree is not pointed at")
+
+    # The Windows channel: the tree's Windows acpmux, from completion-windows.json.
+    result, after, uploads = run(channel="windows-feat-cmux-next")
+    channel = json.loads(after or "{}")
+    _check(result.returncode == 0 and channel.get("commit") == SHA and channel.get("key") == KEY
+           and channel.get("binaries") == {"cmux-tui-acpmux-x86_64-pc-windows-gnu.exe": "4" * 64},
+           f"the Windows channel names only the tree's Windows acpmux: {after} {result.stdout}{result.stderr}")
+    _check(uploads == ["write-once cmux-tui/channels/windows-feat-cmux-next.json"], f"its own object: {uploads}")
+    # A tree with no Windows build leaves the Windows channel where it is.
+    result, after, uploads = run(pointer(OLD), channel="windows-feat-cmux-next", FAKE_WINDOWS="0")
+    _check(result.returncode == 0 and commit_of(after) == OLD and not uploads,
+           f"a tree without Windows is not pointed at: {uploads} {result.stdout}{result.stderr}")
 
     if FAILURES:
         for failure in FAILURES:

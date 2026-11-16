@@ -5,6 +5,11 @@
 # (`acpmux host self-update`, run by their acpmux-update.timer). A tree without
 # the daemon-tests.json marker is not pointed at.
 #
+# A windows-<name> channel names the tree's Windows acpmux instead, from the
+# tree's completion-windows.json (only a dispatch with include_windows builds
+# it): the Windows join line (cmux-tui/scripts/machine-join.ps1) installs from
+# it.
+#
 # The pointer only moves forward, and fails closed: it moves when GitHub's
 # compare says this commit is ahead of the one it names, or there is no file
 # yet; behind, identical, diverged, a compare or read that fails, or a file that
@@ -18,7 +23,7 @@
 # Usage: cmux-tui-point-channel.sh <channel> <tree key>
 # Env: R2_ENDPOINT and the R2 AWS_* credentials; GITHUB_SHA, GITHUB_RUN_ID,
 # GITHUB_API_URL, GITHUB_REPOSITORY and GH_TOKEN (the compare).
-# Caller: cmux-tui-artifacts.yml point-feat-channel.
+# Caller: cmux-tui-artifacts.yml point-feat-channel and point-windows-channel.
 set -euo pipefail
 
 channel="${1:-}"
@@ -38,7 +43,14 @@ if ! curl --head --fail --silent --proto '=https' --connect-timeout 20 --max-tim
   echo "Tree $key has no daemon-tests marker yet; the $channel channel stays where it is."
   exit 0
 fi
-fetch "$base/tree/$key/completion.json" "$tmp/completion.json"
+if [[ "$channel" == windows-* ]]; then
+  if ! fetch "$base/tree/$key/completion-windows.json" "$tmp/completion.json"; then
+    echo "Tree $key has no completion-windows.json (no Windows build); the $channel channel stays where it is."
+    exit 0
+  fi
+else
+  fetch "$base/tree/$key/completion.json" "$tmp/completion.json"
+fi
 
 python3 - "$key" "$tmp/completion.json" > "$tmp/channel.json" <<'PY'
 import json, os, re, sys

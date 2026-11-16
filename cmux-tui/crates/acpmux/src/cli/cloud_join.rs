@@ -772,46 +772,19 @@ fn load_consent() -> Consent {
 
 /// Held until redeem and both local writes complete. A competing installer exits
 /// without redeeming; it can safely retry after this process finishes.
-#[cfg(unix)]
 pub(crate) fn join_lock() -> Result<HeldLock> {
     crate::config::private_state_dir(&state_dir())?;
     join_lock_at(&state_dir())
 }
 
 /// [`join_lock`] in acpmux home `home` (made private by the caller).
-#[cfg(unix)]
 fn join_lock_in(home: &std::path::Path) -> Result<HeldLock> {
     join_lock_at(home)
 }
 
-#[cfg(unix)]
 fn join_lock_at(dir: &std::path::Path) -> Result<HeldLock> {
     let file = crate::config::private_state_rw(&dir.join("machine-join.lock"))?;
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        // SAFETY: this process owns the opened regular-file descriptor.
-        anyhow::ensure!(
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
-            "another machine join is in progress; retry when it finishes"
-        );
-    }
-    Ok(HeldLock(file))
-}
-
-#[cfg(not(unix))]
-pub(crate) fn join_lock() -> Result<HeldLock> {
-    anyhow::bail!("machine join requires macOS or Linux")
-}
-
-#[cfg(not(unix))]
-fn join_lock_at(_: &std::path::Path) -> Result<HeldLock> {
-    anyhow::bail!("machine join requires macOS or Linux")
-}
-
-#[cfg(not(unix))]
-fn join_lock_in(_: &std::path::Path) -> Result<HeldLock> {
-    join_lock()
+    HeldLock::take(file, "another machine join is in progress; retry when it finishes")
 }
 
 /// A held `flock`. Dropping it unlocks explicitly: a process spawned meanwhile (an agent, a
@@ -819,6 +792,18 @@ fn join_lock_in(_: &std::path::Path) -> Result<HeldLock> {
 /// so closing this descriptor alone would leave the lock held until then, and the next
 /// nonblocking take would fail as if another holder were still at work.
 pub(crate) struct HeldLock(pub(super) std::fs::File);
+
+impl HeldLock {
+    /// Takes `file`'s exclusive lock without waiting (`flock` on Unix, `LockFileEx` on Windows);
+    /// `busy` is the error when another holder has it.
+    pub(super) fn take(file: std::fs::File, busy: &'static str) -> Result<Self> {
+        match file.try_lock() {
+            Ok(()) => Ok(HeldLock(file)),
+            Err(std::fs::TryLockError::WouldBlock) => Err(anyhow!(busy)),
+            Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
+        }
+    }
+}
 
 impl Drop for HeldLock {
     fn drop(&mut self) {
