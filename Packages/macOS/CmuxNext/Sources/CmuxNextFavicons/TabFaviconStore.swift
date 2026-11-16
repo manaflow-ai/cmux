@@ -74,8 +74,31 @@ public final class TabFaviconStore {
         else { return nil }
         let key = Key(profile: profile, url: url)
         if let image = images.peek(key) { return image }
+        if let image = adopt(key, tab: tab) { return image }
         load(key, tab: tab)
         return nil
+    }
+
+    /// The icon a page already fetched for `key` (its engine's own fetch, kept in the loader's cache), taken
+    /// without a second fetch, also while `key`'s failure is remembered: another page of the site (a Spotify
+    /// album after the home page's fetch failed) loaded it, so its row and strip item show it now and not when
+    /// the failure memory ends (#42435). Reading the live page's `favicon` maps the reading scope again when that
+    /// page's own fetch lands.
+    private func adopt(_ key: Key, tab: (any BrowserTab)?) -> TabImage? {
+        _ = tab?.favicon
+        guard let icon = loader.cachedFavicon(at: key.url, profile: key.profile),
+              let cgImage = icon.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        land(TabImage(cgImage), for: key)
+        return images.peek(key)
+    }
+
+    /// Keeps `image` for `key` and ends any failure it had.
+    private func land(_ image: TabImage, for key: Key) {
+        images.set(image, for: key)
+        failures.removeAll { $0 == key }
+        if let timer = forgetting.removeValue(forKey: key) { timer.cancel() }
+        if failed.contains(key) { failed.remove(key) }
+        revision += 1
     }
 
     /// The icon at `address` for `profile` when it is already here; never fetches (a list
@@ -100,9 +123,7 @@ public final class TabFaviconStore {
             guard let self else { return }
             self.pending[key] = nil
             if let cgImage = icon?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                self.images.set(TabImage(cgImage), for: key)
-                self.failures.removeAll { $0 == key }
-                self.revision += 1
+                self.land(TabImage(cgImage), for: key)
             } else {
                 self.remember(failed: key)
             }
