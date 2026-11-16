@@ -1114,7 +1114,7 @@ mod tests {
         assert_eq!(source.read_chunk(0)?.bytes(), b"header\n");
         let before = source.generation();
         raw.write_all(b"tail\n")?;
-        assert_eq!(source.check_generation()?, GenerationChange::Appended { size: 11 });
+        assert_eq!(source.check_generation()?, GenerationChange::Appended { size: 12 });
         assert_eq!(source.generation().dev, before.dev);
         assert_eq!(source.generation().ino, before.ino);
         assert_eq!(source.read_chunk(7)?.bytes(), b"tail\n");
