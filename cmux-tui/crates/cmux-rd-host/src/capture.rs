@@ -39,7 +39,8 @@ pub struct Capturer {
     root: Window,
     pub width: u32,
     pub height: u32,
-    shm: ShmSeg,
+    /// Made at the first grab: a damage-only connection never reads pixels back.
+    shm: Option<ShmSeg>,
 }
 
 impl Capturer {
@@ -54,13 +55,12 @@ impl Capturer {
         }
         let (width, height) =
             (u32::from(screen.width_in_pixels), u32::from(screen.height_in_pixels));
-        let shm = ShmSeg::new(&conn, width as usize * height as usize * 4)?;
         if damage {
             conn.damage_query_version(1, 1)?.reply()?;
             let id = conn.generate_id()?;
             conn.damage_create(id, screen.root, ReportLevel::RAW_RECTANGLES)?.check()?;
         }
-        Ok(Self { conn, root: screen.root, width, height, shm })
+        Ok(Self { conn, root: screen.root, width, height, shm: None })
     }
 
     pub fn fd(&self) -> RawFd {
@@ -86,20 +86,17 @@ impl Capturer {
 
     /// Reads back `r` (even-aligned) into the shared segment; returns BGRX rows with stride `r.w * 4`.
     pub fn grab(&mut self, r: Rect) -> Res<&[u8]> {
+        if self.shm.is_none() {
+            let len = self.width as usize * self.height as usize * 4;
+            self.shm = Some(ShmSeg::new(&self.conn, len)?);
+        }
+        let shm = self.shm.as_ref().ok_or("no shared memory segment")?;
         let fmt = u8::from(ImageFormat::Z_PIXMAP);
         self.conn
             .shm_get_image(
-                self.root,
-                r.x as i16,
-                r.y as i16,
-                r.w as u16,
-                r.h as u16,
-                !0,
-                fmt,
-                self.shm.seg,
-                0,
+                self.root, r.x as i16, r.y as i16, r.w as u16, r.h as u16, !0, fmt, shm.seg, 0,
             )?
             .reply()?;
-        Ok(&self.shm.as_slice()[..(r.w * r.h * 4) as usize])
+        Ok(&shm.as_slice()[..(r.w * r.h * 4) as usize])
     }
 }

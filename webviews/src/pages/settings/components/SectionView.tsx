@@ -82,7 +82,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   server: () => <ServerCard />,
   cloudEnvironments: () => <CloudEnvironmentsCard />,
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
-  customizeLibrary: () => <CustomizeLibraryCard />,
+  customizeLibrary: (_focus, _workspace, reveal) => <CustomizeLibraryCard reveal={reveal} />,
   keys: (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />,
   tailnet: () => <TailnetCard />,
   worktreeSetup: () => <WorktreeSetupCard />,
