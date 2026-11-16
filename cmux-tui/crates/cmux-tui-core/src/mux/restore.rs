@@ -247,8 +247,8 @@ pub(super) fn restore_resource_state(
                 Some(cmux_layout_reducer::floating_panes::Floating { pane, frame: entry.frame })
             })
             .collect::<Vec<_>>();
-        let floating =
-            cmux_layout_reducer::floating_panes::normalized(&root.pane_ids_vec(), &floating);
+        let floating = Screen::settled_floating_panes(&root, &layout_columns, &floating);
+        let zoomed_pane = Screen::zoom_beside_floating_panes(zoomed_pane, &floating);
         let restored_screen = Screen {
             id,
             public_id: screen.public_id.clone(),

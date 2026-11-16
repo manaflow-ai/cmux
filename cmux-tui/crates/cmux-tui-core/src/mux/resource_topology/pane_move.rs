@@ -131,7 +131,7 @@ fn detach_pane(
             && let Some(next) = close_focus_successor(state, &panes, sibling)
             && let Some(screen) = screen_at(state, location)
         {
-            screen.active_pane = next;
+            screen.set_active_pane(next);
         }
         return Ok(None);
     }
@@ -225,7 +225,7 @@ impl KeptFocus {
                 && let Some(item) = screen_at(state, location)
                 && item.root.contains(*pane)
             {
-                item.active_pane = *pane;
+                item.set_active_pane(*pane);
             }
         }
         restore_focus_identity(state, self.focused);
@@ -240,7 +240,7 @@ fn focus_pane(mux: &Mux, state: &mut State, pane: PaneId) -> anyhow::Result<()> 
     let item = state.workspaces.get_mut(workspace).context("workspace disappeared")?;
     item.active_screen = screen;
     let item = item.screens.get_mut(screen).context("screen disappeared")?;
-    item.active_pane = pane;
+    item.set_active_pane(pane);
     stamp_pane_focus(mux, state, pane);
     Ok(())
 }
