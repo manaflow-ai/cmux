@@ -11,6 +11,7 @@ pub(crate) mod host_fingerprint;
 mod leave;
 mod recovery;
 mod self_capabilities;
+mod sent_credential;
 mod to_revoke;
 
 pub(crate) use enroll::{
@@ -181,8 +182,54 @@ impl MachineIdentity {
 pub struct Consent {
     pub screen: ConsentState,
     pub control: ConsentState,
+    /// Control for this person's other machines signed in to the same account: they open
+    /// workspaces and terminals here through the hub carrier (`hub_carrier.rs`,
+    /// [`SIGNED_IN_MACHINES`]). Off by default; signing in never grants it. A file an older
+    /// build wrote has none (off), and an older build that rewrites the file drops it (off).
+    #[serde(rename = "signedInMachines", default)]
+    pub signed_in_machines: ConsentState,
+    /// When the person last answered the ask for [`Self::signed_in_machines`] (Allow, Not now,
+    /// or a later Off): it is asked once, so a later refusal records no new ask.
+    #[serde(
+        rename = "signedInMachinesAnsweredAt",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub signed_in_machines_answered_at: Option<String>,
+    /// The account (hub user id) [`Self::signed_in_machines`] was answered for: the grant and the
+    /// answer hold only while this machine is joined as that account, so a switch to another
+    /// account asks again and lets none of its machines in.
+    #[serde(rename = "signedInMachinesUser", default, skip_serializing_if = "Option::is_none")]
+    pub signed_in_machines_user: Option<String>,
     #[serde(rename = "grantedAt", skip_serializing_if = "Option::is_none")]
     pub granted_at: Option<String>,
+}
+
+/// The consent surface "control for my other machines signed in to this account" (Leo,
+/// 2026-11-14: "ok then do that", to one click on the new Mac).
+pub const SIGNED_IN_MACHINES: &str = "signedInMachines";
+
+/// Whether `consent` (a `_acpmux/machine_consent_get` answer) grants [`SIGNED_IN_MACHINES`] while
+/// this machine is joined as `account`: only the word `granted`, given for that same account
+/// (`signedInMachinesUser`), does. A grant given for another account, or no account, grants
+/// nothing. The workspace circuit's gate (`session_service`) and Share This Mac's admission
+/// (`share_approval::SignedInMachinesConsent`) read it the same way.
+pub fn signed_in_machines_granted(consent: &Value, account: Option<&str>) -> bool {
+    account.is_some_and(|account| {
+        consent.pointer("/consent/signedInMachinesUser").and_then(Value::as_str) == Some(account)
+    }) && consent.pointer("/consent/signedInMachines").and_then(Value::as_str) == Some("granted")
+}
+
+/// This machine's consent and the account it is joined as, read now (blocking file reads).
+pub fn signed_in_machines_granted_here() -> (bool, Option<String>) {
+    let account = machine_user_id();
+    let granted = signed_in_machines_granted(&consent_status_for(&json!({})), account.as_deref());
+    (granted, account)
+}
+
+/// Every consent surface the person can grant on this machine.
+pub(crate) fn is_consent_surface(surface: &str) -> bool {
+    matches!(surface, "screen" | "control" | SIGNED_IN_MACHINES)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -451,12 +498,17 @@ pub struct JoinedDevice {
 
 /// This box's join in acpmux home `home`, when it is one the tunnel may run for: a live record
 /// (not revoked, not a copy of another box's, its node key not a copied one) of a `machine_` id,
-/// with no sign-out leave or queued revoke pending. None otherwise: the tunnel stops then.
+/// with no sign-out leave pending and no queued revoke of its own. None otherwise: the tunnel
+/// stops then. A queued revoke of an earlier join does not stop it (`to_revoke::names`): the
+/// sign-in that cleared that sign-out's leave mark enrolled this join, and the old revoke is asked
+/// again at each start and sign-in, as the daemon's own start already reads it
+/// (`finish_leave_at_start`: no mark is `signedIn`). On a Mac that signs in and out often, one
+/// such revoke the hub never took kept the tunnel off for every join after it.
 pub fn joined_device_at(home: &std::path::Path) -> Option<JoinedDevice> {
     let record = load_at(home).ok().flatten()?;
     let current = host_fingerprint::current();
     let left = std::fs::symlink_metadata(home.join(enroll::LEAVE_FILE)).is_ok()
-        || to_revoke::any_queued(home);
+        || to_revoke::names(home, &record);
     if record.revoked
         || record.cloned
         || left
@@ -931,6 +983,9 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     out["helperConsent"] =
         json!({"state":"unknown","reason":"running helper consent support has not been verified"});
     out["lastRefusal"] = consent_status()["lastRefusal"].clone();
+    // As the account this machine is joined as now reads it, as the app and the session gate do
+    // (`for_this_account`): no other account's signedInMachines grant, answer or ask.
+    out = for_this_account(out);
     if !record.credential.is_empty() && !cloned {
         // GET is read-only: doctor must never replace the daemon's live sessions.
         let hub = origin(Some(record.hub_origin.clone()))?;
@@ -980,8 +1035,8 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-/// Only the person-proven local daemon RPC calls this writer. The ordinary
-/// CLI deliberately has no person key and cannot grant consent from a PTY.
+/// The person-proven local daemon RPC calls this writer, and so does the CLI run under sudo as
+/// this Mac's admin (`consent_admin.rs`). A plain shell has no person key and no admin proof.
 pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Consent> {
     authority()?.set(surface, granted)
 }
@@ -998,7 +1053,11 @@ pub(crate) fn consent_status() -> Value {
 /// caller gets the requirement as it is.
 pub(crate) fn consent_status_for(params: &Value) -> Value {
     let local = params.get("use").and_then(Value::as_str) == Some("localComputerUse");
-    authority().map(|authority| authority.status_for(local)).unwrap_or_else(|_| consent_status())
+    for_this_account(
+        authority()
+            .map(|authority| authority.status_for(local))
+            .unwrap_or_else(|_| consent_status()),
+    )
 }
 
 pub fn require_consent(surface: &str) -> Result<()> {
@@ -1023,6 +1082,20 @@ pub fn require_joined_consent(surface: &str) -> Result<()> {
 
 pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {
     authority()?.refused(surface)
+}
+
+/// A consent status as it holds for the account this machine is joined as now
+/// ([`super::machine_consent::for_account`]): what the app and the session gate read.
+pub(crate) fn for_this_account(status: Value) -> Value {
+    super::machine_consent::for_account(status, machine_user_id().as_deref())
+}
+
+/// [`record_consent_refusal`], naming the machine that asked (a host the hub lists). A
+/// `signedInMachines` ask names the account it was made for.
+#[cfg(feature = "hub-carrier")]
+pub(crate) fn record_consent_refusal_from(surface: &str, from: Option<&str>) -> Result<()> {
+    let user = (surface == SIGNED_IN_MACHINES).then(machine_user_id).flatten();
+    authority()?.refused_by(surface, from, user.as_deref())
 }
 
 /// The hub's generated client (cmux-cloud-client), as `bearer` when given,
@@ -1097,7 +1170,7 @@ mod tests {
     }
 
     /// The cmux link's Cloud tunnel runs only for a live join of this box: a sign-out's leave
-    /// mark, a queued revoke, a revoked record or no record at all stop it.
+    /// mark, a queued revoke of its own, a revoked record or no record at all stop it.
     #[test]
     #[cfg(unix)]
     fn the_tunnel_runs_only_for_a_live_join_of_this_box() {
@@ -1126,6 +1199,34 @@ mod tests {
         std::fs::write(&leave, b"{}").unwrap();
         assert_eq!(super::joined_device_at(home.path()), None, "a sign-out's leave is pending");
         std::fs::remove_file(&leave).unwrap();
+        assert!(super::joined_device_at(home.path()).is_some());
+
+        // A revoke an earlier join's sign-out still owes (its row, and its credential) is not this
+        // join's: the sign-in since enrolled this one, so the tunnel runs (the probe
+        // cloud-carrier-ssh-failover: a shared runner home kept ssh `no_tunnel` for every run).
+        let earlier = super::MachineCredential {
+            credential: "cmm_earlier".into(),
+            machine_id: "machine_earlier".into(),
+            hub_origin: "https://other.example.com".into(),
+            ..Default::default()
+        };
+        super::to_revoke::queue(home.path(), &super::to_revoke::Row::of(&earlier, false)).unwrap();
+        super::to_revoke::queue(home.path(), &super::to_revoke::Row::of(&earlier, true)).unwrap();
+        assert!(super::to_revoke::any_queued(home.path()));
+        assert!(super::joined_device_at(home.path()).is_some(), "an earlier join's revoke");
+        // One owed for this join itself stops it, by its row or by its credential.
+        super::to_revoke::queue(home.path(), &super::to_revoke::Row::of(&record, false)).unwrap();
+        assert_eq!(super::joined_device_at(home.path()), None, "this join's row is queued");
+        let own_credential =
+            super::MachineCredential { machine_id: String::new(), ..record.clone() };
+        let other = tempfile::tempdir().unwrap();
+        joined_on(other.path(), current.as_deref());
+        super::to_revoke::queue(other.path(), &super::to_revoke::Row::of(&own_credential, true))
+            .unwrap();
+        assert_eq!(super::joined_device_at(other.path()), None, "this join's credential is queued");
+        for path in std::fs::read_dir(home.path().join("machine-join.to-revoke")).unwrap() {
+            std::fs::remove_file(path.unwrap().path()).unwrap();
+        }
         assert!(super::joined_device_at(home.path()).is_some());
 
         record.revoked = true;

@@ -177,13 +177,24 @@ public final class MacScreenPages {
         tabs.values.sorted { $0.key < $1.key }.compactMap { $0.pane?.model.hub }
     }
 
+    /// This Mac started viewing or controlling another Mac: the first-use guide is done.
+    func viewerStarted() {
+        store.markViewedBefore()
+    }
+
+    /// The hub says whether this Mac allows Mac Screen; on, the first-use guide is done.
+    func hostSharingChanged(_ on: Bool) {
+        if on { store.markSharedBefore() }
+    }
+
     /// Device tabs take their device's name from the hub (renames show live).
     private func watchDeviceNames() {
         namesWatch?.cancel()
         guard let hub else { return }
         namesWatch = Task { [weak self] in
-            for await names in ObservationStream({ hub.devices.map { [$0.id, $0.name, $0.online ? "1" : "0"] } }) {
+            for await names in ObservationStream({ hub.devices.map { [$0.id, $0.name, $0.online ? "1" : "0", $0.macScreenShared ? "1" : "0"] } }) {
                 guard let self else { return }
+                hostSharingChanged(names.first { $0[0] == hub.identity.id }?[3] == "1")
                 if store.rememberDeviceNames(Dictionary(names.map { ($0[0], $0[1]) }, uniquingKeysWith: { _, last in last })) {
                     refreshDeviceTitles()
                 }
@@ -396,6 +407,7 @@ public final class MacScreenPages {
     /// the hub when shown; any other waits at the Connect card.
     private func makeHubPane(deviceID: String, record: MacScreenRecord, key: String) -> MacScreenPane {
         let viewer = MacScreenHubViewer(deviceID: deviceID) { [weak self] in self?.hub }
+        viewer.onStreaming = { [weak self] in self?.viewerStarted() }
         let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences())
         if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) { viewer.resumeScope = scope }
         #if DEBUG

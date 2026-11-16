@@ -214,7 +214,7 @@ def _pin_variable_combinations():
     for owned, pin, light, daemon, promote, side in itertools.product(
         ("1", ""),
         ("", PIN_LABEL, SIDE_LABEL, DAEMON_LABEL, LIGHT_LABEL, PROMOTE_LABEL),
-        (LIGHT_LABEL, "", SIDE_LABEL, DAEMON_LABEL),
+        (LIGHT_LABEL, "", SIDE_LABEL, DAEMON_LABEL, PROMOTE_LABEL),
         ("", DAEMON_LABEL, LIGHT_LABEL, SIDE_LABEL),
         (PROMOTE_LABEL, "", LIGHT_LABEL),
         (SIDE_LABEL, ""),

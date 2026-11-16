@@ -21,8 +21,8 @@ use serde_json::{Value, json};
 
 /// The approval format; the first line of [`ShareApproval::canonical`].
 pub const VERSION: &str = "cmux.share-approval.v1";
-/// How old an approval may be when the target reads it (the asker's dialog
-/// waits 130 s; delivery takes seconds).
+/// How old an approval may be when the target reads it (the app stamps it at the
+/// Allow click, however long the dialog waited; delivery takes seconds).
 pub const MAX_AGE_SECS: u64 = 300;
 /// How far ahead of the target's clock an approval may be.
 pub const MAX_SKEW_SECS: u64 = 60;
@@ -93,12 +93,47 @@ pub struct Asker<'a> {
 
 /// The target's owner consent for its other signed-in machines. hq#11046 cut
 /// 1's grant ("control for my other signed-in machines", off by default, one
-/// click on the target Mac) implements it; until then nothing does, and every
-/// approval is refused.
+/// click on the target Mac) implements it: [`SignedInMachinesConsent`].
 pub trait SameAccountGrant {
     /// Whether the target's owner granted `asker` (a machine signed in to the
     /// target's own account) control of this Mac.
     fn covers(&self, asker: &Asker<'_>) -> bool;
+}
+
+/// [`SameAccountGrant`] as this Mac's owner set it: the `signedInMachines`
+/// consent (`cli/machine_consent.rs`, granted only by the person's own app on
+/// this Mac), read the way the workspace circuit's gate reads it
+/// ([`crate::cli::cloud_join::signed_in_machines_granted`]). The consent is for
+/// the account's machines as a whole, so it covers an asker only when the grant
+/// holds for the account this Mac is joined as and the asker is signed in to
+/// that same account; off, unanswered, unreadable or another account's grant
+/// covers nobody.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignedInMachinesConsent {
+    granted: bool,
+    account: Option<String>,
+}
+
+impl SignedInMachinesConsent {
+    /// From a `_acpmux/machine_consent_get` answer and the account this Mac is joined as.
+    pub fn from_status(consent: &Value, account: Option<&str>) -> Self {
+        Self {
+            granted: crate::cli::cloud_join::signed_in_machines_granted(consent, account),
+            account: account.map(str::to_owned),
+        }
+    }
+
+    /// This Mac's consent, read now (blocking file reads; call off any async runtime thread).
+    pub fn read() -> Self {
+        let (granted, account) = crate::cli::cloud_join::signed_in_machines_granted_here();
+        Self { granted, account }
+    }
+}
+
+impl SameAccountGrant for SignedInMachinesConsent {
+    fn covers(&self, asker: &Asker<'_>) -> bool {
+        self.granted && !asker.account.is_empty() && self.account.as_deref() == Some(asker.account)
+    }
 }
 
 /// The device keys the target trusts: the device hub's list for its own

@@ -408,3 +408,72 @@ fn host_policy_a_phone_lanes_sub_view_cannot_take_a_devices_place() {
     .unwrap();
     assert_eq!(rig.grid(), (120, 40), "the sub-view never ranks as the iPad");
 }
+
+/// Leo, 2026-11-15: "i dont see the point of a narrower-than-iphone
+/// terminal". A Mac pane of 39x26 and a phone of 54 columns: the grid stays
+/// as wide as the phone while it shows the terminal; the Mac pane clips.
+#[test]
+fn host_policy_fit_the_smallest_viewer_is_never_narrower_than_a_showing_phone() {
+    let rig = rig("phone-floor");
+    let mac = rig.mac((120, 40));
+    let phone = rig.phone("p1", (54, 40));
+    assert_eq!(rig.grid(), (54, 40));
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 26), "columns keep the phone's width, rows fit the Mac pane");
+    // Once the phone stops showing the terminal, the Mac pane sets it.
+    rig.run(&phone, json!({"cmd":"release-surface-size","surface":rig.surface.id})).unwrap();
+    assert_eq!(rig.grid(), (39, 26));
+}
+
+fn split_beside(rig: &Rig, actor: &crate::Actor) {
+    let pane = rig.mux.with_state(|state| state.pane_of(rig.surface.id).unwrap());
+    rig.mux.split_as(actor, pane, SplitDir::Right, None).unwrap();
+}
+
+fn agent() -> crate::Actor {
+    crate::Actor::Terminal { id: "term_agent".into() }
+}
+
+#[test]
+fn host_policy_an_agent_split_does_not_shrink_the_grid_until_the_person_uses_the_mac_pane() {
+    let rig = rig("agent-split");
+    let mac = rig.mac((120, 40));
+    let phone = rig.phone("p1", (54, 40));
+    assert_eq!(rig.grid(), (54, 40));
+    // An agent splits the Mac pane; the app reports the pane's new size.
+    split_beside(&rig, &agent());
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 40), "the agent's split does not count");
+    // The person types in the Mac pane: its own size counts again.
+    rig.run(&mac, json!({"cmd":"note-size-activity","surface":rig.surface.id})).unwrap();
+    assert_eq!(rig.grid(), (54, 26));
+    rig.run(&phone, json!({"cmd":"release-surface-size","surface":rig.surface.id})).unwrap();
+    assert_eq!(rig.grid(), (39, 26));
+}
+
+#[test]
+fn host_policy_an_agent_split_counts_once_no_other_view_does() {
+    let rig = rig("agent-split-alone");
+    let mac = rig.mac((120, 40));
+    let phone = rig.phone("p1", (54, 40));
+    split_beside(&rig, &agent());
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 40));
+    // The phone leaves: the Mac pane is the only viewer and fits its pane.
+    rig.run(&phone, json!({"cmd":"release-surface-size","surface":rig.surface.id})).unwrap();
+    assert_eq!(rig.grid(), (39, 26));
+    // A Mac alone is never held: a later agent split resizes it at once.
+    split_beside(&rig, &agent());
+    rig.claim(&mac, (30, 20));
+    assert_eq!(rig.grid(), (30, 20));
+}
+
+#[test]
+fn host_policy_a_person_split_shrinks_the_mac_pane_at_once() {
+    let rig = rig("person-split");
+    let mac = rig.mac((120, 40));
+    let _phone = rig.phone("p1", (54, 40));
+    split_beside(&rig, &crate::Actor::Frontend { install_id: "signed_app".into() });
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 26));
+}

@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 const SSH: &str = "ssh-box";
 
-fn v1_hub() -> Arc<Hub> {
+pub(super) fn v1_hub() -> Arc<Hub> {
     let mut config = crate::config::Config::default();
     config.store.mode = crate::config::StoreMode::Memory;
     config.peers.insert(
@@ -44,7 +44,7 @@ fn own(id: &str) -> crate::store::SessionMeta {
     .unwrap()
 }
 
-fn session(host: &str, id: &str, state: &str) -> BookSession {
+pub(super) fn session(host: &str, id: &str, state: &str) -> BookSession {
     BookSession {
         name: format!("chat-{id}"),
         session_id: id.into(),
@@ -117,7 +117,7 @@ async fn turn(v1: &Hub, index: SummaryIndex, state: &TeeState, reconcile: bool) 
 }
 
 /// The keys of a v2 walk of every row, closed ones too.
-fn v2_keys(index: &SummaryIndex) -> Vec<(String, String)> {
+pub(super) fn v2_keys(index: &SummaryIndex) -> Vec<(String, String)> {
     let mut keys = Vec::new();
     let mut anchor: Option<SortKey> = None;
     loop {
@@ -135,7 +135,7 @@ fn v2_keys(index: &SummaryIndex) -> Vec<(String, String)> {
 
 /// The keys of v1's whole list that the index stores: every own row, and another origin's live
 /// rows ("a peer's closed chats are not stored"; 7b's callers read v1 for those, decision 213).
-fn v1_keys(v1: &Hub) -> Vec<(String, String)> {
+pub(super) fn v1_keys(v1: &Hub) -> Vec<(String, String)> {
     let list = v1.list_rows(false, false);
     let mut keys: Vec<_> = list
         .rows()
@@ -147,7 +147,7 @@ fn v1_keys(v1: &Hub) -> Vec<(String, String)> {
     keys
 }
 
-fn origin(index: &SummaryIndex, id: &str) -> Option<OriginState> {
+pub(super) fn origin(index: &SummaryIndex, id: &str) -> Option<OriginState> {
     index.origin(id).map(|origin| origin.state)
 }
 
@@ -422,4 +422,61 @@ async fn initialize_names_list_hub_rows_only_with_the_v2_list() {
         assert_eq!(named(&features), expected, "{features:?}");
         assert!(!features.iter().any(|f| f == "listStream"), "5h names no listStream");
     }
+}
+
+/// The book read after a heartbeat: machines `machine-000..` up to `machines`, one live chat each.
+fn read_machines(v1: &Hub, machines: usize) {
+    let hosts: Vec<String> = (0..machines).map(|n| format!("machine-{n:03}")).collect();
+    let sessions =
+        hosts.iter().map(|host| session(host, &format!("{host}-1"), "running")).collect();
+    v1.set_mesh_book(hosts.into_iter().map(|host| (host, 5)).collect(), sessions);
+}
+
+/// The index holds at most 256 origins (`acpmux-core` `admit_origin`). With 256 hub machines
+/// admitted, the 257th is refused: its rows are not in the v2 list, v1's list still has them, and
+/// the refusal is counted.
+#[tokio::test]
+async fn the_257th_hub_machine_is_refused_by_the_index_and_still_in_v1s_list() {
+    let v1 = v1_hub();
+    let state = tee_on(&v1);
+    read_machines(&v1, 256);
+    let index = turn(&v1, SummaryIndex::new(), &state, true).await;
+    assert_eq!(index.origins().count(), 256);
+    assert_eq!(v2_keys(&index), v1_keys(&v1));
+
+    // `refused_origins` is one process-wide counter: read it before, compare after.
+    let refused = acpmux_core::hub::refused_origins();
+    read_machines(&v1, 257);
+    let index = turn(&v1, index, &state, false).await;
+    let last = ("machine-256".to_owned(), "machine-256-1".to_owned());
+    assert!(origin(&index, "machine-256").is_none());
+    assert!(index.get_row(&RowKey::new(last.0.as_str(), last.1.as_str())).is_none());
+    assert!(!v2_keys(&index).contains(&last));
+    assert!(v1_keys(&v1).contains(&last), "v1's list still has the 257th machine's chat");
+    assert_eq!(v1_keys(&v1).len(), 257);
+    assert!(acpmux_core::hub::refused_origins() > refused);
+}
+
+/// The daemon log's sign of a refused origin is bounded (decision 261): a line when an origin is
+/// first refused, then one at each doubling of the refused submits. A refused machine with 1,000
+/// chats gives 10 lines (submits 1, 2, 4, .., 512), not 1,000.
+#[tokio::test]
+async fn a_refused_machines_warn_lines_follow_the_log_of_its_submits() {
+    let v1 = v1_hub();
+    let state = tee_on(&v1);
+    read_machines(&v1, 256);
+    let index = turn(&v1, SummaryIndex::new(), &state, true).await;
+    assert_eq!(state.refused.lock().unwrap().warns, 0, "no line while the index has room");
+
+    let chats: u32 = 1000;
+    let hosts: BTreeMap<String, u64> = (0..257).map(|n| (format!("machine-{n:03}"), 5)).collect();
+    let mut sessions: Vec<BookSession> = (0..256)
+        .map(|n| session(&format!("machine-{n:03}"), &format!("machine-{n:03}-1"), "running"))
+        .collect();
+    sessions.extend((0..chats).map(|n| session("machine-256", &format!("chat-{n}"), "running")));
+    v1.set_mesh_book(hosts, sessions);
+    let index = turn(&v1, index, &state, false).await;
+    assert!(origin(&index, "machine-256").is_none());
+    assert!(state.refused_any.load(Ordering::Acquire));
+    assert_eq!(state.refused.lock().unwrap().warns, u64::from(chats.ilog2()) + 1);
 }

@@ -218,12 +218,15 @@ impl Finder {
 
 /// Whether classic cmux is running now, so it may still save.
 ///
-/// Classic writes a launch sentinel, `<state>/lifecycle/<bundle id>/running.sentinel`,
-/// when it launches and removes it at the end of a clean quit. No sentinel
-/// means classic quit: the update relaunch starts cmux NEXT seconds after
-/// classic's quit save, and that save migrates. A sentinel with a save older
-/// than [`RunningProbe::QUIET_SECONDS`] is a classic that crashed (it
-/// autosaves every 8 s while it runs). No process scan.
+/// Classic writes a launch sentinel, `<state>/lifecycle/<bundle id>/running.sentinel`
+/// (`pid=<n>`), when it launches and removes it at the end of a clean quit. No
+/// sentinel means classic quit: the update relaunch starts cmux NEXT seconds
+/// after classic's quit save, and that save migrates. A sentinel whose pid is
+/// alive is a classic that runs, however long ago it last saved: it saves only
+/// when its session changes, so an idle classic can go minutes without one. A
+/// sentinel without a live pid counts only with a save newer than
+/// [`RunningProbe::QUIET_SECONDS`]; an older one is a classic that crashed. No
+/// process scan.
 #[derive(Debug, Clone)]
 pub struct RunningProbe {
     /// Classic's state folder, holding `lifecycle/`.
@@ -256,24 +259,66 @@ impl RunningProbe {
     }
 
     /// Whether the classic that wrote `source` is running at `now` (seconds
-    /// since 1970), by its launch sentinel and a recent save.
+    /// since 1970), by its launch sentinel: its pid alive, or a recent save.
     pub fn is_running(&self, source: &Source, now: f64) -> bool {
-        self.sentinel(&source.bundle_id).exists() && now - source.modified_at < Self::QUIET_SECONDS
+        let Ok(sentinel) = std::fs::read_to_string(self.sentinel(&source.bundle_id)) else {
+            return false;
+        };
+        Self::sentinel_pid(&sentinel).is_some_and(Self::is_alive)
+            || now - source.modified_at < Self::QUIET_SECONDS
+    }
+
+    /// The `pid=<n>` line of a sentinel.
+    fn sentinel_pid(sentinel: &str) -> Option<u32> {
+        sentinel
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("pid=")?.trim().parse().ok())
+            .filter(|pid| *pid > 1)
+    }
+
+    /// Whether `pid` names a live process: `kill(pid, 0)` succeeds or is refused.
+    #[cfg(unix)]
+    fn is_alive(pid: u32) -> bool {
+        let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+        // SAFETY: signal 0 performs only the existence and permission check.
+        let signalled = unsafe { libc::kill(pid, 0) == 0 };
+        signalled || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+
+    #[cfg(not(unix))]
+    fn is_alive(_pid: u32) -> bool {
+        false
     }
 
     /// The lock files classic of `channel` (a bundle id) holds while it
-    /// listens: `<socket>.lock` beside `~/.local/state/cmux/cmux[-<channel>].sock`,
-    /// then beside the `/tmp` one (`tmp`). cmux NEXT uses the same socket
-    /// names but never takes these locks.
-    pub fn lock_paths(channel: &str, home: &Path, tmp: &Path) -> [PathBuf; 2] {
+    /// listens, for this user: [`RunningProbe::lock_paths_for`] with the
+    /// process's uid.
+    pub fn lock_paths(channel: &str, home: &Path, tmp: &Path) -> Vec<PathBuf> {
+        #[cfg(unix)]
+        // SAFETY: getuid has no preconditions.
+        let uid = unsafe { libc::getuid() };
+        #[cfg(not(unix))]
+        let uid = 0;
+        Self::lock_paths_for(channel, home, tmp, uid)
+    }
+
+    /// The lock files classic of `channel` holds while it listens:
+    /// `<socket>.lock` beside `~/.local/state/cmux/cmux[-<channel>].sock`, then
+    /// beside the `/tmp` one (`tmp`), each also in the per-user form
+    /// `cmux[-<channel>]-<uid>.sock` that classic stable listens on. cmux NEXT
+    /// uses the same socket names but never takes these locks.
+    pub fn lock_paths_for(channel: &str, home: &Path, tmp: &Path, uid: u32) -> Vec<PathBuf> {
         let suffix = match channel {
             "com.cmuxterm.app.nightly" => "-nightly",
             "com.cmuxterm.app.rc" => "-rc",
             "com.cmuxterm.app.staging" => "-staging",
             _ => "",
         };
-        let name = format!("cmux{suffix}.sock.lock");
-        [home.join(".local/state/cmux").join(&name), tmp.join(name)]
+        let state = home.join(".local/state/cmux");
+        let names = [format!("cmux{suffix}.sock.lock"), format!("cmux{suffix}-{uid}.sock.lock")];
+        let mut paths: Vec<PathBuf> = names.iter().map(|name| state.join(name)).collect();
+        paths.extend(names.iter().map(|name| tmp.join(name)));
+        paths
     }
 
     /// Whether a process holds the `flock` on `path`, asked without
@@ -390,21 +435,29 @@ mod tests {
     fn the_socket_lock_paths_follow_the_channel() {
         let home = Path::new("/Users/me");
         let tmp = Path::new("/tmp");
+        // Classic stable listens on the per-user `cmux-<uid>.sock` (seen
+        // 2026-11-15: `~/.local/state/cmux/cmux-501.sock.lock`), which a probe
+        // that knew only `cmux.sock.lock` missed.
         assert_eq!(
-            RunningProbe::lock_paths("com.cmuxterm.app", home, tmp),
-            [home.join(".local/state/cmux/cmux.sock.lock"), PathBuf::from("/tmp/cmux.sock.lock")]
+            RunningProbe::lock_paths_for("com.cmuxterm.app", home, tmp, 501),
+            [
+                home.join(".local/state/cmux/cmux.sock.lock"),
+                home.join(".local/state/cmux/cmux-501.sock.lock"),
+                PathBuf::from("/tmp/cmux.sock.lock"),
+                PathBuf::from("/tmp/cmux-501.sock.lock"),
+            ]
         );
         assert_eq!(
-            RunningProbe::lock_paths("com.cmuxterm.app.nightly", home, tmp)[0],
+            RunningProbe::lock_paths_for("com.cmuxterm.app.nightly", home, tmp, 501)[0],
             home.join(".local/state/cmux/cmux-nightly.sock.lock")
         );
         assert_eq!(
-            RunningProbe::lock_paths("com.cmuxterm.app.rc", home, tmp)[1],
+            RunningProbe::lock_paths_for("com.cmuxterm.app.rc", home, tmp, 501)[2],
             PathBuf::from("/tmp/cmux-rc.sock.lock")
         );
         assert_eq!(
-            RunningProbe::lock_paths("com.cmuxterm.app.staging", home, tmp)[1],
-            PathBuf::from("/tmp/cmux-staging.sock.lock")
+            RunningProbe::lock_paths_for("com.cmuxterm.app.staging", home, tmp, 501)[3],
+            PathBuf::from("/tmp/cmux-staging-501.sock.lock")
         );
     }
 
@@ -550,6 +603,28 @@ mod tests {
         assert!(probe.is_running(&source, 1010.0));
         // An old save with a sentinel is a classic that crashed.
         assert!(!probe.is_running(&source, 1100.0));
+        // A sentinel naming a live pid is a classic that runs however long ago it saved:
+        // it saves only on a change (an idle classic, 2026-11-15, went 2 min between saves
+        // and a launch took it for crashed and offered its workspaces unasked).
+        std::fs::write(
+            root.path().join("lifecycle/com.cmuxterm.app/running.sentinel"),
+            format!("pid={}\n", std::process::id()),
+        )
+        .unwrap();
+        assert!(probe.is_running(&source, 100_000.0));
+        // A dead pid is a classic that crashed.
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let dead = child.id();
+        child.wait().unwrap();
+        std::fs::write(
+            root.path().join("lifecycle/com.cmuxterm.app/running.sentinel"),
+            format!("pid={dead}"),
+        )
+        .unwrap();
+        assert!(!probe.is_running(&source, 100_000.0));
+        assert_eq!(RunningProbe::sentinel_pid("pid=55424\n"), Some(55424));
+        assert_eq!(RunningProbe::sentinel_pid("pid=1"), None);
+        assert_eq!(RunningProbe::sentinel_pid("{}"), None);
         let home = Path::new("/Users/me");
         assert_eq!(RunningProbe::default_state_root(home, None), home.join(".local/state/cmux"));
         assert_eq!(RunningProbe::default_state_root(home, Some(" ~/st ")), home.join("st/cmux"));

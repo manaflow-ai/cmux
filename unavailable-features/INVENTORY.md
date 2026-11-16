@@ -16,7 +16,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | Item | Action IDs | Reason shown | File | Owner |
 |---|---|---|---|---|
 | Open Cloud as Pane | `palette.openCloudPane` | needs the Cloud panel as a pane | Handlers/PaneHandlers+Verbs.swift | a166 |
-| Open Mobile Pairing | `palette.mobileConnect` (+ control `mobile.*` routes) | arrives with the iOS phase | Handlers/CloudHandlers.swift, Control/AppControl+Mobile.swift | a167 |
+| Open Mobile Pairing | `palette.mobileConnect` | arrives with the iOS phase (since landed: Pages/MobilePairing/MobilePairingPage.swift binds it; the control `mobile.*` routes and Control/AppControl+Mobile.swift went with the iroh phone listener, #42780) | Pages/MobilePairing/MobilePairingPage.swift | a167 |
 | Simulator panes (6) | `palette.newSimulatorPane`, `simulatorHome`, `simulatorRotateLeft`, `simulatorRotateRight`, `simulatorToggleAppearance`, `simulatorToggleSoftwareKeyboard` | needs simulator panes | Handlers/PaneHandlers+Verbs.swift | a160 (vphone-cli: Simulator mode) |
 | Files as pane, file explorer, right sidebar Files/Find (11) | `palette.openFilesPane`, `palette.openFindPane`, `fileExplorerOpenSelection`, `fileExplorerOpenSelectionFinderAlias`, `fileExplorerOpenInCmux`, `fileExplorerReveal`, `fileExplorerCopyPath`, `fileExplorerCopyRelativePath`, `fileExplorerOpenWith`, `switchRightSidebarToFiles`, `switchRightSidebarToFind` | needs the Files/Find panel as a pane; needs app capability `file-explorer` | Handlers/PaneHandlers+Verbs.swift, Handlers/SidebarHandlers.swift | a123 (Finder parity) |
 | Computer Use (3) | `computerUseFocus`, `computerUseFocusCallingTerminal`, `computerUseStop` | Computer Use integration is not ported | Handlers/AgentHandlers.swift | a144 (CLI/computer-use interop) |

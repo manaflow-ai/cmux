@@ -18,7 +18,7 @@ import {
   type ReadyLayout,
   type WhatsNewPlacement,
 } from "./UpdateSurfaces";
-import { UpdatedNotes, type NotesLook } from "./UpdatedNotes";
+import { UpdatedNotes, type NotesHead, type NotesLook } from "./UpdatedNotes";
 
 const base: UpdateHighlights = {
   version: "1.0.0-nightly.3845050428001",
@@ -88,6 +88,8 @@ type Props = {
   overRows?: "glass" | "tint" | "solid";
   /** How the Updated card's changes beside the sidebar stand (UpdatedNotes); `sections` ships. */
   notesLook?: NotesLook;
+  /** How an area look's headers draw their symbol (UpdatedNotes `head`). */
+  notesHead?: NotesHead;
   /** The Updated card's notes still loading: the title, and a loading change line in its look. */
   notesLoading?: boolean;
   loadingLook?: NoteLoadingLook;
@@ -164,6 +166,43 @@ const spanData: UpdateHighlights = {
   items: [{ id: "summary-0", title: "A static status look, on under Reduce Motion", summary: null, category: "new" }],
   moreCount: 0,
   changelog: { from: "1.0.0-nightly.3912500000000", to: span[0]!.shortVersion },
+};
+// Nightly 4366188201001 as Leo saw it (2026-11-14, "theese are kinda crappy looking icons and
+// stuff"): a Cloud row and an Other row that read as engineering notes, over the real span above.
+const leoNightly: ReleaseNotes = {
+  ...span[0]!,
+  build: "4366188201001",
+  shortVersion: "1.0.0-nightly.4366188201001",
+  date: "2026-11-14",
+  whatsNew: {
+    ...span[0]!.whatsNew!,
+    version: "1.0.0-nightly.4366188201001",
+    date: "2026-11-14",
+    entries: [
+      {
+        id: "cloud-gates",
+        category: "improved",
+        docs: "https://cmux.com/docs/changelog",
+        title: { en: "Redesign Cloud connection gates with human targets" },
+        summary: { en: "Redesign Cloud connection gates with human targets" },
+      },
+      {
+        id: "plan-loading",
+        category: "fixed",
+        docs: "https://cmux.com/docs/changelog",
+        title: { en: "The plan's Loading... waits 1 s, as the page's first read does" },
+        summary: { en: "The plan's Loading... waits 1 s, as the page's first read does" },
+      },
+    ],
+  },
+};
+const leoSpanNightly = [leoNightly, ...span];
+const leoNightlyData: UpdateHighlights = {
+  ...spanData,
+  version: leoNightly.shortVersion,
+  build: leoNightly.build,
+  date: leoNightly.date,
+  changelog: { from: spanData.fromVersion, to: leoNightly.shortVersion },
 };
 // Nightly 4037632091801 (2026-10-26) as published: its card read "Fixed: validate release headings
 // within their day", a change to the release-notes checker (#25533).
@@ -427,6 +466,7 @@ function UpdateSurfacesGallery({
   besideComposer = false,
   overRows,
   notesLook,
+  notesHead,
   notesLoading,
   loadingLook,
   blankGlass = false,
@@ -466,6 +506,7 @@ function UpdateSurfacesGallery({
             strings={strings}
             actions={{ openChangelog: noop, dismiss: noop }}
             look={notesLook}
+            head={notesHead}
           />
         </div>
       ) : surface === "card" ? (
@@ -553,17 +594,47 @@ export default componentEntry<Props>({
     await import("./updateSurfaces.css");
   },
   variants: {
+    "notes-release": {
+      note: "Picked and shipped (Leo 2026-11-14, on this popover: \"theese are kinda crappy looking icons and stuff\", then Claude Code's What's New sheet: \"here's how claude code does some of their what's new for example\"): New, Improved and Fixed in small capitals, one plain bullet sentence per change (imperative titles in the past tense, builder jargon folded into one Maintenance and fixes line with its count), the version a mono chip. Chosen over the area headers below because a change's kind is what a person scans for after an update, and a list with no glyphs cannot draw a bad one.",
+      props: { surface: "notes", data: leoNightlyData, span: leoSpanNightly, theme: "dark" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".wn-notes-kind").length > 1);
+        await ctx.waitFor(() => ctx.document.querySelector(".wn-notes-maintenance-line") !== null);
+      },
+    },
+    "notes-release-light": {
+      note: "The shipped look in the light theme.",
+      props: { surface: "notes", data: leoNightlyData, span: leoSpanNightly, theme: "light" },
+    },
+    "notes-sections-mono": {
+      note: "Variant: under area headers, each area's symbol from the app's own set (Settings' SF Symbol glyphs, 16 pt, never filled) in the label's quiet color, on one grid column with its name and count; each change's text starts on the name's line; jargon folds into a Maintenance and fixes header.",
+      props: { surface: "notes", data: leoNightlyData, span: leoSpanNightly, theme: "dark", notesLook: "sections" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".wn-notes-area svg.icon").length > 1);
+      },
+    },
+    "notes-sections-accent": {
+      note: "Variant: the area headers with their symbols in the theme's accent, as What's New's page draws them.",
+      props: {
+        surface: "notes",
+        data: leoNightlyData,
+        span: leoSpanNightly,
+        theme: "dark",
+        notesLook: "sections",
+        notesHead: "accent",
+      },
+    },
     "notes-sections": {
-      note: "Picked and shipped (Leo 2026-11-08: \"the sections should be more obvious what's what ... distinguishing which row does what is unclear ... unclear whether you can even scroll down and why\"): the Updated card's changes beside the sidebar under What's New's own area headers (glyph, name, count, in its order), each change one pill with a gap between, and a count of the changes still below while some are. A click opens What's New at that change. Chosen over hairlines because the gap separates pills without adding lines inside the glass.",
-      props: { surface: "notes", data: spanData, span, theme: "dark" },
+      note: "Before 2026-11-14 (Leo 2026-11-08: \"the sections should be more obvious what's what ... distinguishing which row does what is unclear ... unclear whether you can even scroll down and why\"): the Updated card's changes beside the sidebar under What's New's own area headers (glyph, name, count, in its order), each change one pill with a gap between, and a count of the changes still below while some are. A click opens What's New at that change. Chosen over hairlines because the gap separates pills without adding lines inside the glass.",
+      props: { surface: "notes", data: spanData, span, theme: "dark", notesLook: "sections" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelectorAll(".wn-notes-area").length > 1);
         await ctx.waitFor(() => ctx.document.querySelector(".wn-notes-more") !== null);
       },
     },
     "notes-sections-light": {
-      note: "The shipped look in the light theme.",
-      props: { surface: "notes", data: spanData, span, theme: "light" },
+      note: "The area headers in the light theme.",
+      props: { surface: "notes", data: spanData, span, theme: "light", notesLook: "sections" },
     },
     "notes-divided": {
       note: "Variant: the same headers, rows divided by hairlines instead of gaps between pills.",

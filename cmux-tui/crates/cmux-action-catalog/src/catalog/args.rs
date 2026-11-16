@@ -627,6 +627,8 @@ pub const DEPLOY: Argument = Argument { name: "deploy", title: t("AppStoreAction
 #[rustfmt::skip]
 pub const COMMAND_4: Argument = Argument { name: "command", title: t("AppStoreActions", "argument.app.command", "Command"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
+pub const MENU_ITEM: Argument = Argument { name: "item", title: t("AppStoreActions", "argument.app.menuItem", "Menu Item"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
 pub const DEVICE_2: Argument = Argument { name: "device", title: t("PhoneActions", "argument.phone.device", "Phone"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const PATH_5: Argument = Argument { name: "path", title: t("PhoneActions", "argument.phone.path", "File"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
@@ -706,3 +708,5 @@ pub const FEED_COMMENT: Argument = Argument { name: "comment", title: t("ActionC
 pub const DEBUG_SIDEBAR_TOGGLE_ICON: Argument = Argument { name: "icon", title: t("ActionCatalog", "argument.debug.sidebarToggleIcon", "Icon"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "debugSidebarToggleIcons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const DEBUG_STATUS_ICON_SET: Argument = Argument { name: "set", title: t("ActionCatalog", "argument.debug.statusIconSet", "Icon Set"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "debugStatusIconSets", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const APP_TRY_TARGET: Argument = Argument { name: "target", title: t("ActionCatalog", "argument.app.try.target", "PR, Branch or Commit"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

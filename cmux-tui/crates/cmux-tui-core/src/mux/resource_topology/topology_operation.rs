@@ -17,12 +17,35 @@ impl Mux {
             self.workspace_registry.lock().unwrap().interrupted_resource_creation_recoveries()?;
         let mut pending = false;
         for recovery in recoveries {
+            // A creation whose terminal waits for a late terminal holder
+            // stays pending and does not count here: the start does not wait
+            // for that holder, and the late thread settles the creation when
+            // the terminal re-attached or ended (mux/holder_late.rs). So
+            // does a creation whose terminal is kept for the next start,
+            // which settles it.
+            let late = self.creation_waits_on_late_holder(&recovery.intent);
             pending |= matches!(
                 self.settle_resource_creation(recovery, None)?,
                 ResourceCreationSettlement::Pending
-            );
+            ) && !late;
         }
         Ok(pending)
+    }
+
+    /// Whether the terminal that the creation `intent` reserved is one the
+    /// start kept, for a late terminal holder or for the next start.
+    fn creation_waits_on_late_holder(&self, intent: &Value) -> bool {
+        let Some(terminal_id) = intent
+            .get("terminal_reservation")
+            .and_then(|reservation| reservation.get("terminal_id"))
+            .and_then(Value::as_str)
+        else {
+            return false;
+        };
+        self.late_holder_terminals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(terminal_id)
     }
 
     pub(super) fn reconcile_interrupted_resource_creation(
@@ -437,6 +460,7 @@ impl Mux {
         {
             selectors.pane = Some(pane.as_str().to_string());
         }
+        let agent_layout = self.mark_agent_layout_change(&mutation.actor, operation);
         let commit = match operation {
             ResourceOperation::WorkspaceFocus => {
                 self.resource_focus_workspace(selectors, expected_revision, mutation, &fingerprint)?
@@ -563,6 +587,9 @@ impl Mux {
             )?,
             _ => anyhow::bail!("unsupported topology operation {}", operation_name(operation)),
         };
+        if let Some(at) = agent_layout {
+            self.narrow_agent_layout_marks(at, &commit.result);
+        }
         Ok(commit)
     }
 

@@ -153,6 +153,7 @@ dependencies = [
  "core-foundation-sys",
  "notify",
  "plist",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
@@ -185,6 +186,14 @@ dependencies = [
  "serde_json",
  "sha2",
  "url",
+]
+
+[[package]]
+name = "cmux-panic-log"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
 ]
 
 [[package]]
@@ -923,6 +932,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-mcp-connect",
+ "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
  "cmux-unix-socket",

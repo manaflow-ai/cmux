@@ -46,8 +46,9 @@ export default agentPaneEntry({
       note: "After: the Mac's copy draws at once, marked as possibly out of date until the machine is back.",
       snapshot: offline({ peer: PEER, capturedAt: GALLERY_NOW - 39 * 60_000, offline: true }),
       play: async (ctx) => {
-        // The banner waits out the resume threshold (afterDelay.ts) before it shows.
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-peer-copy-slot[data-shown]"), { capMs: 4_000 });
+        // An offline Cloud machine's banner waits out LINK_DOWN_SAID_MS (10 s, afterDelay.ts) before it
+        // shows: the app redials by itself, so a short drop says nothing.
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-peer-copy-slot[data-shown]"), { capMs: 12_000 });
       },
     },
     "cold-long-chat-connecting": {
@@ -65,8 +66,9 @@ export default agentPaneEntry({
       note: "A copy that names no time.",
       snapshot: offline({ peer: PEER, offline: true }),
       play: async (ctx) => {
-        // The banner waits out the resume threshold (afterDelay.ts) before it shows.
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-peer-copy-slot[data-shown]"), { capMs: 4_000 });
+        // An offline Cloud machine's banner waits out LINK_DOWN_SAID_MS (10 s, afterDelay.ts) before it
+        // shows: the app redials by itself, so a short drop says nothing.
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-peer-copy-slot[data-shown]"), { capMs: 12_000 });
       },
     },
   },

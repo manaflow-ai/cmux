@@ -95,6 +95,14 @@ pub(super) fn write_packer(dir: &Path) -> std::io::Result<PathBuf> {
         }
         std::fs::write(file, text)?;
     }
+    // `cmux-extension-sdk/customize`: the types of what this build lets you customize,
+    // written from the same schema `cmux customize schema` prints (not committed anywhere).
+    let types = dir.join("sdk/cmux-extension-sdk/typescript/src/generated/customize.ts");
+    if let Some(parent) = types.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let schema = cmux_customize::schema::Schema::current();
+    std::fs::write(types, cmux_customize::schema::typescript(&schema))?;
     Ok(dir.join("sdk").join(SDK_FILES[0].0))
 }
 
@@ -714,8 +722,67 @@ pub(super) fn write_types(dir: &Path, types: &str) -> std::io::Result<bool> {
     Ok(true)
 }
 
-/// Where each contribution shows, from the manifest.
-fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
+/// The page Cmd-T draws, from the settings file the app reads
+/// (`tabs.newTabApp`, `tabs.nativeNewTabPage`; Swift `NewTabAppSetting`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct NewTabPick {
+    /// The app named in `tabs.newTabApp`; None when unset.
+    pub app: Option<String>,
+    /// `tabs.nativeNewTabPage` is on: that page never draws an extension.
+    pub native: bool,
+}
+
+impl NewTabPick {
+    /// The pick in the settings file (`cmux_config::config_path`); a missing
+    /// or unreadable file is the defaults: cmux's own page.
+    pub(super) fn read() -> Self {
+        std::fs::read_to_string(cmux_config::config_path())
+            .map_or_else(|_| Self::default(), |t| Self::of(&t))
+    }
+
+    pub(super) fn of(text: &str) -> Self {
+        let Ok(root) = cmux_config::jsonc::parse(text) else { return Self::default() };
+        let at = |key: &str| cmux_config::value::value_at(&root, &["tabs", key]).cloned();
+        Self {
+            app: at("newTabApp").and_then(|v| v.as_str().map(str::to_owned)),
+            native: at("nativeNewTabPage").and_then(|v| v.as_bool()) == Some(true),
+        }
+    }
+
+    /// Why `id`'s New Tab page is not the one Cmd-T draws, with the step that
+    /// makes it so; None when it is.
+    pub(super) fn not_shown(&self, id: &str) -> Option<String> {
+        if self.native {
+            return Some(format!(
+                "the native New Tab page is on, which draws no extension: cmux settings set tabs.nativeNewTabPage false{}",
+                if self.app.as_deref() == Some(id) {
+                    String::new()
+                } else {
+                    format!(" and cmux settings set tabs.newTabApp {id}")
+                }
+            ));
+        }
+        match self.app.as_deref() {
+            Some(app) if app == id => None,
+            Some(app) => {
+                Some(format!("tabs.newTabApp names {app}: cmux settings set tabs.newTabApp {id}"))
+            }
+            None => Some(format!(
+                "tabs.newTabApp is unset, so cmux draws its own page: cmux settings set tabs.newTabApp {id}"
+            )),
+        }
+    }
+}
+
+/// Where each contribution shows, from the manifest. `shown` is the app's
+/// record (installed, on, not hidden); a whole New Tab page also needs the
+/// person's pick (`new_tab`), so it is never reported as shown without it.
+pub(super) fn placements(
+    manifest: &Value,
+    id: &str,
+    shown: bool,
+    new_tab: &NewTabPick,
+) -> Vec<Value> {
     let Some(implements) = manifest.get("implements").and_then(Value::as_object) else {
         return Vec::new();
     };
@@ -731,6 +798,10 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
                 }
                 "cmux.session.info.section/1" => "the agent pane's Session Info".into(),
                 "cmux.pane/1" => "a tab (Open in the Command Palette)".into(),
+                "cmux.newtab/1" => {
+                    "the whole New Tab page, once you pick it (cmux settings set tabs.newTabApp <id>)"
+                        .into()
+                }
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
                 "cmux.composer.command/1" => "the agent chat composer's / menu".into(),
                 "cmux.composer.mention/1" => "the agent chat composer's @ completions".into(),
@@ -745,7 +816,8 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
                 }
                 other => other.to_string(),
             };
-            json!({ "interface": interface, "where": place, "shown": shown })
+            let held = (interface == "cmux.newtab/1").then(|| new_tab.not_shown(id)).flatten();
+            json!({ "interface": interface, "where": place, "shown": shown && held.is_none(), "why": held })
         })
         .collect()
 }
@@ -754,7 +826,8 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
 fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
     let has_export = |name: &str| implements.get(name).and_then(|e| e.get("export")).is_some();
-    const PREFERRED: [&str; 3] = ["cmux.section/1", "cmux.pane/1", "cmux.session.info.section/1"];
+    const PREFERRED: [&str; 4] =
+        ["cmux.section/1", "cmux.pane/1", "cmux.session.info.section/1", "cmux.newtab/1"];
     PREFERRED
         .iter()
         .find(|name| has_export(name))
@@ -1044,7 +1117,11 @@ impl Session {
         let enabled = record.as_ref().is_none_or(|r| r.field("enabled").as_bool() != Some(false));
         let hidden = record.as_ref().is_some_and(|r| r.field("hidden").as_bool() == Some(true));
         outcome.installed = Some(installed);
-        outcome.placed = placements(&pkg.manifest, installed && enabled && !hidden);
+        let new_tab = NewTabPick::read();
+        outcome.placed =
+            placements(&pkg.manifest, &pkg.id, installed && enabled && !hidden, &new_tab);
+        let new_tab_held =
+            outcome.placed.iter().find_map(|p| p.field("why").as_str().map(str::to_owned));
         if !installed {
             outcome.next = Some(format!(
                 "cmux apps install {}   (shows a card in cmux; until then it loads as a preview)",
@@ -1052,6 +1129,8 @@ impl Session {
             ));
         } else if !enabled {
             outcome.next = Some(format!("{} is turned off in Settings > Apps", pkg.id));
+        } else if let Some(why) = new_tab_held {
+            outcome.next = Some(format!("not your New Tab page yet: {why}"));
         }
         if outcome.changed || probe_unchanged {
             outcome.probe = probe_interface(&pkg.manifest);
@@ -1122,10 +1201,38 @@ impl Session {
 
     /// Waits for the daemon's answer to a copied change: its reload of the
     /// app, its refusal of the saved script (an open view keeps the last
-    /// good one), or its refusal of the folder.
+    /// good one), or its refusal of the folder. It asks for the reload
+    /// (`apps-reload-local`) instead of waiting on the daemon's file watch,
+    /// whose events a loaded Mac delivers seconds late (ask-7fc19bd861): the
+    /// pass's events come before its reply, so a reply with none for this
+    /// app means the daemon already had these files. A daemon that does not
+    /// know the request still reloads on its watch, waited for as before.
     fn pickup(&mut self, id: &str, target: &Path) -> Result<Result<(), Problem>, Stop> {
         let folder = target.display().to_string();
+        let asked = self.daemon.send(json!({ "cmd": "apps-reload-local" }))?;
         self.daemon.wait(Instant::now() + PICKUP_DEADLINE, |value| {
+            if value.get("id").and_then(Value::as_str) == Some(asked.as_str()) {
+                if value.field("ok").as_bool() != Some(true) {
+                    return None;
+                }
+                let data = value.field("data");
+                if data.field("safeMode").as_bool() == Some(true) {
+                    return Some(Err(Problem::message(
+                        "cmux is in safe mode: it reloads no extension until safe mode ends",
+                    )));
+                }
+                let refused =
+                    data.field("rejected").as_array().into_iter().flatten().find_map(|r| {
+                        (r.field("dir").as_str() == Some(folder.as_str()))
+                            .then(|| r.field("issue").as_str().unwrap_or("refused").to_owned())
+                    });
+                return Some(match refused {
+                    Some(issue) => {
+                        Err(Problem { file: Some(V1.into()), ..Problem::message(issue) })
+                    }
+                    None => Ok(()),
+                });
+            }
             let event = value.get("event").and_then(Value::as_str)?;
             let app = value.get("app").and_then(Value::as_str);
             match event {
@@ -1335,6 +1442,28 @@ pub(super) fn once(global: &GlobalArgs, options: &DevOptions, interrupts: bool) 
     Session::new(options.dir.clone(), options, daemon).reload(true)
 }
 
+/// The debounce after a file event: DEBOUNCE of quiet after the last one (a
+/// deadline only while file events come; log lines and other daemon events
+/// do not hold the reload back). Returns why the loop stops when a wake said
+/// so, else `None`: one reload is due.
+pub(super) fn settle(daemon: &mut Daemon) -> Option<(&'static str, i32)> {
+    let mut quiet_at = Instant::now() + DEBOUNCE;
+    loop {
+        let left = quiet_at.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return None;
+        }
+        match daemon.next_wake_within(left) {
+            None => return None,
+            Some(Wake::Files) => quiet_at = Instant::now() + DEBOUNCE,
+            Some(Wake::Interrupt) => return Some(("stopped", exit::OK)),
+            Some(Wake::DaemonGone) => return Some(("the cmux daemon went away", exit::NO_DAEMON)),
+            Some(Wake::Installed(installed)) => super::daemon::print_installed(installed),
+            Some(Wake::Daemon(_)) => {}
+        }
+    }
+}
+
 /// `ext dev` without `--once`: reload, then reload on every save.
 pub(super) fn run_watch(
     global: &GlobalArgs,
@@ -1390,32 +1519,7 @@ pub(super) fn run_watch(
             }
             Some(Wake::Daemon(_)) => None,
             Some(Wake::Files) => {
-                // Debounce: DEBOUNCE of quiet after the last file event (a
-                // deadline only while file events come; log lines and other
-                // daemon events do not hold the reload back), then one reload.
-                let mut stop = None;
-                let mut quiet_at = Instant::now() + DEBOUNCE;
-                loop {
-                    let left = quiet_at.saturating_duration_since(Instant::now());
-                    if left.is_zero() {
-                        break;
-                    }
-                    match session.daemon.next_wake_within(left) {
-                        None => break,
-                        Some(Wake::Files) => quiet_at = Instant::now() + DEBOUNCE,
-                        Some(Wake::Interrupt) => stop = Some(("stopped", exit::OK)),
-                        Some(Wake::DaemonGone) => {
-                            stop = Some(("the cmux daemon went away", exit::NO_DAEMON));
-                        }
-                        Some(Wake::Installed(installed)) => {
-                            super::daemon::print_installed(installed);
-                        }
-                        Some(Wake::Daemon(_)) => {}
-                    }
-                    if stop.is_some() {
-                        break;
-                    }
-                }
+                let mut stop = settle(&mut session.daemon);
                 if stop.is_none() && !dir.is_dir() {
                     stop = Some(("the extension folder is gone", exit::OK));
                 }

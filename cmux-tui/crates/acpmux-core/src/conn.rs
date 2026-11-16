@@ -531,10 +531,15 @@ fn process_frame(
             }
         }
         Request::Unsub(unsub) => {
-            if !state.lock().map_err(|_| poisoned())?.unsubscribe(&unsub.sid) {
+            let mut held = state.lock().map_err(|_| poisoned())?;
+            if held.unsubscribe(&unsub.sid) {
+                drop(held);
+                source.end(&unsub.sid);
+            } else if !held.unsubscribe_ended(&unsub.sid) {
+                // A sid this connection ended itself was ended at its source then: only a sid
+                // it never had is unknown.
                 return Err(ConnError::UnknownSubscription(unsub.sid));
             }
-            source.end(&unsub.sid);
         }
         Request::Page(page) => {
             require_surface(&page.stream, surfaces)?;
@@ -595,7 +600,7 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
             if sub.stream.as_str() != "list"
                 || sub.view != Some(crate::wire::ListView::Live)
                 || sub.filter.is_some()
-                || sub.anchor.is_some()
+                || sub.anchor.as_ref().is_some_and(|anchor| *anchor != crate::wire::Anchor::End)
             {
                 return Err(ConnError::InvalidRequest(
                     "request is not allowed on a peer link".into(),
@@ -606,13 +611,9 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
         Request::Blob(_) => {
             Err(ConnError::InvalidRequest("request is not allowed on a peer link".into()))
         }
+        // Decision 266: the mirror's `live` walk, or this machine's rows by `all` or `keys`.
         Request::Page(page) => {
-            if page.stream.as_str() != "list"
-                || page.view != Some(crate::wire::ListView::Live)
-                || page.filter.is_some()
-                || page.keys.is_some()
-                || page.turns
-            {
+            if crate::hub::peer_page_shape(page).is_none() {
                 return Err(ConnError::InvalidRequest(
                     "request is not allowed on a peer link".into(),
                 ));

@@ -26,7 +26,8 @@ public final class JoinConsentAskPanel: NSPanel {
     public init(model: JoinConsentModel) {
         self.model = model
         content = JoinConsentAskView(model: model)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: Metrics.surfaceCornerRadius)
+        // Concentric with its buttons, `Metrics.space5` in on every side (Lawrence 2026-11-15).
+        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: Metrics.buttonContainer(padding: Metrics.space5).outerRadius)
         super.init(contentRect: NSRect(origin: .zero, size: NSSize(width: JoinConsentAskView.width, height: 160)),
                    styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
         ThemeScope.app.adopt(self)
@@ -93,7 +94,7 @@ public final class JoinConsentAskView: NSView {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space3
-        stack.edgeInsets = NSEdgeInsets(top: Metrics.space5, left: Metrics.space5, bottom: Metrics.space4, right: Metrics.space5)
+        stack.edgeInsets = NSEdgeInsets(top: Metrics.space5, left: Metrics.space5, bottom: Metrics.space5, right: Metrics.space5)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -125,7 +126,7 @@ public final class JoinConsentAskView: NSView {
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         row.addArrangedSubview(spacer)
-        row.addArrangedSubview(button(JoinConsentStrings.deny, role: .cancel, allow: false, id: "cmux.joinConsentAsk.deny"))
+        row.addArrangedSubview(button(JoinConsentStrings.decline(ask.surface), role: .cancel, allow: false, id: "cmux.joinConsentAsk.deny"))
         let allow = button(JoinConsentStrings.allow, role: .default, allow: true, id: "cmux.joinConsentAsk.allow")
         self.allow = allow
         row.addArrangedSubview(allow)

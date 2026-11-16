@@ -88,6 +88,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SidebarPluginRequest, "relaunch");
     try expectExplicitNullRejected(protocol.SplitRequest, "before");
     try expectExplicitNullRejected(protocol.SplitRequest, "keep");
+    try expectExplicitNullRejected(protocol.TerminalCommandContextRequest, "intent");
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");
     try expectExplicitNullRejected(protocol.UndoLayoutRequest, "confirm_close");
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "since_ms");
@@ -137,6 +138,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RenderStateEvent, "graphics");
     try expectExplicitNullRejected(protocol.ResizedEvent, "colors");
     try expectExplicitNullRejected(protocol.ResizedEvent, "data");
+    try expectExplicitNullRejected(protocol.ResizedEvent, "history_rows_omitted");
     try expectExplicitNullRejected(protocol.ResizedEvent, "kitty_graphics_state");
     try expectExplicitNullRejected(protocol.ResizedEvent, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.ResizedEvent, "replay");
@@ -145,6 +147,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.TitleChangedEvent, "title");
     try expectExplicitNullRejected(protocol.VtStateEvent, "colors");
     try expectExplicitNullRejected(protocol.VtStateEvent, "history_rows_omitted");
+    try expectExplicitNullRejected(protocol.VtStateEvent, "history_rows_skipped");
     try expectExplicitNullRejected(protocol.VtStateEvent, "kitty_graphics_state");
     try expectExplicitNullRejected(protocol.VtStateEvent, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.WorkspaceAddedEvent, "mutation_id");
@@ -221,9 +224,11 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.IdentifyResult, "capabilities");
     try expectExplicitNullRejected(protocol.IdentifyResult, "lifecycle_ready");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_capabilities");
+    try expectExplicitNullRejected(protocol.IdentifyResult, "machine_device");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_id");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_name");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_platform");
+    try expectExplicitNullRejected(protocol.IdentifyResult, "machine_symbol");
     try expectExplicitNullRejected(protocol.IdentifyResult, "session_id");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split_id");

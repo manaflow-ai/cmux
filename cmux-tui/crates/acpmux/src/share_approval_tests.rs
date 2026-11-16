@@ -197,3 +197,43 @@ fn target_audit_names_who_confirmed_where_and_when() {
     assert_eq!(refused["event"], "remote_host.share_refused");
     assert_eq!(refused["code"], "share.not_granted");
 }
+
+/// The target's real grant is its owner's `signedInMachines` consent, held for the account this
+/// Mac is joined as: only `granted`, for that same account, admits; off, unanswered, declined,
+/// another account's grant, an unjoined Mac and an unreadable record admit nothing.
+#[test]
+fn target_admits_only_with_its_owners_signed_in_machines_consent() {
+    let key = DeviceKey::new();
+    let approval = key.sign(unsigned());
+    let keys = Keys(vec![(ASKER, key.public())]);
+    let consent = |state: &str, user: &str| serde_json::json!({"consent": {"signedInMachines": state, "signedInMachinesUser": user}});
+    let granted = SignedInMachinesConsent::from_status(&consent("granted", ACCOUNT), Some(ACCOUNT));
+    assert_eq!(admit(&approval, &target(), &granted, &keys, &mut HashSet::new()), Ok(()));
+    let refusing = [
+        ("off", SignedInMachinesConsent::from_status(&consent("off", ACCOUNT), Some(ACCOUNT))),
+        (
+            "unanswered",
+            SignedInMachinesConsent::from_status(
+                &serde_json::json!({"consent": {}}),
+                Some(ACCOUNT),
+            ),
+        ),
+        (
+            "declined",
+            SignedInMachinesConsent::from_status(&consent("denied", ACCOUNT), Some(ACCOUNT)),
+        ),
+        (
+            "granted for another account",
+            SignedInMachinesConsent::from_status(&consent("granted", "user_other"), Some(ACCOUNT)),
+        ),
+        ("not joined", SignedInMachinesConsent::from_status(&consent("granted", ACCOUNT), None)),
+        ("unreadable", SignedInMachinesConsent::from_status(&Value::Null, Some(ACCOUNT))),
+    ];
+    for (name, grant) in refusing {
+        let refused = admit(&approval, &target(), &grant, &keys, &mut HashSet::new()).unwrap_err();
+        assert_eq!(refused.code, "share.not_granted", "{name}: {refused:?}");
+    }
+    // The grant is for this account's machines only, never an asker of another account.
+    assert!(!granted.covers(&Asker { device: ASKER, account: "user_other" }));
+    assert!(!granted.covers(&Asker { device: ASKER, account: "" }));
+}

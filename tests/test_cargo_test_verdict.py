@@ -242,6 +242,9 @@ class Scope(unittest.TestCase):
         changed = ["cmux-tui/crates/cmux-json/src/lib.rs", "skills/cmux-cua/SKILL.md", "cmux-tui/Cargo.lock",
                    "README.md", "webviews/src/app.tsx", "cmux-tui/crates/ghostty-vt/src/lib.rs"]
         self.assertEqual(verdict.touches(ROOT, self.CRATE, changed), changed[:3])
+        gates = ["scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/pr03d.gates"]
+        self.assertEqual(verdict.touches(ROOT, self.CRATE, gates), gates)  # read at test time
+        self.assertEqual(verdict.touches(ROOT, "cmux-tui/crates/cmux-host", gates), [])
 
     def test_the_workflow_runs_for_every_included_file_outside_cmux_tui(self):
         _, files = verdict.crate_inputs(ROOT, self.CRATE)
@@ -252,7 +255,7 @@ class Scope(unittest.TestCase):
         # one and its `changes` job routes them by these `push` paths (.github/scripts/cmux-tui-spec-changed.py).
         self.assertEqual(set(paths), {"push"})
         for event, globs in paths.items():
-            for path in outside + [p.rstrip("/") + ("/x" if p.endswith("/") else "") for p in verdict.ALWAYS]:
+            for path in outside + [p.rstrip("/") + ("/x" if p.endswith("/") else "") for p in verdict.ALWAYS + verdict.READ_AT_TEST_TIME[self.CRATE]]:
                 with self.subTest(event=event, path=path):
                     self.assertTrue(any(glob_matches(glob, path) for glob in globs),
                                     f"cmux-tui-spec.yml's {event} paths miss {path}, an input of acpmux's tests")

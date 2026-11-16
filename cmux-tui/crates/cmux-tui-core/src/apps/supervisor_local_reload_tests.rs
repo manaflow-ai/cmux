@@ -157,3 +157,78 @@ fn apps_list_names_the_watched_local_folder() {
     let local = f.state.join("apps/local");
     assert_eq!(f.supervisor.list()["local_dir"], json!(local.to_string_lossy()));
 }
+
+/// An app in a `CMUX_APPS_DIRS` folder (`Sources::extra`: a person's own
+/// checkout of an extension, or a fork of a first-party app) reloads on a
+/// save like a local app, and its open view is mounted again with the saved
+/// manifest (base red: only the customize and local folders had
+/// fingerprints, so a save there changed nothing until cmux restarted).
+#[test]
+fn a_save_in_an_apps_dirs_folder_reloads_the_app_and_its_open_view() {
+    let f = fixture();
+    let extra = f.state.parent().unwrap().join("extra");
+    write_app(&extra, "ext", "acme/ext", json!({}));
+    // A publisher must own its repository (`publisher.mismatch`).
+    let path = extra.join("ext/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["repository"] = json!("https://github.com/acme/ext");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    assert_eq!(app_entry(&f.supervisor.list(), "acme/ext")["version"], "1.0.0");
+    f.install("acme/ext");
+    f.mount("m1", "acme/ext", "cmux.section/1", json!({}));
+    manifest["version"] = json!("1.0.1");
+    manifest["implements"]["cmux.section/1"]["export"] = json!("renderAgain");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    f.supervisor.reload_local_apps(&prints);
+    let entry = app_entry(&f.supervisor.list(), "acme/ext");
+    assert_eq!(entry["version"], "1.0.1", "the save was read: {entry}");
+    let scene = f.wait("the remount's scene", |e| {
+        e["event"] == "apps-scene" && e["mount_id"] == "m1" && e["ops"][0]["op"] == "create"
+    });
+    assert_eq!(scene["ops"][0]["props"]["text"], "renderAgain", "{scene}");
+}
+
+/// An asked pass (`apps-reload-local`, `reload_local_apps_now`) applies a
+/// save with no file event, from the prints of the last pass whoever ran it;
+/// a second pass with nothing new announces and restarts nothing, so the
+/// watch's late event after an asked pass costs no second restart
+/// (ask-7fc19bd861).
+#[test]
+fn an_asked_pass_applies_a_save_once() {
+    let f = fixture();
+    f.supervisor.reload_local_apps_now();
+    while f.events.try_recv().is_ok() {}
+    save_spy_version(&f.state, "1.0.2");
+    f.supervisor.reload_local_apps_now();
+    let changed: Vec<Value> =
+        f.events.try_iter().filter(|e| e["event"] == "apps-changed").collect();
+    assert_eq!(changed.len(), 1, "{changed:?}");
+    assert_eq!(changed[0]["app"], "local/spy");
+    assert_eq!(changed[0]["transaction"], "local-reload");
+    assert_eq!(app_entry(&f.supervisor.list(), "local/spy")["version"], "1.0.2");
+    f.supervisor.reload_local_apps_now();
+    let again: Vec<Value> = f.events.try_iter().filter(|e| e["event"] == "apps-changed").collect();
+    assert!(again.is_empty(), "{again:?}");
+}
+
+/// An asked pass says what its events cannot: a new folder the catalog
+/// refuses makes no event (it never had a print), so the answer names it
+/// with why; a pass held by safe mode says so (review of cmux#44062: an `ok`
+/// with nothing applied read as "reloaded").
+#[test]
+fn an_asked_pass_names_a_refused_folder() {
+    let f = fixture();
+    f.supervisor.reload_local_apps_now();
+    let bad = f.state.join("apps/local/bad");
+    std::fs::create_dir_all(&bad).unwrap();
+    std::fs::write(bad.join("cmux-app.json"), "{ not json").unwrap();
+    let answer = f.supervisor.reload_local_apps_now();
+    assert_eq!(answer["safeMode"], false, "{answer}");
+    let rejected = answer["rejected"].as_array().unwrap();
+    assert!(
+        rejected.iter().any(|r| r["dir"] == bad.display().to_string() && r["issue"].is_string()),
+        "{answer}"
+    );
+}

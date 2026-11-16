@@ -49,27 +49,28 @@ pub(super) fn with_ticket(mut params: Value, mint: impl FnOnce() -> Result<Value
 }
 
 /// `share off`: with a ticket, the app turns sharing off (no dialog ever) so the change is the
-/// agent's, audited and announced; when there is no ticket, the app is unreachable or it says
-/// the permission does not cover this agent, the daemon turns it off as before.
-pub(super) fn share_off(
+/// agent's, audited and announced: `took` gets the app's answer. When there is no ticket, the app
+/// is unreachable or it says the permission does not cover this agent, `off` turns it off as
+/// before (`remote_host::LowerChange::ShareOff`: cmux Remote's worker, or the app's own action
+/// in a build without it).
+pub(super) fn share_off<T>(
     mint: impl FnOnce() -> Result<Value, Value>,
     app: impl FnOnce(Value) -> Result<Value, Value>,
-    daemon_off: impl FnOnce() -> Result<Value, Value>,
-) -> Result<Value, Value> {
+    took: impl FnOnce(Value) -> T,
+    off: impl FnOnce() -> T,
+) -> T {
     let params = with_ticket(json!({"action": "unshare"}), mint);
     if params.get("agent_ticket").is_none() {
-        return daemon_off();
+        return off();
     }
     match app(params) {
-        Ok(answer) if answer.get("ok").and_then(Value::as_bool) == Some(true) => Ok(answer),
-        _ => daemon_off(),
+        Ok(answer) if answer.get("ok").and_then(Value::as_bool) == Some(true) => took(answer),
+        _ => off(),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-
     use serde_json::{Value, json};
 
     use super::{agent_context, share_off, ticket_request, with_ticket};
@@ -126,37 +127,35 @@ mod tests {
 
     #[test]
     fn share_off_goes_through_the_app_only_when_it_takes_the_agents_ticket() {
-        let calls = RefCell::new(Vec::<String>::new());
-        let daemon_off = || {
-            calls.borrow_mut().push("daemon".into());
-            Ok(json!({"shared": false}))
-        };
-        // No ticket: the daemon, as today; the app is never asked.
-        let off = share_off(
+        // `took` is the app's change; `off` is today's path (cmux Remote's worker, or the app's
+        // own action in a build without it).
+        let took = |answer: Value| ("app", answer);
+        let off = || ("today", Value::Null);
+        // No ticket: today's path; the app is never asked.
+        let (path, _) = share_off(
             || Err(json!({"code": "bad_request"})),
             |_| -> Result<Value, Value> { panic!("the app is not asked without a ticket") },
-            daemon_off,
+            took,
+            off,
         );
-        assert_eq!(off.unwrap(), json!({"shared": false}));
-        assert_eq!(calls.take(), ["daemon"]);
-        // A ticket the app takes: the app turns it off, the daemon is not asked.
-        let off = share_off(
+        assert_eq!(path, "today");
+        // A ticket the app takes: the app turns it off, today's path is not taken.
+        let (path, answer) = share_off(
             || Ok(json!({"ticket": "t1"})),
             |params| {
                 assert_eq!(params, json!({"action": "unshare", "agent_ticket": "t1"}));
                 Ok(json!({"ok": true, "agent": true}))
             },
-            daemon_off,
+            took,
+            off,
         );
-        assert_eq!(off.unwrap()["agent"], true);
-        assert!(calls.take().is_empty());
-        // The permission is off (the app says so) or the app is unreachable: the daemon.
+        assert_eq!((path, answer["agent"].clone()), ("app", json!(true)));
+        // The permission is off (the app says so) or the app is unreachable: today's path.
         for answer in
             [Ok(json!({"ok": false, "asks_person": true})), Err(json!({"code": "app.unreachable"}))]
         {
-            let off = share_off(|| Ok(json!({"ticket": "t1"})), |_| answer, daemon_off);
-            assert!(off.is_ok());
-            assert_eq!(calls.take(), ["daemon"]);
+            let (path, _) = share_off(|| Ok(json!({"ticket": "t1"})), |_| answer, took, off);
+            assert_eq!(path, "today");
         }
     }
 }
