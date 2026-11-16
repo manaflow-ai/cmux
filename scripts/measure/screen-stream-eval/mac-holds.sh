@@ -15,6 +15,8 @@
 #               (wifi-away-schedule.jsonl here is `schedule wifi-away 900`, made with macOS /usr/bin/python3).
 #   wifi-short, wifi-long, wifi-loss   ablations of wifi-away on the same schedule: only its short holds
 #               (no loss), only its long holds (no loss), only its 2% loss (no holds)
+#   wifi-gate   the screen-share gate profile (p50 <= 60 ms, p95 <= 100 ms): wifi-short plus wifi-loss, i.e.
+#               4 ms base, 2% random loss and the 50-100 ms short holds every 0.53 s, no long holds
 # How a hold queues and then bursts: dummynet queues are capped (100 slots / 1 MB, ~170 ms at 48 Mbps), so
 # a zero-bandwidth hold would drop. Its delay line has no cap, and each packet's exit time is fixed when it
 # enters (FIFO). So during a hold of H ms the delay steps down from 4+H ms (every 10 ms for holds under
@@ -27,7 +29,7 @@ PIPE=7730
 ST=/var/tmp/rd-synth-stall
 PY=${MAC_HOLDS_PY:-/usr/bin/python3}
 DNCTL=${MAC_HOLDS_DNCTL:-dnctl}   # tests put a stub here
-PROFILES="stall wifi-away wifi-short wifi-long wifi-loss"
+PROFILES="stall wifi-away wifi-short wifi-long wifi-loss wifi-gate"
 BASE_DELAY_MS=4
 # Never configure a dummynet pipe with a delay under 1 ms. A zero-delay pipe reinjects packets inside
 # the network stack; five such pipes behind pf probability rules, with rd traffic, overflowed the kernel
@@ -77,7 +79,7 @@ time.sleep(max(0.0, t_base + max_s - time.monotonic()))
 PYEOF
 }
 
-plr_of() { case "$1" in wifi-away|wifi-loss) echo 0.02 ;; *) echo 0 ;; esac; }
+plr_of() { case "$1" in wifi-away|wifi-loss|wifi-gate) echo 0.02 ;; *) echo 0 ;; esac; }
 # A recorded pid may be stale (a killed watchdog, a reboot): act on it only while it still runs this
 # script's watchdog, its hold loop or a dnctl the loop started.
 ours() {
@@ -111,7 +113,7 @@ elif prof.startswith("wifi-"):
             holds.append((s, rng.uniform(50.0, 100.0), "short"))
         k += 1
     holds += [(ls, lh, "long") for ls, lh in longs]
-    keep = {"wifi-short": ("short",), "wifi-long": ("long",), "wifi-loss": ()}.get(prof, ("short", "long"))
+    keep = {"wifi-short": ("short",), "wifi-gate": ("short",), "wifi-long": ("long",), "wifi-loss": ()}.get(prof, ("short", "long"))
     holds = sorted(h for h in holds if h[2] in keep)
 for start, hold, kind in holds:
     if start <= max_s:
