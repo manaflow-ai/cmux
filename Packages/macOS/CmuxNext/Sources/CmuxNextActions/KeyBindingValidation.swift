@@ -77,6 +77,23 @@ public struct KeyBindingLoader {
         return issues
     }
 
+    /// Replaces the app layer (the shortcuts apps contribute); user
+    /// entries, removals and Ghostty keybinds stay. An entry that fails
+    /// ``validated(_:)`` is left out and reported.
+    @discardableResult
+    public func loadApp(_ entries: [KeyBinding]) -> [KeyBindingIssue] {
+        var issues: [KeyBindingIssue] = []
+        registry.keyBindingLayers.app = entries.enumerated().compactMap { index, entry in
+            switch validated(entry) {
+            case .success(let binding): return binding
+            case .failure(let kind):
+                issues.append(KeyBindingIssue(source: .app, index: index, kind: kind))
+                return nil
+            }
+        }
+        return issues
+    }
+
     /// Replaces the Ghostty config's keybinds (`.ghosttyFallback` and
     /// `.ghostty` entries; others are dropped) and claimed keys. The App calls it on every
     /// Ghostty config or keyboard layout change; app and user entries stay.

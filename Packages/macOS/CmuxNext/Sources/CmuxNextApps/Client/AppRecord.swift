@@ -60,12 +60,26 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         public var op: String
         public var title: AppLocalizedText
         public var when: String?
+        /// The op's default shortcuts (catalog `keyboard`, `commands[].keys`).
+        public var keys: [Key]
         public var id: String { op }
 
-        public init(op: String, title: AppLocalizedText, when: String? = nil) {
+        public init(op: String, title: AppLocalizedText, when: String? = nil, keys: [Key] = []) {
             self.op = op
             self.title = title
             self.when = when
+            self.keys = keys
+        }
+
+        /// One default shortcut: one chord (`cmd+shift+r`) and its context (`browserFocused`).
+        public struct Key: Sendable, Hashable {
+            public var key: String
+            public var when: String?
+
+            public init(key: String, when: String? = nil) {
+                self.key = key
+                self.when = when
+            }
         }
     }
 
@@ -120,7 +134,11 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         instance = AppInstance(json: json["instance"])
         commands = (json["commands"]?.arrayValue ?? []).compactMap { entry in
             guard let op = entry["op"]?.stringValue else { return nil }
-            return Command(op: op, title: AppLocalizedText(json: entry["title"]) ?? AppLocalizedText(op), when: entry["when"]?.stringValue)
+            let keys = (entry["keys"]?.arrayValue ?? []).compactMap { key in
+                key["key"]?.stringValue.map { Command.Key(key: $0, when: key["when"]?.stringValue) }
+            }
+            return Command(op: op, title: AppLocalizedText(json: entry["title"]) ?? AppLocalizedText(op), when: entry["when"]?.stringValue,
+                           keys: keys)
         }
     }
 
@@ -133,7 +151,10 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
             "grants": .array(grants.sorted().map(AppJSON.string)), "manifest": manifest.raw, "available": .bool(available),
             "bundle_dir": bundleDirectory.map { .string($0.path) } ?? .null,
             "revision": revision.map { .number(Double($0)) } ?? .null,
-            "commands": .array(commands.map { ["op": .string($0.op), "title": .string($0.title.english)] }),
+            "commands": .array(commands.map { command in
+                ["op": .string(command.op), "title": .string(command.title.english),
+                 "keys": .array(command.keys.map { ["key": .string($0.key), "when": $0.when.map(AppJSON.string) ?? .null] })]
+            }),
         ]
     }
 }

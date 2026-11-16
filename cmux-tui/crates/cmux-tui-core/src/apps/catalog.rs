@@ -158,7 +158,11 @@ impl Package {
     }
 
     /// The app's palette commands for `apps-list`: the catalog ops with a
-    /// `palette` entry, as `{op, title, when?}`.
+    /// `palette` entry, as `{op, title, when?, keys?}`. `keys` are the op's
+    /// `keyboard` chords with Cmd or Ctrl (`{key, when?}`): the App puts them
+    /// in its binding table's app layer, each running the command
+    /// (`app.command.run`). A key without either is a single page key, which
+    /// the binding table never takes.
     pub fn palette_commands(&self) -> Vec<Value> {
         self.catalog_ops()
             .into_iter()
@@ -170,11 +174,29 @@ impl Package {
                 if let Some(when) = palette.get("when") {
                     command.set("when", when.clone());
                 }
+                let chords: Vec<Value> = entry
+                    .get("keyboard")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|k| k.get("key").and_then(Value::as_str).is_some_and(is_chord))
+                    .cloned()
+                    .collect();
+                if !chords.is_empty() {
+                    command.set("keys", Value::Array(chords));
+                }
                 Some(command)
             })
             .collect()
     }
+}
 
+/// Whether a catalog `key` (`cmd+shift+r`) holds Cmd or Ctrl: a shortcut the binding table runs.
+fn is_chord(key: &str) -> bool {
+    key.split('+').rev().skip(1).any(|m| m == "cmd" || m == "ctrl")
+}
+
+impl Package {
     /// Whether the app has a script (`runtime.main`). A native-pane app
     /// (`cmux.pane/1` with `native`) has none: it installs and lists like
     /// any app, and the supervisor never spawns a host for it.
@@ -471,8 +493,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cmux-apps-catalog-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let catalog = json!({ "family": "notes", "operations": [
-            { "name": "notes.export", "export": "exportNotes", "palette": { "title": { "en": "Export" }, "when": "paneFocused:editor" } },
-            { "name": "notes.open", "export": "open" }
+            { "name": "notes.export", "export": "exportNotes", "palette": { "title": { "en": "Export" }, "when": "paneFocused:editor" },
+              "keyboard": [{ "key": "cmd+shift+e", "when": "browserFocused" }, { "key": "f", "when": "browserFocused" }] },
+            { "name": "notes.open", "export": "open", "keyboard": [{ "key": "cmd+shift+o" }] }
         ] });
         std::fs::write(dir.join("catalog.json"), catalog.to_string()).unwrap();
         let package = Package {
@@ -490,8 +513,10 @@ mod tests {
         assert_eq!(
             commands,
             vec![
-                json!({ "op": "notes.export", "title": { "en": "Export" }, "when": "paneFocused:editor" })
-            ]
+                json!({ "op": "notes.export", "title": { "en": "Export" }, "when": "paneFocused:editor",
+                        "keys": [{ "key": "cmd+shift+e", "when": "browserFocused" }] })
+            ],
+            "keys ride on palette commands only, and only Cmd or Ctrl chords: a page key (`f`) stays out"
         );
     }
 
