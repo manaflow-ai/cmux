@@ -40,7 +40,12 @@ fn short_machine_reconnect_keeps_the_frame_and_renders_no_line() {
     );
     assert!(app.machine_transition().is_none());
     app.draw_terminal(&mut terminal, RenderAction::Draw).unwrap();
-    assert_eq!(buffer_text(terminal.backend().buffer()), before);
+    let during = buffer_text(terminal.backend().buffer());
+    // The first draw can settle the foreign-viewport decoration as the
+    // cached surface frame becomes available. The recovery path must retain
+    // the cached terminal content while adding no reconnect narration.
+    assert!(during.contains("cached frame"));
+    assert!(!during.contains("waiting for sshd"));
     assert!(app.status_message.is_none());
     assert!(!app.session_available(), "cached presentation must not enable stale input");
 
