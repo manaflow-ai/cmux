@@ -2728,6 +2728,64 @@ func (DetachedEvent) isBrowserAttachEvent() {}
 func (DetachedEvent) isByteAttachEvent()    {}
 func (DetachedEvent) isRenderAttachEvent()  {}
 
+// DeviceSetupStepEvent is emitted by protocol v12.
+type DeviceSetupStepEvent struct {
+	Detail string `json:"detail"`
+	Device string `json:"device"`
+	Fix    string `json:"fix"`
+	State  string `json:"state"`
+	Step   string `json:"step"`
+}
+
+func (value *DeviceSetupStepEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode DeviceSetupStepEvent: expected object")
+	}
+	var fields struct {
+		Event  *string `json:"event"`
+		Detail *string `json:"detail"`
+		Device *string `json:"device"`
+		Fix    *string `json:"fix"`
+		State  *string `json:"state"`
+		Step   *string `json:"step"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode DeviceSetupStepEvent: %w", err)
+	}
+	if fields.Event == nil {
+		return fmt.Errorf("decode DeviceSetupStepEvent: required field event is missing or null")
+	}
+	if *fields.Event != "device-setup-step" {
+		return fmt.Errorf("decode DeviceSetupStepEvent.event: invalid value %q", *fields.Event)
+	}
+	type wire DeviceSetupStepEvent
+	var decoded wire
+	if fields.Detail == nil {
+		return fmt.Errorf("decode DeviceSetupStepEvent: required field detail is missing or null")
+	}
+	decoded.Detail = *fields.Detail
+	if fields.Device == nil {
+		return fmt.Errorf("decode DeviceSetupStepEvent: required field device is missing or null")
+	}
+	decoded.Device = *fields.Device
+	if fields.Fix == nil {
+		return fmt.Errorf("decode DeviceSetupStepEvent: required field fix is missing or null")
+	}
+	decoded.Fix = *fields.Fix
+	if fields.State == nil {
+		return fmt.Errorf("decode DeviceSetupStepEvent: required field state is missing or null")
+	}
+	decoded.State = *fields.State
+	if fields.Step == nil {
+		return fmt.Errorf("decode DeviceSetupStepEvent: required field step is missing or null")
+	}
+	decoded.Step = *fields.Step
+	*value = DeviceSetupStepEvent(decoded)
+	return nil
+}
+
+func (DeviceSetupStepEvent) EventName() string { return "device-setup-step" }
+
 // EmptyEvent is emitted by protocol v5.
 type EmptyEvent struct {
 }
@@ -4991,12 +5049,39 @@ func (SurfaceResizedEvent) isSubscribeEvent() {}
 
 // TabAddedEvent is emitted by protocol v7.
 type TabAddedEvent struct {
-	Entity    Tab    `json:"entity"`
-	Index     uint64 `json:"index"`
-	Pane      ID     `json:"pane"`
-	Screen    ID     `json:"screen"`
-	Surface   ID     `json:"surface"`
-	Workspace ID     `json:"workspace"`
+	Entity  Tab    `json:"entity"`
+	Index   uint64 `json:"index"`
+	Pane    ID     `json:"pane"`
+	Screen  ID     `json:"screen"`
+	Surface ID     `json:"surface"`
+	// The transaction of the create request that made the tab, when it sent one (conversation-tab-transaction-v1, tab-create-place-v1).
+	Transaction Presence[string] `json:"-"`
+	Workspace   ID               `json:"workspace"`
+}
+
+func (value TabAddedEvent) MarshalJSON() ([]byte, error) {
+	type wire TabAddedEvent
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Transaction.IsAbsent() {
+		delete(object, "transaction")
+	} else if value.Transaction.IsNull() {
+		object["transaction"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Transaction.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode TabAddedEvent.Transaction: %w", err)
+		}
+		object["transaction"] = encodedField
+	}
+	return json.Marshal(object)
 }
 
 func (value *TabAddedEvent) UnmarshalJSON(data []byte) error {
@@ -5004,12 +5089,13 @@ func (value *TabAddedEvent) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode TabAddedEvent: expected object")
 	}
 	var fields struct {
-		Entity    *Tab    `json:"entity"`
-		Index     *uint64 `json:"index"`
-		Pane      *ID     `json:"pane"`
-		Screen    *ID     `json:"screen"`
-		Surface   *ID     `json:"surface"`
-		Workspace *ID     `json:"workspace"`
+		Entity      *Tab             `json:"entity"`
+		Index       *uint64          `json:"index"`
+		Pane        *ID              `json:"pane"`
+		Screen      *ID              `json:"screen"`
+		Surface     *ID              `json:"surface"`
+		Transaction Presence[string] `json:"transaction"`
+		Workspace   *ID              `json:"workspace"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode TabAddedEvent: %w", err)
@@ -5036,6 +5122,7 @@ func (value *TabAddedEvent) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode TabAddedEvent: required field surface is missing or null")
 	}
 	decoded.Surface = *fields.Surface
+	decoded.Transaction = fields.Transaction
 	if fields.Workspace == nil {
 		return fmt.Errorf("decode TabAddedEvent: required field workspace is missing or null")
 	}
@@ -6441,6 +6528,11 @@ func parseEvent(raw map[string]any) Event {
 		}
 	case "detached":
 		var event DetachedEvent
+		if decodeEvent(raw, &event) {
+			return event
+		}
+	case "device-setup-step":
+		var event DeviceSetupStepEvent
 		if decodeEvent(raw, &event) {
 			return event
 		}

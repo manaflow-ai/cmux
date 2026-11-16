@@ -2462,6 +2462,9 @@ pub struct SurfaceResult {
     pub terminal_incarnation: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub terminal_resource_id: Option<String>,
+    /// The transaction of a new-tab request, when it sent one.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
 }
@@ -2591,6 +2594,26 @@ pub struct TabGroupRun {
     pub surfaces: Vec<Id>,
     #[serde(flatten)]
     pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TabPlace {
+    /// Right after this tab of pane.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after: Optional<Id>,
+    /// Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_creation: Optional<String>,
+    /// Right before this tab of pane.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before: Optional<Id>,
+    /// true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub joins: Optional<bool>,
+    /// true: the first tab after the pinned tabs.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub start: Optional<bool>,
 }
 
 #[rustfmt::skip]

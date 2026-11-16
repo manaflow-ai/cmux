@@ -1494,6 +1494,8 @@ export type SurfaceResult = {
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: string;
+  /** The transaction of a new-tab request, when it sent one. */
+  "transaction"?: string;
   "workspace_id"?: string;
 };
 
@@ -1563,6 +1565,19 @@ export type TabGroupRun = {
   "start": bigint;
   "surfaces": Array<Id>;
   [key: string]: unknown;
+};
+
+export type TabPlace = {
+  /** Right after this tab of pane. */
+  "after"?: (Id) | null;
+  /** Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet. */
+  "after_creation"?: (string) | null;
+  /** Right before this tab of pane. */
+  "before"?: (Id) | null;
+  /** true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start. */
+  "joins"?: (boolean) | null;
+  /** true: the first tab after the pinned tabs. */
+  "start"?: (boolean) | null;
 };
 
 /** Opaque JSON: A tab named by its numeric surface id or its public tab_ id. */
