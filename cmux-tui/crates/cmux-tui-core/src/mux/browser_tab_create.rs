@@ -435,8 +435,10 @@ impl Mux {
                     if takes_active {
                         pane.active_tab = index;
                         pane.active_at = active_at;
-                    } else if pane.active_tab >= index {
+                    } else if end > 0 && pane.active_tab >= index {
                         // The active tab stays active one slot to the right.
+                        // A pane that had no tab has no active tab to move:
+                        // its index stays 0.
                         pane.active_tab += 1;
                         active_index_moved = true;
                     }

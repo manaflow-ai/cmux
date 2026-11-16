@@ -2229,7 +2229,23 @@ The rules:
   one in the order of their arrival.
 - A create request with no `place` and no `transaction` takes no slot, as
   before this capability: its tab goes to the end of the strip when it comes
-  and takes the active tab then, also from the tab of a later request.
+  and takes the active tab then, if the request asks for the active tab (a
+  page with `activate: false` does not), also from the tab of a later
+  request.
+- The older `after` field of `new-frontend-browser-tab` with no `place` is
+  not in the rule of the requests applied one by one. The tab lands right
+  after the tab that `after` names, also when the request has a
+  `transaction`. The slot of a tab that still launches stays right of the
+  tab on its left, so the page lands right of that slot. Example: the strip
+  is `[a, b, c]`; a `new-tab` with a `transaction` and no `place` still
+  launches, with its slot at the end; a page with `after: c` and no `place`
+  comes. The strip is `[a, b, c, page]`, and `[a, b, c, new, page]` when the
+  terminal's tab comes. The same requests applied one by one give
+  `[a, b, c, page, new]`. The active tab is not that of the requests applied
+  one by one when the page has no `transaction`: its creation took no slot,
+  so the terminal's tab takes the active tab when it comes, where one by one
+  the page stays active. A client that wants the order and the active tab of
+  the requests applied one by one sends `place: {after}`, not `after`.
 - The active tab follows the same rule among the tabs of the requests that
   took a slot: a tab that comes after the tab of a later create request with
   a `place` or a `transaction` does not take the active tab from it. It goes
@@ -2254,11 +2270,14 @@ The rules:
 - A `transaction` names a creation of its own connection only. When a
   connection closes, no later request names its creations; a creation of it
   that has no tab yet keeps its slot.
-- The daemon keeps the 256 most recent creations that have a `transaction`
-  and have ended (the tab came, or the creation failed), for all connections
-  together. A creation that still waits for its tab does not leave by this
-  bound. The daemon keeps the creations in memory only: after a daemon
-  restart no earlier creation has a name, and a creation that the new run
+- The daemon keeps at most 256 creations that have a `transaction`, for all
+  connections together. The count has the creations that have ended (the tab
+  came, or the creation failed) and those that still wait for their tab.
+  Above 256, the oldest creation that has ended leaves first. A creation
+  that still waits for its tab is never removed by this bound, so the record
+  can have more than 256 while more than 256 wait. The daemon keeps the
+  creations in memory only: after a daemon restart no earlier creation has
+  a name, and a creation that the new run
   resumes takes its slot then.
 - A `move-tab`, a select or a close between a create request and its tab is
   applied when it arrives. The slot of the tab that still launches stays

@@ -65,7 +65,9 @@ impl HeldConnection {
             let _ = started_tx.lock().unwrap().send(seq);
             if let Some(wait) = usize::try_from(seq).ok().and_then(|seq| waits.get(seq)) {
                 // No clock: the wait ends at the release, or when the
-                // connection of the test drops its end of the gate.
+                // connection of the test drops its end of the gate. A test
+                // that calls `finish` before the `release` of a held launch
+                // waits here with no end: `release` comes first.
                 let _ = wait.lock().unwrap().recv();
             }
         });
