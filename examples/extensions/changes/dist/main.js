@@ -2441,7 +2441,7 @@
   }
   function problem(e) {
     if (e?.code === "integration.unavailable" || e?.code === "integration.not_connected" || e?.code === "scope.missing") {
-      return "Sign in to GitHub (gh auth login), or set a GitHub login in this extension's settings for public repositories.";
+      return "[demo diag] " + JSON.stringify({ code: e?.code, message: e?.message, details: e?.details ?? e?.data }).slice(0, 300);
     }
     return e?.message ?? "Unknown error";
   }
