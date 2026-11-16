@@ -937,6 +937,9 @@ try {
         socketOpenedMs: null,
         initializeAnsweredMs: null,
         attachAnsweredMs: null,
+        // The spare connected before its adopt event: no socket ask is timed from the event.
+        asks: 0,
+        lastAskMs: null,
       };
     } finally {
       servingSpare = false;
