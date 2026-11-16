@@ -25,7 +25,8 @@ struct WindowRecordSaves {
 @MainActor
 final class WindowRecordSaver {
     weak var owner: WindowManager?
-    private let host: AppServices
+    weak var host: AppServices?
+    private let work: BackgroundWork
     /// Debounced save of window geometry (architecture.md 1: 500 ms).
     let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
     /// The focused pane's save waits for the commit that shows the move (``focusDidSettle(_:pane:)``).
@@ -42,15 +43,16 @@ final class WindowRecordSaver {
     var saves = WindowRecordSaves()
     /// The daemon's window records of this install (`window-records-v1`).
     private let recordMirror = WindowRecordMirror()
-    private(set) lazy var launchRecord = AppLaunchRecord(host: host)
+    private(set) lazy var launchRecord = AppLaunchRecord(host: self)
     private var selectedTabsCache: [String: TabSelectionRecord] = [:]
     /// Panes whose remembered tab a record build read on the main thread (`SpaceSwitchRecordSaveTests`).
     var paneReads: Int { selectedTabsCache.values.reduce(0) { $0 + $1.paneReads } }
-    private var services: AppServices { host }
+    private var services: AppServices? { host }
 
     init(manager: WindowManager) {
         owner = manager
         host = manager.services
+        work = manager.services.work
     }
 
     /// A selection, focus, membership or sidebar change: save on the next turn.
@@ -83,7 +85,7 @@ final class WindowRecordSaver {
         // records on the main actor, so it starts once the commit that shows the move ran. The
         // ticket opens now, so the action that moved focus still answers once the record is stored.
         guard let host = manager.controller(for: state.id)?.window?.contentView?.layer else { return requestSave() }
-        if let ticket = services.daemon.openTicket() { focusTickets.append(ticket) }
+        if let ticket = services?.daemon.openTicket() { focusTickets.append(ticket) }
         guard !awaitingCommit else { return }
         awaitingCommit = true
         let probe = afterCommit ?? CommitProbe { [weak self] _, _ in self?.commitShowedFocus() }
@@ -108,7 +110,7 @@ final class WindowRecordSaver {
     private func requestSave() {
         launchRecord.schedule()
         saves.requested = true
-        if let ticket = services.daemon.openTicket() { saves.tickets.append(ticket) }
+        if let ticket = services?.daemon.openTicket() { saves.tickets.append(ticket) }
         scheduleDrain()
     }
 
@@ -133,6 +135,7 @@ final class WindowRecordSaver {
     private func drainSaves() async {
         saves.scheduled = false
         guard !saves.inFlight else { return }
+        guard let services else { saves.requested = false; return }
         saves.inFlight = true
         // wakeup-allow: each iteration writes one requested save; ends when none is pending
         while saves.requested, let manager = owner, !manager.isTerminating {
@@ -158,7 +161,7 @@ final class WindowRecordSaver {
     func saveNow() async -> (any Error)? {
         guard let manager = owner else { return nil }
         guard !manager.savedWindowsUnread else { return nil }
-        guard let windowState = services.daemon.windowState else { return DaemonError.notConnected }
+        guard let services, let windowState = services.daemon.windowState else { return DaemonError.notConnected }
         DebugPaneFocus.noteMainWork("record_saves")
         manager.captureGeometry()
         let records = currentRecords()
@@ -187,6 +190,7 @@ final class WindowRecordSaver {
 
     /// Mirrors the windows into the daemon's window records (`WindowRecordMirror`).
     private func mirror(_ records: [WindowRecord]) async {
+        guard let services else { return }
         let daemon = services.daemon
         guard daemon.supports(DaemonCapability.windowRecords.rawValue), let connection = daemon.connection,
               let install = try? await services.cloud.installID() else { return }
@@ -231,12 +235,30 @@ final class WindowRecordSaver {
     /// after a switch reads no pane.
     private func selectedTabs(window: WindowRegistry.Window, in registry: WindowRegistry) -> [String: String] {
         guard let manager = owner else { return [:] }
+        guard let services else { return [:] }
         guard let memory = manager.states[window.id]?.selection else { return [:] }
         return selectedTabsCache[window.id, default: TabSelectionRecord()].tabs(
             of: memory, workspaces: window.workspaceIDs, stores: services.machines.daemons.map(\.store),
             workspace: { services.workspace(id: $0) },
             // The registry names the first window that lists a workspace: this one's list only for another's.
             lists: { registry.owner(of: $0) == window.id || window.workspaceIDs.contains($0) })
+    }
+}
+
+@MainActor
+extension WindowRecordSaver: LaunchRecordHost {
+    var launchRecordBundleID: String? { host?.environment.launch.bundleID }
+    var launchRecordWork: BackgroundWork { work }
+    var launchRecordRestored: Bool { host?.windows.restored ?? false }
+    var launchRecordSocketPath: String? {
+        get async {
+            guard let host else { return nil }
+            return await host.launchRecordSocketPath
+        }
+    }
+
+    func launchRecordSnapshot(images: [String: LaunchRecordImage], socketPath: String) -> LaunchRecordSnapshot {
+        host?.launchRecordSnapshot(images: images, socketPath: socketPath) ?? LaunchRecordSnapshot()
     }
 }
 
