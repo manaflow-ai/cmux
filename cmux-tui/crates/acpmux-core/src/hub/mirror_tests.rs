@@ -477,7 +477,7 @@ fn the_writer_counts_each_takeover_as_applied_or_held() {
     assert_eq!(hub.takeover_turns(ORIGIN), TakeoverTurns::default());
     hub.takeover(ORIGIN, Source::Mirror).unwrap();
     writer.process_batch();
-    assert_eq!(hub.takeover_turns(ORIGIN), TakeoverTurns { applied: 1, held: 0 });
+    assert_eq!(hub.takeover_turns(ORIGIN), TakeoverTurns { applied: 1, held: 0, refused: 0 });
     let record = writer.published.load().origin(ORIGIN).cloned().unwrap_or(OriginRecord {
         seq: 0,
         id: ORIGIN.into(),
@@ -488,7 +488,7 @@ fn the_writer_counts_each_takeover_as_applied_or_held() {
     writer.origins.retry.insert(ORIGIN.to_owned(), record);
     hub.takeover(ORIGIN, Source::V1).unwrap();
     writer.process_batch();
-    assert_eq!(hub.takeover_turns(ORIGIN), TakeoverTurns { applied: 1, held: 1 });
+    assert_eq!(hub.takeover_turns(ORIGIN), TakeoverTurns { applied: 1, held: 1, refused: 0 });
     assert_eq!(hub.source(ORIGIN), Some(Source::Mirror), "the held takeover changed nothing");
 }
 
@@ -521,4 +521,19 @@ fn a_turn_takes_units_up_to_the_cap_and_the_local_row() {
     writer.process_batch();
     assert_eq!(marked(&hub), origins);
     assert_eq!(hub.snapshot().len(), origins * MAX_UNIT_CHANGES + 1);
+}
+
+/// A takeover of a new origin past the bound on origins is refused, and
+/// counted: a dialer waiting on it sees it end instead of waiting for ever.
+#[test]
+fn a_takeover_past_the_origin_bound_is_counted_as_refused() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    for n in 0..MAX_ORIGINS {
+        hub.takeover(&format!("peer-{n:03}"), Source::V1).unwrap();
+        writer.process_batch();
+    }
+    hub.takeover("one-more", Source::Mirror).unwrap();
+    writer.process_batch();
+    assert_eq!(hub.takeover_turns("one-more"), TakeoverTurns { applied: 0, held: 0, refused: 1 });
+    assert_eq!(hub.source("one-more"), None);
 }

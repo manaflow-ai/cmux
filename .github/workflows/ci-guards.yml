@@ -676,7 +676,7 @@ jobs:
       # full database (fake bun and fake connect; no network, no secret).
       - name: Validate the Cloud journey and deploy gate retries
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
-        run: bun test scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts
+        run: bun test scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts
 
       # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
       # fake CLIs; no network, no secret).
@@ -1202,6 +1202,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
 
+      - name: Validate pull_request tailnet joins are opt-in and same-repo only
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_tailnet_oidc_pr_gate.py
+
       - name: Validate triage radar scoring
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_triage_radar.py
@@ -1609,6 +1613,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_superseded_push.py
 
+      - name: Validate the Team-signed tree signs only on nightly-next and holds no merge
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_team_sign.py
+
       - name: Validate nightly builds and signers never cancel or replace a waiting run
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_delivery_concurrency.py
@@ -1941,6 +1949,7 @@ jobs:
           python3 tests/test_ci_nightly_no_hosted_mac.py
           python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_warm_sources.py
+          python3 tests/test_ci_cloud_journey_prod_preclaim_login.py
           python3 tests/test_ci_checkout_lean.py
           python3 tests/test_ci_sparse_checkout_imports.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py

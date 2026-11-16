@@ -106,13 +106,7 @@ pub struct DaemonOptions {
     pub take_over: bool,
 }
 
-/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
-/// a panic in a request task ends only that task and used to leave just
-/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
-/// app sends new lines to Sentry.
-pub fn panic_log_path() -> std::path::PathBuf {
-    home().join("panics.jsonl")
-}
+pub use crate::config::panic_log_path;
 
 /// Debug builds only: `thread` makes a worker thread panic once the hook
 /// is installed (tests/panic_log.rs). Its line carries `"test": true`.
@@ -580,6 +574,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         tracing::warn!(
             "WireGuard transport off for this run: this home was copied from another machine"
         );
+        tracing::warn!("hub carrier off for this run: this home was copied from another machine");
     }
     // Start one mesh before Hub starts its saved peers. It forwards only to
     // the WebSocket listener bound above, whose existing tokens remain mandatory.
@@ -932,6 +927,14 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             {
                 let _phase = gauges.phase("wait for store");
                 hub.wait_store().await;
+            }
+            // The list's kept order first, before any log is read (`list_order.rs`): a list page
+            // or usage pass that comes before the logs are read waits for this sort alone, not
+            // for adoption and every log as well. After the ready line, so start stays instant.
+            {
+                let _phase = gauges.phase("list order");
+                let sorting = hub.clone();
+                let _ = tokio::task::spawn_blocking(move || sorting.sort_list_order()).await;
             }
             #[cfg(debug_assertions)]
             test_panic_in("startup");

@@ -80,12 +80,22 @@ pub struct Counters {
 
 /// The takeovers the writer handled for one origin: those it applied (the
 /// source set, the mark off) and those it held with the origin (leaving, or
-/// its record waiting for the storage retry). A held takeover that is later
-/// released counts again when it applies.
+/// its record waiting for the storage retry), and those it refused (the
+/// origin past the bound on origins). A held takeover that is later released
+/// counts again when it applies.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TakeoverTurns {
     pub applied: u64,
     pub held: u64,
+    pub refused: u64,
+}
+
+/// What the writer did with one takeover.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum TakeoverTurn {
+    Applied,
+    Held,
+    Refused,
 }
 
 /// One read of the mirror's counters.
@@ -127,13 +137,13 @@ impl Counters {
         }
     }
 
-    pub(super) fn note_takeover(&self, origin: &str, applied: bool) {
+    pub(super) fn note_takeover(&self, origin: &str, turn: TakeoverTurn) {
         if let Ok(mut takeovers) = self.takeovers.lock() {
             let turns = takeovers.entry(origin.into()).or_default();
-            if applied {
-                turns.applied += 1;
-            } else {
-                turns.held += 1;
+            match turn {
+                TakeoverTurn::Applied => turns.applied += 1,
+                TakeoverTurn::Held => turns.held += 1,
+                TakeoverTurn::Refused => turns.refused += 1,
             }
         }
     }

@@ -47,6 +47,9 @@ mod imp {
         pub(crate) fn status(&self) -> Value {
             json!({"state": "off", "reason": "cmux Remote runs on macOS only"})
         }
+        pub(crate) fn screen_device_id(&self) -> Option<String> {
+            None
+        }
         pub(crate) fn capture(
             &self,
             _method: &str,

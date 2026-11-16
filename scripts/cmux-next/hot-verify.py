@@ -348,6 +348,18 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
     fork = git(repo, "merge-base", base, head, check=False)
     if not SHA.fullmatch(fork):
         raise Usage(f"{head[:12]} shares no history with {base[:12]}")
+    # An app older than the change's own fork (a nightly lags feat-cmux-next): fork..head would count everything
+    # merged since the nightly as the change, so a 4-file Rust PR "needed a build" for 33 Swift files that were
+    # not its own. The change is what it adds to feat-cmux-next (own fork..head); the commits between the app and
+    # that fork are noted, and the web ABI check still compares the head with the app.
+    own = git(repo, "merge-base", head, base_tip(repo), check=False)
+    # fork == base: the app's commit is an ancestor of the head; own != base: the change forked later.
+    behind = (fork == base and SHA.fullmatch(own or "") is not None and own not in (base, head)
+              and subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", base, own],
+                                 capture_output=True).returncode == 0)
+    if behind:
+        lag = git(repo, "rev-list", "--count", f"{base}..{own}", check=False) or "?"
+        fork = own
     # hot-apply's own rules over the change's own commits (fork..head), as a branch: its web is not published
     # per merge, so it comes back under LEFT_WEB, and its FFI is never swapped.
     planned = h._plan(rules, Path(NO_APP), head, True, fork)
@@ -355,6 +367,9 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
            "layers": [], "needs_build": False, "build": {}, "notes": src["notes"] + list(planned.get("notes") or [])}
     if src.get("pr"):
         out["pr"] = src["pr"]
+    if behind:
+        out["notes"].append(f"the app's commit {base[:12]} is {lag} commits behind the change's fork {fork[:12]} "
+                            "on feat-cmux-next: those commits are not the change, and a look does not show them")
     left = dict(planned.get("left") or {})
     web = left.pop(LEFT_WEB, [])
     helpers = left.pop(LEFT_HELPERS, [])
@@ -369,10 +384,13 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
         else:
             out["layers"].append("web")
     if "rust" in planned.get("parts", []):
-        if fork != base and h.tree_key(rules, fork) != h.tree_key(rules, base):
+        if not behind and fork != base and h.tree_key(rules, fork) != h.tree_key(rules, base):
             out["build"]["Rust the app has and the change lacks"] = [
                 f"the app's commit {base[:12]} has cmux-tui changes the change (branched at {fork[:12]}) lacks: "
                 "rebase it onto the app's commit, or build it"]
+        elif behind and (pinned := lag_pins_daemon(h, repo, base, fork)):
+            # The head's daemon carries the lagging commits' FFI changes, which the app does not link.
+            out["build"]["Rust the app links (FFI), in the commits the app lacks"] = pinned
         else:
             out["layers"].append("rust")
             out["tree_key"] = planned.get("tree_key")
@@ -387,6 +405,27 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
         out["build"]["Rust only bundled helpers use"] = list(helpers)
     out["needs_build"] = bool(out["build"])
     return out
+
+
+FFI_PIN_FILE = "Packages/macOS/CmuxNext/app-ffi-pin.json"
+
+
+def lag_pins_daemon(h, repo: Path, base: str, fork: str) -> list[str]:
+    """The Rust the app links through FFI that changed between the app's commit and the change's fork
+    (hot-apply's pins_daemon over that range): a daemon built at the head speaks those changes and the app does
+    not.
+
+    None when both commits pin the same app FFI release (app-ffi-pin.json, the same blob): an app links the
+    release its commit pins, not the FFI sources at its commit, so an app built at the fork would link the very
+    library this app has, beside a daemon built from the fork's sources. A look then shows what a NIGHTLY at the
+    fork plus the change would; 3 of the first 38 automatic looks (2026-11-16) were refused on FFI sources that
+    the pin had not taken yet. With no pin file at either end, the sources decide, as before."""
+    pins = [git(repo, "rev-parse", "--verify", "--quiet", f"{c}:{FFI_PIN_FILE}", check=False) for c in (base, fork)]
+    if all(SHA.fullmatch(p or "") for p in pins) and pins[0] == pins[1]:
+        return []
+    files = h.live_apply.classify_range(str(repo), base, fork)["files"]
+    # As pins_daemon: since #43797 classify puts cmux-tui's own C, Objective-C and Zig in "daemon" too.
+    return h.linked_rust(repo, sorted(set(files.get("daemon", []))))
 
 
 def plan_text(planned: dict) -> str:

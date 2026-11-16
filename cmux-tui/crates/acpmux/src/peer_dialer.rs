@@ -17,13 +17,38 @@ use super::*;
 use crate::link_v2::{self, Adapter, Slot};
 use crate::peer_mirror::{DialCounters, MIRROR_INBOX_BYTES};
 use acpmux_core::hub::{Hub as Index, Source};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// One link's frame lines on their way to its mirror, counted in frame bytes.
+/// The count is this inbox's own: a task of an earlier link that still hands a
+/// line takes it off that link's count, never this one's.
 pub(super) struct Inbox {
     link: u64,
     frames: mpsc::UnboundedSender<String>,
+    held: Arc<AtomicU64>,
     counters: Arc<DialCounters>,
+}
+
+/// The mirror's end of an inbox.
+pub(super) struct Lines {
+    lines: mpsc::UnboundedReceiver<String>,
+    held: Arc<AtomicU64>,
+}
+
+impl Lines {
+    pub(super) async fn recv(&mut self) -> Option<String> {
+        self.lines.recv().await
+    }
+
+    #[cfg(test)]
+    fn try_recv(&mut self) -> Option<String> {
+        self.lines.try_recv().ok()
+    }
+
+    /// A line the reader took is out of the inbox once the client holds it.
+    pub(super) fn handed(&self, line: &str) {
+        self.held.fetch_sub(link_v2::frame_bytes(line) as u64, Ordering::Relaxed);
+    }
 }
 
 /// What became of a frame line offered to a link's inbox.
@@ -37,13 +62,15 @@ pub(super) enum Offer {
 }
 
 impl Inbox {
-    pub(super) fn new(
-        link: u64,
-        counters: Arc<DialCounters>,
-    ) -> (Self, mpsc::UnboundedReceiver<String>) {
+    pub(super) fn new(link: u64, counters: Arc<DialCounters>) -> (Self, Lines) {
         let (frames, lines) = mpsc::unbounded_channel();
-        counters.inbox_bytes.store(0, Ordering::Relaxed);
-        (Self { link, frames, counters }, lines)
+        let held = Arc::new(AtomicU64::new(0));
+        (Self { link, frames, held: held.clone(), counters }, Lines { lines, held })
+    }
+
+    /// Frame bytes read off the link and not yet handed to the client.
+    pub(super) fn held(&self) -> u64 {
+        self.held.load(Ordering::Relaxed)
     }
 
     pub(super) fn offer(&self, link: u64, line: String) -> Offer {
@@ -51,26 +78,20 @@ impl Inbox {
             return Offer::Dropped;
         }
         let bytes = link_v2::frame_bytes(&line) as u64;
-        let held = self.counters.inbox_bytes.fetch_add(bytes, Ordering::Relaxed) + bytes;
+        let held = self.held.fetch_add(bytes, Ordering::Relaxed) + bytes;
         if held > MIRROR_INBOX_BYTES as u64 {
-            self.counters.inbox_bytes.fetch_sub(bytes, Ordering::Relaxed);
+            self.held.fetch_sub(bytes, Ordering::Relaxed);
             self.counters.inbox_overflows.fetch_add(1, Ordering::Relaxed);
             return Offer::Overflow;
         }
         match self.frames.send(line) {
             Ok(()) => Offer::Queued,
             Err(_) => {
-                self.counters.inbox_bytes.fetch_sub(bytes, Ordering::Relaxed);
+                self.held.fetch_sub(bytes, Ordering::Relaxed);
                 Offer::Dropped
             }
         }
     }
-}
-
-/// The reading end's part: a line it took is out of the inbox once the
-/// client holds it.
-pub(super) fn handed(counters: &DialCounters, line: &str) {
-    counters.inbox_bytes.fetch_sub(link_v2::frame_bytes(line) as u64, Ordering::Relaxed);
 }
 
 #[derive(Default)]
@@ -91,6 +112,11 @@ impl Peer {
 
     pub fn mirror_counters(&self) -> &DialCounters {
         &self.mirror.counters
+    }
+
+    /// Frame bytes the running mirror's inbox holds: none when no mirror runs.
+    pub fn mirror_inbox_bytes(&self) -> u64 {
+        self.mirror.inbox.lock_or_recover().as_ref().map_or(0, Inbox::held)
     }
 
     /// A v2 frame line read on `link`: to that link's mirror, or dropped when
@@ -167,7 +193,7 @@ impl Peer {
                 while let Some(line) = inbox.recv().await {
                     let Some(frame) = link_v2::parse(&line) else { break };
                     let delivered = adapter.deliver(&frame).await;
-                    handed(&me.mirror.counters, &line);
+                    inbox.handed(&line);
                     if !delivered {
                         break;
                     }
@@ -243,16 +269,16 @@ mod tests {
                 Offer::Queued => queued += 1,
                 other => break other,
             }
-            assert!(counters.inbox_bytes.load(Ordering::Relaxed) <= MIRROR_INBOX_BYTES as u64);
+            assert!(inbox.held() <= MIRROR_INBOX_BYTES as u64);
         };
         assert_eq!(end, Offer::Overflow);
         assert_eq!(queued, MIRROR_INBOX_BYTES / (frame + 5));
         assert_eq!(counters.inbox_overflows.load(Ordering::Relaxed), 1);
         let mut held = 0;
-        while let Ok(line) = lines.try_recv() {
+        while let Some(line) = lines.try_recv() {
             held += link_v2::frame_bytes(&line);
         }
-        assert_eq!(held as u64, counters.inbox_bytes.load(Ordering::Relaxed));
+        assert_eq!(held as u64, inbox.held());
         assert!(held <= MIRROR_INBOX_BYTES);
     }
 
@@ -265,9 +291,9 @@ mod tests {
         for _ in 0..1000 {
             assert_eq!(inbox.offer(7, line(200 * 1024)), Offer::Queued);
             let line = lines.try_recv().expect("the queued line");
-            handed(&counters, &line);
+            lines.handed(&line);
         }
-        assert_eq!(counters.inbox_bytes.load(Ordering::Relaxed), 0);
+        assert_eq!(inbox.held(), 0);
         assert_eq!(counters.inbox_overflows.load(Ordering::Relaxed), 0);
     }
 
@@ -276,6 +302,25 @@ mod tests {
         let counters = Arc::new(DialCounters::default());
         let (inbox, _lines) = Inbox::new(7, counters.clone());
         assert_eq!(inbox.offer(8, line(100)), Offer::Dropped);
-        assert_eq!(counters.inbox_bytes.load(Ordering::Relaxed), 0);
+        assert_eq!(inbox.held(), 0);
+    }
+
+    /// An earlier link's task can hand a line after the next link's inbox
+    /// opened (it was inside the adapter's deliver). It takes the bytes off
+    /// its own inbox's count: the new inbox's count does not wrap, and it
+    /// takes a frame.
+    #[test]
+    fn an_old_link_handing_a_line_leaves_the_new_inbox_whole() {
+        let counters = Arc::new(DialCounters::default());
+        let (old, mut old_lines) = Inbox::new(7, counters.clone());
+        assert_eq!(old.offer(7, line(100 * 1024)), Offer::Queued);
+        let buffered = old_lines.try_recv().expect("the buffered line");
+        let (new, mut new_lines) = Inbox::new(8, counters.clone());
+        old_lines.handed(&buffered);
+        assert_eq!(new.held(), 0);
+        assert_eq!(new.offer(8, line(1000)), Offer::Queued);
+        assert_eq!(new.held(), 1005);
+        assert!(new_lines.try_recv().is_some());
+        assert_eq!(counters.inbox_overflows.load(Ordering::Relaxed), 0);
     }
 }

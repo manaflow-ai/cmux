@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 145ed467dcba51946c60ca8de389e6ef76a985ab08b05534873aa9f18d93e9c0. */
+/* cmux-tui mux protocol 12, IR d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -623,6 +623,7 @@ export type IdentifyResult = {
   "pid": number;
   "protocol": number;
   "registry_id": string;
+  "screen_device_id"?: (string) | null;
   "session": string;
   "session_id"?: string;
   "terminal_revision": bigint;
@@ -1601,6 +1602,21 @@ export type TerminalColors = {
   "palette"?: Record<string, ColorHex>;
   "selection_bg": (ColorHex) | null;
   "selection_fg": (ColorHex) | null;
+};
+
+export type TerminalCommandContext = {
+  "command": (string) | null;
+  "cwd": (string) | null;
+  "exit_code": (number) | null;
+  "output": string;
+  "text": string;
+  "truncated": boolean;
+};
+
+export type TerminalCommandContextIntent = "context" | "fix";
+
+export type TerminalCommandContextResult = {
+  "context": (TerminalCommandContext) | null;
 };
 
 export type TerminalCommandDeleteResult = {

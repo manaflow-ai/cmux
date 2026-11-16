@@ -63,6 +63,7 @@ mod pull;
 mod relay;
 /// `cmux link sync relay`'s copy (`cmux link agent move --sync relay`).
 pub(super) use relay::relay;
+mod fresh;
 mod remote;
 mod seed_pull;
 mod small_writes;
@@ -432,9 +433,6 @@ pub(super) fn progress_printer() -> impl FnMut(Progress) {
 /// A failed push's error code and message: the machine's full disk is
 /// `disk_full` in plain words, a refusal of the machine its own code.
 pub(super) fn push_failure(error: &anyhow::Error) -> (String, String) {
-    if let Some(large) = error.downcast_ref::<size_cap::TooLarge>() {
-        return (size_cap::CODE.to_string(), large.to_string());
-    }
     match remote::refusal_code(error) {
         Some("fs.no_space") => {
             ("disk_full".to_string(), "The Cloud machine's disk is full".to_string())
@@ -1029,8 +1027,7 @@ fn push_inner(
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     let rules = if files_only { local::Rules::Share } else { local::Rules::Copy };
     // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
-    let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local))
-        .then(|| size_cap::Cap::of(&local));
+    let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local)).then(size_cap::Cap::new);
     let mut set = local::collect(&local, rules, cap)?;
     let before = set.files.len();
     let in_git = set.git;
@@ -1085,7 +1082,7 @@ fn push_inner(
     // What a pull compares the machine's branch and staged changes with.
     let git = if git_record { Some(git_back::base_of(&local)?) } else { None };
     let mut remote = Remote::connect_negotiated(socket)?;
-    remote.mkdir_all(remote_root)?;
+    let mut fresh = fresh::Fresh::make_root(&mut remote, remote_root)?;
     // A store fetch of an earlier push may still be running there: it stops
     // before this push deletes or writes anything.
     let served = store::fetch_served(socket);
@@ -1193,7 +1190,9 @@ fn push_inner(
         }
         // A symlink of the machine's on the way to it: the write would
         // land wherever that link points, so this Mac's file stays.
-        if through_link(&mut remote, remote_root, parent, &mut folder_links)? {
+        // Below a folder this push made, nothing is the machine's ([`fresh`]).
+        let ours = fresh.covers(parent);
+        if !ours && through_link(&mut remote, remote_root, parent, &mut folder_links)? {
             set.skips.note(relative, skips::Why::SymlinkTaken);
             tally.step(bytes);
             continue;
@@ -1202,10 +1201,13 @@ fn push_inner(
         // way (one fs.list a folder, not one fs.stat a file): a symlink put
         // there since is refused by the machine itself. Otherwise the
         // connection that writes asks right before its write.
-        let found =
-            if remote.no_follow() { Some(listings.kind(&mut remote, &target)?) } else { None };
+        let found = match (remote.no_follow(), ours) {
+            (false, _) => None,
+            (true, true) => Some(None),
+            (true, false) => Some(listings.kind(&mut remote, &target)?),
+        };
         if made.insert(parent.to_string()) {
-            remote.mkdir_all(parent)?;
+            fresh.make(&mut remote, parent)?;
         }
         let job =
             Job { relative: relative.clone(), target, file: file.clone(), sha256, bytes, found };
@@ -1217,6 +1219,8 @@ fn push_inner(
             small.push(job);
         }
     }
+    // The new folders, several to a round trip, before anything is written in them.
+    fresh.flush(&mut remote)?;
     stages.mark("prepare");
     // Through the store, the machine fetches first; what it did not write
     // goes over the link below, like every other write.

@@ -25,6 +25,7 @@
 // Stop condition: the recorder runs only between `start` and `stop` (one after-paint read a frame and
 // one heartbeat chain while it records).
 import type { Page } from "playwright";
+import { TRANSCRIPT_ROW } from "../../src/agent-session/acpmux/transcriptSelectors";
 
 /// One 120 Hz slot (ms).
 export const SLOT_MS = 1000 / 120;
@@ -74,9 +75,9 @@ declare global {
 }
 
 /// The page side: defines `window.__motion`. Runs in the page, so it closes over nothing. Tracked:
-/// every transcript row (`row:<id>`), the composer's card (`composer`), the queue list (`queue`) and
+/// every transcript row (`row:<id>`, found by TRANSCRIPT_ROW, passed in), the composer's card (`composer`), the queue list (`queue`) and
 /// each queued prompt's row (`queued:<id>`), the thinking/live line (`live`).
-export function defineMotionRecorder() {
+export function defineMotionRecorder({ TRANSCRIPT_ROW }: { TRANSCRIPT_ROW: string }) {
   if ((window as { __motion?: unknown }).__motion) return;
   let recording = false;
   let frames: MotionFrame[] = [];
@@ -97,7 +98,7 @@ export function defineMotionRecorder() {
   };
   const keyOf = (element: Element | null): string => {
     if (!element) return "?";
-    const row = element.closest<HTMLElement>(".acpmux-row[data-row-id]");
+    const row = element.closest<HTMLElement>(TRANSCRIPT_ROW);
     if (row) return `row:${row.dataset.rowId}`;
     const queued = element.closest<HTMLElement>(".acpmux-queued[data-prompt-id]");
     if (queued) return `queued:${queued.dataset.promptId}`;
@@ -119,7 +120,7 @@ export function defineMotionRecorder() {
       if (box.height === 0 || !inView) return;
       els[key] = { top: box.top, height: box.height, opacity: Number.parseFloat(getComputedStyle(element).opacity) };
     };
-    for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
+    for (const row of scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)) {
       const box = row.getBoundingClientRect();
       sample(`row:${row.dataset.rowId}`, row, box.bottom > view.top && box.top < view.bottom);
     }
@@ -198,8 +199,8 @@ export function defineMotionRecorder() {
 
 /// Defines the recorder in `page` (after installPaintedFrames).
 export async function installMotionRecorder(page: Page) {
-  await page.addInitScript(defineMotionRecorder);
-  await page.evaluate(defineMotionRecorder);
+  await page.addInitScript(defineMotionRecorder, { TRANSCRIPT_ROW });
+  await page.evaluate(defineMotionRecorder, { TRANSCRIPT_ROW });
 }
 
 const pct = (values: number[], p: number) => {
