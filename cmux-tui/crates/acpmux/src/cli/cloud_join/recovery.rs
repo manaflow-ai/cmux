@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-const FILE: &str = "machine-join.pending.json";
+use crate::machine_record::recovery::FILE;
 #[derive(Serialize, Deserialize)]
 struct Pending {
     version: u8,
@@ -113,16 +113,6 @@ pub(super) fn retire_sign_in_pending_at(
     sync_ancestors(home)
 }
 
-/// The box a join pending in `home` was proposed on: `None` when there is none (or it cannot be
-/// read: [`read`] refuses it before it is used), `Some(None)` for one an older build wrote with
-/// no fingerprint. Read for its fingerprint only, by any process that decides whether `home`
-/// was copied (`home_copy_state`).
-pub(super) fn pending_made_on(home: &Path) -> Option<Option<String>> {
-    let file = crate::config::private_state_file(&home.join(FILE)).ok()?;
-    let pending: serde_json::Value = serde_json::from_reader(file).ok()?;
-    Some(pending.get("host_fingerprint").and_then(|made| made.as_str()).map(str::to_owned))
-}
-
 pub(super) fn pending_origin() -> Result<Option<String>> {
     Ok(read()?.map(|pending| pending.hub))
 }
@@ -147,7 +137,7 @@ fn read() -> Result<Option<Pending>> {
         || !valid
         || origin(Some(p.hub.clone())).ok().as_deref() != Some(&p.hub)
         || !valid_name(&p.name)
-        || !matches!(p.platform.as_str(), "macos" | "linux")
+        || !matches!(p.platform.as_str(), "macos" | "linux" | "windows")
     {
         return Err(store_error().into());
     }
@@ -207,9 +197,54 @@ fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Res
     let _ = crate::home_fs::remove_file(temp); // only the file this call created
     result
 }
-#[cfg(not(unix))]
-pub(super) fn write_durable(_: &Path, _: &[u8], _: bool) -> Result<()> {
-    Err(store_error().into())
+/// The same write on Windows: an owner-only temporary file (`owner_only::create_new`), flushed
+/// and closed, then renamed over the destination (`replace`) or hard-linked to it (a destination
+/// that appeared meanwhile fails the link, as `create_new` would). NTFS journals the folder's
+/// names, and a folder handle cannot be flushed there, so no ancestor is synced.
+#[cfg(windows)]
+pub(super) fn write_durable(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
+    let parent = path.parent().ok_or_else(store_error)?;
+    crate::config::private_state_dir(parent)?;
+    let check = || -> Result<()> {
+        match std::fs::symlink_metadata(path) {
+            Ok(_) => {
+                anyhow::ensure!(replace, "pending already exists");
+                crate::config::private_state_file(path)?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+        Ok(())
+    };
+    check()?;
+    let temp = parent.join(format!(".machine-join-{}.tmp", uuid::Uuid::new_v4()));
+    let mut file = crate::config::private_state_create_new(&temp)?;
+    let result = (|| {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        // Closed first: Windows renames no file that is still open without delete sharing.
+        drop(file);
+        check()?;
+        if replace {
+            crate::home_fs::rename(&temp, path)?;
+        } else {
+            crate::home_fs::hard_link(&temp, path)?;
+        }
+        Ok(())
+    })();
+    let _ = crate::home_fs::remove_file(&temp); // only the file this call created
+    result
+}
+
+/// The `platform` a join proposes: the hub's `macos`, `linux` or `windows`.
+pub(super) fn this_platform() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(windows) {
+        "windows"
+    } else {
+        "linux"
+    }
 }
 
 fn valid_name(name: &str) -> bool {
@@ -223,6 +258,10 @@ fn valid_name(name: &str) -> bool {
 // Sync every ancestor, including newly created custom state roots. A leaf
 // directory fsync alone does not make that directory's own name durable.
 pub(super) fn sync_ancestors(dir: &Path) -> Result<()> {
+    // Windows opens no folder as a file to flush it; NTFS journals the names (`write_durable`).
+    if cfg!(windows) {
+        return Ok(());
+    }
     sync_ancestors_with(dir, |path| {
         std::fs::File::open(path)?.sync_all()?;
         Ok(())
@@ -440,7 +479,7 @@ fn new_pending(
         hub,
         name,
         hostname: crate::pairing::machine_name(),
-        platform: if cfg!(target_os = "macos") { "macos" } else { "linux" }.to_owned(),
+        platform: this_platform().to_owned(),
         wg_public_key: leave::node_key_for_join_at(&state_dir())
             .map_err(|_| store_error())?
             .public_key_b64(),

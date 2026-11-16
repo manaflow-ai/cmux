@@ -52,6 +52,9 @@ final class TabHoverCardController: HoverCardSource {
     }
 
     private var body: TabHoverCardView?
+    /// The other tab card view: a retarget shows the next tab in it while the last tab's view fades
+    /// out at its own size (`HoverCardPanel+Glide.swift`), and the two swap roles on the next one.
+    private var spareBody: TabHoverCardView?
     /// Group chips' summary card body, reused chip to chip.
     private var groupBody: GroupHoverCardView?
     private var thumbnailTask: Task<Void, Never>?
@@ -155,16 +158,27 @@ final class TabHoverCardController: HoverCardSource {
                 body?.applyColors()
             }
         }
-        let body = body ?? TabHoverCardView()
+        var body = body ?? TabHoverCardView()
+        // A retarget while a card shows: the next tab goes in the other view, so the last tab's content
+        // fades out as it was drawn. It keeps the last card's picture frame (empty: the next picture fades
+        // into it), and none of the last tab's picture or samples.
+        if bodyID != id, !opensFresh, cardIsShowing(), let last = self.body {
+            let next = spareBody ?? TabHoverCardView()
+            spareBody = last
+            next.setThumbnail(nil)
+            next.setThumbnailVisible(last.showsThumbnail)
+            next.resetResourceHistory()
+            body = next
+        }
         self.body = body
         body.configure(content)
         // Compact previews (Debug Settings `tabs.hoverPreviews`) show the facts without a thumbnail.
         let full = TabTunables.hoverPreviews.value == .full
         if case .tab = content {
             body.setResources(resources.report ?? lastReport(for: tab))
-            // On a retarget, a tab whose thumbnail is not known yet keeps what the card
-            // shows (the last tab's picture, or no frame) until its own lands: never an
-            // empty frame that collapses again (R131). A card opening fresh shows no frame
+            // On a retarget, a tab whose thumbnail is not known yet keeps the frame the card
+            // shows (empty, or none) until its own picture fades in: never an empty frame
+            // that collapses again (R131). A card opening fresh shows no frame
             // until the picture lands (`loadThumbnail` grows it): an empty gray well under
             // the facts read as broken (Leo 2026-10-20).
             if !full || noThumbnail.contains(tab) {
@@ -294,7 +308,7 @@ final class TabHoverCardController: HoverCardSource {
                 self.noThumbnail.insert(id)
                 self.body?.setThumbnail(nil)
                 self.body?.setThumbnailVisible(false)
-                self.coordinator.contentChanged(target)
+                self.coordinator.contentChanged(target, animated: true)
                 return
             }
             self.thumbnails.insert(image, for: id)
@@ -304,7 +318,8 @@ final class TabHoverCardController: HoverCardSource {
             // It fades into the new frame, not swapped in over a hidden tab's picture.
             if grows { self.body?.setThumbnail(nil) }
             self.body?.setThumbnail(image)
-            if grows { self.coordinator.contentChanged(target) }
+            // The card grows to hold it on its spring while it fades in (msg 34360: it snapped taller).
+            if grows { self.coordinator.contentChanged(target, animated: true) }
         }
     }
 }

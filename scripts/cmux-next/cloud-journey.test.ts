@@ -4,13 +4,13 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
-import { Journey, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
+import { clientPlatformOrigin, Journey, preclaimGuestFacts, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummaryMarkdown, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -83,7 +83,43 @@ describe("cloud journey", () => {
       post_bind_login: "receipt",
       first_chat_ms: null,
       first_reply_ms: null,
+      reply_not_judged: null,
+      claimed_behind: null,
+      spare_skips: null,
+      spare_fallback: null,
     });
+  });
+
+  test("preclaim records name a claim served one image roll behind (held across a roll) and the claim's skips", () => {
+    const held = preclaimClaimRecord({ claim: 0, answer: { claim: { behind: true }, spare_skips: { image: 2, "vm_private id": 1 }, spare_fallback: "image" } });
+    expect(held.claimed_behind).toBe(true);
+    expect(held.spare_skips).toEqual({ image: 2 });
+    expect(held.spare_fallback).toBe("image");
+    const current = preclaimClaimRecord({ claim: 1, answer: { claim: { behind: false } } });
+    expect(current.claimed_behind).toBe(false);
+    expect(preclaimClaimRecord({ claim: 2, answer: { machine_id: "vm_cold" } }).claimed_behind).toBeNull();
+  });
+
+  test("the preclaim summary counts held claims and their failures apart from normal hits", () => {
+    const ok = { postBindLogin: "receipt" as const, firstChatMs: 5, firstReplyMs: 9 };
+    const rows = [
+      preclaimClaimRecord({ claim: 0, leaseHit: true, answer: { claim: { behind: false }, spare_skips: { image: 1 } }, ...ok }),
+      preclaimClaimRecord({ claim: 1, leaseHit: true, answer: { claim: { behind: true } }, ...ok }),
+      preclaimClaimRecord({ claim: 2, leaseHit: true, answer: { claim: { behind: true }, spare_skips: { image: 3, disconnected: 1 } }, postBindLogin: "receipt", firstChatMs: 5, firstReplyMs: null }),
+      // Claim 2 got no reply but its login arrived: the reply is never judged, so it is not a held failure.
+      preclaimClaimRecord({ claim: 3, leaseHit: false, answer: { spare_fallback: "image", spare_skips: { image: 2 } }, postBindLogin: "post-bind", firstReplyMs: 40 }),
+    ];
+    const failures = [preclaimFailureRecord(4, new Error("reply wait exit 1"), [], true), preclaimFailureRecord(5, new Error("create refused"))];
+    expect(failures[0].claimed_behind).toBe(true);
+    expect(failures[1].claimed_behind).toBeNull();
+    const summary = preclaimSummary(rows, failures);
+    expect(summary).toMatchObject({ claims: 4, lease_hits: 3, lease_misses: 1, cold_creates: 1, held_claims: 3, held_failures: 1, image_skips: 6, claims_with_image_skip: 3 });
+    const md = preclaimSummaryMarkdown(rows, failures);
+    expect(md).toContain("- held claims (one image roll behind): 3");
+    expect(md).toContain("- held claim failures: 1");
+    expect(md).toContain("- cold creates: 1");
+    expect(md).toContain("| held |");
+    expect(md).not.toContain("reply wait exit 1");
   });
 
   test("preclaim health and lease evidence stay bounded and opaque", () => {
@@ -119,7 +155,7 @@ describe("cloud journey", () => {
 
   test("preclaim failures retain a private failed row and force a nonzero incomplete run", () => {
     const failure = preclaimFailureRecord(3, new Error("credential installer refused: secret-value"), ["secret-value"]);
-    expect(failure).toEqual({ claim: 3, outcome: "fail", error: "credential installer refused: [secret]" });
+    expect(failure).toEqual({ claim: 3, outcome: "fail", error: "credential installer refused: [secret]", claimed_behind: null });
     expect(preclaimRunComplete([], [failure], 1)).toBe(false);
     expect(preclaimRunComplete([preclaimClaimRecord({ claim: 0 })], [], 1)).toBe(true);
   });
@@ -2274,5 +2310,78 @@ describe("claudeTranscriptModelsProgram", () => {
     expect(warmSpareRefusal({ code: 1, stdout, stderr: "" })).toBe("warm-spare refused (exit 1): team_unresolved: the install token names no team");
     expect(warmSpareRefusal({ code: 64, stdout: "", stderr: "usage: cmux link start-chat ...\nunknown flag --x\n" })).toBe("warm-spare refused (exit 64): unknown flag --x");
     expect(warmSpareRefusal({ code: 1, stdout: "", stderr: "" })).toBe("warm-spare refused (exit 1)");
+  });
+
+  test("the preclaim burst warms at client-config's platform_origin, not the API host", async () => {
+    // cloud-api forwards a fixed list of platform paths; /v1/cloud/spare/warm is not one, so a warm sent to the API
+    // host gets an empty 404 (runs 43804741509 and 43809949753). The app sends it to client-config's platform_origin.
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-platform-test-"));
+    try {
+      const cmux = join(dir, "cmux");
+      writeFileSync(cmux, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/argv"\necho '{"ok":false,"error":"stub refused","error_code":"stub"}'\nexit 1\n`, { mode: 0o755 });
+      const api: any = {
+        origin: "https://cloud-api-staging.cmux.dev",
+        bearer: "session-token",
+        raw: async (method: string, route: string) => route === "/v1/client-config"
+          ? { status: 200, body: { platform_origin: "https://cmux-platform-staging.debussy.workers.dev" } }
+          : { status: 200, body: { ok: true } },
+      };
+      const journey = new Journey(resolveBackend("staging"), null, {}, true);
+      const code = runPreclaimBurst({
+        backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: "install-token" }, account: "user-1/team_0123456789abcdef0123",
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 1, tag: "t", journey, outDir: null, team: "team_0123456789abcdef0123", user: {},
+      });
+      await expect(code).rejects.toThrow("warm-spare refused (exit 1): stub: stub refused");
+      const argv = readFileSync(join(dir, "argv"), "utf8").split("\n");
+      const request = JSON.parse(argv[argv.indexOf("--request") + 1]);
+      expect(request.platform).toBe("https://cmux-platform-staging.debussy.workers.dev");
+      expect(request.scope.platform).toBe("https://cmux-platform-staging.debussy.workers.dev");
+      expect(() => clientPlatformOrigin({})).toThrow("client-config names no https platform_origin");
+      expect(() => clientPlatformOrigin({ platform_origin: "http://x.test" })).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a preclaim reply the model refuses is not judged, names the turn's error, and does not fail the claim", async () => {
+    // run 43817240410 recorded only "reply wait exit 1"; run 43860687099's turn hit the account's weekly limit after the
+    // claim, spare and login all worked. The reply is measured, never gated.
+    const replies = ["@@exit 0", "@@exit 0", "@@wait 1\n", '{"kind":"turn_error","error":"You\'ve hit your weekly limit · resets Nov 18, 3am (UTC)"}\n'];
+    const result = await runPreclaimChat(async () => {
+      const stdout = replies.shift();
+      if (stdout === undefined) throw new Error("unexpected extra command");
+      return { code: 0, stdout, stderr: "" };
+    }, "fixture-session", "Reply once", 1000);
+    expect(result.replyMs).toBeNull();
+    expect(result.replyNotJudged).toBe("reply wait exit 1: You've hit your weekly limit · resets Nov 18, 3am (UTC)");
+    // The agent not starting is a claim-path fact and still fails the claim.
+    const refused = runPreclaimChat(async () => ({ code: 0, stdout: "@@exit 1", stderr: "" }), "fixture-session", "Reply once", 1000);
+    await expect(refused).rejects.toThrow("preclaim fixture-session: agent start refused");
+  });
+
+  test("the burst's gate reads claim-path fields only: a held claim with no reply but its login is not a failure", () => {
+    const held = preclaimClaimRecord({ claim: 0, machine: "vm_a", answer: { claim: { behind: true } }, leaseHit: true, postBindLogin: "receipt", firstChatMs: 900, firstReplyMs: null, replyNotJudged: "reply wait exit 1: You've hit your weekly limit" });
+    expect(held.reply_not_judged).toBe("reply wait exit 1: You've hit your weekly limit");
+    expect(preclaimSummary([held])).toMatchObject({ held_claims: 1, held_failures: 0, replies: 0, replies_not_judged: 1 });
+    expect(preclaimRunComplete([held], [], 1)).toBe(true);
+    expect(preclaimSummaryMarkdown([held])).toContain("- replies not judged: 1");
+    expect(preclaimSummaryMarkdown([held])).not.toContain("weekly limit");
+    const noLogin = preclaimClaimRecord({ claim: 1, machine: "vm_b", answer: { claim: { behind: true } }, postBindLogin: "missing", firstReplyMs: 2000 });
+    expect(preclaimSummary([noLogin])).toMatchObject({ held_failures: 1 });
+  });
+
+  test("a failed claim keeps the claimed machine's facts, scrubbed, in its private row", async () => {
+    // run 43824872130 deleted the claimed machine after "reply wait exit 1" and kept nothing that said why.
+    const commands: string[] = [];
+    const guest = await preclaimGuestFacts(async (command) => {
+      commands.push(command);
+      return { code: 0, stdout: "== own login\nno\n== acp tail s\nlogin sk-ant-oat01-secret-value expired\n", stderr: "" };
+    }, "preclaim-t-0");
+    expect(commands[0]).toContain("cmux_agent_has_own_login claude");
+    expect(commands[0]).toContain("acp tail 'preclaim-t-0'");
+    const record = preclaimFailureRecord(0, new Error("reply wait exit 1"), ["sk-ant-oat01-secret-value"], null, guest);
+    expect(record.guest).toContain("== own login\nno");
+    expect(record.guest).not.toContain("sk-ant-oat01-secret-value");
+    expect(preclaimFailureRecord(0, "x").guest).toBeUndefined();
   });
 });
