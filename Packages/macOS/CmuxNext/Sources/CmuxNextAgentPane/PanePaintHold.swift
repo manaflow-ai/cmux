@@ -243,7 +243,7 @@ extension NSView {
     /// Defers `body` while a container's hold keeps this view on screen: it runs when the hold ends, in that frame.
     /// False when no hold keeps it (run it now).
     public func deferredPastPaintHold(_ body: @escaping () -> Void) -> Bool {
-        let holds = sequence(first: superview, next: { $0.superview }).lazy.compactMap { ($0 as? PaintHoldHosting)?.paintHold }
+        let holds = sequence(first: self, next: { $0.superview }).dropFirst().lazy.compactMap { ($0 as? PaintHoldHosting)?.paintHold }
         return holds.contains { $0.afterHold(of: self, body) }
     }
 }
