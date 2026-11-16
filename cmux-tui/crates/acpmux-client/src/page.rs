@@ -10,7 +10,7 @@ use crate::{Change, Client, QueuedChange};
 use acpmux_list_types::{RowKey, folders::FolderKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// The page-host batch limit. A single change larger than this is allowed to travel alone so it
 /// cannot be split in the middle of a row.
@@ -170,6 +170,7 @@ pub struct ListDriver {
     slots: HashMap<String, String>,
     heads: HashMap<String, Head>,
     questions: HashMap<String, Question>,
+    members: HashMap<String, HashSet<RowRef>>,
     deferred: VecDeque<QueuedChange<Value>>,
     latest: HashMap<RowRef, u64>,
     held: Option<HeldBatch>,
@@ -192,6 +193,7 @@ impl ListDriver {
             slots: HashMap::new(),
             heads: HashMap::new(),
             questions: HashMap::new(),
+            members: HashMap::new(),
             deferred: VecDeque::new(),
             latest: HashMap::new(),
             held: None,
@@ -493,6 +495,27 @@ impl ListDriver {
                 }
                 let sid = window.sid.clone();
                 let slot = self.slots.get(&sid).cloned().unwrap_or_else(|| "all".into());
+                let replacing = self
+                    .heads
+                    .get(&sid)
+                    .is_some_and(|head| head.edition != 0 && head.edition != window.edition);
+                let mut remove = Vec::new();
+                if replacing {
+                    if let Some(old) = self.members.remove(&sid) {
+                        for key in old {
+                            if !self.members.values().any(|members| members.contains(&key)) {
+                                self.latest.remove(&key);
+                            }
+                            remove.push(key);
+                        }
+                    }
+                }
+                let members = self.members.entry(sid.clone()).or_default();
+                for row in &window.rows {
+                    if let Some(key) = row_ref(row) {
+                        members.insert(key);
+                    }
+                }
                 if let Some(head) = self.heads.get_mut(&sid) {
                     head.before_key = window.before_key.clone();
                     head.edition = window.edition;
@@ -501,7 +524,7 @@ impl ListDriver {
                     sid,
                     slot,
                     upserts: window.rows,
-                    remove: Vec::new(),
+                    remove,
                     complete: !window.has_after,
                 }
             }
@@ -568,13 +591,17 @@ impl ListDriver {
             Change::Left { sid, seq, summary, .. } => {
                 return Ok(self.row_change(sid, seq, summary, true));
             }
-            Change::Gone { sid, origin, chat_id, .. } => ListEvent::Rows {
-                sid,
-                slot: "live".into(),
-                upserts: Vec::new(),
-                remove: vec![RowRef { origin, chat_id }],
-                complete: false,
-            },
+            Change::Gone { sid, origin, chat_id, .. } => {
+                let key = RowRef { origin, chat_id };
+                self.remove_member(&sid, &key);
+                ListEvent::Rows {
+                    sid,
+                    slot: "live".into(),
+                    upserts: Vec::new(),
+                    remove: vec![key],
+                    complete: false,
+                }
+            }
             Change::Origin { sid, origin, .. } => ListEvent::Origin {
                 sid,
                 origin: origin.id,
@@ -614,10 +641,17 @@ impl ListDriver {
     ) -> Option<ListEvent> {
         let row = row_ref(&summary);
         if let Some(row) = row.as_ref() {
-            if self.latest.get(row).is_some_and(|old| *old >= seq) {
-                return None;
+            if remove {
+                self.remove_member(&sid, row);
+            } else {
+                let members = self.members.entry(sid.clone()).or_default();
+                let already_held = members.contains(row);
+                if already_held && self.latest.get(row).is_some_and(|old| *old >= seq) {
+                    return None;
+                }
+                members.insert(row.clone());
+                self.latest.insert(row.clone(), seq);
             }
-            self.latest.insert(row.clone(), seq);
         }
         Some(ListEvent::Rows {
             sid,
@@ -626,6 +660,18 @@ impl ListDriver {
             remove: remove.then_some(row.into_iter().collect()).unwrap_or_default(),
             complete: false,
         })
+    }
+
+    fn remove_member(&mut self, sid: &str, key: &RowRef) {
+        if let Some(members) = self.members.get_mut(sid) {
+            members.remove(key);
+            if members.is_empty() {
+                self.members.remove(sid);
+            }
+        }
+        if !self.members.values().any(|members| members.contains(key)) {
+            self.latest.remove(key);
+        }
     }
 }
 
