@@ -254,3 +254,30 @@ fn a_removed_snapshot_gives_no_stream_end_and_a_trimmed_one_keeps_its_end() {
     );
     let _ = fs::remove_dir_all(&directory);
 }
+
+/// With no parked terminal (also when the read of the parked terminals failed, `Mux::parked_terminal_ids`), the
+/// pass changes no snapshot, whatever its age, the budget and the free disk, and each snapshot gives its stream
+/// end.
+#[test]
+fn with_no_parked_terminal_the_pass_changes_no_snapshot() {
+    let directory = directory("none-parked");
+    let replay = replay_with_lines(2_000);
+    // Past 30 days: a parked one would go.
+    write_snapshot(&directory, 1, 40, &replay);
+    // 3 days: a parked one would be trimmed.
+    write_snapshot(&directory, 2, 3, &replay);
+    let files = || [1, 2].map(|n| fs::read(super::super::snapshot::path(&directory, &id(n))).ok());
+    let before = files();
+    assert!(before.iter().all(Option::is_some), "setup: the 2 snapshot files are on disk");
+    // No budget and a low disk: the pass that removes the most.
+    let reads =
+        super::super::start::trim_parked_and_read_ends(&directory, &HashSet::new(), NOW, 0, true);
+    assert_eq!(reads.trim.rewrites, 0, "no rewrite");
+    assert!(files() == before, "a snapshot file changed or went with no parked terminal");
+    assert_eq!(
+        reads.stream_ends,
+        std::collections::HashMap::from([1, 2].map(end_of)),
+        "each snapshot has its stream end"
+    );
+    let _ = fs::remove_dir_all(&directory);
+}
