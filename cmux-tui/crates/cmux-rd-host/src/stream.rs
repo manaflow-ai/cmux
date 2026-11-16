@@ -100,7 +100,8 @@ fn pacing_enabled() -> bool {
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
 /// `scripts/measure/screen-stream-eval` reads it): `input_us`, the last viewer input injected before
-/// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
+/// this frame, once; `shown_us`, the vsync the window server composited the frame for
+/// (ScreenCaptureKit's display time, usually a few ms after `arrived_us`);
 /// `arrived_us`, when the capture handed it over; `damage_us`, when the session first saw damage
 /// since the last frame; `release_us`, when the gate let the encode start; `encoded_us`, when the
 /// encode ended; `sent_us`, when its last datagram was handed to the carrier. Every injected

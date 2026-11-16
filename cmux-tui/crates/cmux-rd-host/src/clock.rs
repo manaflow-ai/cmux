@@ -42,12 +42,14 @@ impl Rng {
 
 /// A mach absolute time `then` on the protocol clock (µs), given that the mach clock read `now`
 /// ticks when the protocol clock read `now_us`; `numer`/`denom` is the mach timebase (ns per tick).
-/// ScreenCaptureKit's frame display time is one such `then`.
+/// Signed: ScreenCaptureKit's frame display time is one such `then`, and it is usually the vsync
+/// the frame will be shown at, a few ms after the frame reaches the capture callback, so it must
+/// land after `now_us`, not be clamped onto it.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn mach_to_protocol_us(now_us: u64, now: u64, then: u64, numer: u32, denom: u32) -> u64 {
-    let ticks = now.saturating_sub(then);
-    let age_us = u128::from(ticks) * u128::from(numer) / u128::from(denom.max(1)) / 1000;
-    now_us.saturating_sub(age_us as u64)
+    let ticks = i128::from(then) - i128::from(now);
+    let offset_us = ticks * i128::from(numer) / i128::from(denom.max(1)) / 1000;
+    (i128::from(now_us) + offset_us).clamp(0, i128::from(u64::MAX)) as u64
 }
 
 #[cfg(test)]

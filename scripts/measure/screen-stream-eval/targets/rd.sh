@@ -182,8 +182,8 @@ if os.path.exists(sys.argv[4]):
         except ValueError:
             pass
     open(sys.argv[5], "w").write(str(start + len(whole)))
-def pct(values):
-    values = sorted(v for v in values if v is not None and v >= 0)
+def pct(values, signed=False):
+    values = sorted(v for v in values if v is not None and (signed or v >= 0))
     if not values:
         return None
     return {"n": len(values), "p50": round(values[len(values) // 2], 3), "p95": round(values[min(len(values) - 1, int(len(values) * 0.95))], 3)}
@@ -191,13 +191,21 @@ def span(f, a, b):
     return (f[b] - f[a]) / 1000 if f.get(a) is not None and f.get(b) is not None else None
 after_input = [f for f in frames if f.get("input_us") is not None]
 # Where input-to-capture goes, for the first frame after each injected input: render (the input until
-# the display showed the change: the app and the window server), sck (ScreenCaptureKit handing the
-# frame over), pickup (the session loop seeing its damage), gate (the frame gate holding it until
-# its interval allows), each as p50/p95 ms on the host's own clock.
-parts = {name: pct(span(f, a, b) for f in after_input) for name, a, b in (
+# the vsync the window server composited the change for: ScreenCaptureKit's display time), sck
+# (signed: the frame reaching the capture callback after that vsync; negative when it arrives before
+# the vsync, which is usual), to_arrived (the input until the callback: app, window server and
+# ScreenCaptureKit together), pickup (the session loop seeing its damage), gate (the frame gate
+# holding it until its interval allows), arrived_to_release (pickup and gate: the callback until the
+# encode starts), each as p50/p95 ms on the host's own clock.
+signed_parts = {"sck_ms"}
+parts = {name: pct((span(f, a, b) for f in after_input), name in signed_parts) for name, a, b in (
     ("render_ms", "input_us", "shown_us"), ("sck_ms", "shown_us", "arrived_us"),
+    ("to_arrived_ms", "input_us", "arrived_us"),
     ("pickup_ms", "arrived_us", "damage_us"), ("gate_ms", "damage_us", "release_us"),
+    ("arrived_to_release_ms", "arrived_us", "release_us"),
     ("encode_ms", "release_us", "encoded_us"))}
+# The same display-to-arrival offset over every frame, not only the first after an input.
+parts["sck_all_frames_ms"] = pct((span(f, "shown_us", "arrived_us") for f in frames), signed=True)
 g2g, cap, dec = raw.get("g2g_ms") or {}, raw.get("same_clock_capture_to_decoded_ms") or {}, raw.get("decode_ms") or {}
 encode = (raw.get("host_stats_last") or {}).get("encode_ms_p50")
 def p50(d): return d.get("p50") if d else None
