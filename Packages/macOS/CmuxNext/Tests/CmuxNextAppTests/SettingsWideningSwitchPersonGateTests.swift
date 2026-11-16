@@ -488,36 +488,71 @@ import Testing
     }
 }
 
-/// Control from this Mac (`remote_control`) signs a grant that turns another machine's Control on, and a
-/// key trust (`grantor_trust`) lets another Mac do that here: both widen like `join_consent`, so an on (a
-/// trust) needs the person's own HID click in the page, spent once, then Touch ID or the password. An off
-/// (Not Now, Remove) takes any input with no prompt.
+/// Control between my devices (`remote_control` for one machine, `remote_control_account` for all of them)
+/// signs a grant that turns other machines' Control on, and a key trust (`grantor_trust`) lets another Mac
+/// do that here: each widens like `join_consent`, so an on (a trust) needs the person's own HID click in the
+/// page, spent once, then Touch ID or the password. An off (back to default, Not Now, Remove) takes any input
+/// with no prompt. These ops are ``RemoteControlConsentPage``'s, served as parts of the Settings page.
 extension SettingsWideningSwitchPersonGateTests {
     enum ConsentOp: String, CaseIterable {
         case remoteControl = "cmux.settings.devices.remote_control"
+        case account = "cmux.settings.devices.remote_control_account"
         case grantorTrust = "cmux.settings.devices.grantor_trust"
 
-        var flag: String { self == .remoteControl ? "on" : "trusted" }
-        var set: String { self == .remoteControl ? "control" : "trust" }
-        var reason: String { self == .remoteControl ? RemoteControlStrings.confirmReason : JoinConsentStrings.grantorTrustReason }
+        var flag: String { self == .grantorTrust ? "trusted" : "on" }
+        var set: String { [.remoteControl: "control", .account: "account", .grantorTrust: "trust"][self] ?? "" }
+        var reason: String {
+            [.remoteControl: RemoteControlStrings.confirmReason, .account: RemoteControlStrings.accountConfirmReason,
+             .grantorTrust: JoinConsentStrings.grantorTrustReason][self] ?? ""
+        }
     }
 
+    /// The part as the app wires it (the provider's gate, person check and confirm), recording what gets through.
     private func wire(_ h: Harness) {
         let recorder = h.recorder
-        h.page.setRemoteControl = { _, on in recorder.sets.append("control \(on)"); return nil }
-        h.page.trustGrantor = { _, trusted in recorder.sets.append("trust \(trusted)"); return nil }
+        let actions = RemoteControlConsentPage.Actions(
+            setMachine: { _, on in recorder.sets.append("control \(on.map { "\($0)" } ?? "default")"); return nil },
+            setAccount: { recorder.sets.append("account \($0)"); return nil },
+            refreshTrust: { recorder.sets.append("refresh"); return nil },
+            trustGrantor: { _, trusted in recorder.sets.append("trust \(trusted)"); return nil })
+        let confirm: (@MainActor (String) async -> Bool)? = h.page.ownerConfirm.map { owner in { await owner.authenticate(reason: $0) } }
+        h.page.parts = RemoteControlConsentPage(actions: actions, gate: h.page.wideningGate, backs: h.page.personBacksGesture,
+                                                confirm: confirm, refusal: SettingsPageProvider.personOnly).parts
     }
 
-    /// The page's call for `op` with `value` on `event`; true when it was refused as not the person's.
-    private func refused(_ h: Harness, _ op: ConsentOp, _ value: Bool, _ event: NSEvent) async throws -> Bool {
+    /// The page's call for `op` with `params` on `event`; true when it was refused as not the person's.
+    private func refused(_ h: Harness, _ op: String, _ params: JSONValue, _ event: NSEvent) async throws -> Bool {
         h.ledger.record(event)
         do {
-            _ = try await h.page.call(op.rawValue, params: .object(["id": .string("m1"), op.flag: .bool(value)]),
+            _ = try await h.page.call(op, params: params,
                                       context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: event.timestamp))
             return false
         } catch let error as PageError where error.code == PageNativeOp.userOnlyCode {
             return true
         }
+    }
+
+    /// "Refresh trusted Macs" pins the account's keys, so it takes the person's own click (spent once), but no
+    /// confirm; a posted click is refused. Back to the switch for all devices (`on: null`) only narrows.
+    @Test func refreshNeedsThePersonsClickAndDefaultTakesAnyInput() async throws {
+        let owner = FakeOwner()
+        let h = try await make(owner: owner)
+        defer { h.cleanUp() }
+        wire(h)
+        let refresh = "cmux.settings.devices.trust_refresh"
+        #expect(try await refused(h, refresh, .object([:]), h.posted()))
+        #expect(h.recorder.sets.isEmpty)
+        let click = try h.click(0)
+        #expect(try await !refused(h, refresh, .object([:]), click))
+        #expect(try await refused(h, refresh, .object([:]), click), "the same click again")
+        #expect(try await !refused(h, ConsentOp.remoteControl.rawValue, .object(["id": .string("m1"), "on": .null]), h.posted()))
+        #expect(h.recorder.sets == ["refresh", "control default"])
+        #expect(owner.reasons.isEmpty, "neither asks Touch ID")
+    }
+
+    /// The page's call for `op` with `value` on `event`; true when it was refused as not the person's.
+    private func refused(_ h: Harness, _ op: ConsentOp, _ value: Bool, _ event: NSEvent) async throws -> Bool {
+        try await refused(h, op.rawValue, .object(["id": .string("m1"), op.flag: .bool(value)]), event)
     }
 
     /// RED before this change: neither op existed (the page's call failed as an unknown op). Now a posted
@@ -535,7 +570,7 @@ extension SettingsWideningSwitchPersonGateTests {
         for op in ConsentOp.allCases {
             #expect(try await !refused(h, op, false, h.posted()))
         }
-        #expect(h.recorder.sets == ["control false", "trust false"], "off takes any input")
+        #expect(h.recorder.sets == ConsentOp.allCases.map { "\($0.set) false" }, "off takes any input")
         #expect(owner.reasons.isEmpty, "an off asks nothing")
     }
 
@@ -556,7 +591,7 @@ extension SettingsWideningSwitchPersonGateTests {
             #expect(h.recorder.sets.last == "\(op.set) true")
             #expect(try await refused(h, op, true, click), "the same click again")
         }
-        #expect(h.recorder.sets == ["control true", "trust true"])
+        #expect(h.recorder.sets == ConsentOp.allCases.map { "\($0.set) true" })
     }
 
     /// Without the owner's confirm (a Mac that can't ask), nothing is ever signed or trusted.
