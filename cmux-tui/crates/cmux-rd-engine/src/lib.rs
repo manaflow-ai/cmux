@@ -18,9 +18,9 @@ use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
-    Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN,
-    Feedback, FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_ARRIVALS, MAX_DATAGRAM_VPC,
-    REF_NONE, flags,
+    Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, Feedback,
+    FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_ARRIVALS, MAX_DATAGRAM_VPC, REF_NONE,
+    flags,
 };
 
 pub use cmux_rd_core::loss::LossMeter;
