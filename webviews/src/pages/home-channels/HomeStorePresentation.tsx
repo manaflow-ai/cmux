@@ -44,9 +44,8 @@ export function HomeStorePresentation({
           }
         } catch {
           // Keep the cached frame. A later store update may complete the failed read.
-        } finally {
-          checking = false;
         }
+        checking = false;
       })();
     };
     // Keep this subscription for this candidate's lifetime, including after it becomes visible.
