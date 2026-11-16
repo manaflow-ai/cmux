@@ -21,7 +21,7 @@ export const HOLD_MAX_KINDS = 16;
 /// acpmux's names for many kinds at once, which a hold refuses.
 const CATEGORIES = new Set(["transcript", "mux", "wire", "all"]);
 
-/// The hold's params: acpmux's `AttachParams` with `hold`, which the generated type does not name yet.
+/// The hold's params: acpmux's `AttachParams` with `hold` set.
 export type HoldAttach = AttachParams & { hold: true; eventStream: true; kinds: string[]; visible: boolean };
 
 /// The hold's params, or none when its kinds are not exact page-state kinds within the bound: the
