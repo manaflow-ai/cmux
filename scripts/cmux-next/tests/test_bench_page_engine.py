@@ -154,14 +154,27 @@ class CreatedRowTests(unittest.TestCase):
         self.assertNotIn("error", got)
         self.assertEqual(got["visible_ms"], 6.0)
 
-    def test_a_page_commands_row_whose_focused_pane_shows_no_browser_says_so_and_is_not_judged(self):
-        # The app's word `none`: a viewer's page, or a page in a pane that has no focus. The engine is not known.
+    def test_a_page_commands_row_whose_focused_pane_shows_no_browser_is_no_number(self):
+        # The app's word `none`: a viewer's page (a diff, the GitHub page), or a browser in a pane that has no focus.
+        # That page is a page view in one of the 2 engines, and the row does not say which: its time is no number
+        # of the asked engine.
         got = engine.judge_created(self.page_row("none"), "cef", "page", never)
         self.assertEqual(got["page_engine"], "none")
+        self.assertEqual(got.get("error"), "page engine not read (none), asked: cef")
+        self.assertIsNone(got.get("page_ms"))
+        self.assertEqual(got.get("other_engine"), {"key_ms": 1.5, "visible_ms": 6.0, "page_ms": 40.0})
+        self.assertEqual(engine.judge_created(self.page_row("none"), "webkit", "page", never).get("error"),
+                         "page engine not read (none), asked: webkit")
+        unnamed = engine.judge_created(self.page_row(None), "cef", "page", never)
+        self.assertEqual(unnamed["page_engine"], "unknown: the row named no engine")
+        self.assertEqual(unnamed.get("error"), "page engine not read (unknown: the row named no engine), asked: cef")
+        self.assertIsNone(unnamed.get("page_ms"))
+
+    def test_a_measure_of_a_viewers_page_asks_for_any_engine_and_keeps_its_row(self):
+        got = engine.judge_created(self.page_row("none"), "any", "page", never)
+        self.assertEqual((got["page_engine"], got["page_ms"]), ("none", 40.0))
         self.assertNotIn("error", got)
-        self.assertEqual(got["page_ms"], 40.0)
-        self.assertEqual(engine.judge_created(self.page_row(None), "cef", "page", never)["page_engine"],
-                         "unknown: the row named no engine")
+        self.assertNotIn("other_engine", got)
 
     def test_a_new_tab_row_reads_the_engine_one_time_after_its_times(self):
         reads = []
@@ -188,6 +201,10 @@ class CreatedRowTests(unittest.TestCase):
         self.assertEqual(engine.judge_created(dict(plain), "cef", None, never), plain)
 
 
+# The app's `unavailable` word in `debug.cef` when the build has no Chromium: an object, as the app sends it.
+NOT_BUNDLED = {"code": "notBundled", "detail": None}
+
+
 class LineTests(unittest.TestCase):
     def test_the_launch_line_says_the_apps_own_word_on_chromium(self):
         word = engine.chromium_word({"state": "ready", "default_engine": "chromium", "unavailable": None, "pump": {}})
@@ -196,8 +213,18 @@ class LineTests(unittest.TestCase):
                          "CHROMIUM b: the app says state=ready unavailable=no browser_default_engine=chromium")
 
     def test_the_launch_line_says_why_the_app_has_no_chromium(self):
-        word = engine.chromium_word({"state": "idle", "default_engine": "chromium", "unavailable": "notBundled"})
-        self.assertIn("unavailable=notBundled", engine.chromium_line("b", word))
+        # The app's form of `unavailable`: null, or an object with a code and a detail.
+        word = engine.chromium_word({"state": "idle", "default_engine": "chromium", "unavailable": NOT_BUNDLED})
+        self.assertEqual(word, {"state": "idle", "unavailable": "notBundled", "browser_default_engine": "chromium"})
+        self.assertEqual(engine.chromium_line("b", word),
+                         "CHROMIUM b: the app says state=idle unavailable=notBundled browser_default_engine=chromium")
+
+    def test_the_launch_line_says_the_detail_of_the_apps_reason_when_it_has_one(self):
+        word = engine.chromium_word({"state": "idle", "default_engine": "chromium",
+                                     "unavailable": {"code": "startFailed", "detail": "no framework at the path"}})
+        self.assertEqual(word["unavailable"], "startFailed: no framework at the path")
+        self.assertEqual(engine.chromium_line("b", word), "CHROMIUM b: the app says state=idle "
+                         "unavailable=startFailed: no framework at the path browser_default_engine=chromium")
 
     def test_no_answer_is_said_and_is_no_claim(self):
         word = engine.chromium_word({"error": "no such method"})
@@ -206,9 +233,10 @@ class LineTests(unittest.TestCase):
         self.assertEqual(engine.chromium_word(None), {"error": "no reply"})
 
     def test_an_app_with_no_chromium_stops_a_measure_of_chromium_with_the_argument_for_webkit(self):
-        word = engine.chromium_word({"state": "idle", "default_engine": "chromium", "unavailable": "notBundled"})
+        word = engine.chromium_word({"state": "idle", "default_engine": "chromium", "unavailable": NOT_BUNDLED})
         stop = engine.no_chromium(word)
-        self.assertIn("unavailable=notBundled", stop)
+        self.assertIn("(unavailable=notBundled)", stop)
+        self.assertNotIn("{", stop)
         self.assertIn("--page-engine=cef", stop)
         self.assertIn("--allow-no-chromium", stop)
         self.assertEqual(len(stop.splitlines()), 1)
