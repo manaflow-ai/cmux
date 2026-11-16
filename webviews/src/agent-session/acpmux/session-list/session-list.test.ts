@@ -144,6 +144,31 @@ test("malformed and unknown changes never prevent one taken", async () => {
   expect(calls.filter((call) => call.method === "list.taken").map((call) => call.params.batch)).toEqual([2]);
 });
 
+test("a serialized driver batch is applied once by the document store", async () => {
+  const clock = engine();
+  const lanes = clock.lanes();
+  lanesMade.push(lanes);
+  const calls: Call[] = [];
+  const host = new SessionListHost(
+    async (method, params) => {
+      calls.push({ method, params });
+      return method === "list.open" ? { sid: params.sid } : {};
+    },
+    undefined,
+    () => "s.serialized",
+  );
+  await host.open();
+  const snapshots: string[][] = [];
+  host.store.subscribe("s.serialized", (snapshot) =>
+    snapshots.push(snapshot.slots.get("all")?.map((item) => item.sessionId) ?? []),
+  );
+  const batch = JSON.stringify({ batch: 8, changes: [rowsChange("s.serialized", ["driver-row"])] });
+  receiveSessionList(JSON.parse(batch), lanes);
+  await clock.frame();
+  expect(snapshots).toEqual([["driver-row"]]);
+  expect(calls.filter((call) => call.method === "list.taken")).toHaveLength(1);
+});
+
 test("question ids are opaque and a page event may beat its operation reply", async () => {
   const clock = engine();
   const lanes = clock.lanes();

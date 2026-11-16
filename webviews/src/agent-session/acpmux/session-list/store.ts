@@ -95,6 +95,7 @@ class SidList {
   private ready = false;
   private off: string | undefined;
   private pendingPages = new Map<string, Extract<SessionListChange, { kind: "page" }>>();
+  private questionRows = new Map<string, Set<string>>();
 
   constructor(
     sid: string,
@@ -118,6 +119,7 @@ class SidList {
         .filter(([questionId]) => this.questions.get(questionId)?.state !== "pending")
         .sort((a, b) => a[1] - b[1])[0]?.[0];
       if (evict) {
+        this.questionRows.delete(evict);
         this.questions.delete(evict);
         this.questionOrder.delete(evict);
       }
@@ -240,6 +242,13 @@ class SidList {
         return normalized ? [normalized] : [];
       }),
     );
+    const keys = new Set<string>();
+    for (const row of rows) {
+      const key = keyOf(row);
+      this.rows.set(key, row);
+      keys.add(key);
+    }
+    this.questionRows.set(change.id, keys);
     this.questions.set(change.id, {
       ...change,
       rows,
@@ -270,6 +279,7 @@ class SidList {
     this.slotComplete.clear();
     this.questions.clear();
     this.questionOrder.clear();
+    this.questionRows.clear();
     this.origins.clear();
     this.pendingPages.clear();
     this.snapshot = this.build();
@@ -289,7 +299,20 @@ class SidList {
       sid: this.sid,
       slots,
       slotComplete: new Map(this.slotComplete),
-      questions: new Map(this.questions),
+      questions: new Map(
+        [...this.questions].map(([id, question]) => [
+          id,
+          {
+            ...question,
+            rows: Object.freeze(
+              [...(this.questionRows.get(id) ?? [])].flatMap((key) => {
+                const row = this.rows.get(key);
+                return row ? [row] : [];
+              }),
+            ),
+          },
+        ]),
+      ),
       origins: new Map(this.origins),
       ready: this.ready,
       ...(this.off ? { off: this.off } : {}),
