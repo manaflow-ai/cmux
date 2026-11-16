@@ -5,7 +5,7 @@
 // off by default; each variant turns it on with one look.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import { CWD } from "../../../gallery/fixtures/acpmux";
+import { CWD, noChat } from "../../../gallery/fixtures/acpmux";
 import type { NewTabClockStyle } from "./clockModel";
 
 const page = (clock: NewTabClockStyle) => ({
@@ -38,27 +38,32 @@ export default agentPaneEntry({
   variants: {
     "rounded-bold": {
       note: "The setting's default look once it is on: rounded, bold, the theme's text, the date over the time.",
-      props: page({ font: "rounded", weight: "bold", color: "text", date: true }),
+      snapshot: noChat(),
+      ready: page({ font: "rounded", weight: "bold", color: "text", date: true }),
       play: overComposer,
     },
     "thin-glass": {
       note: "Thin numerals in glass: the theme's text at a translucent tint with a soft rim of light.",
-      props: page({ font: "system", weight: "thin", color: "glass", date: true }),
+      snapshot: noChat(),
+      ready: page({ font: "system", weight: "thin", color: "glass", date: true }),
       play: overComposer,
     },
     "serif-accent": {
       note: "Serif in the theme's accent.",
-      props: page({ font: "serif", weight: "regular", color: "accent", date: true }),
+      snapshot: noChat(),
+      ready: page({ font: "serif", weight: "regular", color: "accent", date: true }),
       play: overComposer,
     },
     "condensed-heavy": {
       note: "Condensed and heavy, the Lock Screen's tall stencil time, without the date.",
-      props: page({ font: "condensed", weight: "heavy", color: "text", date: false }),
+      snapshot: noChat(),
+      ready: page({ font: "condensed", weight: "heavy", color: "text", date: false }),
       play: overComposer,
     },
     "mono-muted": {
       note: "Monospaced and muted: the quietest look.",
-      props: page({ font: "mono", weight: "regular", color: "muted", date: true }),
+      snapshot: noChat(),
+      ready: page({ font: "mono", weight: "regular", color: "muted", date: true }),
       play: overComposer,
     },
   },
