@@ -38,6 +38,9 @@ public nonisolated struct FocusLogEntry: Codable, Sendable, Hashable {
     public var by: String
     /// The origin of the action run it happened in (`cli`, `agent`, `user`, ...), if any.
     public var run: String?
+    /// The ``FocusRoute`` it came through (`origin Module/File.swift:line reason`), or `unrouted`
+    /// for a direct `makeFirstResponder` / `makeKey` (a page's own request, code not yet moved).
+    public var route: String?
     /// True when no key or click caused it and it took the keyboard from a typing target.
     public var suspect: Bool
     /// More about the change (a page's element, the stack's source).
@@ -46,7 +49,7 @@ public nonisolated struct FocusLogEntry: Codable, Sendable, Hashable {
     public var stack: [String]
 
     enum CodingKeys: String, CodingKey {
-        case time, uptime, kind, window, from, to, input, by, run, suspect, detail, stack
+        case time, uptime, kind, window, from, to, input, by, run, route, suspect, detail, stack
         case sinceInputMs = "since_input_ms"
     }
 }

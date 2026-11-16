@@ -13,8 +13,10 @@
 //! the stream. [`hybrid`] adds what the records lack: the Mac sends only the cells that differ
 //! from the drawn screen, and `tests/parity.rs` measures its parity and bytes against the PTY.
 
+pub mod adapter;
 pub mod claude;
 pub mod hybrid;
+pub mod lean;
 pub mod stream;
 pub mod vt;
 

@@ -26,6 +26,11 @@ if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.env
     sys.exit("chief-create-click-proof.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
              "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 
+# It activates the app and posts real clicks and keys: never on a person's Mac (bench_launch.require_no_person_mac).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import require_no_person_mac  # noqa: E402
+require_no_person_mac("chief-create-click-proof")
+
 APP, TAG, OUT = os.environ["NX_APP"], os.environ["NX_APP_TAG"], os.environ["NX_ARTIFACTS"]
 CAPTURE, STOP, CLI = os.environ["NX_CAPTURE"], os.environ["NX_APP_STOP"], os.environ["NX_APP_CLI"]
 ACPMUX = os.path.join(APP, "Contents/Resources/bin/acpmux")
