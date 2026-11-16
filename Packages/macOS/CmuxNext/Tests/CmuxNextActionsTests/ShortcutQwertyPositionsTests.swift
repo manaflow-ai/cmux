@@ -47,7 +47,7 @@ import Testing
 
     @Test func recorderRecordsTheQwertyKey() throws {
         let event = try Self.dvorakC([.command])
-        #expect(ShortcutRecorder.shortcut(for: event).key == "j")
+        // The typed reading (no qwerty) re-translates the key code through the runner's layout, so it is not asserted.
         #expect(ShortcutRecorder.shortcut(for: event, qwerty: true) == Shortcut("c", modifiers: [.command]))
         #expect(ActionRegistry().stroke(for: event) == Shortcut("j", modifiers: [.command]))
     }
