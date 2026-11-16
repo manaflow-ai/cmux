@@ -1,6 +1,7 @@
 """cmux-bench core: schema, ledger (plain and git), selectors, compare verdicts, the CLI end to end."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -11,6 +12,12 @@ from pathlib import Path
 
 BENCH_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BENCH_DIR))
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_spec = importlib.util.spec_from_file_location(
+    "git_fixture_env", BENCH_DIR.parents[1] / "tests" / "git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 from benchlib import compare as cmp  # noqa: E402
 from benchlib import schema  # noqa: E402
@@ -140,10 +147,12 @@ class GitLedgerTests(unittest.TestCase):
     def test_two_clones_append_and_both_see_both(self):
         with tempfile.TemporaryDirectory() as tmp:
             remote = Path(tmp) / "remote.git"
-            subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
-            env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@e", "GIT_COMMITTER_NAME": "t",
-                   "GIT_COMMITTER_EMAIL": "t@e"}
-            old = {k: os.environ.get(k) for k in env}
+            git_fixture_env.init_repo(remote, "--bare")
+            # The ledger's own git calls inherit this: auto maintenance off, no redirects (tests/git_fixture_env.py).
+            env = git_fixture_env.fixture_env({**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@e",
+                                               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@e"})
+            old = dict(os.environ)
+            os.environ.clear()
             os.environ.update(env)
             try:
                 one = Ledger(root=Path(tmp) / "one", remote=str(remote))
@@ -167,11 +176,8 @@ class GitLedgerTests(unittest.TestCase):
                     fh.write("{not json\n")
                 self.assertEqual(len(one.runs()), 4)
             finally:
-                for k, v in old.items():
-                    if v is None:
-                        os.environ.pop(k, None)
-                    else:
-                        os.environ[k] = v
+                os.environ.clear()
+                os.environ.update(old)
 
 
 class RegistryAndCliTests(unittest.TestCase):
