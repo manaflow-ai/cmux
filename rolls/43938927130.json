@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43938927130",
+  "recorded_at": "2026-11-16T19:28:42Z",
+  "reason": "cmux-tui 466589340325 changes the image's cmux-tui (pinned c2ccb8326c93)",
+  "dry_run": false,
+  "cmux_tui": "466589340325a6c13d6e305421f9865df3363d35",
+  "fixes": [
+    {
+      "sha": "466589340325a6c13d6e305421f9865df3363d35",
+      "mergedAt": "2026-11-16T10:59:10-08:00",
+      "subject": "8c A: owner-routed selector resolution (#44461)"
+    },
+    {
+      "sha": "5a586be13578ffafb85ed5512dc27665edff3986",
+      "mergedAt": "2026-11-16T10:53:03-08:00",
+      "subject": "cmux-rd view: view and control a Mac from Linux through the device hub (#44540)"
+    },
+    {
+      "sha": "47254fcf65a9b4498432fd9949a8b72db445636c",
+      "mergedAt": "2026-11-16T10:38:40-08:00",
+      "subject": "cmux device setup: agents install, start and keep cmux NIGHTLY running on your Macs (#43385)"
+    },
+    {
+      "sha": "9bbe07477705bcbd20cb61c852d494aec6749fd8",
+      "mergedAt": "2026-11-16T10:33:38-08:00",
+      "subject": "fix(cmux NEXT): no two rows of one context menu share an icon"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T19:28:42Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
