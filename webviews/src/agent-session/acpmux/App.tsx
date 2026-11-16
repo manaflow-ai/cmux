@@ -10993,6 +10993,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (handshaken || hostError === undefined);
   // The extension the person picked to draw the whole page (`tabs.newTabApp`), until it could not show.
   const newTabApp = showNewTab ? pickedNewTabApp(newTab, newTabAppGone, newTabAdoptions) : undefined;
+  /// The chat view (header, transcript, dock and composer) shows: no page or screen stands in its place.
+  const showsChatView =
+    !showNewTab && !harnessesOpen && !contextOpen && !(replaying && replaying === snapshot.sessionId);
+  /// A New Tab page (the prewarmed spare among them) keeps the chat view built and hidden under it
+  /// (`<Activity mode="hidden">`: rendered when React is idle, no effects), so a chat it takes
+  /// (`acpmux-session-adopt`, a start from the page) only shows it and draws the chat's rows: the
+  /// adopt event's task was one ~70 ms React pass building the whole view in New Tab's place.
+  const premountsChatView = showNewTab && !harnessesOpen;
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
   /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
@@ -13681,8 +13689,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 />
               )}
             />
-          ) : (
-            <>
+          ) : null}
+          {(showsChatView || premountsChatView) && (
+            <Activity mode={showsChatView ? "visible" : "hidden"}>
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
@@ -14048,7 +14057,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
                 {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
               </div>
-            </>
+            </Activity>
           )}
         </div>
         {!harnessesOpen &&
