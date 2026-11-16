@@ -1,4 +1,4 @@
-// A whole New Tab page, built on cmux-extension-sdk (the copy in ./sdk is the one this cmux ships).
+// A New Tab view: it draws over cmux's own composer, built on cmux-extension-sdk (the copy in ./sdk is the one this cmux ships).
 // It shows once you pick it: `cmux settings set tabs.newTabApp local/{{NAME}}`. Save this file while
 // `cmux ext dev` runs: cmux redraws the page.
 import { Button, cmux, newTab, Panel, Text, VStack } from "cmux-extension-sdk"

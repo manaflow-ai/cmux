@@ -16,7 +16,7 @@ extension NativeNewTabPageSetting {
 }
 
 extension NewTabAppSetting {
-    /// `tabs.newTabApp`: A whole New Tab page drawn by an extension (cmux.newtab/1), by app id. Unset (the default) draws cmux's own page; a missing, hidden, disabled or failing app draws it too. Read by the web page only.
+    /// `tabs.newTabApp`: An extension's view over the New Tab composer (cmux.newtab/1), by app id; it never replaces the page or the composer. Unset (the default) draws no view; a missing, hidden, disabled, failing or slow app leaves the slot empty. The Apps page's Use as New Tab sets it. Read by the web page only.
     public nonisolated static let configPath = ["tabs", "newTabApp"]
 }
 

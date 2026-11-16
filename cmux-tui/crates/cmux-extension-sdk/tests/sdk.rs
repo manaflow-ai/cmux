@@ -120,7 +120,7 @@ fn the_builder_makes_the_example_extensions_manifest() {
     );
 }
 
-/// A whole New Tab page (`cmux.newtab/1`, picked with `tabs.newTabApp`): the builder writes the
+/// A New Tab view (`cmux.newtab/1`, picked with `tabs.newTabApp`): the builder writes the
 /// place, its activation and the scope a launcher's buttons need, and cmux's validator takes it.
 #[test]
 fn the_builder_makes_a_whole_new_tab_page_cmux_loads() {

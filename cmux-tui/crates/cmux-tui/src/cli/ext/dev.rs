@@ -775,7 +775,7 @@ impl NewTabPick {
 }
 
 /// Where each contribution shows, from the manifest. `shown` is the app's
-/// record (installed, on, not hidden); a whole New Tab page also needs the
+/// record (installed, on, not hidden); a New Tab view also needs the
 /// person's pick (`new_tab`), so it is never reported as shown without it.
 pub(super) fn placements(
     manifest: &Value,
@@ -799,7 +799,7 @@ pub(super) fn placements(
                 "cmux.session.info.section/1" => "the agent pane's Session Info".into(),
                 "cmux.pane/1" => "a tab (Open in the Command Palette)".into(),
                 "cmux.newtab/1" => {
-                    "the whole New Tab page, once you pick it (cmux settings set tabs.newTabApp <id>)"
+                    "over the New Tab composer, once you pick it (cmux settings set tabs.newTabApp <id>)"
                         .into()
                 }
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),

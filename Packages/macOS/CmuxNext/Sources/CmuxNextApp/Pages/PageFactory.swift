@@ -77,7 +77,10 @@ struct PageFactory {
     func appsWebPage(route: String?) -> PageWebView? {
         let confirming = appsStoreProvider()
         let native = AppPageNativeProvider(services: services, page: .apps)
-        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native), AppsPanelsPageProvider.route(services.apps.client)]
+        // Use as New Tab (`tabs.newTabApp`) is the app's own setting, not a daemon op: its route goes first.
+        let newTab = AppsNewTabPageProvider(settings: { [weak services] in services?.settings })
+        let routes = [PageRoute(prefix: AppsNewTabPageProvider.prefix, provider: newTab), PageRoute(prefix: "cmux.apps.", provider: confirming),
+                      PageRoute(prefix: "cmux.app.", provider: native), AppsPanelsPageProvider.route(services.apps.client)]
         guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource()) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }

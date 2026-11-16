@@ -7,6 +7,7 @@ import type { DiffCommentRecord } from "../../comments/types";
 import type { PageClient } from "../../pages/shared/pageClient";
 import { AppsOps, OPEN_ACTION } from "../../pages/apps/types";
 import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
+import { NewTabOps } from "../../pages/apps/UseAsNewTab";
 import type { PortForward } from "../../pages/cloud/ops";
 import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
 import { MockCloudProvider } from "../../pages/cloud/mockProvider";
@@ -358,11 +359,22 @@ export async function mountAppsPage(state: AppsPageVariant, _context: StageConte
     provider.failNext(AppsOps.catalogGet, new HostError(state.detailError.code, state.detailError.message));
   }
   const host = installMockHost(
-    pageOps(provider, [...Object.values(AppsOps), OPEN_ACTION.op, "cmux.page.connection", "cmux.page.command"], {
-      mode: state.mode === "normal" ? undefined : state.mode,
-      firstOperation: AppsOps.catalogList,
-      error: state.error,
-    }),
+    pageOps(
+      provider,
+      [
+        ...Object.values(AppsOps),
+        OPEN_ACTION.op,
+        NewTabOps.get,
+        NewTabOps.set,
+        "cmux.page.connection",
+        "cmux.page.command",
+      ],
+      {
+        mode: state.mode === "normal" ? undefined : state.mode,
+        firstOperation: AppsOps.catalogList,
+        error: state.error,
+      },
+    ),
     [AppsOps.watch, "cmux.page.connection", "cmux.page.command"],
   );
   host.delayMs = 0;

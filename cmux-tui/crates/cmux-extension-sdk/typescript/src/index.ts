@@ -77,7 +77,7 @@ export function pane(render: (context: MountContext) => View): (context: MountCo
 export type NewTabContext = { surface: "newTab"; cwd?: string }
 
 /**
- * A whole New Tab page (`cmux.newtab/1`): the scene is the page's body, in place of cmux's own page.
+ * A New Tab view (`cmux.newtab/1`): the scene draws in a slot over cmux's own composer, never in its place.
  * It shows only once the person picks the extension (`cmux settings set tabs.newTabApp <id>`); when
  * it is hidden, disabled or its render fails, cmux draws its own page. Open the tab the person asks
  * for with `cmux.actions.run` from a click (scope `actions:run`).

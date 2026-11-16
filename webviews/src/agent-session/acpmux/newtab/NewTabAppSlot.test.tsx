@@ -1,3 +1,8 @@
+// An extension's New Tab view (`cmux.newtab/1`, `tabs.newTabApp`) draws in a slot over cmux's
+// composer and never in its place. Leo, 2026-11-16, of the extension that replaced the page: "it's
+// also unusable, and it also fucks up the app, it just doesn't do anything, and the fundamental
+// integration is just so stupid". Whatever the extension does (refused, throws, never answers), the
+// slot only goes empty.
 import { afterAll, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -7,7 +12,7 @@ import { pageError } from "../../../pages/shared/pageClient";
 import type { SceneEvent } from "../../../apps/scene/panelsClient";
 import { teardownDom } from "../../../../test/support/domTeardown";
 import { newTabHost, pickedNewTabApp } from "../newTabModel";
-import { NewTabAppPage } from "./NewTabAppPage";
+import { NewTabAppSlot } from "./NewTabAppSlot";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -26,14 +31,16 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
-/** The page host: `mount` answers or refuses as the Mac bridge does (AppMountSurface.newTab). */
+/** The page host: `mount` answers, refuses or never answers, as the Mac bridge may (AppMountSurface.newTab). */
 class Host implements PageClient {
   readonly calls: { op: string; params: unknown }[] = [];
   refuse = false;
+  hang = false;
   scene?: (event: SceneEvent, seq: number) => void;
   async call<R>(op: string, params: unknown): Promise<R> {
     this.calls.push({ op, params });
     if (op === "cmux.apps.panels.mount") {
+      if (this.hang) return new Promise<R>(() => undefined);
       if (this.refuse) throw pageError("cmux.apps.panels.not_found", "No newTab of local/launcher shows");
       return { mount_id: "m1" } as R;
     }
@@ -51,42 +58,38 @@ class Host implements PageClient {
   }
 }
 
-async function render(host: Host) {
+async function render(host: Host, deadlineMs = 2000) {
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
-  const gone: number[] = [];
-  const ready: string[] = [];
+  const gone: string[] = [];
   await act(async () => {
     root.render(
-      <NewTabAppPage
+      <NewTabAppSlot
         app="local/launcher"
         cwd="/projects/atlas"
         client={host}
-        inputToken="t1"
-        onInputReady={(token) => ready.push(token)}
-        onUnavailable={() => gone.push(1)}
+        deadlineMs={deadlineMs}
+        onUnavailable={(reason) => gone.push(reason)}
       />,
     );
   });
-  return { container, root, gone, ready };
+  return { container, root, gone };
 }
 
+const slot = (container: HTMLElement) => container.querySelector<HTMLElement>(".nt-app-slot");
+
 test("the handshake names the app the host picked", () => {
-  // The app sends `tabs.newTabApp` only when it is an app id by the manifest's pattern
-  // (Swift NewTabAppSetting.isValidID, NewTabAppSettingTests).
   for (const good of ["local/launcher", "local/web-pane", "manaflow-ai/launcher"])
     expect(newTabHost({ newTab: { app: good } })?.app).toBe(good);
   expect(newTabHost({ newTab: {} })?.app).toBeUndefined();
   for (const bad of ["", 7, null]) expect(newTabHost({ newTab: { app: bad } })?.app).toBeUndefined();
 });
 
-test("a visit whose app could not show draws cmux's own; the next Cmd-T adopt tries the app again", () => {
+test("a visit whose slot gave up stays empty; the next Cmd-T adopt tries the app again", () => {
   const host = newTabHost({ newTab: { app: "local/launcher" } });
   expect(pickedNewTabApp(host, undefined, 0)).toBe("local/launcher");
-  // A parked spare's mount failed (the app list was not loaded yet): that visit shows cmux's page.
   expect(pickedNewTabApp(host, 0, 0)).toBeUndefined();
-  // Cmd-T adopts the same spare with the same context (its screen generation does not change).
   expect(pickedNewTabApp(host, 0, 1)).toBe("local/launcher");
   expect(
     pickedNewTabApp(newTabHost({ newTab: { app: "local/launcher", history: true } }), undefined, 0),
@@ -95,83 +98,74 @@ test("a visit whose app could not show draws cmux's own; the next Cmd-T adopt tr
   expect(pickedNewTabApp(undefined, undefined, 0)).toBeUndefined();
 });
 
-test("the picked app's scene is the whole page: mounted once for the newTab surface with the tab's folder", async () => {
+test("the picked app's scene draws in the slot: mounted once for the newTab surface with the tab's folder", async () => {
   const host = new Host();
-  const { container, root, gone, ready } = await render(host);
+  const { container, root, gone } = await render(host);
   expect(host.ops("mount").map((call) => call.params)).toEqual([
     { surface: "newTab", app: "local/launcher", context: { cwd: "/projects/atlas" } },
   ]);
-  expect(container.querySelector(".nt-app-page")?.getAttribute("data-status")).toBe("loading");
+  expect(container.querySelector(".nt-app-slot-body")?.getAttribute("data-status")).toBe("loading");
   await act(async () => {
     host.scene?.(
       {
         mount_id: "m1",
         ops: [
-          { op: "create", id: "t", type: "Text", props: { text: "Good morning" } },
+          { op: "create", id: "t", type: "Text", props: { text: "09:41" } },
           { op: "root", id: "t" },
         ],
       },
       1,
     );
   });
-  expect(container.querySelector(".nt-app-page")?.getAttribute("data-status")).toBe("ready");
-  expect(container.textContent).toContain("Good morning");
+  expect(container.querySelector(".nt-app-slot-body")?.getAttribute("data-status")).toBe("ready");
+  expect(slot(container)?.textContent).toContain("09:41");
   expect(gone).toEqual([]);
-  // The page has no field: it says it is ready once the window has focus (newtab/inputReady.ts).
-  expect(ready).toEqual([]);
-  await act(async () => {
-    window.dispatchEvent(new window.Event("focus"));
-  });
-  expect(ready).toEqual(["t1"]);
   await act(async () => root.unmount());
   expect(host.ops("unmount").map((call) => call.params)).toEqual([{ mount_id: "m1" }]);
 });
 
-test("a missing, hidden or disabled app (a refused mount) hands the page back to cmux's own", async () => {
+test("a refused mount (missing, hidden or disabled app) empties the slot only", async () => {
   const host = new Host();
   host.refuse = true;
   const { container, root, gone } = await render(host);
-  expect(gone).toEqual([1]);
-  expect(container.querySelector(".nt-app-page")).toBeNull();
+  expect(gone).toHaveLength(1);
+  expect(slot(container)?.hasAttribute("data-gone")).toBe(true);
+  expect(container.querySelector(".nt-app-slot-body")).toBeNull();
   await act(async () => root.unmount());
 });
 
-test("an app whose render fails hands the page back to cmux's own", async () => {
+test("a render that fails empties the slot only", async () => {
   const host = new Host();
   const { container, root, gone } = await render(host);
   await act(async () => {
     host.scene?.({ mount_id: "m1", status: "failed", reason: "init: Error: nope" }, 1);
   });
-  expect(gone).toEqual([1]);
-  expect(container.querySelector(".nt-app-page")).toBeNull();
+  expect(gone).toEqual(["init: Error: nope"]);
+  expect(slot(container)?.hasAttribute("data-gone")).toBe(true);
   await act(async () => root.unmount());
 });
 
-test("keys typed after Cmd-T wait for the app's first scene: focus while it loads reports nothing", async () => {
+test("a host that never answers: the slot gives up at its deadline and leaves no mount behind", async () => {
   const host = new Host();
-  const { root, ready } = await render(host);
+  host.hang = true;
+  const { container, root, gone } = await render(host, 30);
+  expect(gone).toEqual([]);
   await act(async () => {
-    window.dispatchEvent(new window.Event("focus"));
+    await new Promise((resolve) => setTimeout(resolve, 60));
   });
-  // The scene has not committed, so an autofocus field the app draws does not exist yet: the Mac
-  // must keep holding the keys.
-  expect(ready).toEqual([]);
+  expect(gone).toHaveLength(1);
+  expect(gone[0]).toContain("did not draw");
+  expect(slot(container)?.hasAttribute("data-gone")).toBe(true);
+  await act(async () => root.unmount());
+});
+
+test("a mounted scene that never draws is stopped at the deadline (unmounted at the host)", async () => {
+  const host = new Host();
+  const { root, gone } = await render(host, 30);
   await act(async () => {
-    host.scene?.(
-      {
-        mount_id: "m1",
-        ops: [
-          { op: "create", id: "f", type: "TextField", props: { autofocus: true } },
-          { op: "root", id: "f" },
-        ],
-      },
-      1,
-    );
+    await new Promise((resolve) => setTimeout(resolve, 60));
   });
-  // Drawn: it waits for focus as before (newtab/inputReady.ts), then reports once.
-  await act(async () => {
-    window.dispatchEvent(new window.Event("focus"));
-  });
-  expect(ready).toEqual(["t1"]);
+  expect(gone).toHaveLength(1);
+  expect(host.ops("unmount").map((call) => call.params)).toEqual([{ mount_id: "m1" }]);
   await act(async () => root.unmount());
 });

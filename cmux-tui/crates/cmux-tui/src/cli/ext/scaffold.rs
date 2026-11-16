@@ -173,7 +173,7 @@ fn readme_parts(kind: &str) -> (&'static str, &'static str, &'static str) {
             "",
         ),
         "newtab" => (
-            "a whole New Tab page.",
+            "a view over the New Tab composer.",
             "Pick it as your New Tab page: `cmux settings set tabs.newTabApp local/{{NAME}}` (Settings >\nTabs > New Tab App); unset it to get cmux's own page back.",
             "",
         ),

@@ -44,6 +44,8 @@ export interface WireListing {
   categories: string[];
   keywords?: string[];
   hide_only: boolean;
+  /** `cmux.newtab/1`: the app draws on the New Tab page; absent from an older owner. */
+  new_tab?: boolean;
   install: WireInstallState | null;
 }
 
@@ -70,6 +72,7 @@ export interface WireInstalledApp {
   name: string;
   tier: AppTier;
   hide_only: boolean;
+  new_tab?: boolean;
   state: WireInstallState;
   grants: unknown[];
   /** The deployed instance; null or absent for an app with none. */
@@ -118,6 +121,7 @@ export function fromListing(listing: WireListing): CatalogApp {
     enabled: listing.install?.enabled,
     hidden: listing.install?.hidden,
     hide_only: listing.hide_only,
+    new_tab: listing.new_tab === true,
   };
 }
 
@@ -179,6 +183,7 @@ export function fromInstalled(row: WireInstalledApp): InstalledApp {
     source: row.state.source,
     tier: row.tier,
     hide_only: row.hide_only,
+    new_tab: row.new_tab === true,
     update: row.state.update ?? undefined,
     failure: row.state.failure ?? undefined,
     instance: instanceFrom(row.instance),

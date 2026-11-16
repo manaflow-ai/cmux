@@ -11,6 +11,7 @@ import { AppsPage } from "./AppsPage";
 import table from "./generated/strings.json";
 import { MockAppsProvider } from "./mockProvider";
 import { AppsStore } from "./store";
+import { NewTabChoice, NewTabChoiceProvider } from "./UseAsNewTab";
 import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
 import "./styles.css";
@@ -43,7 +44,9 @@ export function mountAppsPage(
   document.title = strings.t("store.window.title");
   createRoot(root).render(
     <UiProvider container={root} dir={languageDirection(strings.language)}>
-      <AppsPage store={store} strings={strings} />
+      <NewTabChoiceProvider value={new NewTabChoice(client)}>
+        <AppsPage store={store} strings={strings} />
+      </NewTabChoiceProvider>
     </UiProvider>,
   );
   return store;

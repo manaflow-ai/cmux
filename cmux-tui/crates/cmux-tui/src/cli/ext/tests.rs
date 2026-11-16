@@ -1070,7 +1070,7 @@ fn an_older_daemon_reloads_on_its_watch() {
     assert!(outcome.changed);
 }
 
-/// `ext dev` says where a whole New Tab page shows: only once the person picks it.
+/// `ext dev` says where a New Tab view shows: over the composer, only once the person picks it.
 #[test]
 fn a_new_tab_page_is_placed_where_the_person_picks_it() {
     let manifest = json!({ "implements": { "cmux.newtab/1": { "export": "renderNewTab" } } });
