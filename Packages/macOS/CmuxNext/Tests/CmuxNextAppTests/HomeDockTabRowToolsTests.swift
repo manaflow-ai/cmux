@@ -165,12 +165,11 @@ import Testing
         let standard = ActionRegistry.standard()
         let toolbar = PaneToolbar(registry: { standard }, contentMenu: { dock.paneMoreMenuItems() })
         toolbar.update(target: "tab0", kind: .other)
-        // The Chief's rows open the tab bar's right-click (the pane's "…" is gone), its first section.
-        let sections = toolbar.tabBarMenuRows()
-        let ids = try #require(sections.first).prefix(ChiefPaneTools.actions.count).compactMap { $0.identifier?.rawValue }
+        let menu = try #require(toolbar.view.moreMenu?())
+        let ids = menu.items.prefix(ChiefPaneTools.actions.count).compactMap { $0.identifier?.rawValue }
         #expect(ids == ChiefPaneTools.actions.map { "cmux.action.\($0.rawValue)" })
-        #expect(sections.first?.count == chiefRows, "the Chief's rows are a section of their own")
-        #expect(sections.count > 1)
+        #expect(menu.items[chiefRows].isSeparatorItem, "the Chief's rows end above the pane's own")
+        #expect(menu.items.count > chiefRows + 1)
     }
 
     /// The Home header's second row of toggles (Memory, Right Sidebar) is off by default: the

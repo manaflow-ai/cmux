@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -129,6 +130,53 @@ class PlanTest(unittest.TestCase):
         self.fx.git("fetch", "-q", "origin")
         return tip
 
+    def land(self, files: dict, parent: str) -> str:
+        """FILES landed on feat-cmux-next on top of PARENT (a PR's merge commit, looked at after it landed)."""
+        landed = self.fx.commit(files, "landed", parent=parent)
+        self.fx.git("push", "-q", "-f", "origin", f"{landed}:refs/heads/feat-cmux-next")
+        self.fx.git("fetch", "-q", "origin")
+        return landed
+
+    def test_a_landed_commit_is_planned_from_its_first_parent(self):
+        # A look at a PR's merge commit on feat-cmux-next (its tree published, the nightly behind it): the change is
+        # the commit's own diff. Before, own == head, so the 33-file Swift drift since the nightly counted as it.
+        tip = self.advance_base({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift":
+                                 "struct App {\n    func title() -> String {\n        return \"drift\"\n"
+                                 "    }\n}\n"})
+        landed = self.land({"webviews/src/app.tsx": "export const title = 'Home 4'\n"}, tip)
+        planned = self.plan(landed)
+        self.assertEqual(planned["layers"], ["web"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+        self.assertEqual(planned["fork"], tip)
+        self.assertTrue(any("behind" in note for note in planned["notes"]), planned["notes"])
+
+    def test_a_landed_daemon_change_over_the_app_s_newer_rust_swaps_the_daemon(self):
+        # The class a PR head cannot take ("Rust the app has and the change lacks", 8 of 90 looks on 2026-11-16):
+        # the nightly carries cmux-tui changes the PR branched before. Its merge commit has both, so its daemon
+        # takes the app's changes along.
+        nightly = self.advance_base({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"night\"); }\n"})
+        landed = self.land({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"}, nightly)
+        planned = self.plan(landed, base=nightly)
+        self.assertEqual(planned["layers"], ["rust"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+
+    def test_a_branch_merged_in_as_second_parent_keeps_all_its_commits(self):
+        # Review of the first-parent rule: 161 first-parent merges in 30 days landed real branches as second parents.
+        # A look at such a branch's last commit after it landed must still count the branch's earlier Swift.
+        tip = self.advance_base({"docs/notes.md": "drift\n"})
+        swift = self.fx.commit({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift":
+                                "struct App {\n    func title() -> String {\n        return \"mine\"\n"
+                                "    }\n}\n"}, "branch: swift", parent=self.fx.base)
+        last = self.fx.commit({"webviews/src/app.tsx": "export const title = 'branch'\n"}, "branch: web", parent=swift)
+        self.fx.git("checkout", "-q", "--detach", tip)
+        self.fx.git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-ff", "-m", "merge branch", last)
+        merged = self.fx.git("rev-parse", "HEAD")
+        self.fx.git("push", "-q", "-f", "origin", f"{merged}:refs/heads/feat-cmux-next")
+        self.fx.git("fetch", "-q", "origin")
+        planned = self.plan(last)
+        self.assertTrue(planned["needs_build"], planned)
+        self.assertIn("Swift", planned["build"])
+
     def test_a_change_branched_after_the_app_is_planned_from_its_own_fork(self):
         # The fleet looked at cmux#43773 (4 Rust files) on a nightly 25 commits behind feat-cmux-next and said
         # "needs a build" for 33 Swift files merged after that nightly, none of them the PR's.
@@ -170,7 +218,8 @@ class PlanTest(unittest.TestCase):
         self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
         self.assertEqual(planned["layers"], [])
 
-    PIN = '{"url": "https://example.invalid/cmux-app-ffi-%s/CCmuxAppFFI.xcframework.zip", "checksum": "%s"}\n'
+    PIN = ('{"url": "https://github.com/manaflow-ai/cmux/releases/download/'
+           'cmux-app-ffi-%s/CCmuxAppFFI.xcframework.zip", "checksum": "%s"}\n')
 
     def test_ffi_drift_under_the_same_pin_swaps_the_daemon(self):
         # cmux#44125's look (2026-11-16): the nightly 4dde96d6e699 and the PR's fork f2186cbc8970 both pinned
@@ -462,6 +511,222 @@ class ControlSocketTest(unittest.TestCase):
             self.serve(hashed, 4242)
             with mock.patch("glob.glob", lambda pattern: [hashed] if pattern.startswith("/tmp/") else []):
                 self.assertEqual(hv.control_socket(4242, os.path.join(d, "missing.sock")), hashed)
+
+
+
+class VideoTest(unittest.TestCase):
+    """The look's video: with the kit, the kit's Recorder (CuaDriver's Screen Recording grant) records it, never
+    record-window, which has no grant on a fleet worker (2026-11-15/16: every fleet look said "no Screen Recording
+    grant" while CuaDriver held it on the same minis)."""
+
+    class FakeRecorder:
+        def __init__(self):
+            self.process, self.calls = None, []
+
+        @property
+        def running(self):
+            return self.process is not None
+
+        def start(self, out, clip):
+            self.calls.append(("start", clip))
+            self.process = type("P", (), {"pid": 4242})()
+            return {"clip": f"clips/{clip}.mp4", "recording": True}
+
+        def stop(self, out):
+            self.calls.append(("stop",))
+            self.cap_at_stop = self.kit.MAX_CLIP_BYTES
+            self.process = None
+            dest = Path(out) / "clips" / f"{hv.LOOK_CLIP}.mp4"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(b"\0" * 8192)
+            return {"clip": f"clips/{hv.LOOK_CLIP}.mp4", "bytes": 8192}
+
+        def close(self):
+            self.calls.append(("close",))
+            self.process = None
+
+    def kit(self):
+        """A stand-in for the kit module: its Recorder and the steps-clip cap (nightly_steps.MAX_CLIP_BYTES)."""
+        recorder = self.FakeRecorder()
+        kit = type("Kit", (), {"Recorder": staticmethod(lambda: recorder), "MAX_CLIP_BYTES": 30 << 20})()
+        recorder.kit = kit
+        return kit, recorder
+
+    def test_a_look_lifts_the_steps_clip_cap_for_its_own_stop_only(self):
+        kit, recorder = self.kit()
+        with tempfile.TemporaryDirectory() as tmp:
+            video = hv.Video(Path(tmp), kit)
+            video.start(1)
+            with unittest.mock.patch.object(hv, "window_frame", return_value=None), \
+                    unittest.mock.patch.object(hv, "main_display_points", return_value=None):
+                video.stop()
+        self.assertEqual(recorder.cap_at_stop, hv.RAW_VIDEO_MAX_BYTES)
+        self.assertEqual(kit.MAX_CLIP_BYTES, 30 << 20)
+
+    def test_fit_video_keeps_a_video_that_fits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mp4 = Path(tmp) / "video.mp4"
+            mp4.write_bytes(b"x" * 100)
+            hv.fit_video(mp4, most=100)
+            self.assertEqual(mp4.stat().st_size, 100)
+
+    def test_fit_video_removes_a_video_too_big_to_bring_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mp4 = Path(tmp) / "video.mp4"
+            mp4.write_bytes(b"x" * (2 << 20))
+            with unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                    unittest.mock.patch.object(hv, "crop_video", return_value="no frames"), \
+                    self.assertRaisesRegex(hv.LookError, "over the 1 MiB a look brings back"):
+                hv.fit_video(mp4, most=1 << 20)
+            self.assertFalse(mp4.exists())
+
+    def test_fit_video_shrinks_through_avfoundation_without_ffmpeg(self):
+        """No display worker has ffmpeg: a video over the cap is scaled down by media/crop-video.swift instead."""
+        calls = []
+
+        def crop(mp4, box, scale, dest):
+            calls.append((box, scale))
+            dest.write_bytes(b"s" * (100 if scale <= 0.25 else 300))
+            return None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            mp4 = Path(tmp) / "video.mp4"
+            mp4.write_bytes(b"x" * 1000)
+            with unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                    unittest.mock.patch.object(hv, "crop_video", side_effect=crop):
+                hv.fit_video(mp4, most=200)
+            self.assertEqual(mp4.read_bytes(), b"s" * 100)
+        self.assertEqual(calls, [((0.0, 0.0, 1.0, 1.0), 0.5), ((0.0, 0.0, 1.0, 1.0), 0.25)])
+
+    def test_a_failed_move_is_a_look_error(self):
+        kit, recorder = self.kit()
+        with tempfile.TemporaryDirectory() as tmp:
+            video = hv.Video(Path(tmp), kit)
+            video.start(1)
+            with unittest.mock.patch.object(hv, "window_frame", return_value=None), \
+                    unittest.mock.patch.object(hv.os, "replace", side_effect=OSError("disk full")), \
+                    self.assertRaisesRegex(hv.LookError, "did not become video.mp4"):
+                video.stop()
+
+    def test_the_kit_records_through_cua_driver_and_the_clip_becomes_video_mp4(self):
+        kit, recorder = self.kit()
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            video = hv.Video(out, kit)
+            self.assertEqual(video.name, "cua-driver")
+            with unittest.mock.patch.object(hv.Video, "binary", side_effect=AssertionError("record-window ran")):
+                self.assertEqual(video.start(123), 4242)
+            self.assertTrue(video.running)
+            with unittest.mock.patch.object(hv, "window_frame", return_value=None), \
+                    unittest.mock.patch.object(hv, "main_display_points", return_value=(1920.0, 1080.0)):
+                mp4 = video.stop()
+            self.assertEqual(mp4, out / "video.mp4")
+            self.assertTrue(mp4.is_file())
+            self.assertFalse((out / "clips").exists())
+            self.assertFalse(video.facts["window"])
+            self.assertIn("display", video.facts)
+            self.assertEqual(recorder.calls, [("start", hv.LOOK_CLIP), ("stop",)])
+
+    def test_a_refused_start_is_a_look_error_naming_cua_driver(self):
+        kit, recorder = self.kit()
+        recorder.start = lambda out, clip: (_ for _ in ()).throw(RuntimeError("cua-driver start_recording: no"))
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(hv.LookError, "CuaDriver's recording did not start"):
+                hv.Video(Path(tmp), kit).start(1)
+
+    def test_abandon_closes_a_running_cua_recording(self):
+        kit, recorder = self.kit()
+        with tempfile.TemporaryDirectory() as tmp:
+            video = hv.Video(Path(tmp), kit)
+            video.start(1)
+            video.abandon()
+            self.assertFalse(video.running)
+            self.assertIn(("close",), recorder.calls)
+
+    def test_the_look_clip_name_is_one_a_steps_file_cannot_take(self):
+        self.assertIsNone(hv.SHOT_NAME.fullmatch(hv.LOOK_CLIP))
+
+    def test_without_a_kit_record_window_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(hv.Video(Path(tmp)).name, "record-window")
+
+    def test_window_crop_is_in_the_videos_own_pixels(self):
+        crop = hv.window_crop({"X": 480.0, "Y": 270.0, "Width": 960.0, "Height": 540.0}, (1920.0, 1080.0))
+        self.assertEqual(crop, "crop=trunc(iw*0.5/2)*2:trunc(ih*0.5/2)*2:trunc(iw*0.25/2)*2:trunc(ih*0.25/2)*2")
+
+    def test_window_crop_refuses_a_window_off_the_main_display(self):
+        self.assertIsNone(hv.window_crop({"X": 2000.0, "Y": 0.0, "Width": 800.0, "Height": 600.0}, (1920.0, 1080.0)))
+        self.assertIsNone(hv.window_crop({"X": -10.0, "Y": 0.0, "Width": 800.0, "Height": 600.0}, (1920.0, 1080.0)))
+        self.assertIsNone(hv.window_crop(None, (1920.0, 1080.0)))
+        self.assertIsNone(hv.window_crop({"X": 0.0, "Y": 0.0, "Width": 800.0, "Height": 600.0}, None))
+
+    def fake_crop_tool(self, folder: Path, code: int = 0) -> tuple[Path, Path]:
+        """A stand-in for the compiled media/crop-video.swift: it logs its argv and writes OUT (exit 0) or fails."""
+        log = folder / "crop-args.json"
+        tool = folder / "crop-video"
+        tool.write_text("#!/usr/bin/env python3\nimport json, sys\n"
+                        f"json.dump(sys.argv[1:], open({str(log)!r}, 'w'))\n"
+                        + ("open(sys.argv[2], 'wb').write(b'window')\n" if code == 0 else
+                           "sys.stderr.write('the export ended 4')\nsys.exit(1)\n"))
+        tool.chmod(0o755)
+        return tool, log
+
+    def test_cut_to_window_without_ffmpeg_cuts_with_avfoundation(self):
+        """2026-11-16: no display worker has ffmpeg, so every fleet look's video was the whole display, which showed
+        other steps' system dialogs; the window is cut out by media/crop-video.swift (AVFoundation) instead."""
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            mp4 = folder / "video.mp4"
+            mp4.write_bytes(b"display")
+            tool, log = self.fake_crop_tool(folder)
+            with unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                    unittest.mock.patch.object(hv, "swift_tool", return_value=tool) as compiled:
+                why = hv.cut_to_window(mp4, {"X": 480.0, "Y": 270.0, "Width": 960.0, "Height": 540.0},
+                                       (1920.0, 1080.0))
+            self.assertIsNone(why)
+            self.assertEqual(mp4.read_bytes(), b"window")
+            compiled.assert_called_once_with("crop-video")
+            argv = json.loads(log.read_text())
+            self.assertEqual(argv[0], str(mp4))
+            self.assertEqual(argv[2:], ["0.250000", "0.250000", "0.500000", "0.500000", "1"])
+            self.assertFalse((folder / ".video-window.mp4").exists())
+
+    def test_cut_to_window_keeps_the_display_when_avfoundation_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            mp4 = folder / "video.mp4"
+            mp4.write_bytes(b"display")
+            tool, _ = self.fake_crop_tool(folder, code=1)
+            with unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                    unittest.mock.patch.object(hv, "swift_tool", return_value=tool):
+                why = hv.cut_to_window(mp4, {"X": 0.0, "Y": 0.0, "Width": 800.0, "Height": 600.0}, (1920.0, 1080.0))
+            self.assertIn("AVFoundation could not cut the window out: the export ended 4", why)
+            self.assertEqual(mp4.read_bytes(), b"display")
+            self.assertFalse((folder / ".video-window.mp4").exists())
+
+    def test_the_stopped_cua_video_is_the_window_without_ffmpeg(self):
+        """The receipt says window: true when the AVFoundation cut ran (it said "no ffmpeg here" on every fleet look)."""
+        kit, _ = self.kit()
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            tool, _ = self.fake_crop_tool(out)
+            video = hv.Video(out, kit)
+            video.start(123)
+            with unittest.mock.patch.object(hv, "window_frame",
+                                            return_value={"X": 0.0, "Y": 25.0, "Width": 1280.0, "Height": 800.0}), \
+                    unittest.mock.patch.object(hv, "main_display_points", return_value=(1920.0, 1080.0)), \
+                    unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                    unittest.mock.patch.object(hv, "swift_tool", return_value=tool):
+                mp4 = video.stop()
+            self.assertEqual(mp4.read_bytes(), b"window")
+            self.assertEqual(video.facts, {"by": "cua-driver", "window": True})
+
+    def test_the_looks_copy_has_a_neutral_shell(self):
+        """The copy's terminals said `cmux@cmux23 ~ %`, and the privacy check withheld the new-tab shot and the video
+        for the worker's name (2026-11-16): the look makes its copy with side-instance.sh --neutral-shell."""
+        args = hv.side_make_args(Path("/Apps/cmux NIGHTLY.app"))
+        self.assertEqual(args[:3], ["make", "--from", "/Apps/cmux NIGHTLY.app"])
+        self.assertIn("--neutral-shell", args)
 
 
 if __name__ == "__main__":

@@ -621,7 +621,7 @@ pub(super) fn same_session(aliases: &[Vec<String>]) -> Vec<Vec<usize>> {
 /// Every name each target may go by, so a session named two ways (its name, its id,
 /// `host/name`, a tag's `peer/id`) is one chain: its key and name, and for a named target its
 /// session id, resolved (each distinct name once, side by side, within [`RESOLVE_WAIT`]) to the
-/// form a tag's target has (`peer/id` on a peer, as [`crate::cli::resolve::routed_id`] gives).
+/// form a tag's target has (`peer/id` on a peer, as [`crate::session_identity::routed_id`] gives).
 /// A name that resolves to nothing cannot be told apart from any session it might be: all such
 /// names are one chain, and one on a peer (`host/...`) also joins every target on that host.
 pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec<String>> {

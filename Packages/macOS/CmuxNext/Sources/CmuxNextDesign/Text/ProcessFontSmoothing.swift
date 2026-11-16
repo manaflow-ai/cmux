@@ -45,10 +45,11 @@ public nonisolated struct ProcessFontSmoothing: Sendable, Equatable {
 
     /// Writes `mode` for AppKit to read at its first text draw, and returns what text then draws.
     ///
-    /// ``FontSmoothing/antialiased`` writes 0 in the app's own domain (over a global value);
-    /// ``FontSmoothing/system`` removes the app's value, so the Mac's global choice applies. A
-    /// 0 already in place is not written again. Called before the first window: AppKit ignores
-    /// a change after its first text draw, so a change applies at the next launch.
+    /// ``FontSmoothing/antialiased`` writes 0 and ``FontSmoothing/subpixel`` writes 2 in the app's
+    /// own domain (over any global value; macOS 27 draws 1, 2 and 3 alike); ``FontSmoothing/auto``
+    /// removes the app's value, so the Mac's global choice applies. A value already in place is not
+    /// written again. AppKit ignores a change after its first text draw, so the app calls this before
+    /// its first window and again on each change, for the next launch.
     ///
     /// - Parameters:
     ///   - mode: the `appearance.fontSmoothing` setting.
@@ -56,11 +57,14 @@ public nonisolated struct ProcessFontSmoothing: Sendable, Equatable {
     /// - Returns: the smoothing `defaults` now gives.
     @discardableResult
     public static func apply(_ mode: FontSmoothing, to defaults: UserDefaults) -> ProcessFontSmoothing {
+        let saved = (defaults.object(forKey: defaultsKey) as? NSNumber)?.intValue
         switch mode {
-        case .antialiased:
-            if (defaults.object(forKey: defaultsKey) as? NSNumber)?.intValue != 0 { defaults.set(0, forKey: defaultsKey) }
-        case .system:
+        case .auto:
             defaults.removeObject(forKey: defaultsKey)
+        case .antialiased:
+            if saved != 0 { defaults.set(0, forKey: defaultsKey) }
+        case .subpixel:
+            if saved == nil || saved == 0 { defaults.set(2, forKey: defaultsKey) }
         }
         return ProcessFontSmoothing(defaults: defaults)
     }
