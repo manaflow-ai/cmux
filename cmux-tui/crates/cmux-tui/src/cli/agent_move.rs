@@ -34,7 +34,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         );
         return Some(0);
     }
-    let request = match parse_request(&global, &command[2..]) {
+    let request = match parse_request(&global, command.get(2..).unwrap_or_default()) {
         Ok(request) => request,
         Err(error) => return Some(usage(&global, &error.0)),
     };
@@ -77,28 +77,25 @@ fn parse_request(global: &GlobalArgs, args: &[String]) -> Result<MoveRequest, Us
     }
     let mut sessions = Vec::new();
     let mut options = Vec::new();
-    let mut index = 0;
-    while index < args.len() {
-        let word = &args[index];
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
         match word.as_str() {
             "--interrupt" | "--after-turn" | "--leave-dirty" | "--carry-changes" | "--dry-run" => {
                 options.push(word.clone());
             }
             "--cwd" | "--from" => {
-                let value = args
-                    .get(index + 1)
+                let value = words
+                    .next()
                     .filter(|value| !value.starts_with('-'))
                     .ok_or_else(|| UsageError::new(format!("agent move: {word} needs a value")))?;
                 options.push(word.clone());
                 options.push(value.clone());
-                index += 1;
             }
             value if value.starts_with('-') => {
                 return Err(UsageError::new(format!("agent move: unknown option {value}")));
             }
             session => sessions.push(session.to_owned()),
         }
-        index += 1;
     }
     if sessions.is_empty() {
         return Err(UsageError::new("agent move requires at least one SESSION"));
