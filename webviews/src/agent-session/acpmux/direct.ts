@@ -148,6 +148,8 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { noteTranscriptReplace } from "./flickerLog";
 import { chatPerfCapture } from "./chatPerfCapture";
 import { acpmuxPerf } from "./perf";
+import { coalesceStream, isStreamFrame } from "./ingest";
+import type { Lanes, Slice } from "./schedule";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
 import { approvePlan, clearPlanScope, editPaths, rememberPlanEdit } from "./planScopeDriftStore";
@@ -1966,6 +1968,9 @@ export type GitRoute = "native" | "daemon";
 /// fallback did before.
 const HIDDEN_DRAW_MS = 50;
 
+/// Names each client's ingest task in the frame lane (`ingestKey`).
+let ingestClients = 0;
+
 /// What hidden pages left for their first frame once shown: a client's snapshot and deferred
 /// prompt index each wait once and cancel on close. All waits share one visibility listener.
 const waitingForShow = new Set<() => void>();
@@ -2849,6 +2854,22 @@ export class AcpmuxDirectClient {
   /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
   /// draws the transcript sets it (main.tsx: ``nextFrame``); unset, each event snapshots at once.
   static scheduleFrame: ((run: () => void) => (() => void) | void) | undefined;
+  /// The page's lanes (acpmux/schedule), set by the page that draws the chat (mountModel.tsx). Set, a
+  /// shown page's stream frames wait in the ingest queue and the frame lane folds them in slices
+  /// (`receive`, `drainIngest`); unset (tests, replay), every frame is folded in the task that got it.
+  static ingestLanes: Lanes | undefined;
+  /// Stream frames received and not folded yet, oldest first, from `ingestHead` (`receive`).
+  private ingestQueue: { raw: string; stale: boolean }[] = [];
+  private ingestHead = 0;
+  /// Records a drain parsed and did not fold before its slice ended: folded first next slice.
+  private ingestParsed: EventRecord[] = [];
+  /// A drain is running (it never nests), and whether it runs in the frame lane: then its snapshots wait
+  /// for the end of its slice and draw once, in this frame (`emitInFrame`).
+  private ingestDraining = false;
+  private ingestInFrame = false;
+  /// The stream records one drain step read, folded together (`collectOrApply`).
+  private ingestBatch?: EventRecord[];
+  private readonly ingestKey = `acpmux-ingest-${(ingestClients += 1)}`;
   /// The connection state of the snapshot waiting for the next frame.
   private frameSnapshot?: string;
   /// Another chat changed while the page was hidden: the list draws again when it shows.
@@ -4543,6 +4564,8 @@ export class AcpmuxDirectClient {
   /// host alone and not into this page's map (tailCache.ts `rememberTail`). `toHost` is false when
   /// the caller carries it to the host itself (`tailHandOver`). The chat and tail kept, if any.
   private rememberCurrentTail(forThisPage = true, toHost = true): { sessionId: string; tail: KeptTail } | undefined {
+    // What was received is part of the tail: the ingest queue is folded first.
+    this.drainIngest();
     const sessionId = this.selectedSessionId;
     const tail = this.currentTail();
     // A chat on the store keeps its window instead (rows/chatSource.ts): one kept thing a chat.
@@ -5089,6 +5112,8 @@ export class AcpmuxDirectClient {
   /// the wire log counts each lost connection by it, so how often a chat reconnects, and why, is read
   /// from the Inspector and the page log instead of guessed.
   private connectionEnded(socket: WebSocket, cause: string): void {
+    // The records the socket sent before it ended are folded before anything of it is torn down.
+    this.drainIngest();
     this.endedSocket = socket;
     // Taken before anything of the connection is torn down: the next client starts from it. The
     // page's own tail of the chat moves up to what this client read too: it held the tail from the
@@ -5160,8 +5185,131 @@ export class AcpmuxDirectClient {
     void this.open().catch(() => this.scheduleReconnect());
   };
 
+  /// A frame from the socket. On a shown page with lanes, a chat stream record (`isStreamFrame`) waits
+  /// in the ingest queue and this returns: the frame lane parses and folds the queue in slices, so a
+  /// host push of hundreds of frames is never one task in front of a key. A reply to this page's own
+  /// request is read at once, ahead of the stream records waiting (they never wait on a reply, and a
+  /// reply never waits on them: a record a reply's page also carries is dropped by its seq). Any other
+  /// notification folds the queue first, so it applies after the records sent before it.
   private receive(raw: string, stale = false): void {
     if (!stale) this.daemonLastFrameAt = Date.now();
+    const lanes = AcpmuxDirectClient.ingestLanes;
+    if (lanes && !this.closed && pageShown() && isStreamFrame(raw)) {
+      this.ingestQueue.push({ raw, stale });
+      lanes.frame(this.ingestKey, (slice) => this.drainIngest(slice));
+      return;
+    }
+    if (this.ingestWaiting() && !isReplyFrame(raw)) this.drainIngest();
+    this.read(raw, stale);
+  }
+
+  /// Folds the ingest queue: in the frame lane, until its slice is spent (it asks again for what is
+  /// left); with no slice, all of it now (a notification that must apply after it, a hidden page, a
+  /// tail remembered, a close). Parsing and folding both stop at the slice's end: records parsed and not
+  /// folded yet wait in `ingestParsed`, ahead of the frames. Consecutive stream records coalesce before
+  /// the reducer sees them (`coalesceStream`), and the snapshot is drawn once, at the end, in this frame.
+  // perf-hot: 6ms chat-ingest-frame
+  private drainIngest(slice?: Slice): void {
+    if (this.ingestDraining || !this.ingestWaiting()) return;
+    this.ingestDraining = true;
+    this.ingestInFrame = slice !== undefined && pageShown();
+    try {
+      acpmuxPerf.timed("client.ingest", () => {
+        while (this.ingestWaiting()) {
+          if (this.ingestParsed.length === 0) {
+            const batch: EventRecord[] = [];
+            this.ingestBatch = batch;
+            try {
+              // Parse until the slice is spent; at least one frame per slice, so the queue always moves.
+              do {
+                const { raw, stale } = this.ingestQueue[this.ingestHead]!;
+                this.ingestHead += 1;
+                this.read(raw, stale);
+              } while (this.ingestHead < this.ingestQueue.length && !slice?.shouldYield());
+            } finally {
+              this.ingestBatch = undefined;
+            }
+            this.ingestParsed = batch;
+          }
+          this.ingestParsed = this.applyBatch(this.ingestParsed, slice);
+          if (slice?.shouldYield()) break;
+        }
+      });
+    } finally {
+      const inFrame = this.ingestInFrame;
+      this.ingestDraining = false;
+      this.ingestInFrame = false;
+      if (this.ingestHead >= this.ingestQueue.length) {
+        this.ingestQueue = [];
+        this.ingestHead = 0;
+      } else if (this.ingestHead > 256 && this.ingestHead * 2 > this.ingestQueue.length) {
+        // Frames already read are let go once they are most of the array, so it never grows by them.
+        this.ingestQueue = this.ingestQueue.slice(this.ingestHead);
+        this.ingestHead = 0;
+      }
+      if (this.ingestWaiting() && !this.closed)
+        AcpmuxDirectClient.ingestLanes?.frame(this.ingestKey, (next) => this.drainIngest(next));
+      // One snapshot for everything this slice folded, drawn in this frame. A drain outside the frame
+      // lane left its snapshot to `emitInFrame`'s own frame, as any record's.
+      const pending = this.frameSnapshot;
+      if (inFrame && pending !== undefined && !this.closed) {
+        this.frameRequest?.cancel?.();
+        this.frameRequest = undefined;
+        this.emit(pending);
+      }
+    }
+  }
+
+  /// Stream frames or parsed records wait to be folded.
+  private ingestWaiting(): boolean {
+    return this.ingestParsed.length > 0 || this.ingestHead < this.ingestQueue.length;
+  }
+
+  /// Folds parsed stream records until the slice is spent (at least one fold), and returns those left.
+  /// Coalesced only on the plain path (no attach, copy or row store holding records apart); otherwise
+  /// each is applied alone, as `receive` always did.
+  private applyBatch(batch: EventRecord[], slice?: Slice): EventRecord[] {
+    if (batch.length === 0) return batch;
+    const sessionId = this.selectedSessionId;
+    const plain =
+      batch.length > 1 &&
+      sessionId !== undefined &&
+      this.earlyAttach === undefined &&
+      this.copyLive === undefined &&
+      !this.peerCopy?.offline &&
+      !this.chatRows.holds(sessionId);
+    if (!plain) {
+      let index = 0;
+      do this.apply(batch[index++]!);
+      while (index < batch.length && !slice?.shouldYield());
+      return index < batch.length ? batch.slice(index) : [];
+    }
+    // Records `apply` drops at once (another chat's, no seq, one already folded) are applied alone; they
+    // change nothing, so their place among the rest does not matter.
+    const fresh: EventRecord[] = [];
+    let last = this.lastSeq;
+    for (const event of batch) {
+      if (event?.seq && event.sessionId === sessionId && event.seq > last) {
+        fresh.push(event);
+        last = event.seq;
+      } else this.apply(event);
+    }
+    let folded = 0;
+    for (const step of coalesceStream(fresh)) {
+      if (folded > 0 && slice?.shouldYield()) break;
+      this.apply(step.reduce, step.hold);
+      folded += step.hold.length;
+    }
+    return folded < fresh.length ? fresh.slice(folded) : [];
+  }
+
+  /// A stream record read from a frame: folded now, or with its drain step's batch.
+  private collectOrApply(event: EventRecord): void {
+    if (this.ingestBatch) this.ingestBatch.push(event);
+    else this.apply(event);
+  }
+
+  private read(raw: string, stale: boolean): void {
     // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
     // Parsed once: the wire log takes the parsed frame.
     const parsed = parseJsonObjectFrame(raw);
@@ -5254,7 +5402,7 @@ export class AcpmuxDirectClient {
       if (params.sessionId === this.selectedSessionId) acpmuxPerf.markEvent(notification.params?.at);
       // `cmux app chat perf` (chatPerfCapture.ts): one boolean when no capture runs.
       const arrived = chatPerfCapture.active && params.sessionId === this.selectedSessionId ? performance.now() : -1;
-      this.apply(notification.params as EventRecord);
+      this.collectOrApply(notification.params as EventRecord);
       if (arrived >= 0) chatPerfCapture.arrived(params.kind, arrived);
     } else if (notification.method === "session/update") {
       this.observeClock(notification.params?.sessionId, notification.params?._meta?.acpmux?.at);
@@ -5263,7 +5411,7 @@ export class AcpmuxDirectClient {
       const kind = String(notification.params?.update?.sessionUpdate ?? "");
       const arrived =
         chatPerfCapture.active && notification.params?.sessionId === this.selectedSessionId ? performance.now() : -1;
-      this.apply({
+      this.collectOrApply({
         sessionId: notification.params?.sessionId,
         seq: Number(notification.params?._meta?.acpmux?.seq ?? 0),
         at: Number(notification.params?._meta?.acpmux?.at ?? Date.now()),
@@ -7696,7 +7844,10 @@ export class AcpmuxDirectClient {
     if (update?.status === "completed" || update?.status === "failed") this.streamedOutputs.delete(callId);
   }
 
-  private apply(event: EventRecord): void {
+  /// Folds one record. `held`, from a coalesced run (`applyBatch`, plain path only), are the records
+  /// `event` stands for: each is held as itself (the held window and its seqs stay whole), and `event`,
+  /// which carries the last one's seq, is folded once in their place.
+  private apply(event: EventRecord, held?: readonly EventRecord[]): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
     if (event.sessionId && this.chatRows.holds(event.sessionId) && !holdReads(event)) return;
     // The chat's records reach the page: the quiet watch starts over from here.
@@ -7716,10 +7867,13 @@ export class AcpmuxDirectClient {
     const copy = this.peerCopy;
     if (copy?.offline && !copy.attaching && copy.sessionId === event.sessionId && event.seq > copy.lastSeq) return;
     if (event.seq <= this.lastSeq) return;
-    this.holdLive(event);
-    this.sawPrompt(event);
+    for (const record of held ?? [event]) {
+      this.holdLive(record);
+      this.sawPrompt(record);
+    }
+    const firstSeq = held?.[0]?.seq ?? event.seq;
     this.lastSeq = event.seq;
-    this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
+    this.firstSeq = this.firstSeq === undefined ? firstSeq : Math.min(this.firstSeq, firstSeq);
     this.streamGrew = false;
     this.reduce(event);
     this.noticeRefusal(event);
@@ -7943,6 +8097,11 @@ export class AcpmuxDirectClient {
 
   /// Snapshots before the next display frame, once for every event that lands before it.
   private emitInFrame(connection: string, streamGrew = false): void {
+    // The frame lane is folding the ingest queue: it draws once at the end of its slice, in this frame.
+    if (this.ingestInFrame) {
+      this.frameSnapshot = connection;
+      return;
+    }
     const schedule = AcpmuxDirectClient.scheduleFrame;
     if (!schedule) return this.emit(connection);
     const scheduled = this.frameSnapshot !== undefined;
@@ -16139,4 +16298,11 @@ const probeRefusals = new Set(["remote.unsupported", "transport.method_refused",
 function refusedByHost(error: AcpmuxRpcError): boolean {
   const data = error.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined;
   return data?.origin === "native";
+}
+
+/// Whether `raw` is a reply to a request (an `"id"` key at the top level, read from the frame's head):
+/// it is read ahead of the stream records waiting in the ingest queue (`receive`).
+function isReplyFrame(raw: string): boolean {
+  const head = raw.slice(0, 64);
+  return /^\s*\{\s*(?:"jsonrpc"\s*:\s*"2\.0"\s*,\s*)?"id"\s*:/.test(head) && !/"method"\s*:/.test(head);
 }
