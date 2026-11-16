@@ -1435,12 +1435,14 @@ public final class DaemonTerminalSession: TerminalSession {
     nonisolated static let agentCLIHybridCapability = "agent-cli-hybrid-v1"
     /// The same frames packed (`agent-cli-lean`): a Mac that knows it sends those instead.
     nonisolated static let agentCLIHybridLeanCapability = "agent-cli-hybrid-v2"
-    /// Settings → Transport → Agent CLI Screen Changes (off by default), the
+    /// Settings → Transport → Agent CLI Screen Changes (on by default), the
     /// `CmuxMobilePreferences.Key.agentCLIHybrid` key; read at each attach.
     nonisolated static let agentCLIHybridDefaultsKey = "cmuxMobile.settings.agentCLIHybrid"
 
+    /// On unless the person turned the switch off: every terminal attach declares the lean
+    /// stream (ask-acfe81d613).
     nonisolated static func agentCLIHybridEnabled(_ defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: agentCLIHybridDefaultsKey)
+        defaults.object(forKey: agentCLIHybridDefaultsKey) as? Bool ?? true
     }
 
     /// What `set-client-info` declares: the hybrid stream only with the setting on.

@@ -85,7 +85,9 @@ import Testing
         #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains("agent-cli-hybrid-v2"))
         #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains("agent-cli-hybrid-v2"))
         let defaults = try #require(UserDefaults(suiteName: "AgentCLIHybridFrameTests-\(UUID().uuidString)"))
-        #expect(!DaemonTerminalSession.agentCLIHybridEnabled(defaults), "off by default")
+        #expect(DaemonTerminalSession.agentCLIHybridEnabled(defaults), "on by default")
+        defaults.set(false, forKey: DaemonTerminalSession.agentCLIHybridDefaultsKey)
+        #expect(!DaemonTerminalSession.agentCLIHybridEnabled(defaults), "the switch turns it off")
         defaults.set(true, forKey: DaemonTerminalSession.agentCLIHybridDefaultsKey)
         #expect(DaemonTerminalSession.agentCLIHybridEnabled(defaults))
     }
