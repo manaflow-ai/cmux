@@ -17,11 +17,12 @@ A cell is one Cloud chat started from one folder on this Mac with `cmux cloud st
 
 Workspaces (WORKSPACES): an empty folder, a small repo, a big monorepo (a cmux clone), a repo whose
 remote is private, submodules, Git LFS, a dirty tree, a big non-Git folder, a folder past the copy's
-limits (`huge-plain`: a sparse 21 GiB file, no disk spent, which must be refused fast with `copy.too_large`
-and no machine made; link/sync_cli/size_cap.rs), a parent folder of repositories that is no repository
-itself, under the limits (`parent-repos`, copied whole) and past them (`huge-parent-repos`, ~/Projects' shape: refused
-fast before any machine, the refusal naming the repositories inside it to start in instead; Leo, 2026-11-10: "then
-there's this limit", "did you guys not test these"), a folder of secrets, and odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
+limits (`huge-plain`: a sparse 21 GiB file, no disk spent), a parent folder of repositories that is no
+repository itself, under the limits (`parent-repos`, copied whole) and past them (`huge-parent-repos`,
+~/Projects' shape). A folder past the limits is never refused: the chat starts in it at once from a first pass of
+its files (link/sync_cli/size_cap.rs) and its reply must read the folder's word, within FIRST_PASS_REPLY_WITHIN_S;
+its tree is not compared, the rest staying on the Mac (Leo, 2026-11-10: "then there's this limit", "did you guys
+not test these"; 2026-11-15: "why are you guys still blocking on these?"), a folder of secrets, and odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
 into it, so its cell has no word check. Agents (AGENTS) run on the small repo; the workspace cells use
 the first agent.
 
@@ -60,15 +61,15 @@ import claude_login_cache  # noqa: E402
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
               "big-plain", "huge-plain", "parent-repos", "huge-parent-repos", "secrets", "odd-names")
-# The cells whose right answer is a refusal before any machine, with the way on in its words.
-REFUSED_CELLS = ("huge-plain", "huge-parent-repos")
-# The repositories inside parent-repos and huge-parent-repos, which the refusal must name.
+# The cells past the copy's limits: the chat starts from a first pass, never a refusal; no tree compare.
+FIRST_PASS_CELLS = ("huge-plain", "huge-parent-repos")
+# The repositories inside parent-repos and huge-parent-repos.
 PARENT_REPOS = ("api", "web", "work/tools")
 WORD_FILE = "cmux-matrix-word.txt"
 # huge-plain: past the copy's 20 GiB limit (link/sync_cli/size_cap.rs), sparse so it costs no disk.
 HUGE_PLAIN_BYTES = 21 * 1024 ** 3
-# How long the copy may take to refuse huge-plain, from the call to its answer.
-HUGE_PLAIN_REFUSED_WITHIN_S = 30
+# How long a first-pass cell may take from the call to its reply.
+FIRST_PASS_REPLY_WITHIN_S = 300
 
 # What a copy leaves out (link/sync_cli/skips.rs): keep these in step with it.
 CREDENTIAL_FOLDERS = (".ssh", ".aws", ".gnupg", ".config/gcloud", ".config/gh", ".kube", ".docker", ".secrets",
@@ -704,10 +705,11 @@ class Matrix:
         if folder is None:
             cell["result"] = note or "skipped"
             return cell
-        if name in REFUSED_CELLS:
-            return self.refused_cell(cell, folder, agent)
         started = time.monotonic()
-        expected = local_manifest(folder, canary)
+        # A first-pass cell's tree is not compared (the rest stays on the Mac), and hashing its 21 GiB
+        # sparse file would read 21 GiB of zeros.
+        expected = {"files": None, "bytes": None, "left_out": {}, "sha256": None, "tops": {}, "lines": []} \
+            if name in FIRST_PASS_CELLS else local_manifest(folder, canary)
         cell["local"] = {key: expected[key] for key in ("files", "bytes", "left_out")}
         cell["local"]["manifest_s"] = round(time.monotonic() - started, 1)
         cell["local_git"] = git_state(folder)
@@ -817,40 +819,6 @@ class Matrix:
         return cell
 
 
-def _refused_cell(self, cell: dict, folder: Path, agent: str) -> dict:
-    """huge-plain, huge-parent-repos: start-chat refuses the folder with copy.too_large, fast, before any machine is
-    made; a parent of repositories is refused naming each repository inside it, the folder to start in instead."""
-    started = time.monotonic()
-    code, out, err = self.cmux("cloud", "start-chat", "--from-folder", str(folder), "--prompt", "x",
-                               "--agent", agent, "--json", timeout=HUGE_PLAIN_REFUSED_WITHIN_S + 60)
-    cell["create_to_reply_s"] = round(time.monotonic() - started, 1)
-    failure = self.error(out, err)
-    cell["start_exit"] = code
-    cell["start_error"] = clean(f"{failure.get('code', '')}: {failure.get('message', '')}", 800)
-    machine = (failure.get("details") or {}).get("machine_id")
-    if machine:
-        with self.lock:
-            self.machines.add(machine)
-        cell["machine_killed"] = self.kill(machine)
-    problems = []
-    if code != 2 or failure.get("code") != "copy.too_large":
-        problems.append(f"not refused as copy.too_large (exit {code}, {failure.get('code')})")
-    if cell["create_to_reply_s"] > HUGE_PLAIN_REFUSED_WITHIN_S:
-        problems.append(f"refused after {cell['create_to_reply_s']} s")
-    if machine:
-        problems.append("a machine was made")
-    if cell["workspace"] == "huge-parent-repos":
-        words = failure.get("message", "") or err
-        missing = [name for name in PARENT_REPOS if name not in words]
-        if missing or "--from-folder" not in words:
-            problems.append(f"the refusal names no way on (missing {', '.join(missing) or '--from-folder'})")
-    cell["result"] = "pass" if not problems else "fail: " + ", ".join(problems)
-    return cell
-
-
-Matrix.refused_cell = _refused_cell
-
-
 def shlex_quote(text: str) -> str:
     return "'" + text.replace("'", "'\"'\"'") + "'"
 
@@ -866,8 +834,11 @@ def verdict(cell: dict, canary: str) -> str:
         problems.append("word not read")
     if reply.get("canary_in_reply") or cell.get("canary_on_machine"):
         problems.append("SECRET LEAKED")
-    if cell.get("hash_match") is False:
+    first_pass = cell.get("workspace") in FIRST_PASS_CELLS
+    if cell.get("hash_match") is False and not first_pass:
         problems.append("tree differs")
+    if first_pass and (cell.get("create_to_reply_s") or 0) > FIRST_PASS_REPLY_WITHIN_S:
+        problems.append(f"first reply after {cell.get('create_to_reply_s')} s")
     if cell.get("hash_match") is None:
         problems.append("tree not checked")
     if cell.get("git_match") is False:
