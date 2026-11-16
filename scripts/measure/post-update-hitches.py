@@ -72,7 +72,9 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "ci"))
 import fresh_home_launch_smoke as smoke  # noqa: E402
 
-FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+# The live nightly-next feed (Info.plist's SUFeedURL; next/appcast-arm64.xml stopped at 2026-11-05's builds, before the
+# staged-update pre-warm, so FROM there never pre-warms).
+FEED = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 BUNDLE_ID = "com.cmuxterm.app.nightly.cmux-next"
 RECORDER_SRC = REPO / "scripts/measure/tab-switch-frames/recorder.swift"
 TURNS_AGENT = ("puh-turns", REPO / "scripts/cmux-next/chat_open_agent.py")
