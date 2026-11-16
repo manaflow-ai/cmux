@@ -198,6 +198,7 @@ mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
 mod conversation_runs;
+mod device_setup_command;
 mod remote_host_command;
 mod resource_trust;
 use resource_trust::{
@@ -886,6 +887,15 @@ enum Command {
         headless: Option<bool>,
     },
     RemoteHostApp,
+    /// `cmux device setup|start` for the app (server/device_setup_command.rs).
+    DeviceSetup {
+        device: String,
+        verb: String,
+        #[serde(default)]
+        allow_agents: bool,
+        #[serde(default)]
+        dry_run: bool,
+    },
     SubscribeActivity,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
     UrlOpenSubscribe {
