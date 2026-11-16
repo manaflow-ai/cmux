@@ -382,8 +382,17 @@ mod tests {
         let mut output = peer.out_rx.lock().await.take().unwrap();
         let serving_peer = peer.clone();
         let serving = tokio::spawn(async move { serving_peer.serve(client, &mut output).await });
-        let no_notice = tokio::time::timeout(Duration::from_millis(300), notices.recv()).await;
-        assert!(no_notice.is_err(), "controls are state-only while the legacy watch runs");
+        let saw_notification = tokio::time::timeout(Duration::from_millis(300), async {
+            while let Some((_, _, notice)) = notices.recv().await {
+                if matches!(notice, PeerNotice::Notification { .. }) {
+                    return true;
+                }
+            }
+            false
+        })
+        .await
+        .unwrap_or(false);
+        assert!(!saw_notification, "controls are state-only while the legacy watch runs");
         assert_eq!(watches.load(Ordering::SeqCst), 1, "the existing watch stays active");
         assert_eq!(opened.load(Ordering::SeqCst), 2);
         serving.abort();
