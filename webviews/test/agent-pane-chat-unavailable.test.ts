@@ -156,8 +156,12 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     const hash = new URLSearchParams({ endpoint, token: "t", session: chat, must: "" });
     if (machine) hash.set("machine", machine);
     await page.goto(`http://127.0.0.1:${port}/#${hash.toString()}`);
-    await page.evaluate(() => (window as any).cmuxAcpmuxComposer?.({ showPeerReconnectStatus: true }));
+    await enableReconnectStatus(page);
     return page;
+  }
+  async function enableReconnectStatus(page: Page) {
+    await page.waitForFunction(() => typeof (window as any).cmuxAcpmuxComposer === "function");
+    await page.evaluate(() => (window as any).cmuxAcpmuxComposer({ showPeerReconnectStatus: true }));
   }
   const state = (page: Page) => page.evaluate(() => (window as any).cmuxAcpmuxDebug.chatState() as Record<string, any>);
   const notify = (method: string, params: Record<string, unknown>) =>
@@ -334,7 +338,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await page.goto(
       `http://127.0.0.1:${port}/#${new URLSearchParams({ endpoint, token: "t", session: "chat-on-box", must: "" })}`,
     );
-    await page.evaluate(() => (window as any).cmuxAcpmuxComposer?.({ showPeerReconnectStatus: true }));
+    await enableReconnectStatus(page);
     await page.getByText("Kept chat-on-box", { exact: true }).waitFor({ timeout: 25_000 });
     const line = page.locator('.acpmux-unavailable-line[data-unavailable="offline"]');
     await line.waitFor({ timeout: 25_000 });
