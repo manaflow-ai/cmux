@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43800664850",
+  "recorded_at": "2026-11-16T04:07:58Z",
+  "reason": "cmux-tui 13cd9ac8d5aa changes the image's cmux-tui (pinned 69400ff148b2)",
+  "dry_run": false,
+  "cmux_tui": "13cd9ac8d5aae198618b2a38d6e13a18d3b17bb8",
+  "fixes": [
+    {
+      "sha": "13cd9ac8d5aae198618b2a38d6e13a18d3b17bb8",
+      "mergedAt": "2026-11-15T19:30:33-08:00",
+      "subject": "apps: host start and apps.json write off the supervisor lock, constant under load (#44075)"
+    },
+    {
+      "sha": "20000e1cda76e01b07c52bc61ba5c904c1ecdb66",
+      "mergedAt": "2026-11-15T19:25:30-08:00",
+      "subject": "cmux-action-catalog: awaiting-repin markers are one file per entry, so parallel PRs never conflict on them (#44121)"
+    },
+    {
+      "sha": "fb0bc576faee12f7a5628cfe9acf358910dbbd99",
+      "mergedAt": "2026-11-16T03:24:35Z",
+      "subject": "acpmux: report every mirror v1 gate round (#43916)"
+    },
+    {
+      "sha": "646fbb848a3b1249016029899e4360bad6d5fca4",
+      "mergedAt": "2026-11-15T19:24:23-08:00",
+      "subject": "Palette: Screen Sharing: <device> rows, and Screen Sharing found by \"screen share\", \"vnc\", \"remote desktop\" (#43914)"
+    },
+    {
+      "sha": "5d3eb3558f53c80baf8f99372d77ebfecb0ca874",
+      "mergedAt": "2026-11-16T03:23:48Z",
+      "subject": "cmux-tui: agent CLI terminals stream cell deltas, not PTY bytes, to a viewer that asks (agent-cli-hybrid-v1) (#44029)"
+    },
+    {
+      "sha": "5c8ff4120857fd69df9d6e923adf6d63ce608ab4",
+      "mergedAt": "2026-11-15T19:23:44-08:00",
+      "subject": "screen share: pre-create a decoder session at connect so the first frame skips the cold create (#44094)"
+    },
+    {
+      "sha": "df2f4cdc95ce8cd5874b3bc6fc1fb578d661a74f",
+      "mergedAt": "2026-11-16T03:23:34Z",
+      "subject": "rd host: encode off the input loop thread (#44083)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T04:07:58Z",
+    "snapshot_id": "sh-7a875f3800f74f6f86cb7530ba89724a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43800664850): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8a34c99e9291d5cb99c36a1338a2559976431567",
+    "image": "cloud-native-auto-13cd9ac8-43800664850-1",
+    "revision": "ci-43800664850-1",
+    "at": "2026-11-16T04:07:58Z"
+  },
+  "rolled_back": false
+}
