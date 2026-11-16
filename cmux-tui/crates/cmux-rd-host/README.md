@@ -169,9 +169,10 @@ host's clock:
  "display_to_decoded":{"n":N,"p50_ms":..,"p95_ms":..}}
 ```
 
-`stages` always has the ten rows of the design's budget table, in order: Input, Screen,
-Capture, Encode, Send, Network, Reassembly, Decode, Present, Total. A row with no samples has
-`n: 0`, null percentiles and a `reason`:
+`stages` always has these twelve rows, in order: Input, Screen, Capture, Encode, Send,
+Network, Transport, Recovery, Reassembly, Decode, Present, Total. They are the ten rows of the
+design's budget table plus Network split in two right after it: Transport + Recovery = Network
+for every frame. A row with no samples has `n: 0`, null percentiles and a `reason`:
 
 | Stage | From, to | Filled by |
 | --- | --- | --- |
@@ -181,6 +182,8 @@ Capture, Encode, Send, Network, Reassembly, Decode, Present, Total. A row with n
 | Encode | encode start to bitstream ready | host |
 | Send | bitstream ready to last datagram sent | host |
 | Network | last datagram sent to last shard received | host + viewer (needs the clock offset) |
+| Transport | first datagram sent to first shard received: the path's one-way delay | host + viewer (needs the clock offset) |
+| Recovery | arrival spread (first to last shard) minus send spread (first to last datagram): time lost to retransmits, waiting for parity, jitter and queueing; can be negative when the path squeezes the burst | host + viewer (one clock each) |
 | Reassembly | last shard to frame released | viewer |
 | Decode | released to decoded | viewer |
 | Present | decoded to on glass (drawable presented time) | the app; `cmux-rd bench` has no renderer |

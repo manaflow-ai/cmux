@@ -51,6 +51,12 @@ fn every_stage_comes_out_on_the_host_clock() {
     assert_eq!(p50("Encode"), Some(3.0));
     assert_eq!(p50("Send"), Some(4.0));
     assert_eq!(p50("Network"), Some(1.0));
+    // First shard 0.5 ms after the last send, 4.4 ms after the first; the shards arrived
+    // 0.5 ms apart after leaving 3.9 ms apart. The two add up to Network.
+    assert_eq!(p50("Transport"), Some(4.4));
+    let recovery = p50("Recovery").expect("recovery");
+    assert!((recovery - -3.4).abs() < 1e-9, "{recovery}");
+    assert!((4.4 + recovery - 1.0).abs() < 1e-9);
     assert_eq!(p50("Reassembly"), Some(0.25));
     assert_eq!(p50("Decode"), Some(3.0));
     assert_eq!(p50("Present"), Some(8.0));

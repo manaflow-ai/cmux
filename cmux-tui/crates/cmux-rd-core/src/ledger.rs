@@ -38,8 +38,9 @@ pub struct StageDef {
     pub budget_ms: f64,
 }
 
-/// The ten rows of the budget table, in order.
-pub const STAGES: [StageDef; 10] = [
+/// The ten rows of the budget table, in order, with Network also split into Transport and
+/// Recovery (they add up to it) right after it.
+pub const STAGES: [StageDef; 12] = [
     StageDef { name: "Input", from: "viewer key down", to: "host inject", budget_ms: 3.0 },
     StageDef { name: "Screen", from: "host inject", to: "display time", budget_ms: 12.0 },
     StageDef { name: "Capture", from: "display time", to: "encode start", budget_ms: 8.0 },
@@ -51,6 +52,15 @@ pub const STAGES: [StageDef; 10] = [
         to: "last shard received",
         budget_ms: 2.0,
     },
+    StageDef {
+        name: "Transport",
+        from: "first datagram sent",
+        to: "first shard received",
+        budget_ms: 2.0,
+    },
+    // Loss repair and jitter: how much later the frame finished arriving than it finished
+    // leaving, beyond the transport delay (arrival spread minus send spread).
+    StageDef { name: "Recovery", from: "send spread", to: "arrival spread", budget_ms: 0.0 },
     StageDef {
         name: "Reassembly",
         from: "last shard received",
@@ -212,6 +222,10 @@ impl StageLedger {
                 span(host(h.encode_start_us), host(h.encoded_us)),
                 span(host(h.encoded_us), host(h.last_sent_us)),
                 span(host(h.last_sent_us), to_host(v.last_shard_us)),
+                span(host(h.first_sent_us), to_host(v.first_shard_us)),
+                span(local(v.first_shard_us), local(v.last_shard_us))
+                    .zip(span(host(h.first_sent_us), host(h.last_sent_us)))
+                    .map(|(arrival, send)| arrival - send),
                 span(local(v.last_shard_us), local(v.released_us)),
                 span(local(v.released_us), local(v.decoded_us)),
                 span(local(v.decoded_us), local(v.presented_us)),
@@ -226,7 +240,7 @@ impl StageLedger {
                 to_decoded.push(ms);
             }
         }
-        let crosses = |name: &str| matches!(name, "Network" | "Total");
+        let crosses = |name: &str| matches!(name, "Network" | "Transport" | "Total");
         let stages = STAGES
             .iter()
             .zip(samples.iter_mut())
