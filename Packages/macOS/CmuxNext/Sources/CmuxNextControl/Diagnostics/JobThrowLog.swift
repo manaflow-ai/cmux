@@ -23,7 +23,8 @@ public struct JobThrowLog: Sendable {
 
     /// Keeps `jobThrow`, dropping the oldest beyond ``limit``.
     public mutating func note(_ jobThrow: JobThrow) {
-        _ = jobThrow
+        kept.append(jobThrow)
+        if kept.count > Self.limit { kept.removeFirst(kept.count - Self.limit) }
     }
 
     /// The kept throws whose job ran at `record`, newest first: the candidates for the throw that
