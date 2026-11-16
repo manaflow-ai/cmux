@@ -32,8 +32,10 @@ public struct MachinePaletteRows {
     }
 
     public static let providerID = "machines.actions"
-    /// The most rows one action adds, so a long machine list never floods the results.
-    public static let perActionLimit = 25
+    /// The most rows one action adds. The palette ranks a provider's whole list against the query
+    /// (providers never see keystrokes), so this sits far above any real machine list: it only keeps
+    /// a pathological one from making thousands of rows.
+    public static let perActionLimit = 200
 
     public var actions: [Action]
 
@@ -101,7 +103,7 @@ public struct MachinePaletteRows {
 
 extension MachinePaletteRows {
     /// The machine actions worth a row per machine, each listing what its own picker lists:
-    /// Connect to Machine… (an SSH machine's destination), New Workspace on Machine… (a connected
+    /// Connect to Machine… (an SSH machine's destination, one machine per destination), New Workspace on Machine… (a connected
     /// machine) and Open Cloud SSH Terminal (a Cloud machine). `targets` is the palette's target source.
     public static func standard(targets: @escaping @MainActor () -> (any PaletteTargetSource)?,
                                 sshDestinations: @escaping @MainActor () -> [PaletteTargetOption]) -> [Action] {
