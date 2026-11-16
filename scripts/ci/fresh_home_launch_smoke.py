@@ -334,7 +334,8 @@ def login_keychain(env: dict) -> None:
               ["default-keychain", "-d", "user", "-s", str(keychain)],
               ["set-keychain-settings", str(keychain)]]
     for args in steps:
-        done = subprocess.run(["security", *args], env=scoped, capture_output=True, text=True, timeout=30)
+        done = subprocess.run(["security", *args], env=scoped, capture_output=True, text=True, timeout=30,
+                              start_new_session=True)
         if done.returncode != 0:
             raise CannotRun(f"security {args[0]} in the fresh home failed: {done.stderr.strip()[:300]}")
     log(f"fresh home login keychain: {keychain}")
