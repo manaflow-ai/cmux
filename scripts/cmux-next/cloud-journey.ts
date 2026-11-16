@@ -542,6 +542,8 @@ async function runWarmSpare(cmux: string, api: Pick<Api, "origin" | "bearer" | "
     const timer = setTimeout(() => { child.kill("SIGTERM"); reject(new Error("warm-spare timed out")); }, 120_000);
     child.on("error", reject);
     child.on("close", (code: number | null) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr }); });
+    // A cmux that exits before reading stdin (a usage refusal) closes the pipe: its exit code and answer say why, not EPIPE.
+    child.stdin!.on("error", () => undefined);
     child.stdin!.end(`${api.bearer}\n${installToken}\n`);
   });
   if (result.code !== 0) throw new Error(warmSpareRefusal(result));
