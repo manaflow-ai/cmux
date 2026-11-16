@@ -334,7 +334,7 @@ fn pr08_mirror_local_row_thirty() {
     let counts = god.hub.mirror_counts();
     assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
     let line = format!(
-        "{{\"name\":\"v2.pr08.mirror_local_row_thirty\",\"capped_p95\":{capped_p95},\"capped_p95_all\":{capped_all},\"lifted_p95\":{lifted_p95},\"origins\":{ORIGINS},\"unit_changes\":{MAX_UNIT_CHANGES},\"turn_changes\":{MAX_TURN_UNIT_CHANGES},\"unit\":\"ns\"}}"
+        "{{\"name\":\"v2.pr08.mirror_local_row_thirty\",\"small_p95\":0,\"god_p95\":{capped_p95},\"god_p95_all\":{capped_all},\"lifted_p95\":{lifted_p95},\"origins\":{ORIGINS},\"unit_changes\":{MAX_UNIT_CHANGES},\"turn_changes\":{MAX_TURN_UNIT_CHANGES},\"unit\":\"ns\"}}"
     );
     eprintln!("{line}");
     if let Ok(path) = std::env::var("V2_GATE_OUT")
