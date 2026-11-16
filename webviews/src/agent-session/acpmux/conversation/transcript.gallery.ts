@@ -1350,10 +1350,8 @@ const ENVELOPE_TOOLS = [
       ],
     }),
   }),
-  tool("Read package.json", "read", "completed", {
-    output:
-      '{\n  "name": "@cmux/webviews",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "test": "bun test"\n  }\n}\n',
-  }),
+  // (A read of a JSON file drew here, kept as printed; a read is a plain row that does not open since
+  // 2026-11-17, readPath.ts, so its output has no card.)
 ];
 
 /// A render call (renderCall.ts); one with `update` redraws the card it names and draws nothing itself.
@@ -2908,7 +2906,7 @@ export default agentPaneEntry({
       ),
     },
     "tool-result-envelopes": {
-      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
+      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text.",
       height: 1100,
       snapshot: chat(
         // The reply under the calls keeps every call a row: with nothing after it, the live line

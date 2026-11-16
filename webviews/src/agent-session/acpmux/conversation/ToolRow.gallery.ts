@@ -77,15 +77,10 @@ export default agentPaneEntry({
           throw new Error("Capture step must show its glyph as the group's other steps do");
       },
       snapshot: chat([
-        user("Read the captures", 3),
+        user("Capture the page and its metadata", 3),
+        // Two fetches group (reads never do since 2026-11-17, readPath.ts); the first returned an image.
         activity(
-          [
-            tool("Read first capture", "read", "completed", {
-              images: [CAPTURE],
-              output: "Captured page",
-            }),
-            tool("Read second capture", "read", "completed", { output: "Read the page metadata" }),
-          ],
+          [capture(), tool("Fetch the page metadata", "fetch", "completed", { output: "Read the page metadata" })],
           2,
         ),
       ]),
