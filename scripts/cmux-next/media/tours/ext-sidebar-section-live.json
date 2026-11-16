@@ -334,18 +334,7 @@
       "shot": true
     },
     {
-      "title": "Compact again",
-      "cmux": [
-        "settings",
-        "set",
-        "sidebar.density",
-        "compact"
-      ],
-      "wait": 2,
-      "shot": false
-    },
-    {
-      "title": "Clean up",
+      "title": "The light and dark stills: the list section, bottom region, comfortable",
       "daemon": true,
       "cmux": [
         "workspace",
@@ -360,10 +349,10 @@
         "current",
         "write",
         "--text",
-        "rm -rf \"$D/dist\" \"$D/cmux-app.json\"; clear\r"
+        "clear\r"
       ],
-      "wait": 1,
-      "shot": false
+      "wait": 2,
+      "shot": true
     }
   ]
 }
