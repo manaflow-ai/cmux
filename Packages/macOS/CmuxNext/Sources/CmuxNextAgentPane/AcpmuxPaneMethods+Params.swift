@@ -98,6 +98,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/models": (["refresh", "localOnly"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
+        // Placement names are local display labels; the optional source lets the page filter
+        // targets for a chat without exposing a host URL or session identity.
+        "_acpmux/move_targets": (["source", "sourceKind"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),

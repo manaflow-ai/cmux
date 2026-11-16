@@ -226,16 +226,16 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "agent.moveToMachine",
         group: GROUP,
-        title: t("ActionCatalog", "action.agent.moveToMachine", "Move to SSH Machine"),
-        description: Some("Moves a started chat to a machine added over SSH (--machine <id>, else the first one that is up), from one such machine to another, or back to this Mac (--machine local), with its history, queue and draft, and its folder made there: acpmux's own transfer, as `cmux acp session move` runs it. The tab then shows the chat where it went. Only a person runs it: an agent's run is refused."),
+        title: t("ActionCatalog", "action.agent.moveToMachine", "Move Chat to Machine…"),
+        description: Some("Moves a started chat to an added machine or Auto, preserving history, queue, draft and worktree through acpmux session move. With no target, the palette lists connected machines and placement room. A running turn offers Move after this turn or Move now; uncommitted changes are explained before proceeding. The destination chat opens after a successful move. The CLI is cmux agent move SESSION --machine NAME|auto --json."),
         keywords: &["move", "machine", "ssh", "remote", "peer", "host", "chat", "agent", "back", "local", "transfer"],
         category: "cloud",
         symbol: "arrow.left.arrow.right",
         surfaces: PALETTE,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
-        arguments: &[args::MACHINE.optional()],
+        arguments: &[Argument { kind: ArgKind::String, required: false, suggestions: Some(Suggestions { source: "chatMoveTargets", pinned: &[], other_title: None, allows_multiple: false }), ..args::MACHINE }],
         targets: &["tab"],
-        cli_name: "acp session move",
+        cli_name: "agent move",
         ..Action::DEFAULT
     },
     Action {

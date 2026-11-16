@@ -271,3 +271,189 @@ fn a_folder_is_made_on_this_machine_for_a_move_here() {
         prepare_folder("", &Folder::Plain { cwd: want.to_string_lossy().into_owned() }).unwrap();
     assert_eq!(Path::new(&made), want.canonicalize().unwrap());
 }
+
+#[test]
+fn folder_failure_keeps_a_clear_reason_when_stderr_is_empty() {
+    let error = folder_failure(
+        "gcp-agent-lane-3",
+        &crate::cli::hosts::RemoteOut { ok: false, stdout: String::new(), stderr: String::new() },
+    );
+    let text = error.to_string();
+    assert!(text.contains("making the folder on gcp-agent-lane-3 failed"));
+    assert!(text.contains("non-zero exit status"));
+    assert!(text.contains("remote command returned no diagnostic output"));
+}
+
+#[test]
+fn folder_failure_uses_stdout_when_stderr_is_empty() {
+    let error = folder_failure(
+        "gcp-agent-lane-3",
+        &crate::cli::hosts::RemoteOut {
+            ok: false,
+            stdout: "wt: worktree already exists\n".into(),
+            stderr: String::new(),
+        },
+    );
+    assert!(error.to_string().contains("wt: worktree already exists"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_chat_or_checkout() {
+    use crate::rpc::Message;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    for (running, carry_changes, detached, expected) in [
+        (true, false, false, Some("running_turn")),
+        (false, false, false, Some("dirty_worktree")),
+        (false, true, false, None),
+        (false, false, true, None),
+    ] {
+        let repo = repo_with_branch();
+        let file = repo.path().join("sub/a.txt");
+        std::fs::write(&file, "uncommitted work").unwrap();
+        if detached {
+            let out = StdCommand::new("git")
+                .arg("-C")
+                .arg(repo.path())
+                .args(["checkout", "--detach", "--quiet"])
+                .output()
+                .unwrap();
+            assert!(out.status.success());
+        }
+        let info = json!({"sessionId": "chat", "name": "Chat", "cwd": repo.path(),
+            "status": if running { "running" } else { "ready" },
+            "turn": if running { json!({"turnId": "one"}) } else { Value::Null },
+            "queued": 2});
+        let socket_dir = tempfile::tempdir().unwrap();
+        let socket = socket_dir.path().join("daemon.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (rd, mut wr) = stream.into_split();
+            let mut lines = BufReader::new(rd).lines();
+            for expected in [method::INITIALIZE, method::MUX_INFO, method::MUX_INFO] {
+                let line = lines.next_line().await.unwrap().unwrap();
+                let Message::Request { id, method: called, .. } = Message::parse(&line).unwrap()
+                else {
+                    panic!("expected read-only request");
+                };
+                assert_eq!(called, expected, "dry run must not cancel or freeze the chat");
+                let result = if called == method::INITIALIZE { json!({}) } else { info.clone() };
+                wr.write_all(Message::ok(id, result).to_line().as_bytes()).await.unwrap();
+            }
+        });
+        let client = Client::connect(&socket).await.unwrap();
+        let target =
+            Target { name: "target".into(), ssh: String::new(), probed: Some(about_ok(None)) };
+        let mut targets =
+            Targets::with_here("target", &json!({"peers": []}), Some(target)).unwrap();
+        let args = MoveArgs {
+            sessions: vec!["chat".into()],
+            host: "target".into(),
+            all_idle: false,
+            interrupt: false,
+            after_turn: true,
+            leave_dirty: false,
+            carry_changes,
+            cwd: None,
+            dry_run: true,
+            resume_there: false,
+            from: None,
+        };
+        let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
+        assert_eq!(outcome.error_code, expected);
+        assert_eq!(outcome.preflight.running, running);
+        assert_eq!(outcome.preflight.dirty, Some(true));
+        assert!(!outcome.moved);
+        assert_eq!(std::fs::read_to_string(file).unwrap(), "uncommitted work");
+        if detached {
+            assert!(outcome.error.unwrap().contains("detached HEAD"));
+        } else {
+            assert_eq!(outcome.error.is_some(), expected.is_some());
+        }
+        server.await.unwrap();
+    }
+}
+
+#[test]
+fn move_from_auto_excludes_source_registry_and_ssh_aliases() {
+    let peers = json!({"peers": [
+        {"name": "source", "url": "ssh://source-host"},
+        {"name": "source-alias", "url": "ssh://other-route"},
+        {"name": "same-endpoint", "url": "ssh://source-host"},
+        {"name": "target", "url": "ssh://target-host"}
+    ]});
+    let registry = json!({"machines": {"source": {"aliases": ["source-alias"]}}});
+    let source = Source::Peer { name: "SOURCE.local".into(), ssh: "source-host".into() };
+    let mut targets = Targets::new("auto", &peers).unwrap();
+    targets.exclude_source(&source, Some(&registry)).unwrap();
+    let hosts = json!([
+        {"name": "source", "ok": true, "room": 100},
+        {"name": "source-alias", "ok": true, "room": 100},
+        {"name": "same-endpoint", "ok": true, "room": 100},
+        {"name": "target", "ok": true, "room": 1}
+    ]);
+    let (order, _) = ranked(hosts.as_array().unwrap(), &HashMap::new(), |name| {
+        targets.target(name).is_none().then(|| "not a destination".into())
+    });
+    assert_eq!(order, ["target"]);
+    for alias in ["source", "source-alias", "same-endpoint"] {
+        let mut targets = Targets::new(alias, &peers).unwrap();
+        assert!(targets.exclude_source(&source, Some(&registry)).is_err());
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn move_from_reads_placement_from_the_initiating_daemon() {
+    use crate::rpc::Message;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let sockets = tempfile::tempdir().unwrap();
+    let local_path = sockets.path().join("local.sock");
+    let remote_path = sockets.path().join("remote.sock");
+    let local = tokio::net::UnixListener::bind(&local_path).unwrap();
+    let remote = tokio::net::UnixListener::bind(&remote_path).unwrap();
+    let local_server = tokio::spawn(async move {
+        let (stream, _) = local.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        for expected in [method::INITIALIZE, "_acpmux/place"] {
+            let line = lines.next_line().await.unwrap().unwrap();
+            let Message::Request { id, method: called, .. } = Message::parse(&line).unwrap() else {
+                panic!("expected placement request");
+            };
+            assert_eq!(called, expected);
+            // No local candidates: Auto should refuse, without probing any remote-only peer.
+            wr.write_all(Message::ok(id, json!({"hosts": []})).to_line().as_bytes()).await.unwrap();
+        }
+    });
+    let remote_server = tokio::spawn(async move {
+        let (stream, _) = remote.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        let line = lines.next_line().await.unwrap().unwrap();
+        let Message::Request { id, method: called, .. } = Message::parse(&line).unwrap() else {
+            panic!("expected initialize");
+        };
+        assert_eq!(called, method::INITIALIZE);
+        wr.write_all(Message::ok(id, json!({})).to_line().as_bytes()).await.unwrap();
+        assert!(
+            lines.next_line().await.unwrap().is_none(),
+            "placement must not query the source daemon's peers"
+        );
+    });
+    let observer = Client::connect(&local_path).await.unwrap();
+    let source = Client::connect(&remote_path).await.unwrap();
+    let mut targets = Targets::new("auto", &json!({"peers": []})).unwrap();
+    targets.observer = Some(observer);
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        targets.pick(&source, Path::new("/project"), 0),
+    )
+    .await
+    .expect("local placement answered");
+    assert!(result.err().unwrap().to_string().contains("no peer can take"));
+    local_server.await.unwrap();
+    // Client owns a background reader; stop the fixture rather than wait for that task to close.
+    remote_server.abort();
+}

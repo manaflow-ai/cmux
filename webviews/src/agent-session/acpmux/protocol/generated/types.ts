@@ -796,6 +796,12 @@ export interface ModelsParams {
   refresh?: unknown;
 }
 
+export interface MoveTargetsParams {
+  _meta?: RequestMeta;
+  source?: unknown;
+  sourceKind?: unknown;
+}
+
 export interface NativeHistoryParams {
   _meta?: RequestMeta;
   before?: unknown;

@@ -1,6 +1,6 @@
-title: Move a chat to a machine you added over SSH, and back
+title: Move a chat to an added machine or Auto
 category: new
-action: agent.moveToMachine | Move to SSH Machine
-gallery: agent-pane.composer-context/started-move-to-ssh
+action: agent.moveToMachine | Move Chat to Machine…
+gallery: agent-pane.move-machine/auto-cloud-ssh
 
-A started chat's Move to… now lists your SSH machines next to your Cloud machines. Pick one and the chat goes there with its history and folder; from there, This Mac brings it back.
+Move to… lists Auto and your connected machines with their available room. Move a chat with its history and queued work, choose when to move a running turn, and see uncommitted changes before proceeding. The same move is in the command palette and `cmux agent move`.

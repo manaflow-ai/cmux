@@ -363,8 +363,13 @@ export function EnvironmentPicker({
   const targetActions: Action[] = opensMoves
     ? targets.map((target) => ({
         value: MOVE_TO + target.id,
-        text: target.kind === "local" ? t("composer.thisMac") : target.label,
-        kind: target.kind,
+        text:
+          target.kind === "local"
+            ? t("composer.thisMac")
+            : target.kind === "cloud"
+              ? target.label
+              : [target.label, target.status].filter(Boolean).join(" · "),
+        kind: target.kind === "auto" || target.kind === "remote" ? "ssh" : target.kind,
         run: () => onMoveTo?.(target.id),
         ...(target.reason ? { reason: target.reason } : {}),
       }))
@@ -947,7 +952,8 @@ const MOVE_TO = ACTION + "moveTo:";
 export interface MoveTarget {
   readonly id: string;
   readonly label: string;
-  readonly kind: EnvironmentKind;
+  readonly kind: EnvironmentKind | "auto" | "remote";
+  readonly status?: string;
   /// Why a move there would refuse now: the row is greyed with it.
   readonly reason?: string;
 }

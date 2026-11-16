@@ -2015,6 +2015,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/move_targets",
+      "params": {
+        "$ref": "#/types/MoveTargetsParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peer_add",
       "params": true,
       "result": true
@@ -4261,6 +4269,17 @@
         "localOnly": true,
         "probe": true,
         "refresh": true
+      },
+      "type": "object"
+    },
+    "MoveTargetsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "source": true,
+        "sourceKind": true
       },
       "type": "object"
     },

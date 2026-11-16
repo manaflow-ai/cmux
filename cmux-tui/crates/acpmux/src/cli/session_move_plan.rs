@@ -50,12 +50,19 @@ pub(crate) fn refusal(summary: &Value, interrupt: bool) -> Option<String> {
     if summary["moving"] == true {
         return Some("it is being moved already".into());
     }
-    let running = summary.get("turn").is_some_and(|t| !t.is_null())
-        || summary["status"].as_str() == Some("running");
-    if running && !interrupt {
-        return Some("a turn is running; pass --interrupt to stop it and move".into());
+    if running(summary) && !interrupt {
+        return Some(
+            "a turn is running; pass --after-turn to wait, or --interrupt to stop it and move"
+                .into(),
+        );
     }
     None
+}
+
+/// A turn admitted but not yet started also needs the person's running-turn choice.
+pub(crate) fn running(summary: &Value) -> bool {
+    summary.get("turn").is_some_and(|t| !t.is_null())
+        || summary.get("status").and_then(Value::as_str) == Some("running")
 }
 
 /// `HOST/SESSION` of a `movedTo` record, for a sentence.

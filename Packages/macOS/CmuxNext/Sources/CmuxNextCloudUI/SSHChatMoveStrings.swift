@@ -15,10 +15,11 @@ public struct SSHChatMoveStrings {
         }
     }
     /// What a run that did not move the chat says: the refusal in the person's words, else acpmux's.
-    public static func message(_ outcome: SSHChatMoveRun.Outcome) -> String {
+    public static func message(_ outcome: CloudMoveTargetRules.MoveResult) -> String {
         switch outcome {
         case .moved: ""
         case .refused(let code): refusal(code)
+        case .needsConfirmation(let code, _): refusal(code)
         case .failed(let words): words.isEmpty ? failed : words
         }
     }
@@ -30,5 +31,23 @@ public struct SSHChatMoveStrings {
     }
     public static var personOnly: String {
         String(localized: "cloud.sshMove.personOnly", defaultValue: "Only a person can move a chat to another machine.", table: "Cloud", bundle: .module)
+    }
+    public static var moveTitle: String {
+        String(localized: "cloud.sshMove.moveTitle", defaultValue: "Move chat", table: "Cloud", bundle: .module)
+    }
+    public static var afterTurn: String {
+        String(localized: "cloud.sshMove.afterTurn", defaultValue: "Move after this turn", table: "Cloud", bundle: .module)
+    }
+    public static var moveNow: String {
+        String(localized: "cloud.sshMove.moveNow", defaultValue: "Move now", table: "Cloud", bundle: .module)
+    }
+    public static var carryChanges: String {
+        String(localized: "cloud.sshMove.carryChanges", defaultValue: "Move with changes", table: "Cloud", bundle: .module)
+    }
+    public static var running: String {
+        String(localized: "cloud.sshMove.running", defaultValue: "This chat has a running turn.", table: "Cloud", bundle: .module)
+    }
+    public static var dirty: String {
+        String(localized: "cloud.sshMove.dirty", defaultValue: "Uncommitted changes will move with this chat.", table: "Cloud", bundle: .module)
     }
 }

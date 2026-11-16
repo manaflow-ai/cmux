@@ -430,3 +430,49 @@ fn an_ssh_machine_is_up_when_its_sidebar_link_or_its_peer_is() {
     );
     assert_eq!(rows(&body), []);
 }
+
+#[test]
+fn auto_move_choices_and_confirmation_cross_the_ffi() {
+    let call = ok(
+        c"cloud_move_ssh_move",
+        json!({
+            "chat": {"started": true, "session": "chat-1"}, "target": "auto",
+            "afterTurn": true, "carryChanges": true, "dryRun": true
+        }),
+    );
+    assert_eq!(
+        call["call"]["args"],
+        json!([
+            "--json",
+            "session",
+            "move",
+            "chat-1",
+            "--machine",
+            "auto",
+            "--after-turn",
+            "--carry-changes",
+            "--dry-run"
+        ])
+    );
+    assert_eq!(call["call"]["destination"], "auto");
+    assert_eq!(call["call"]["moved"], "");
+    let read = |row: Value, status| {
+        ok(
+            c"cloud_move_ssh_move_outcome",
+            json!({
+                "stdout": json!({"moves": [row]}).to_string(), "status": status
+            }),
+        )
+    };
+    let confirm = read(
+        json!({"moved": false, "error": "running", "errorCode": "running_turn",
+        "preflight": {"running": true, "dirty": true}}),
+        1,
+    );
+    assert_eq!(confirm["needsConfirmation"], true);
+    assert_eq!(confirm["preflight"]["dirty"], true);
+    let moved = read(json!({"moved": true, "host": "box", "targetSessionId": "new-chat"}), 0);
+    assert_eq!(moved["moved"], true);
+    assert_eq!(moved["host"], "box");
+    assert_eq!(moved["targetSessionId"], "new-chat");
+}

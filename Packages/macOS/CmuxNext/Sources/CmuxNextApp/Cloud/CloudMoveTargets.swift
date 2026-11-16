@@ -23,11 +23,15 @@ enum CloudMoveTargets {
         guard let record else { return nil }
         let registry = record.host.hasPrefix(MachineRegistry.registryHostPrefix)
         let running = registry ? services.machines.cloud.first { AgentTabStore.registryHost(of: $0.daemon) == record.host } : nil
-        let onSSH = registry ? services.machines.ssh.first { AgentTabStore.registryHost(of: $0.daemon) == record.host } : nil
+        let onSSH = services.machines.ssh.first { session in
+            session.machineID == machine || AgentTabStore.registryHost(of: session.daemon) == record.host
+        }
+        let isSSH = onSSH != nil
         return CloudMoveTargetRules.Chat(
             offered: AgentPaneMoveTarget.offered(signedIn: services.cloud.isSignedIn, loadedCurrent: services.cloud.hasLoadedCurrentMachines),
             started: record.session != nil, chief: record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix), running: running?.machineID,
-            elsewhere: registry || !(machine.isEmpty || machine == MachineRegistry.localID),
+            // An SSH chat is handled by acpmux even though its host is not a Cloud registry host.
+            elsewhere: registry || (!(machine.isEmpty || machine == MachineRegistry.localID) && !isSSH),
             backHome: CloudBringBack.hiddenMenuItems(record, movedChats: services.cloud.movedChats).isEmpty,
             machines: services.machines.cloud.map { .init(id: $0.machineID, title: $0.machine.title, status: $0.machine.status.rawValue) },
             movedHere: record.session.flatMap { services.cloud.movedChats.entry(host: record.host, session: $0) } != nil,

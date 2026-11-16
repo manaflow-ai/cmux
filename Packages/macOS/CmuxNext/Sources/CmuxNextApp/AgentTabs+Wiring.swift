@@ -138,10 +138,14 @@ extension AgentTabStore {
             return CloudMoveTargets.targets(record: tabs.record(for: tab)?.record, machine: tab.machine, services: services)
         }
         tabs.moveAgentToMachine = { [weak services, weak tabs] tab, machine in
-            guard let services, let tabs, let registry = tabs.actionRegistry,
-                  let target = CloudMoveTargets.rules(record: tabs.record(for: tab)?.record, machine: tab.machine, services: services).first(where: { $0.id == machine })
-            else { return false }
-            let action = ActionID(rawValue: target.action)
+            guard let services, let tabs, let registry = tabs.actionRegistry else { return false }
+            let target = CloudMoveTargets.rules(record: tabs.record(for: tab)?.record, machine: tab.machine, services: services).first(where: { $0.id == machine })
+            // Cloud targets keep their existing action wiring. Targets returned by acpmux's
+            // `_acpmux/move_targets` (Auto and connected SSH peers) deliberately bypass the
+            // Cloud FFI list: the daemon owns that list and validates the id again when moving.
+            let action = target.map { ActionID(rawValue: $0.action) }
+                ?? ((machine == "auto" || !machine.isEmpty) ? ActionID("agent.moveToMachine") : nil)
+            guard let action else { return false }
             let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key),
                                                arguments: action == CloudBringBack.action ? [:] : ["machine": .string(machine)], origin: .user).onMachine(tab.machine)
             return registry.perform(action, invocation: invocation)

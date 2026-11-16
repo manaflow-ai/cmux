@@ -648,6 +648,7 @@ pub enum Command {
         host: String,
         all_idle: bool,
         interrupt: bool,
+        after_turn: bool,
         leave_dirty: bool,
         carry_changes: bool,
         cwd: Option<String>,
@@ -1100,8 +1101,11 @@ pub enum SessionCmd {
         #[arg(long, conflicts_with = "sessions")]
         all_idle: bool,
         /// Stop a running turn instead of refusing the move.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "after_turn")]
         interrupt: bool,
+        /// Wait up to 15 minutes for the current turn to end before moving. Never stops a turn.
+        #[arg(long, conflicts_with = "interrupt")]
+        after_turn: bool,
         /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
         #[arg(long)]
         leave_dirty: bool,
@@ -1528,6 +1532,7 @@ pub fn flatten(c: Command) -> Command {
                 host,
                 all_idle,
                 interrupt,
+                after_turn,
                 leave_dirty,
                 carry_changes,
                 cwd,
@@ -1538,6 +1543,7 @@ pub fn flatten(c: Command) -> Command {
                 host,
                 all_idle,
                 interrupt,
+                after_turn,
                 leave_dirty,
                 carry_changes,
                 cwd,

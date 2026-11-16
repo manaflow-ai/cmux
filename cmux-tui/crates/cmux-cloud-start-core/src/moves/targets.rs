@@ -283,7 +283,9 @@ fn url_host(url: &str) -> Option<&str> {
 pub fn peer_of<'a>(machine: &SshMachine, peers: &'a [Peer]) -> Option<&'a str> {
     let names: Vec<String> =
         machine.names.iter().map(|n| normalized(n)).filter(|n| !n.is_empty()).collect();
-    let named = peers.iter().find(|peer| names.contains(&normalized(&peer.name)));
+    let named = peers
+        .iter()
+        .find(|peer| peer.url.starts_with("ssh://") && names.contains(&normalized(&peer.name)));
     named
         .or_else(|| {
             peers.iter().find(|peer| {
@@ -293,100 +295,10 @@ pub fn peer_of<'a>(machine: &SshMachine, peers: &'a [Peer]) -> Option<&'a str> {
         .map(|peer| peer.name.as_str())
 }
 
-/// One Move to… an SSH machine (or back here from one), as the app asks it.
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SshMove {
-    pub chat: Chat,
-    /// The target's id ([`Target::id`]); none takes the first SSH machine listed.
-    #[serde(default)]
-    pub target: Option<String>,
-    /// This Mac's acpmux peers, read when the move starts.
-    #[serde(default)]
-    pub peers: Vec<Peer>,
-}
-
-/// What the app runs for an [`SshMove`].
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SshMoveCall {
-    /// `acpmux` arguments: `--json session move SESSION --machine TO [--from PEER]`.
-    pub args: Vec<String>,
-    /// The chat's session as this Mac's tab names it once moved: `PEER/ID` on a peer, `ID` here.
-    pub moved: String,
-}
-
-/// The `acpmux session move` call of `request`, or why it cannot run: `not_offered` (the list does
-/// not offer that target now), `unknown_peer` (no acpmux peer of this Mac is that machine) or
-/// `not_started` (the chat has no session yet).
-pub fn ssh_move(request: &SshMove) -> Result<SshMoveCall, &'static str> {
-    let chat = &request.chat;
-    let offered = targets(chat);
-    let target = match request.target.as_deref() {
-        Some(id) => offered.iter().find(|t| t.id == id && t.action == action::SSH_MOVE),
-        None => offered.iter().find(|t| t.kind == "ssh"),
-    }
-    .ok_or("not_offered")?;
-    let unknown = "unknown_peer";
-    let peer =
-        |id: &str| chat.ssh.iter().find(|m| m.id == id).and_then(|m| peer_of(m, &request.peers));
-    let from = match chat.source() {
-        None => None,
-        Some(Source::Peer(name)) => Some(name),
-        Some(Source::Machine(id)) => Some(peer(id).ok_or(unknown)?),
-    };
-    let to = if target.kind == "local" { LOCAL } else { peer(&target.id).ok_or(unknown)? };
-    let session = chat.session.as_deref().filter(|s| !s.is_empty()).ok_or("not_started")?;
-    // A peer's chat shown here is `PEER/ID`; acpmux moves it by its id on that peer.
-    let id = match from {
-        Some(from) => {
-            session.strip_prefix(from).and_then(|s| s.strip_prefix('/')).unwrap_or(session)
-        }
-        None => session,
-    };
-    let mut args: Vec<String> = ["--json", "session", "move", id, "--machine", to]
-        .iter()
-        .map(|s| (*s).to_owned())
-        .collect();
-    if let Some(from) = from {
-        args.extend(["--from".to_owned(), from.to_owned()]);
-    }
-    let moved = if to == LOCAL { id.to_owned() } else { format!("{to}/{id}") };
-    Ok(SshMoveCall { args, moved })
-}
-
-/// What `acpmux --json session move` printed: Ok once the chat moved, else why not, in acpmux's
-/// words (the row's `error`, else its error line on stderr), else the fallback `""` (the app says
-/// it in the person's words). acpmux prints its answer pretty, over many lines.
-pub fn ssh_move_outcome(stdout: &str, stderr: &str, status: i32) -> Result<(), String> {
-    let answer = serde_json::from_str::<serde_json::Value>(stdout.trim()).ok().or_else(|| {
-        stdout
-            .lines()
-            .rev()
-            .find_map(|line| serde_json::from_str::<serde_json::Value>(line.trim()).ok())
-    });
-    let row = answer.as_ref().and_then(|answer| answer.get("moves")?.as_array()?.first().cloned());
-    if let Some(row) = &row {
-        if let Some(error) = row.get("error").and_then(|e| e.as_str()).filter(|e| !e.is_empty()) {
-            return Err(error.to_owned());
-        }
-        if status == 0 && row.get("moved").and_then(|m| m.as_bool()) == Some(true) {
-            return Ok(());
-        }
-    }
-    let last =
-        stderr.lines().rev().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default();
-    // `--json`'s error envelope (`acpmux/src/cli/errors.rs`): `{"error": {"message", "detail"}}`.
-    let envelope = serde_json::from_str::<serde_json::Value>(last).ok();
-    let error = envelope.as_ref().and_then(|e| e.get("error"));
-    let said = error
-        .and_then(|e| {
-            let text = |key: &str| e.get(key).and_then(serde_json::Value::as_str);
-            text("message").or_else(|| text("detail")).or_else(|| e.as_str())
-        })
-        .unwrap_or_else(|| last.strip_prefix("Error: ").unwrap_or(last));
-    Err(said.to_owned())
-}
+// CLI planning and output decoding are separate from the legacy Cloud target model.
+#[path = "targets/ssh_move.rs"]
+mod ssh_move;
+pub use ssh_move::{SshMove, SshMoveCall, SshMoveResult, ssh_move, ssh_move_result};
 
 #[cfg(test)]
 mod tests;

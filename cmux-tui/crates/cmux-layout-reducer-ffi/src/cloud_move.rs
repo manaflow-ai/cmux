@@ -408,10 +408,7 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 status: i32,
             }
             let request: Request = read(request)?;
-            match targets::ssh_move_outcome(&request.stdout, &request.stderr, request.status) {
-                Ok(()) => json!({ "moved": true }),
-                Err(error) => json!({ "moved": false, "error": error }),
-            }
+            to_value(targets::ssh_move_result(&request.stdout, &request.stderr, request.status))?
         }
         b"cloud_move_list_current" => {
             #[derive(Deserialize)]

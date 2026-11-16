@@ -1,5 +1,6 @@
 import type { ChatMenuChild, ChatMenuItem } from "./chatHeaderToolsModel";
 import type { Translate } from "../i18n";
+import type { HeaderMoveTarget } from "./headerState";
 
 type Row = Exclude<ChatMenuItem, "separator">;
 
@@ -15,7 +16,7 @@ export function moveMachineRow(
   }: {
     move: boolean;
     bringBack: boolean;
-    targets: readonly { id: string; label: string; kind?: "local" | "cloud"; reason?: string }[];
+    targets: readonly (Omit<HeaderMoveTarget, "kind"> & { kind?: HeaderMoveTarget["kind"] })[];
   },
   run: { moveTo: (id: string) => void; bringBack: () => void },
   t: Translate,
@@ -23,11 +24,19 @@ export function moveMachineRow(
   const local = targets.some((target) => target.kind === "local");
   const children: ChatMenuChild[] = [
     ...targets
-      .filter((target) => !target.reason)
+      .filter((target) => !target.reason || target.kind === "auto" || target.kind === "ssh" || target.kind === "remote")
       .map((target) => ({
         key: `machine:${target.id}`,
-        label: target.kind === "local" ? t("composer.thisMac") : target.label,
-        onSelect: () => run.moveTo(target.id),
+        label:
+          target.kind === "local"
+            ? t("composer.thisMac")
+            : target.kind === "auto" || target.kind === "ssh" || target.kind === "remote"
+              ? [target.label, target.reason || target.status].filter(Boolean).join(" · ")
+              : target.label,
+        ...(target.reason ? { disabled: true } : {}),
+        onSelect: () => {
+          if (!target.reason) run.moveTo(target.id);
+        },
       })),
     ...(bringBack && !local
       ? [{ key: "bringBack", label: t("composer.bringBackLocal"), onSelect: run.bringBack }]
