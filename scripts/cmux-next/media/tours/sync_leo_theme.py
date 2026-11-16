@@ -31,14 +31,13 @@ for v in VARIANTS:
                   "wait": 2, "shot": False})
 steps.append({"title": "Before: cmux as it ships", "daemon": True, "cmux": TARGET + [PALETTE + "\r"], "wait": 2})
 steps.append({"title": "dusk: cmux customize use dusk.json", "daemon": True,
-              "cmux": TARGET + [f"cmux customize use {path('dusk')}\r"], "wait": 4, "shot": False})
-steps.append({"title": "dusk", "cmux": ["customize", "use", path("dusk")], "wait": 4})
+              "cmux": TARGET + [PALETTE + f"; cmux customize use {path('dusk')} | head -n 1\r"], "wait": 4})
 for v in VARIANTS[1:]:
-    steps.append({"title": f"{v}: off, then on", "cmux": ["customize", "discard"], "wait": 1, "shot": False})
-    steps.append({"title": v, "cmux": ["customize", "use", path(v)], "wait": 4})
+    steps.append({"title": f"{v}: cmux customize discard, then use {v}.json", "daemon": True,
+                  "cmux": TARGET + [PALETTE + f"; cmux customize discard >/dev/null; cmux customize use {path(v)} | head -n 1\r"],
+                  "wait": 4})
 steps.append({"title": "Off again: cmux customize discard", "daemon": True,
-              "cmux": TARGET + ["cmux customize discard\r"], "wait": 2, "shot": False})
-steps.append({"title": "Off again", "cmux": ["customize", "discard"], "wait": 3})
+              "cmux": TARGET + [PALETTE + "; cmux customize discard | head -n 1\r"], "wait": 3})
 tour = {"title": "The Leo look: dusk, daylight and neon, on and off live", "customize": True, "steps": steps}
 out = repo / "scripts/cmux-next/media/tours/leo-theme.json"
 out.write_text(json.dumps(tour, indent=2) + "\n")

@@ -125,53 +125,47 @@
         "current",
         "write",
         "--text",
-        "cmux customize use /tmp/cmux-leo-theme-dusk.json\r"
-      ],
-      "wait": 4,
-      "shot": false
-    },
-    {
-      "title": "dusk",
-      "cmux": [
-        "customize",
-        "use",
-        "/tmp/cmux-leo-theme-dusk.json"
+        "clear; for i in 0 1 2 3 4 5 6 7; do printf '\\033[4%sm      ' $i; done; printf '\\033[0m\\n'; for i in 0 1 2 3 4 5 6 7; do printf '\\033[10%sm      ' $i; done; printf '\\033[0m\\n\\n'; printf '\\033[32msuccess\\033[0m  \\033[33mwarning\\033[0m  \\033[31mdanger\\033[0m  \\033[34mhighlight\\033[0m  \\033[35mmagenta\\033[0m  \\033[36mcyan\\033[0m\\n\\n'; cmux customize use /tmp/cmux-leo-theme-dusk.json | head -n 1\r"
       ],
       "wait": 4
     },
     {
-      "title": "daylight: off, then on",
+      "title": "daylight: cmux customize discard, then use daylight.json",
+      "daemon": true,
       "cmux": [
-        "customize",
-        "discard"
-      ],
-      "wait": 1,
-      "shot": false
-    },
-    {
-      "title": "daylight",
-      "cmux": [
-        "customize",
-        "use",
-        "/tmp/cmux-leo-theme-daylight.json"
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; for i in 0 1 2 3 4 5 6 7; do printf '\\033[4%sm      ' $i; done; printf '\\033[0m\\n'; for i in 0 1 2 3 4 5 6 7; do printf '\\033[10%sm      ' $i; done; printf '\\033[0m\\n\\n'; printf '\\033[32msuccess\\033[0m  \\033[33mwarning\\033[0m  \\033[31mdanger\\033[0m  \\033[34mhighlight\\033[0m  \\033[35mmagenta\\033[0m  \\033[36mcyan\\033[0m\\n\\n'; cmux customize discard >/dev/null; cmux customize use /tmp/cmux-leo-theme-daylight.json | head -n 1\r"
       ],
       "wait": 4
     },
     {
-      "title": "neon: off, then on",
+      "title": "neon: cmux customize discard, then use neon.json",
+      "daemon": true,
       "cmux": [
-        "customize",
-        "discard"
-      ],
-      "wait": 1,
-      "shot": false
-    },
-    {
-      "title": "neon",
-      "cmux": [
-        "customize",
-        "use",
-        "/tmp/cmux-leo-theme-neon.json"
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; for i in 0 1 2 3 4 5 6 7; do printf '\\033[4%sm      ' $i; done; printf '\\033[0m\\n'; for i in 0 1 2 3 4 5 6 7; do printf '\\033[10%sm      ' $i; done; printf '\\033[0m\\n\\n'; printf '\\033[32msuccess\\033[0m  \\033[33mwarning\\033[0m  \\033[31mdanger\\033[0m  \\033[34mhighlight\\033[0m  \\033[35mmagenta\\033[0m  \\033[36mcyan\\033[0m\\n\\n'; cmux customize discard >/dev/null; cmux customize use /tmp/cmux-leo-theme-neon.json | head -n 1\r"
       ],
       "wait": 4
     },
@@ -191,16 +185,7 @@
         "current",
         "write",
         "--text",
-        "cmux customize discard\r"
-      ],
-      "wait": 2,
-      "shot": false
-    },
-    {
-      "title": "Off again",
-      "cmux": [
-        "customize",
-        "discard"
+        "clear; for i in 0 1 2 3 4 5 6 7; do printf '\\033[4%sm      ' $i; done; printf '\\033[0m\\n'; for i in 0 1 2 3 4 5 6 7; do printf '\\033[10%sm      ' $i; done; printf '\\033[0m\\n\\n'; printf '\\033[32msuccess\\033[0m  \\033[33mwarning\\033[0m  \\033[31mdanger\\033[0m  \\033[34mhighlight\\033[0m  \\033[35mmagenta\\033[0m  \\033[36mcyan\\033[0m\\n\\n'; cmux customize discard | head -n 1\r"
       ],
       "wait": 3
     }
