@@ -25,7 +25,8 @@
 //     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor]
 /// <reference types="bun" />
 import path from "node:path";
-import { chromium } from "./browsers";
+import { chromium, webkit } from "./browsers";
+import { runComposerLoad } from "./composer-load";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
 
@@ -37,9 +38,28 @@ const flag = (name: string) => {
 const LENGTHS = (flag("--lengths") ?? "60,1500,6000").split(",").map(Number);
 const KEYS = Number(flag("--keys") ?? 60);
 const GAP_MS = Number(flag("--gap") ?? 80);
-const MODES = (flag("--modes") ?? "idle").split(",") as ("idle" | "stream")[];
+const MODES = (flag("--mode") ?? flag("--modes") ?? "idle").split(",");
+const ENGINES = (flag("--engines") ?? "chromium").split(",");
+const STREAM = Number(flag("--stream") ?? 60);
+const TOOL_LINES = Number(flag("--tool-lines") ?? 2000);
+if (
+  MODES.some((mode) => !["idle", "stream", "L0", "L1", "L2", "L3"].includes(mode)) ||
+  ENGINES.some((engine) => !["chromium", "webkit"].includes(engine)) ||
+  !Number.isInteger(KEYS) ||
+  KEYS < 1 ||
+  KEYS > 4096 ||
+  !Number.isFinite(GAP_MS) ||
+  GAP_MS < 1 ||
+  KEYS * GAP_MS > 90000 ||
+  LENGTHS.some((length) => !Number.isInteger(length) || length < 1)
+)
+  throw new Error("Invalid benchmark modes, engines, keys, gap or lengths (typing window must be <=90s)");
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
+if (PROFILE && (ENGINES.includes("webkit") || MODES.some((mode) => mode.startsWith("L"))))
+  throw new Error(
+    "--profile currently supports legacy Chromium idle/stream only; L modes report observer capability explicitly",
+  );
 const DEV = argv.includes("--dev");
 const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
@@ -199,7 +219,7 @@ async function measure(
     const streaming =
       mode === "stream"
         ? page.evaluate(
-            (seconds) =>
+            (seconds: number) =>
               (window as any).cmuxAcpmuxDebug.loadRun({ seconds, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
             (KEYS * (GAP_MS + 20)) / 1000 + 1,
           )
@@ -321,7 +341,8 @@ try {
     const port = await servePane(webviews, serveOptions, releases);
     const table: Record<string, unknown>[] = [];
     for (const engine of ENGINES)
-      for (const { length, mode } of cases) table.push(await measure(port, length, mode, engine as "chromium" | "webkit"));
+      for (const { length, mode } of cases)
+        table.push(await measure(port, length, mode, engine as "chromium" | "webkit"));
     console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
     for (const row of table)
       console.log(
