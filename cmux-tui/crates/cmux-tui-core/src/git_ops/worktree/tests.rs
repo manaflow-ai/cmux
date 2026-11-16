@@ -475,6 +475,9 @@ fn own_tree_a_create_gives_only_a_work_tree_that_its_repository_keeps() {
     // A failure of `git worktree add` has the same reason: the message says which refusal it is.
     let text = details.map(|details| details["extra"]["message"].to_string()).unwrap_or_default();
     assert!(text.contains("is not a worktree that this repository keeps"), "{text}");
+    // The folder and the branch that git made stay: the message names them.
+    let named = text.contains(&*root.to_string_lossy()) && text.contains("cmux/new");
+    assert!(named, "the message does not name the folder and the branch that stay: {text}");
 }
 
 /// No setup starts in a folder that is not directly in the `worktrees` folder of the
