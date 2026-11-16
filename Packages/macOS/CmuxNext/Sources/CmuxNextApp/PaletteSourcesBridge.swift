@@ -109,17 +109,7 @@ enum PaletteSourcesBridge {
             machines: { [weak services] in services?.machines.cloud.map(\.machine) ?? [] },
             refresh: { [weak services] in _ = await services?.cloud.refresh() },
             ask: { CloudHandlerRules().ask("cloud_handler_palette_targets", $0) })
-        return agentChatTargets(AgentChatDestinations(services: services), next: services.joinedMachines.paletteTargets(descriptors, next: cloud))
-    }
-
-    static func agentChatTargets(_ destinations: AgentChatDestinations, next: any PaletteTargetSource) -> any PaletteTargetSource {
-        func option(_ row: AgentChatDestinations.Destination) -> PaletteTargetOption {
-            PaletteTargetOption(id: row.id, title: row.title, subtitle: row.state, symbol: row.symbol, isEnabled: row.isReady)
-        }
-        // A slow acpmux never holds the picker: past the bound it shows "Other Macs not loaded yet",
-        // then the peers when acpmux lists them (AgentChatDestinations.updates).
-        return RefreshingPaletteTargetSource(kind: .machine, actions: ["palette.newAgentChat", "palette.newAgentChatOn"],
-            initial: [option(destinations.local)], next: next, updates: { destinations.updates() }, option: option)
+        return AgentChatDestinations(services: services).paletteTargets(next: services.joinedMachines.paletteTargets(descriptors, next: cloud))
     }
 
     /// The active window's focused objects when the palette opens: the
@@ -182,6 +172,11 @@ enum PaletteSourcesBridge {
         }
 
         func hasWorkspace(id: String) -> Bool { services.machines.workspace(id: id) != nil } // perf-hot: 0.01ms workspace-switch (O(1) per daemon, no row built)
+
+        // An open Cmd-P lists a workspace that reaches the stores after its sidebar row showed (CmdPSwitchMovesSidebarSelectionTests).
+        func followChanges(_ changed: @escaping @MainActor () -> Void) -> AnyObject? {
+            PaletteSourceFollow(listing: { [weak services] in services.map { app in app.machines.allWorkspaces.map { "\($0.0.id)\u{1F}\(app.shownWorkspaceName($0.0))" } } ?? [] }, changed: changed)
+        }
         func selectWorkspace(id: String) {
             // No active window (all closed, CLI run): show it in its own window, else a new one.
             guard let window = services.windows.active else { _ = services.windows.reveal(workspaceID: id); return }
@@ -246,7 +241,6 @@ enum PaletteSourcesBridge {
         }
     }
 }
-
 
 extension AgentChatDestinations {
     init(services: AppServices) {

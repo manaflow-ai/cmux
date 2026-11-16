@@ -12,6 +12,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { JUMP_LATEST, JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -100,7 +101,7 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         const page = await open();
         // Up from the latest message, so the button shows.
         expect(await wheelOver(page, ".acpmux-scroll", -1200)).toBeLessThan(0);
-        await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
+        await page.locator(JUMP_LATEST_SHOWN).waitFor();
         // The jump control keeps its own glass without washing out extra transcript lines.
         const fade = await page.evaluate(() =>
           getComputedStyle(document.querySelector(".acpmux-scroll")!).getPropertyValue("--acpmux-fade-bottom").trim(),
@@ -108,7 +109,7 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         expect(fade).toBe("18px");
         expect(await wheelOver(page, ".acpmux-jump-latest", -300)).toBeLessThan(-100);
         expect(await wheelOver(page, ".acpmux-jump-latest", 200)).toBeGreaterThan(100);
-        await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").click();
+        await page.locator(JUMP_LATEST).click();
         const distance = () =>
           page.evaluate(() => {
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
