@@ -12,12 +12,12 @@ export const particlePreset = (value: unknown): ParticlePreset | undefined =>
 /** Each preset's own inks, used when the app passes no `colors`. Fixed hues: confetti and embers
  * read as themselves on any theme, as the native renderer's do. */
 export const PARTICLE_COLORS: Record<ParticlePreset, readonly string[]> = {
-  confetti: ["#FF5E5B", "#FFD93D", "#6BCB77", "#4D96FF", "#C77DFF", "#FF9F1C"],
-  sparkles: ["#FFF6D5", "#FFD86B", "#FFFFFF"],
-  rain: ["#9DB7D6", "#B8CCE4"],
-  snow: ["#FFFFFF", "#EEF4FF"],
-  embers: ["#FF9A3C", "#FF5F1F", "#FFC66B"],
-  stars: ["#FFFFFF", "#CFE3FF", "#FFF1C9"],
+  confetti: ["#FF5E5B", "#FFD93D", "#6BCB77", "#4D96FF", "#C77DFF", "#FF9F1C"], // colour-allow: preset ink
+  sparkles: ["#FFF6D5", "#FFD86B", "#FFFFFF"], // colour-allow: preset ink
+  rain: ["#9DB7D6", "#B8CCE4"], // colour-allow: preset ink
+  snow: ["#FFFFFF", "#EEF4FF"], // colour-allow: preset ink
+  embers: ["#FF9A3C", "#FF5F1F", "#FFC66B"], // colour-allow: preset ink
+  stars: ["#FFFFFF", "#CFE3FF", "#FFF1C9"], // colour-allow: preset ink
 };
 
 /** Particles per second at `rate` 1 for a 320 x 200 field (scaled by area); confetti emits only on a burst. */
