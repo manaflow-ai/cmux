@@ -404,6 +404,10 @@ let profiled = 0;
 /// MODE=reopen-spare: how long each adopt event's own task ran (ms), the synchronous React pass
 /// `useSessionAdoption` flushes inside the event, before the browser can paint anything.
 const adoptSyncMs: number[] = [];
+/// MODE=reopen-spare: the parked spare's own footprint before its adopt, after a full GC: the page's JS
+/// heap (MB) and its DOM nodes (CDP Performance.getMetrics). The renderer's other memory is shared.
+const spareHeapMb: number[] = [];
+const spareNodes: number[] = [];
 const OUTSIDE = new Set(["(idle)", "(program)", "(root)"]);
 type ProfileNode = CpuProfile["nodes"][number];
 const nodeKey = (frame: ProfileNode["callFrame"]) =>
@@ -851,6 +855,19 @@ try {
             })),
           )}`,
         );
+      {
+        const metrics = await page.context().newCDPSession(page);
+        await metrics.send("HeapProfiler.collectGarbage");
+        await metrics.send("Performance.enable");
+        const { metrics: read } = (await metrics.send("Performance.getMetrics")) as {
+          metrics: { name: string; value: number }[];
+        };
+        const metric = (name: string) => read.find((entry) => entry.name === name)?.value ?? 0;
+        spareHeapMb.push(metric("JSHeapUsedSize") / 1048576);
+        spareNodes.push(metric("Nodes"));
+        await metrics.send("Performance.disable");
+        await metrics.detach();
+      }
       const cdp = PROFILE ? await page.context().newCDPSession(page) : null;
       if (cdp) {
         await cdp.send("Profiler.enable");
@@ -1210,6 +1227,11 @@ try {
       `reopen-spare adopt event's own task: p50 ${at(0.5).toFixed(1)} ms, p95 ${at(0.95).toFixed(1)} ms, max ${sorted.at(-1)!.toFixed(1)} ms (n=${sorted.length}${PROFILE ? ", profiled" : ""})`,
     );
     json.adoptSync = { p50: at(0.5), p95: at(0.95), max: sorted.at(-1), n: sorted.length };
+    const middle = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
+    console.log(
+      `reopen-spare parked spare before its adopt: JS heap p50 ${middle(spareHeapMb).toFixed(2)} MB, DOM nodes p50 ${middle(spareNodes)}`,
+    );
+    json.spare = { heapMbP50: middle(spareHeapMb), nodesP50: middle(spareNodes) };
   }
   console.log(`FIRST_LOAD_JSON ${JSON.stringify(json)}`);
   printProfile();
