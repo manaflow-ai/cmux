@@ -86,6 +86,12 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 86400
+        },
+        "safetyPollSeconds": {
+          "description": "For a source pushed from outside this machine (a `push` stream that says {\"live\": bool}, such as github.changed): until the stream says live, the runtime polls every staleAfterSeconds as if nothing pushed; while live, it re-reads only this often, for what the push cannot see (a repository the GitHub App is not installed on, a lost push). Leave it out for a local push, which never polls.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
         }
       }
     }

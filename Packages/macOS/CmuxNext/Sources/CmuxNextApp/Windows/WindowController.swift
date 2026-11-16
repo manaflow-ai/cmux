@@ -148,6 +148,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             }
         }
         window.focus = focus
+        window.focusLog = services.focusLog
         focus.applier = focusApplier
         focus.window = window
         focus.send(.appActive(services.appActiveSource()))
@@ -471,6 +472,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
+    weak var focusLog: FocusLog? // AppServices.focusLog: this window's focus changes, while it is on
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
@@ -573,9 +575,10 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     var editTeardown = (depth: 0, pending: false)
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
-        if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
+        let gate = ResponderMoveGate(window: self, log: focusLog, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: focus?.isApplying == true)
+        if gate.refuses(responder, or: { if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: gate.inInputEvent, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { true } else { false } }) { return false }
         let accepted = holdingResponderReports { () -> Bool in let moved = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }; editTeardown.pending = editTeardown.pending || moved; return moved }
-        if accepted { cursorRectHold?.firstResponderDidChange(in: self); (windowController as? WindowController)?.chiefPanelView?.firstResponderDidChange() }
+        if accepted { cursorRectHold?.firstResponderDidChange(in: self); (windowController as? WindowController)?.chiefPanelView?.firstResponderDidChange(); gate.moved(to: firstResponder) }
         return accepted
     }
 }
