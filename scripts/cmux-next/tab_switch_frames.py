@@ -53,9 +53,16 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
-import bench_memory as bm  # noqa: E402
-import idle_cost_load as icl  # noqa: E402
 import tab_switch_judge as judge  # noqa: E402
+
+
+def mac_helpers():
+    """bench_memory and idle_cost_load, imported on use: bench_memory loads macOS's libproc at import, and this module
+    imports on any host (its tests run on Linux)."""
+    import bench_memory
+    import idle_cost_load
+    return bench_memory, idle_cost_load
+
 
 TURNS_AGENT = ("tab-switch-turns", os.path.join(HERE, "chat_open_agent.py"))
 STREAM_AGENT = ("tab-switch-stream", os.path.join(HERE, "idle_cost_agent.py"))
@@ -177,7 +184,7 @@ class App:
                 self.process.wait(timeout=20)
             except subprocess.TimeoutExpired:
                 pass
-            bm.end_bundle(self.bundle)  # this run's copy: every process of it is this run's
+            mac_helpers()[0].end_bundle(self.bundle)  # this run's copy: every process of it is this run's
         if self.aside is not None:
             self.aside.__exit__(None, None, None)
 
@@ -270,6 +277,7 @@ class Agents:
 
     def __init__(self, app, bundle):
         self.app, self.bundle = app, bundle
+        bm, icl = mac_helpers()
         self.cli = icl.bundled_acpmux(bundle)
         for agent_id, script in (TURNS_AGENT, STREAM_AGENT):
             for _ in range(6):
@@ -308,7 +316,7 @@ class Agents:
 
     def start(self, sessions, seconds, rate):
         for session in sessions:
-            icl.stream([self.cli], self.env, session, seconds, rate)
+            mac_helpers()[1].stream([self.cli], self.env, session, seconds, rate)
         self.streaming = sessions
 
     def stop(self):
