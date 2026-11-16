@@ -17,6 +17,11 @@ whose private-store writer, hashing and typed projection this reuses. On top of 
 - A Worker console line keeps its fields only when its `msg` is exactly one of PLATFORM_MSGS, the constant msg
   literals of cmux-platform's src/server; ids print as `h:` plus a sha256 prefix.
 - Service, id and needles come from the dispatch event file, never from step env (echoed in the public log).
+- The id `window` reads no one's lines: it counts the whole window's events by minute, kind, entrypoint, outcome,
+  method, route, status, script version (hashed) and allowlisted msg with its typed token fields, every id dropped.
+  An id-scoped read keeps nothing when the platform's own request events name no id (most do not): cmux-platform#1442,
+  2026-11-16, ten scoped reads kept 0 of 105-208 events while journeys failed with 503 owner.unreachable, 502
+  vm_unavailable and ECONNRESET, and only the window's outcomes could say which side failed.
 
   python3 -I cmux-platform-prod-logs.py --from 2026-11-11T13:20:00Z --minutes 30 --from-event "$GITHUB_EVENT_PATH" < token
   python3 -I cmux-platform-prod-logs.py --from ... --service cmux-platform-production --id vm_x --needles "spare" < token
@@ -282,7 +287,7 @@ INT, TOKEN, ID = base.INT, base.TOKEN, base.ID
 PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm": ID, "vmId": ID, "user": ID,
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
-                 "spares": INT, "wanted": INT, "live": INT, "total": INT}
+                 "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN}
 
 
 def public_log(j):
@@ -387,6 +392,42 @@ def publish(events, needles, ident):
     return head, rows[:MAX_ROWS]
 
 
+WINDOW = "window"
+# The fields a window total groups by: no id, no time finer than a minute, no free text.
+TOTAL_KEYS = ("kind", "entry", "outcome", "method", "path", "status")
+
+
+def window_totals(events, needles):
+    """(header, rows) for the private store: counts of the window's events by minute and typed shape, ids dropped."""
+    if not needles:
+        raise ValueError("needles: at least one search term is required")
+    counts = {}
+    totals = {}
+    for e in events:
+        rec = line(e, counts)
+        when = rec.get("t", "?")
+        key = {"m": when[:5] if when != "?" else "?"}
+        for k in TOTAL_KEYS:
+            if k in rec:
+                key[k] = rec[k]
+        if "path" in key:
+            # A hashed segment (an id) groups as `*`: the route counts, never whose it was.
+            key["path"] = "/".join("*" if seg.startswith("h:") else seg for seg in key["path"].split("/"))
+        version = base.dig(e, "$workers", "scriptVersion", "id")
+        if isinstance(version, str) and version:
+            key["version"] = base.tag(version)
+        log = rec.get("log")
+        if log is not None:
+            key["log"] = {k: v for k, v in log.items() if PUBLIC_FIELDS.get(k) != ID}
+        k = json.dumps(key, sort_keys=True)
+        totals[k] = totals.get(k, 0) + 1
+    rows = [{**json.loads(k), "n": n} for k, n in sorted(totals.items())]
+    rows = [r for r in rows if base.matches(r, needles)]
+    head = {"needles": [base.tag(n) for n in needles], "events_scanned": len(events), "kept_any": bool(rows),
+            "rows_cut": len(rows) > MAX_ROWS, **counts}
+    return head, rows[:MAX_ROWS]
+
+
 def query(token, service, frm, to, offset=None):
     body = {"queryId": f"cmux-platform-prod-logs-{int(time.time())}", "timeframe": {"from": frm, "to": to},
             "view": "events", "limit": 1000,
@@ -427,9 +468,9 @@ def main():
     if service not in SERVICES:
         sys.exit("service: one of " + ", ".join(SERVICES))
     ident = given(args.ident, "id")
-    kind = id_kind(ident)
+    kind = WINDOW if ident == WINDOW else id_kind(ident)
     if kind is None:
-        sys.exit("id: an exact vm_ or team_ id is required")
+        sys.exit("id: an exact vm_ or team_ id, or `window`, is required")
     needles = [n.strip() for n in given(args.needles, "needles").split(",") if n.strip()]
     if not needles:
         sys.exit("needles: at least one search term is required")
@@ -455,9 +496,9 @@ def main():
         if not offset:
             complete = True
             break
-    head, rows = publish(events, needles, ident)
+    head, rows = window_totals(events, needles) if kind == WINDOW else publish(events, needles, ident)
     pointer = base.private_upload(private_token, {
-        "service": service, "id_kind": kind, "id": base.tag(ident), "window_utc": [args.frm, minutes],
+        "service": service, "id_kind": kind, "id": WINDOW if kind == WINDOW else base.tag(ident), "window_utc": [args.frm, minutes],
         "truncated": not complete, **head}, rows)
     print(json.dumps({"row_count": len(rows), "pointer": pointer}))
     return 0
