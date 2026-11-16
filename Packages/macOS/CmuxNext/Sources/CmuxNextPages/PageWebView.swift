@@ -476,7 +476,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
             self?.notePainted()
         }
-        PageTitleRowPress.install(in: webView.configuration.userContentController) { [weak self] in self?.titleRowPressed($0) }
+        // A page the router serves no host ops (an app page) gets no title row press either: its report
+        // would move, zoom or minimize the window, a host op outside its namespace.
+        if descriptor.servesHostOps {
+            PageTitleRowPress.install(in: webView.configuration.userContentController) { [weak self] in self?.titleRowPressed($0) }
+        }
         // A VoiceOver press sends the view no event; its trusted click in the page counts instead (manaflow-ai/cmux#37809).
         PageAccessibilityPress.install(on: webView) { [weak self] in self?.webView.noteAccessibilityPress() }
         bridge.install { [weak self] message in

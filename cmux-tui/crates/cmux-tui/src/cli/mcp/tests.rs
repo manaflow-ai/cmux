@@ -95,6 +95,10 @@ struct Live {
     oldest: usize,
     /// Every daemon read fails.
     daemon_down: bool,
+    /// The daemon's `chat.list` rows (its chat index); none when unset.
+    chats: Option<Value>,
+    /// Only the daemon's `chat.list` read fails.
+    chats_down: bool,
     changes: Vec<(Instant, Change)>,
 }
 
@@ -119,6 +123,10 @@ enum Change {
     Expire(usize),
     /// Daemon reads fail (true) or answer again (false).
     DaemonDown(bool),
+    /// The daemon's chat index (`chat.list` rows) now.
+    Chats(Value),
+    /// The daemon's `chat.list` read fails (true) or answers again (false).
+    ChatsDown(bool),
 }
 
 impl Live {
@@ -138,6 +146,8 @@ impl Live {
                 Change::Generation(generation) => self.generation = Some(generation.to_owned()),
                 Change::Expire(oldest) => self.oldest = oldest,
                 Change::DaemonDown(down) => self.daemon_down = down,
+                Change::Chats(rows) => self.chats = Some(rows),
+                Change::ChatsDown(down) => self.chats_down = down,
             }
         }
     }
@@ -258,6 +268,12 @@ impl Backend for Fake {
         live.settle();
         if live.daemon_down {
             return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
+        }
+        if request["operation"] == "chat.list" {
+            if live.chats_down {
+                return Err(CallFailure::local(FailureKind::NotRun, "app.timeout", "no answer"));
+            }
+            return Ok(live.chats.clone().unwrap_or_else(|| json!([])));
         }
         if let Some(daemon) = &live.daemon {
             let mut daemon = daemon.clone();

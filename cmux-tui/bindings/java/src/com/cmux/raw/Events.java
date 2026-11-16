@@ -14,6 +14,7 @@ public final class Events {
     public static final EventMetadata ACTIVITY_CHANGED = new EventMetadata("activity-changed", 12, "vm-activity-v1", List.of("control"), true);
     public static final EventMetadata AGENT_CHANGED = new EventMetadata("agent-changed", 11, null, List.of("subscribe"), true);
     public static final EventMetadata AGENT_CLI_FRAME = new EventMetadata("agent-cli-frame", 12, "agent-cli-hybrid-v1", List.of("attach-byte"), true);
+    public static final EventMetadata AGENT_CLI_LEAN = new EventMetadata("agent-cli-lean", 12, "agent-cli-hybrid-v2", List.of("attach-byte"), true);
     public static final EventMetadata AGENT_INVENTORY_CHANGED = new EventMetadata("agent-inventory-changed", 12, "agent-inventory-watch-v1", List.of("control"), true);
     public static final EventMetadata AGENT_INVENTORY_WATCH_ENDED = new EventMetadata("agent-inventory-watch-ended", 12, "agent-inventory-watch-v1", List.of("control"), true);
     public static final EventMetadata AGENT_PRESENCE_CHANGED = new EventMetadata("agent-presence-changed", 12, "agent-presence-v1", List.of("subscribe"), true);
@@ -113,6 +114,7 @@ public final class Events {
         values.put("activity-changed", ACTIVITY_CHANGED);
         values.put("agent-changed", AGENT_CHANGED);
         values.put("agent-cli-frame", AGENT_CLI_FRAME);
+        values.put("agent-cli-lean", AGENT_CLI_LEAN);
         values.put("agent-inventory-changed", AGENT_INVENTORY_CHANGED);
         values.put("agent-inventory-watch-ended", AGENT_INVENTORY_WATCH_ENDED);
         values.put("agent-presence-changed", AGENT_PRESENCE_CHANGED);

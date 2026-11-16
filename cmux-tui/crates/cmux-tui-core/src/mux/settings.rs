@@ -4,7 +4,7 @@
 //! every reload runs under the store lock and emits its changes before the
 //! lock is released, so events leave in revision order.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use cmux_config::{Change, ConfigStore, ManagedReader, Op, Outcome, Refusal, State, Watcher};
@@ -17,10 +17,12 @@ use super::{Mux, MuxEvent};
 /// The daemon serves `settings.*` and emits `settings-changed`.
 pub const SETTINGS_CAPABILITY: &str = "settings-v1";
 
-/// The daemon serves `settings.edit`: several edits in one publish, and the
+/// The daemon serves `settings.edit`: several edits in one publish, the
 /// conditional `set_unset` and `reset_unchanged` edits
-/// (plans/cmux-next/settings-react.md section 7, items 2 and 3).
-pub const SETTINGS_EDIT_CAPABILITY: &str = "settings-edit-v1";
+/// (plans/cmux-next/settings-react.md section 7, items 2 and 3), the
+/// `set_exact` edit (a default stays) and the `file` check
+/// (`settings.file_mismatch`). v2: v1 had neither.
+pub const SETTINGS_EDIT_CAPABILITY: &str = "settings-edit-v2";
 
 #[derive(Default)]
 pub(crate) struct SettingsSlot(OnceLock<SettingsOwner>);
@@ -111,6 +113,13 @@ impl Mux {
     pub(crate) fn with_settings<T>(self: &Arc<Self>, read: impl FnOnce(&State) -> T) -> T {
         let store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         read(store.state())
+    }
+
+    /// The owner's settings file path when it is not `file` (`settings.edit`'s
+    /// `file`, `ConfigStore::serves`), else None.
+    pub(crate) fn settings_file_mismatch(self: &Arc<Self>, file: &Path) -> Option<PathBuf> {
+        let store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
+        (!store.serves(file)).then(|| store.config_path().to_path_buf())
     }
 
     /// The `settings.snapshot` answer, with the owner's settings file path.

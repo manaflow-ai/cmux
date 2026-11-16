@@ -157,13 +157,19 @@ final class WindowManager {
     }
 
     /// The window actions without an explicit target act in: during an input event's dispatch the
-    /// window the event came from (`dispatching(eventFrom:_:)`), else the key window's, else the
-    /// last active one.
+    /// window the event came from (`dispatching(eventFrom:_:)`), else the key window's, else the frontmost
+    /// on screen by the registry's recency (every key change and `WindowActivation` order, also one in front
+    /// without the keys, which `lastActive` misses), else the last active one. A CLI run with no key window acts
+    /// in the window in front, never the first opened (Leo 2026-11-16: "idk why you guys opened a new window").
     var active: WindowController? {
         if let origin = eventOriginWindow { return origin }
         if let key = services.keyWindowSource(), let controller = owner(of: key) { return controller }
-        return lastActive ?? controllers.first
+        let shown = controllers.filter { $0.window.map(isOnScreen) ?? false }.map(\.state.id)
+        return registry.value.mostRecent(of: shown).flatMap(controller(for:)) ?? lastActive ?? controllers.first
     }
+
+    /// Whether a window is on screen for ``active``; a test that never orders its windows in sets its own.
+    var isOnScreen: @MainActor (NSWindow) -> Bool = { $0.isVisible && !$0.isMiniaturized }
 
     /// The controller whose window is `window` or owns it: a sheet, a
     /// Chromium page window, the palette or another panel over it.
@@ -449,8 +455,8 @@ final class WindowManager {
 
     /// Orders a new window in without taking focus under no-activate.
     func present(_ controller: WindowController) {
-        // Tests: never on the user's display. Otherwise one rule: under
-        // no-activate behind the others (in front on a test screen), never key.
+        controller.sidebar.sectionsPass?.completeFirstFrame() // the first frame reads each band item's value (SidebarFirstFrame)
+        // Tests: never on the user's display. Otherwise one rule: under no-activate behind the others (in front on a test screen), never key.
         let behind = behindWindows.remove(controller.state.id) != nil
         services.background.windowWillAppear(activates: !behind && ordersWindowsIn) // leave background mode first (cx-ghagp)
         let restacks = restacking.remove(controller.state.id) != nil

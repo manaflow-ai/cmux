@@ -34,7 +34,9 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
        cmux device network [--json]
-       cmux device SELECTOR show [--catalog]   (one device of the machine catalog, `cmux machine ls`)
+       cmux device SELECTOR show [--json]      (one device of `cmux device list`, by id, name or
+                                               address; else the machine catalog, `cmux machine ls`)
+       cmux device SELECTOR show --catalog     (the machine catalog only)
        cmux device revoke|rotate ID|NAME       (a machine that joined with a pasted line)
        cmux device doctor [MACHINE] [--fix]    (check an SSH machine and fix what it can)
 
@@ -67,6 +69,18 @@ pub(crate) fn device_args(raw_args: &[String]) -> Option<Vec<String>> {
         Some([verb, after @ ..]) if verb == "add" => {
             after.iter().any(|a| a == "--yes" || a == "-y")
         }
+        // `device SELECTOR show` reads the device list first (hq#11835 row 13); `--catalog` and
+        // any other flag keep the machine catalog's `machine SELECTOR show`.
+        Some([selector, show, after @ ..]) if show == "show" && !selector.starts_with('-') => {
+            if !after.iter().all(|a| output_flag(a)) {
+                return None;
+            }
+            let mut words: Vec<String> = leading.to_vec();
+            words.push("show".to_owned());
+            words.push(selector.clone());
+            words.extend(rest.iter().filter(|w| output_flag(w)).cloned());
+            return Some(words);
+        }
         None => true,
         _ => false,
     };
@@ -87,6 +101,9 @@ pub(crate) fn run(rest: &[String]) -> i32 {
     // the reason for a failure) stays.
     let _silenced = if quiet { Silenced::stdout() } else { None };
     let args = args.as_slice();
+    if verb == "show" {
+        return show(args);
+    }
     let result = match verb {
         "list" | "ls" => list(args),
         "add" => add(args),
@@ -434,6 +451,71 @@ fn list(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `cmux device SELECTOR show`: the row of `cmux device list` that `SELECTOR` names (id, name or
+/// network address), so a device the list shows is always one `show` finds. A selector the list
+/// does not name is the machine catalog's (`cmux machine SELECTOR show`: Cloud VMs, this Mac),
+/// run as it ran before. Returns the exit code.
+fn show(args: &[String]) -> i32 {
+    let json_out = args.iter().any(|a| a == "--json");
+    let Some(selector) = args.iter().find(|a| !a.starts_with('-')) else {
+        eprintln!("cmux device show: needs a device: its id, name or address\n{USAGE}");
+        return 2;
+    };
+    let mut notes = Vec::new();
+    let listing = Flags::parse(&[], &[], &[])
+        .and_then(|flags| current(&flags, &JoinAuth::default(), &mut notes));
+    if let Ok(listing) = &listing
+        && let Some(device) = model::find(listing, selector)
+    {
+        if json_out {
+            let mut v = serde_json::to_value(device).unwrap_or(Value::Null);
+            v.set("source", json!("device-list"));
+            println!("{v}");
+        } else {
+            print_device(device);
+        }
+        return 0;
+    }
+    let mut command = match cmux() {
+        Ok(command) => command,
+        Err(e) => {
+            eprintln!("cmux device show: {e:#}");
+            return 1;
+        }
+    };
+    if json_out {
+        command.arg("--json");
+    }
+    command.args(["machine", selector, "show"]);
+    match command.status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(e) => {
+            eprintln!("cmux device show: cannot run cmux machine {selector} show: {e}");
+            1
+        }
+    }
+}
+
+fn print_device(d: &model::Device) {
+    let roles: Vec<&str> = d.roles.iter().copied().map(role_words).collect();
+    println!("{:<10} {}", "name", d.name);
+    println!("{:<10} {}", "id", d.id);
+    println!("{:<10} {}", "state", state_words(d.state));
+    println!("{:<10} {}", "roles", roles.join(", "));
+    if let Some(os) = &d.os {
+        println!("{:<10} {os}", "os");
+    }
+    if let Some(reach) = &d.reach {
+        println!("{:<10} {} ({})", "address", reach.address, reach.network);
+    }
+    if let Some(added) = &d.added_at {
+        println!("{:<10} {added}", "added");
+    }
+    if let Some(detail) = &d.detail {
+        println!("{:<10} {detail}", "detail");
+    }
+}
+
 fn role_words(role: Role) -> &'static str {
     match role {
         Role::RunsAgents => "runs your agents",
@@ -521,7 +603,7 @@ fn actor() -> String {
         .unwrap_or_else(|_| "unknown".into())
 }
 
-fn record(event: &str, fields: Value) {
+pub(crate) fn record(event: &str, fields: Value) {
     let mut entry = json!({"event": event, "by": actor(), "via": "cli"});
     if let (Some(map), Some(extra)) = (entry.as_object_mut(), fields.as_object()) {
         map.extend(extra.clone());

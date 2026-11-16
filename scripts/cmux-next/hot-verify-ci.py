@@ -178,6 +178,17 @@ def read_json(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def worker_stop(step: dict) -> str:
+    """Why the worker stopped with no receipt, from its step.json (cmuxterm-hq hot_verify_run.py: worker, error,
+    phases), so the run log names the cause, not only that the receipt has no marker (runs 43779426587 and
+    43758485104, 2026-11-16, each a different cause)."""
+    phases = step.get("phases") if isinstance(step.get("phases"), dict) else {}
+    spent = ", ".join(f"{name} {secs}s" for name, secs in phases.items() if isinstance(secs, (int, float)))
+    error = " ".join(str(step.get("error")).split())[:500]
+    return (f"the look stopped on {str(step.get('worker') or 'the worker')[:80]} with no receipt: {error}"
+            + (f" (phases: {spent})" if spent else ""))
+
+
 def check_marker(receipt: dict, head: str) -> re.Match:
     marker = str(receipt.get("marker") or "")
     found = MARKER.fullmatch(marker)
@@ -225,6 +236,8 @@ def stage(out: Path, pr: int, head: str, staging: Path, text_path: Path) -> dict
     step = read_json(out / "step.json")
     if step.get("needs_build") or receipt.get("plan", {}).get("needs_build"):
         return {"needs_build": True, "staged": [], "withheld": []}
+    if not receipt.get("marker") and step.get("error"):
+        raise Refused(worker_stop(step))
     check_marker(receipt, head)
     if step and str(step.get("head") or head) != head:
         raise Refused("step.json names another head")

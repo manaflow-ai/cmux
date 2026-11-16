@@ -135,7 +135,10 @@ import Testing
         #expect(newer == nil)
         #expect(state.active == nil)
         #expect(store.readState().floor == pointer.committedAt)
-        #expect(!FileManager.default.fileExists(atPath: tree.path))
+        // Every page's first request waits for this answer (the first launch after an app update),
+        // so it does not wait for the dropped trees' removal: the launch tree's prune removes them
+        // after (WebUpdaterTests.aLaunchThatDropsTheKeptUpdateRemovesItsTreeAfterTheAnswer).
+        #expect(FileManager.default.fileExists(atPath: tree.path))
     }
 
     /// NIGHTLY updates by Sparkle delta, which rewrites only the files whose bytes changed:

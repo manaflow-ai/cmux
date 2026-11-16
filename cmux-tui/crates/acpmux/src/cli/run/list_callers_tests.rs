@@ -363,25 +363,33 @@ async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
     let via = || Via::List(proxy.path.clone());
     let before = proxy.bytes.load(Ordering::Relaxed);
     let started = Instant::now();
-    match caller {
+    // The MCP `ls` answers a refusal as a value, never an error: kept, and checked past the clock.
+    let mcp_reply = match caller {
         "ls" => {
             super::ls::output(ls_args(&[]), false, &client, via(), crate::store::now_ms())
                 .await
                 .unwrap();
+            None
         }
         "pending" => {
             super::standard::pending_output(&client, via(), false).await.unwrap();
+            None
         }
         "send_tag_dry_run" => {
             super::fanout::targets_via(&client, via(), "area=acpmux", None).await.unwrap();
+            None
         }
-        "mcp_ls" => {
-            crate::acpmux_mcp::ls_via(&client, &json!({}), via()).await;
-        }
+        "mcp_ls" => Some(crate::acpmux_mcp::ls_via(&client, &json!({}), via()).await),
         _ => unreachable!(),
-    }
+    };
     let wall = started.elapsed().as_nanos();
     drop(client);
+    // A timed sample proves it did the work (decision 271): a refused `ls` is no fast `ls`.
+    if let Some(reply) = mcp_reply {
+        assert_eq!(reply["isError"], json!(false), "the gate's MCP ls was refused: {reply}");
+        let sessions = reply["structuredContent"]["sessions"].as_array().map(Vec::len);
+        assert_eq!(sessions, Some(20), "the gate's MCP ls lists its 20 live chats");
+    }
     proxy.settled().await.unwrap();
     // The client's initialize reply is counted too, alike on both sides.
     (wall, u128::from(proxy.bytes.load(Ordering::Relaxed) - before))
@@ -503,11 +511,8 @@ async fn v2_pr07b_usage_first_read() {
     let rebuilt =
         [small.hub.list_order_rebuilds_for_test(), god.hub.list_order_rebuilds_for_test()];
     assert_eq!(rebuilt, built, "a timed pass sorted every chat again");
-    acpmux_book::gate_rounds::report(
-        "v2.pr07b.usage_first_read",
-        &[("small", &small_wall), ("god", &god_wall)],
-    );
-    // The row's line last, with no assert after it: the home judges the ratio.
+    // The row's rounds and line last (`emit` prints both), with no assert after it: the home
+    // judges the ratio.
     emit("v2.pr07b.usage_first_read", &small_wall, &god_wall, "ns");
 }
 
@@ -594,46 +599,4 @@ async fn probe_order_at_start() {
     );
     drop(d);
     drop(store);
-}
-
-/// What `v2.pr07b.ls_wall`'s first god-side call pays (its round 1 reads 26-32 ms against
-/// 2.2-2.4 ms after). The gate's two daemons and proxies, then `ls` three times a side, each
-/// with the wall and the kept list order's full sorts (`list_order_rebuilds_for_test`) after it.
-/// `as_gate`: as the gate starts. `sorted`: the order sorted first (`Hub::sort_list_order`, as a
-/// daemon's start task does), timed as `sort_us`. Prints `PROBE` lines, asserts nothing of the
-/// times.
-#[ignore = "probe: ls_wall's first god-side call"]
-#[tokio::test(flavor = "multi_thread")]
-async fn probe_ls_wall_first_call() {
-    for case in ["as_gate", "sorted", "as_gate", "sorted"] {
-        let small = gate_daemon(0).await;
-        let god = gate_daemon(11_000).await;
-        let (small_proxy, god_proxy) =
-            (counted(small.path.clone()).await, counted(god.path.clone()).await);
-        let before =
-            [small._hub.list_order_rebuilds_for_test(), god._hub.list_order_rebuilds_for_test()];
-        let sort_us = if case == "sorted" {
-            let at = Instant::now();
-            small._hub.sort_list_order();
-            god._hub.sort_list_order();
-            at.elapsed().as_micros()
-        } else {
-            0
-        };
-        for call in 1..=3 {
-            for (side, daemon, proxy) in
-                [("small", &small, &small_proxy), ("god", &god, &god_proxy)]
-            {
-                let (wall, bytes) = gate_run("ls", proxy).await;
-                eprintln!(
-                    "PROBE case={case} call={call} side={side} wall_us={} bytes={bytes} \
-                     rebuilds_before={before:?} rebuilds_now={} sort_us={sort_us}",
-                    wall / 1_000,
-                    daemon._hub.list_order_rebuilds_for_test()
-                );
-            }
-        }
-        drop(god.v2);
-        drop(small.v2);
-    }
 }
