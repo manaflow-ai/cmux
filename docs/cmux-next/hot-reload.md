@@ -28,7 +28,7 @@ To look and keep the proof in one step, `scripts/cmux-next/hot-verify.py look --
 puts the change into a side copy and writes before and after screenshots, a video and a receipt for the PR
 (`hot-verify.py plan --source dir:. --app APP` first says whether it needs a build).
 
-`cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build, and
+`cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build (a fork's only when you run `use` again), and
 `library off --all` turns every code layer off. Rust hot-apply into a Developer ID NIGHTLY takes the
 tree's Team-signed copy, which CI publishes a few minutes after the tree; until then it is held back. Agents follow the same loop through the
 [cmux-hot-loop skill](../../skills/cmux-hot-loop/SKILL.md). Which layers swap, why, and how often each applies:

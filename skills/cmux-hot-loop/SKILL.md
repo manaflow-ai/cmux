@@ -37,7 +37,7 @@ copy of APP, then writes before and after screenshots (light and dark), a click-
 | Swift, Rust the app links, resources, manifests | a build (`plan` names it) | |
 
 Your code layers: `cmux customize library status` (what is on, one line), `library refresh` (pull each layer's
-newest build in place), `library off --all` (every code layer off; cmux serves its own pages).
+newest build in place; a fork's new code only through `use` again), `library off --all` (every code layer off; cmux serves its own pages).
 
 ## Examples
 
