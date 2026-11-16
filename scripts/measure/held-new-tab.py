@@ -30,8 +30,9 @@ forms (--launch-form; `launch_form` and `key_source` in the report say which one
   one-key   the launcher's own launch (the app does not activate and has no key window). Each key-down of a row is
             ONE `debug.key {"key"}` call at its time by this script's clock, with that time as the event's time.
             The app sends it to its window directly: the app's event queue, the key-up and the repeat flag are
-            NOT in the rows, so the key router's repeat path is not measured. Each call has a thread of its own:
-            a call that waits for the app's main thread does not hold back the next key.
+            NOT in the rows, so the key router's repeat path is not measured. ONE thread sends the calls in key
+            order, and a call ends before the next one starts: the app cannot get 2 keys in the other order. A
+            call that takes longer than the gap of 2 keys makes the next call late; no key is dropped.
   auto      (default) `activate`; when its preflight fails, ONE new launch in the `one-key` form.
 
 ACTIVATE. The launcher starts the app's binary directly, and on a display Mac such a process did not become the
@@ -62,6 +63,18 @@ the first that fails prints `PREFLIGHT <name> FAILED: <the app's words>`, `debug
 ends that launch. With no other launch form left the run ends at once with exit 1: a fault of the key path costs
 minutes, not the time of the session's maker.
 
+INPUT ORDER. A row is for a person only with the proof that the app got the keys in the order that the tool meant.
+`input_order` is that proof from the app's own records: the start of each key's action (`action.perform`, which
+names its key by the key's time) against the key's number. `in_key_order` is true when no action ran after the
+action of a later key; `acts_after_a_later_key` counts the ones that did, and `first` names the first. A row where
+it is not true is INVALID (the row's `invalid`, and so a failure of the run): its `order` has no `equal`, and no
+number of it is for a person. `key_calls` says who sent the keys (`sent_by`) and which clock a key's time is on
+(`key_time`): in the `one-key` form each number from a key's time starts at the key's PLANNED time (the event's time
+that the app got), not at the start of its call, so it has the wait of a late call in it. There the record of a
+take has [the planned time, the start, the end] of each call (ms after the take's base time) as `key_calls.calls`,
+and the row has `late` (the calls that started more than LATE_CALL_MS after their planned time), `max_late_ms`,
+`longer_than_the_gap` (the calls that had not ended at the next key's planned time) and `max_call_ms`.
+
 Each take follows the rule for hosts that restart bluetoothd about each 10 s: it starts 0.8 s after a new
 bluetoothd pid (or after 12 s without one), `debug.frames` covers at most 8 s, and a take with a bluetoothd start
 in the host's log is `disturbed` (do not use its frame tail).
@@ -77,24 +90,28 @@ request is in no log. `tab_shows` is the count of changes of a pane's shown tab 
 `opens` says how many of the row's new tab pages took the page that the app keeps ready (`warm`) and how many did
 not (`cold`), from `debug.new_tab`, which keeps the last OPENINGS opens only.
 
-`order`: the pane's tab list and selected tab after the row against a small pure model of the keys that did
-something: Cmd-T puts a tab directly right of the selected tab, selects it and keeps the tab it came from as its
-opener; Cmd-W closes the selected tab and selects, first match, a tab it opened, a tab of the same opener, its
-opener, the next tab, the previous tab. The list is the store's own (`snapshot.get`: each tab's id and kind), read
-after the frames when no tab is a stand-in, or after LIST_SETTLE_S; the focus model's list (`debug.focus`) is
-beside it (`focus_list_is_the_store_list`). The model knows a tab by its id: a tab of the start has its id, and a
-Cmd-W on a tab that has its id is checked by the id that the app's own `closed` mark names
-(`closes_checked_by_id`). The app names no id at the key that makes a tab. So a Cmd-W on a new tab is NOT checked
-for which new tab it closed: the mark's id becomes that tab's id (`new_tabs.named_by_a_close`), and a new tab that
-no Cmd-W closed gets its id by its place in the end list (`new_tabs.known_by_place`). `order_by` is `identity`
-only when no tab got its id in one of these 2 ways, else `identity and place`. `equal` says if both agree;
-`first_difference` names the first key whose close is not the model's (`where: key`), else the first place of the
-end list (`list`), else the selected tab (`selected`), each with the tab's id, its kind and where it came from.
-`equal` is null with its cause in `why` when the model cannot say: a key has no record of what it did (the fate
-`missing` or `no_outcome`: the recording can lose a record), the end list still has a stand-in tab after
-LIST_SETTLE_S, the selected tab before the keys is not known, a list or the fates are not there, or a fault of
-the tool. `close` starts with the openers that `hold` left; when `hold` gave none, `close` gives no verdict and
-says what `hold` did. `list_read_after_last_key_ms` is the time from the row's last key to the end of that list
+`order`: the pane's tab list and selected tab after the row against a small pure model of the keys that did something,
+in the order in which the app ran their actions (`input_order`): Cmd-T puts a tab directly right of the selected tab,
+selects it and keeps the tab it came from as its opener; Cmd-W closes the selected tab and selects, first match, a tab
+it opened, a tab of the same opener, its opener, the next tab, the previous tab. The list is the store's own
+(`snapshot.get`: each tab's id and kind), read after the frames when no tab is a stand-in, or after LIST_SETTLE_S; the
+focus model's list (`debug.focus`) is beside it (`focus_list_is_the_store_list`). The model knows a tab by its id: a
+tab of the start has its id, and a Cmd-W on a tab that has its id is checked by the id that the app's own `closed`
+mark names (`closes_checked_by_id`). The app names no id at the key that makes a tab. So a Cmd-W on a new tab is NOT
+checked for which new tab it closed: the mark's id becomes that tab's id (`new_tabs.named_by_a_close`), and a new tab
+that no Cmd-W closed gets its id by its place in the end list (`new_tabs.known_by_place`). `order_by` is `identity`
+only when no tab got its id in one of these 2 ways, else `identity and place`. `tabs_checked` is the one word for all
+of that: `by id` (no tab got its id from a close or from its place), `by place only` (no Cmd-W was checked by a tab's
+id), `by id and by place`. `equal` says if both agree, and `verdict` is the row's one word for a reader to print:
+`equal`, `equal, by place only`, `equal, by id and by place`, `not equal`, `no verdict`, `INVALID` (the app got the
+keys in another order: `by_the_acts` then has the model's `equal` and `first_difference` for the order that the app
+got). Print `verdict`, never `equal` alone. `first_difference` names the first key whose close is not the model's
+(`where: key`), else the first place of the end list (`list`), else the selected tab (`selected`), each with the tab's
+id, its kind and where it came from. `equal` is null with its cause in `why` when the model cannot say: a key has no
+record of what it did (the fate `missing` or `no_outcome`: the recording can lose a record), the end list still has a
+stand-in tab after LIST_SETTLE_S, the selected tab before the keys is not known, a list or the fates are not there, or
+a fault of the tool. `close` starts with the openers that `hold` left; when `hold` gave none, `close` gives no verdict
+and says what `hold` did. `list_read_after_last_key_ms` is the time from the row's last key to the end of that list
 read.
 
 `slow_keys`: each key that made or closed a tab and whose first commit ended more than SLOW_KEY_MS after the key
@@ -116,8 +133,9 @@ does not get the focus, has no key and no film: its row says `not_run` and why. 
 not end in its bound (`take_bound`) is killed with its process group: its row says so, and the run ends there.
 
 `first_frame`: for each key that made or closed a tab, was the pane's shown tab changed for that key by the end
-of the first Core Animation commit after the key's action (`shown`), was a later key's action before that commit
-(`superseded`: that frame had a newer state), or neither (`not_shown`). A `show` is the pane's change of its
+of the first Core Animation commit after the key's action (`shown`), was the next action's commit started before
+that commit ended (`superseded`: that frame had a newer state), or neither (`not_shown`). The keys are paired by
+the act: a show belongs to the key whose commit started last before it, not to the key with the highest number. A `show` is the pane's change of its
 shown tab (the input journal); that the tab's own view had its content in that frame is not in the count.
 
 --film DIR adds one `mixed` take under `debug.window_record` (it slows the app: not for a table).
@@ -192,6 +210,17 @@ KEY_SOURCES = {"activate": "debug.key posts real key events to the app's own que
                "one-key": ONE_KEY + ": each key-down is one debug.key call with its intended time, sent to the window directly; "
                           "not the app's event queue, no key-up, so the key router's repeat path is not in the rows"}
 PREFLIGHT_S = 120
+SENT_BY = {"activate": "the app plays the sequence: one call, and the app posts each key to its own event queue",
+           "one-key": "one thread of this script, in key order: a call ends before the next one starts"}
+KEY_TIME = {"activate": "the app's own clock: each key's intended press time in the sequence",
+            "one-key": "the key's planned time by this script's clock (the event's time that the app got), not the start of its "
+                       "call: a number from a key's time has the wait of a late call in it"}
+LATE_CALL_MS = 1.0  # a call that started this long after its planned time is `late`
+INPUT_ORDER_BY = ("the app's own records: the start of each key's action (`action.perform`, which names its key by the key's "
+                  "time) against the key's number")
+OTHER_ORDER = "the app got the keys in another order than the tool sent them"
+PAIRED = ("by the act: a show belongs to the key whose commit started last before it, and `superseded` looks at the next "
+          "act's commit, not at the key with the next number")
 
 
 def hid_grant():
@@ -212,10 +241,13 @@ def uptime():
 def post_keys(source, rpc, steps, pane, form):
     """The ONE key source of a take, in the launch's key form: {base_s, duration_ms} or {error}. `activate`:
     `debug.key`'s reply to the sequence, which the app plays by its own clock in the shell window as the key window.
-    `one-key`: each key-down of T or W in `steps` is ONE `debug.key` call at its time by this script's clock, with
-    that time as the event's time (`base_s` and the event times are on the clock of an event's time); each call has
-    a thread of its own (`calls`; `replies` gets what the app said to each), so the call returns at once as the
-    sequence's does. See `refused`."""
+    `one-key`: each key-down of T or W in `steps` is ONE `debug.key` call with its planned time as the event's time
+    (`base_s` and the event times are on the clock of an event's time). ONE thread sends the calls in key order
+    (`calls` has it): it waits for a key's planned time, and a call ends before the next one starts, so the app gets
+    the keys in this order. A call that takes longer than the gap of 2 keys makes the next call late, and no key is
+    dropped (a call that raises is that key's reply, and the next key still goes). `sends` gets [the planned time,
+    the start, the end] of each call (ms after `base_s`), `replies` what the app said to each. The function returns
+    at once, as the sequence's call does. See `refused` and `key_calls`."""
     if source != "app-queue":
         return {"error": f"the key source {source} is not in this script"}
     if form == "activate":
@@ -225,16 +257,36 @@ def post_keys(source, rpc, steps, pane, form):
         at += step.get("after_ms") or 0
         if step["down"] and step["key_code"] in letters:
             downs.append((at, letters[step["key_code"]]))
-    base, replies = uptime() + 0.05, [None] * len(downs)
+    base, replies, sends = uptime() + 0.05, [None] * len(downs), []
 
-    def press(index, offset, letter):
-        time.sleep(max(0.0, base + offset / 1000 - uptime()))  # test script: the key's own time, not a settle
-        replies[index] = rpc("debug.key", {"key": letter, "modifiers": ["command"], "timestamp": base + offset / 1000})
+    def press():
+        for index, (offset, letter) in enumerate(downs):
+            time.sleep(max(0.0, base + offset / 1000 - uptime()))  # test script: the key's own time, not a settle
+            start = uptime()
+            try:
+                replies[index] = rpc("debug.key", {"key": letter, "modifiers": ["command"], "timestamp": base + offset / 1000})
+            except Exception as error:  # noqa: BLE001  that key's reply (`refused` prints it); the next key still goes
+                replies[index] = repr(error)
+            sends.append([round(offset, 2), round((start - base) * 1000, 2), round((uptime() - base) * 1000, 2)])
 
-    calls = [threading.Thread(target=press, args=(index, *down), daemon=True) for index, down in enumerate(downs)]
-    for call in calls:
-        call.start()
-    return {"base_s": base, "duration_ms": at + 50, "calls": calls, "replies": replies}
+    calls = [threading.Thread(target=press, daemon=True)]
+    calls[0].start()
+    return {"base_s": base, "duration_ms": at + 50, "calls": calls, "replies": replies, "sends": sends}
+
+
+def key_calls(sent, form):
+    """The record's `key_calls` (the docstring, INPUT ORDER): who sent the keys and which clock a key's time is on;
+    in the `one-key` form also `calls` ([the planned time, the start, the end] of each call, ms after the take's
+    base time) and what they say of a late call."""
+    out = {"sent_by": SENT_BY[form], "key_time": KEY_TIME[form]}
+    if form != "one-key":
+        return out
+    calls = [list(call) for call in sent.get("sends") or []]
+    out.update({"calls": calls, "late": sum(start - planned > LATE_CALL_MS for planned, start, _ in calls),
+                "max_late_ms": round(max((start - planned for planned, start, _ in calls), default=0.0), 2),
+                "longer_than_the_gap": sum(call[2] > following[0] for call, following in zip(calls, calls[1:])),
+                "max_call_ms": round(max((end - start for _, start, end in calls), default=0.0), 2)})
+    return out
 
 
 def refused(sent, bound, ran=False):
@@ -356,23 +408,44 @@ def closes_by_key(record):
     return out
 
 
-def order_row(record, fates, openers, no_openers=None):
+def input_order(runs, fates):
+    """(The row `input_order` (the docstring, INPUT ORDER), the keys' numbers in the order in which the app ran
+    their actions). `runs`: `key_runs`. A key that did something and has no record of its action's start leaves the
+    proof open (`in_key_order` is None)."""
+    acts = [index for _, index in sorted((run["perform"]["at_s"], index) for index, run in runs.items() if run.get("perform"))]
+    none = [index for index, fate in enumerate(fates) if fate in BENCH.APPLIED_FATES and index not in acts]
+    moved, newest, first = 0, -1, None
+    for index in acts:
+        if index < newest:
+            moved += 1
+            first = first or {"key": index, "ran_after_key": newest}
+        newest = max(newest, index)
+    return {"by": INPUT_ORDER_BY, "acts": len(acts), "in_key_order": None if none else moved == 0,
+            "acts_after_a_later_key": moved, "first": first, "keys_with_no_act_record": len(none)}, acts
+
+
+def order_row(record, fates, openers, no_openers=None, acts=None):
     """The row `order` (the docstring) and the openers that the next row starts with, by real tab id; None when
     they are not known. `openers`: the ones that this row starts with; None when the row before did not give them,
-    with `no_openers` as the caller's words for the cause."""
+    with `no_openers` as the caller's words for the cause. `acts`: the keys' numbers in the order in which the app
+    ran their actions (`input_order`), which is the order that the model follows; None when that is the keys' own
+    order."""
     order = record.get("order") or {}
     before, after, letters = order.get("before"), order.get("after"), record.get("press_letters") or []
     fates = list(fates or [])
     lost = next(((index, fate) for index, fate in enumerate(fates) if fate in NO_RECORD_FATES), None)
+    walk = list(range(len(letters))) if acts is None else list(acts)
+    unseen = next((index for index, fate in enumerate(fates) if fate in BENCH.APPLIED_FATES and index not in walk), None)
     why = "no tab list of the pane before the keys" if not before \
         else "no tab list of the pane after the keys" if not after \
         else f"no fate of each key: {len(fates)} fates for {len(letters)} keys" if len(fates) != len(letters) \
         else f"key {lost[0]} has the fate {lost[1]}: the recording has no record of what that key did, so the model cannot follow the keys" if lost \
+        else f"key {unseen} has no record of when its action ran, so the model cannot follow the acts" if unseen is not None \
         else "the selected tab before the keys is not known, so the model cannot say where a new tab goes" if before.get("selected") is None \
         else f"no openers of the tabs at the start ({no_openers or 'the caller gave none'}), so the model cannot say which tab a close selects" \
         if openers is None else None
     if why:
-        return {"equal": None, "why": why}, None
+        return {"equal": None, "verdict": "no verdict", "why": why}, None
     kinds = {**dict(zip(before["tabs"], before.get("kinds") or [])), **dict(zip(after["tabs"], after.get("kinds") or []))}
     old, closed = set(before["tabs"]), closes_by_key(record)
     # `real`: the id of each new tab of the model, from the close that named it or from its place in the end list.
@@ -389,7 +462,8 @@ def order_row(record, fates, openers, no_openers=None):
         return {"tab": tab, "kind": kinds.get(tab), "from": where}
 
     tabs, selected, opened = list(before["tabs"]), before["selected"], dict(openers)
-    for index, (letter, fate) in enumerate(zip(letters, fates)):
+    for index in walk:
+        letter, fate = letters[index], fates[index]
         if fate not in BENCH.APPLIED_FATES:
             continue
         keys += 1
@@ -422,7 +496,9 @@ def order_row(record, fates, openers, no_openers=None):
         difference = {"where": "selected", "expected": words(selected), "got": words(after["selected"])}
     stand_ins = sum(str(tab).startswith(STAND_IN) for tab in end)
     focus = after.get("focus_tabs")
+    checked = "by id" if not (by_close or by_place) else "by place only" if not by_id else "by id and by place"
     row = {"equal": difference is None, "order_by": "identity and place" if by_close or by_place else "identity",
+           "tabs_checked": checked, "verdict": "not equal" if difference else "equal" if checked == "by id" else f"equal, {checked}",
            "limit": ORDER_LIMIT, "keys_in_the_model": keys, "tabs_before": len(before["tabs"]), "tabs": len(end),
            "expected_tabs": None if difference and difference["where"] == "key" else len(tabs), "first_difference": difference,
            "closes_checked_by_id": by_id, "new_tabs": {"made": made, "named_by_a_close": by_close, "known_by_place": by_place},
@@ -433,7 +509,8 @@ def order_row(record, fates, openers, no_openers=None):
     if stand_ins and not (difference and difference["where"] == "key"):
         # A stand-in's id is not the daemon's, and its tab can still move: the list says nothing yet. A close of a
         # tab that had its id and was not the model's stays `not equal`.
-        row.update({"equal": None, "why": f"{stand_ins} stand-in tabs in the end list {LIST_SETTLE_S:.0f} s after the keys: the list is not final"})
+        row.update({"equal": None, "verdict": "no verdict",
+                    "why": f"{stand_ins} stand-in tabs in the end list {LIST_SETTLE_S:.0f} s after the keys: the list is not final"})
     if difference or stand_ins:
         return row, None
     return row, {real.get(t, t): real.get(o, o) for t, o in opened.items() if t in tabs and o in tabs}
@@ -557,7 +634,8 @@ def pack(out, film, target):
 
 
 def first_frame(signposts, ndjson, record, fates):
-    """For each key that made or closed a tab: its first commit against the pane's `show` records (the docstring)."""
+    """For each key that made or closed a tab: its first commit against the pane's `show` records (the docstring).
+    The keys are walked in the order of their commits' starts (the acts), not by their numbers."""
     with open(ndjson) as f:
         parsed = signposts.parse(f.read().splitlines(), signposts.local_timebase())
     letters, times = record.get("press_letters") or [], list(record.get("press_times_s") or [])
@@ -569,9 +647,9 @@ def first_frame(signposts, ndjson, record, fates):
         index = BENCH.nearest(times, BENCH.event_time(interval), bound)
         if index is not None and fates[index] in BENCH.APPLIED_FATES and (index not in commits or interval["at_s"] < commits[index][0]):
             commits[index] = (interval["at_s"], interval["at_s"] + interval["ms"] / 1000)
-    keys, shown, late = sorted(commits), {}, []
+    keys, shown, late = sorted(commits, key=lambda key: (commits[key][0], key)), {}, []  # in the order of the acts
     for at, _ in record.get("shows") or []:
-        owner = next((k for k in reversed(keys) if commits[k][0] <= at), None)  # the newest key whose action ran before it
+        owner = next((k for k in reversed(keys) if commits[k][0] <= at), None)  # the key whose action ran last before it
         if owner is not None:
             shown.setdefault(owner, at)
     out = {letter: {"keys": 0, "shown": 0, "superseded": 0, "not_shown": 0} for letter in sorted(set(letters))}
@@ -587,7 +665,7 @@ def first_frame(signposts, ndjson, record, fates):
             late += [(shown[key] - end) * 1000] if key in shown else []
     applied = sum(fate in BENCH.APPLIED_FATES for fate in fates)
     return {"by_key": out, "keys_with_no_commit": applied - len(keys), "shown_after_the_commit_ms": BENCH.percentiles(late),
-            "show_records": len(record.get("shows") or []), "limit": FRAME_LIMIT, "shown_limit": SHOWN_LIMIT}
+            "show_records": len(record.get("shows") or []), "paired": PAIRED, "limit": FRAME_LIMIT, "shown_limit": SHOWN_LIMIT}
 
 
 def bluetoothd():
@@ -661,13 +739,16 @@ def take(opts):
         record["errors"].append(f"keys: {sent}")
     duration, began = float(sent.get("duration_ms") or 0) / 1000, time.monotonic()
     time.sleep(duration)  # test script: the sequence's own schedule, not a settle
+    for call in sent.get("calls") or []:
+        call.join(opts.deadline)  # the sender's end: a late call must not leave a key for after the frames
+    calls = key_calls(sent, opts.launch_form)
 
     def done():
         reply = rpc("debug.burst", {"action": "status"}) or {}
         return (reply.get("recording") and not reply.get("sequence_playing") and reply.get("pending_intents") == 0
                 and reply.get("resize_idle") and reply.get("terminals_awaiting_echo") == 0)
 
-    in_take = STRESS.wait(done, max(0.5, FRAMES_S - duration), step=0.1)
+    in_take = STRESS.wait(done, max(0.5, FRAMES_S - (time.monotonic() - began)), step=0.1)  # less the time of late calls
     frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
     end, moved = time.time(), bluetoothd() != first
     if not (in_take or STRESS.wait(done, opts.deadline, step=0.1)):
@@ -694,8 +775,9 @@ def take(opts):
                    "held_repeat_ms": [delay, interval], "trace": trace, "sequence_ms": duration * 1000,
                    "frames": {k: frames.get(k) for k in BENCH.FRAME_FIELDS}, "settled_ms": settled_ms,
                    "tabs_after": [t.get("id") for p in builder.panes(builder.workspace(opts.workspace)) for t in p.get("tabs") or []],
-                   "order": order, "shows": shows_of(journal, opts.pane),
+                   "order": order, "shows": shows_of(journal, opts.pane), "key_calls": calls,
                    "take": {"tabs_by_kind_after": kinds, "settled_inside_the_frames": bool(in_take), "key_form": opts.launch_form,
+                            "key_calls": {key: said for key, said in calls.items() if key != "calls"},
                             "actions_not_run_by_reply": sum(1 for r in sent.get("replies") or [] if isinstance(r, dict) and r.get("refused_action")),
                             "tab_shows": shows if journal else None, "tab_shows_whole": bool(journal) and journal[0].get("seq") == seen + 1,
                             "tab_shows_ring": JOURNAL,
@@ -1151,14 +1233,42 @@ def run(opts, app, signposts, report, form):
             fates = row.get("fates") or {}
             # `close` starts with the openers that `hold` left; each other row starts after a restore by script.
             known = openers if name == "close" else {}
+            # The proof of the keys' order comes first: the model follows the acts, and a row with no proof is INVALID.
+            proof, acts, intervals, runs = None, None, None, None
             try:
-                row["order"], openers = order_row(record, row.get("press_fates"), known, no_openers)
+                if row.get("press_fates"):
+                    intervals = read_stream(signposts, ndjson)
+                    runs = key_runs(intervals, record)
+                    proof, acts = input_order(runs, row["press_fates"])
+            except Exception as error:  # noqa: BLE001  a fault of the proof is no proof: the row is INVALID with the fault's words
+                proof, runs = {"by": INPUT_ORDER_BY, "in_key_order": None, "why": f"a fault of the tool: {error!r}"}, None
+            if proof is not None:
+                row["input_order"] = proof
+                if proof["in_key_order"] is False:
+                    row.setdefault("invalid", []).append(
+                        f"{OTHER_ORDER}: {proof['acts_after_a_later_key']} of {proof['acts']} actions ran after the action of a "
+                        f"later key (the first: key {proof['first']['key']} after key {proof['first']['ran_after_key']}); no number "
+                        "of this row is for a person")
+                elif proof["in_key_order"] is None:
+                    row.setdefault("invalid", []).append("no proof of the order of the keys: " + (proof.get("why") or (
+                        f"{proof['keys_with_no_act_record']} keys that did something have no record of when their action ran")))
+            try:
+                row["order"], openers = order_row(record, row.get("press_fates"), known, no_openers, acts)
                 verdict = row["order"]["equal"]
                 no_openers = None if openers is not None else f"the row before ({scenario}) " + (
                     "was not equal to the model" if verdict is False else f"had no verdict: {row['order'].get('why')}")
             except Exception as error:  # noqa: BLE001  a fault of this field must not lose the row: no verdict, with the fault's words
-                row["order"], openers = {"equal": None, "why": f"a fault of the tool: {error!r}"}, None
+                row["order"], openers = {"equal": None, "verdict": "no verdict", "why": f"a fault of the tool: {error!r}"}, None
                 no_openers = f"the row before ({scenario}) had a fault of the tool in its order"
+            if proof is not None and proof["in_key_order"] is False:
+                # INVALID, not `equal`: the model's own word for the order that the app got stays beside it.
+                was = row["order"]
+                was["by_the_acts"] = {"equal": was.get("equal"), "first_difference": was.get("first_difference"),
+                                      **({"why": was["why"]} if was.get("why") else {})}
+                was.update({"equal": None, "verdict": "INVALID", "why": f"{OTHER_ORDER} (`input_order`); `by_the_acts` is the "
+                                                                        "model's word for the order that the app got"})
+            elif proof is not None and proof["in_key_order"] is None and row["order"].get("equal") is not None:
+                row["order"].update({"equal": None, "verdict": "no verdict", "why": "no proof of the order of the keys (`input_order`)"})
             row["order"]["openers_at_start"] = None if known is None else len(known)
             try:
                 if row.get("press_fates"):
@@ -1167,8 +1277,9 @@ def run(opts, app, signposts, report, form):
                 row["first_frame_error"] = repr(error)
             try:
                 if row.get("press_fates"):
-                    intervals = read_stream(signposts, ndjson)
-                    runs = key_runs(intervals, record)
+                    if runs is None:
+                        intervals = read_stream(signposts, ndjson)
+                        runs = key_runs(intervals, record)
                     row["slow_keys"] = slow_keys(runs, record, row["press_fates"])
                     if wide:
                         found, own = between(intervals, runs, record, row["press_fates"], form)

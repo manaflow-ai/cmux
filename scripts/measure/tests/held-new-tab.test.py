@@ -783,11 +783,54 @@ class KeyCalls(Case):
         self.assertIn("planned time", said.get("key_time", ""))
         self.assertNotIn("calls", said)  # the list is in the record, not in the printed row
 
+    def test_a_call_that_raises_is_the_reply_of_its_key_and_the_next_key_still_goes(self):
+        world, broke = World(), []
+        Builder(world).new_workspace()
+
+        def rpc(method, params=None, timeout=60):
+            if method == "debug.key" and len(world.sent) == 1 and not broke:
+                broke.append(True)
+                raise OSError("no socket")
+            return world.rpc(method, params, timeout)
+
+        steps, _ = M.BENCH.sequence(["t"] * 4, 0, (20.0, 20.0))
+        with self.fakes(world), one_thread_and_a_clock_that_moves(world):
+            sent = M.post_keys("app-queue", rpc, steps, "pane1", "one-key")
+            why = M.refused(sent, 1.0)
+        self.assertEqual((sent["replies"], world.keys, len(sent["sends"])), ([{}, "OSError('no socket')", {}, {}], 3, 4))
+        self.assertEqual(why, "key 1: debug.key: OSError('no socket')")
+
     def test_the_sequence_of_the_activate_form_says_that_the_app_plays_it(self):
         record = self.record(World(), row="hold", form="activate")
         said = (record.get("take") or {}).get("key_calls") or {}
         self.assertIn("the app plays", said.get("sent_by", ""))
         self.assertIn("the app's own clock", said.get("key_time", ""))
+
+
+class InputOrder(unittest.TestCase):
+    """`input_order`: the proof that the app got the keys in the order of the tool."""
+    RUN = staticmethod(lambda at: {"perform": {"at_s": at}})
+
+    def test_a_key_that_did_something_with_no_record_of_its_action_leaves_the_proof_open_and_the_model_has_no_verdict(self):
+        proof, acts = M.input_order({0: self.RUN(100.0), 2: self.RUN(100.2)}, ["created"] * 3)
+        self.assertEqual((proof["in_key_order"], proof["keys_with_no_act_record"], acts), (None, 1, [0, 2]))
+        after = order(["a", "x1", "x2", "x3"], ["terminal"] + ["newtab"] * 3, "x3")
+        record, fates = keys("ttt", order(["a"], ["terminal"], "a"), after)
+        row, openers = M.order_row(record, fates, {}, acts=acts)
+        self.assertEqual((row["equal"], row.get("verdict"), openers), (None, "no verdict", None))
+        self.assertIn("key 1 has no record of when its action ran", row["why"])
+
+    def test_a_key_whose_action_did_not_run_is_no_gap_of_the_proof(self):
+        proof, acts = M.input_order({0: self.RUN(100.0), 2: self.RUN(100.2)}, ["created", "missing", "created"])
+        self.assertEqual((proof["in_key_order"], proof["acts"], proof["keys_with_no_act_record"], proof["first"], acts),
+                         (True, 2, 0, None, [0, 2]))
+
+    def test_each_action_that_ran_after_the_action_of_a_later_key_is_counted(self):
+        """The acts ran in the order of the keys 1, 0, 3, 2, 4."""
+        runs = {key: self.RUN(100.0 + at) for key, at in ((1, 0.1), (0, 0.2), (3, 0.3), (2, 0.4), (4, 0.5))}
+        proof, acts = M.input_order(runs, ["created"] * 5)
+        self.assertEqual((proof["in_key_order"], proof["acts_after_a_later_key"], proof["first"], acts),
+                         (False, 2, {"key": 0, "ran_after_key": 1}, [1, 0, 3, 2, 4]))
 
 
 class Between(unittest.TestCase):
