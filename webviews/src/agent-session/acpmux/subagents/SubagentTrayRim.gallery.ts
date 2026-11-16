@@ -9,6 +9,7 @@ import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { setHatHeight } from "./trayResize";
+import { RUNNING_TRAY_LIST_LINE } from "./subagentSelectors";
 
 const running = (task: string, minutes: number, action: string): Subagent => ({
   id: `agent-${task.toLowerCase().replaceAll(/[^a-z]+/g, "-")}`,
@@ -54,7 +55,7 @@ const opened = (height: number | undefined) => async (ctx: PlayContext) => {
   setHatHeight(height, false);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
   await ctx.click({ selector: ".acpmux-running-tray__head" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"));
+  await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LIST_LINE));
 };
 const rimHovered = async (ctx: PlayContext) => {
   await opened(undefined)(ctx);
