@@ -282,6 +282,9 @@ fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
     const KBPS: u32 = 2_000;
     let mut enc =
         VideoToolbox::new(W as u32, H as u32, FPS, KBPS, false).expect("hardware encoder");
+    // The budget alone: full-frame noise is far busier than a screen, so with the QP
+    // ceiling on it would overrun the budget by design (the motion test below covers that).
+    assert!(enc.set_max_qp(None));
     let still = I420::new(W, H);
     let mut au = Vec::new();
     let mut pts = 0i64;
@@ -311,9 +314,10 @@ fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
     assert!(worst <= budget * 3 / 2, "a changed frame of {worst} B is over the {budget} B budget");
 }
 
-/// A frame that changes everywhere (a scroll, a drag) at a low target keeps its detail: the
-/// session caps the frame QP (videotoolbox.rs MAX_FRAME_QP) and overshoots its share of the
-/// target, instead of smearing the picture at QP 40-51 to fit it. Runs on a fleet Mac.
+/// A frame that changes everywhere (a scroll, a drag) keeps its detail at a rate above the
+/// bits-per-pixel floor: the session caps the frame QP (videotoolbox.rs MAX_FRAME_QP) and
+/// overshoots its share of the target, instead of smearing the picture at QP 40-51 to fit
+/// it. Under the floor the ceiling is off and the frame budget governs. Runs on a fleet Mac.
 #[cfg(target_os = "macos")]
 #[test]
 fn videotoolbox_motion_frames_keep_their_detail_at_a_low_target() {
@@ -321,8 +325,12 @@ fn videotoolbox_motion_frames_keep_their_detail_at_a_low_target() {
     use cmux_encode::videotoolbox::VideoToolbox;
     const W: usize = 512;
     const H: usize = 256;
-    const KBPS: u32 = 100;
+    // 0.1 bits per pixel per frame at 30 fps: over the 0.05 floor.
+    const KBPS: u32 = 400;
+    let under = VideoToolbox::new(W as u32, H as u32, 30, 100, false).expect("hardware encoder");
+    assert_eq!(under.applied_qp(), Some(51), "under the floor the ceiling is off");
     let mut enc = VideoToolbox::new(W as u32, H as u32, 30, KBPS, false).expect("hardware encoder");
+    assert_eq!(enc.applied_qp(), enc.max_qp(), "over the floor the ceiling is on");
     let mut seed = 0x2545_f491_4f6c_dd1du64;
     let mut noise = |pic: &mut I420| {
         for px in pic.y.iter_mut().chain(pic.u.iter_mut()).chain(pic.v.iter_mut()) {
@@ -354,6 +362,6 @@ fn videotoolbox_motion_frames_keep_their_detail_at_a_low_target() {
     let mean = p_bytes.iter().sum::<usize>() / p_bytes.len();
     let budget = (KBPS as usize * 1000 / 8) / 30;
     eprintln!("motion P-frames {p_bytes:?} ({dropped} dropped), mean {mean} B, budget {budget} B");
-    // QP 34 on full-frame noise needs tens of KB; capped at the budget it would be QP 51 mush.
-    assert!(mean > budget * 20, "mean P-frame {mean} B is near the {budget} B budget: QP ran away");
+    // QP 34 on full-frame noise needs tens of KB; held to the budget it would be QP 51 mush.
+    assert!(mean > budget * 4, "mean P-frame {mean} B is near the {budget} B budget: QP ran away");
 }

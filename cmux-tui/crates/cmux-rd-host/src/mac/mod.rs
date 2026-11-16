@@ -165,8 +165,11 @@ impl FrameSource for MacFrames {
             self.encoder.set_output_scale(scale);
         }
         let idr = self.encoder.encode_surface(&picture, hint, force_idr, pts_us, out)?;
+        // The quality eval compares against full-size source pixels: only full-size frames.
         #[cfg(feature = "bench")]
-        if let Some(quality) = self.quality.as_mut() {
+        let full_size = self.ladder.as_ref().is_none_or(|ladder| ladder.scale() >= 1.0);
+        #[cfg(feature = "bench")]
+        if let Some(quality) = self.quality.as_mut().filter(|_| full_size) {
             if quality.wants_source(pts_us as u64, out) {
                 if let Some(pixels) = frame.eval_roi() {
                     quality.source(pts_us as u64, out, &pixels);

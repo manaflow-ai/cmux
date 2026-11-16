@@ -216,6 +216,8 @@ pub struct VideoToolbox {
     session_size: (usize, usize),
     /// The QP ceiling the encoder took (MAX_FRAME_QP), `None` without one.
     max_qp: Option<i32>,
+    /// The ceiling on the session now (51 while lifted or under the bits-per-pixel floor).
+    applied_qp: Option<i32>,
     /// The ceiling is lifted after an oversized frame ([`QP_LIFT_BYTES`]).
     qp_lifted: bool,
     /// The share of each side surfaces are encoded at (the resolution ladder).
@@ -451,9 +453,25 @@ fn apply_max_qp(session: VTCompressionSessionRef, qp: i32) -> bool {
 /// rate does not shrink a frame whose QP cannot rise.
 const QP_LIFT_BYTES: usize = 2 << 20;
 
+/// The bits per pixel per frame the QP ceiling needs (design D5; the same floor as
+/// cmux-rd-core `ladder::MIN_MOTION_BITS_PER_PIXEL`). Above it the ceiling keeps text readable
+/// within the per-frame byte budget (`frame_budget`); below it the ceiling could only hold by
+/// overrunning that budget, so the session drops the ceiling and the budget governs until
+/// the rate recovers or the resolution ladder makes the picture smaller.
+const QP_CEILING_MIN_BITS_PER_PIXEL: f64 = 0.05;
+
+/// Whether `kbps` at `fps` gives a `pixels` picture enough bits for the QP ceiling.
+fn ceiling_fits(kbps: u32, fps: u32, pixels: usize) -> bool {
+    let bits_per_frame = f64::from(kbps) * 1000.0 / f64::from(fps.max(1));
+    bits_per_frame / pixels.max(1) as f64 >= QP_CEILING_MIN_BITS_PER_PIXEL
+}
+
 /// The size the session encodes for a `width` x `height` source at `scale` of each side:
-/// even (4:2:0), at least 16, never larger than the source.
+/// the source size itself at full scale, else even (4:2:0), at least 16, never larger.
 fn scaled_size(width: usize, height: usize, scale: f64) -> (usize, usize) {
+    if scale >= 1.0 {
+        return (width, height);
+    }
     let side = |n: usize| {
         let s = ((n as f64 * scale.clamp(0.0, 1.0)) as usize).max(16).min(n);
         s & !1
@@ -498,6 +516,7 @@ impl VideoToolbox {
             session,
             session_size: (width as usize, height as usize),
             max_qp,
+            applied_qp: max_qp,
             qp_lifted: false,
             out_scale: 1.0,
             pixel_buffer,
@@ -534,9 +553,8 @@ impl VideoToolbox {
         self.session_size = (width, height);
         self.color = None;
         self.qp_lifted = false;
-        if let Some(qp) = self.max_qp {
-            apply_max_qp(session, qp);
-        }
+        self.applied_qp = None;
+        // Sets the rate, the frame budget and (sync_qp) the ceiling on the new session.
         self.apply_bitrate(self.kbps);
         Ok(true)
     }
@@ -548,19 +566,61 @@ impl VideoToolbox {
         self.out_scale = scale.clamp(0.25, 1.0);
     }
 
-    /// The QP ceiling this session applies, if the encoder took it.
+    /// The QP ceiling this session is configured with, if the encoder took it.
     pub fn max_qp(&self) -> Option<i32> {
         self.max_qp
+    }
+
+    /// The ceiling in force on the session now: `max_qp`, or 51 while it is lifted
+    /// ([`QP_LIFT_BYTES`]) or the rate is under [`QP_CEILING_MIN_BITS_PER_PIXEL`].
+    pub fn applied_qp(&self) -> Option<i32> {
+        self.applied_qp
+    }
+
+    /// Sets the QP ceiling (`None`: no ceiling) from the next frame on, for a harness or a
+    /// test; returns whether the encoder took it.
+    pub fn set_max_qp(&mut self, qp: Option<i32>) -> bool {
+        match qp.filter(|qp| (1..=51).contains(qp)) {
+            Some(qp) if apply_max_qp(self.session, qp) => {
+                self.max_qp = Some(qp);
+                self.applied_qp = Some(qp);
+                self.sync_qp();
+                true
+            }
+            Some(_) => false,
+            None => {
+                if self.applied_qp.is_some() && apply_max_qp(self.session, 51) {
+                    self.applied_qp = Some(51);
+                }
+                self.max_qp = None;
+                true
+            }
+        }
+    }
+
+    /// Puts the ceiling the current rate, size and last frame call for on the session.
+    fn sync_qp(&mut self) {
+        let Some(qp) = self.max_qp else { return };
+        let (w, h) = self.session_size;
+        let want =
+            if !self.qp_lifted && ceiling_fits(self.kbps, self.fps, w * h) { qp } else { 51 };
+        if self.applied_qp != Some(want) && apply_max_qp(self.session, want) {
+            self.applied_qp = Some(want);
+        }
     }
 
     /// Lifts the QP ceiling after an oversized frame and restores it after a small one
     /// ([`QP_LIFT_BYTES`]).
     fn track_frame_size(&mut self, len: usize) {
-        let Some(qp) = self.max_qp else { return };
+        if self.max_qp.is_none() {
+            return;
+        }
         if !self.qp_lifted && len > QP_LIFT_BYTES {
-            self.qp_lifted = apply_max_qp(self.session, 51);
+            self.qp_lifted = true;
+            self.sync_qp();
         } else if self.qp_lifted && len < QP_LIFT_BYTES / 4 {
-            self.qp_lifted = !apply_max_qp(self.session, qp);
+            self.qp_lifted = false;
+            self.sync_qp();
         }
     }
 
@@ -621,6 +681,7 @@ impl VideoToolbox {
             CFRelease(seconds);
         }
         self.kbps = kbps;
+        self.sync_qp();
     }
 
     /// Copies I420 into the NV12 (420v) pixel buffer.
@@ -793,5 +854,17 @@ mod tests {
         assert_eq!(scaled_size(101, 51, 0.5), (50, 24));
         assert_eq!(scaled_size(20, 20, 0.1), (16, 16), "at least 16");
         assert_eq!(scaled_size(3840, 2160, 2.0), (3840, 2160), "never larger");
+        assert_eq!(scaled_size(1173, 731, 1.0), (1173, 731), "full scale keeps an odd size");
+    }
+
+    #[test]
+    fn the_qp_ceiling_needs_the_bits_per_pixel_floor() {
+        // 4K at 60 fps: the floor is about 24.9 Mbps.
+        assert!(!ceiling_fits(20_000, 60, 3840 * 2160));
+        assert!(ceiling_fits(25_000, 60, 3840 * 2160));
+        // The same rate fits at half the size (a quarter of the pixels).
+        assert!(ceiling_fits(8_000, 60, 1920 * 1080));
+        assert!(!ceiling_fits(100, 30, 512 * 256));
+        assert!(ceiling_fits(400, 30, 512 * 256));
     }
 }
