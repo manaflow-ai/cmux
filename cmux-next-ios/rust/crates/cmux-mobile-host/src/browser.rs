@@ -658,7 +658,7 @@ pub(crate) async fn splice(
     let lane_frame = |frame: cmux_rd_core::reassembly::CompleteFrame| {
         let access_unit = Bytes::from(frame.body.access_unit);
         if let Some(meter) = &video_meter {
-            meter.add_sent(access_unit.len());
+            let _ = (meter, access_unit.len());
         }
         cmux_mobile_link::media::OutgoingFrame {
             access_unit: match video_tag {
