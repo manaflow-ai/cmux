@@ -12,7 +12,6 @@ Licensed Work:        The cmux server software in the following directories of
                         workers/presence/
                         workers/device-hub/
                         services/iroh-relay-minter/
-                        cmux-tui/relays/cloudflare-do/
                         backend/
                       The Licensed Work excludes web/data/cmux.schema.json,
                       files generated from sources outside those directories,

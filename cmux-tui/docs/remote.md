@@ -412,7 +412,7 @@ An invitation may carry at most two short-lived relay bootstrap records. When `e
 
 ## Cloudflare Durable Object relay
 
-The Worker under `relays/cloudflare-do` implements the same relay v2 control messages. Use a URL-safe 128-bit-or-larger slot and the same Register or Connect ticket claims as the native relay:
+The hosted Durable Object relay implements the same relay v2 control messages. The hosted relay's server code and deploy live in the cmux-platform repo; the wire contract (`cmux-remote-protocol`) and the self-host relay (`cmux-relay`) stay here. Use a URL-safe 128-bit-or-larger slot and the same Register or Connect ticket claims as the native relay:
 
 ```sh
 cmux-tui server start --session dev \
@@ -427,7 +427,7 @@ cmux-tui remote connect relay+do://relay-worker.example \
 
 The provider derives `/v1/slots/<slot>/control`, `/v1/slots/<slot>/connect`, and `/v1/circuits/<circuit>`. It sends the provider or Join ticket in the WebSocket `Authorization` header and repeats it in the relay control protocol for defense in depth. Durable Objects supply slot-to-circuit indirection and hibernation. They remain a relay provider under the WebSocket carrier contract, rather than becoming a separate session transport.
 
-See [`../relays/cloudflare-do/README.md`](../relays/cloudflare-do/README.md) for deployment, ticket, quota, and alarm details.
+Its deployment, ticket, quota, and alarm details are documented with its code in the cmux-platform repo.
 
 ## Reliability and security limits
 

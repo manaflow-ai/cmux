@@ -192,7 +192,6 @@ SINGLE_SIZE: dict[str, int] = {
 FIXED_PAIR: dict[str, int] = {
     "backend.yml": 0,
     "ci-web.yml": 0,
-    "cloudflare-relay.yml": 0,
     "cmux-actions.yml": 0,
     "cmux-browser-host-chromium.yml": 0,
     "cmux-cloud-cli.yml": 0,

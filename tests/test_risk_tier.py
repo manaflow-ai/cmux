@@ -127,7 +127,6 @@ class ClassifyTests(unittest.TestCase):
             NEXT + "CmuxNextControl/ControlAuthorizer.swift",
             NEXT + "CmuxNextControl/ControlPeerAncestry.swift",
             "cmux-tui/crates/chatmux-relay/src/lib.rs",
-            "cmux-tui/relays/cloudflare-do/src/index.ts",
             "web/services/relay/forward.ts",
             "web/db/migrations/20260707032007_same_quicksilver/migration.sql",
             "backend/db/drizzle/0042_add.sql",

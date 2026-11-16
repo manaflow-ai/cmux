@@ -68,7 +68,6 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     # Rust: cargo build, test, clippy, cross builds.
     ("ci-web.yml", "diff-sidecar-check", "runs-on", BIG),
     ("cmux-next-fast-gates.yml", "fast-gates", "runs-on", SMALL),
-    ("cloudflare-relay.yml", "cloudflare-relay", "runs-on", BIG),
     ("cmux-browser-host-chromium.yml", "chromium", "runs-on", BIG),
     ("cmux-browser-host-release.yml", "build", "matrix:target=x86_64-unknown-linux-gnu:runs_on", BIG),
     ("cmux-cloud-cli.yml", "test", "runs-on", BIG),

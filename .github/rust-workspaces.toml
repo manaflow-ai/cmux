@@ -42,10 +42,6 @@ root = "workers/cmux-vm/cli"
 covered_by = ".github/workflows/cmux-vm-clients.yml"
 
 [[workspace]]
-root = "cmux-tui/relays/cloudflare-do"
-covered_by = ".github/workflows/cloudflare-relay.yml"
-
-[[workspace]]
 root = "cmux-tui/bindings/examples/rust-agent-dashboard"
 covered_by = ".github/workflows/cmux-tui-sdks.yml"
 

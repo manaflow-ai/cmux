@@ -4,7 +4,7 @@
 //! long-polled inbox, text sends, 64 KB reads, no live attach.
 //!
 //! Nothing here is a second relay or a second handshake. The relay is the Cloud carrier's
-//! (cmux `relays/cloudflare-do`, Worker `cmux-remote-relay-<env>`), reached with cmux-remote's
+//! (the hosted relay in cmux-platform, Worker `cmux-remote-relay-<env>`), reached with cmux-remote's
 //! relay client ([`RelayProvider`] to dial, [`spawn_relay_daemon_registration`] to serve), and
 //! the stream runs cmux-remote's Noise XX handshake ([`initiate_secure_link`],
 //! [`accept_secure_link`]) with each machine's node key (`node.wg.key`, whose public half the hub
