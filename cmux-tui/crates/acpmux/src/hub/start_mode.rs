@@ -843,6 +843,13 @@ impl Hub {
         self.append(session, "mux", event, record);
     }
 
+    /// Whether the person's own new chats on profile `harness` start in full access now (the
+    /// start level, which `sessions.allowFullAccess` and MDM already bound): what a start the
+    /// person sends to another machine carries (`full_access_children.rs`).
+    pub(super) async fn person_starts_full_access(&self, harness: &str) -> bool {
+        self.start_level(harness).await.0 == DefaultMode::FullAccess
+    }
+
     /// The level new chats on profile `harness` start at now, and what chose it.
     async fn start_level(&self, harness: &str) -> (DefaultMode, Source) {
         let (state, own, configured) = {

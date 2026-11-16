@@ -6,6 +6,7 @@
 
 use crate::carrier::{Carrier, Incoming};
 use crate::clock::now_ns;
+use crate::cursor::CursorChannel;
 use crate::desktop::{Desktop, FrameSource};
 use crate::encode_thread::{Done, EncodeThread};
 use crate::fdwait::wait_readable;
@@ -79,6 +80,9 @@ pub struct MediaSession {
     settle_ns: u64,
     /// Per-frame times for the screen stream eval, when `CMUX_RD_TIMING_LOG` names a file.
     timing: Option<Timing>,
+    /// The cursor as metadata, when the viewer draws it (cap `cursor`) and the desktop
+    /// reports it: the pictures leave it out.
+    cursor: Option<CursorChannel>,
 }
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
@@ -86,18 +90,23 @@ pub struct MediaSession {
 /// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
 /// `arrived_us`, when the capture handed it over; `damage_us`, when the session first saw damage
 /// since the last frame; `release_us`, when the gate let the encode start; `encoded_us`, when the
-/// encode ended. All on the protocol clock in µs.
+/// encode ended; `sent_us`, when its last datagram was handed to the carrier. Every injected
+/// input also gets a line of its own, `{"inject_us", "recv_us"}` (`recv_us`: when the datagram
+/// that carried it was read), so a remote viewer's key press can be matched to its injection
+/// (`scripts/screen-share-vs.py`). All on the protocol clock in µs.
 struct Timing {
     out: std::fs::File,
     input_us: Option<u64>,
     damage_us: Option<u64>,
+    /// When the datagram being handled now was read.
+    recv_us: Option<u64>,
 }
 
 impl Timing {
     fn from_env() -> Option<Self> {
         let path = std::env::var_os("CMUX_RD_TIMING_LOG")?;
         match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-            Ok(out) => Some(Self { out, input_us: None, damage_us: None }),
+            Ok(out) => Some(Self { out, input_us: None, damage_us: None, recv_us: None }),
             Err(e) => {
                 eprintln!("cmux-rd host: CMUX_RD_TIMING_LOG {}: {e}", path.to_string_lossy());
                 None
@@ -110,6 +119,7 @@ impl Timing {
         shown: Option<(u64, u64)>,
         release_us: u64,
         encoded_us: u64,
+        sent_us: u64,
         encoded_bytes: usize,
         idr: bool,
     ) {
@@ -121,9 +131,25 @@ impl Timing {
             "damage_us": self.damage_us.take(),
             "release_us": release_us,
             "encoded_us": encoded_us,
+            "sent_us": sent_us,
             "encoded_bytes": encoded_bytes,
             "idr": idr,
         });
+        let _ = writeln!(self.out, "{line}");
+    }
+
+    /// The session opened its capture and encoder: asked at `open_us`, ready at `ready_us`.
+    fn opened(&mut self, open_us: u64, ready_us: u64) {
+        use std::io::Write;
+        let line = serde_json::json!({ "open_us": open_us, "desktop_ready_us": ready_us });
+        let _ = writeln!(self.out, "{line}");
+    }
+
+    /// An input was injected at `inject_us`.
+    fn injected(&mut self, inject_us: u64) {
+        use std::io::Write;
+        self.input_us = Some(inject_us);
+        let line = serde_json::json!({ "inject_us": inject_us, "recv_us": self.recv_us });
         let _ = writeln!(self.out, "{line}");
     }
 }
@@ -135,6 +161,13 @@ const REATTACH_GRACE_NS: u64 = 90_000_000_000;
 
 fn viewer_silent_too_long(silent_us: u64) -> bool {
     silent_us > REATTACH_GRACE_NS / 1000
+}
+
+/// Whether the session sends the cursor as metadata: the viewer draws it (cap `cursor`) and
+/// this OS's desktop can report it.
+fn wants_cursor(negotiated_caps: &[String]) -> bool {
+    crate::desktop::reports_cursor()
+        && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::CURSOR)
 }
 
 fn now_us() -> u64 {
@@ -165,8 +198,15 @@ impl MediaSession {
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
-        let (desktop, frames) = crate::desktop::open(cfg)?;
-        Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)
+        let open_us = now_us();
+        let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps))?;
+        let ready_us = now_us();
+        let mut session =
+            Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)?;
+        if let Some(timing) = session.timing.as_mut() {
+            timing.opened(open_us, ready_us);
+        }
+        Ok(session)
     }
 
     /// A session on an opened desktop (tests use a fake one).
@@ -208,6 +248,7 @@ impl MediaSession {
             cpu_last: (process_cpu_s(), now_ns()),
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
+            cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
         })
     }
 
@@ -252,6 +293,10 @@ impl MediaSession {
             let stats_in = self.next_stats_ns.saturating_sub(now_ns());
             // The engine's deadline covers held frames and input held behind a gap.
             let timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(REATTACH_GRACE_NS);
+            // The next cursor reading (fast while it moves, slow when still).
+            let timeout = self.cursor.as_ref().map_or(timeout, |c| {
+                timeout.min(c.next_deadline_us().saturating_sub(now_us()).saturating_mul(1000))
+            });
             // Timed input work: a press waiting behind the agent's held button, the person
             // master going idle.
             let wake = if table.may_inject_input(session, viewer) {
@@ -344,10 +389,36 @@ impl MediaSession {
             while let Some(datagram) = self.engine.upstream_feedback(now_us()) {
                 let _ = carrier.send_datagram(&datagram);
             }
+            if let Err(e) = self.send_cursor(carrier) {
+                return format!("control write failed: {e}");
+            }
             if now_ns() >= self.next_stats_ns {
                 self.send_stats(carrier);
             }
         }
+    }
+
+    /// Reads the cursor when its channel is due and sends what changed: a new shape on the
+    /// control stream, then the position as a datagram.
+    fn send_cursor(&mut self, carrier: &mut dyn Carrier) -> std::io::Result<()> {
+        let Some(channel) = self.cursor.as_mut() else { return Ok(()) };
+        let now = now_us();
+        if !channel.due(now) {
+            return Ok(());
+        }
+        let Some(sample) = self.desktop.cursor() else {
+            channel.missed(now);
+            return Ok(());
+        };
+        let out = channel.on_sample(&sample, now);
+        if let Some(shape) = out.shape {
+            carrier.send_control(&shape)?;
+        }
+        if let Some(datagram) = out.datagram {
+            // Latest wins: a lost position is replaced by the next one.
+            let _ = carrier.send_datagram(&datagram);
+        }
+        Ok(())
     }
 
     /// Drains damage, then keeps draining while more arrives within `settle_ns` (at most
@@ -374,10 +445,11 @@ impl MediaSession {
     fn send_encoded(&mut self, carrier: &mut dyn Carrier) -> Res<()> {
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
         let frame = result?;
-        if let Some(timing) = self.timing.as_mut() {
-            let (shown, len) = (frame.picked_times, frame.access_unit.len());
-            timing.frame(shown, frame.t_capture_us, frame.encoded_us, len, frame.idr);
-        }
+        // Logged after the send, with the send time (`sent_us`).
+        let logged = self.timing.is_some().then(|| {
+            let len = frame.access_unit.len();
+            (frame.picked_times, frame.t_capture_us, frame.encoded_us, len, frame.idr)
+        });
         self.encode_ms.push_back(frame.encode_ms);
         if self.encode_ms.len() > 120 {
             self.encode_ms.pop_front();
@@ -395,6 +467,11 @@ impl MediaSession {
         }
         for datagram in &out.datagrams {
             carrier.send_datagram(datagram)?;
+        }
+        if let (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) =
+            (self.timing.as_mut(), logged)
+        {
+            timing.frame(shown, t_capture_us, encoded_us, now_us(), len, idr);
         }
         Ok(())
     }
@@ -433,8 +510,15 @@ impl MediaSession {
         viewer: &Principal,
     ) {
         let may_inject = table.may_inject_input(session, viewer);
-        let out = self.engine.on_datagram(datagram, may_inject, now_us());
+        let now = now_us();
+        if let Some(timing) = self.timing.as_mut() {
+            timing.recv_us = Some(now);
+        }
+        let out = self.engine.on_datagram(datagram, may_inject, now);
         self.apply(carrier, out, table, session, viewer);
+        if let Some(timing) = self.timing.as_mut() {
+            timing.recv_us = None;
+        }
     }
 
     fn inject(
@@ -454,7 +538,7 @@ impl MediaSession {
             eprintln!("inject failed: {e}");
         }
         if let Some(timing) = self.timing.as_mut() {
-            timing.input_us = Some(now_us());
+            timing.injected(now_us());
         }
     }
 

@@ -6,6 +6,8 @@ export type UpwardAnchorFrame = {
   requestedPixels: number;
   wheelPixels: number;
   scrollTop: number;
+  /** The room held above the loaded rows for older history (the spacer's `data-older-room`), px. */
+  room: number;
   anchorId: string | null;
   drift: number | null;
   wheelGeometryPixels: number;
@@ -294,6 +296,7 @@ export async function traceUpwardAnchors({
           wheelPixels: command.applied,
           wheelGeometryPixels: command.geometry,
           scrollTop: scroller.scrollTop,
+          room: Number(scroller.querySelector("[data-older-room]")?.getAttribute("data-older-room") ?? 0),
           anchorId: anchor?.id ?? null,
           drift,
           rowBoxGap: Math.max(0, ...positiveGaps.map((each) => each.gap)),

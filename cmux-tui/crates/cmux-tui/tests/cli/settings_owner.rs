@@ -157,9 +157,13 @@ impl SettingsDaemon {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        for code in
-            ["settings.managed", "settings.invalid", "settings.agent_refused", "settings.removed"]
-        {
+        for code in [
+            "settings.managed",
+            "settings.invalid",
+            "settings.agent_refused",
+            "settings.removed",
+            "settings.file_mismatch",
+        ] {
             if text.contains(code) {
                 return code.to_owned();
             }
@@ -174,6 +178,43 @@ impl SettingsDaemon {
     fn get(&self, key: &str) -> serde_json::Value {
         self.ok("settings.get", serde_json::json!({"key": key}), false)
     }
+}
+
+/// `settings.edit` with `file`: an owner serving another file refuses with
+/// `settings.file_mismatch` and writes nothing (the app reconnected to a
+/// daemon started on another `CMUX_NEXT_CONFIG_FILE`); its own file, spelled
+/// with `..`, takes the edit, and `set_exact` keeps a default-valued key.
+#[test]
+fn settings_edit_refuses_another_file_and_set_exact_keeps_a_default() {
+    use serde_json::json;
+
+    let daemon = SettingsDaemon::start("settings-edit-file");
+    let before = daemon.file();
+    let other = daemon.config.with_file_name("other-cmux-next.json");
+    let edits = json!([{"op": "set_exact", "key": "editor.wordWrap", "value": "off"}]);
+    assert_eq!(
+        daemon.refused(
+            "settings.edit",
+            json!({"edits": edits, "file": other.to_str().unwrap(), "origin": "app"})
+        ),
+        "settings.file_mismatch"
+    );
+    assert_eq!(daemon.file(), before, "a refused edit for another file changed the file");
+    assert!(!other.exists(), "the refused edit created the other file");
+
+    let parent = daemon.config.parent().unwrap();
+    let dir_name = parent.file_name().unwrap().to_str().unwrap();
+    let spelled = parent.join("..").join(dir_name).join("cmux-next.json");
+    let applied = daemon.ok(
+        "settings.edit",
+        json!({"edits": edits, "file": spelled.to_str().unwrap(), "origin": "app"}),
+        true,
+    );
+    let indexes = applied.pointer("/value/applied").or_else(|| applied.get("applied"));
+    assert_eq!(indexes, Some(&json!([0])), "{applied}");
+    let text = daemon.file();
+    assert!(text.contains("\"wordWrap\": \"off\""), "set_exact dropped the default: {text}");
+    assert!(text.contains("// the tab bar stays on top"), "{text}");
 }
 
 #[test]
