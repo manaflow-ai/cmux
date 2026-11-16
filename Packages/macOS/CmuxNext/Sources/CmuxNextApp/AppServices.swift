@@ -241,6 +241,9 @@ final class AppServices {
     let surfaceInvariant = SurfaceInvariantMonitor()
     /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
     let input = InputVerificationService()
+    /// Every keyboard focus change with its cause, while `tunable.diagnostics.focusLog` is on (``FocusLog``).
+    private(set) lazy var focusLog = FocusLog(writer: FocusLogWriter(directory: FocusLogWriter.folder(tag: environment.tag), symbolicate: { StackSymbolicator().frames(for: $0).map(\.description) }),
+        context: .init(classify: { r, w in (w.windowController as? WindowController).map { "\(FocusResponderClassifier.classify(r, in: $0))" } }, windowName: { ($0.windowController as? WindowController)?.state.id }, currentInput: { "\(FocusEvent.Source.current)" }))
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?

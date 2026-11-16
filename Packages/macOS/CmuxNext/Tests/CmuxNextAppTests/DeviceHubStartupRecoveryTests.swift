@@ -20,7 +20,7 @@ struct DeviceHubStartupRecoveryTests {
     }
 
     private func settings() -> SettingsController {
-        SettingsController(registry: ActionRegistry(), fileURL: FileManager.default.temporaryDirectory
+        SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(), fileURL: FileManager.default.temporaryDirectory
             .appending(path: "hub-recovery-\(UUID().uuidString)/config.json"))
     }
 
