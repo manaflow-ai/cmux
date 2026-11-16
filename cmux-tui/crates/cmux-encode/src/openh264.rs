@@ -251,6 +251,10 @@ pub struct OpenH264Options {
     pub frame_skip: bool,
     /// Worker threads and slices; `None` is the config's.
     pub threads: Option<u16>,
+    /// Slices of each picture; `None` is one per thread.
+    pub slices: Option<u16>,
+    /// OpenH264 moves slice boundaries toward equal coding time per thread.
+    pub load_balancing: bool,
     /// 0 low (the default), 1 medium, 2 high.
     pub complexity: u8,
     pub min_qp: Option<u8>,
@@ -284,6 +288,8 @@ impl Default for OpenH264Options {
         Self {
             frame_skip: true,
             threads: None,
+            slices: None,
+            load_balancing: false,
             complexity: 0,
             min_qp: None,
             max_qp: None,
@@ -306,6 +312,8 @@ impl OpenH264Options {
             match k {
                 "frameskip" => o.frame_skip = num()? != 0,
                 "threads" => o.threads = Some(num()?.clamp(1, 16) as u16),
+                "slices" => o.slices = Some(num()?.clamp(1, 35) as u16),
+                "lb" => o.load_balancing = num()? != 0,
                 "complexity" => o.complexity = num()?.min(2) as u8,
                 "minqp" => o.min_qp = Some(num()?.min(51) as u8),
                 "maxqp" => o.max_qp = Some(num()?.min(51) as u8),
@@ -332,6 +340,12 @@ impl OpenH264Options {
         let mut s = Vec::new();
         if self.threads.is_some() {
             s.push(format!("threads={}", self.threads.unwrap_or(1)));
+        }
+        if let Some(n) = self.slices {
+            s.push(format!("slices={n}"));
+        }
+        if self.load_balancing {
+            s.push("lb=on".into());
         }
         if self.complexity != d.complexity {
             s.push(format!("complexity={}", self.complexity));
@@ -515,7 +529,7 @@ unsafe fn init(
     p.bEnableFrameSkip = opts.frame_skip;
     p.bEnableLongTermReference = opts.ltr > 0;
     p.iMultipleThreadIdc = threads;
-    p.bUseLoadBalancing = false;
+    p.bUseLoadBalancing = opts.load_balancing;
     p.iLoopFilterDisableIdc = 0;
     p.bEnableDenoise = false;
     p.bEnableBackgroundDetection = opts.background_detection;
@@ -538,9 +552,10 @@ unsafe fn init(
     l.iMaxSpatialBitrate = bitrate;
     l.uiProfileIdc = PRO_BASELINE;
     l.uiLevelIdc = LEVEL_UNKNOWN;
-    if threads > 1 {
+    let slices = opts.slices.unwrap_or(threads).max(1);
+    if slices > 1 {
         l.sSliceArgument.uiSliceMode = SM_FIXEDSLCNUM_SLICE;
-        l.sSliceArgument.uiSliceNum = u32::from(threads);
+        l.sSliceArgument.uiSliceNum = u32::from(slices);
     } else {
         l.sSliceArgument.uiSliceMode = SM_SINGLE_SLICE;
         l.sSliceArgument.uiSliceNum = 1;
