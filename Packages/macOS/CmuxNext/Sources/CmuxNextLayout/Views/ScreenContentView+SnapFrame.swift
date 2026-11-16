@@ -153,11 +153,11 @@ extension ScreenContentView {
     }
 
     /// In the turn that shows a change, before it places the panes: the panes and dividers the change took out go. A
-    /// pane a later change took back stays (it is in the layout again). The hosts hide here. `inFrameTick`: the change
-    /// waited for a frame tick, and this is that tick's presentation: a close's hosts are torn down after this frame's
-    /// commit, so the frame that shows the change carries no teardown (RESIZE VIDEOS F1: a teardown in a close's first
-    /// frames missed refreshes). Else the change shows in its own turn, and they are torn down in it.
-    func hideSnapDeparted(inFrameTick: Bool = true) {
+    /// pane a later change took back stays (it is in the layout again). The hosts hide here, and a close's hosts are
+    /// torn down after this turn's commit, so the frame that shows the change carries no teardown (RESIZE VIDEOS F1: a
+    /// teardown in a close's first frames missed refreshes). The turn is the change's own when it resizes no pane, and
+    /// the frame tick it waited for when it does.
+    func hideSnapDeparted() {
         if !frameInput.snapDepartedDividers.isEmpty {
             for view in frameInput.snapDepartedDividers { view.removeFromSuperview() }
             frameInput.snapDepartedDividers = []
@@ -165,7 +165,7 @@ extension ScreenContentView {
         guard !frameInput.snapDeparted.isEmpty else { return }
         frameInput.snapDeparted = []
         guard context.hideRetiredShown(of: screenID) else { return }
-        if inFrameTick { context.afterCommit { [weak self] in self?.releaseDeparted() } } else { releaseDeparted() }
+        context.afterCommit { [weak self] in self?.releaseDeparted() }
     }
 
     /// Tears down the hosts of the panes a close took out of this screen, once the close showed (`until` nil: every

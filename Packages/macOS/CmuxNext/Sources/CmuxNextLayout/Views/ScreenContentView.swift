@@ -401,7 +401,7 @@ final class ScreenContentView: NSView {
         // A change that snaps shows at the next frame tick when it resizes a pane. Else it shows in this turn: what it
         // took out goes now, with it.
         if holdsSnap { _ = holdsSnapForContent(keyPress: keySnap) }
-        if !frameInput.snapWaitsForContent { hideSnapDeparted(inFrameTick: false) }
+        if !frameInput.snapWaitsForContent { hideSnapDeparted() }
         if presents { applyPresentation() }
         let moving = animate && hasMotion
         if !(moving && holdsGrids) { holdsGrids = false }
@@ -448,8 +448,8 @@ final class ScreenContentView: NSView {
         }
         paneFrames.removeAll()
         frameInput.snapWaitsForContent = false
-        hideSnapDeparted(inFrameTick: false)
-        // The panes a zoom kept for its unzoom go with the screen.
+        hideSnapDeparted()
+        // Every host the screen kept goes with it, now: a close's, and the panes a zoom kept for its unzoom.
         releaseDeparted(until: nil)
     }
 }
