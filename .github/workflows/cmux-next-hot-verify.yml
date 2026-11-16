@@ -392,7 +392,7 @@ jobs:
     needs: [target, look]
     if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && needs.look.outputs.result == 'ok' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 20
+    timeout-minutes: 50  # 20, plus hot-verify-ci.py's QUOTA_WAIT_SECONDS (1800) for a post out of quota
     environment: pr-media
     # contents: write reaches the pr-media branch (the code branches are protected by their rulesets);
     # pull-requests: write edits or posts the one comment; actions: read finds a gallery run on the head.
