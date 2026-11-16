@@ -206433,7 +206433,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Minutos sin espectadores antes de que se desactive lo que compartió un agente"
+            "value": "Minutos sin público hasta apagar lo que compartió un agente"
           }
         },
         "fr": {
@@ -206445,7 +206445,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Minuti senza spettatori prima che la condivisione di un agente si disattivi"
+            "value": "Minuti senza pubblico, poi si spegne la condivisione agente"
           }
         },
         "ja": {
@@ -206475,13 +206475,13 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Minuty bez widzów, po których udostępnianie agenta się wyłącza"
+            "value": "Minuty bez widzów do wyłączenia udostępniania agenta"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Minutos sem espectadores antes de o compartilhamento de um agente desativar"
+            "value": "Minutos sem público até desligar o que o agente compartilhou"
           }
         },
         "ru": {
