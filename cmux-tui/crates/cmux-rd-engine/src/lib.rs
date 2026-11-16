@@ -12,10 +12,13 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind};
+use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind, UltraConfig};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
+use cmux_rd_core::probe::{ProbeConfig, ProbePlanner, ProbeReason};
+pub use cmux_rd_core::profile::EncodeProfile;
+use cmux_rd_core::profile::refine_after_us;
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
     Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN,
@@ -49,6 +52,8 @@ pub const MAX_STREAMS: usize = 16;
 pub const POPUP_SHARE_PERCENT: u64 = 20;
 /// Floor of one popup stream's bitrate.
 pub const MIN_POPUP_KBPS: u32 = 300;
+/// Keep idle capacity fresh without making probes a background stream.
+const IDLE_PROBE_INTERVAL_US: u64 = 1_000_000;
 
 /// Limits of one media session.
 #[derive(Debug, Clone, Copy)]
@@ -108,6 +113,11 @@ pub struct EncodeRequest {
     pub force_idr: bool,
     /// The congestion controller's target for this frame.
     pub target_kbps: u32,
+    /// The encoder settings for this frame (`MediaEngine::set_profile`; standard by default).
+    pub profile: EncodeProfile,
+    /// Ultra only: the screen went still, so this frame re-encodes the unchanged picture at a
+    /// low QP (visually lossless) instead of carrying new damage.
+    pub refine: bool,
 }
 
 /// One encoded frame from the source.
@@ -292,6 +302,11 @@ struct StreamState {
     /// viewer's cumulative acknowledgement round trip on carriers that do
     /// not expose a path probe (the development socket/proxy path).
     sent_at_us: BTreeMap<u32, u64>,
+    /// Ultra: when a refinement frame is due if no damage arrives first (one frame interval
+    /// after the newest frame was sent).
+    refine_due_us: Option<u64>,
+    /// The gate's pending damage is a refinement (no new damage joined it).
+    refine_pending: bool,
 }
 
 impl StreamState {
@@ -309,6 +324,8 @@ impl StreamState {
             probe_from_us: None,
             probes: 0,
             sent_at_us: BTreeMap::new(),
+            refine_due_us: None,
+            refine_pending: false,
         }
     }
 
@@ -336,6 +353,13 @@ pub struct MediaEngine {
     /// Recent cumulative frame-ack round trips: (observation time, round trip).
     ack_rtts: VecDeque<(u64, u64)>,
     upstreams: BTreeMap<u16, Upstream>,
+    /// The encoder profile every request carries.
+    profile: EncodeProfile,
+    /// Bounded startup/idle capacity probes share the media transport sequence
+    /// space and the controller's departure accounting.
+    probe_planner: ProbePlanner,
+    probe_generation: Option<u64>,
+    last_probe_start_us: Option<u64>,
 }
 
 impl MediaEngine {
@@ -360,8 +384,39 @@ impl MediaEngine {
             clock: None,
             ack_rtts: VecDeque::new(),
             upstreams: BTreeMap::new(),
+            profile: EncodeProfile::Standard,
+            probe_planner: ProbePlanner::new(ProbeConfig::for_datagram(
+                cfg.stream,
+                cfg.max_datagram,
+            )),
+            probe_generation: None,
+            last_probe_start_us: None,
             cfg,
         }
+    }
+
+    /// The encoder profile requests carry from now on. Leaving ultra drops any refinement
+    /// that was due.
+    pub fn set_profile(&mut self, profile: EncodeProfile) {
+        self.cc.configure_ultra(UltraConfig {
+            max_wire_bps: u64::from(cmux_rd_core::profile::max_kbps(
+                profile,
+                Some(self.cfg.max_bps.saturating_div(1000) as u32),
+                cmux_rd_core::profile::ULTRA_MAX_KBPS,
+            )) * 1000,
+            ..UltraConfig::default()
+        });
+        self.cc.set_profile(profile);
+        self.profile = profile;
+        if !profile.is_ultra() {
+            for state in self.streams.values_mut() {
+                state.refine_due_us = None;
+            }
+        }
+    }
+
+    pub fn profile(&self) -> EncodeProfile {
+        self.profile
     }
 
     /// Adds a display stream (a popup surface) of `width` x `height`. Its
@@ -403,16 +458,23 @@ impl MediaEngine {
     /// A paced datagram from `encoded` really left now: the controller times it from
     /// here, so pacing is not read as path delay. Other datagrams need no call.
     pub fn datagram_sent(&mut self, datagram: &[u8], now_us: u64) {
-        if let Ok((header, _)) = DatagramHeader::decode(datagram)
-            && matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
-        {
-            self.cc.on_departed(header.transport_seq, now_us);
+        if let Ok((header, _)) = DatagramHeader::decode(datagram) {
+            if header.kind == DatagramKind::Probe {
+                self.probe_planner.record_departure(header.transport_seq, now_us);
+            }
+            if matches!(header.kind, DatagramKind::Video | DatagramKind::Fec | DatagramKind::Probe)
+            {
+                self.cc.on_departed(header.transport_seq, now_us);
+            }
         }
     }
 
     /// The controller's target now (all display streams together).
     pub fn target_bps(&self) -> u64 {
-        self.cc.target_bps()
+        // The host passes this value to the pacer. Ultra's encoder target is
+        // media-only (`EncodeRequest.target_kbps`); pacing must reserve the
+        // same held budget for media, FEC, repair, and probes.
+        self.cc.wire_budget_bps()
     }
 
     /// Adds a lossless tile stream (rd change C3) for surface stream `of`:
@@ -485,22 +547,55 @@ impl MediaEngine {
         if stream == self.cfg.stream { total.saturating_sub(each * popups) } else { each }
     }
 
-    fn request(&self, stream: u16, action: FlowAction) -> Option<EncodeRequest> {
-        let state = self.streams.get(&stream)?;
+    fn request(&mut self, stream: u16, action: FlowAction) -> Option<EncodeRequest> {
+        let target_kbps = self.target_kbps(stream);
+        let profile = self.cc.profile();
+        let state = self.streams.get_mut(&stream)?;
         match action {
-            FlowAction::Encode { damage, frame } => Some(EncodeRequest {
-                stream,
-                frame,
-                damage,
-                force_idr: state.force_idr,
-                target_kbps: self.target_kbps(stream),
-            }),
+            FlowAction::Encode { damage, frame } => {
+                // A refinement is only a refinement while no new damage joined it, and never
+                // stands in for a keyframe.
+                let refine = std::mem::take(&mut state.refine_pending)
+                    && profile.is_ultra()
+                    && !state.force_idr;
+                Some(EncodeRequest {
+                    stream,
+                    frame,
+                    damage,
+                    force_idr: state.force_idr,
+                    target_kbps,
+                    profile,
+                    refine,
+                })
+            }
             FlowAction::Wait => None,
         }
     }
 
+    /// Ultra: once a stream's refinement is due, its gate gets the whole surface as damage,
+    /// marked as a refinement; the gate releases it now or when its cap and in-flight bound
+    /// allow, as any frame.
+    fn gate_poll(&mut self, stream: u16, now_us: u64) -> Option<FlowAction> {
+        let ultra = self.profile.is_ultra();
+        let state = self.streams.get_mut(&stream)?;
+        let due = state.refine_due_us.is_some_and(|due| now_us >= due);
+        if ultra && due && state.tile_of.is_none() {
+            state.refine_due_us = None;
+            // Damage already waiting in the gate means the screen is not still: that frame
+            // goes first, and its `encoded` schedules the refinement again.
+            if state.gate.has_pending() {
+                return Some(state.gate.poll(now_us));
+            }
+            state.refine_pending = true;
+            let full = state.full();
+            return Some(state.gate.damage(full, now_us));
+        }
+        Some(state.gate.poll(now_us))
+    }
+
     /// The main stream's first frame: the whole surface, an IDR.
     pub fn start(&mut self, now_us: u64) -> Option<EncodeRequest> {
+        self.start_probe(ProbeReason::Startup, now_us);
         let main = self.cfg.stream;
         self.damage(main, Rect { x: 0, y: 0, width: 0, height: 0 }, now_us)
     }
@@ -510,15 +605,19 @@ impl MediaEngine {
         let state = self.streams.get_mut(&stream)?;
         let rect = if state.started { rect } else { state.full() };
         state.started = true;
+        // New damage: this frame is not a refinement, and the next one waits for stillness.
+        state.refine_pending = false;
+        state.refine_due_us = None;
         let action = state.gate.damage(rect, now_us);
         self.request(stream, action)
     }
 
-    /// Advances time: a frame held by an fps cap may be due (the first one).
+    /// Advances time: a frame held by an fps cap may be due (the first one), or (ultra) a
+    /// still screen's refinement frame.
     pub fn poll(&mut self, now_us: u64) -> Option<EncodeRequest> {
         let ids: Vec<u16> = self.streams.keys().copied().collect();
         for stream in ids {
-            let action = self.streams.get_mut(&stream).map(|s| s.gate.poll(now_us))?;
+            let action = self.gate_poll(stream, now_us)?;
             if let Some(req) = self.request(stream, action) {
                 return Some(req);
             }
@@ -540,6 +639,27 @@ impl MediaEngine {
                     .filter(|_| s.gate.in_flight() > 0)
                     .map(|t| t.saturating_add(TAIL_PROBE_US))
             }))
+            .chain(
+                self.streams
+                    .values()
+                    .filter(|_| self.profile.is_ultra())
+                    .filter_map(|s| s.refine_due_us),
+            )
+            // A startup probe is emitted by the caller's next tick. Once a
+            // refinement is scheduled, its media deadline wins so the probe
+            // train cannot mask the encoder's one-frame interval.
+            .chain(self.probe_planner.next_deadline_us().filter(|_| {
+                self.profile.is_ultra()
+                    && self.frames == 0
+                    && !self.streams.values().any(|state| state.refine_due_us.is_some())
+            }))
+            .chain(
+                (self.profile.is_ultra() && self.frames == 0)
+                    .then(|| {
+                        self.last_probe_start_us.map(|t| t.saturating_add(IDLE_PROBE_INTERVAL_US))
+                    })
+                    .flatten(),
+            )
             .min()
     }
 
@@ -598,7 +718,7 @@ impl MediaEngine {
         };
         for (i, d) in packets.datagrams.iter().enumerate() {
             let seq = packets.first_transport_seq.wrapping_add(i as u16);
-            self.cc.on_sent_bytes(seq, now_us, d.len());
+            self.cc.on_queued_bytes(seq, now_us, d.len());
             self.loss_meter.on_sent(seq);
         }
         state.history.insert(req.frame, packets.datagrams.clone());
@@ -611,6 +731,10 @@ impl MediaEngine {
         }
         state.force_idr = false;
         state.last_frame = req.frame;
+        // Ultra: a frame that carried damage is refined once the screen stays still for one
+        // frame interval; a refinement is the last word until new damage.
+        state.refine_due_us = (self.profile.is_ultra() && !req.refine && !tile)
+            .then(|| now_us.saturating_add(refine_after_us(self.cfg.max_fps)));
         state.probe_from_us = Some(now_us);
         state.probes = 0;
         self.frames += 1;
@@ -671,6 +795,23 @@ impl MediaEngine {
         }
         let congestion_loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
         self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
+        if let Some(estimate) = self.probe_planner.on_feedback(now_us, &fb.arrivals)
+            && self.probe_generation.is_some_and(|generation| {
+                self.cc.on_probe_goodput(
+                    generation,
+                    estimate.capacity_bps,
+                    estimate.received_packets,
+                    estimate.sent_packets,
+                )
+            })
+        {
+            self.last_probe_start_us = Some(now_us);
+        }
+        if self.cc.take_outage_resume() {
+            for state in self.streams.values_mut() {
+                state.gate.clear_in_flight();
+            }
+        }
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
         if fb.acked_frame > 0
@@ -767,6 +908,16 @@ impl MediaEngine {
             u.released_since_feedback |= !released.is_empty();
             out.upstream.extend(released.into_iter().map(|f| (stream, f)));
         }
+        self.emit_probe(now_us, &mut out);
+        if self.profile.is_ultra() && self.probe_planner.active().is_none() && self.idle(now_us) {
+            let due = self
+                .last_probe_start_us
+                .map_or(true, |started| now_us.saturating_sub(started) >= IDLE_PROBE_INTERVAL_US);
+            if due {
+                self.start_probe(ProbeReason::Idle, now_us);
+                self.emit_probe(now_us, &mut out);
+            }
+        }
         self.probe_tails(now_us, &mut out);
         let events = self.applier.tick(now_us);
         if may_inject {
@@ -775,6 +926,31 @@ impl MediaEngine {
             self.note_input(&out, now_us);
         }
         out
+    }
+
+    fn idle(&self, _now_us: u64) -> bool {
+        self.streams.values().all(|state| state.gate.in_flight() == 0 && !state.gate.has_pending())
+    }
+
+    fn start_probe(&mut self, reason: ProbeReason, now_us: u64) {
+        if !self.profile.is_ultra() || self.probe_planner.active().is_some() {
+            return;
+        }
+        if self.probe_planner.start(reason, now_us).is_some() {
+            self.probe_generation = Some(self.cc.probe_generation());
+            self.last_probe_start_us = Some(now_us);
+        }
+    }
+
+    fn emit_probe(&mut self, now_us: u64, out: &mut Output) {
+        let Some(deadline) = self.probe_planner.next_deadline_us() else { return };
+        if now_us < deadline {
+            return;
+        }
+        let seq = self.packetizer.reserve_transport_seq(1);
+        let Some(probe) = self.probe_planner.next_packet(now_us, seq) else { return };
+        self.cc.on_queued_bytes(probe.transport_seq, now_us, probe.bytes.len());
+        out.datagrams.push(probe.bytes);
     }
 
     /// Input goes to the source now: with `input_frame_now`, every stream's gate opens its

@@ -21,6 +21,7 @@ use cmux_encode::videotoolbox::{
     ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect, VideoToolbox,
 };
 use cmux_rd_core::flow::Rect;
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_proto::InputEvent;
 use input::Injector;
 use std::os::fd::RawFd;
@@ -167,6 +168,11 @@ impl FrameSource for MacFrames {
 
     fn set_bitrate(&mut self, kbps: u32) {
         SurfaceEncoder::set_bitrate(&mut self.encoder, kbps);
+    }
+
+    fn set_profile(&mut self, profile: EncodeProfile, refine: bool) {
+        self.encoder.set_ultra(profile.is_ultra());
+        self.encoder.set_refine(refine);
     }
 
     fn kbps(&self) -> u32 {
