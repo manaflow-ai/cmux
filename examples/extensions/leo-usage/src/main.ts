@@ -24,13 +24,15 @@ function useMeter() {
   const live = cmux.watch("usage.meter")
   const meter = computed<Meter | null>(() => (isDemo() ? demo(now()) : (live.value() as Meter | undefined) ?? null))
   const problem = computed(() => (isDemo() ? null : live.status() === "error" ? live.error()?.message ?? "Usage is not available" : null))
-  effect(() => {
-    meter()
-    // A new live reading starts the counters rolling now; the demo already ticks every second.
-    if (!isDemo()) untrack(kick)
-  })
   // The 24-hour totals as shown: they roll up a third of the way each second toward each reading.
   const shown = { tokens: rolling(() => meter()?.totals.tokens24h ?? null), cost: rolling(() => meter()?.totals.costUsd24h ?? null) }
+  effect(() => {
+    // Settings arrive after the module loads, so the clock started at load runs at the slow rate:
+    // a mount (or a switch to demo) starts the demo's 1 s ticks, a new live reading starts the
+    // counters rolling now.
+    if (!isDemo()) meter()
+    untrack(kick)
+  })
   return { meter, problem, shown, providers: () => meter()?.providers ?? [] }
 }
 
@@ -106,8 +108,8 @@ function sectionRow(p: () => Provider): View {
 /** The 24-hour total tokens and dollars. */
 function counter(shown: { tokens: () => number | null; cost: () => number | null }, big: boolean): View {
   return HStack({ spacing: 6 }, [
-    Text(() => tokens(shown.tokens())).font(big ? "largeTitle" : "title3").monospaced().weight("semibold"),
-    Text(() => `tokens · ${dollars(shown.cost())} today`).font(big ? "title3" : "caption").color(cmux.theme.text.secondary),
+    Text(() => tokens(shown.tokens())).font(big ? "largeTitle" : "title3").monospaced().weight("semibold").fixedSize("horizontal"),
+    Text(() => `tokens · ${dollars(shown.cost())} today`).font(big ? "title3" : "caption").color(cmux.theme.text.secondary).lineLimit(1),
     Spacer()
   ])
 }
