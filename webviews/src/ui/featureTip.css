@@ -21,8 +21,9 @@
   /* Concentric with its close button (Lawrence 2026-11-15): one padding on every side, the corner the
      button corner plus it. */
   --concentric-padding: var(--ds-space-2);
-  padding: var(--concentric-padding) var(--concentric-padding) var(--concentric-padding)
-    calc(var(--ds-radius-control, 6px) + var(--concentric-padding));
+  /* Where the text starts: the corner in, as ConcentricContainer.textInset is in the app. */
+  --concentric-text-inset: calc(var(--ds-radius-control, 6px) + var(--concentric-padding));
+  padding: var(--concentric-padding) var(--concentric-padding) var(--concentric-padding) var(--concentric-text-inset);
   border-radius: calc(var(--ds-radius-control, 6px) + var(--concentric-padding));
   color: var(--ui-feature-tip-ink);
   z-index: var(--layer-tooltip, 1000);
