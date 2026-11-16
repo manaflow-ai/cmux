@@ -128,7 +128,7 @@ pub(crate) fn clear_dirty(transaction: &Transaction<'_>) -> anyhow::Result<()> {
 /// Apply one op to the running document; a refusal is logged and skipped
 /// (an old write the document cannot follow, for example a group of two
 /// machines, leaves the document as it was).
-fn try_apply(batch: &mut Batch<'_>, op: Op) {
+pub(super) fn try_apply(batch: &mut Batch<'_>, op: Op) {
     let mut mint = mint_item_id;
     if let Err(refusal) = batch.apply(std::slice::from_ref(&op), &mut mint) {
         eprintln!("cmux-tui: sidebar doc does not follow an old write ({refusal})");
@@ -156,7 +156,7 @@ pub(crate) fn commit_derived(
 
 /// Store a finished batch's changes (the document is at `revision`) and
 /// queue them into the current commit's batch.
-fn commit_applied(
+pub(super) fn commit_applied(
     transaction: &Transaction<'_>,
     previous_revision: u64,
     revision: u64,
@@ -286,7 +286,7 @@ fn row_item<'a>(doc: &'a Doc, workspace: &LegacyWorkspace) -> Option<&'a Item> {
 
 /// The document item of an old group id: `itm_g_<id>` (migrated or synced)
 /// or the id itself (a group the document made, written back).
-fn group_item<'a>(doc: &'a Doc, group: &str) -> Option<&'a Item> {
+pub(super) fn group_item<'a>(doc: &'a Doc, group: &str) -> Option<&'a Item> {
     doc.item(&group_item_id(group)).or_else(|| doc.item(group)).filter(|item| item.body.is_group())
 }
 
@@ -722,7 +722,7 @@ pub(crate) fn move_room_items(
 
 /// The old key of a workspace item: this machine's by its public id, another
 /// machine's by its placement reference.
-fn item_key(
+pub(super) fn item_key(
     connection: &Connection,
     local: &str,
     reference: &WorkspaceRef,
