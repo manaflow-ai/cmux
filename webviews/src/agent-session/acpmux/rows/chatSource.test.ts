@@ -3,7 +3,7 @@
 // kept windows, one chat on the store a pane, and the falls to v1. The recording's rows are of kind
 // `assistant`, which the adapter draws nothing of; here they are read as `text` rows, so each one
 // draws one view row.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
   ChatSource,
@@ -73,6 +73,7 @@ afterEach(() => {
   for (const rows of made.splice(0)) rows.dispose();
   resetChatRowsState();
   resetChatRowsReceiver();
+  jest.useRealTimers();
 });
 
 test("no open is asked of a daemon without the hold, and a host's off is remembered", async () => {
@@ -322,10 +323,12 @@ test("one store's throw leaves the other stores' changes applied and the batch t
 });
 
 test("a chat whose first window does not come in time falls to v1 and its sid is closed", async () => {
+  jest.useFakeTimers();
   const { rows, posts, fell, feed, opens } = source();
-  rows.firstWindowMs = 5;
   expect(await rows.choose("chat-a", HOLDS)).toBe(true);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  jest.advanceTimersByTime(rows.firstWindowMs - 1);
+  expect(fell).toHaveLength(0);
+  jest.advanceTimersByTime(1);
   expect(fell).toEqual([{ chat: "chat-a", code: CHAT_ROWS_SLOW }]);
   expect(posts.at(-1)).toEqual({ method: "chat.rows.close", params: { sid: "rows.1" } });
   expect(rows.holds("chat-a")).toBe(false);
@@ -337,7 +340,7 @@ test("a chat whose first window does not come in time falls to v1 and its sid is
   // A first window in time stops the deadline.
   expect(await rows.choose("chat-b", HOLDS)).toBe(true);
   feed(renamed(chat.get("window")!, "rows.2"));
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  jest.advanceTimersByTime(rows.firstWindowMs * 2);
   expect(fell).toHaveLength(1);
   expect(rows.holds("chat-b")).toBe(true);
 });
