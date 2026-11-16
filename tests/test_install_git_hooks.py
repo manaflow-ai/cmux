@@ -1184,7 +1184,7 @@ mkdir -p node_modules/.bin
             r'^\s*(git config merge\.|echo "==> .*merge driver installed)', line))
         section = "\n".join(lines[start:end + 1])
         mirror = self.root / "mirror.git"
-        subprocess.run(["git", "init", "--quiet", "--bare", str(mirror)], env=self.env, check=True)
+        git_fixture_env.init_repo(mirror, "--bare", env=self.env)
         python3 = os.path.realpath(sys.executable)
         script = f"set -euo pipefail\nGIT_COMMON_DIR={shlex.quote(str(mirror))}\nPYTHON3_BIN={shlex.quote(python3)}\n{section}"
         env = {key: value for key, value in self.env.items() if key not in ("TRUSTED_HOOK_DIR",)}

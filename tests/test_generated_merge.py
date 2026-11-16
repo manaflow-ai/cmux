@@ -37,6 +37,9 @@ def load(name: str, path: Path):
 
 
 generated_merge = load("generated_merge", SCRIPT)
+# tests/git_fixture_env.py, by path (`python3 -I` puts no script folder on sys.path); loading it turns off git's
+# auto maintenance for every fixture repository below.
+git_fixture_env = load("git_fixture_env", ROOT / "tests/git_fixture_env.py")
 
 
 def git_env(home: Path) -> dict[str, str]:
@@ -44,7 +47,7 @@ def git_env(home: Path) -> dict[str, str]:
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(home / "gitconfig"), HOME=str(home),
                GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com",
                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com")
-    return env
+    return git_fixture_env.without_auto_maintenance(env)
 
 
 class TreeAuditTests(unittest.TestCase):
