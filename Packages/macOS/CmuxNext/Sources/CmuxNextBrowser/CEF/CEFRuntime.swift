@@ -55,6 +55,17 @@ final class CEFRuntime {
     private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
     /// The spare window and the page made ahead in it (`CEFSpareWindow`): this runtime's own.
     private(set) lazy var spareWindow = CEFSpareWindow()
+    /// Collects the garbage closed cmux pages leave in the renderer they shared (`CEFPageRendererGC`).
+    private(set) lazy var pageRendererGC = CEFPageRendererGC(
+        pages: { [unowned self] in
+            tabsByBrowser.map { browser, tab in
+                let clients: [Int32] = if case .chromiumRendererClients(let ids) = tab.contentProcesses { ids } else { [] }
+                return CEFPageRendererGC.Page(browser: browser, isCmuxPage: CEFPageRendererGC.isCmuxPage(tab.state.url), rendererClients: clients)
+            }
+        },
+        post: { [unowned self] browser in
+            postDevTools(browser, method: CEFPageRendererGC.method, params: ["level": CEFPageRendererGC.level])
+        })
     /// Shown pages on their way to their first document: the next spare waits for them (`CEFArrivingPages`).
     let arriving = CEFArrivingPages()
     /// How the next tabs inserted into a window open, by window id, from the
