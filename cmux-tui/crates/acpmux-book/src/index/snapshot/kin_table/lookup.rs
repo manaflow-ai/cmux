@@ -10,10 +10,10 @@ use super::{
     ENTRIES_PER_PAGE, ENTRY_BYTES, Entry, FAMILY_KIND, FORK_KIND, MAX_DEPTH, PAGE_BYTES,
     SLOTS_PER_PAGE, Table, invalid, key_fingerprint, read_u32,
 };
-use crate::index::Summary;
 use crate::index::snapshot::kin_read::{KinIo, KinRequest};
 use crate::index::snapshot::read::Frame;
 use crate::index::snapshot::{DiskSnapshot, HEADER_BYTES, TRAILER_BYTES};
+use crate::index::{RowKey, Summary};
 use std::io;
 use std::sync::Arc;
 
@@ -37,11 +37,13 @@ enum Phase {
 
 pub(in crate::index::snapshot) struct Cursor<'a> {
     disk: &'a DiskSnapshot,
+    root: RowKey,
     table: &'a Table,
     fingerprint: (u64, u32),
     cold_before: u64,
     position_offset: Option<u64>,
     preceding: Option<Entry>,
+    previous: Option<Entry>,
     budget: usize,
     start: u64,
     end: u64,
@@ -58,6 +60,7 @@ impl<'a> Cursor<'a> {
         let slot = slot_for(fingerprint.0, table.header.slots);
         Self {
             disk,
+            root: request.root.clone(),
             table,
             fingerprint,
             cold_before: request.cold_before,
@@ -74,6 +77,7 @@ impl<'a> Cursor<'a> {
             },
             position_offset: request.position.map(|position| position.offset),
             preceding: None,
+            previous: None,
         }
     }
 
@@ -228,6 +232,9 @@ impl<'a> Cursor<'a> {
             }
             _ => return Err(invalid("kin referenced frame").into()),
         };
+        if entry.depth == 1 && row.parent.as_ref() != Some(&self.root) {
+            return Err(invalid("kin depth-one frame parent").into());
+        }
         self.row_cache = Some((entry, row.clone()));
         Ok(row)
     }
@@ -246,6 +253,12 @@ impl<'a> Cursor<'a> {
             return Ok(None);
         }
         let entry = self.entry(self.at, Phase::Walk)?;
+        if let Some(previous) = self.previous {
+            // The page-local neighbor checks cannot see a duplicate or an
+            // ordering reversal straddling two entry pages.
+            ordered(previous, entry)?;
+        }
+        self.previous = Some(entry);
         self.at += 1;
         if entry.hash != self.fingerprint.0 {
             return Ok(None);
@@ -283,7 +296,7 @@ fn validate(entry: Entry, data_end: u64) -> io::Result<()> {
 }
 
 fn ordered(left: Entry, right: Entry) -> io::Result<()> {
-    if (left.hash, left.offset) > (right.hash, right.offset)
+    if (left.hash, left.offset) >= (right.hash, right.offset)
         || (left.hash == right.hash && left.activity < right.activity)
     {
         return Err(invalid("kin entry order"));

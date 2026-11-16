@@ -65,6 +65,12 @@ impl DiskSnapshot {
         let Some(table) = self.kin_table.as_ref().filter(|table| table.is_usable()) else {
             return KinRead::unavailable(request.position);
         };
+        // Zero means hydration has not published the cold partition. Refuse
+        // this accelerator instead of claiming an empty ancestor closure.
+        if request.cold_before == 0 {
+            table.disable(&super::kin_table::invalid("unpublished cold partition"));
+            return KinRead::unavailable(request.position);
+        }
         let mut cursor = Cursor::new(self, table, &request);
         let result = (|| {
             cursor.seek(&request)?;
@@ -112,6 +118,12 @@ impl DiskSnapshot {
             physical_bytes: PAGE_BYTES,
             position: None,
         };
+        // Zero means hydration has not published the cold partition. Refuse
+        // this accelerator instead of claiming an empty ancestor closure.
+        if request.cold_before == 0 {
+            table.disable(&super::kin_table::invalid("unpublished cold partition"));
+            return KinRead::unavailable(request.position);
+        }
         let mut cursor = Cursor::new(self, table, &request);
         let result =
             cursor.seek(&request).and_then(|()| cursor.next().map(|entry| entry.is_some()));
@@ -224,6 +236,80 @@ mod tests {
         file.seek(SeekFrom::Start((page + 1) * 4096)).unwrap();
         file.write_all(&bytes).unwrap();
         file.sync_all().unwrap();
+    }
+
+    #[test]
+    fn cold_kin_unpublished_partition_refuses_both_entry_points_and_falls_back() {
+        for unread_first in [false, true] {
+            let (_directory, disk, root) = fixture(2);
+            let before = super::super::read_probe();
+            if unread_first {
+                assert!(matches!(disk.has_cold_family(&root, 0).result, KinResult::Unavailable));
+            } else {
+                let mut ask = request(&disk, &root, None);
+                ask.cold_before = 0;
+                assert!(matches!(disk.read_cold_family(ask).result, KinResult::Unavailable));
+            }
+            assert_eq!(super::super::read_probe().2, before.2 + 1);
+            assert!(!disk.has_kin_table());
+            let index = crate::index::SummaryIndex::from_disk(Some(disk.clone()), 1);
+            let mut filter = crate::index::ListFilter::family(root.clone());
+            filter.cold = true;
+            let page = index
+                .read_page(
+                    None,
+                    crate::index::ReadSide::After,
+                    false,
+                    400,
+                    PAGE_BYTES,
+                    Some(&filter),
+                )
+                .unwrap();
+            assert_eq!(page.rows.len(), 2);
+            assert!(!page.closure);
+            assert_eq!(super::super::read_probe().2, before.2 + 1);
+        }
+    }
+
+    #[test]
+    fn cold_kin_crc_valid_duplicate_entry_is_set_aside() {
+        for crossing_page in [false, true] {
+            let (directory, disk, root) = fixture(if crossing_page { 128 } else { 2 });
+            let page = disk.kin_table.as_ref().unwrap().read_page(1).unwrap();
+            let previous = if crossing_page { &page[126 * 32..127 * 32] } else { &page[..32] };
+            rewrite_page(&directory, if crossing_page { 2 } else { 1 }, |page| {
+                let offset = if crossing_page { 0 } else { 32 };
+                page[offset..offset + 32].copy_from_slice(previous);
+            });
+            let mut ask = request(&disk, &root, None);
+            ask.limit = 400;
+            let before = super::super::read_probe();
+            let answer = disk.read_cold_family(ask);
+            if crossing_page {
+                let KinResult::Ready(piece) = answer.result else { panic!("lost verified prefix") };
+                assert_eq!(piece.rows.len(), 127);
+                assert!(piece.has_after);
+            } else {
+                assert!(matches!(answer.result, KinResult::Unavailable));
+            }
+            assert!(!disk.has_kin_table());
+            assert_eq!(super::super::read_probe().2, before.2 + 1);
+        }
+    }
+
+    #[test]
+    fn cold_kin_depth_one_entry_checks_the_frame_parent() {
+        let (directory, disk, _root) = fixture(1);
+        let wrong = RowKey::new("local", "wrong-root");
+        let (hash, check) = super::super::kin_table::key_fingerprint(&wrong, 1);
+        rewrite_page(&directory, 1, |page| {
+            page[..8].copy_from_slice(&hash.to_le_bytes());
+            page[24..28].copy_from_slice(&check.to_le_bytes());
+        });
+        let answer = disk.read_cold_family(request(&disk, &wrong, None));
+        assert!(matches!(answer.result, KinResult::Unavailable));
+        assert_eq!(answer.io.frames, 1, "valid frame CRC does not prove the claimed parent");
+        assert!(!disk.has_kin_table());
     }
 
     #[test]

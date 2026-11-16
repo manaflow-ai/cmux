@@ -400,7 +400,7 @@ fn cold_family_random_forest_matches_whole_pager_reference() {
         let table = dir.path().join("index.snap.kin");
         let root = closed("forest-root", 1);
         let root_key = root.key();
-        let mut rows = vec![root.clone()];
+        let mut rows = vec![root];
         // A deterministic LCG gives a repeatable forest with both shallow and
         // deep branches while keeping every generated parent earlier in the
         // stream (so the reference walk cannot cycle).
@@ -501,4 +501,23 @@ fn cold_family_random_forest_matches_whole_pager_reference() {
     fixture_expected.sort();
     assert_eq!(expected, fixture_expected);
     assert_eq!(indexed_rows, expected);
+}
+
+#[test]
+fn cold_table_reply_byte_cut_preserves_closure_and_continuation() {
+    let (_directory, index, root, _expected) = snapshot_fixture(true);
+    let filter = cold_filter(&root);
+    let complete =
+        index.read_page(None, ReadSide::After, false, 400, PAGE_BYTES, Some(&filter)).unwrap();
+    let first_row_bytes = complete.rows.first().unwrap().encoded_len() + 1;
+    let first =
+        index.read_page(None, ReadSide::After, false, 400, first_row_bytes, Some(&filter)).unwrap();
+    assert_eq!(first.rows.len(), 1);
+    assert!(first.closure && first.has_after);
+    let rest = index
+        .read_page(first.after_key.as_ref(), ReadSide::After, false, 400, PAGE_BYTES, Some(&filter))
+        .unwrap();
+    assert!(rest.closure && !rest.has_after);
+    let keys: Vec<_> = first.rows.iter().chain(rest.rows.iter()).map(|row| row.key()).collect();
+    assert_eq!(keys, complete.rows.iter().map(|row| row.key()).collect::<Vec<_>>());
 }

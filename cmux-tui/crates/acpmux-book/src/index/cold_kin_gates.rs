@@ -248,3 +248,130 @@ fn cold_unread_gate() {
     std::hint::black_box((sd, gd));
     check("v2.pr05i.cold_unread", r, 1.2, "ns");
 }
+
+struct LongBucketFixture {
+    _directory: tempfile::TempDir,
+    index: SummaryIndex,
+    filter: ListFilter,
+    anchor: SortKey,
+    expected: Vec<RowKey>,
+}
+
+fn prepared_long_bucket(kin_rows: usize) -> LongBucketFixture {
+    assert!(kin_rows / 2 >= 8);
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("index.snap");
+    let table_path = directory.path().join("index.snap.kin");
+    let root = row("probe-long-bucket-root", 0);
+    let root_key = root.key();
+    let mut index = SummaryIndex::new().apply(1, root);
+    // Equal activity makes the middle cursor exercise snapshot placement by
+    // key, followed by table placement by offset, on both fixture sizes.
+    for n in 0..kin_rows {
+        let mut child = row(format!("probe-long-bucket-{n:05}"), 1);
+        child.parent = Some(root_key.clone());
+        index = index.apply(n as u64 + 2, child);
+    }
+    assert_eq!(index.len(), kin_rows + 1, "one root plus the requested cold kin");
+    SortedSnapshot::write_stream_generation_with_table(StreamGeneration {
+        path: &path,
+        seq: index.seq(),
+        log_offset: 0,
+        log_name: None,
+        covered_generation: 0,
+        meta: SnapshotMeta::default(),
+        rows: index.merged_rows(),
+        table_path: Some(&table_path),
+    })
+    .unwrap();
+    let disk = DiskSnapshot::open(path).unwrap().unwrap();
+    assert_eq!(disk.len(), kin_rows as u64 + 1);
+    let mut index = SummaryIndex::from_disk(Some(disk), 1);
+    index.raise_cold_before(2);
+    let middle = kin_rows / 2;
+    let anchor = SortKey {
+        last_activity: 1,
+        row: RowKey::new("local", format!("probe-long-bucket-{:05}", middle - 1)),
+    };
+    let expected = (middle..middle + 8)
+        .map(|n| RowKey::new("local", format!("probe-long-bucket-{n:05}")))
+        .collect();
+    LongBucketFixture {
+        _directory: directory,
+        index,
+        filter: cold_filter(&root_key),
+        anchor,
+        expected,
+    }
+}
+
+fn sample_long_bucket(fixture: &LongBucketFixture) -> (u128, usize) {
+    let before = snapshot::read_probe();
+    let started = Instant::now();
+    let page = fixture
+        .index
+        .read_page(
+            Some(&fixture.anchor),
+            ReadSide::After,
+            false,
+            8,
+            PAGE_BYTES,
+            Some(&fixture.filter),
+        )
+        .unwrap();
+    let elapsed = started.elapsed().as_nanos();
+    let after = snapshot::read_probe();
+    let keys: Vec<_> = page.rows.iter().map(|row| row.key()).collect();
+    assert_eq!(keys, fixture.expected);
+    assert!(page.closure);
+    assert!(page.has_before && page.has_after);
+    assert!(page.deeper.is_empty());
+    assert_eq!(after.1 - before.1, 1, "the table must serve every sample");
+    assert_eq!(after.2, before.2, "the table must stay usable");
+    let physical = after.0 - before.0;
+    assert_eq!(physical, page.bytes_read);
+    assert!(physical <= PAGE_BYTES);
+    (elapsed, physical)
+}
+
+#[test]
+#[ignore = "release diagnostic; no registered gate row or threshold"]
+fn cold_family_long_bucket_probe() {
+    let small = prepared_long_bucket(SMALL_ROWS);
+    let god = prepared_long_bucket(LARGE_ROWS);
+    let mut small_bytes = Vec::with_capacity(ROUNDS * SAMPLES);
+    let mut god_bytes = Vec::with_capacity(ROUNDS * SAMPLES);
+    let (small_wall, god_wall) = wall_rounds(
+        || {
+            let (wall, bytes) = sample_long_bucket(&small);
+            small_bytes.push(bytes as u128);
+            wall
+        },
+        || {
+            let (wall, bytes) = sample_long_bucket(&god);
+            god_bytes.push(bytes as u128);
+            wall
+        },
+    );
+    let small_bytes: Vec<_> = small_bytes.chunks_exact(SAMPLES).map(<[u128]>::to_vec).collect();
+    let god_bytes: Vec<_> = god_bytes.chunks_exact(SAMPLES).map(<[u128]>::to_vec).collect();
+    gate_rounds::report(
+        "cold_family_long_bucket_probe.wall_ns",
+        &[("small", &small_wall), ("god", &god_wall)],
+    );
+    gate_rounds::report(
+        "cold_family_long_bucket_probe.physical_bytes",
+        &[("small", &small_bytes), ("god", &god_bytes)],
+    );
+    // Diagnostic only: A0 decides whether and how this becomes a registry
+    // row. It writes no V2_GATE_OUT sample and asserts no timing ratio.
+    eprintln!(
+        "COLD_FAMILY_LONG_BUCKET_PROBE small_cold_kin={SMALL_ROWS} god_cold_kin={LARGE_ROWS} \
+         extra_root_rows=1 page_rows=8 rounds={ROUNDS} samples={SAMPLES} \
+         small_p95_ns={} god_p95_ns={} small_p95_bytes={} god_p95_bytes={}",
+        best_p95(&small_wall),
+        best_p95(&god_wall),
+        best_p95(&small_bytes),
+        best_p95(&god_bytes),
+    );
+}

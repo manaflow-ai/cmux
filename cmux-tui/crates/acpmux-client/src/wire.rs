@@ -533,6 +533,9 @@ pub struct PageResult<T> {
     pub has_after: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cold_unread: bool,
+    /// Every listed row came from the snapshot ancestor closure. A table page
+    /// cut short by either byte budget retains this flag and `has_after`;
+    /// only pager-served pages omit it (decisions 392 and 405).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub closure: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
