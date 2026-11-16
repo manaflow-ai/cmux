@@ -53,6 +53,8 @@ process per logical CPU, and a 100,002-row transcript (the fixture emits three-r
 It uses the existing tagged app and 120 Hz display wrapper, 500 native `debug.key` events at
 20 ms intervals, and records each load independently in the shared ledger. It creates and closes
 only its own panes and stress processes. No CI budget or default is changed.
+For a managed worker reservation, add `--arg worker=WORKER --arg pool=POOL`; the
+shared fleet adapter forwards that reservation to `cmux-ci`.
 
 `dispatch_to_after_frame_p95_ms` and `dispatch_to_after_frame_p99_ms` include native request
 queueing: same-host dispatch wall time is joined to the page's after-frame epoch timestamp.

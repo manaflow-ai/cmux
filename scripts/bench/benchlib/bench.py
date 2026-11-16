@@ -228,6 +228,8 @@ class Context:
             cmd += ["--artifact", artifact]
         if target_worker:
             cmd += ["--target-worker", target_worker]
+        if self.args.get("pool"):
+            cmd += ["--pool", self.args["pool"]]
         if timeout:
             cmd += ["--timeout", str(timeout)]
         rev = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "--short=9", f"{ref}:{script}"],

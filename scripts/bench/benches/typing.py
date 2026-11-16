@@ -31,7 +31,7 @@ class Typing(Bench):
             "--suite=typing-load", "--modes=chromium", f"--keys={ctx.arg('keys') or 500}",
             f"--key-gap-ms={ctx.arg('gap_ms') or 20}",
             f"--typing-loads={ctx.arg('loads') or 'idle,streaming-3,background-wake,cpu,100k'}"],
-            "artifacts/split-spring/report.json", labels=("measure", "gui-session-v1"),
+            "artifacts/split-spring/report.json", labels=("bench", "measure", "gui-session-v1"),
             ref=ref, timeout=int(ctx.arg("timeout") or 7200))
         if not result.artifact_path:
             raise BenchError(f"typing run {result.job_id} left no artifact; log {result.log_path}")
