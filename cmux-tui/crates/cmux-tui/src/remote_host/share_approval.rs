@@ -38,10 +38,7 @@ pub(crate) fn asker_fields(approval: &ShareApproval) -> Value {
 /// audit log in the app (`record` is `remote_host::audit::append`).
 #[cfg_attr(
     not(test),
-    allow(
-        dead_code,
-        reason = "the target calls it once the hub carrier brings approvals (hq#11046 cut 1)"
-    )
+    allow(dead_code, reason = "the target calls it once a carrier brings approvals to it")
 )]
 pub(crate) fn admit_and_record(
     approval: &ShareApproval,
@@ -61,8 +58,10 @@ pub(crate) trait Deliver {
     fn deliver(&self, approval: &ShareApproval) -> Result<Value, Value>;
 }
 
-/// The delivery until hq#11046 cut 1 lands: the target has no same-account
-/// grant to admit an approval with yet, so it says so instead of trying.
+/// The delivery until the approval has a carrier to the target: the target's
+/// admission reads its owner's `signedInMachines` consent
+/// (`acpmux::share_approval::SignedInMachinesConsent`), but nothing brings the
+/// approval there yet, so it says so instead of trying.
 pub(crate) struct AwaitingSameAccountControl;
 
 impl Deliver for AwaitingSameAccountControl {
@@ -70,8 +69,8 @@ impl Deliver for AwaitingSameAccountControl {
         Err(json!({
             "code": "share.needs_same_account_control",
             "message": format!(
-                "you allowed sharing {} here, and it is recorded; {} admits it once control for your other signed-in machines is on there (hq#11046). Until then, run `cmux remote-host share on` on {} itself.",
-                approval.display_target(), approval.display_target(), approval.display_target()
+                "you allowed sharing {} here, and it is recorded, but this cmux cannot send the approval to {} yet. {} admits it only while control for your other signed-in Macs is on there. For now, run `cmux remote-host share on` on {} itself.",
+                approval.display_target(), approval.display_target(), approval.display_target(), approval.display_target()
             ),
             "details": {"confirmed": true, "delivered": false, "device": approval.target},
         }))
