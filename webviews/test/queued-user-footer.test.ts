@@ -211,9 +211,9 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
                 const row = element.getBoundingClientRect();
                 // The controls themselves, not only their row: the last glyph's ink on the bubble's
                 // edge, the glyphs' gap under the bubble, and every icon button's square.
-                const glyphs = [...element.querySelectorAll(".cv-user__actions .cv-iconbtn > svg")].map((svg) =>
-                  svg.getBoundingClientRect(),
-                );
+                const glyphs = [
+                  ...element.querySelectorAll(".cv-user__actions .cv-iconbtn > :is(svg, .cmux-icon-mask)"),
+                ].map((svg) => svg.getBoundingClientRect());
                 const buttons = [...element.querySelectorAll(".cv-user__actions .cv-iconbtn")].map((button) =>
                   button.getBoundingClientRect(),
                 );

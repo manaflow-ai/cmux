@@ -106,7 +106,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         if (!actions || !line) continue;
         const left = row.getBoundingClientRect().left;
         const group = line.querySelector(".cv-turn-action-group");
-        const glyph = group?.querySelector(".cv-iconbtn svg");
+        const glyph = group?.querySelector(".cv-iconbtn :is(svg, .cmux-icon-mask)");
         const buttons = [...(group?.querySelectorAll(".cv-iconbtn") ?? [])];
         const time = line.querySelector<HTMLElement>(".cv-turn-time");
         found.push({

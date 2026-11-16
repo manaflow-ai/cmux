@@ -118,15 +118,19 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
                   ".acpmux-session-info-section__title",
                   ".acpmux-session-info-section__icon, .acpmux-session-info-section__fold",
                 ],
-                read: ["[data-read-label]", ".cv-user__read svg"],
+                read: ["[data-read-label]", ".cv-user__read :is(svg, .cmux-icon-mask)"],
               };
               return { kind, glyphs: measure(scope, ...selectors[kind]!) };
             });
-            const footer = measure(document.querySelector("[data-footer-row]")!, ".cv-user__time", ".cv-iconbtn svg");
+            const footer = measure(
+              document.querySelector("[data-footer-row]")!,
+              ".cv-user__time",
+              ".cv-iconbtn :is(svg, .cmux-icon-mask)",
+            );
             const versionFooter = measure(
               document.querySelector("[data-version-footer-row]")!,
               ".cv-user__time",
-              ".cv-iconbtn svg",
+              ".cv-iconbtn :is(svg, .cmux-icon-mask)",
             );
             // The last turn's Retry is its reply footer's (TurnFooter): no message row draws one.
             const retry = (kind: string) => document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`);
@@ -182,12 +186,12 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
         try {
           const port = (vite.httpServer!.address() as { port: number }).port;
           await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-glyph-alignment.html?theme=${theme}`);
-          await page.locator("[data-pending-row] .cv-user__pending-state svg").waitFor();
+          await page.locator("[data-pending-row] .cv-user__pending-state :is(svg, .cmux-icon-mask)").waitFor();
           await page.evaluate(() => document.fonts.ready);
           const m = await page.evaluate(() => {
             const scope = document.querySelector("[data-pending-row]")!;
             const note = scope.querySelector(".cv-user__pending-state")!;
-            const icon = note.querySelector("svg")!.getBoundingClientRect();
+            const icon = note.querySelector(":is(svg, .cmux-icon-mask)")!.getBoundingClientRect();
             const textRange = (el: Element) => {
               const range = document.createRange();
               range.selectNodeContents(el);

@@ -690,7 +690,7 @@
 .cv-user__actions .cv-message-footer-row > .cv-user__time.cv-user__pending-state::before {
   content: none;
 }
-.cv-user__pending-state > svg {
+.cv-user__pending-state > :is(svg, :where(.cmux-icon-mask)) {
   flex: none;
 }
 /* Gallery variant B (`data-prompt-pending-look="clock"`): the clock alone; the state's
@@ -929,7 +929,7 @@
   width: var(--cv-action-button);
   height: var(--cv-action-button);
 }
-.cv-message-footer-row .cv-iconbtn:not(.cv-turn-retry-menu) > svg {
+.cv-message-footer-row .cv-iconbtn:not(.cv-turn-retry-menu) > :is(svg, :where(.cmux-icon-mask)) {
   flex-shrink: 0;
   width: var(--cv-action-glyph);
   height: var(--cv-action-glyph);
@@ -994,7 +994,7 @@
   letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
 }
-:root[data-turn-rewind-look="label"] .cv-turn-rewind[data-rewind-state="idle"] > svg {
+:root[data-turn-rewind-look="label"] .cv-turn-rewind[data-rewind-state="idle"] > :is(svg, :where(.cmux-icon-mask)) {
   display: none;
 }
 :root[data-turn-rewind-look="label"] .cv-turn-rewind__label {
@@ -5349,7 +5349,7 @@ a.cv-sha:focus-visible {
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn:not(.cv-turn-retry-menu, .cv-turn-continue, .cv-turn-try-another) {
   width: var(--cv-footer-button);
 }
-.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn:not(.cv-turn-continue, .cv-turn-retry-menu) > svg {
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn:not(.cv-turn-continue, .cv-turn-retry-menu) > :is(svg, :where(.cmux-icon-mask)) {
   width: var(--cv-footer-glyph);
   height: var(--cv-footer-glyph);
 }
@@ -5491,7 +5491,7 @@ a.cv-sha:focus-visible {
   margin-inline: calc(var(--cv-action-chevron-gap) - var(--cv-action-inset)) 0;
   padding: 0;
 }
-:is(.cv-turn-retry, .cv-message-retry) > .cv-iconbtn.cv-turn-retry-menu > svg {
+:is(.cv-turn-retry, .cv-message-retry) > .cv-iconbtn.cv-turn-retry-menu > :is(svg, :where(.cmux-icon-mask)) {
   flex-shrink: 0;
   width: var(--cv-action-chevron-glyph);
   height: var(--cv-action-chevron-glyph);

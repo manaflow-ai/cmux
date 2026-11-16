@@ -89,11 +89,11 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     // (Leo, 2026-10-29: "i feel like im frequently missing the copy/whatever buttons on these
     // steers"; #27313, inside the row since #27256).
     const sendNowButton = pending.querySelector(".cv-user__send-now")!;
-    expect(sendNowButton.querySelector("svg")).toBeNull();
+    expect(sendNowButton.querySelector(":is(svg, .cmux-icon-mask)")).toBeNull();
     const copy = pending.querySelector(`button[aria-label="${translate("turn.copy")}"]`);
     expect(copy).not.toBeNull();
-    expect(copy!.querySelector("svg")).not.toBeNull();
-    const glyphs = [...pending.querySelectorAll("svg")];
+    expect(copy!.querySelector(":is(svg, .cmux-icon-mask)")).not.toBeNull();
+    const glyphs = [...pending.querySelectorAll(":is(svg, .cmux-icon-mask)")];
     expect(glyphs.every((svg) => svg.closest("button.cv-iconbtn") !== null)).toBe(true);
     const actions = pending.parentElement!;
     expect(actions.classList.contains("cv-user__actions")).toBe(true);

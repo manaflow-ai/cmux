@@ -111,7 +111,9 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
         };
       };
       const actions = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions")].filter(shown)[0];
-      const glyph = actions && [...actions.querySelectorAll("button svg")].find(shown)?.getBoundingClientRect();
+      const glyph =
+        actions &&
+        [...actions.querySelectorAll("button :is(svg, .cmux-icon-mask)")].find(shown)?.getBoundingClientRect();
       const receivedRow = [...document.querySelectorAll(".cv-received > .cv-agentmsg__line")].find(shown) ?? null;
       const runRow = [...document.querySelectorAll("button[data-message-run]")].find(shown) ?? null;
       const tag = receivedRow?.querySelector(".cv-received__sender");

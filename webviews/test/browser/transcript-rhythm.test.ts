@@ -94,8 +94,12 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             const chevron = rect(".acpmux-activity .cv-tool__chevron");
             // A reply's own action row, when it draws one: a turn's copy now lives in its footer
             // (model.ts `hasReplyActions`), so the reply in this scene may have none.
-            const copyEl = document.querySelector('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg');
-            const copy = copyEl ? rect('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg') : undefined;
+            const copyEl = document.querySelector(
+              '[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn :is(svg, .cmux-icon-mask)',
+            );
+            const copy = copyEl
+              ? rect('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn :is(svg, .cmux-icon-mask)')
+              : undefined;
             const composerBox = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
             // Every tool row's disclosure caret (inline after its label, cmux#28018).
             const chevronCenters = [
@@ -279,7 +283,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             );
           const glyph = await rectOf(
             page,
-            ':is([data-row-id="grid-message"] .cv-reply-actions, .acpmux-turnSummary .cv-turn-actions) svg',
+            ':is([data-row-id="grid-message"] .cv-reply-actions, .acpmux-turnSummary .cv-turn-actions) :is(svg, .cmux-icon-mask)',
           );
           const after = await rectOf(page, '[data-row-id="grid-message"] .cv-md');
           const gap = composer.top - message.bottom;

@@ -7,7 +7,7 @@
 import { useContext, useRef, useState, type ReactNode } from "react";
 import { useLabelClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
-import { Icon } from "../icons/Icon";
+import { Icon, IconMaskContext } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { useRowMark } from "../threadMinimap/promptMarks";
@@ -60,9 +60,15 @@ export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
 }
 
 /// Shared footer rail for sent, received and answer rows. Timestamp text and every action stay on
-/// one centered 24px line with equal control slots, including the retry model chevron.
+/// one centered 24px line with equal control slots, including the retry model chevron. Its icons draw
+/// as one masked element each (Icon.tsx IconMaskContext), the same pixels with no svg children, so an
+/// older page of a long chat mounts fewer elements per row.
 export function MessageFooterRow({ children, className }: { children: ReactNode; className?: string }) {
-  return <span className={["cv-message-footer-row", className].filter(Boolean).join(" ")}>{children}</span>;
+  return (
+    <span className={["cv-message-footer-row", className].filter(Boolean).join(" ")}>
+      <IconMaskContext value>{children}</IconMaskContext>
+    </span>
+  );
 }
 
 /// The dot between a prompt's age and its buttons (Leo's spec for the row under a prompt).

@@ -111,7 +111,7 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
       // An action row's first glyph: its 16px box, where Codex and Claude start the copy glyph.
       for (const actions of document.querySelectorAll(".cv-turn-actions .cv-turn-action-group")) {
         if (actions.previousElementSibling) continue;
-        const glyph = actions.querySelector(".cv-iconbtn svg");
+        const glyph = actions.querySelector(".cv-iconbtn :is(svg, .cmux-icon-mask)");
         if (!glyph || !visible(glyph)) continue;
         const kind = actions.closest(".cv-reply-actions") ? "reply actions" : "footer actions";
         leads.push({ kind, label: "first glyph", ink: glyph.getBoundingClientRect().left - origin(glyph) });

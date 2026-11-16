@@ -118,7 +118,7 @@ test("a rewind goes idle, pending, then done with its time, and a done one does 
   expect(pending.disabled).toBe(true);
   expect(pending.getAttribute("aria-busy")).toBe("true");
   expect(pending.getAttribute("aria-label")).toBe(translate("turn.rewinding"));
-  expect(pending.querySelector(".cv-spinner, svg")).not.toBeNull();
+  expect(pending.querySelector(".cv-spinner, svg, .cmux-icon-mask")).not.toBeNull();
 
   await act(async () => calls[0]!.resolve(9.43));
   const done = button(container)!;

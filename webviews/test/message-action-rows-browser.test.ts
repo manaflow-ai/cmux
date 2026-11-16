@@ -70,7 +70,7 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
             };
             const buttons = [...row.querySelectorAll(".cv-iconbtn:not(.cv-turn-retry-menu)")].map((button) => ({
               button: box(button),
-              glyph: box(button.querySelector("svg")),
+              glyph: box(button.querySelector(":is(svg, .cmux-icon-mask)")),
             }));
             const retry = row.querySelector(":is(.cv-turn-retry, .cv-message-retry)");
             const chevron = retry?.querySelector(".cv-turn-retry-menu");
@@ -80,8 +80,10 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
               split:
                 retry && chevron
                   ? {
-                      chevron: { button: box(chevron), glyph: box(chevron.querySelector("svg")) },
-                      retryGlyph: box(retry.querySelector(".cv-iconbtn:not(.cv-turn-retry-menu) svg")),
+                      chevron: { button: box(chevron), glyph: box(chevron.querySelector(":is(svg, .cmux-icon-mask)")) },
+                      retryGlyph: box(
+                        retry.querySelector(".cv-iconbtn:not(.cv-turn-retry-menu) :is(svg, .cmux-icon-mask)"),
+                      ),
                       pill: box(retry),
                     }
                   : null,

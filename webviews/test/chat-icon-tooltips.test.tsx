@@ -80,7 +80,7 @@ const named = (selector: string) =>
     button.getAttribute("title"),
   ]);
 const copiedTimer = () => timers.find((timer) => timer.ms === COPIED_MS)!;
-const glyph = (button: Element) => button.querySelector("svg path")?.getAttribute("d");
+const glyph = (button: Element) => button.querySelector("[data-icon]")?.getAttribute("data-icon");
 
 const prompt: AcpmuxRow = { id: "user-4", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Cover it" };
 

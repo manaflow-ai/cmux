@@ -1,0 +1,11 @@
+/* An <Icon> inside IconMaskContext (Icon.tsx): one element masked by the svg it would draw, in the
+   text color. Zero specificity, as the svg's own width and height attributes are, so every rule that
+   sizes or places the svg sizes it too. Inline, as the svg is. */
+:where(.cmux-icon-mask) {
+  display: inline-block;
+  width: var(--cmux-icon-size);
+  height: var(--cmux-icon-size);
+  background-color: currentColor;
+  -webkit-mask: var(--cmux-icon-mask) center / 100% 100% no-repeat;
+  mask: var(--cmux-icon-mask) center / 100% 100% no-repeat;
+}
