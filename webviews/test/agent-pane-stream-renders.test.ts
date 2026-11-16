@@ -19,6 +19,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -61,11 +62,12 @@ await requireBrowserLane("agent-pane-stream-renders.test.ts", async () => {
       )) as Record<string, any>;
       expect(seeded.error).toBeUndefined();
       await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }));
-      const toggle = page.locator("button.acpmux-session-info-toggle").first();
+      const toggle = page.locator(SESSION_INFO_TOGGLE).first();
       await toggle.waitFor({ timeout: 10_000 });
       if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
       await page.waitForFunction(
-        () => document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") === "shown",
+        (panel) => document.querySelector(panel)?.getAttribute("data-presence") === "shown",
+        SESSION_INFO,
       );
       const run = (await page.evaluate(
         (kind) =>
