@@ -2849,6 +2849,9 @@ export class AcpmuxDirectClient {
   /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
   /// draws the transcript sets it (main.tsx: ``nextFrame``); unset, each event snapshots at once.
   static scheduleFrame: ((run: () => void) => (() => void) | void) | undefined;
+  /// Commits a frame's snapshot before that frame paints (frameCommit.ts `commitInFrame`); unset, the
+  /// page's renderer commits it when it schedules (React: a task after the frame, one frame later).
+  static commitInFrame: ((draw: () => void) => void) | undefined;
   /// The connection state of the snapshot waiting for the next frame.
   private frameSnapshot?: string;
   /// Another chat changed while the page was hidden: the list draws again when it shows.
@@ -3797,8 +3800,20 @@ export class AcpmuxDirectClient {
     if (this.frameSnapshot !== undefined) return;
     this.frameSnapshot = "connected";
     schedule(() => {
-      if (this.frameSnapshot !== undefined && !this.disposed) this.emit();
+      if (this.frameSnapshot !== undefined && !this.disposed) this.drawFrame(() => this.emit());
     });
+  }
+
+  /// Draws the frame's snapshot (`draw`) in the frame that delivers it, so a record is on screen in
+  /// the next frame and not the one after (CMUX-571). A turn's start or end is the exception: it draws
+  /// as the renderer schedules it, a task after the frame, because the send's motion and the turn
+  /// end's fold (conversation/turnEndFold.ts) read the rows drawn before the swap and start their
+  /// clocks on the frame after it; committed inside the frame, the fold's first frames went by in
+  /// the work that follows the swap (turn-end-fold-browser: the copy's fade skipped from 1 to 0).
+  private drawFrame(draw: () => void): void {
+    const commit = AcpmuxDirectClient.commitInFrame;
+    if (commit && this.workingNow() === this.drawnWorking) commit(draw);
+    else draw();
   }
 
   /// Every recorded transcript event of a session, oldest first, for session replay.
@@ -7970,7 +7985,7 @@ export class AcpmuxDirectClient {
       schedule(() => {
         if (this.frameRequest === request) this.frameRequest = undefined;
         const pending = this.frameSnapshot;
-        if (pending !== undefined && !this.closed) this.emit(pending);
+        if (pending !== undefined && !this.closed) this.drawFrame(() => this.emit(pending));
       }) ?? undefined;
   }
 

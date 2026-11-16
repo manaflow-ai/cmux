@@ -321,9 +321,6 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       },
       { TRANSCRIPT_ROW },
     );
-    // Painted frames before the end: the probe's baseline. A snapshot is drawn in the frame that delivers it
-    // (frameCommit.ts), so the frame the turn ends in already shows its end; no stale frame stands in for "before".
-    for (let frame = 0; frame < 2; frame++) await page.evaluate(() => window.cmuxPaintFrame());
     endTurn!();
     await turnEnded;
     await page.locator("button.cv-worked").first().waitFor();

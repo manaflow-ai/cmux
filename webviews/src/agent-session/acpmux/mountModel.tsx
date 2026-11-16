@@ -3,7 +3,7 @@ import "./mount";
 import { createRoot } from "react-dom/client";
 import { AcpmuxApp, type InitialChat } from "./App";
 import { PaneBoundary } from "./PaneBoundary";
-import { AcpmuxDirectClient } from "./direct";
+import { AcpmuxDirectClient, nextFrame } from "./direct";
 import { commitInFrame } from "./frameCommit";
 import { UiProvider } from "../../ui/UiProvider";
 import { nativePopupHost } from "../../ui/popupHost";
@@ -39,7 +39,9 @@ reportChatSnapshot(postNative);
 );
 
 // One transcript snapshot per display frame, however many deltas land in it.
-AcpmuxDirectClient.scheduleFrame = commitInFrame;
+AcpmuxDirectClient.scheduleFrame = nextFrame;
+// The frame's snapshot commits before that frame paints (frameCommit.ts).
+AcpmuxDirectClient.commitInFrame = commitInFrame;
 document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
 // The native context menu learns which message is under the pointer (conversation/messageMenu.ts).
 installMessageMenuReporter(document);
