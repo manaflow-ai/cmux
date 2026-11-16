@@ -176,7 +176,7 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
         /// (0x0100), then the colors.
         var sgr: String {
             var out = "\u{1b}[0"
-            for (bit, code) in [(0x0001, "1"), (0x0010, "2"), (0x0002, "3"), (0x0100, "4"),
+            for (bit, code) in [(0x0001, "2"), (0x0010, "2"), (0x0002, "3"), (0x0100, "4"),
                                 (0x0040, "5"), (0x0008, "7"), (0x0020, "8"), (0x0004, "9")]
                 where attrs & bit != 0 {
                 out += ";" + code
