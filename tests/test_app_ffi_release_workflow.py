@@ -432,6 +432,10 @@ if Path(sys.argv[0]).name == "git":
         ref = args[-1].removeprefix("refs/heads/")
         if ref in refs: print(refs[ref] + "\trefs/heads/" + ref)
     elif args[0] in ("fetch", "checkout"): pass
+    elif args[0] == "merge-base" and "--is-ancestor" not in args:
+        # `git merge-base HEAD TIP`: the commit the re-pin head was staged on, when the test gives one.
+        if not state.get("staged_on"): sys.exit(1)
+        print(state["staged_on"])
     elif args[0] == "merge-base":
         # --is-ancestor A B: A is older than B when the test lists it so; a commit it does not know is unknown here.
         older, newer = args[-2], args[-1]
@@ -503,7 +507,12 @@ elif args[0] == "api":
     elif endpoint.endswith("/status") and state.get("status_read") == "fail":
         print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
     elif endpoint.endswith("/check-runs?per_page=100"):
-        runs = [{"conclusion": c} for c in state.get("checks", [])]
+        # Named check-0, check-1, ...; at the staged-on commit, the test's base_checks.
+        base = state.get("staged_on") and f"/commits/{state['staged_on']}/" in endpoint
+        if base and state.get("base_checks_read") == "fail":
+            print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
+        runs = [{"name": f"check-{i}", "conclusion": c}
+                for i, c in enumerate(state.get("base_checks" if base else "checks", []))]
         emit({"total_count": state.get("check_total", len(runs)), "check_runs": runs})
     elif endpoint.endswith("/status"): emit({"state": state.get("status", "pending")})
     elif "/commits/" in endpoint:
@@ -551,7 +560,8 @@ class RePinPublication(unittest.TestCase):
                   refs=None, cache=None, ref_read="ok", head_age_min=600, checks=(), status="pending", status_read="ok",
                   check_total=None, runs=(), ancestry=(), runs_read="ok", jobs=None, same_inputs=False,
                   workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
-                  jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None):
+                  jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
+                  staged_on=None, base_checks=(), base_checks_read="ok"):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -600,7 +610,8 @@ class RePinPublication(unittest.TestCase):
                 "status_read": status_read, "runs": list(runs), "ancestry": [list(pair) for pair in ancestry],
                 "runs_read": runs_read, "jobs": jobs or {}, "same_inputs": same_inputs,
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
-                "pin_age_min": pin_age_min,
+                "pin_age_min": pin_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
+                "base_checks_read": base_checks_read,
                 **({} if check_total is None else {"check_total": check_total})}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
@@ -718,6 +729,22 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(state["published"], [])
         self.assertEqual(state["writes"], 0)
 
+    def test_a_head_whose_only_failures_fail_on_its_base_is_kept(self):
+        # 2026-11-16: #44074 had about 200 check runs and the cmux-next checks job red on base reds; one page and
+        # any failure moved it at every publish (6f1d36c1, fe47e481, a30893db, c5a8aa57), and no head finished CI.
+        cases = {
+            "more check runs than one page": {"checks": ("success",), "check_total": 101},
+            "a failure the base has too": {"checks": ("failure", "success"), "staged_on": "5" * 40,
+                                           "base_checks": ("failure", "success")},
+        }
+        for name, options in cases.items():
+            with self.subTest(name):
+                result, state = self.run_repin(head_age_min=20, **options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("kept #1 at cccccccccccc", result.stdout)
+                self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+                self.assertEqual(state["writes"], 0)
+
     def test_a_head_past_the_hold_or_with_a_failed_check_is_moved(self):
         cases = {
             "past the hold": {"head_age_min": 95},
@@ -726,7 +753,11 @@ class RePinPublication(unittest.TestCase):
             "a check run that never started": {"head_age_min": 20, "checks": ("startup_failure",)},
             "a stale check run": {"head_age_min": 20, "checks": ("stale",)},
             "a check run waiting for approval": {"head_age_min": 20, "checks": ("action_required",)},
-            "more check runs than one page": {"head_age_min": 20, "checks": ("success",), "check_total": 101},
+            "a failure the base does not have": {"head_age_min": 20, "checks": ("success", "failure"),
+                                                 "staged_on": "5" * 40, "base_checks": ("failure", "success")},
+            "a failure, and the base's checks unreadable": {"head_age_min": 20, "checks": ("failure",),
+                                                          "staged_on": "5" * 40, "base_checks": ("failure",),
+                                                          "base_checks_read": "fail"},
             "a failed commit status": {"head_age_min": 20, "status": "failure"},
             "an errored commit status": {"head_age_min": 20, "status": "error"},
             "a failed status read": {"head_age_min": 20, "status_read": "fail"},
