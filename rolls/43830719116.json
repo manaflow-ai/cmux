@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43830719116",
+  "recorded_at": "2026-11-16T08:31:45Z",
+  "reason": "cmux-tui f99352850523 changes the image's cmux-tui (pinned 2a9cba423c03)",
+  "dry_run": false,
+  "cmux_tui": "f993528505231290938d369503cf8a533b79f3e0",
+  "fixes": [
+    {
+      "sha": "f993528505231290938d369503cf8a533b79f3e0",
+      "mergedAt": "2026-11-16T00:06:48-08:00",
+      "subject": "cmux-rd 0.2.4: a release that carries linux-host (#44283)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T08:31:45Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
