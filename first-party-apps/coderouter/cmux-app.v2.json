@@ -8,7 +8,7 @@
   },
   "version": "0.2.0",
   "description": {
-    "en": "Set up CodeRouter, the cmux model router, in a few steps: connect your provider accounts, share them with your team and route your agents through it. See health, usage, spend and failover order at a glance, create API keys and send a test request. Your keys and sign-ins stay with cmux; this app never sees them.",
+    "en": "Set up CodeRouter, the cmux model router: connect your provider accounts, share them with your team and route your agents through it. See health, usage, spend and failover order, create API keys and send a test request. Your keys and sign-ins stay with cmux; this app never sees them.",
     "ja": "cmux のモデルルーター CodeRouter を数ステップで設定: プロバイダーのアカウントをつなぎ、チームと共有して、エージェントを CodeRouter 経由で動かします。状態、使用量、費用、フェイルオーバー順をひと目で確認し、API キーの作成やテストリクエストの送信もできます。キーとサインイン情報は cmux が保持し、このアプリが見ることはありません。"
   },
   "tagline": {
