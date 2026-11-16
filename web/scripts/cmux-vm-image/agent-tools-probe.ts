@@ -34,8 +34,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
-import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_TOOLS_BIN, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, RD_HOST_DIR, RD_PEER_UID, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_START_SCRIPT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
+import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_DISPLAY_SIZE, AGENT_TOOLS_BIN, DESKTOP_CHECK_SCRIPT, DESKTOP_CHECK_SECONDS, DESKTOP_SESSION_UNIT, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, RD_HOST_DIR, RD_PEER_UID, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_START_SCRIPT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
 import { createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
+import { ensureOutputFile, harnessEnsureScript, harnessGate, pickerHarnesses } from "./harness-gate";
 import { CURRENT_BIN, sq } from "./lock";
 
 const PROBE_DIR = "/tmp/cmux-agent-tools-probe";
@@ -444,6 +445,11 @@ export function rdActivateCommand(waitSeconds = 90): string {
     // work user's read of the copy must fail with EACCES, never ENOENT (a gone file proves nothing).
     `setpriv --reuid=${DEVBOX_WORK_USER} --regid=${DEVBOX_WORK_USER} --init-groups ${rdReadCommand(RD_XAUTHORITY)} | sed 's/^/rd-work-/'`,
     `sed 's/^/rd-work-/' /tmp/cmux-rd-probe-connect.txt`,
+    // The host's unit wants the desktop session: it must come up (its start ends with the check), and
+    // the display a viewer streams must show a window and lit pixels, never the empty black root.
+    `for i in $(seq 1 ${(DESKTOP_CHECK_SECONDS + 10) * 5}); do st=$(systemctl is-active ${DESKTOP_SESSION_UNIT}); [ "$st" = active ] || [ "$st" = failed ] && break; sleep 0.2; done`,
+    `echo "rd-desktop-session=$(systemctl is-active ${DESKTOP_SESSION_UNIT})"`,
+    `setpriv --reuid=${DEVBOX_WORK_USER} --regid=${DEVBOX_WORK_USER} --init-groups env DISPLAY=${AGENT_DISPLAY} XAUTHORITY=${AGENT_XAUTHORITY} ${DESKTOP_CHECK_SCRIPT} 2>/dev/null | tail -1 | tr ' ' '\\n' | sed 's/^/rd-desktop-/'`,
     'kill "$held" 2>/dev/null; wait "$held" 2>/dev/null; true',
   ].join("; ");
 }
@@ -474,7 +480,7 @@ async function desktopChecks(vm: Vm, check: Checker): Promise<void> {
   check("rd-host-families", families === "AF_INET AF_NETLINK AF_UNIX", `RestrictAddressFamilies=${s["rd-families"]}`);
   const other = kv((await run(vm, rdOtherUserCommand(), 30_000)).stdout);
   check("rd-other-user-refused", other["other-connect"] === "EACCES", `connect as nobody: ${other["other-connect"]}`);
-  const a = kv((await run(vm, rdActivateCommand(), 150_000)).stdout);
+  const a = kv((await run(vm, rdActivateCommand(), 190_000)).stdout);
   check(
     "rd-work-user-connection-starts-host-as-its-user-no-tcp-or-udp",
     a["rd-work-connect"] === "connected" && a["rd-unit-active"] === "active" && a["rd-host-user"] === RD_USER && (a["rd-host-cmd"] ?? "").includes(`--listen-systemd --peer-uid ${RD_PEER_UID} `) && a["rd-host-tcp"] === "0" && a["rd-host-udp"] === "0",
@@ -483,6 +489,11 @@ async function desktopChecks(vm: Vm, check: Checker): Promise<void> {
   check("rd-cookie-copy", a["rd-xauth"] === `600:${RD_USER}` && a["rd-host-dir"] === `700:${RD_USER}`, `${RD_XAUTHORITY} ${a["rd-xauth"]}, ${RD_HOST_DIR} ${a["rd-host-dir"]}`);
   // Read while the host runs (in rdActivateCommand): EACCES only; ENOENT would mean the copy was not there to test.
   check("rd-work-user-cannot-read-cookie", a["rd-work-read"] === "EACCES", `${DEVBOX_WORK_USER} reading ${RD_XAUTHORITY} while the host runs: ${a["rd-work-read"]}`);
+  check(
+    "rd-desktop-session-shows-windows",
+    a["rd-desktop-session"] === "active" && Number(a["rd-desktop-viewable"] ?? 0) > 0 && Number(a["rd-desktop-nonblack"] ?? 0) > 0 && a["rd-desktop-size"] === AGENT_DISPLAY_SIZE,
+    `${DESKTOP_SESSION_UNIT} ${a["rd-desktop-session"]}; ${AGENT_DISPLAY} ${a["rd-desktop-size"]}: ${a["rd-desktop-windows"]} window(s), ${a["rd-desktop-viewable"]} viewable, ${a["rd-desktop-nonblack"]} lit pixels sampled`,
+  );
 }
 
 /** The agent itself, through the machine's own model route (no credential is written). */
@@ -505,6 +516,26 @@ async function agentStep(vm: Vm, check: Checker, result: ProbeResult, outDir: st
   await pngCheck(vm, check, result, outDir, "agent-cua");
 }
 
+/**
+ * The image roll's harness gate (harness-gate.ts): `acp ensure` for every harness the Cloud chat picker offers, in a
+ * terminal of the machine's own daemon with the guest's own acpmux, one check per harness. A failure names the
+ * harness and its ensure output, here and as a workflow error, and fails the probe: the roll promotes nothing.
+ */
+async function harnessEnsureChecks(vm: Vm, check: Checker, result: ProbeResult, outDir: string): Promise<void> {
+  const harnesses = await pickerHarnesses();
+  const guestOut = `${PROBE_DIR}/harness-ensure`;
+  const body = harnessEnsureScript({ cmux: `${CURRENT_BIN}/cmux-tui`, cwd: WORK_DIR, outDir: guestOut, harnesses });
+  result.timings.harnessEnsureMs = await inTerminal(vm, "harness-ensure", terminalScript("harness-ensure", body), harnesses.length * 160 + 60);
+  const outputs: Record<string, string | undefined> = {};
+  for (const h of harnesses) {
+    outputs[h] = await readGuest(vm, ensureOutputFile(guestOut, h)).catch(() => undefined);
+    writeFileSync(path.join(outDir, `harness-ensure-${h}.txt`), outputs[h] ?? "");
+  }
+  const gate = harnessGate(harnesses, outputs);
+  for (const h of harnesses) check(`harness-ensure-${h}`, gate.results[h]!.ok, gate.results[h]!.detail);
+  for (const f of gate.failures) console.log(`::error title=Image harness gate (${f.harness})::${f.detail.replace(/[\r\n%]/g, " ")}`);
+}
+
 export async function agentToolsProbe(vm: Vm, options: ProbeOptions): Promise<ProbeResult> {
   const result: ProbeResult = { checks: {}, timings: {}, files: [] };
   const check: Checker = (name, ok, detail) => {
@@ -515,6 +546,7 @@ export async function agentToolsProbe(vm: Vm, options: ProbeOptions): Promise<Pr
   const servers = await recordLaunch(vm, check, result, options.outDir);
   await callServers(vm, check, result, options.outDir, servers);
   await desktopChecks(vm, check);
+  await harnessEnsureChecks(vm, check, result, options.outDir);
   const plan = agentStepPlan(options);
   if (plan.run) await agentStep(vm, check, result, options.outDir);
   else {

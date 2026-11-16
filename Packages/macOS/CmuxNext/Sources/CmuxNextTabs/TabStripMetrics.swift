@@ -163,7 +163,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         pinnedGroupGap = TabTunables.pinnedGroupGap.value
         contentLeadingInset = Metrics.tabContentLeadingInset
         contentTrailingInset = TabTunables.contentTrailingInset.value
-        iconSize = Metrics.iconSize
+        iconSize = Metrics.tabIconSize
         closeButtonSize = TabTunables.closeButtonSize.value
         closeGlyphSize = TabTunables.closeGlyphSize.value
         closeCornerRadius = BrowserChromeTuning.override(.closeCorner) ?? (closeButtonSize * 4 / 14 * 2).rounded() / 2
@@ -195,8 +195,8 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleMinVisibleWidth = TabTunables.titleMinVisibleWidth.value
         stripHeight = Metrics.tabStripHeight
         tabHeight = Metrics.tabHeight
-        // The first and last pills keep the gap above them to the strip's ends (the chrome line).
-        stripHorizontalPadding = Metrics.paneChromeInset
+        // The first and last pills keep one gap to the strip's ends at every density (`Metrics.tabStripEndGap`).
+        stripHorizontalPadding = Metrics.tabStripEndGap
         stripTopOutset = Metrics.stripTopOutset
         // The chrome's one button size (`TitlebarBandButton.side`), as the pane's tools beside it.
         newTabButtonWidth = TitlebarBandButton.side

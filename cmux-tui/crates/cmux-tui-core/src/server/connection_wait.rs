@@ -29,6 +29,7 @@ impl Command {
     /// on the dispatcher, exactly in request order, and takes no permit.
     pub(super) fn waits_off_dispatch(&self) -> bool {
         matches!(self, Self::WaitFor { timeout_ms, .. } if *timeout_ms > 0)
+            || matches!(self, Self::DeviceSetup { .. })
     }
 }
 
