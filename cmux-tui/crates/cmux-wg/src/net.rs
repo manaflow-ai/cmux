@@ -484,6 +484,7 @@ impl Driver {
                 self.pace_deadline,
                 watchdog,
                 hello,
+                self.stack.release_deadline(),
             ]
             .into_iter()
             .flatten()

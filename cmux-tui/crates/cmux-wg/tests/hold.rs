@@ -144,3 +144,36 @@ async fn a_held_tunnel_sends_its_silent_peer_nothing() {
     pair.phone.shutdown().await;
     pair.mac.shutdown().await;
 }
+
+/// A connection idle through the whole hold (a link's input lane with no
+/// keystroke yet) last heard its peer minutes ago. Releasing the hold must
+/// not put its 60 s user timeout back at once, or it aborts at the next
+/// poll and takes the link with it; the release probes it first.
+#[tokio::test(start_paused = true)]
+async fn an_idle_connection_survives_the_release() {
+    let mut pair = pair().await;
+    let server = SocketAddr::new(pair.accepted.local_addr().ip(), PORT + 1);
+    let mut lane_listener = pair.mac.listen(PORT + 1).await.unwrap();
+    let mut lane = pair.phone.connect(server).await.unwrap();
+    let mut lane_accepted = lane_listener.accept().await.unwrap();
+    pair.mac.hold(Some(Duration::from_secs(10 * 60))).await.unwrap();
+    pair.phone.hold(Some(Duration::from_secs(10 * 60))).await.unwrap();
+    pair.sim.set_link(addr(PHONE), addr(MAC), link(true));
+    tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+    pair.sim.set_link(addr(PHONE), addr(MAC), link(false));
+    pair.phone.refresh().await.unwrap();
+    // The main connection carries the resume; then both ends release.
+    assert!(alive(&mut pair.dialed, &mut pair.accepted).await, "the main connection ended");
+    pair.mac.hold(None).await.unwrap();
+    pair.phone.hold(None).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(alive(&mut lane, &mut lane_accepted).await, "the idle connection ended at the release");
+    // Past the grace too: the release's probe made the peer recent.
+    tokio::time::sleep(Duration::from_secs(45)).await;
+    assert!(
+        alive(&mut lane, &mut lane_accepted).await,
+        "the idle connection ended after the grace"
+    );
+    pair.phone.shutdown().await;
+    pair.mac.shutdown().await;
+}

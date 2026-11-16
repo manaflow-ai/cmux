@@ -1032,15 +1032,22 @@ impl Link {
     pub async fn park(&self, hold: Duration, timeout: Duration) -> Result<bool, LinkError> {
         let hold = hold.min(MAX_PARK_HOLD);
         let millis = u64::try_from(hold.as_millis()).unwrap_or(u64::MAX);
-        let mut channel = self.open(PARK_SERVICE, serde_json::json!({ "hold_ms": millis })).await?;
-        let parked = matches!(
-            tokio::time::timeout(timeout, channel.recv()).await,
-            Ok(Some(ChannelEvent::Closed(info))) if info.code == PARKED
-        );
-        if parked {
-            self.inner.set_parked(hold);
+        // Parked before the ask: this side's keepalive must not ping in the
+        // round trip, since a ping ends the Mac's park as soon as it starts.
+        self.inner.set_parked(hold);
+        let parked = match self.open(PARK_SERVICE, serde_json::json!({ "hold_ms": millis })).await {
+            Ok(mut channel) => Ok(matches!(
+                tokio::time::timeout(timeout, channel.recv()).await,
+                Ok(Some(ChannelEvent::Closed(info))) if info.code == PARKED
+            )),
+            Err(error) => Err(error),
+        };
+        if parked != Ok(true) {
+            // Not held over there: back to the keepalive. The transport keeps
+            // its long timeout through the release grace.
+            self.inner.unpark();
         }
-        Ok(parked)
+        parked
     }
 
     /// Phone, back from the background: this side expects the Mac again.
@@ -1223,10 +1230,10 @@ async fn read_loop<R>(
         // phone may still send channel data in the moments before the OS
         // suspends it), on a resuming phone the first frame from the Mac.
         let park = *inner.park.borrow();
-        match park {
-            Park::Parked { .. } if frame.kind == FrameType::Ping => inner.unpark(),
-            Park::Resuming => inner.unpark(),
-            Park::Parked { .. } | Park::Off => {}
+        match (park, inner.role) {
+            (Park::Parked { .. }, Role::Mac) if frame.kind == FrameType::Ping => inner.unpark(),
+            (Park::Resuming, _) => inner.unpark(),
+            (Park::Parked { .. } | Park::Off, _) => {}
         }
         if stream == INPUT {
             // The peer is heard on the lane: use it.
