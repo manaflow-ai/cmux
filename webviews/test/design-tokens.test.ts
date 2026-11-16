@@ -9,6 +9,7 @@ import {
   tokenOnlyFindings,
   tokenOnlyKind,
   tsTokenCopies,
+  scriptMotionFindings,
 } from "../scripts/check-design-tokens";
 import { designTokenValue, designTokens, tokenFor } from "../scripts/design-token-values";
 
@@ -114,6 +115,26 @@ describe("design token ratchet", () => {
     expect(inlineStyleFindings("asserted.tsx", source).map((f) => [f.kind, f.property, f.value])).toEqual([
       ["color", "color", "#fff"],
       ["spacing", "margin-top", "6px"],
+    ]);
+  });
+
+  // cmux#39380 moved the settle 265 -> 180 ms by hand in 14 files: a script reads the generated scale.
+  test("a script that hand-types a motion-scale step or curve is a motion-literal", () => {
+    const source = [
+      "const FOLD_MS = 180;", // motion-allow: fixture
+      "el.animate(k, { duration: 120 });", // motion-allow: fixture
+      'const css = "opacity 0.08s cubic-bezier(0.16, 1, 0.3, 1)";', // motion-allow: fixture
+      "expect(fold.durationMs).toBe(240);", // motion-allow: fixture
+      'const ok = "var(--cmux-motion-settle, 180ms)"; const wait = 180; const n = 90;', // motion-allow: fixture
+      "// motion-allow: a debounce",
+      "const DEBOUNCE_MS = 120;",
+    ].join("\n");
+    expect(scriptMotionFindings("a.ts", source).map((f) => [f.line, f.property, f.value])).toEqual([
+      [1, "number", "180"],
+      [2, "number", "120"],
+      [3, "string", "0.08s"], // motion-allow: fixture
+      [3, "string", "cubic-bezier(0.16, 1, 0.3, 1)"], // motion-allow: fixture
+      [4, "number", "240"],
     ]);
   });
 

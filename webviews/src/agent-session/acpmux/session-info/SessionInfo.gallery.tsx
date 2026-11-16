@@ -1959,7 +1959,7 @@ export default componentEntry<Props>({
       play: hoverFirstHead,
     },
     "fold-settle": {
-      note: `Chosen. Changes folds into its head and opens again: its rows, the sections under it and the panel\'s edge move together on the settle (--cmux-ease-settle, ${MOTION_SETTLE} over ${MOTION_SETTLE_MS} ms), fast at first and decelerating into the end, never past it, and the chevron turns with it (Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key").`,
+      note: `Chosen. Changes folds into its head and opens again: its rows, the sections under it and the panel's edge move together on the settle (--cmux-ease-settle, ${MOTION_SETTLE} over ${MOTION_SETTLE_MS} ms), fast at first and decelerating into the end, never past it, and the chevron turns with it (Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key").`,
       props: { ...full, placement: "push" },
       play: foldAndOpen,
     },

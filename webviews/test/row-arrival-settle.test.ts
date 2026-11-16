@@ -122,6 +122,7 @@ await requireBrowserLane("row-arrival-settle.test.ts", async () => {
     return made;
   }
 
+  // motion-allow: the rest budget (MAX_REST_MS), not a step
   test.each([...ARRIVAL_TURNS])("%s: everything rests within 120 ms of the event, in one motion", async (scenario) => {
     // motion-allow: a rest budget, not a step
     for (const turns of [SHORT, LONG])

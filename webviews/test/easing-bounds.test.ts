@@ -134,12 +134,12 @@ describe("the easing scan", () => {
     expect(easingFunctions("0.2126 * linear(r) + 0.7152 * linear(g)")).toEqual([]);
     expect(easingFunctions("cubic-bezier(x1, y1, x2, y2)")).toEqual([]);
     // In CSS, an easing function that cannot be sampled is reported, with its line.
+    // motion-allow: scanner fixture, a raw literal
     expect(unreadEasingFunctions(".a {\n  transition: scale 80ms cubic-bezier(0.3, var(--pop), 0.6, 1);\n}")).toEqual([
-      // motion-allow: scanner fixture, a raw literal
       "2 cubic-bezier(0.3, var(--pop), 0.6, 1);",
     ]);
+    // motion-allow: scanner fixture, a raw literal
     expect(unreadEasingFunctions(".a { transition: scale 80ms cubic-bezier(0.3, 1, 0.6, 1), top 1s linear; }")).toEqual(
-      // motion-allow: scanner fixture, a raw literal
       [],
     );
   });
