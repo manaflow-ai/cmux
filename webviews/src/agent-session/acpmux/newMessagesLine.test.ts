@@ -54,9 +54,10 @@ test("the count is the replies, tool runs and messages after the line; status ro
 test("counting stops past the cap, however many rows came", () => {
   const many = rows(SINCE_DIVIDER, ...Array.from({ length: 5_000 }, () => "assistant"));
   expect(countNewMessages(many, SINCE_DIVIDER)).toBe(SINCE_COUNT_CAP + 1);
-  // A day of status rows after the line reads a bounded stretch too, not every row.
+  // A day of status rows after the line reads a bounded stretch too, not every row, and claims no
+  // number it did not count (the label reads "New").
   const quiet = rows(SINCE_DIVIDER, "assistant", ...Array.from({ length: 20_000 }, () => "notice"));
-  expect(countNewMessages(quiet, SINCE_DIVIDER)).toBe(SINCE_COUNT_CAP + 1);
+  expect(countNewMessages(quiet, SINCE_DIVIDER)).toBeUndefined();
   expect(countNewMessages(rows(SINCE_DIVIDER, "assistant", "notice", "notice"), SINCE_DIVIDER)).toBe(1);
 });
 

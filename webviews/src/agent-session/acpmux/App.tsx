@@ -6041,9 +6041,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Jump to new (conversation/SinceDivider.tsx): "New since you looked" is a row like any other, so
   // the transcript brings it in by its place in the chat even when it is far above the view.
   const sinceKey = snapshot.sinceKey;
-  const jumpToSince = useCallback((land?: true) => {
+  const jumpToSince = useCallback(() => {
     const key = Date.now();
-    setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "", ...(land && { land }) });
+    setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "" });
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
   }, []);
   // "157 new messages" (Leo, 2026-11-15): the count after the line follows the rows as they come,
@@ -6067,8 +6067,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (sinceKey === undefined || !sinceLands || landedSince.current === sinceKey) return;
     landedSince.current = sinceKey;
-    jumpToSince(true);
-  }, [sinceKey, sinceLands, jumpToSince]);
+    const key = Date.now();
+    const done = (current: typeof revealRow) => (current?.key === key ? undefined : current);
+    setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "", land: true });
+    const timer = setTimeout(() => setRevealRow(done), REVEAL_HOLD_MS);
+    return () => {
+      clearTimeout(timer);
+      setRevealRow(done);
+    };
+  }, [sinceKey, sinceLands]);
   // A link waiting on replay retries against committed rows, without a polling timer.
   useLayoutEffect(() => notifyRevealRowsChanged(), [sourceRows, transcriptRows]);
   // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that

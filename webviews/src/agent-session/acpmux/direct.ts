@@ -91,7 +91,7 @@ import type { PeerLinkDetail } from "./linkState";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
-import { MESSAGE_KINDS, readUnread, unreadRead } from "./conversation/unreadState";
+import { MESSAGE_KINDS } from "./conversation/unreadState";
 import { noteReplaced } from "./sessionIndex";
 import { hostKind, sessionEntry, sessionTitle, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { sameUsageStats, type SessionUsageStats } from "./usageStats";
@@ -7765,14 +7765,18 @@ export class AcpmuxDirectClient {
   /// Where the reader scrolled up from while the chat kept going: the log seq the view last followed.
   private scrolledFrom?: { sessionId: string; seq: number };
   /// The reader scrolled up and a message came after what they had followed (Leo, 2026-11-15, of the
-  /// terminal's "157 new messages" rule): "New" goes after that record, unless an unread line is
-  /// already drawn (it is earlier). Placed once per scroll away and never moves the view
-  /// (`lands` unset). O(1) while nothing new came; else O(the rows after it) until one message has.
+  /// terminal's "157 new messages" rule): "New" goes after that record, unless the chat already draws
+  /// a line. That line stays where it is until another chat is selected, read or not, with its recap
+  /// (design/transcript-overlays.md): moving it would take a row out above the reader. Placed once per
+  /// scroll away and never moves the view (`lands` unset). O(1) while nothing new came; else O(the rows
+  /// after it) until one message has.
   private placeScrolledSince(): void {
     const from = this.scrolledFrom;
     if (!from || from.sessionId !== this.selectedSessionId || this.lastSeq <= from.seq) return;
-    const drawn = this.since?.sessionId === from.sessionId ? this.rows.get(SINCE_DIVIDER)?.since : undefined;
-    if (drawn && (drawn.seq >= from.seq || !unreadRead(drawn.key, readUnread()))) return;
+    if (this.since?.sessionId === from.sessionId && this.rows.has(SINCE_DIVIDER)) {
+      this.scrolledFrom = undefined;
+      return;
+    }
     const rows = this.rows.sorted();
     let message = false;
     for (let index = rows.length - 1; index >= 0 && !message; index -= 1) {

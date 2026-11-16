@@ -43,10 +43,11 @@ export const MESSAGE_KINDS: ReadonlySet<string> = new Set(["assistant", "user", 
 /// How many rows of any kind `countNewMessages` reads per message it may count.
 const ROWS_PER_MESSAGE = 8;
 
-/// The messages after the row `dividerId` in `rows`, read from the end back to it. Bounded: past
-/// `cap` messages, or `ROWS_PER_MESSAGE` times as many rows of any kind, it answers `cap` + 1 (the
-/// label's "999+"), so a chat that ran all day costs the same per update as one that ran a minute.
-/// `undefined` when a read to the top finds no line.
+/// The messages after the row `dividerId` in `rows`, read from the end back to it. Bounded, so a
+/// chat that ran all day costs the same per update as one that ran a minute: past `cap` messages it
+/// answers `cap` + 1 (the label's "999+"); past `ROWS_PER_MESSAGE` times as many rows of any kind
+/// with fewer messages it answers `undefined` (the label reads "New": no number it cannot stand by).
+/// `undefined` too when no line is found.
 export function countNewMessages(
   rows: readonly { id: string; kind: string }[],
   dividerId: string,
@@ -59,8 +60,7 @@ export function countNewMessages(
     if (row.id === dividerId) return count;
     if (MESSAGE_KINDS.has(row.kind)) count += 1;
     if (count > cap) return count;
-    // Rows are left, but the bound is reached: the caller drew the line, so it is further up.
-    if (index > 0 && index <= last) return cap + 1;
+    if (index > 0 && index <= last) return undefined;
   }
   return undefined;
 }
