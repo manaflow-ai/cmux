@@ -4,7 +4,6 @@ import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextFocusUI
 import CmuxNextTerminal
-import os
 
 /// Where a creation hold's keys run again (#28436): `AppDelegate` passes `NSApp.sendEvent`, to the key window a person types
 /// in; a test, whose window is never key, passes its window. Arguments: the key, the window that held it, the key router.
@@ -38,8 +37,6 @@ final class CreationInputCoordinator {
 
     /// How each window's creation holds ended (``CreationHoldEnd``, R-L5: its end is a signal).
     var holdEnds = CreationHoldLog() // a page's arrival writes it (``CreationHoldLog/pageArrived(_:)``)
-
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
 
     /// How `window`'s last creation hold ended; nil when it never held.
     func lastHoldEnd(in window: NSWindow?) -> CreationHoldEnd? { window.flatMap { holdEnds.last[$0.windowNumber] } }
@@ -302,7 +299,7 @@ final class CreationInputCoordinator {
         let daemon = made == nil ? listed.map { services.daemon(for: $0.1) } : lane.machine.flatMap { services.machines.daemon(machine: $0) }
         guard let daemon, let surface = made ?? (listed?.0.kind == .pty ? listed?.0.surface : nil) else { return holdEnds.wentWithTerminal(events.count) } // lost: no terminal gets them, and the hold's end counts them
         let (inputs, skipped) = HeldKeyInput.inputs(for: events, optionAsAlt: GhosttyRuntime.shared.optionAsAltValue)
-        if skipped > 0 { Self.logger.error("\(skipped, privacy: .public) held key(s) have no daemon key name") }
+        if skipped > 0 { holdEnds.keysHadNoDaemonKeyName(skipped) }
         daemon.sendInOrder("send-key", to: surface) { connection in // after this terminal's earlier held sends
             for input in inputs {
                 switch input {

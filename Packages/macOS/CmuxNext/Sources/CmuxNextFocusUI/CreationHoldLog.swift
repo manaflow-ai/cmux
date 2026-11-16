@@ -43,6 +43,9 @@ public nonisolated struct CreationHoldLog: Equatable, Sendable {
         Self.logger.notice("\(count, privacy: .public) held key(s) went with their closed terminal")
     }
 
+    /// `count` held keys have no daemon key name, so the daemon's terminal does not get them (``HeldKeyInput``).
+    public func keysHadNoDaemonKeyName(_ count: Int) { Self.logger.error("\(count, privacy: .public) held key(s) have no daemon key name") }
+
     /// Logs a hold of `window` that ended `end` with `keys` held keys going on now (`lastAction`: the router's last action),
     /// after those keys ran again, and keeps its count of lost keys (``lostKeys``).
     /// `untyped`: keys for a new terminal that no terminal could take and that are lost (``CreationInputBuffer/untypedTerminalKeys``):
