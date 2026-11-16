@@ -85,6 +85,9 @@ extension CmuxRemoteActionEnvironment {
     /// Makes a confirmed change with this app's full hub session.
     static func apply(_ action: String, device: String, scope: DeviceScope?, hub: DeviceHub, remote: CmuxRemoteService) async throws {
         switch action {
+        case "grant":
+            // Already shared (`ShareStep.nothing`): no hub write, but a missing Screen Recording grant still gets its ask.
+            if remote.started { _ = try? await remote.call("request", .object(["permission": .string("screen-recording")])) }
         case "share":
             try await hub.setMacScreenShared(true)
             if remote.started { _ = try? await remote.call("request", .object(["permission": .string("screen-recording")])) }
@@ -124,8 +127,7 @@ extension CmuxRemoteActionEnvironment {
                         return answer != .cancel
                     },
                     apply: {
-                        guard step != .nothing else { return }
-                        try await Self.apply(action, device: device, scope: scope, hub: hub, remote: remote)
+                        try await Self.apply(step == .nothing ? "grant" : action, device: device, scope: scope, hub: hub, remote: remote)
                     }))
             }.withDeadline(.fixed(.seconds(130))),
         ]
