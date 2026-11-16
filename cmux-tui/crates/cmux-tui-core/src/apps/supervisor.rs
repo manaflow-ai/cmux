@@ -550,7 +550,7 @@ impl Supervisor {
     pub fn set(&self, client: u64, op: SetOp) -> Result<Value, ApiError> {
         let app = op.app.clone();
         let transaction = format!("apps-{}", self.transactions.fetch_add(1, Ordering::Relaxed));
-        let _turn = self.commits.lock().recover_poison();
+        let turn = self.commits.lock().recover_poison();
         let (outs, result) = loop {
             let (base, staged) = {
                 let inner = self.inner.lock().recover_poison();
@@ -595,6 +595,8 @@ impl Supervisor {
             outs.push(Out::Client(client, json!({ "event": "request-settled", "transaction": transaction, "sequence": inner.mirror.revision })));
             break (outs, result);
         };
+        // Before the emit: what it runs may commit again.
+        drop(turn);
         self.emit(outs);
         result
     }
