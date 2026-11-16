@@ -25,7 +25,7 @@ export class RailRows<T extends MinimapTick> {
     const at = index < 0 ? this.length + index : index;
     if (at < 0 || at >= this.length) return undefined;
     if (at < this.pendingCount) return this.pending(this.sessionId, at);
-    if (at < this.heldStart) return indexedTurn(this.earlier, this.sessionId, at - this.pendingCount) as T;
+    if (at < this.heldStart) return indexedTurn(this.earlier, this.sessionId, at - this.pendingCount) as unknown as T;
     return this.items[at - this.heldStart];
   }
 
