@@ -6932,7 +6932,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // right-click menu (`chat.quoteReply`, conversation/SelectionReply.tsx).
   useEffect(() => setQuoteReplySink(quoteReply), [quoteReply]);
   useComposerKeyboard(() => {
-    if (!prompt.current) return false;
+    // A composer parked under a New Tab page (inert, unseen) takes no keyboard: the page's field does.
+    if (!prompt.current || document.querySelector(".acpmux-dock[inert]")) return false;
     prompt.current.focus();
     return true;
   }, pageHostClient());
