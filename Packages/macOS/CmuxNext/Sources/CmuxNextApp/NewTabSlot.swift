@@ -130,14 +130,9 @@ enum NewTabSlot {
                               find: @escaping @MainActor (PaneModel) -> TabModel?, gone: @escaping @MainActor (DaemonStore) -> Bool, joins: TabModel? = nil, index: @escaping @MainActor ([TabModel]) -> Int?) {
         let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }, earlier = turn?.earlier
         let placement: ActionWork = Task { @MainActor in
-            let listed = Task { @MainActor () -> Bool in
-                for await found in ObservationStream({ locate() != nil || pane().map { gone(services.daemon(for: $0).store) } == true }) where found { return true } // a tab whose close settled first never lists
-                return false
-            }
-            let bound = DemandTimer(owner: "NewTabSlot.listed")
-            bound.schedule(after: listLimit) { @MainActor in listed.cancel() }
-            let found = await listed.value
-            bound.cancel()
+            let listed: @MainActor @Sendable () -> Bool = { locate() != nil || pane().map { gone(services.daemon(for: $0).store) } == true } // a tab whose close settled first never lists
+            if !listed() { await ObservationDeadline(owner: "NewTabSlot.listed").until(listed, limit: listLimit) }
+            let found = listed()
             _ = await earlier?.value // its own list wait, then its move's reply
             // A duplicate joins its original's group right after it, in one write that also puts it there.
             if found, let joins, case let (tab, pane)? = locate(), let joined = await TabGroupWrites.join(tab, beside: joins, in: pane, daemon: services.daemon(for: pane)) {
