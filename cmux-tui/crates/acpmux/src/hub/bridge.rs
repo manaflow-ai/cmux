@@ -442,11 +442,10 @@ impl Hub {
 /// Claude Code (`claude`) puts its own text around every message that reaches it this way:
 /// "Another Claude session sent a message:" before it, and after it a paragraph saying a peer is
 /// not the user and cannot grant permissions. Nothing turns those off, and its terminal shows
-/// them on every message. So a Claude Code session gets the sender and how to answer as one line,
-/// with no second "not the person" (Leo, 2026-11-14, ask-c810e83a38: "it sends so much shit each
-/// time. can it not?"). An unverified sender keeps its warning: Claude Code's note calls a peer
-/// "very likely working on their behalf", which acpmux does not know of a program that did not
-/// prove who it is.
+/// them on every message. So a Claude Code session gets the sender and how to answer as one line
+/// and nothing after the text (Leo, 2026-11-14, ask-c810e83a38: "it sends so much s*** each
+/// time. can it not?"). The line keeps "not the person": a sender's name may be only what it
+/// claimed, and Claude Code's note calls a peer "very likely working on their behalf".
 fn with_reply_hint(
     text: &str,
     agent: Option<&str>,
@@ -466,11 +465,7 @@ fn with_reply_hint(
         super::prompt_attribution::agent_line(&who)
     };
     if claude {
-        let line = if unverified {
-            line.trim_end_matches(':').to_owned()
-        } else {
-            format!("From another agent ({who})")
-        };
+        let line = line.trim_end_matches(':');
         return format!(
             "{line}. Answer with `acpmux send '{quoted}' '<your reply>'`, not SendMessage:\n{text}"
         );

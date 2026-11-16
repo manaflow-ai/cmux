@@ -465,10 +465,10 @@ fn a_claude_code_session_gets_the_sender_and_the_answer_in_one_line() {
     let named = with_reply_hint("PR is green", Some("gcp/lane-12"), Some("codex"), false, true);
     assert_eq!(
         named,
-        "From another agent (gcp/lane-12, codex). Answer with `acpmux send 'gcp/lane-12' '<your reply>'`, not SendMessage:\nPR is green"
+        "From another agent (gcp/lane-12, codex), not the person. Answer with `acpmux send 'gcp/lane-12' '<your reply>'`, not SendMessage:\nPR is green"
     );
-    assert!(!named.contains("not the person"), "{named}");
-    // A program acpmux could not verify keeps its warning: Claude Code's note trusts a peer.
+    assert!(!named.contains("cannot reach it"), "{named}");
+    // A program acpmux could not verify says so too.
     let claimed = with_reply_hint("hi", Some("bot"), None, true, true);
     assert_eq!(
         claimed,
