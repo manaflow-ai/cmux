@@ -34,7 +34,7 @@ struct AgentTabContent {
             return nil
         }
         guard let view = services.agentTabs.view(for: key, machine: pane.daemon.machineID) else {
-            return services.agentTabs.notice(for: key, machine: pane.daemon.machineID).map(TabContent.notice)
+            return services.agentTabs.notice(for: key, machine: pane.daemon.machineID).map { TabContent.notice($0) }
         }
         // Set on each show, so a tab moved to another pane opens files there.
         // A file or preview the person clicks in the chat opens beside it (LinkOpener,

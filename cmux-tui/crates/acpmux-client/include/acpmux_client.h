@@ -12,10 +12,9 @@
 #include <stdint.h>
 
 /*
- ABI version. Bump this when a type or function changes. 3: chat subs, `blob`, and a handle
- that names its surfaces.
+ ABI version. Bump this when a type or function changes. 4: the page-list driver ABI.
  */
-#define ACPMUX_CLIENT_ABI_VERSION 3
+#define ACPMUX_CLIENT_ABI_VERSION 4
 
 /*
  The call succeeded.
@@ -41,6 +40,26 @@
  A panic was caught inside the ABI boundary.
  */
 #define ACPMUX_CLIENT_ERR_PANIC -4
+
+/*
+ The page operation is busy with another batch or question.
+ */
+#define ACPMUX_PAGE_ERR_BUSY -5
+
+/*
+ A page operation exceeded a bounded list limit.
+ */
+#define ACPMUX_PAGE_ERR_LIMIT -6
+
+/*
+ The page operation named no open sid or question.
+ */
+#define ACPMUX_PAGE_ERR_SID -7
+
+/*
+ The page operation was refused by its page contract.
+ */
+#define ACPMUX_PAGE_ERR_REQUEST -8
 
 typedef struct {
     uint8_t *ptr;
@@ -209,5 +228,132 @@ int32_t acpmux_client_chat_blob(void *handle, const uint8_t *request, size_t req
  `bytes` came from this library and is freed at most once.
  */
 void acpmux_client_bytes_free(AcpmuxClientBytes bytes);
+
+/*
+ Allocates the page session-list driver. It owns a list-surface client handle and emits only
+ page events; the existing `acpmux_client_*` ABI remains available for other list callers.
+ */
+void *acpmux_page_driver_new(void);
+
+/*
+ Frees a page session-list driver.
+
+ # Safety
+ `handle` is null or was returned by `acpmux_page_driver_new` and is consumed once.
+ */
+void acpmux_page_driver_free(void *handle);
+
+/*
+ Marks the page-list transport connected.
+
+ # Safety
+ `handle` is null or a live page-driver handle owned by the caller; calls are serialized.
+ */
+int32_t acpmux_page_driver_connected(void *handle);
+
+/*
+ Marks the page-list transport disconnected while retaining rows and wanted keys.
+
+ # Safety
+ `handle` is null or a live page-driver handle owned by the caller; calls are serialized.
+ */
+int32_t acpmux_page_driver_disconnected(void *handle);
+
+/*
+ Sets whether the page is visible. A hidden page takes no changes from its handle.
+
+ # Safety
+ `handle` is null or a live page-driver handle owned by the caller; calls are serialized.
+ */
+int32_t acpmux_page_driver_visible(void *handle, bool shown);
+
+/*
+ Feeds daemon bytes to the page-list driver and writes the consumed count.
+
+ # Safety
+ `handle` and `consumed` are owned writable pointers; `ptr..ptr+len` is readable for this call.
+ */
+int32_t acpmux_page_driver_received(void *handle, const uint8_t *ptr, size_t len, size_t *consumed);
+
+/*
+ Takes one outbound daemon frame from the page-list driver.
+
+ # Safety
+ `handle` and `out` are owned pointers; calls are serialized.
+ */
+int32_t acpmux_page_driver_take_send(void *handle, AcpmuxClientBytes *out);
+
+/*
+ Takes one page event batch. The returned batch remains held until `acpmux_page_driver_taken`.
+
+ # Safety
+ `handle` and `out` are owned pointers; calls are serialized.
+ */
+int32_t acpmux_page_driver_next_event(void *handle, AcpmuxClientBytes *out);
+
+/*
+ Acknowledges one page event batch by its opaque number.
+
+ # Safety
+ `handle` is null or a live page-driver handle owned by the caller; calls are serialized.
+ */
+int32_t acpmux_page_driver_taken(void *handle, uint64_t number);
+
+/*
+ Opens a list subscription from a JSON `Sub` and returns `{ "sid": ... }`.
+
+ # Safety
+ `handle` and `out` are owned pointers; `request..request+request_len` is readable.
+ */
+int32_t acpmux_page_driver_open(void *handle, const uint8_t *request, size_t request_len, AcpmuxClientBytes *out);
+
+/*
+ Closes a page list subscription from `{ "sid": ... }`.
+
+ # Safety
+ `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
+ */
+int32_t acpmux_page_driver_close(void *handle, const uint8_t *request, size_t request_len);
+
+/*
+ Adds wanted keys from `{ "sid": ..., "keys": [...] }`.
+
+ # Safety
+ `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
+ */
+int32_t acpmux_page_driver_want(void *handle, const uint8_t *request, size_t request_len);
+
+/*
+ Removes wanted keys from `{ "sid": ..., "keys": [...] }`.
+
+ # Safety
+ `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
+ */
+int32_t acpmux_page_driver_unwant(void *handle, const uint8_t *request, size_t request_len);
+
+/*
+ Starts a bounded page question from a `Page`, returning `{ "id": ... }`.
+
+ # Safety
+ `handle` and `out` are owned pointers; `request..request+request_len` is readable.
+ */
+int32_t acpmux_page_driver_page(void *handle, const uint8_t *request, size_t request_len, AcpmuxClientBytes *out);
+
+/*
+ Requests the next page of `{ "id": ... }`; continuation remains in Rust.
+
+ # Safety
+ `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
+ */
+int32_t acpmux_page_driver_next(void *handle, const uint8_t *request, size_t request_len);
+
+/*
+ Returns the stable page error code text for a page status in `out`.
+
+ # Safety
+ `out` is an owned writable pointer; callers free its bytes with
+ `acpmux_client_bytes_free`.
+ */
+int32_t acpmux_page_driver_error_code(int32_t status, AcpmuxClientBytes *out);
 
 #endif  /* ACPMUX_CLIENT_H */
