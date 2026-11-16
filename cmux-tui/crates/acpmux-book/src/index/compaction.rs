@@ -96,7 +96,12 @@ impl Compaction {
         let mut cold_keys = VecDeque::new();
         let mut missing_hot = VecDeque::new();
         let mut skipped_snapshot_rows = 0;
-        SortedSnapshot::write_stream_generation(
+        let table_stage = {
+            let mut path = stage.as_os_str().to_os_string();
+            path.push(".kin");
+            PathBuf::from(path)
+        };
+        SortedSnapshot::write_stream_generation_with_table(
             stage,
             self.seq,
             0,
@@ -131,15 +136,28 @@ impl Compaction {
                 }
                 Some(Ok(row))
             }),
+            Some(&table_stage),
         )?;
         if cancelled.load(Ordering::Acquire) {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "compaction cancelled"));
         }
         // Open the staged inode before committing it. Errors after rename
         // must not leave the publisher believing the old generation is current.
-        let snapshot = DiskSnapshot::open(stage)?
+        let staged_snapshot = DiskSnapshot::open(stage)?
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "staged snapshot"))?;
+        drop(staged_snapshot);
+        let table_path = {
+            let mut path = self.snapshot_path.as_os_str().to_os_string();
+            path.push(".kin");
+            PathBuf::from(path)
+        };
+        let _ = fs::remove_file(&table_path);
+        if table_stage.exists() {
+            fs::rename(&table_stage, &table_path)?;
+        }
         fs::rename(stage, &self.snapshot_path)?;
+        let snapshot = DiskSnapshot::open(&self.snapshot_path)?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "installed snapshot"))?;
         let mut cleanup_errors = 0;
         if File::open(&self.directory).and_then(|directory| directory.sync_all()).is_err() {
             // Keep every old log until the rename is known durable.
@@ -181,7 +199,7 @@ impl Compaction {
 }
 
 struct StageFiles {
-    paths: [PathBuf; 3],
+    paths: [PathBuf; 4],
     armed: bool,
 }
 
@@ -193,7 +211,7 @@ impl StageFiles {
             name.push(suffix);
             PathBuf::from(name)
         };
-        let paths = [stage.clone(), sidefile(".new"), sidefile(".directory.new")];
+        let paths = [stage.clone(), sidefile(".new"), sidefile(".directory.new"), sidefile(".kin")];
         // There is one compactor per directory. Known abandoned files were
         // removed before reservation; do not overwrite unexpected entries.
         for path in &paths {
@@ -256,7 +274,12 @@ pub(super) fn cleanup_stages(directory: &Path) -> io::Result<bool> {
         if number.parse::<u64>().is_ok()
             && matches!(
                 suffix,
-                "" | "new" | "directory.new" | "stage" | "stage.new" | "stage.directory.new"
+                "" | "new"
+                    | "directory.new"
+                    | "kin"
+                    | "stage"
+                    | "stage.new"
+                    | "stage.directory.new"
             )
             && entry.file_type()?.is_file()
         {

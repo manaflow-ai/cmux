@@ -39,6 +39,26 @@ fn rotation_keeps_arrivals_in_the_new_generation_across_restart() {
 }
 
 #[test]
+fn compaction_writes_a_bound_cold_kin_sidecar() {
+    let dir = tempdir().unwrap();
+    let mut index = SummaryIndex::new();
+    let mut parent = row("parent", 1);
+    parent.state = "closed".to_owned();
+    let parent_key = parent.key();
+    index = index.apply(1, parent);
+    let mut child = row("child", 0);
+    child.state = "closed".to_owned();
+    child.parent = Some(parent_key);
+    index = index.apply(2, child);
+
+    let result =
+        Compaction::new(dir.path().to_owned(), 0, index.seq()).run(Arc::new(index)).unwrap();
+    let table = dir.path().join("index.snap.kin");
+    assert!(table.is_file());
+    assert!(result.snapshot.has_kin_table());
+}
+
+#[test]
 fn an_uninstalled_rotation_is_recovered_from_both_generations() {
     let dir = tempdir().unwrap();
     let log_path = dir.path().join("index.log");

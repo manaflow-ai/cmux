@@ -1,6 +1,7 @@
 use super::{
     CHECKPOINT_BYTES, Checkpoint, DiskSnapshot, FIRST_ROWS, HEADER_BYTES, Head, MAGIC,
     MAX_ORIGINS_BYTES, PAGE_BYTES, SEEK_BYTES, SnapshotMeta, TRAILER_BYTES,
+    kin_table::Builder as KinTableBuilder,
 };
 use crate::index::{IndexRecord, SortKey, Summary, SummaryIndex, codec, is_corrupt_snapshot_row};
 use std::fs::{self, File};
@@ -66,6 +67,28 @@ impl SortedSnapshot {
         meta: impl Into<SnapshotMeta>,
         rows: impl IntoIterator<Item = io::Result<Arc<Summary>>>,
     ) -> io::Result<()> {
+        Self::write_stream_generation_with_table(
+            path,
+            seq,
+            log_offset,
+            log_name,
+            covered_generation,
+            meta,
+            rows,
+            None,
+        )
+    }
+
+    pub(in crate::index) fn write_stream_generation_with_table(
+        path: impl AsRef<Path>,
+        seq: u64,
+        log_offset: u64,
+        log_name: Option<&str>,
+        covered_generation: u64,
+        meta: impl Into<SnapshotMeta>,
+        rows: impl IntoIterator<Item = io::Result<Arc<Summary>>>,
+        table_path: Option<&Path>,
+    ) -> io::Result<()> {
         let path = path.as_ref();
         let SnapshotMeta { origins, marks } = meta.into();
         if marks.len() > 256 {
@@ -118,6 +141,7 @@ impl SortedSnapshot {
         let mut last_len = 0;
         let mut previous = None;
         let mut first_lengths = Vec::new();
+        let mut table = table_path.map(|_| KinTableBuilder::new());
         for row in rows {
             let row = match row {
                 Ok(row) => row,
@@ -137,6 +161,9 @@ impl SortedSnapshot {
             };
             let bytes = codec::encode(&record)?;
             let len = bytes.len() + TRAILER_BYTES;
+            if let Some(table) = table.as_mut() {
+                table.push(&row, offset, len)?;
+            }
             last_len = len;
             if last_checkpoint.is_none_or(|(start, ordinal)| {
                 count - ordinal == 256 || offset + len as u64 - start > SEEK_BYTES as u64
@@ -208,6 +235,13 @@ impl SortedSnapshot {
         writer.write_all(&header)?;
         writer.flush()?;
         writer.get_ref().sync_all()?;
+        if let (Some(table), Some(table_path)) = (table, table_path) {
+            // The snapshot remains authoritative if the optional accelerator
+            // cannot be written.  The next compaction will retry it.
+            if table.write(table_path, crc32fast::hash(&header), seq, origins_offset).is_err() {
+                let _ = fs::remove_file(table_path);
+            }
+        }
         fs::rename(&temp, path)?;
         File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all()?;
         Ok(())

@@ -56,6 +56,7 @@ pub(super) fn classify_read_error(error: io::Error) -> io::Error {
 
 #[cfg(test)]
 mod damage_tests;
+mod kin_table;
 mod read;
 #[cfg(test)]
 mod scale_tests;
@@ -177,6 +178,7 @@ pub struct DiskSnapshot {
     pub(super) head: Head,
     origins: Vec<OriginRecord>,
     marks: Vec<MarkRecord>,
+    kin_table: Option<kin_table::TableHeader>,
 }
 
 /// Origins and the mirror's marks share the snapshot's origins section; a
@@ -412,7 +414,22 @@ impl DiskSnapshot {
         if origins.len() > 256 {
             return Err(codec::invalid("snapshot origin limit"));
         }
-        Ok(Some(Arc::new(Self { file, head, origins, marks })))
+        let table_path = sidecar_path(path);
+        let table_present = table_path.exists();
+        let kin_table = match kin_table::validate_header(&table_path, crc, head.seq, head.data_end)
+        {
+            Ok(Some(header)) => Some(header),
+            Ok(None) if table_present => {
+                let _ = kin_table::set_aside(&table_path);
+                None
+            }
+            Ok(None) => None,
+            Err(_) => {
+                let _ = kin_table::set_aside(&table_path);
+                None
+            }
+        };
+        Ok(Some(Arc::new(Self { file, head, origins, marks, kin_table })))
     }
 
     pub fn log_offset(&self) -> u64 {
@@ -432,6 +449,12 @@ impl DiskSnapshot {
     }
     pub fn bytes(&self) -> u64 {
         self.head.data_end + self.head.origins_bytes + self.head.directory_bytes as u64
+    }
+
+    /// Whether the optional cold kin sidecar was bound to this snapshot.
+    /// The reader is intentionally added in the follow-up PR.
+    pub(crate) fn has_kin_table(&self) -> bool {
+        self.kin_table.is_some()
     }
 
     /// Validate every sparse seek checkpoint before a hub publishes this
@@ -472,6 +495,12 @@ impl DiskSnapshot {
     pub(super) fn directory_offset(&self) -> u64 {
         self.head.data_end + self.head.origins_bytes
     }
+}
+
+fn sidecar_path(snapshot: &Path) -> std::path::PathBuf {
+    let mut name = snapshot.as_os_str().to_os_string();
+    name.push(".kin");
+    std::path::PathBuf::from(name)
 }
 
 #[cfg(unix)]
