@@ -56,7 +56,12 @@ def tour(folder: Path) -> dict:
     if "tabs.newTabApp" in settings:
         steps.append({"title": f"{name}: a New Tab is the setup's own page", "cmux": ["action", "run", "newTab.default"],
                       "wait": 3, "optional": "a New Tab opens a terminal when tabs.newTabTemplate picks one"})
-    return {"title": f"Customization showcase: {name}", "customize": True, "steps": steps}
+    out = {"title": f"Customization showcase: {name}", "customize": True, "steps": steps}
+    if (folder / "themes").is_dir():
+        # A tour settings file puts the app's config folder at the workdir, the customize folder's
+        # parent, so the theme written beside it is the one appearance.themeFile finds.
+        out["settings"] = {}
+    return out
 
 
 def expected() -> dict[Path, str]:

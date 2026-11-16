@@ -15,10 +15,15 @@
 const message = (e) => (e instanceof Error ? e.message : String(e))
 const two = (n) => String(n).padStart(2, "0")
 
-// Moves a number from `from` to `to` over `frames` frames of 50 ms, easing out.
-function tween(set, from, to, frames = 12) {
+// Moves a number from `from` to `to` over `frames` frames of 50 ms, easing out. A newer tween
+// of the same key, or stopTween(key), ends the one before it.
+const tweens = {}
+const stopTween = (key) => (tweens[key] = (tweens[key] ?? 0) + 1)
+function tween(key, set, from, to, frames = 12) {
+  const gen = stopTween(key)
   let i = 0
   const step = () => {
+    if (tweens[key] !== gen) return
     i += 1
     const t = 1 - Math.pow(1 - i / frames, 3)
     set(from + (to - from) * t)
@@ -155,13 +160,20 @@ function summarize(status) {
 
 async function loadUsage(refresh = false) {
   try {
-    const rows = summarize(await cmux.call("usage_app.status", { accounts: true, refresh }))
+    const status = await cmux.call("usage_app.status", { accounts: true, refresh })
+    // A refused scope or a router error answers with no providers and a problem: say that, not
+    // "no accounts".
+    if (status.problem || (status.state && status.state !== "ready" && !(status.providers || []).length)) {
+      setUsageError(status.problem?.message ?? `The Usage app is ${status.state}`)
+      return
+    }
+    const rows = summarize(status)
     const before = untrack(shown)
     setUsage(rows)
     setUsageError(null)
     for (const row of rows) {
       if (row.weeklyLeft === null) continue
-      tween((v) => setShown((s) => ({ ...s, [row.id]: v })), before[row.id] ?? 0, row.weeklyLeft)
+      tween(`usage:${row.id}`, (v) => setShown((s) => ({ ...s, [row.id]: v })), before[row.id] ?? 0, row.weeklyLeft)
     }
   } catch (e) {
     setUsageError(message(e))
@@ -249,6 +261,7 @@ function pull() {
   // A reel whose view closed mid-spin stopped with it; let the next pull start over.
   if (r.spinning && Date.now() - r.at < 1500) return
   const result = draw()
+  stopTween("glow")
   const frames = 26
   let i = 0
   let angle = 0
@@ -274,7 +287,7 @@ function land(chief) {
   // The reveal: the card snaps upright and its glow pulses out, brighter for rarer chiefs.
   const peak = { common: 0.35, rare: 0.55, epic: 0.8, legendary: 1 }[chief.rarity]
   setReel({ chief, angle: 0, glow: peak, spinning: false, at: Date.now() })
-  tween((g) => setReel((r) => ({ ...r, glow: g })), peak, peak * 0.25, 16)
+  tween("glow", (g) => setReel((r) => ({ ...r, glow: g })), peak, peak * 0.25, 16)
   if (chief.rarity === "legendary" || chief.rarity === "epic") {
     cmux.toast({ title: `${RARITY[chief.rarity].label}: ${chief.name}`, tone: chief.rarity === "legendary" ? "success" : undefined })
   }
@@ -303,7 +316,10 @@ function gacha() {
       Spacer(),
       Button("Pull", pull).disabled(() => reel().spinning)
     ]),
-    Text(() => `${collected()} of ${CHIEFS.length} chiefs · a legendary in ${PITY - sincePity()} pulls or sooner`)
+    Text(() => {
+      const left = PITY - sincePity()
+      return `${collected()} of ${CHIEFS.length} chiefs · ${left === 1 ? "the next pull is a legendary" : `a legendary in ${left} pulls or sooner`}`
+    })
       .font("caption")
       .color(cmux.theme.text.secondary)
   ]).contextMenu([
@@ -318,13 +334,35 @@ function gacha() {
 
 // ---- Start, and the two places --------------------------------------------------------------
 
+// The clock and the two reads run once however many views are open (the section and every New
+// Tab page share this script): the first view arms them, and each view that closes re-arms them
+// for the views left, or stops them with the last one. Saved state is read once.
 let loaded = false
-// Timers belong to the view that started them and end with it, so each render starts its own;
-// saved state is read once.
+let mounts = 0
+let polls = []
+
+function armPolls() {
+  polls = [
+    cmux.timer.every(15000, () => setNow(Date.now())),
+    cmux.timer.every(15 * 60_000, loadWeather),
+    cmux.timer.every(5 * 60_000, () => loadUsage())
+  ]
+}
+
+function clearPolls() {
+  for (const id of polls) cmux.timer.clear(id)
+  polls = []
+}
+
 function start() {
-  cmux.timer.every(15000, () => setNow(Date.now()))
-  cmux.timer.every(15 * 60_000, loadWeather)
-  cmux.timer.every(5 * 60_000, () => loadUsage())
+  mounts += 1
+  // Timers armed in a render end with that view, so a closing view hands them to the rest.
+  onCleanup(() => {
+    mounts -= 1
+    clearPolls()
+    if (mounts > 0) cmux.timer.after(50, () => mounts > 0 && !polls.length && armPolls())
+  })
+  if (!polls.length) armPolls()
   if (loaded) return
   loaded = true
   loadUsage()

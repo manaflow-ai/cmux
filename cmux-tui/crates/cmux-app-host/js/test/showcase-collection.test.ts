@@ -119,6 +119,41 @@ describe("the collection", () => {
     })
   })
 
+  test("a Usage app problem says so instead of offering to add an account", async () => {
+    const h = host()
+    h.handlers["usage_app.status"] = ok({ state: "denied", problem: { code: "router.denied", message: "The router refused the read" }, providers: [] })
+    h.mount("m", "renderSection")
+    await h.settle(10)
+    expect(h.findNode("m", (n) => n.type === "EmptyState" && n.props.message === "The router refused the read")).toBeDefined()
+    expect(h.findNode("m", (n) => n.type === "EmptyState" && n.props.title === "No accounts")).toBeUndefined()
+  })
+
+  test("the clock and the reads run once for every open view, and stop with the last one", async () => {
+    const h = host()
+    const repeating = () => [...h.timers.values()].filter((t) => t.repeat).map((t) => t.ms).sort((a, b) => a - b)
+    h.mount("a", "renderSection")
+    h.mount("b", "renderPage")
+    h.mount("c", "renderPage")
+    await h.settle(10)
+    await runFrames(h)
+    expect(repeating()).toEqual([15000, 300000, 900000])
+    // The view that armed them closes: the others keep one set.
+    h.global.__cmuxAppUnmount("a")
+    await runFrames(h)
+    expect(repeating()).toEqual([15000, 300000, 900000])
+    h.global.__cmuxAppUnmount("b")
+    await runFrames(h)
+    expect(repeating()).toEqual([15000, 300000, 900000])
+    h.global.__cmuxAppUnmount("c")
+    await runFrames(h)
+    expect(repeating()).toEqual([])
+    // A view opened again starts them again.
+    h.mount("d", "renderSection")
+    await h.settle(10)
+    expect(repeating()).toEqual([15000, 300000, 900000])
+    expect(h.calls.filter((c) => c.name === "usage_app.status")).toHaveLength(1)
+  })
+
   test("the New Tab page draws the same three cards", async () => {
     const h = host()
     h.mount("m", "renderPage")
