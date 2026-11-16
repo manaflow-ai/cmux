@@ -233,3 +233,23 @@ fn floating_pane_records_are_read_one_time_for_a_focus_change() {
         "one statement reads the floating panes of the two screens"
     );
 }
+
+// Twenty more passes of `floating_panes_of_two_screens_load_each_on_its_own_screen` in one run.
+// Each name is one test process. A proof branch only: it does not merge.
+macro_rules! repeat20_two_screens {
+    ($($name:ident)*) => {
+        $(
+            #[test]
+            fn $name() {
+                floating_panes_of_two_screens_load_each_on_its_own_screen();
+            }
+        )*
+    };
+}
+
+repeat20_two_screens!(
+    repeat20_two_screens_01 repeat20_two_screens_02 repeat20_two_screens_03 repeat20_two_screens_04 repeat20_two_screens_05
+    repeat20_two_screens_06 repeat20_two_screens_07 repeat20_two_screens_08 repeat20_two_screens_09 repeat20_two_screens_10
+    repeat20_two_screens_11 repeat20_two_screens_12 repeat20_two_screens_13 repeat20_two_screens_14 repeat20_two_screens_15
+    repeat20_two_screens_16 repeat20_two_screens_17 repeat20_two_screens_18 repeat20_two_screens_19 repeat20_two_screens_20
+);

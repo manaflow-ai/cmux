@@ -317,3 +317,23 @@ fn floating_pane_floats_beside_rows_that_new_row_made() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+// Twenty more passes of `floating_pane_floats_beside_rows_that_new_row_made` in one run.
+// Each name is one test process. A proof branch only: it does not merge.
+macro_rules! repeat20_rows {
+    ($($name:ident)*) => {
+        $(
+            #[test]
+            fn $name() {
+                floating_pane_floats_beside_rows_that_new_row_made();
+            }
+        )*
+    };
+}
+
+repeat20_rows!(
+    repeat20_rows_01 repeat20_rows_02 repeat20_rows_03 repeat20_rows_04 repeat20_rows_05
+    repeat20_rows_06 repeat20_rows_07 repeat20_rows_08 repeat20_rows_09 repeat20_rows_10
+    repeat20_rows_11 repeat20_rows_12 repeat20_rows_13 repeat20_rows_14 repeat20_rows_15
+    repeat20_rows_16 repeat20_rows_17 repeat20_rows_18 repeat20_rows_19 repeat20_rows_20
+);
