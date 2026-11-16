@@ -11,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextKeepAwake
+import CmuxNextKeys
 import CmuxNextLiveCode
 import CmuxNextOnboarding
 import CmuxNextPages
@@ -187,6 +188,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
+        // This launch's times, in every build, for `cmux app launch-times` (CMUX-571): once the first frame and Home have shown.
+        if let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) {
+            let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:]) { StagedUpdatePrewarm.consumeLaunchMarker(build: $0, bundleIdentifier: bundleID) }
+            firstFrame.whenOpen { [launchReveal = services.launchReveal] in launchReveal.whenReady(.home) { recorder.write(marks: DebugTimings.launchMarkTimes()) } }
+        }
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
@@ -428,6 +434,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerAccountsMethods(services)
                 control.registerBillingMethods(services)
                 control.registerRemoteMethods(services)
+                control.service?.router.register([services.keyRequests.controlMethod]) // keys.request (Settings > Keys)
                 control.registerUpdateMethods(services.updater, services: services)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
