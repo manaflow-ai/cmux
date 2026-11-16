@@ -39,6 +39,18 @@ import Testing
         #expect(byDeadline.homeFirstPageMs == nil)
     }
 
+    /// Home shows from its saved state before the Chief's first page (launch piece 3): the record is
+    /// written at `reveal.home`, so its Home time is the saved page's, not a nil for a page still to come.
+    @Test func homesTimeIsItsSavedPageWhenItShowedFirst() {
+        var marks = Self.marks
+        marks["home.first_page"] = nil
+        marks["home.saved_page_shown"] = 640.04
+        marks["reveal.home"] = 640.1
+        let record = Self.record(marks: marks)
+        #expect(record.homeFirstPageMs == 640)
+        #expect(record.homeRevealedBy == "mark")
+    }
+
     @Test func aLaunchWritesOneLineThatReadsBack() throws {
         let file = Self.temporaryFile()
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }

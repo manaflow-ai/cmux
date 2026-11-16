@@ -229,6 +229,7 @@ export class Journey {
   readonly secrets: string[] = [];
   readonly firstText = new FirstTextTiming();
   preclaimRows: PreclaimClaimRecord[] | null = null;
+  preclaimBurst: PreclaimBurstFacts | null = null;
   preclaimFailures: PreclaimFailureRecord[] = [];
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>, private readonly publicSafe = false) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
@@ -257,20 +258,52 @@ export class Journey {
     if (!this.outDir) return;
     const meta = this.publicSafe ? preclaimPublicMeta() : this.meta;
     writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta, steps: this.steps }, null, 2)}\n`);
-    const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows, this.preclaimFailures)}`;
+    const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows, this.preclaimFailures, this.preclaimBurst)}`;
     writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta) + preclaim);
   }
 }
 
 type Answer = { status: number; body: any };
 
-async function http(method: string, url: string, body: unknown, headers: Record<string, string>, timeoutMs = 30_000): Promise<Answer> {
-  const res = await fetch(url, {
-    method,
-    headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+/**
+ * The request died on its socket before any answer came back: the peer reset or closed it (Bun: ECONNRESET "The
+ * socket connection was closed unexpectedly", or ConnectionClosed; Node: UND_ERR_SOCKET, EPIPE). A timeout is not one:
+ * the server may still be working on it.
+ */
+export function socketDropped(error: unknown): boolean {
+  for (let e: any = error, depth = 0; e && depth < 3; e = e.cause, depth++) {
+    if (["ECONNRESET", "ConnectionClosed", "UND_ERR_SOCKET", "EPIPE", "ECONNABORTED"].includes(String(e.code ?? ""))) return true;
+    if (/socket connection was closed unexpectedly/i.test(String(e.message ?? ""))) return true;
+  }
+  return false;
+}
+
+/**
+ * One HTTP request. With `repeatable` (a read, a GET, or an op under an idempotency key) a request whose socket
+ * drops before any answer is sent once more on a fresh connection (keepalive off), so one stale pooled socket can't
+ * fail a step: run 43927514723's connect_info read died 40 ms in with ECONNRESET on the first request after a
+ * 122 s idle step, a socket the edge had closed while it sat in the pool.
+ */
+export async function http(method: string, url: string, body: unknown, headers: Record<string, string>, timeoutMs = 30_000, repeatable = method === "GET" || method === "HEAD"): Promise<Answer> {
+  const send = (fresh: boolean) =>
+    fetch(url, {
+      method,
+      headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+      ...(fresh ? { keepalive: false } : {}),
+    });
+  let res: Response;
+  try {
+    res = await send(false);
+  } catch (error) {
+    if (!repeatable || !socketDropped(error)) throw error;
+    try {
+      res = await send(true);
+    } catch (again) {
+      throw new Error(`${(again as Error)?.message ?? again} (sent once more on a fresh connection after: ${(error as Error)?.message ?? error})`);
+    }
+  }
   const text = await res.text();
   let parsed: any;
   try {
@@ -317,7 +350,7 @@ class Api {
   }
   async op(op: string, params: unknown, key?: string): Promise<any> {
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000, !!key);
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
       if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
@@ -332,14 +365,14 @@ class Api {
   async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
     const until = Date.now() + budgetMs;
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000, true);
       if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
   }
   async read(op: string, params: unknown, timeoutMs = 30_000): Promise<any> {
-    const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs);
+    const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
   }
@@ -360,6 +393,33 @@ export type PreclaimHealthSnapshot = {
   http_status: number;
   outcome: "ok" | "error";
   commit: string | null;
+  /** Why `commit` is null: the answer's status, or what it named instead of a deploy commit. */
+  commit_unavailable: string | null;
+};
+
+/**
+ * The MET table's per-claim fields. Every value that could not be measured is null with its `*_unavailable` reason,
+ * never 0, so the table reads `unavailable: <reason>` instead of a number nobody measured.
+ */
+export type PreclaimMetFields = {
+  /** The claim's spare, from its created_at to its cloud.spare.ready (the frame's `at`, else its running_since). */
+  refill_to_ready_ms: number | null;
+  refill_to_ready_unavailable: string | null;
+  /** The claim answer's value.claim.behind (cmux-platform#1429) for that same spare: one image roll behind or current. */
+  refill_image: "behind" | "current" | null;
+  refill_image_unavailable: string | null;
+  /** After bind, the login check: the spare's receipt on a hit, the post-bind copy on a miss. */
+  post_bind_login_ms: number | null;
+  post_bind_login_ms_unavailable: string | null;
+  /** From the claim's create request to the agent's first reply text. */
+  claim_to_first_text_ms: number | null;
+  claim_to_first_text_unavailable: string | null;
+  /** The platform deploy commit serving the claim (its /v1/health `commit`), else the API's. */
+  staging_sha: string | null;
+  staging_sha_unavailable: string | null;
+  /** Whether a deploy commit changed between the claim's health_before and health_after reads. */
+  deploy_overlap: boolean | null;
+  deploy_overlap_unavailable: string | null;
 };
 
 export type PreclaimClaimRecord = {
@@ -370,10 +430,30 @@ export type PreclaimClaimRecord = {
   lease_hit: boolean | null;
   health_before: PreclaimHealthSnapshot;
   health_after: PreclaimHealthSnapshot;
+  /** The platform origin's /v1/health around the claim: the API's carries only a fixed API version. */
+  platform_health_before: PreclaimHealthSnapshot;
+  platform_health_after: PreclaimHealthSnapshot;
   claim_to_bound: PreclaimClaimSplit;
   post_bind_login: "receipt" | "post-bind" | "missing" | "not_checked";
   first_chat_ms: number | null;
   first_reply_ms: number | null;
+} & PreclaimMetFields;
+
+/** The burst-wide MET facts, read once before claim 0. */
+export type PreclaimBurstFacts = {
+  claims_expected: number;
+  /** The account's machine-minutes this period at t0 (cloud.plan.get usage, the caller's share when it is split). */
+  hold_minutes_t0: number | null;
+  hold_minutes_t0_unavailable: string | null;
+  /**
+   * Why the first reply was not judged (the model refused or never answered the turn), else null. The reply is measured,
+   * never gated: run 43860687099's claim worked and its turn hit the test account's weekly limit.
+   */
+  reply_not_judged: string | null;
+  /** How long the claim waited for the warm to name a ready spare (--spare-wait); null when the burst does not wait. */
+  spare_wait_ms: number | null;
+  /** The wait's bound ran out with no ready spare, so the claim went ahead: a cold create here is not a claim-path miss. */
+  cold_after_wait: boolean;
   /** The claim answer's value.claim.behind (cmux-platform#1429): the spare was held across an image roll; null with no claim. */
   claimed_behind: boolean | null;
   /** The claim answer's skipped spares by reason (cmux-platform#1418), e.g. image or a #1414 guard reason; null when absent. */
@@ -385,13 +465,42 @@ export type PreclaimFailureRecord = {
   claim: number;
   outcome: "fail";
   error: string;
+  /** The claimed machine's facts at the failure (preclaimGuestFacts), when it existed. */
+  guest?: string;
   /** Whether the failed claim had taken a spare held across a roll (null when it failed before the claim answered). */
   claimed_behind: boolean | null;
 };
 
+/**
+ * Guest facts within 12,000 characters, the sections before the journal first: run 43873927808 kept only the last 8,000,
+ * and the journal pushed out the own-login and acp tail sections that say why a claim failed.
+ */
+function guestFactsCapped(guest: string, max = 12_000): string {
+  const at = guest.indexOf("== journal");
+  if (guest.length <= max || at < 0) return guest.slice(0, max);
+  const head = guest.slice(0, Math.min(at, max / 2));
+  const mark = "== journal (last lines)\n";
+  return head + mark + guest.slice(at).slice(-(max - head.length - mark.length));
+}
+
 /** A failed claim stays visible in the private evidence without exposing credentials publicly. */
-export function preclaimFailureRecord(claim: number, error: unknown, secrets: string[] = [], claimedBehind: boolean | null = null): PreclaimFailureRecord {
-  return { claim, outcome: "fail", error: scrub(String(error instanceof Error ? error.message : error), secrets).slice(0, 600), claimed_behind: claimedBehind };
+export function preclaimFailureRecord(claim: number, error: unknown, secrets: string[] = [], claimedBehind: boolean | null = null, guest?: string): PreclaimFailureRecord {
+  return { claim, outcome: "fail", error: scrub(String(error instanceof Error ? error.message : error), secrets).slice(0, 600), claimed_behind: claimedBehind, ...(guest === undefined ? {} : { guest: guestFactsCapped(scrub(guest, secrets)) }) };
+}
+
+/**
+ * What the claimed machine shows when a claim fails after it exists (run 43824872130: the first chat's `acp wait` exited
+ * 1 and the machine was deleted with no trace): whether the guest sees its own Claude login, the chat session's acp
+ * events and the journal's agent lines. Private rows only, scrubbed by the caller; never the login itself.
+ */
+export async function preclaimGuestFacts(exec: Exec, session: string): Promise<string> {
+  const facts = await exec([
+    `${GUEST}echo "== own login"; (. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude) && echo yes || echo no`,
+    `echo "== acp tail ${session}"; "$c" acp tail ${shq(session)} 2>&1 | tail -40 | cut -c1-400`,
+    `echo "== acp list"; "$c" acp list 2>&1 | tail -10 | cut -c1-300`,
+    `echo "== journal"; journalctl -m --no-pager -o short-monotonic --since -15min 2>/dev/null | grep -iE 'acp|claude|auth|login|harness' | tail -80 | cut -c1-400`,
+  ].join("; "), 60_000).catch((error) => ({ code: 1, stdout: `unreadable: ${String((error as Error)?.message ?? error).slice(0, 200)}`, stderr: "" }));
+  return facts.stdout;
 }
 
 export function preclaimRunComplete(rows: PreclaimClaimRecord[], failures: PreclaimFailureRecord[], expectedClaims: number): boolean {
@@ -447,31 +556,52 @@ export function preclaimClaimRecord(input: {
   leaseHit?: boolean | null;
   healthBefore?: PreclaimHealthSnapshot;
   healthAfter?: PreclaimHealthSnapshot;
+  platformHealthBefore?: PreclaimHealthSnapshot;
+  platformHealthAfter?: PreclaimHealthSnapshot;
   postBindLogin?: "receipt" | "post-bind" | "missing" | "not_checked";
   firstChatMs?: number | null;
   firstReplyMs?: number | null;
+  met?: Partial<PreclaimMetFields>;
+  replyNotJudged?: string | null;
+  spareWait?: SpareWait | null;
 }): PreclaimClaimRecord {
   const answer = input.answer && typeof input.answer === "object" ? input.answer as Record<string, unknown> : {};
   const machine = typeof input.machine === "string" ? input.machine : typeof answer.machine_id === "string" ? answer.machine_id : null;
   const spare = typeof input.spare === "string" ? input.spare : null;
+  const unread: PreclaimHealthSnapshot = { http_status: 0, outcome: "error", commit: null, commit_unavailable: "not read" };
+  const healthBefore = input.healthBefore ?? unread, healthAfter = input.healthAfter ?? unread;
+  const platformBefore = input.platformHealthBefore ?? unread, platformAfter = input.platformHealthAfter ?? unread;
+  const none = "not recorded";
+  const met: PreclaimMetFields = {
+    refill_to_ready_ms: null, refill_to_ready_unavailable: none, refill_image: null, refill_image_unavailable: none,
+    post_bind_login_ms: null, post_bind_login_ms_unavailable: none, claim_to_first_text_ms: null, claim_to_first_text_unavailable: none,
+    ...preclaimDeployFields(healthBefore, healthAfter, platformBefore, platformAfter),
+    ...input.met,
+  };
   return {
     claim: input.claim,
     machine,
     spare,
     lease_id: typeof input.leaseId === "string" ? input.leaseId : null,
     lease_hit: input.leaseHit !== undefined ? input.leaseHit : classifyLeaseHit(answer, input.brokerLog),
-    health_before: input.healthBefore ?? { http_status: 0, outcome: "error", commit: null },
-    health_after: input.healthAfter ?? { http_status: 0, outcome: "error", commit: null },
+    health_before: healthBefore,
+    health_after: healthAfter,
+    platform_health_before: platformBefore,
+    platform_health_after: platformAfter,
     claim_to_bound: claimToBoundSplit(answer.stages_ms ?? answer.claim_to_bound ?? answer.claimToBound),
     post_bind_login: input.postBindLogin ?? "not_checked",
     first_chat_ms: input.firstChatMs ?? null,
     first_reply_ms: input.firstReplyMs ?? null,
+    ...met,
+    reply_not_judged: input.replyNotJudged ?? null,
+    spare_wait_ms: input.spareWait?.waited_ms ?? null,
+    cold_after_wait: input.spareWait?.cold_after_wait === true,
     ...spareFields(answer),
   };
 }
 
-/** A held claim (one roll behind) fails when its chat got no reply or its login never arrived; a failed claim that took one counts too. */
-const heldRowFailed = (r: PreclaimClaimRecord) => r.first_reply_ms === null || r.post_bind_login === "missing";
+/** A held claim (one roll behind) fails when its login never arrived; a failed claim that took one counts too. Claim-path facts only: the reply is never judged. */
+const heldRowFailed = (r: PreclaimClaimRecord) => r.post_bind_login === "missing";
 
 /**
  * The burst's counts. Held claims (a spare kept claimable across an image roll, CLOUD_SPARE_ROLL_HOLD) are counted apart from
@@ -483,28 +613,94 @@ export function preclaimSummary(rows: PreclaimClaimRecord[], failures: PreclaimF
   const heldRows = rows.filter((r) => r.claimed_behind === true);
   const heldFailed = failures.filter((f) => f.claimed_behind === true);
   const lease_misses = rows.filter((r) => r.lease_hit === false).length;
+  const waits = rows.map((r) => r.spare_wait_ms).filter((v): v is number => v !== null).sort((a, b) => a - b);
   return {
     claims: rows.length,
     lease_hits: rows.filter((r) => r.lease_hit === true).length,
     lease_misses,
-    cold_creates: lease_misses,
+    // A miss after a ready spare was reported (or with no wait at all); a miss after the wait ran out counts apart.
+    cold_creates: rows.filter((r) => r.lease_hit === false && !r.cold_after_wait).length,
+    cold_after_wait: rows.filter((r) => r.lease_hit === false && r.cold_after_wait).length,
+    spare_wait_p90_ms: waits.length ? waits[Math.max(0, Math.ceil(waits.length * 0.9) - 1)] : null,
     held_claims: heldRows.length + heldFailed.length,
     held_failures: heldRows.filter(heldRowFailed).length + heldFailed.length,
     image_skips: rows.reduce((n, r) => n + (r.spare_skips?.image ?? 0), 0),
     claims_with_image_skip: rows.filter((r) => (r.spare_skips?.image ?? 0) > 0).length,
     post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length,
     replies: rows.filter((r) => r.first_reply_ms !== null).length,
+    replies_not_judged: rows.filter((r) => r.reply_not_judged !== null).length,
     claim_to_bound_p90_ms: p90,
   };
 }
+
+/** A git commit (7 to 40 hex). Staging's API answers `version: "0.1.0"` (its deploy config API_VERSION): a version, not a deploy. */
+const DEPLOY_COMMIT = /^[0-9a-f]{7,40}$/i;
 
 /** Keep health evidence useful without copying response bodies or account identifiers into the run output. */
 export function preclaimHealthSnapshot(answer: Answer): PreclaimHealthSnapshot {
   const body = answer.body && typeof answer.body === "object" ? answer.body as Record<string, unknown> : {};
   const value = body.value && typeof body.value === "object" ? body.value as Record<string, unknown> : body;
-  const candidates = [value.commit, value.sha, value.revision, value.version];
-  const commit = candidates.find((v): v is string => typeof v === "string" && /^[0-9A-Za-z._-]{1,80}$/.test(v)) ?? null;
-  return { http_status: answer.status, outcome: answer.status >= 200 && answer.status < 300 ? "ok" : "error", commit };
+  const ok = answer.status >= 200 && answer.status < 300;
+  const commit = ok ? [value.commit, value.sha, value.revision, value.version].find((v): v is string => typeof v === "string" && DEPLOY_COMMIT.test(v)) ?? null : null;
+  const named = publicVersion(value.commit) ?? publicVersion(value.version);
+  const why = commit !== null ? null : !ok ? `/v1/health answered HTTP ${answer.status}` : named ? `/v1/health names ${named}, not a deploy commit` : "/v1/health names no deploy commit";
+  return { http_status: answer.status, outcome: ok ? "ok" : "error", commit, commit_unavailable: why };
+}
+
+/**
+ * The deploy serving a claim and whether one landed during it: the platform's commit first (it runs the claim; staging's
+ * API answers only a fixed version), and an overlap wherever a service named a commit both before and after.
+ */
+export function preclaimDeployFields(apiBefore: PreclaimHealthSnapshot, apiAfter: PreclaimHealthSnapshot, platformBefore: PreclaimHealthSnapshot, platformAfter: PreclaimHealthSnapshot): Pick<PreclaimMetFields, "staging_sha" | "staging_sha_unavailable" | "deploy_overlap" | "deploy_overlap_unavailable"> {
+  const sha = platformBefore.commit ?? apiBefore.commit;
+  const pairs = [[platformBefore, platformAfter], [apiBefore, apiAfter]].filter(([a, b]) => a.commit !== null && b.commit !== null);
+  return {
+    staging_sha: sha,
+    staging_sha_unavailable: sha !== null ? null : `platform: ${platformBefore.commit_unavailable}; api: ${apiBefore.commit_unavailable}`,
+    deploy_overlap: pairs.length ? pairs.some(([a, b]) => a.commit !== b.commit) : null,
+    deploy_overlap_unavailable: pairs.length ? null : "no service's /v1/health named a deploy commit both before and after the claim",
+  };
+}
+
+/**
+ * The claim's spare from its created_at to ready, both on the platform's clock: the cloud.spare.ready frame's `at`
+ * (SpareReady.ts), else the spare's running_since when the journey subscribed after it was ready (the subscribe
+ * snapshot names the spare but carries no time). Claim 0's spare was warmed before the burst, not refilled after a claim.
+ */
+export function preclaimRefillToReady(claim: number, spare: string | null, readyFrame: unknown, spareRow: unknown): Pick<PreclaimMetFields, "refill_to_ready_ms" | "refill_to_ready_unavailable"> {
+  const no = (why: string) => ({ refill_to_ready_ms: null, refill_to_ready_unavailable: why });
+  if (claim === 0) return no("claim 0's spare was warmed before the burst, not refilled after a claim");
+  if (spare === null) return no("warm-spare named no spare (the claim was a cold create)");
+  const event = normalizedWireValue(readyFrame);
+  const data = event.data && typeof event.data === "object" ? event.data as Record<string, unknown> : event;
+  const row = spareRow && typeof spareRow === "object" ? spareRow as Record<string, unknown> : {};
+  const readyAt = typeof data.at === "number" ? data.at : typeof row.running_since === "number" ? row.running_since : null;
+  if (readyAt === null) return no("neither the spare.ready frame nor the spare's record carries a ready time");
+  if (typeof row.created_at !== "number") return no("the spare's record has no created_at");
+  const ms = readyAt - row.created_at;
+  return ms < 0 ? no("the spare's ready time precedes its created_at") : { refill_to_ready_ms: Math.round(ms), refill_to_ready_unavailable: null };
+}
+
+/** Whether the claim took the spare the journey timed, and that spare's image: value.claim.behind (cmux-platform#1429). */
+export function preclaimRefillImage(answer: unknown, spare: string | null, machine: unknown): Pick<PreclaimMetFields, "refill_image" | "refill_image_unavailable"> {
+  const no = (why: string) => ({ refill_image: null, refill_image_unavailable: why });
+  if (spare === null) return no("warm-spare named no spare (the claim was a cold create)");
+  if (machine !== spare) return no("the claim did not take the spare the journey timed");
+  const behind = spareFields(answer).claimed_behind;
+  if (behind === null) return no("the claim answer has no value.claim to say behind or current");
+  return { refill_image: behind ? "behind" : "current", refill_image_unavailable: null };
+}
+
+/**
+ * The account's machine-minutes at t0 from cloud.plan.get's usage: the caller's own share when the plan splits it, else
+ * the team's. The meter answers null while the month's total is unknown; that reads as unavailable, never 0.
+ */
+export function preclaimHoldMinutes(plan: unknown, secrets: string[] = []): Pick<PreclaimBurstFacts, "hold_minutes_t0" | "hold_minutes_t0_unavailable"> {
+  if (plan instanceof Error) return { hold_minutes_t0: null, hold_minutes_t0_unavailable: `cloud.plan.get failed: ${publicError(plan.message, secrets).slice(0, 200)}` };
+  const usage = (plan as { usage?: Record<string, unknown> } | null)?.usage ?? {};
+  const hours = typeof usage.vm_hours_used_by_you === "number" ? usage.vm_hours_used_by_you : typeof usage.vm_hours_used === "number" ? usage.vm_hours_used : null;
+  if (hours === null) return { hold_minutes_t0: null, hold_minutes_t0_unavailable: "cloud.plan.get usage names no machine-hours (the meter has no total for this month)" };
+  return { hold_minutes_t0: Math.round(hours * 600) / 10, hold_minutes_t0_unavailable: null };
 }
 
 /** Lease ids are correlation handles in the public summary, never bearer values or machine ids. */
@@ -513,11 +709,53 @@ export function opaquePreclaimLeaseId(value: unknown): string | null {
   return `lease:${createHash("sha256").update(value).digest("hex").slice(0, 12)}`;
 }
 
-/** Public preclaim evidence is limited to timings, outcomes and opaque lease handles. */
-export function preclaimSummaryMarkdown(rows: PreclaimClaimRecord[], failures: PreclaimFailureRecord[] = []): string {
+/** Public preclaim evidence is limited to timings, outcomes, opaque lease handles and short deploy commits. */
+export function preclaimSummaryMarkdown(rows: PreclaimClaimRecord[], failures: PreclaimFailureRecord[] = [], burst: PreclaimBurstFacts | null = null): string {
   const summary = preclaimSummary(rows, failures);
   const yesNo = (v: boolean | null) => (v === null ? "unknown" : v ? "yes" : "no");
-  return ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- cold creates: ${summary.cold_creates}`, `- held claims (one image roll behind): ${summary.held_claims}`, `- held claim failures: ${summary.held_failures}`, `- image skips: ${summary.image_skips} (claims with one: ${summary.claims_with_image_skip})`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- replies: ${summary.replies}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease id | lease hit | held | health before | health after | claim answer | join | guest bind | connect_info | bound | post-bind login | first chat | first reply |", "|---:|:---|:---:|:---:|:---:|:---:|---:|---:|---:|---:|---:|:---|---:|---:|", ...rows.map((r) => `| ${r.claim} | ${r.lease_id ?? "-"} | ${yesNo(r.lease_hit)} | ${yesNo(r.claimed_behind)} | ${r.health_before.outcome} | ${r.health_after.outcome} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} | ${r.first_chat_ms ?? "-"} | ${r.first_reply_ms ?? "-"} |`)].join("\n") + "\n";
+  return ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- cold creates: ${summary.cold_creates}`, ...(rows.some((r) => r.spare_wait_ms !== null) ? [`- cold after the ready-spare wait ran out: ${summary.cold_after_wait}`, `- ready-spare wait p90: ${summary.spare_wait_p90_ms ?? "-"} ms`] : []), `- held claims (one image roll behind): ${summary.held_claims}`, `- held claim failures: ${summary.held_failures}`, `- image skips: ${summary.image_skips} (claims with one: ${summary.claims_with_image_skip})`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- replies: ${summary.replies}`, `- replies not judged: ${summary.replies_not_judged}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease id | lease hit | held | spare wait | health before | health after | claim answer | join | guest bind | connect_info | bound | post-bind login | first chat | first reply |", "|---:|:---|:---:|:---:|---:|:---:|:---:|---:|---:|---:|---:|---:|:---|---:|---:|", ...rows.map((r) => `| ${r.claim} | ${r.lease_id ?? "-"} | ${yesNo(r.lease_hit)} | ${yesNo(r.claimed_behind)} | ${r.spare_wait_ms === null ? "-" : `${r.spare_wait_ms}${r.cold_after_wait ? " (ran out)" : ""}`} | ${r.health_before.outcome} | ${r.health_after.outcome} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} | ${r.first_chat_ms ?? "-"} | ${r.first_reply_ms ?? "-"} |`)].join("\n") + "\n" + (burst ? `\n${preclaimMetMarkdown(rows, burst)}` : "");
+}
+
+/** Nearest-rank percentile (the burst's p90 rule), or null with no values. */
+const rankOf = (values: number[], q: number): number | null => values.length ? [...values].sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * q) - 1)] : null;
+const metCell = (value: unknown, why: string | null) => (value === null || value === undefined ? `unavailable: ${why ?? "not recorded"}` : String(value)).replace(/\|/g, "\\|");
+/** The distinct reasons the rows give for a missing value, so an empty aggregate names why. */
+const metWhy = (rows: PreclaimClaimRecord[], why: (r: PreclaimClaimRecord) => string | null, fallback: string) => [...new Set(rows.map(why).filter((w): w is string => Boolean(w)))].join("; ") || fallback;
+
+/**
+ * The lead's MET table: hit rate (bar 10/10), refill-to-ready p50/p90 split behind/current, post-bind login p90 on
+ * hits (bar 0.5 s), claim-to-first-text p90 against bound p90 + reply turn + 2 s, hold minutes at t0, and each claim's
+ * staging SHA and deploy overlap. Timings, outcomes and short commits only; any field not measured says why.
+ */
+export function preclaimMetMarkdown(rows: PreclaimClaimRecord[], burst: PreclaimBurstFacts): string {
+  const n = rows.length;
+  const hits = rows.filter((r) => r.lease_hit === true).length;
+  const lines = ["### MET table", "", "| measure | value | bar | met |", "|:---|:---|:---|:---:|"];
+  lines.push(n ? `| hit rate | ${hits}/${n} | 10/10 | ${hits === n && n >= 10 ? "yes" : "no"} |` : "| hit rate | unavailable: no claim completed | 10/10 | no |");
+  for (const image of ["behind", "current"] as const) {
+    const vs = rows.filter((r) => r.refill_image === image && r.refill_to_ready_ms !== null).map((r) => r.refill_to_ready_ms!);
+    const why = rows.some((r) => r.refill_to_ready_ms !== null) ? `no timed refill took a spare ${image === "behind" ? "one image roll behind" : "on the current image"}` : metWhy(rows, (r) => r.refill_to_ready_unavailable, "no claim completed");
+    lines.push(`| refill-to-ready p50 / p90 (${image}) | ${vs.length ? `${rankOf(vs, 0.5)} / ${rankOf(vs, 0.9)} ms (n=${vs.length})` : metCell(null, why)} | - | - |`);
+  }
+  const logins = rows.filter((r) => r.lease_hit === true && r.post_bind_login_ms !== null).map((r) => r.post_bind_login_ms!);
+  const loginP90 = rankOf(logins, 0.9);
+  const loginWhy = hits ? metWhy(rows.filter((r) => r.lease_hit === true), (r) => r.post_bind_login_ms_unavailable, "not recorded") : "no claim was a lease hit";
+  lines.push(`| post-bind login p90 (hits) | ${loginP90 === null ? metCell(null, loginWhy) : `${loginP90} ms (n=${logins.length})`} | 500 ms | ${loginP90 === null ? "-" : loginP90 <= 500 ? "yes" : "no"} |`);
+  const texts = rows.filter((r) => r.claim_to_first_text_ms !== null).map((r) => r.claim_to_first_text_ms!);
+  const textP90 = rankOf(texts, 0.9);
+  const boundP90 = rankOf(rows.filter((r) => r.claim_to_bound.bound_ms !== null).map((r) => r.claim_to_bound.bound_ms!), 0.9);
+  const replyP90 = rankOf(rows.filter((r) => r.first_reply_ms !== null).map((r) => r.first_reply_ms!), 0.9);
+  const bar = boundP90 !== null && replyP90 !== null ? boundP90 + replyP90 + 2000 : null;
+  const barWhy = boundP90 === null ? "no claim answer named its bound stage" : "no reply turn was timed";
+  lines.push(`| claim-to-first-text p90 | ${textP90 === null ? metCell(null, metWhy(rows, (r) => r.claim_to_first_text_unavailable, "no claim completed")) : `${textP90} ms (n=${texts.length})`} | ${bar === null ? metCell(null, barWhy) : `${bar} ms (bound p90 ${boundP90} + reply p90 ${replyP90} + 2000)`} | ${textP90 === null || bar === null ? "-" : textP90 <= bar ? "yes" : "no"} |`);
+  lines.push(`| hold minutes at t0 | ${metCell(burst.hold_minutes_t0, burst.hold_minutes_t0_unavailable)} | - | - |`);
+  lines.push(`| claims | ${n} of ${burst.claims_expected} | 10 | ${n === burst.claims_expected && n >= 10 ? "yes" : "no"} |`);
+  lines.push("", "| claim | lease hit | refill to ready ms | refill image | post-bind login ms | claim to first text ms | staging sha | deploy overlap |", "|---:|:---:|:---|:---|:---|:---|:---|:---|");
+  for (const r of rows) {
+    const overlap = r.deploy_overlap === null ? null : r.deploy_overlap ? "yes" : "no";
+    lines.push(`| ${r.claim} | ${r.lease_hit === null ? "unknown" : r.lease_hit ? "yes" : "no"} | ${metCell(r.refill_to_ready_ms, r.refill_to_ready_unavailable)} | ${metCell(r.refill_image, r.refill_image_unavailable)} | ${metCell(r.post_bind_login_ms, r.post_bind_login_ms_unavailable)} | ${metCell(r.claim_to_first_text_ms, r.claim_to_first_text_unavailable)} | ${metCell(r.staging_sha?.slice(0, 12) ?? null, r.staging_sha_unavailable)} | ${metCell(overlap, r.deploy_overlap_unavailable)} |`);
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 function normalizedWireValue(value: unknown): Record<string, unknown> {
@@ -617,23 +855,228 @@ export function clientPlatformOrigin(body: unknown): string {
   return url.origin;
 }
 
-export async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number }> {
+/**
+ * The first chat on a claimed machine. The agent starting and taking the prompt are claim-path facts and throw; the reply
+ * is the model's, so a refused or missing reply comes back as replyNotJudged and never fails the claim (lead: "make the
+ * gate read claim-path fields only, so a model limit can never block it again").
+ */
+export async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number | null; replyNotJudged: string | null }> {
   const started = Date.now();
   const ensured = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m claude --json 2>&1; echo "@@exit $?"`, 120_000);
-  if (!/@@exit 0/.test(ensured.stdout)) throw new Error(`preclaim ${session}: agent start refused`);
+  const ensureExit = /@@exit (\d+)/.exec(ensured.stdout)?.[1];
+  if (ensureExit !== "0") {
+    // Say why (run 43873927808 claim 4 kept only "agent start refused"): ensure's own exit, or the exec cutting it off.
+    const ran = `after ${Math.round((Date.now() - started) / 1000)} s`;
+    const how = ensureExit === undefined ? `no exit within the 120 s exec, code ${ensured.code}, ${ran}` : `exit ${ensureExit} ${ran}`;
+    const said = `${ensured.stdout.replace(/@@exit \d+\n?/, "")}${ensured.stderr}`.trim().slice(-300);
+    throw new Error(`preclaim ${session}: agent start refused (${how})${said ? `: ${said}` : ""}`);
+  }
   const chatMs = Date.now() - started;
   const sent = await exec(`${GUEST}printf '%s' ${shq(prompt)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
   if (!/@@exit 0/.test(sent.stdout)) throw new Error(`preclaim ${session}: chat send refused`);
   const waitStarted = Date.now();
   while (Date.now() - waitStarted < budgetMs) {
-    const reply = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1`, 45_000);
+    let reply: { stdout: string };
+    try {
+      reply = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1`, 45_000);
+    } catch (error) {
+      // The agent started and took the prompt; a read that drops now (run 43918388959: ECONNRESET) says nothing about the claim.
+      return { chatMs, replyMs: null, replyNotJudged: `reply wait read failed: ${String((error as Error)?.message ?? error).slice(0, 300)}` };
+    }
     const wait = /@@wait (\d+)/.exec(reply.stdout)?.[1];
     const text = reply.stdout.replace(/@@wait \d+\n?/, "").trim();
-    if (wait === "0" && text) return { chatMs, replyMs: Date.now() - waitStarted };
+    if (wait === "0" && text) return { chatMs, replyMs: Date.now() - waitStarted, replyNotJudged: null };
     // The send is queued: an idle exit before the turn starts is not a failed reply.
-    if (wait && wait !== "0" && wait !== "3") throw new Error(`preclaim ${session}: reply wait exit ${wait}`);
+    if (wait && wait !== "0" && wait !== "3") return { chatMs, replyMs: null, replyNotJudged: `reply wait exit ${wait}: ${await failedTurnWhy(exec, session, text)}` };
   }
-  throw new Error(`preclaim ${session}: no reply within ${budgetMs / 1000} s`);
+  return { chatMs, replyMs: null, replyNotJudged: `no reply within ${budgetMs / 1000} s` };
+}
+
+export type EnsureBenchCondition = "boot" | "settled" | "loaded";
+export type EnsureBenchRun = { condition: EnsureBenchCondition; run: number; ms: number | null; exit: string; load1: string; state: string; top: string; output: string; slow: string };
+
+/**
+ * --ensure-bench: one timed `acp ensure` in its own session (claim 4 of run 43873927808 read "agent start refused" after
+ * about 2 min at load 3.9 on 2 cores). Prints load1, the boot state and the top CPU users at its start; with load, two
+ * busy children hold both cores for its length and are killed by their PIDs. Past 30 s, the session's acp tail and the
+ * journal of its span follow @@slow. Ensure gets 280 s, inside the 300 s exec, so a slow start is timed, not cut off.
+ */
+export function ensureBenchCommand(session: string, load: boolean): string {
+  const s = shq(session);
+  return `${GUEST}load1=$(cut -d' ' -f1 /proc/loadavg); state=$(systemctl is-system-running 2>/dev/null); ` +
+    `top=$(ps -eo pcpu,comm --sort=-pcpu | sed -n 2,6p | sed 's/^ *//' | paste -sd';'); ` +
+    (load ? "yes >/dev/null & y1=$!; yes >/dev/null & y2=$!; " : "") +
+    `s0=$(date +%s); t0=$(date +%s%N); out=$(timeout 280 "$c" acp ensure ${s} -m claude --json 2>&1); rc=$?; t1=$(date +%s%N); ms=$(( (t1 - t0) / 1000000 )); ` +
+    (load ? "kill $y1 $y2 2>/dev/null; " : "") +
+    `printf '@@ms %s\n@@exit %s\n@@load1 %s\n@@state %s\n@@top %s\n@@out %s\n' "$ms" "$rc" "$load1" "$state" "$top" "$(printf '%s' "$out" | tail -c 300 | tr '\n' ' ')"; ` +
+    `if [ "$ms" -gt 30000 ]; then echo "@@slow"; "$c" acp tail ${s} 2>&1 | tail -30 | cut -c1-300; journalctl -m --no-pager -o short-monotonic --since "@$s0" 2>/dev/null | tail -60 | cut -c1-300; fi; ` +
+    `"$c" acp stop ${s} >/dev/null 2>&1; true`;
+}
+
+/** One ensureBenchCommand answer; a run with no answer reads ms null and exit "none". */
+export function parseEnsureBench(stdout: string, condition: EnsureBenchCondition, run: number): EnsureBenchRun {
+  const field = (key: string) => new RegExp(`^@@${key} ?(.*)$`, "m").exec(stdout)?.[1]?.trim() ?? "";
+  const ms = Number(field("ms"));
+  const slowAt = stdout.indexOf("@@slow\n");
+  return { condition, run, ms: field("ms") !== "" && Number.isFinite(ms) ? ms : null, exit: field("exit") || "none", load1: field("load1"), state: field("state"), top: field("top"), output: field("out"), slow: slowAt < 0 ? "" : stdout.slice(slowAt + 7).trim() };
+}
+
+/** The public table: per condition p50, max and runs past the 120 s exec; per run its time, exit, load and top CPU users. */
+export function ensureBenchMarkdown(runs: EnsureBenchRun[]): string {
+  const over = (ms: number | null) => ms !== null && ms > 120_000;
+  const lines = ["## acp ensure on a fresh staging machine", "", `- runs: ${runs.length}; crossed 120 s: ${runs.filter((r) => over(r.ms)).length} of ${runs.length}`, "", "| condition | runs | p50 ms | max ms | over 120 s |", "|:---|---:|---:|---:|---:|"];
+  for (const condition of ["boot", "settled", "loaded"] as const) {
+    const ms = runs.filter((r) => r.condition === condition && r.ms !== null).map((r) => r.ms!).sort((a, b) => a - b);
+    if (ms.length) lines.push(`| ${condition} | ${ms.length} | ${ms[Math.max(0, Math.ceil(ms.length * 0.5) - 1)]} | ${ms[ms.length - 1]} | ${ms.filter((m) => m > 120_000).length} |`);
+  }
+  lines.push("", "| condition | run | ms | exit | load1 | boot state | top CPU at start |", "|:---|---:|---:|---:|---:|:---|:---|");
+  for (const r of runs) lines.push(`| ${r.condition} | ${r.run} | ${r.ms ?? "-"} | ${r.exit} | ${r.load1 || "-"} | ${r.state || "-"} | ${(r.top || "-").replace(/\|/g, "\\|")} |`);
+  return `${lines.join("\n")}\n`;
+}
+
+/** Where each exec probe leaves its nonce on the guest, so a lost answer shows whether its command ran there. */
+export const EXEC_PROBE_NONCES = "/tmp/.cmux-exec-probe-nonces";
+const EXEC_PROBE_SHORT = 100;
+const EXEC_PROBE_WAITS = 5;
+const EXEC_PROBE_IDLE_S = [5, 5, 15, 15, 30, 30, 65, 65];
+/** Both cores busy for the loaded sweep, bounded by timeout, every descriptor closed so the exec answers at once. */
+const EXEC_PROBE_LOAD_START = "for i in 1 2; do setsid timeout 900 yes </dev/null >/dev/null 2>&1 & echo $! >> /tmp/.cmux-exec-probe-load; done; true";
+const EXEC_PROBE_LOAD_STOP = "kill $(cat /tmp/.cmux-exec-probe-load) 2>/dev/null; rm -f /tmp/.cmux-exec-probe-load; true";
+export type ExecProbeKind = "short" | "idle" | "wait";
+export type ExecProbeRun = { condition: EnsureBenchCondition; kind: ExecProbeKind; run: number; nonce: string; ms: number; status: number | null; code: string; cause: string; ranOnGuest: boolean | null };
+
+/** A probe's command: its nonce first, then `holdS` seconds of waiting (an `acp wait` read is about 20 s), then `ok`. */
+export function execProbeCommand(nonce: string, holdS: number): string {
+  return `echo ${nonce} >> ${EXEC_PROBE_NONCES}; ${holdS > 0 ? `sleep ${holdS}; ` : ""}echo ok`;
+}
+
+/**
+ * One probe through the machine exec route (POST /v1/cloud/machines/{machine}/exec, the route a staging machine's exec
+ * takes), kept whatever happens: the answer's status and refusal, or what the request threw with no answer
+ * (run 43918388959's claim 2 kept only "ECONNRESET").
+ */
+export async function execProbe(post: (body: unknown, timeoutMs: number) => Promise<Answer>, nonce: string, holdS: number): Promise<Pick<ExecProbeRun, "ms" | "status" | "code" | "cause">> {
+  const t0 = Date.now();
+  try {
+    const r = await post({ command: execProbeCommand(nonce, holdS), timeoutMs: (holdS + 30) * 1000 }, (holdS + 45) * 1000);
+    const v: any = r.body?.value ?? r.body;
+    if (r.status >= 200 && r.status < 300 && v?.ok !== false && Number(v?.exitCode) === 0 && String(v?.stdout ?? "").includes("ok")) return { ms: Date.now() - t0, status: r.status, code: "", cause: "" };
+    const code = v?.error ? String(v.error.reason ?? v.error.code ?? "error") : `exit ${v?.exitCode ?? "?"}`;
+    return { ms: Date.now() - t0, status: r.status, code, cause: String(v?.error?.message ?? v?.stderr ?? short(v)).slice(0, 200) };
+  } catch (error) {
+    const e = error as any;
+    return { ms: Date.now() - t0, status: null, code: String(e?.code ?? e?.cause?.code ?? e?.name ?? "error"), cause: String(e?.message ?? error).slice(0, 200) };
+  }
+}
+
+/** Where a failed probe ended, from its answer (MachineGuest.ts names each refusal) or, with none, the guest's nonces. */
+export function execProbeHop(r: ExecProbeRun): string | null {
+  if (r.status !== null && r.code === "") return null;
+  if (r.status === null) {
+    if (r.ranOnGuest === true) return "answer lost after the guest ran it";
+    if (r.ranOnGuest === false) return "request lost before the guest";
+    return "no answer; guest nonces unread";
+  }
+  if (r.status === 503 && ["overloaded", "restarted", "unreachable"].includes(r.code)) return `Worker → CloudDO (${r.code})`;
+  if (r.status === 502) return "CloudDO → provider exec";
+  if (r.status >= 520 && r.status <= 530) return `edge → Worker (HTTP ${r.status})`;
+  if (r.status >= 200 && r.status < 300) return `guest command (${r.code})`;
+  return `HTTP ${r.status} ${r.code}`;
+}
+
+/** The public table: per condition and kind the probes, failures, p50 and max; then one row per failed probe. */
+export function execProbeMarkdown(runs: ExecProbeRun[]): string {
+  const failed = runs.filter((r) => execProbeHop(r) !== null);
+  const lines = ["## Machine exec drops on a fresh staging machine", "", `- probes: ${runs.length}; failed: ${failed.length} (no answer: ${failed.filter((r) => r.status === null).length}, refused: ${failed.filter((r) => r.status !== null).length})`, "", "| condition | kind | probes | failed | p50 ms | max ms |", "|:---|:---|---:|---:|---:|---:|"];
+  for (const condition of ["boot", "settled", "loaded"] as const) {
+    for (const kind of ["short", "idle", "wait"] as const) {
+      const group = runs.filter((r) => r.condition === condition && r.kind === kind);
+      if (!group.length) continue;
+      const ms = group.map((r) => r.ms).sort((a, b) => a - b);
+      lines.push(`| ${condition} | ${kind} | ${group.length} | ${group.filter((r) => execProbeHop(r) !== null).length} | ${ms[Math.max(0, Math.ceil(ms.length * 0.5) - 1)]} | ${ms[ms.length - 1]} |`);
+    }
+  }
+  if (failed.length) {
+    lines.push("", "| condition | kind | run | ms | status | code | ran on guest | hop | cause |", "|:---|:---|---:|---:|---:|:---|:---|:---|:---|");
+    for (const r of failed) lines.push(`| ${r.condition} | ${r.kind} | ${r.run} | ${r.ms} | ${r.status ?? "-"} | ${r.code} | ${r.ranOnGuest === null ? "unread" : r.ranOnGuest ? "yes" : "no"} | ${execProbeHop(r)} | ${r.cause.replace(/\|/g, "\\|").replace(/\n/g, " ")} |`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/** Which failed probes' nonces the guest holds: null for every one when the nonce file could not be read. */
+export function markRanOnGuest(runs: ExecProbeRun[], nonces: string | null): ExecProbeRun[] {
+  const seen = nonces === null ? null : new Set(nonces.split("\n").map((l) => l.trim()).filter(Boolean));
+  return runs.map((r) => (r.status !== null ? r : { ...r, ranOnGuest: seen === null ? null : seen.has(r.nonce) }));
+}
+
+/**
+ * --ensure-bench N: one fresh machine created as a cold claim is, its Claude login installed as a cold claim's is, then N
+ * timed ensures right after it runs (first-boot work still going), N once boot settles (systemctl is-system-running
+ * --wait), and N with both cores busy. Public table to the out dir; outputs and slow-run journals to the private rows.
+ */
+export async function runEnsureBench(args: { api: Api; journey: Journey; backend: string; tag: string; n: number; login: string; programs: ReturnType<typeof loginPrograms>; ownerScope: string; outDir: string | null; privateRowsPath?: string }): Promise<EnsureBenchRun[]> {
+  const runs: EnsureBenchRun[] = [];
+  let probes: ExecProbeRun[] = [];
+  const boot: Record<string, string> = {};
+  const answer = await args.api.op("cloud.machine.create", { name: `cloud ensure bench ${args.tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-ensure-bench`);
+  const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
+  if (typeof machine !== "string") throw new Error(`create answered no machine: ${short(answer)}`);
+  const write = () => {
+    if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "ensure-bench.md"), `${ensureBenchMarkdown(runs)}\n${execProbeMarkdown(probes)}`); }
+    const rows = runs.map((r) => ({ ...r, output: scrub(r.output, args.journey.secrets), slow: scrub(r.slow, args.journey.secrets).slice(-6000) }));
+    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend, summary: { runs: runs.length, crossed_120s: runs.filter((r) => r.ms !== null && r.ms > 120_000).length, probes: probes.length, probes_failed: probes.filter((r) => execProbeHop(r) !== null).length }, boot: Object.fromEntries(Object.entries(boot).map(([k, v]) => [k, scrub(v, args.journey.secrets).slice(-4000)])) }, rows, probes: probes.map((r) => ({ ...r, cause: scrub(r.cause, args.journey.secrets) })) }, null, 2)}\n`);
+  };
+  try {
+    await waitMachine(args.api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+    const exec = directExec(args.api, machine, args.journey);
+    const post = (body: unknown, timeoutMs: number) => args.api.raw("POST", `/v1/cloud/machines/${machine}/exec`, body, timeoutMs);
+    const probe = async (condition: EnsureBenchCondition, kind: ExecProbeKind, run: number, holdS: number) => {
+      const nonce = `${args.tag}-${condition}-${kind}-${run}`.replace(/[^A-Za-z0-9_.-]/g, "-");
+      probes.push({ condition, kind, run, nonce, ranOnGuest: null, ...(await execProbe(post, nonce, holdS)) });
+    };
+    // Short execs back to back, 20 s holds like an `acp wait` read, and (settled) one after each idle gap, where a
+    // pooled connection the far end already closed would be reused.
+    const sweep = async (condition: EnsureBenchCondition) => {
+      for (let i = 0; i < EXEC_PROBE_SHORT; i++) await probe(condition, "short", i, 0);
+      if (condition === "settled") for (const [i, gapS] of EXEC_PROBE_IDLE_S.entries()) { await sleep(gapS * 1000); await probe(condition, "idle", i, 0); }
+      for (let i = 0; i < EXEC_PROBE_WAITS; i++) await probe(condition, "wait", i, 20);
+      write();
+    };
+    await sweep("boot");
+    boot.jobs_at_running = (await exec("systemctl list-jobs --no-pager 2>&1 | head -20; systemctl is-system-running 2>&1", 60_000)).stdout;
+    await installPreclaimLogin(args.api, machine, exec, args.programs, args.login, 0, args.ownerScope);
+    const timed = async (condition: EnsureBenchCondition) => {
+      for (let i = 0; i < args.n; i++) {
+        const result = await exec(ensureBenchCommand(`bench-${args.tag}-${condition}-${i}`, condition === "loaded"), 300_000).catch((e) => ({ code: 1, stdout: "", stderr: String((e as Error)?.message ?? e) }));
+        runs.push(parseEnsureBench(result.stdout, condition, i));
+        write();
+      }
+    };
+    await timed("boot");
+    boot.settle = (await exec("timeout 600 systemctl is-system-running --wait 2>&1; systemctl list-jobs --no-pager 2>&1 | head -10; systemd-analyze blame 2>/dev/null | head -15", 300_000)).stdout;
+    await timed("settled");
+    await sweep("settled");
+    await timed("loaded");
+    await exec(`${EXEC_PROBE_LOAD_START}`, 60_000).catch(() => undefined);
+    await sweep("loaded");
+    await exec(`${EXEC_PROBE_LOAD_STOP}`, 60_000).catch(() => undefined);
+    const nonces = await exec(`cat ${EXEC_PROBE_NONCES}`, 60_000).then((r) => (r.code === 0 ? r.stdout : null), () => null);
+    probes = markRanOnGuest(probes, nonces);
+  } finally {
+    write();
+    await args.api.deleteMachine(machine, `${args.tag}-ensure-bench-delete`).catch(() => undefined);
+  }
+  return runs;
+}
+
+/**
+ * Why a turn failed: a failed turn (`acp wait` exit 1) prints no reply, so this names the session's last turn_error
+ * (e.g. a harness with no sign-in on the machine), else the last message (run 43817240410 recorded only "exit 1").
+ */
+export async function failedTurnWhy(exec: Exec, session: string, last: string): Promise<string> {
+  const h = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -E '"kind":"turn_error"' | tail -1`, 45_000).catch(() => null);
+  const why = /"error":"((?:[^"\\]|\\.)*)"/.exec(h?.stdout ?? "")?.[1] ?? "";
+  return (why || last).slice(-300);
 }
 
 /** A cold claim has no warm receipt, so it uses the same credential transfer after bind. */
@@ -655,8 +1098,34 @@ async function installPreclaimLogin(api: Api, machine: string, exec: Exec, progr
   }
 }
 
-/** A spare warmed for the account with the person's login copied onto it on spare.ready, as the app's SpareReady path. */
-export type PreparedSpare = { spare: string | null; generation: unknown; leaseId: string | null; request: Record<string, unknown> };
+/**
+ * A spare warmed for the account with the person's login copied onto it on spare.ready, as the app's SpareReady path.
+ * `readyFrame` and `spareRow` time its refill to ready (preclaimRefillToReady); both null with no spare.
+ */
+export type PreparedSpare = { spare: string | null; generation: unknown; leaseId: string | null; request: Record<string, unknown>; readyFrame?: unknown; spareRow?: unknown };
+
+/** A claim's bounded wait for a ready spare: how long, how many warms, and whether the bound ran out first. */
+export type SpareWait = { waited_ms: number; attempts: number; cold_after_wait: boolean };
+
+/**
+ * --spare-wait: before a claim, ask the warm (the same warm-spare the claim path reads) until it names a ready spare, for at
+ * most budgetMs, so a one-spare pool can refill between claims and a burst tests make-before-break rather than refill speed.
+ * With no budget it asks once (wait null). When the bound runs out the claim still goes ahead, marked cold_after_wait.
+ */
+export async function waitForReadySpare<T extends { spare: string | null }>(prepare: () => Promise<T>, budgetMs: number, opts: { pollMs?: number; now?: () => number; sleep?: (ms: number) => Promise<void> } = {}): Promise<{ prepared: T; wait: SpareWait | null }> {
+  if (!(budgetMs > 0)) return { prepared: await prepare(), wait: null };
+  const pollMs = opts.pollMs ?? 15_000;
+  const now = opts.now ?? Date.now;
+  const pause = opts.sleep ?? sleep;
+  const started = now();
+  for (let attempts = 1; ; attempts++) {
+    const prepared = await prepare();
+    const waited = now() - started;
+    if (prepared.spare !== null) return { prepared, wait: { waited_ms: waited, attempts, cold_after_wait: false } };
+    if (waited + pollMs > budgetMs) return { prepared, wait: { waited_ms: waited, attempts, cold_after_wait: true } };
+    await pause(pollMs);
+  }
+}
 
 /**
  * The app's part on a warm spare (SpareReady): warm-spare names a spare, the journey waits for its cloud.spare.ready,
@@ -682,19 +1151,20 @@ export async function prepareSpareLogin(a: {
   const spare = typeof warm.machine === "string" ? warm.machine : null;
   let copy = warm.copy && typeof warm.copy === "object" ? warm.copy as Record<string, unknown> : {};
   let leaseId = opaquePreclaimLeaseId(warm.lease_id ?? warm.leaseId ?? warm.reservation_id ?? warm.reservationId);
+  let readyFrame: unknown = null, spareRow: unknown = null;
   if (spare) {
-    await waitForCloudSpareReady({ ...a.api, team: a.wireTeam }, spare, a.readyBudgetMs);
+    readyFrame = await waitForCloudSpareReady({ ...a.api, team: a.wireTeam }, spare, a.readyBudgetMs);
     const ready = await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, ready: spare });
     leaseId ??= opaquePreclaimLeaseId(ready.lease_id ?? ready.leaseId ?? ready.reservation_id ?? ready.reservationId);
     if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
     const exec = directExec(a.api, spare, a.journey);
-    await waitMachine(a.api, spare, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+    spareRow = await waitMachine(a.api, spare, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
     await installPreclaimLogin(a.api, spare, exec, a.programs, a.login, a.index, a.ownerScope);
     const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
     if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${a.index}: guest receipt missing before claim`);
     if (copy.generation) await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, installed: spare, generation: copy.generation });
   }
-  return { spare, generation: copy.generation, leaseId, request: a.request };
+  return { spare, generation: copy.generation, leaseId, request: a.request, readyFrame, spareRow };
 }
 
 /** Whether the claim answer's machine carries the login the spare's copy installed (warm-spare loginReceipt). */
@@ -718,6 +1188,10 @@ export async function runPreclaimBurst(args: {
   privateRowsPath?: string;
   team?: string;
   user: any;
+  /** The platform origin's /v1/health read (tests answer it; the API's own reads go through `api`). */
+  fetchJson?: typeof http;
+  /** --spare-wait: the bound on each claim's wait for a ready spare (waitForReadySpare); 0 claims at once. */
+  spareWaitMs?: number;
 }): Promise<number> {
   if (!args.cmux) throw new Error("--preclaim needs --cmux PATH so the shipped Rust warm/ready path is exercised");
   if (!validLogin("claude", args.login)) throw new Error("--preclaim needs a valid Claude setup-token login (or --model stub)");
@@ -734,49 +1208,91 @@ export async function runPreclaimBurst(args: {
   const scopeOf = (origin: string) => ({ platform: origin, team: scopeTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") });
   const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(args.team));
   const account = args.account;
+  const fetchJson = args.fetchJson ?? http;
+  // The platform runs the claim, so its deploy commit is the staging SHA; a failed read is a reason, not a failed claim.
+  const platformHealth = (origin: string) => fetchJson("GET", `${origin}/v1/health`, undefined, {}, 30_000).then(preclaimHealthSnapshot, (error): PreclaimHealthSnapshot => ({ http_status: 0, outcome: "error", commit: null, commit_unavailable: `platform /v1/health failed: ${publicError(String((error as Error)?.message ?? error), args.journey.secrets).slice(0, 120)}` }));
+  const burst: PreclaimBurstFacts = { claims_expected: args.claims, hold_minutes_t0: null, hold_minutes_t0_unavailable: "not read yet" };
   const writeOutput = () => {
+    // The journey's own summary gets the rows and failures whether or not anything is written to disk.
+    args.journey.preclaimRows = rows;
+    args.journey.preclaimBurst = burst;
+    args.journey.preclaimFailures = failures;
     if (!args.outDir && !args.privateRowsPath) return;
     if (args.outDir) mkdirSync(args.outDir, { recursive: true });
     const summary = { ...preclaimSummary(rows, failures), outcome: verificationFailed || !preclaimRunComplete(rows, failures, args.claims) ? "fail" : "pass", complete: preclaimRunComplete(rows, failures, args.claims) };
-    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend.name, summary }, rows, failures }, null, 2)}\n`);
-    args.journey.preclaimRows = rows;
-    args.journey.preclaimFailures = failures;
+    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend.name, summary, burst }, rows, failures }, null, 2)}\n`);
     args.journey.flush();
   };
   try {
+    // Hold minutes at t0: the account's machine-minutes before claim 0 makes any machine.
+    Object.assign(burst, preclaimHoldMinutes(await Promise.resolve().then(() => args.api.read("cloud.plan.get", {})).catch((error) => error instanceof Error ? error : new Error(String(error))), args.journey.secrets));
     for (let index = 0; index < args.claims; index++) {
       let claimedMachine: string | null = null;
       let claimedBehind: boolean | null = null;
+      // The step a failure happened in, named on its row (run 43918388959 kept only "ECONNRESET").
+      let step = "health before";
       try {
       const healthBefore = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
+      step = "client-config";
       platform ??= clientPlatformOrigin((await args.api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+      const platformHealthBefore = await platformHealth(platform);
       const scope = scopeOf(platform);
       const request = { platform, account, scope, currentScope: scope };
-      const prepared = await prepareSpareLogin({ api: args.api, cmux: args.cmux, stateDir, installToken: args.install.token, request, wireTeam, programs, login: args.login, ownerScope: args.team ? "owner or team" : "owner", index, journey: args.journey });
+      step = "warm spare";
+      const { prepared, wait: spareWait } = await waitForReadySpare(() => prepareSpareLogin({ api: args.api, cmux: args.cmux, stateDir, installToken: args.install.token, request, wireTeam, programs, login: args.login, ownerScope: args.team ? "owner or team" : "owner", index, journey: args.journey }), args.spareWaitMs ?? 0);
       const { spare, leaseId } = prepared;
+      const claimSentAt = Date.now();
+      step = "claim";
       const answer = await args.api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-preclaim-${index}`);
       const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
       claimedMachine = typeof machine === "string" ? machine : null;
       claimedBehind = spareFields(answer).claimed_behind;
       const explicitLease = classifyLeaseHit(answer);
       const leaseHit = explicitLease ?? (spare === null ? false : typeof machine === "string" ? machine === spare : null);
+      const loginMode = preclaimLoginMode(spare, typeof machine === "string" ? machine : null);
+      // Post-bind login: the receipt check on a hit (the login is already on the spare), the copy itself on a miss.
+      let postBindLoginMs: number | null = null;
+      let postBindLoginWhy: string | null = "the claim answered no machine";
       if (typeof machine === "string") {
+        step = "wait running";
         await waitMachine(args.api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
-        if (preclaimLoginMode(spare, machine) === "post-bind") {
+        if (loginMode === "post-bind") {
+          step = "post-bind login";
+          const copyAt = Date.now();
           await installPreclaimLogin(args.api, machine, directExec(args.api, machine, args.journey), programs, args.login, index, args.team ? "owner or team" : "owner");
+          postBindLoginMs = Date.now() - copyAt;
+          postBindLoginWhy = null;
         }
       }
+      step = "login receipt";
+      const receiptAt = Date.now();
       const receiptInstalled = typeof machine === "string" ? await spareLoginReceipt(args.cmux, args.api, stateDir, args.install.token, prepared, machine) : false;
+      if (typeof machine === "string" && loginMode === "preclaim") {
+        postBindLoginMs = prepared.generation ? Date.now() - receiptAt : null;
+        postBindLoginWhy = prepared.generation ? null : "the spare's copy named no generation, so no login receipt was asked";
+      }
       let firstChatMs: number | null = null;
       let firstReplyMs: number | null = null;
+      let claimToFirstTextMs: number | null = null;
+      let replyNotJudged: string | null = null;
       if (typeof machine === "string") {
+        step = "first chat";
         const chat = await runPreclaimChat(directExec(args.api, machine, args.journey), `preclaim-${args.tag}-${index}`, `Reply with one short sentence for preclaim ${index}.`, 300_000);
+        claimToFirstTextMs = chat.replyMs === null ? null : Date.now() - claimSentAt;
         firstChatMs = chat.chatMs;
         firstReplyMs = chat.replyMs;
+        replyNotJudged = chat.replyNotJudged === null ? null : scrub(chat.replyNotJudged, args.journey.secrets).slice(0, 600);
       }
+      step = "health after";
       const healthAfter = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
-      const loginMode = preclaimLoginMode(spare, typeof machine === "string" ? machine : null);
-      const record = preclaimClaimRecord({ claim: index, machine, spare, leaseId, answer, leaseHit, healthBefore, healthAfter, firstChatMs, firstReplyMs, postBindLogin: loginMode === "post-bind" ? "post-bind" : receiptInstalled ? "receipt" : "missing" });
+      const platformHealthAfter = await platformHealth(platform);
+      const met: Partial<PreclaimMetFields> = {
+        ...preclaimRefillToReady(index, spare, prepared.readyFrame ?? null, prepared.spareRow ?? null),
+        ...preclaimRefillImage(answer, spare, machine),
+        post_bind_login_ms: postBindLoginMs, post_bind_login_ms_unavailable: postBindLoginWhy,
+        claim_to_first_text_ms: claimToFirstTextMs, claim_to_first_text_unavailable: claimToFirstTextMs !== null ? null : replyNotJudged !== null ? `no first text: ${replyNotJudged.slice(0, 200)}` : "the claim answered no machine, so no chat ran",
+      };
+      const record = preclaimClaimRecord({ claim: index, machine, spare, leaseId, answer, leaseHit, healthBefore, healthAfter, platformHealthBefore, platformHealthAfter, firstChatMs, firstReplyMs, replyNotJudged, spareWait, met, postBindLogin: loginMode === "post-bind" ? "post-bind" : receiptInstalled ? "receipt" : "missing" });
       rows.push(record);
       if (typeof machine === "string") {
         await args.api.deleteMachine(machine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
@@ -784,10 +1300,12 @@ export async function runPreclaimBurst(args: {
       }
       writeOutput();
       } catch (error) {
+        // The machine's own facts first: deleting it is the end of every log that says why.
+        const guest = claimedMachine ? await preclaimGuestFacts(directExec(args.api, claimedMachine, args.journey), `preclaim-${args.tag}-${index}`) : undefined;
         if (claimedMachine) await args.api.deleteMachine(claimedMachine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
-        failures.push(preclaimFailureRecord(index, error, args.journey.secrets, claimedBehind));
+        failures.push(preclaimFailureRecord(index, `${step}: ${String(error instanceof Error ? error.message : error)}`, args.journey.secrets, claimedBehind, guest));
         writeOutput();
-        throw error;
+        // Record it and go on: claim-path rows keep coming, and the burst still ends red (preclaimRunComplete).
       }
     }
   } finally {
@@ -2002,6 +2520,31 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
   return out;
 }
 
+/**
+ * The installs earlier journey runs registered and never revoked: kind cli, named `cloud journey jr-<tag>` (the
+ * name only the journey's install token step gives), not revoked, whose tag is more than `maxAgeMs` old. A run
+ * revokes its own at cleanup; one killed first leaves it live, and a user's live installs are never pruned (only
+ * revoked ones past MAX_REVOKED_INSTALLS, backend/apps/api/src/domains/user.ts). Before any run revoked, they filled
+ * the staging account's state: install.register answered owner.state_full, 1500285 of 1500000 bytes (2026-11-16).
+ * Ownership is the name, as for machines: any other name, and a tag that does not read as a time, are never picked.
+ */
+export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS): string[] {
+  const out: string[] = [];
+  for (const i of installs) {
+    if (!i || i.revoked_at !== null || i.kind !== "cli") continue;
+    const m = /^cloud journey (jr-([0-9a-z]+))$/.exec(typeof i.name === "string" ? i.name : "");
+    if (!m) continue;
+    const started = parseInt(m[2], 36);
+    if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
+    if (nowMs - started <= maxAgeMs) continue;
+    if (typeof i.id === "string" && i.id) out.push(i.id);
+  }
+  return out;
+}
+
+/** The most time one run spends revoking leaked installs; the next run takes the rest. */
+export const INSTALL_SWEEP_BUDGET_MS = 60_000;
+
 /** Every page of cloud.machine.list (`next_cursor`), at most `maxPages` pages. */
 export async function listAllMachines(read: (params: Record<string, unknown>) => Promise<any>, maxPages = 20): Promise<any[]> {
   const rows: any[] = [];
@@ -2558,6 +3101,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const cmux = argValue("--cmux", argv);
   const preclaim = argv.includes("--preclaim");
   const preclaimClaims = Number(argValue("--claims", argv) ?? 10);
+  // --ensure-bench N (with --preclaim): time acp ensure on one fresh machine instead of the burst (runEnsureBench).
+  // PRECLAIM_ENSURE_BENCH=N does the same, so the dispatch sets it from its env without changing the burst's command line.
+  const ensureBench = argValue("--ensure-bench", argv) ?? (process.env.PRECLAIM_ENSURE_BENCH || undefined);
+  // --spare-wait SECONDS (0..900): each preclaim claim first waits, at most this long, for the warm to name a ready spare.
+  const preclaimSpareWait = Number(argValue("--spare-wait", argv) ?? 0);
+  if (!Number.isInteger(preclaimSpareWait) || preclaimSpareWait < 0 || preclaimSpareWait > 900) throw new Error("--spare-wait must be 0..900 seconds");
   // --machine ID: run on that existing machine and keep it (no create, pause, resume or delete).
   const reuse = argValue("--machine", argv);
   const keyedStart = argv.includes("--keyed-start");
@@ -2683,6 +3232,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     probeExtra.failure_facts = facts;
     J.record({ step: "failure facts", status: "skip", ms: Date.now() - t0, detail: `read before any delete: ${JSON.stringify(facts)}` });
   };
+  // This run's install (install token step), revoked at cleanup.
+  let journeyInstall: string | null = null;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
   const cleanup = sharedCleanup(async () => {
@@ -2714,6 +3265,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }).catch(() => undefined);
     }
     if (keep || !api.bearer) return;
+    // This run's own install, so it never adds to the account's live installs (a sweep takes a killed run's).
+    if (journeyInstall) {
+      const own: string = journeyInstall;
+      journeyInstall = null;
+      const t0 = Date.now();
+      await api.op("install.revoke", { install: own }, `${tag}-install-revoke`).then(
+        () => J.record({ step: "revoke install (cleanup)", status: "pass", ms: Date.now() - t0, detail: own }),
+        (e) => J.record({ step: "revoke install (cleanup)", status: "skip", ms: Date.now() - t0, detail: `${own}: ${String((e as Error)?.message ?? e).slice(0, 300)}` }));
+    }
     if (gatewayMachine) {
       const g: string = gatewayMachine;
       await J.step("delete gateway machine (cleanup)", async () => {
@@ -2780,6 +3340,27 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
     });
+    if (!keep) {
+      // Installs that killed runs left live fill the account's state until install.register is refused
+      // (owner.state_full). Revoked ones past 100 are pruned, so revoking frees the space. Never fails the journey.
+      const name = "sweep leaked journey installs";
+      const t0 = Date.now();
+      const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
+      try {
+        const v = await api.read("install.list", {});
+        const stale = staleJourneyInstalls(Array.isArray(v?.installs) ? v.installs : [], Date.now());
+        const failed: string[] = [];
+        let revoked = 0;
+        for (const id of stale) {
+          if (Date.now() - t0 > INSTALL_SWEEP_BUDGET_MS) break;
+          await api.op("install.revoke", { install: id }, `${tag}-sweep-install-${id}`).then(() => revoked++, (e) => failed.push(`${id}: ${err(e)}`));
+        }
+        const detail = `${revoked} of ${stale.length} leaked revoked (${v?.installs?.length ?? 0} installs)${failed.length ? `; failed ${failed.slice(0, 3).join("; ")}` : ""}`;
+        J.record({ step: name, status: failed.length ? "skip" : "pass", ms: Date.now() - t0, detail });
+      } catch (e) {
+        J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
+      }
+    }
     const install = await J.step("install token", async () => {
       const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
       const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
@@ -2792,6 +3373,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.secrets.push(tok.body.access_token);
       return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
     });
+    journeyInstall = install.id;
     // The NEXT app mints its install token for its active Stack team (a challenge that names the team), which
     // heals a team TeamDO never mirrored from Stack. On production that mint ran past the app's 25 s limit
     // (cmuxterm-hq run 43577358598, 2026-11-14) while the unscoped mint above passed. --team, else the account's
@@ -2831,6 +3413,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const accountTeam = team ?? String(user?.personal_team ?? user?.team ?? "");
       const account = `${userId}/${accountTeam}`;
       if (!userId) throw new Error("preclaim: user.ensure returned no user id");
+      if (ensureBench !== undefined) {
+        const n = Number(ensureBench);
+        if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("--ensure-bench must be 1..10");
+        if (!validLogin("claude", claudeLogin)) throw new Error("--ensure-bench needs a valid Claude setup-token login");
+        return await J.step("ensure bench", async () => {
+          const runs = await runEnsureBench({ api, journey: J, backend: backend.name, tag, n, login: claudeLogin, programs: loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(team)), ownerScope: team ? "owner or team" : "owner", outDir, privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS });
+          const crossed = runs.filter((r) => r.ms !== null && r.ms > 120_000).length;
+          return { value: 0, detail: `${runs.length} ensures; crossed 120 s: ${crossed}; max ${Math.max(0, ...runs.map((r) => r.ms ?? 0))} ms; exec probes in ensure-bench.md` };
+        });
+      }
       const status = await J.step("preclaim burst", async () => {
         const value = await runPreclaimBurst({
           backend,
@@ -2846,6 +3438,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS,
           team,
           user,
+          spareWaitMs: preclaimSpareWait * 1000,
         });
         if (value !== 0) throw new Error("preclaim verification failed");
         return { value, detail: `claims ${preclaimClaims}` };
@@ -3291,10 +3884,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (wait === "0" && last) return last;
         if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);
         if (wait && wait !== "3" && wait !== "0") {
-          // A failed turn (exit 1) prints no reply: name its error, e.g. a harness with no sign-in on the machine.
-          const h = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -E '"kind":"turn_error"' | tail -1`, 45_000).catch(() => null);
-          const why = /"error":"((?:[^"\\]|\\.)*)"/.exec(h?.stdout ?? "")?.[1] ?? "";
-          throw new Error(`acp wait exit ${wait}: ${(why || last).slice(-300)}`);
+          throw new Error(`acp wait exit ${wait}: ${await failedTurnWhy(exec, session, last)}`);
         }
       }
       throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);

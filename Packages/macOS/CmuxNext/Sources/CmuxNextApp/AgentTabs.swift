@@ -386,7 +386,7 @@ final class AgentTabStore {
         // the authenticated WebSocket handshake and session selection. Then
         // other machines' daemons get this build, in the background (DaemonUpdates).
         Task {
-            try? await resolvedHost.prewarm()
+            try? await resolvedHost.prewarmForRestoredChats()
             guard resolvedHost is AcpmuxHost, let updates else { return }
             let installer = RemoteInstaller(paths: .standard(bundleID: Bundle.main.bundleIdentifier))
             updates.startOnce(build: build, environment: environment) { try await installer.download(artifact: $0, nextTo: $1) }

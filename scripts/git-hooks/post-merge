@@ -34,6 +34,8 @@ while IFS= read -r remote; do
                         scripts/normalize-pbxproj.py
                         scripts/webviews_bun_version.py
                         scripts/git-hooks/pre-push
+                        scripts/git-hooks/hook_python.sh
+                        scripts/git-hooks/merge_python.sh
                         scripts/git-hooks/refresh_checks.py
                         scripts/web_lint_prepush.py
                         scripts/lint_swift_namespaces.py
