@@ -198,6 +198,7 @@ mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
 mod conversation_runs;
+mod device_setup_command;
 mod remote_host_command;
 mod resource_trust;
 use resource_trust::{
@@ -308,7 +309,9 @@ mod terminal_create;
 mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
-pub use agent_cli_hybrid::{AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY};
+pub use agent_cli_hybrid::{
+    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
+};
 pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
@@ -884,6 +887,15 @@ enum Command {
         headless: Option<bool>,
     },
     RemoteHostApp,
+    /// `cmux device setup|start` for the app (server/device_setup_command.rs).
+    DeviceSetup {
+        device: String,
+        verb: String,
+        #[serde(default)]
+        allow_agents: bool,
+        #[serde(default)]
+        dry_run: bool,
+    },
     SubscribeActivity,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
     UrlOpenSubscribe {
