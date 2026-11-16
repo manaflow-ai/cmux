@@ -147,7 +147,7 @@ describe("one record per machine", () => {
     const phone = await build(account, "Phone", null, "ios");
     // One account listed one Mac three times: three builds, no machine id.
     const old1 = await build(account, "Studio", null);
-    const old2 = await build(account, "Cosmic Gray", null);
+    const old2 = await build(account, "STUDIO ", null);
     const live = await build(account, "Studio", null);
     await live.connect();
     await phone.connect();
