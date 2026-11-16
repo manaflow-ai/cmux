@@ -242,10 +242,10 @@ fn mount_scenario(loaded: bool) {
 /// time to `apps-changed` and to the open view's new scene.
 fn reload_scenario(loaded: bool) {
     let f = fixture();
-    let prints = f.supervisor.reload_local_apps(&Default::default());
+    f.supervisor.reload_local_apps(&Default::default());
     f.install("local/spy");
     f.mount("m1", "local/spy", "cmux.section/1", json!({}));
-    f.supervisor.start_local_watch_for_test(prints);
+    f.supervisor.start_local_watch_for_test();
     // The watch reads once as it starts; let that settle.
     std::thread::sleep(Duration::from_millis(500));
     while f.events.try_recv().is_ok() {}
