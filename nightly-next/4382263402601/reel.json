@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "build": "4382263402601",
+  "notes": "notes/4382263402601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44123,
+      "title": "fix(chat): keep the older-history room while slow pages load, so scrolling up holds the row and thumb",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44123/after.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 44250,
+      "title": "test(next): resolve saturated-owner recovery follow-ups",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44248,
+      "title": "Floating panes: a fixed seed for the property tests of the reducer (cmux-layout-reducer)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44254,
+      "title": "push-from-host: push only from a clone whose pre-push runs prepush-gate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44256,
+      "title": "What's New clips: omnibar-preload and update-card specs reach the app they tour",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44006,
+      "title": "bundle size: panic=abort for cmux-mobile-host and cmux-agent-screen-detection",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
