@@ -1183,6 +1183,14 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "How the person's own keys type: Vim keys in the editor, and which key a shortcut means on their layout.",
+      "keys": [
+        "editor.vimMode",
+        "shortcuts.keyPositions"
+      ]
+    },
+    {
       "agent": "privacy",
       "keys": [
         "browser.hostsToOpenInEmbeddedBrowser",

@@ -123,6 +123,9 @@ extension EditorSettingsSchema {
 }
 
 extension EditorSettingsSchema {
+    /// `editor.vimMode`.
+    nonisolated static let vimModePath = ["editor", "vimMode"]
+    nonisolated static let vimModeDefault = false
     /// `editor.autoClosingBrackets`.
     nonisolated static let autoClosingBracketsPath = ["editor", "autoClosingBrackets"]
     nonisolated static let autoClosingBracketsDefault = true

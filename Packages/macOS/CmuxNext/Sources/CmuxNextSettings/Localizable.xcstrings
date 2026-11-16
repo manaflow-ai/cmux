@@ -1,6 +1,930 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.keyboardLayout": {
+      "comment": "Settings group on the Keyboard page: keyboard layout and Vim key options.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Layout and Vim"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التخطيط وVim"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raspored i Vim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layout og Vim"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layout und Vim"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Distribución y Vim"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disposition et Vim"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layout e Vim"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配列と Vim"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្លង់ និង Vim"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "레이아웃 및 Vim"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppsett og Vim"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Układ i Vim"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layout e Vim"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Раскладка и Vim"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลย์เอาต์และ Vim"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzen ve Vim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розкладка і Vim"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bố cục và Vim"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "键盘布局与 Vim"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "鍵盤配置與 Vim"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.keyPositions": {
+      "comment": "Settings row: which key a Command or Control shortcut means on a non-US keyboard layout.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shortcut Keys"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفاتيح الاختصارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tipke prečica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genvejstaster"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kurzbefehltasten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas de atajos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Touches des raccourcis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tasti delle scorciatoie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカットのキー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រាប់ចុចផ្លូវកាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "단축키 키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snarveistaster"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klawisze skrótów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas de atalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавиши сочетаний"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kısayol tuşları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавіші скорочень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phím tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "快捷键按键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "快速鍵按鍵"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.keyPositions.help": {
+      "comment": "Help under the Shortcut Keys row. Dvorak, Colemak, AZERTY and QWERTY are keyboard layout names; keep them.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On Dvorak, Colemak or AZERTY, QWERTY Positions keeps Command and Control shortcuts on the keys they have on a US keyboard."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "على Dvorak أو Colemak أو AZERTY، يُبقي خيار مواضع QWERTY اختصارات Command وControl على المفاتيح نفسها التي تكون عليها في لوحة مفاتيح أمريكية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na Dvorak, Colemak ili AZERTY rasporedu, QWERTY položaji drže Command i Control prečice na tipkama koje imaju na US tastaturi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "På Dvorak, Colemak eller AZERTY holder QWERTY-placeringer Command- og Control-genveje på de taster, de har på et amerikansk tastatur."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unter Dvorak, Colemak oder AZERTY bleiben Command- und Control-Kurzbefehle mit QWERTY-Positionen auf den Tasten, die sie auf einer US-Tastatur haben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En Dvorak, Colemak o AZERTY, Posiciones QWERTY mantiene los atajos de Command y Control en las teclas que tienen en un teclado estadounidense."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En Dvorak, Colemak ou AZERTY, Positions QWERTY garde les raccourcis Commande et Contrôle sur les touches qu’ils ont sur un clavier américain."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Con Dvorak, Colemak o AZERTY, Posizioni QWERTY mantiene le scorciatoie con Command e Control sui tasti che hanno su una tastiera statunitense."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dvorak、Colemak、AZERTY では、「QWERTY の位置」を選ぶと Command と Control のショートカットが US キーボードと同じキーのままになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅលើ Dvorak, Colemak ឬ AZERTY ទីតាំង QWERTY រក្សាផ្លូវកាត់ Command និង Control នៅលើគ្រាប់ចុចដូចក្តារចុចអាមេរិក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dvorak, Colemak, AZERTY에서 QWERTY 위치를 선택하면 Command 및 Control 단축키가 미국 키보드와 같은 키에 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "På Dvorak, Colemak eller AZERTY holder QWERTY-plasseringer Command- og Control-snarveier på tastene de har på et amerikansk tastatur."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W układach Dvorak, Colemak lub AZERTY opcja Pozycje QWERTY zostawia skróty z Command i Control na klawiszach, które mają na klawiaturze amerykańskiej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Em Dvorak, Colemak ou AZERTY, Posições QWERTY mantém os atalhos de Command e Control nas teclas que eles têm em um teclado americano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В раскладках Dvorak, Colemak или AZERTY вариант «Позиции QWERTY» оставляет сочетания с Command и Control на тех клавишах, что и на американской клавиатуре."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บน Dvorak, Colemak หรือ AZERTY ตำแหน่ง QWERTY จะคงปุ่มลัด Command และ Control ไว้ที่ปุ่มเดียวกับบนแป้นพิมพ์แบบสหรัฐฯ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dvorak, Colemak veya AZERTY’de QWERTY Konumları, Command ve Control kısayollarını ABD klavyesindeki tuşlarında tutar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У розкладках Dvorak, Colemak або AZERTY варіант «Позиції QWERTY» лишає скорочення з Command і Control на тих клавішах, що й на американській клавіатурі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trên Dvorak, Colemak hoặc AZERTY, Vị trí QWERTY giữ phím tắt Command và Control ở đúng các phím như trên bàn phím Mỹ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用 Dvorak、Colemak 或 AZERTY 时，“QWERTY 位置”让 Command 和 Control 快捷键保持在美式键盘上的按键位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用 Dvorak、Colemak 或 AZERTY 時，「QWERTY 位置」讓 Command 與 Control 快速鍵維持在美式鍵盤上的按鍵位置。"
+          }
+        }
+      }
+    },
+    "settings.choice.shortcutKeysTyped": {
+      "comment": "Shortcut Keys choice: a shortcut is the letter the selected keyboard layout types.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As Your Layout Types Them"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كما يكتبها تخطيطك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kako ih vaš raspored kuca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Som dit layout skriver dem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie Ihr Layout sie tippt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Como las escribe tu distribución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comme votre disposition les tape"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Come le digita il tuo layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配列で入力される文字"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តាមដែលប្លង់របស់អ្នកវាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "레이아웃이 입력하는 대로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slik oppsettet ditt skriver dem"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tak, jak pisze je Twój układ"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Como seu layout as digita"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Как печатает раскладка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตามที่เลย์เอาต์ของคุณพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzeninizin yazdığı gibi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Як друкує розкладка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Theo ký tự bố cục của bạn gõ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按当前布局输入的字符"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "依目前配置輸入的字元"
+          }
+        }
+      }
+    },
+    "settings.choice.shortcutKeysQwerty": {
+      "comment": "Shortcut Keys choice: a shortcut is the key at its US QWERTY position. QWERTY is a layout name; keep it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QWERTY Positions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مواضع QWERTY"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "QWERTY položaji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "QWERTY-placeringer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "QWERTY-Positionen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posiciones QWERTY"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Positions QWERTY"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posizioni QWERTY"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QWERTY の位置"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទីតាំង QWERTY"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "QWERTY 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "QWERTY-plasseringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozycje QWERTY"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posições QWERTY"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позиции QWERTY"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่ง QWERTY"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "QWERTY Konumları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позиції QWERTY"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vị trí QWERTY"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "QWERTY 位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "QWERTY 位置"
+          }
+        }
+      }
+    },
+    "settings.editor.vimMode": {
+      "comment": "Settings row: Vim key bindings in the code editor. Vim is a product name; keep it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim Keys in the Editor"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفاتيح Vim في المحرر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim tipke u uređivaču"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-taster i editoren"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-Tasten im Editor"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas de Vim en el editor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Touches Vim dans l’éditeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tasti Vim nell’editor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エディタで Vim キー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រាប់ចុច Vim ក្នុងកម្មវិធីកែ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "편집기에서 Vim 키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-taster i redigeringsprogrammet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klawisze Vim w edytorze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas do Vim no editor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавиши Vim в редакторе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่ม Vim ในตัวแก้ไข"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzenleyicide Vim tuşları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавіші Vim у редакторі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phím Vim trong trình soạn thảo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "编辑器中的 Vim 按键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "編輯器中的 Vim 按鍵"
+          }
+        }
+      }
+    },
+    "settings.editor.vimMode.help": {
+      "comment": "Help under Vim Keys in the Editor. Normal, Insert and Visual are Vim mode names.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أوضاع Normal وInsert وVisual في محرر الشيفرة، مع عرض الوضع في شريط الحالة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal, Insert i Visual načini u uređivaču koda, s trenutnim načinom u statusnoj traci."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal-, Insert- og Visual-tilstand i kodeeditoren, med tilstanden vist i statuslinjen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal-, Insert- und Visual-Modus im Code-Editor; der Modus steht in der Statusleiste."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modos Normal, Insert y Visual en el editor de código, con el modo en la barra de estado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modes Normal, Insert et Visual dans l’éditeur de code, avec le mode affiché dans la barre d’état."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modalità Normal, Insert e Visual nell’editor di codice, con la modalità nella barra di stato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードエディタで Normal、Insert、Visual モードを使えます。モードはステータスバーに表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀប Normal, Insert និង Visual ក្នុងកម្មវិធីកែកូដ ដោយបង្ហាញរបៀបនៅរបារស្ថានភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "코드 편집기에서 Normal, Insert, Visual 모드를 사용하며 현재 모드가 상태 막대에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal-, Insert- og Visual-modus i koderedigeringen, med modusen vist i statuslinjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tryby Normal, Insert i Visual w edytorze kodu, z trybem widocznym na pasku stanu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modos Normal, Insert e Visual no editor de código, com o modo mostrado na barra de status."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Режимы Normal, Insert и Visual в редакторе кода; текущий режим показан в строке состояния."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โหมด Normal, Insert และ Visual ในตัวแก้ไขโค้ด โดยแสดงโหมดในแถบสถานะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kod düzenleyicide Normal, Insert ve Visual modları; mod durum çubuğunda gösterilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Режими Normal, Insert і Visual у редакторі коду; поточний режим видно в рядку стану."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các chế độ Normal, Insert và Visual trong trình soạn mã, chế độ hiện ở thanh trạng thái."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在代码编辑器中使用 Normal、Insert 和 Visual 模式，当前模式显示在状态栏中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在程式碼編輯器中使用 Normal、Insert 與 Visual 模式，目前模式顯示在狀態列。"
+          }
+        }
+      }
+    },
     "settings.choice.backgroundFollowAppearance": {
       "comment": "Settings choice: the background switches between a light and a dark picture with the appearance.",
       "extractionState": "manual",

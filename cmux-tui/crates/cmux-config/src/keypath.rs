@@ -2,8 +2,8 @@
 
 /// Keys under `shortcuts` that are not action ids
 /// (Swift `CmuxConfigSnapshot.reservedShortcutKeys`).
-pub const RESERVED_SHORTCUT_KEYS: [&str; 4] =
-    ["bindings", "tiers", "when", "showModifierHoldHints"];
+pub const RESERVED_SHORTCUT_KEYS: [&str; 5] =
+    ["bindings", "tiers", "when", "showModifierHoldHints", "keyPositions"];
 
 /// Splits a dotted settings path. Action ids contain dots
 /// (`tabGroup.create`), so everything after `shortcuts.bindings.`,

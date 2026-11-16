@@ -2,7 +2,9 @@
   "source": "schemas/settings/source/shortcut-hints.json",
   "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+ShortcutHints.generated.swift",
   "type": "ShortcutHintsSettingsSchema",
+  "joined": "descriptors",
   "lists": {
-    "shortcutHints": ["descriptors", "ModifierHoldHintsSetting"]
+    "shortcutHints": ["hintRows", "ModifierHoldHintsSetting"],
+    "keyboardLayout": ["layoutRows", "ShortcutKeyPositionsSetting"]
   }
 }

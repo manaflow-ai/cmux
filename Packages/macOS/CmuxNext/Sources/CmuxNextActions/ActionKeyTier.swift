@@ -89,7 +89,7 @@ extension ActionRegistry {
     public func resolveShortcut(for event: NSEvent) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
         let bindings = RegistryKeyBindings(self)
         let table = bindings.table, bits = context
-        for shortcut in Self.shortcuts(for: event) {
+        for shortcut in shortcuts(for: event) {
             if let winner = table.resolve([shortcut], in: KeyContext(bits: bits), isRunnable: { bindings.canPerform($0, in: bits) }).winner {
                 return (winner.command, winner.argument, keyTier(for: winner.command))
             }

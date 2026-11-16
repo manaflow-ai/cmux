@@ -411,6 +411,7 @@ final class KeyRouter: BrowserKeyRouting {
         let runnable: (ActionID) -> Bool = { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) }
         // Keyed by the shell window, as focus settles report it: a Chromium
         // page window is a child of the shell.
+        chords.qwertyPositions = registry.matchesQwertyPositions
         let step = chords.step(event, window: ObjectIdentifier(controller.window ?? window), focus: focus.resolved, table: table,
                                context: context, isRunnable: runnable,
                                canArm: { Self.canArm(focus: focus, hasMarkedText: facts.hasMarkedText) })
@@ -428,7 +429,7 @@ final class KeyRouter: BrowserKeyRouting {
         case .dismissed:
             // A window or navigation shortcut after the leader runs as itself (Cmd-W closes the tab); a stray key
             // and Escape are consumed, as before.
-            return Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) ? nil : true
+            return Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event), qwerty: registry.matchesQwertyPositions) ? nil : true
         case .run(let id, let argument, let arguments):
             lastInterception = (id, controller.state.id, true)
             let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
@@ -437,7 +438,7 @@ final class KeyRouter: BrowserKeyRouting {
         case .mismatch:
             // A window or navigation shortcut after a prefix it does not complete runs as itself: Cmd-W after an
             // armed chord prefix went to the page (or terminal) instead of closing the tab.
-            if Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) { return nil }
+            if Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event), qwerty: registry.matchesQwertyPositions) { return nil }
             if !Self.isChord(event.modifierFlags) { onTyping?(window) }
             return false
         }
@@ -446,8 +447,8 @@ final class KeyRouter: BrowserKeyRouting {
     /// Whether a key that ended an armed chord without completing it is decided as a shortcut of its own (nil from
     /// ``routeChord``): a Command or Control chord bound to a system or navigation action, other than the leader
     /// prefix itself (a second Cmd-J still dismisses the leader). Content shortcuts and typing keep going to the view.
-    static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?) -> Bool {
+    static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?, qwerty: Bool) -> Bool {
         guard isChord(event.modifierFlags), let resolved, resolved.tier != .content else { return false }
-        return !ActionRegistry.shortcuts(for: event).contains(LeaderLayer.prefix)
+        return !ActionRegistry.shortcuts(for: event, qwerty: qwerty).contains(LeaderLayer.prefix)
     }
 }

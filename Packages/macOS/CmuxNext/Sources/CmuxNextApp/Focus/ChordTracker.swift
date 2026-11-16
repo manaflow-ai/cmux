@@ -46,6 +46,7 @@ struct ChordTracker {
     }
 
     private(set) var pending: (keys: [Shortcut], window: ObjectIdentifier, focus: FocusState.Resolved?)?
+    var qwertyPositions = false // `shortcuts.keyPositions` "qwerty", as the key router set it last
 
     var isPending: Bool { pending != nil }
 
@@ -57,6 +58,7 @@ struct ChordTracker {
     /// the key router passes the key window's context instead.
     mutating func step(_ event: NSEvent, window: ObjectIdentifier, registry: ActionRegistry,
                        focus: FocusState.Resolved? = nil, canArm: () -> Bool) -> Step {
+        qwertyPositions = registry.matchesQwertyPositions
         let bindings = RegistryKeyBindings(registry)
         let context = KeyContext(bits: registry.context)
         return step(event, window: window, focus: focus, table: bindings.table, context: context,
@@ -72,7 +74,7 @@ struct ChordTracker {
     mutating func step(_ event: NSEvent, window: ObjectIdentifier, focus: FocusState.Resolved? = nil, table: KeyBindingTable,
                        context: KeyContext, isRunnable: (ActionID) -> Bool, canArm: () -> Bool) -> Step {
         func tableStep(_ keys: [Shortcut], _ event: NSEvent) -> KeyBindingTable.SequenceStep {
-            table.step(after: keys, readings: ActionRegistry.shortcuts(for: event), in: context, isRunnable: isRunnable)
+            table.step(after: keys, readings: ActionRegistry.shortcuts(for: event, qwerty: qwertyPositions), in: context, isRunnable: isRunnable)
         }
         return step(event, window: window, focus: focus, first: { event in
             // A first key only arms here; a single key runs through the dispatcher's tier check.
@@ -94,7 +96,7 @@ struct ChordTracker {
         if event.isARepeat {
             // A held key repeats: the chord it armed stays armed, and a repeat never arms one.
             guard let pending else { return .pass }
-            if pending.window == window, let last = pending.keys.last, ActionRegistry.shortcuts(for: event).contains(last) { return .armed }
+            if pending.window == window, let last = pending.keys.last, ActionRegistry.shortcuts(for: event, qwerty: qwertyPositions).contains(last) { return .armed }
         }
         if let pending {
             self.pending = nil

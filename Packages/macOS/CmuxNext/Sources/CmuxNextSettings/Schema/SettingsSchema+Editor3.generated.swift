@@ -2,6 +2,63 @@
 // schemas/settings/source/editor.json. Do not edit; edit the JSON and rerun.
 
 extension EditorSettingsSchema {
+    static var savingRows: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.editorSaving", "Saving")
+        return [
+            SettingDescriptor(
+                EditorSettingsSchema.autoSavePath,
+                section: .editor,
+                group: group,
+                title: SettingsText.keyed("settings.editor.autoSave", "Save Automatically"),
+                kind: .choice([
+                    SettingChoice("afterDelay", SettingsText.keyed("settings.choice.editor.afterDelay", "After a Pause")),
+                    SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
+                ]),
+                default: .string(EditorSettingsSchema.autoSaveDefault),
+                keywords: ["editor", "code", "monaco", "save", "auto save", "autoSave"]
+            ),
+            SettingDescriptor(
+                EditorSettingsSchema.autoSaveDelayPath,
+                section: .editor,
+                group: group,
+                title: SettingsText.keyed("settings.editor.autoSaveDelay", "Pause Before Saving"),
+                kind: .number(SettingNumber(EditorSettingsSchema.autoSaveDelayRange, step: 100, unit: .milliseconds)),
+                default: .number(EditorSettingsSchema.autoSaveDelayDefault),
+                keywords: ["editor", "code", "monaco", "save", "delay", "autoSaveDelay"]
+            ),
+            SettingDescriptor(
+                EditorSettingsSchema.trimTrailingWhitespacePath,
+                section: .editor,
+                group: group,
+                title: SettingsText.keyed("settings.editor.trimTrailingWhitespace", "Remove Trailing Spaces on Save"),
+                kind: .toggle,
+                default: .bool(EditorSettingsSchema.trimTrailingWhitespaceDefault),
+                keywords: ["editor", "code", "monaco", "trim", "trailing", "whitespace", "save", "trimTrailingWhitespace"]
+            ),
+            SettingDescriptor(
+                EditorSettingsSchema.insertFinalNewlinePath,
+                section: .editor,
+                group: group,
+                title: SettingsText.keyed("settings.editor.insertFinalNewline", "End Files with a Newline on Save"),
+                kind: .toggle,
+                default: .bool(EditorSettingsSchema.insertFinalNewlineDefault),
+                keywords: ["editor", "code", "monaco", "final newline", "newline", "save", "insertFinalNewline"]
+            ),
+            SettingDescriptor(
+                EditorSettingsSchema.formatOnSavePath,
+                section: .editor,
+                group: group,
+                title: SettingsText.keyed("settings.editor.formatOnSave", "Format on Save"),
+                help: SettingsText.keyed("settings.editor.formatOnSave.help", "Runs the language's formatter when one is installed."),
+                kind: .toggle,
+                default: .bool(EditorSettingsSchema.formatOnSaveDefault),
+                keywords: ["editor", "code", "monaco", "format", "save", "prettier", "formatOnSave"]
+            ),
+        ]
+    }
+}
+
+extension EditorSettingsSchema {
     static var defaultsRows: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.editorDefaults", "Defaults from Other Editors")
         return [

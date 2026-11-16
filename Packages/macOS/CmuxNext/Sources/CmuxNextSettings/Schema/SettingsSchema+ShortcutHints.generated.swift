@@ -7,10 +7,17 @@ extension ModifierHoldHintsSetting {
     public nonisolated static let showModifierHoldHintsDefault = true
 }
 
+extension ShortcutKeyPositionsSetting {
+    /// `shortcuts.keyPositions`: typed: the letter the selected layout types (Cmd-T is the key that types t); qwerty: the US QWERTY key position, as macOS's Dvorak - QWERTY Command layout.
+    public nonisolated static let configPath = ["shortcuts", "keyPositions"]
+    public nonisolated static let fallback = "typed"
+    public nonisolated static let values = ["typed", "qwerty"]
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum ShortcutHintsSettingsSchema {
     /// The Command/Control shortcut hint overlay; the same key as classic cmux.
-    static var descriptors: [SettingDescriptor] {
+    static var hintRows: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.shortcuts.hintsGroup", "Shortcut Hints")
         return [
             SettingDescriptor(
@@ -24,5 +31,30 @@ nonisolated enum ShortcutHintsSettingsSchema {
                 keywords: ["command", "control", "hold", "hints", "keyboard"]
             ),
         ]
+    }
+
+    /// Which key a Command or Control shortcut means on a layout other than US QWERTY (Leo, 2026-11-16, ask-0c4c69aaac).
+    static var layoutRows: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.keyboardLayout", "Layout and Vim")
+        return [
+            SettingDescriptor(
+                ShortcutKeyPositionsSetting.configPath,
+                section: .keyboard,
+                group: group,
+                title: SettingsText.keyed("settings.shortcuts.keyPositions", "Shortcut Keys"),
+                help: SettingsText.keyed("settings.shortcuts.keyPositions.help", "On Dvorak, Colemak or AZERTY, QWERTY Positions keeps Command and Control shortcuts on the keys they have on a US keyboard."),
+                kind: .choice([
+                    SettingChoice("typed", SettingsText.keyed("settings.choice.shortcutKeysTyped", "As Your Layout Types Them")),
+                    SettingChoice("qwerty", SettingsText.keyed("settings.choice.shortcutKeysQwerty", "QWERTY Positions")),
+                ]),
+                default: .string(ShortcutKeyPositionsSetting.fallback),
+                keywords: ["keyboard layout", "dvorak", "colemak", "azerty", "qwertz", "qwerty", "shortcuts", "key position"]
+            ),
+        ]
+    }
+
+    /// Every list of schemas/settings/source/shortcut-hints.json, in order.
+    static var descriptors: [SettingDescriptor] {
+        [hintRows, layoutRows].flatMap { $0 }
     }
 }

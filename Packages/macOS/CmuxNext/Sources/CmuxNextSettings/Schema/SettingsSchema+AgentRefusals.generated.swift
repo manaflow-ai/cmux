@@ -75,6 +75,8 @@ extension SettingsSchema {
         "terminal.linkOpener.default": .userOnly, "terminal.linkOpener.rules": .userOnly,
         // Which of the person's editor settings files cmux reads (VS Code, Zed...).
         "editor.importFrom": .userOnly,
+        // How the person's own keys type: Vim keys in the editor, and which key a shortcut means on their layout.
+        "editor.vimMode": .userOnly, "shortcuts.keyPositions": .userOnly,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy, "browser.urlsToAlwaysOpenExternally": .privacy,
         // On, the sidebar and New Tab show what other apps play: an agent must not turn on reading them.
         "sidebar.nowPlaying.otherApps": .privacy,

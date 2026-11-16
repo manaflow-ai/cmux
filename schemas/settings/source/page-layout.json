@@ -390,6 +390,9 @@
           "symbol": "keyboard",
           "groups": [
             {"group": "settings.shortcuts.hintsGroup"},
+            {"title": {"key": "settings.group.keyboardLayout", "text": "Layout and Vim"}, "note": "Leo, 2026-11-16: \"vim or not, dvorak\". Vim Keys in Pages stays in Browser.", "keys": [
+              "shortcuts.keyPositions", "editor.vimMode"
+            ]},
             {"title": {"key": "settings.pageGroup.sidebarKeys", "text": "Sidebar Navigation"}, "keys": [
               "tabs.commandDigits", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"
             ]},

@@ -32,6 +32,58 @@
           ]
         }
       ]
+    },
+    {
+      "name": "keyboardLayout",
+      "section": "keyboard",
+      "group": {
+        "key": "settings.group.keyboardLayout",
+        "text": "Layout and Vim"
+      },
+      "note": "Which key a Command or Control shortcut means on a layout other than US QWERTY (Leo, 2026-11-16, ask-0c4c69aaac).",
+      "rows": [
+        {
+          "key": "shortcuts.keyPositions",
+          "note": "typed: the letter the selected layout types (Cmd-T is the key that types t); qwerty: the US QWERTY key position, as macOS's Dvorak - QWERTY Command layout.",
+          "title": {
+            "key": "settings.shortcuts.keyPositions",
+            "text": "Shortcut Keys"
+          },
+          "help": {
+            "key": "settings.shortcuts.keyPositions.help",
+            "text": "On Dvorak, Colemak or AZERTY, QWERTY Positions keeps Command and Control shortcuts on the keys they have on a US keyboard."
+          },
+          "kind": "choice",
+          "swift_owner": "ShortcutKeyPositionsSetting",
+          "choices": [
+            {
+              "value": "typed",
+              "title": {
+                "key": "settings.choice.shortcutKeysTyped",
+                "text": "As Your Layout Types Them"
+              }
+            },
+            {
+              "value": "qwerty",
+              "title": {
+                "key": "settings.choice.shortcutKeysQwerty",
+                "text": "QWERTY Positions"
+              }
+            }
+          ],
+          "default": "typed",
+          "keywords": [
+            "keyboard layout",
+            "dvorak",
+            "colemak",
+            "azerty",
+            "qwertz",
+            "qwerty",
+            "shortcuts",
+            "key position"
+          ]
+        }
+      ]
     }
   ]
 }

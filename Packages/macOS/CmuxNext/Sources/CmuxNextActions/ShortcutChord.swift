@@ -64,13 +64,13 @@ extension ActionRegistry {
 
     /// The first key of a chord a key-down starts, or nil.
     public func chordPrefix(for event: NSEvent) -> Shortcut? {
-        Self.shortcuts(for: event).first(where: startsChord)
+        shortcuts(for: event).first(where: startsChord)
     }
 
     /// The action a key-down completes after `prefix`, with its tier.
     public func resolveChord(after prefix: Shortcut, event: NSEvent) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
         guard event.type == .keyDown else { return nil }
-        for shortcut in Self.shortcuts(for: event) {
+        for shortcut in shortcuts(for: event) {
             if let resolved = resolveChord(after: prefix, shortcut) {
                 return (resolved.id, resolved.argument, keyTier(for: resolved.id))
             }
@@ -79,10 +79,13 @@ extension ActionRegistry {
     }
 
     /// The shortcuts a key-down may mean: its characters, then the unshifted
-    /// key ("}" or "]" for Shift-]), with its modifiers.
-    public static func shortcuts(for event: NSEvent) -> [Shortcut] {
+    /// key ("}" or "]" for Shift-]), with its modifiers. With
+    /// `shortcuts.keyPositions` "qwerty", a Command or Control key is only
+    /// its US QWERTY key (``ActionRegistry/matchesQwertyPositions``).
+    public static func shortcuts(for event: NSEvent, qwerty: Bool) -> [Shortcut] {
         guard event.type == .keyDown else { return [] }
         let flags = event.modifierFlags.intersection(Shortcut.relevantModifiers)
+        if let key = Shortcut.qwertyKey(for: event, qwerty: qwerty) { return [Shortcut(key, modifiers: flags)] }
         var keys: [String] = []
         if let key = event.charactersIgnoringModifiers?.lowercased() { keys.append(key) }
         if let base = event.characters(byApplyingModifiers: [])?.lowercased(), !keys.contains(base) { keys.append(base) }

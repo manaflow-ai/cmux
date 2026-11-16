@@ -237,6 +237,8 @@ extension SettingsPageLayout {
         id: "keyboard", title: section(.keyboard), symbol: "keyboard",
         groups: [
             GroupSpec(group: "settings.shortcuts.hintsGroup"),
+            // Leo, 2026-11-16: "vim or not, dvorak". Vim Keys in Pages stays in Browser.
+            GroupSpec(keys: ["shortcuts.keyPositions", "editor.vimMode"], title: SettingsText.keyed("settings.group.keyboardLayout", "Layout and Vim")),
             GroupSpec(keys: ["tabs.commandDigits", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"], title: SettingsText.keyed("settings.pageGroup.sidebarKeys", "Sidebar Navigation")),
             GroupSpec(group: "settings.group.palette"),
             GroupSpec(group: "settings.group.macScreenKeyboard"),

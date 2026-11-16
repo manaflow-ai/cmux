@@ -1001,6 +1001,29 @@
       },
       "rows": [
         {
+          "key": "editor.vimMode",
+          "title": {
+            "key": "settings.editor.vimMode",
+            "text": "Vim Keys in the Editor"
+          },
+          "help": {
+            "key": "settings.editor.vimMode.help",
+            "text": "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "editor",
+            "code",
+            "monaco",
+            "vim",
+            "vi",
+            "modal",
+            "hjkl",
+            "keyboard"
+          ]
+        },
+        {
           "key": "editor.autoClosingBrackets",
           "title": {
             "key": "settings.editor.autoClosingBrackets",
