@@ -823,7 +823,7 @@ def openh264_lib(binary: Path, scratch: Path) -> list[str]:
         return []
     if choice == "cisco":
         cmd = [str(binary), "openh264-install", "--dir", str(scratch / "openh264")]
-        printed = [line for line in run(cmd).stdout.splitlines() if line.strip()]
+        printed = [line for line in run(cmd, timeout=300).stdout.splitlines() if line.strip()]
         if not printed:
             raise subprocess.CalledProcessError(0, cmd, stderr="printed no library path")
         choice = printed[-1]
@@ -840,7 +840,7 @@ def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, ar
         try:
             LIB_ARGS[:] = openh264_lib(binary, scratch)
             rig.up()
-        except subprocess.CalledProcessError as error:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             step = "openh264" if error.cmd[:2] == [str(binary), "openh264-install"] else "netns setup"
             for profile in profiles:
                 row = {"schema": SCHEMA, "commit": commit, "profile": profile,
