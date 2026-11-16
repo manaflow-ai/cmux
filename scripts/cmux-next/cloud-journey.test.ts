@@ -4,13 +4,14 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
+import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -472,6 +473,31 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(asked).toEqual([{ limit: 100 }, { limit: 100, cursor: "c1" }, { limit: 100, cursor: "c2" }]);
     // A list that never ends is an error (the sweep then deletes nothing), not a partial sweep.
     await expect(listAllMachines(async () => ({ machines: [], next_cursor: "again" }), 3)).rejects.toThrow("more than 3 pages");
+  });
+});
+
+describe("cloud journey: leaked install sweep", () => {
+  const now = Date.UTC(2026, 10, 16, 9, 0, 0);
+  const tagAt = (ms: number) => `jr-${ms.toString(36)}`;
+  const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
+  const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
+  const inst = (id: string, name: string, extra: Record<string, unknown> = {}) => ({ id, name, kind: "cli", revoked_at: null, ...extra });
+
+  test("takes only a live cli install a journey run named, older than any journey run", () => {
+    expect(staleJourneyInstalls([
+      inst("i_old", `cloud journey ${old}`),
+      inst("i_young", `cloud journey ${young}`),
+      inst("i_revoked", `cloud journey ${old}`, { revoked_at: now - 1000 }),
+      inst("i_mac", `cloud journey ${old}`, { kind: "mac" }),
+      inst("i_person", "Leo's MacBook"),
+      inst("i_auto", `cloud journey auto ${old}`),
+      inst("i_future", `cloud journey ${tagAt(now + 3_600_000)}`),
+      inst("i_nottime", "cloud journey jr-zz"),
+    ], now)).toEqual(["i_old"]);
+  });
+
+  test("a malformed list row is skipped, never thrown on", () => {
+    expect(staleJourneyInstalls([null, {}, { name: 7 }, inst("", `cloud journey ${old}`)], now)).toEqual([]);
   });
 });
 
@@ -2573,5 +2599,61 @@ describe("preclaim MET table fields", () => {
       (globalThis as any).WebSocket = realWebSocket;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("--ensure-bench times acp ensure on a fresh machine", () => {
+  // Claim 4 of run 43873927808: "agent start refused" after ~2 min on a 2-core machine at load 3.9. The bench measures
+  // ensure right after boot, once boot settles, and with both cores loaded, so a slow start is timed instead of cut off.
+  test("the guest program times one ensure in its own session and stops it", () => {
+    const quiet = ensureBenchCommand("bench-1", false);
+    expect(quiet).toContain("acp ensure 'bench-1' -m claude --json");
+    expect(quiet).toContain("acp stop 'bench-1'");
+    expect(quiet).toContain("/proc/loadavg");
+    expect(quiet).not.toContain("yes >/dev/null");
+    const loaded = ensureBenchCommand("bench-2", true);
+    expect(loaded).toContain("yes >/dev/null & y1=$!");
+    expect(loaded).toContain("kill $y1 $y2");
+  });
+
+  test("a run's answer parses into its timing, exit, load and boot state", () => {
+    const stdout = "@@ms 131250\n@@exit 1\n@@load1 3.92\n@@state starting\n@@top 98.0 yes;97.5 yes;12.0 claude\n@@out acp: harness claude did not start\n@@slow\nline a\nline b\n";
+    expect(parseEnsureBench(stdout, "loaded", 2)).toEqual({ condition: "loaded", run: 2, ms: 131250, exit: "1", load1: "3.92", state: "starting", top: "98.0 yes;97.5 yes;12.0 claude", output: "acp: harness claude did not start", slow: "line a\nline b" });
+    expect(parseEnsureBench("", "boot", 0)).toMatchObject({ ms: null, exit: "none", slow: "" });
+  });
+
+  test("the table names each condition's p50 and max and whether any crossed the 120 s exec", () => {
+    const runs = [
+      parseEnsureBench("@@ms 4000\n@@exit 0\n@@load1 0.5\n@@state running\n@@top 1 x\n@@out ok\n", "settled", 0),
+      parseEnsureBench("@@ms 6000\n@@exit 0\n@@load1 0.6\n@@state running\n@@top 1 x\n@@out ok\n", "settled", 1),
+      parseEnsureBench("@@ms 125000\n@@exit 0\n@@load1 3.9\n@@state running\n@@top 1 x\n@@out ok\n", "loaded", 0),
+    ];
+    const md = ensureBenchMarkdown(runs);
+    expect(md).toContain("| settled | 2 | 4000 | 6000 | 0 |");
+    expect(md).toContain("| loaded | 1 | 125000 | 125000 | 1 |");
+    expect(md).toContain("crossed 120 s: 1 of 3");
+    expect(md).not.toContain("@@");
+  });
+});
+
+describe("a preclaim agent start that fails says why", () => {
+  // Run 43873927808's claim 4 recorded only "agent start refused": acp ensure's exit, output and time were dropped, and
+  // the guest facts kept the journal's tail, which pushed out the own-login and acp tail sections.
+  test("the refusal names acp ensure's exit, its output and how long it ran", async () => {
+    const refused = runPreclaimChat(async () => ({ code: 0, stdout: "acp: harness claude did not start: spawn failed\n@@exit 1\n", stderr: "" }), "s", "Reply once", 1000);
+    await expect(refused).rejects.toThrow(/^preclaim s: agent start refused \(exit 1 after \d+ s\): acp: harness claude did not start: spawn failed$/);
+  });
+
+  test("an ensure the exec cut off reads as a timeout, with what it printed so far", async () => {
+    const cut = runPreclaimChat(async () => ({ code: 124, stdout: "starting claude", stderr: "" }), "s", "Reply once", 1000);
+    await expect(cut).rejects.toThrow(/^preclaim s: agent start refused \(no exit within the 120 s exec, code 124, after \d+ s\): starting claude$/);
+  });
+
+  test("a long journal never pushes the own-login and acp sections out of a failure's guest facts", () => {
+    const guest = `== own login\nyes\n== acp tail s\n{"kind":"turn_error"}\n== acp list\ns ready\n== journal\n${"x".repeat(120)}\n`.repeat(1) + "j\n".repeat(20_000);
+    const record = preclaimFailureRecord(4, new Error("agent start refused"), [], null, guest);
+    expect(record.guest).toContain("== own login\nyes");
+    expect(record.guest).toContain("== acp tail s");
+    expect(record.guest!.length).toBeLessThanOrEqual(12_000);
   });
 });

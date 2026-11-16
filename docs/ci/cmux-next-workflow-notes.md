@@ -3130,9 +3130,18 @@ placement (`next_macos_cascade.pr_rescue()`, `rescue_open()`) opens the Blacksmi
 `pull_request`, `GITHUB_WORKFLOW_REF` is this file, and the owned route's oldest queued job has waited
 `RESCUE_ROUTE_MINUTES` (45); the slots then go through the same cascade, `CAPACITY` and `MAX_PER_RUN` caps as `on`.
 In runs-on, a placement-listed Blacksmith job reads `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue'` (no fromJSON, so tests/runs_on_labels.py resolves it), and every
-owned fallback reads `(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' ||
-github.run_attempt < 2) && vars.CI_BLACKSMITH_MACOS != 'on'`: a pull request's re-run (the bot's stall-move or
-refusal rescue, or a person's re-run of failed jobs) takes Blacksmith macOS; attempt 1 stays owned. Every other
+owned fallback reads `(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.run_attempt < 2 ||
+github.event_name != 'pull_request' && (<not a bot's re-run of a pull request's dispatch>)) &&
+vars.CI_BLACKSMITH_MACOS != 'on'`: a pull request's re-run (the bot's stall-move or
+refusal rescue, or a person's re-run of failed jobs) takes Blacksmith macOS; attempt 1 stays owned. A bot's re-run
+(`github-actions[bot]`, `cmux-bot[bot]`) of a dispatch that gates a pull request leaves too: event
+`workflow_dispatch`, `same_tree_origin` empty or `pull_request`, and none of `dev_daily`, `tip_swift_suite`,
+`tip_daemon_suite`, `base_tier` or `no_reuse` set, so its run name is the default `cmux-next · <sha>` that
+main's `owned_pool_rescue.same_tree_pull_dispatch()` reads. Without it the stall move skipped every such run under
+`pr-rescue`, its re-run rejoining the side lane: cmux#44529's scheme compile (run 43879624016, job 133341854319)
+queued on `glaeda-side-std-xcode-26.6` from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). The stall move admits such a
+run only when its head's cmux-next.yml carries this clause. DEV daily, the tip suites, the base tier and a push's
+same-tree run keep the side lane. Every other
 workflow compares the variable with exactly `on`, so nightly, promote, signing and release read `pr-rescue` as
 off; `BlacksmithPrRescue` in `tests/test_ci_next_macos_cascade.py` proves both. Unset or `on` behave as before.
 

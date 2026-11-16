@@ -8,16 +8,22 @@ import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "requestAnimationFrame"] as const;
+const keys = ["window", "document", "requestAnimationFrame", "cancelAnimationFrame"] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let visibility: "visible" | "hidden" = "visible";
-// Display frames come only when the test draws one; a hidden page gets none.
-let frames: (() => void)[] = [];
+// Display frames come only when the test draws one; a hidden page gets none. Each has an id a cancel takes away.
+let frames = new Map<number, () => void>();
+let frameIds = 0;
 
 beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
-  scope.requestAnimationFrame = (run: () => void) => frames.push(run);
+  scope.requestAnimationFrame = (run: () => void) => {
+    frameIds += 1;
+    frames.set(frameIds, run);
+    return frameIds;
+  };
+  scope.cancelAnimationFrame = (id: number) => frames.delete(id);
   Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
 });
 
@@ -30,7 +36,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
-  frames = [];
+  frames = new Map();
   jest.useFakeTimers();
 });
 
@@ -47,8 +53,8 @@ function setVisibility(next: "visible" | "hidden"): void {
 }
 
 function drawFrame(): void {
-  const due = frames;
-  frames = [];
+  const due = [...frames.values()];
+  frames = new Map();
   for (const run of due) run();
 }
 
@@ -156,4 +162,26 @@ test("a frame asked for while shown and deferred by a hide still cancels", () =>
   drawFrame();
   jest.advanceTimersByTime(100);
   expect(runs).toBe(0);
+});
+
+// Whichever of the frame and its 50 ms fallback comes first takes the other away: a fallback left waiting woke the
+// page 50 ms after every drawn frame to do nothing (Leo, 2026-11-12: "infinite everything feels like nothing";
+// CMUX-571 idle wakeups).
+test("the frame and its fallback: the one that runs takes the other away, and a cancel takes both", () => {
+  let runs = 0;
+  nextFrame(() => (runs += 1));
+  drawFrame();
+  expect(runs).toBe(1);
+  expect(jest.getTimerCount()).toBe(0);
+  // An occluded window: the fallback runs it, and its frame is no longer asked for.
+  nextFrame(() => (runs += 1));
+  jest.advanceTimersByTime(50);
+  expect(runs).toBe(2);
+  expect(frames.size).toBe(0);
+  // A cancel before either comes leaves nothing waiting.
+  const cancel = nextFrame(() => (runs += 1));
+  cancel();
+  expect(jest.getTimerCount()).toBe(0);
+  expect(frames.size).toBe(0);
+  expect(runs).toBe(2);
 });

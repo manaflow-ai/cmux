@@ -439,9 +439,21 @@ export type PreclaimFailureRecord = {
   claimed_behind: boolean | null;
 };
 
+/**
+ * Guest facts within 12,000 characters, the sections before the journal first: run 43873927808 kept only the last 8,000,
+ * and the journal pushed out the own-login and acp tail sections that say why a claim failed.
+ */
+function guestFactsCapped(guest: string, max = 12_000): string {
+  const at = guest.indexOf("== journal");
+  if (guest.length <= max || at < 0) return guest.slice(0, max);
+  const head = guest.slice(0, Math.min(at, max / 2));
+  const mark = "== journal (last lines)\n";
+  return head + mark + guest.slice(at).slice(-(max - head.length - mark.length));
+}
+
 /** A failed claim stays visible in the private evidence without exposing credentials publicly. */
 export function preclaimFailureRecord(claim: number, error: unknown, secrets: string[] = [], claimedBehind: boolean | null = null, guest?: string): PreclaimFailureRecord {
-  return { claim, outcome: "fail", error: scrub(String(error instanceof Error ? error.message : error), secrets).slice(0, 600), claimed_behind: claimedBehind, ...(guest === undefined ? {} : { guest: scrub(guest, secrets).slice(-8000) }) };
+  return { claim, outcome: "fail", error: scrub(String(error instanceof Error ? error.message : error), secrets).slice(0, 600), claimed_behind: claimedBehind, ...(guest === undefined ? {} : { guest: guestFactsCapped(scrub(guest, secrets)) }) };
 }
 
 /**
@@ -819,7 +831,14 @@ export function clientPlatformOrigin(body: unknown): string {
 export async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number | null; replyNotJudged: string | null }> {
   const started = Date.now();
   const ensured = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m claude --json 2>&1; echo "@@exit $?"`, 120_000);
-  if (!/@@exit 0/.test(ensured.stdout)) throw new Error(`preclaim ${session}: agent start refused`);
+  const ensureExit = /@@exit (\d+)/.exec(ensured.stdout)?.[1];
+  if (ensureExit !== "0") {
+    // Say why (run 43873927808 claim 4 kept only "agent start refused"): ensure's own exit, or the exec cutting it off.
+    const ran = `after ${Math.round((Date.now() - started) / 1000)} s`;
+    const how = ensureExit === undefined ? `no exit within the 120 s exec, code ${ensured.code}, ${ran}` : `exit ${ensureExit} ${ran}`;
+    const said = `${ensured.stdout.replace(/@@exit \d+\n?/, "")}${ensured.stderr}`.trim().slice(-300);
+    throw new Error(`preclaim ${session}: agent start refused (${how})${said ? `: ${said}` : ""}`);
+  }
   const chatMs = Date.now() - started;
   const sent = await exec(`${GUEST}printf '%s' ${shq(prompt)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
   if (!/@@exit 0/.test(sent.stdout)) throw new Error(`preclaim ${session}: chat send refused`);
@@ -833,6 +852,87 @@ export async function runPreclaimChat(exec: Exec, session: string, prompt: strin
     if (wait && wait !== "0" && wait !== "3") return { chatMs, replyMs: null, replyNotJudged: `reply wait exit ${wait}: ${await failedTurnWhy(exec, session, text)}` };
   }
   return { chatMs, replyMs: null, replyNotJudged: `no reply within ${budgetMs / 1000} s` };
+}
+
+export type EnsureBenchCondition = "boot" | "settled" | "loaded";
+export type EnsureBenchRun = { condition: EnsureBenchCondition; run: number; ms: number | null; exit: string; load1: string; state: string; top: string; output: string; slow: string };
+
+/**
+ * --ensure-bench: one timed `acp ensure` in its own session (claim 4 of run 43873927808 read "agent start refused" after
+ * about 2 min at load 3.9 on 2 cores). Prints load1, the boot state and the top CPU users at its start; with load, two
+ * busy children hold both cores for its length and are killed by their PIDs. Past 30 s, the session's acp tail and the
+ * journal of its span follow @@slow. Ensure gets 280 s, inside the 300 s exec, so a slow start is timed, not cut off.
+ */
+export function ensureBenchCommand(session: string, load: boolean): string {
+  const s = shq(session);
+  return `${GUEST}load1=$(cut -d' ' -f1 /proc/loadavg); state=$(systemctl is-system-running 2>/dev/null); ` +
+    `top=$(ps -eo pcpu,comm --sort=-pcpu | sed -n 2,6p | sed 's/^ *//' | paste -sd';'); ` +
+    (load ? "yes >/dev/null & y1=$!; yes >/dev/null & y2=$!; " : "") +
+    `s0=$(date +%s); t0=$(date +%s%N); out=$(timeout 280 "$c" acp ensure ${s} -m claude --json 2>&1); rc=$?; t1=$(date +%s%N); ms=$(( (t1 - t0) / 1000000 )); ` +
+    (load ? "kill $y1 $y2 2>/dev/null; " : "") +
+    `printf '@@ms %s\n@@exit %s\n@@load1 %s\n@@state %s\n@@top %s\n@@out %s\n' "$ms" "$rc" "$load1" "$state" "$top" "$(printf '%s' "$out" | tail -c 300 | tr '\n' ' ')"; ` +
+    `if [ "$ms" -gt 30000 ]; then echo "@@slow"; "$c" acp tail ${s} 2>&1 | tail -30 | cut -c1-300; journalctl -m --no-pager -o short-monotonic --since "@$s0" 2>/dev/null | tail -60 | cut -c1-300; fi; ` +
+    `"$c" acp stop ${s} >/dev/null 2>&1; true`;
+}
+
+/** One ensureBenchCommand answer; a run with no answer reads ms null and exit "none". */
+export function parseEnsureBench(stdout: string, condition: EnsureBenchCondition, run: number): EnsureBenchRun {
+  const field = (key: string) => new RegExp(`^@@${key} ?(.*)$`, "m").exec(stdout)?.[1]?.trim() ?? "";
+  const ms = Number(field("ms"));
+  const slowAt = stdout.indexOf("@@slow\n");
+  return { condition, run, ms: field("ms") !== "" && Number.isFinite(ms) ? ms : null, exit: field("exit") || "none", load1: field("load1"), state: field("state"), top: field("top"), output: field("out"), slow: slowAt < 0 ? "" : stdout.slice(slowAt + 7).trim() };
+}
+
+/** The public table: per condition p50, max and runs past the 120 s exec; per run its time, exit, load and top CPU users. */
+export function ensureBenchMarkdown(runs: EnsureBenchRun[]): string {
+  const over = (ms: number | null) => ms !== null && ms > 120_000;
+  const lines = ["## acp ensure on a fresh staging machine", "", `- runs: ${runs.length}; crossed 120 s: ${runs.filter((r) => over(r.ms)).length} of ${runs.length}`, "", "| condition | runs | p50 ms | max ms | over 120 s |", "|:---|---:|---:|---:|---:|"];
+  for (const condition of ["boot", "settled", "loaded"] as const) {
+    const ms = runs.filter((r) => r.condition === condition && r.ms !== null).map((r) => r.ms!).sort((a, b) => a - b);
+    if (ms.length) lines.push(`| ${condition} | ${ms.length} | ${ms[Math.max(0, Math.ceil(ms.length * 0.5) - 1)]} | ${ms[ms.length - 1]} | ${ms.filter((m) => m > 120_000).length} |`);
+  }
+  lines.push("", "| condition | run | ms | exit | load1 | boot state | top CPU at start |", "|:---|---:|---:|---:|---:|:---|:---|");
+  for (const r of runs) lines.push(`| ${r.condition} | ${r.run} | ${r.ms ?? "-"} | ${r.exit} | ${r.load1 || "-"} | ${r.state || "-"} | ${(r.top || "-").replace(/\|/g, "\\|")} |`);
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * --ensure-bench N: one fresh machine created as a cold claim is, its Claude login installed as a cold claim's is, then N
+ * timed ensures right after it runs (first-boot work still going), N once boot settles (systemctl is-system-running
+ * --wait), and N with both cores busy. Public table to the out dir; outputs and slow-run journals to the private rows.
+ */
+export async function runEnsureBench(args: { api: Api; journey: Journey; backend: string; tag: string; n: number; login: string; programs: ReturnType<typeof loginPrograms>; ownerScope: string; outDir: string | null; privateRowsPath?: string }): Promise<EnsureBenchRun[]> {
+  const runs: EnsureBenchRun[] = [];
+  const boot: Record<string, string> = {};
+  const answer = await args.api.op("cloud.machine.create", { name: `cloud ensure bench ${args.tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-ensure-bench`);
+  const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
+  if (typeof machine !== "string") throw new Error(`create answered no machine: ${short(answer)}`);
+  const write = () => {
+    if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "ensure-bench.md"), ensureBenchMarkdown(runs)); }
+    const rows = runs.map((r) => ({ ...r, output: scrub(r.output, args.journey.secrets), slow: scrub(r.slow, args.journey.secrets).slice(-6000) }));
+    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend, summary: { runs: runs.length, crossed_120s: runs.filter((r) => r.ms !== null && r.ms > 120_000).length }, boot: Object.fromEntries(Object.entries(boot).map(([k, v]) => [k, scrub(v, args.journey.secrets).slice(-4000)])) }, rows }, null, 2)}\n`);
+  };
+  try {
+    await waitMachine(args.api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+    const exec = directExec(args.api, machine, args.journey);
+    boot.jobs_at_running = (await exec("systemctl list-jobs --no-pager 2>&1 | head -20; systemctl is-system-running 2>&1", 60_000)).stdout;
+    await installPreclaimLogin(args.api, machine, exec, args.programs, args.login, 0, args.ownerScope);
+    const timed = async (condition: EnsureBenchCondition) => {
+      for (let i = 0; i < args.n; i++) {
+        const result = await exec(ensureBenchCommand(`bench-${args.tag}-${condition}-${i}`, condition === "loaded"), 300_000).catch((e) => ({ code: 1, stdout: "", stderr: String((e as Error)?.message ?? e) }));
+        runs.push(parseEnsureBench(result.stdout, condition, i));
+        write();
+      }
+    };
+    await timed("boot");
+    boot.settle = (await exec("timeout 600 systemctl is-system-running --wait 2>&1; systemctl list-jobs --no-pager 2>&1 | head -10; systemd-analyze blame 2>/dev/null | head -15", 300_000)).stdout;
+    await timed("settled");
+    await timed("loaded");
+  } finally {
+    write();
+    await args.api.deleteMachine(machine, `${args.tag}-ensure-bench-delete`).catch(() => undefined);
+  }
+  return runs;
 }
 
 /**
@@ -2275,6 +2375,31 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
   return out;
 }
 
+/**
+ * The installs earlier journey runs registered and never revoked: kind cli, named `cloud journey jr-<tag>` (the
+ * name only the journey's install token step gives), not revoked, whose tag is more than `maxAgeMs` old. A run
+ * revokes its own at cleanup; one killed first leaves it live, and a user's live installs are never pruned (only
+ * revoked ones past MAX_REVOKED_INSTALLS, backend/apps/api/src/domains/user.ts). Before any run revoked, they filled
+ * the staging account's state: install.register answered owner.state_full, 1500285 of 1500000 bytes (2026-11-16).
+ * Ownership is the name, as for machines: any other name, and a tag that does not read as a time, are never picked.
+ */
+export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS): string[] {
+  const out: string[] = [];
+  for (const i of installs) {
+    if (!i || i.revoked_at !== null || i.kind !== "cli") continue;
+    const m = /^cloud journey (jr-([0-9a-z]+))$/.exec(typeof i.name === "string" ? i.name : "");
+    if (!m) continue;
+    const started = parseInt(m[2], 36);
+    if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
+    if (nowMs - started <= maxAgeMs) continue;
+    if (typeof i.id === "string" && i.id) out.push(i.id);
+  }
+  return out;
+}
+
+/** The most time one run spends revoking leaked installs; the next run takes the rest. */
+export const INSTALL_SWEEP_BUDGET_MS = 60_000;
+
 /** Every page of cloud.machine.list (`next_cursor`), at most `maxPages` pages. */
 export async function listAllMachines(read: (params: Record<string, unknown>) => Promise<any>, maxPages = 20): Promise<any[]> {
   const rows: any[] = [];
@@ -2831,6 +2956,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const cmux = argValue("--cmux", argv);
   const preclaim = argv.includes("--preclaim");
   const preclaimClaims = Number(argValue("--claims", argv) ?? 10);
+  // --ensure-bench N (with --preclaim): time acp ensure on one fresh machine instead of the burst (runEnsureBench).
+  // PRECLAIM_ENSURE_BENCH=N does the same, so the dispatch sets it from its env without changing the burst's command line.
+  const ensureBench = argValue("--ensure-bench", argv) ?? (process.env.PRECLAIM_ENSURE_BENCH || undefined);
   // --spare-wait SECONDS (0..900): each preclaim claim first waits, at most this long, for the warm to name a ready spare.
   const preclaimSpareWait = Number(argValue("--spare-wait", argv) ?? 0);
   if (!Number.isInteger(preclaimSpareWait) || preclaimSpareWait < 0 || preclaimSpareWait > 900) throw new Error("--spare-wait must be 0..900 seconds");
@@ -2959,6 +3087,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     probeExtra.failure_facts = facts;
     J.record({ step: "failure facts", status: "skip", ms: Date.now() - t0, detail: `read before any delete: ${JSON.stringify(facts)}` });
   };
+  // This run's install (install token step), revoked at cleanup.
+  let journeyInstall: string | null = null;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
   const cleanup = sharedCleanup(async () => {
@@ -2990,6 +3120,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }).catch(() => undefined);
     }
     if (keep || !api.bearer) return;
+    // This run's own install, so it never adds to the account's live installs (a sweep takes a killed run's).
+    if (journeyInstall) {
+      const own: string = journeyInstall;
+      journeyInstall = null;
+      const t0 = Date.now();
+      await api.op("install.revoke", { install: own }, `${tag}-install-revoke`).then(
+        () => J.record({ step: "revoke install (cleanup)", status: "pass", ms: Date.now() - t0, detail: own }),
+        (e) => J.record({ step: "revoke install (cleanup)", status: "skip", ms: Date.now() - t0, detail: `${own}: ${String((e as Error)?.message ?? e).slice(0, 300)}` }));
+    }
     if (gatewayMachine) {
       const g: string = gatewayMachine;
       await J.step("delete gateway machine (cleanup)", async () => {
@@ -3056,6 +3195,27 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
     });
+    if (!keep) {
+      // Installs that killed runs left live fill the account's state until install.register is refused
+      // (owner.state_full). Revoked ones past 100 are pruned, so revoking frees the space. Never fails the journey.
+      const name = "sweep leaked journey installs";
+      const t0 = Date.now();
+      const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
+      try {
+        const v = await api.read("install.list", {});
+        const stale = staleJourneyInstalls(Array.isArray(v?.installs) ? v.installs : [], Date.now());
+        const failed: string[] = [];
+        let revoked = 0;
+        for (const id of stale) {
+          if (Date.now() - t0 > INSTALL_SWEEP_BUDGET_MS) break;
+          await api.op("install.revoke", { install: id }, `${tag}-sweep-install-${id}`).then(() => revoked++, (e) => failed.push(`${id}: ${err(e)}`));
+        }
+        const detail = `${revoked} of ${stale.length} leaked revoked (${v?.installs?.length ?? 0} installs)${failed.length ? `; failed ${failed.slice(0, 3).join("; ")}` : ""}`;
+        J.record({ step: name, status: failed.length ? "skip" : "pass", ms: Date.now() - t0, detail });
+      } catch (e) {
+        J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
+      }
+    }
     const install = await J.step("install token", async () => {
       const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
       const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
@@ -3068,6 +3228,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.secrets.push(tok.body.access_token);
       return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
     });
+    journeyInstall = install.id;
     // The NEXT app mints its install token for its active Stack team (a challenge that names the team), which
     // heals a team TeamDO never mirrored from Stack. On production that mint ran past the app's 25 s limit
     // (cmuxterm-hq run 43577358598, 2026-11-14) while the unscoped mint above passed. --team, else the account's
@@ -3107,6 +3268,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const accountTeam = team ?? String(user?.personal_team ?? user?.team ?? "");
       const account = `${userId}/${accountTeam}`;
       if (!userId) throw new Error("preclaim: user.ensure returned no user id");
+      if (ensureBench !== undefined) {
+        const n = Number(ensureBench);
+        if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("--ensure-bench must be 1..10");
+        if (!validLogin("claude", claudeLogin)) throw new Error("--ensure-bench needs a valid Claude setup-token login");
+        return await J.step("ensure bench", async () => {
+          const runs = await runEnsureBench({ api, journey: J, backend: backend.name, tag, n, login: claudeLogin, programs: loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(team)), ownerScope: team ? "owner or team" : "owner", outDir, privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS });
+          const crossed = runs.filter((r) => r.ms !== null && r.ms > 120_000).length;
+          return { value: 0, detail: `${runs.length} ensures; crossed 120 s: ${crossed}; max ${Math.max(0, ...runs.map((r) => r.ms ?? 0))} ms` };
+        });
+      }
       const status = await J.step("preclaim burst", async () => {
         const value = await runPreclaimBurst({
           backend,

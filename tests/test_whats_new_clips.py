@@ -285,18 +285,67 @@ class NightlyTourTests(unittest.TestCase):
             previous = self.commit(repo, "previous tip", t0 + day + 180, {"README": "p\n"})
             tip = self.commit(repo, "tip", t0 + 2 * day, self.highlight("fresh", "improved"))
             rows = clips.plan(previous, tip, Path(tmp, "t"), exists=lambda url: False, root=repo)
-            # The tip's own one first, before on the previous tip; then the earlier ones, oldest first, each
-            # on its own commit's parent, with one extra before app a tour: `later` waits for its before.
+            # The tip's own one first, before on the previous tip; then the earlier ones, oldest first, both on
+            # the one extra app: the parent of the oldest one's commit, which predates both changes.
             self.assertEqual([(r["id"], r["roles"], r.get("before")) for r in rows],
                              [("fresh", ["after", "before"], previous),
                               ("better", ["after", "before"], root),
-                              ("later", ["after"], None)])
+                              ("later", ["after", "before"], root)])
             self.assertNotEqual(other, better)
+            # With only `later` left, its before is on its own commit's parent.
             done = {clips.auto_url(i, "after") for i in ("fresh", "better", "later")} | {
                 clips.auto_url(i, "before") for i in ("fresh", "better")}
             again = clips.plan(tip, self.commit(repo, "next", t0 + 3 * day, {"README": "n\n"}), Path(tmp, "t2"),
                                exists=lambda url: url in done, root=repo)
             self.assertEqual([(r["id"], r["roles"], r.get("before")) for r in again], [("later", ["before"], other)])
+
+    def test_waiting_befores_from_different_commits_share_one_older_app(self):
+        # 2026-11-16: five Improved highlights from earlier nightlies, each with its after published, waited for
+        # a before on its own commit's parent, one such app a tour, so they drained at one a nightly.
+        day = 86400
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.history(tmp)
+            t0 = 1_800_000_000
+            self.commit(repo, "root", t0, {"README": "r\n"})
+            names = ("w1", "w2", "w3", "w4", "w5")
+            parents = []
+            for index, name in enumerate(names):
+                parents.append(self.commit(repo, f"before {name}", t0 + day + 120 * index, {"README": f"{name}\n"}))
+                self.commit(repo, name, t0 + day + 120 * index + 60, self.highlight(name, "improved"))
+            previous = self.commit(repo, "previous tip", t0 + 2 * day, {"README": "p\n"})
+            tip = self.commit(repo, "tip", t0 + 2 * day + 60, self.highlight("fresh", "improved"))
+            done = {clips.auto_url(name, "after") for name in names}
+            tours = Path(tmp, "t")
+            with mock.patch("sys.stdout"):
+                rows = clips.plan(previous, tip, tours, limit=6, exists=lambda url: url in done, root=repo)
+            # The tip's own one on the previous tip as before; all five waiting befores on the parent of the
+            # oldest one's commit, so the tour builds one extra app, not five over five nightlies.
+            self.assertEqual([(r["id"], r["roles"], r.get("before")) for r in rows],
+                             [("fresh", ["after", "before"], previous)]
+                             + [(name, ["before"], parents[0]) for name in names])
+            plan = Path(tmp, "plan.json")
+            plan.write_text(json.dumps(rows))
+            out = io.StringIO()
+            with mock.patch("sys.stdout", out):
+                clips.main(["tours", "--plan", str(plan), "--role", "before", "--dir", str(tours),
+                            "--before", previous, "--other-befores"])
+            # The workflow builds an app for each line: one.
+            self.assertEqual(out.getvalue().split(), [parents[0]])
+            # A waiting one whose tour already failed with this spec still goes after the ones not tried, and
+            # the shared app is still the oldest of the ones planned.
+            digest = clips.spec_digest("w1", repo / "release-notes/next/clips")
+            failed = {clips.failed_url("w1", "before"): {"spec": digest}}
+            with mock.patch("sys.stdout"):
+                rows = clips.plan(previous, tip, Path(tmp, "t2"), limit=6, exists=lambda url: url in done, root=repo,
+                                  marker=failed.get)
+            self.assertEqual([r["id"] for r in rows], ["fresh", "w2", "w3", "w4", "w5", "w1"])
+            self.assertEqual({r["before"] for r in rows[1:]}, {parents[0]})
+            # Past the limit the failed one waits, and the shared app is the oldest of the ones left.
+            with mock.patch("sys.stdout"):
+                rows = clips.plan(previous, tip, Path(tmp, "t3"), limit=5, exists=lambda url: url in done, root=repo,
+                                  marker=failed.get)
+            self.assertEqual([(r["id"], r.get("before")) for r in rows],
+                             [("fresh", previous)] + [(name, parents[1]) for name in names[1:]])
 
     def test_an_improvement_with_a_clip_line_still_records_its_before(self):
         # A hand-published `clip:` line is the after; an Improved one's before still comes from its spec
