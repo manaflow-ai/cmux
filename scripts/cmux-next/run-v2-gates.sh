@@ -59,6 +59,14 @@ run_acpmux_test() {
   run cargo test --profile gate -p acpmux --test v2_connection "$1" -- --ignored --nocapture --test-threads=1
 }
 
+# The page's rows: webviews/bench/v2-gate.ts runs the rows whose names hold FILTER and appends the
+# home's line for each. Store-only rows run under bun; a row that needs a DOM starts a browser and
+# fails by name where none launches.
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+run_page() {
+  run bun "$repo_root/webviews/bench/v2-gate.ts" "$1"
+}
+
 # The gate lines are in v2-gates.d, one file per row of the design doc's PR table:
 # `pr03d.gates` holds the lines whose tests write `v2.pr03d.*` rows, so a PR that adds
 # a gate edits only its own row's file. A line is `GROUP FILTER` (a `#` starts a
@@ -73,6 +81,7 @@ declare -A group_runner=(
   [acpmux-lib]=run_acpmux_lib
   [tui-core-lib]=run_tui_core_lib
   [acpmux-v2-connection]=run_acpmux_test
+  [page]=run_page
 )
 declare -A group_filters=()
 
@@ -201,5 +210,45 @@ acpmux_connection_gates() {
   run_gates acpmux-v2-connection
 }
 run_group acpmux-v2-connection acpmux_connection_gates
+
+# The page group needs the bun webviews/package.json pins (scripts/check-webviews-bun-version.sh),
+# which the nightly's Rust setup does not install. Under CI the group installs that version itself,
+# the way tui_core_native_ready gets zig; off CI, or where it cannot be had, the group fails with a
+# line naming it.
+page_ready() {
+  "$repo_root/scripts/check-webviews-bun-version.sh" --quiet && return 0
+  if [[ -z "${CI:-}" ]]; then
+    "$repo_root/scripts/check-webviews-bun-version.sh" || true
+    echo "v2 gates: no bun of the webviews pin on PATH; the page group's rows need it" >&2
+    return 1
+  fi
+  local want dir
+  want=$(python3 -I "$repo_root/scripts/webviews_bun_version.py" "$repo_root/webviews/package.json") || {
+    echo "v2 gates: cannot read the webviews bun pin; the page group's rows need it" >&2
+    return 1
+  }
+  dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/v2-gates-bun"
+  echo "v2 gates: no bun $want on PATH; installing it for the page group"
+  if ! curl -fsSL https://bun.sh/install | BUN_INSTALL="$dir" bash -s "bun-v$want" >"$dir.log" 2>&1; then
+    tail -n 5 "$dir.log" >&2
+    echo "v2 gates: cannot install bun $want; the page group's rows need it" >&2
+    return 1
+  fi
+  export PATH="$dir/bin:$PATH"
+  "$repo_root/scripts/check-webviews-bun-version.sh" || {
+    echo "v2 gates: the installed bun is not the webviews pin; the page group's rows need it" >&2
+    return 1
+  }
+}
+
+# The page's rows (webviews/bench/v2-gate.ts), after the cargo groups.
+page_gates() {
+  if ! page_ready; then
+    failed=1
+    return
+  fi
+  run_gates page
+}
+run_group page page_gates
 
 exit "$failed"
