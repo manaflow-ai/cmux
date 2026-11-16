@@ -64,7 +64,7 @@ pub struct Pacer {
 /// drains in that time, the rate rises to drain it. Without it a target cut by loss
 /// (not congestion) holds a recovery keyframe and its repairs past the viewer's
 /// deadline, which asks for another keyframe.
-pub const DRAIN_SHARE: f64 = 1.0;
+pub const DRAIN_SHARE: f64 = 0.5;
 
 impl Pacer {
     pub fn new() -> Self {
