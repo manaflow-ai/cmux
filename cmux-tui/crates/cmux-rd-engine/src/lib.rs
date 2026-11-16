@@ -751,6 +751,8 @@ impl MediaEngine {
                 if let Some(d) = datagrams.get(usize::from(i)) {
                     if let Ok((header, _)) = DatagramHeader::decode(d) {
                         self.cc.on_retransmitted(header.transport_seq);
+                        // The viewer reports the repair under this sequence.
+                        self.loss_meter.on_repaired(header.transport_seq);
                     }
                     out.datagrams.push(d.clone());
                     budget -= 1;
