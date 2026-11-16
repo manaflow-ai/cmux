@@ -286,16 +286,16 @@ fn kin_table_write_gate() {
         let table = directory.path().join("index.snap.kin");
         let start = Instant::now();
         let stats = if with_table {
-            SortedSnapshot::write_stream_generation_with_table(
-                &snapshot,
-                index.seq(),
-                0,
-                None,
-                0,
-                SnapshotMeta::default(),
-                index.merged_rows(),
-                Some(&table),
-            )
+            SortedSnapshot::write_stream_generation_with_table(StreamGeneration {
+                path: &snapshot,
+                seq: index.seq(),
+                log_offset: 0,
+                log_name: None,
+                covered_generation: 0,
+                meta: SnapshotMeta::default(),
+                rows: index.merged_rows(),
+                table_path: Some(&table),
+            })
             .unwrap()
         } else {
             SortedSnapshot::write_stream_generation(

@@ -206,7 +206,7 @@ fn cycle_closure_deduplicates_nearest_ancestors_without_self_rows() {
     cycle_a.parent = Some(cycle_b.key());
     cycle_b.parent = Some(cycle_a.key());
     child.parent = Some(cycle_b.key());
-    let rows = [cycle_a.clone(), cycle_b.clone(), child.clone()];
+    let rows = [cycle_a.clone(), cycle_b.clone(), child];
     let (_directory, path) = write_table(&rows, 44, TEST_HEAD_CRC);
     let table = open_table(&path, 44, rows.len() as u64, TEST_HEAD_CRC);
     let actual = entries(&table);

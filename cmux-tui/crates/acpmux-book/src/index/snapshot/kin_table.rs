@@ -5,7 +5,7 @@
 //! disables this handle once, without renaming a potentially newer sidecar.
 use crate::index::RowKey;
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -41,29 +41,29 @@ pub(crate) struct Entry {
 }
 
 impl Entry {
-    fn encode(self, out: &mut [u8]) {
-        out[..8].copy_from_slice(&self.hash.to_le_bytes());
-        out[8..16].copy_from_slice(&self.activity.to_le_bytes());
-        out[16..24].copy_from_slice(&self.offset.to_le_bytes());
-        out[24..28].copy_from_slice(&self.check.to_le_bytes());
-        out[28..30].copy_from_slice(&self.len.to_le_bytes());
-        out[30] = self.depth;
-        out[31] = self.kind;
+    fn encode(self, mut out: &mut [u8]) -> io::Result<()> {
+        if out.len() != ENTRY_BYTES {
+            return Err(invalid("kin entry length"));
+        }
+        out.write_all(&self.hash.to_le_bytes())?;
+        out.write_all(&self.activity.to_le_bytes())?;
+        out.write_all(&self.offset.to_le_bytes())?;
+        out.write_all(&self.check.to_le_bytes())?;
+        out.write_all(&self.len.to_le_bytes())?;
+        out.write_all(&[self.depth, self.kind])
     }
 
-    fn decode(bytes: &[u8]) -> io::Result<Self> {
+    fn decode(mut bytes: &[u8]) -> io::Result<Self> {
         if bytes.len() != ENTRY_BYTES {
             return Err(invalid("kin entry length"));
         }
-        Ok(Self {
-            hash: read_u64(&bytes[..8])?,
-            activity: read_u64(&bytes[8..16])?,
-            offset: read_u64(&bytes[16..24])?,
-            check: read_u32(&bytes[24..28])?,
-            len: u16::from_le_bytes([bytes[28], bytes[29]]),
-            depth: bytes[30],
-            kind: bytes[31],
-        })
+        let hash = u64::from_le_bytes(take_bytes(&mut bytes)?);
+        let activity = u64::from_le_bytes(take_bytes(&mut bytes)?);
+        let offset = u64::from_le_bytes(take_bytes(&mut bytes)?);
+        let check = u32::from_le_bytes(take_bytes(&mut bytes)?);
+        let len = u16::from_le_bytes(take_bytes(&mut bytes)?);
+        let [depth, kind] = take_bytes(&mut bytes)?;
+        Ok(Self { hash, activity, offset, check, len, depth, kind })
     }
 }
 
@@ -252,4 +252,11 @@ fn read_u32(bytes: &[u8]) -> io::Result<u32> {
 }
 fn read_u64(bytes: &[u8]) -> io::Result<u64> {
     Ok(u64::from_le_bytes(bytes.try_into().map_err(|_| invalid("kin integer"))?))
+}
+
+/// Consume a fixed field without indexing untrusted or truncated record bytes.
+fn take_bytes<const N: usize>(bytes: &mut &[u8]) -> io::Result<[u8; N]> {
+    let mut field = [0; N];
+    bytes.read_exact(&mut field)?;
+    Ok(field)
 }

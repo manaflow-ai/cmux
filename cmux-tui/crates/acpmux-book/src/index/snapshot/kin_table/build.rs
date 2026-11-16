@@ -1,10 +1,12 @@
 //! Staged ancestor expansion using fixed records and sorted merge joins.
 
 use super::sort::{Record, SortedFile, Sorter};
-use super::{ENTRY_BYTES, Entry, FAMILY_KIND, FORK_KIND, MAX_DEPTH, invalid, key_fingerprint};
+use super::{
+    ENTRY_BYTES, Entry, FAMILY_KIND, FORK_KIND, MAX_DEPTH, invalid, key_fingerprint, take_bytes,
+};
 use crate::index::Summary;
 use std::cmp::Ordering;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 type Fingerprint = (u64, u32);
@@ -17,12 +19,12 @@ struct Edge {
 
 impl Record for Edge {
     const WIDTH: usize = 24;
-    fn encode(self, bytes: &mut [u8]) {
-        write_fingerprint(self.child, &mut bytes[..12]);
-        write_fingerprint(self.parent, &mut bytes[12..]);
+    fn encode(self, mut bytes: &mut [u8]) -> io::Result<()> {
+        write_fingerprint(self.child, &mut bytes)?;
+        write_fingerprint(self.parent, &mut bytes)
     }
-    fn decode(bytes: &[u8]) -> io::Result<Self> {
-        Ok(Self { child: read_fingerprint(&bytes[..12])?, parent: read_fingerprint(&bytes[12..])? })
+    fn decode(mut bytes: &[u8]) -> io::Result<Self> {
+        Ok(Self { child: read_fingerprint(&mut bytes)?, parent: read_fingerprint(&mut bytes)? })
     }
 }
 
@@ -57,20 +59,21 @@ impl Level {
 
 impl Record for Level {
     const WIDTH: usize = ENTRY_BYTES + 12 + 1;
-    fn encode(self, bytes: &mut [u8]) {
-        self.entry.encode(&mut bytes[..ENTRY_BYTES]);
-        write_fingerprint(self.own, &mut bytes[ENTRY_BYTES..ENTRY_BYTES + 12]);
-        bytes[ENTRY_BYTES + 12] = u8::from(self.eligible);
+    fn encode(self, mut bytes: &mut [u8]) -> io::Result<()> {
+        let mut entry = [0; ENTRY_BYTES];
+        self.entry.encode(&mut entry)?;
+        bytes.write_all(&entry)?;
+        write_fingerprint(self.own, &mut bytes)?;
+        bytes.write_all(&[u8::from(self.eligible)])
     }
-    fn decode(bytes: &[u8]) -> io::Result<Self> {
-        if bytes[ENTRY_BYTES + 12] > 1 {
+    fn decode(mut bytes: &[u8]) -> io::Result<Self> {
+        let entry = Entry::decode(&take_bytes::<ENTRY_BYTES>(&mut bytes)?)?;
+        let own = read_fingerprint(&mut bytes)?;
+        let [eligible] = take_bytes(&mut bytes)?;
+        if eligible > 1 {
             return Err(invalid("kin eligibility"));
         }
-        Ok(Self {
-            entry: Entry::decode(&bytes[..ENTRY_BYTES])?,
-            own: read_fingerprint(&bytes[ENTRY_BYTES..ENTRY_BYTES + 12])?,
-            eligible: bytes[ENTRY_BYTES + 12] != 0,
-        })
+        Ok(Self { entry, own, eligible: eligible != 0 })
     }
 }
 
@@ -102,8 +105,8 @@ impl PartialOrd for EntryRecord {
 
 impl Record for EntryRecord {
     const WIDTH: usize = ENTRY_BYTES;
-    fn encode(self, bytes: &mut [u8]) {
-        self.0.encode(bytes);
+    fn encode(self, bytes: &mut [u8]) -> io::Result<()> {
+        self.0.encode(bytes)
     }
     fn decode(bytes: &[u8]) -> io::Result<Self> {
         Entry::decode(bytes).map(Self)
@@ -231,13 +234,44 @@ impl SortedEntries {
     }
 }
 
-fn write_fingerprint((hash, check): Fingerprint, bytes: &mut [u8]) {
-    bytes[..8].copy_from_slice(&hash.to_le_bytes());
-    bytes[8..12].copy_from_slice(&check.to_le_bytes());
+fn write_fingerprint((hash, check): Fingerprint, bytes: &mut &mut [u8]) -> io::Result<()> {
+    bytes.write_all(&hash.to_le_bytes())?;
+    bytes.write_all(&check.to_le_bytes())
 }
 
-fn read_fingerprint(bytes: &[u8]) -> io::Result<Fingerprint> {
-    let hash = u64::from_le_bytes(bytes[..8].try_into().map_err(|_| invalid("kin edge hash"))?);
-    let check = u32::from_le_bytes(bytes[8..12].try_into().map_err(|_| invalid("kin edge check"))?);
+fn read_fingerprint(bytes: &mut &[u8]) -> io::Result<Fingerprint> {
+    let hash = u64::from_le_bytes(take_bytes(bytes)?);
+    let check = u32::from_le_bytes(take_bytes(bytes)?);
     Ok((hash, check))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check_truncated_record<R: Record>(record: R) {
+        let mut bytes = vec![0; R::WIDTH];
+        record.encode(&mut bytes).unwrap();
+        assert!(R::decode(&bytes).is_ok_and(|decoded| decoded == record));
+        for length in 0..R::WIDTH {
+            assert!(record.encode(&mut bytes[..length]).is_err());
+            assert!(R::decode(&bytes[..length]).is_err());
+        }
+    }
+
+    #[test]
+    fn fixed_records_reject_every_truncation_without_panicking() {
+        check_truncated_record(Edge { child: (1, 2), parent: (3, 4) });
+        let entry = Entry {
+            hash: 5,
+            activity: 6,
+            offset: 7,
+            check: 8,
+            len: 9,
+            depth: 10,
+            kind: FAMILY_KIND,
+        };
+        check_truncated_record(EntryRecord(entry));
+        check_truncated_record(Level { entry, own: (11, 12), eligible: true });
+    }
 }

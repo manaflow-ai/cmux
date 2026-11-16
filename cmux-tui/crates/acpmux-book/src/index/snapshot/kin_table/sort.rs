@@ -25,7 +25,7 @@ static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 pub(super) trait Record: Copy + Ord {
     const WIDTH: usize;
-    fn encode(self, bytes: &mut [u8]);
+    fn encode(self, bytes: &mut [u8]) -> io::Result<()>;
     fn decode(bytes: &[u8]) -> io::Result<Self>;
 }
 
@@ -128,7 +128,7 @@ impl<R: Record> Sorter<R> {
         debug_assert_eq!(id, self.runs);
         let mut bytes = vec![0; R::WIDTH];
         for record in self.memory.drain(..) {
-            record.encode(&mut bytes);
+            record.encode(&mut bytes)?;
             output.write_all(&bytes)?;
         }
         output.flush()?;
@@ -184,9 +184,12 @@ fn merge<R: Record>(space: &TempSpace, first: u64, count: u64) -> io::Result<()>
     }
     let (_, mut output) = space.create()?;
     while let Some(Reverse((record, index))) = heap.pop() {
-        record.encode(&mut bytes);
+        record.encode(&mut bytes)?;
         output.write_all(&bytes)?;
-        if let Some(next) = read_record::<R>(&mut inputs[index], &mut bytes)? {
+        if let Some(next) = read_record::<R>(
+            inputs.get_mut(index).ok_or_else(|| io::Error::other("kin merge input index"))?,
+            &mut bytes,
+        )? {
             heap.push(Reverse((next, index)));
         }
     }
@@ -201,8 +204,10 @@ fn merge<R: Record>(space: &TempSpace, first: u64, count: u64) -> io::Result<()>
 
 fn read_record<R: Record>(input: &mut impl Read, bytes: &mut [u8]) -> io::Result<Option<R>> {
     // Distinguish a clean boundary from a truncated final record.
+    let (first, rest) =
+        bytes.split_first_mut().ok_or_else(|| io::Error::other("empty kin record"))?;
     let read = loop {
-        match input.read(&mut bytes[..1]) {
+        match input.read(std::slice::from_mut(first)) {
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             result => break result?,
         }
@@ -210,7 +215,7 @@ fn read_record<R: Record>(input: &mut impl Read, bytes: &mut [u8]) -> io::Result
     if read == 0 {
         return Ok(None);
     }
-    input.read_exact(&mut bytes[1..])?;
+    input.read_exact(rest)?;
     R::decode(bytes).map(Some)
 }
 
@@ -246,7 +251,7 @@ impl<R: Record> SortedFile<R> {
             if previous.as_ref().is_some_and(|previous| same(previous, &record)) {
                 continue;
             }
-            record.encode(&mut self.bytes);
+            record.encode(&mut self.bytes)?;
             output.write_all(&self.bytes)?;
             count =
                 count.checked_add(1).ok_or_else(|| io::Error::other("kin unique record count"))?;
@@ -267,8 +272,8 @@ mod tests {
 
     impl Record for Number {
         const WIDTH: usize = 8;
-        fn encode(self, bytes: &mut [u8]) {
-            bytes.copy_from_slice(&self.0.to_le_bytes());
+        fn encode(self, mut bytes: &mut [u8]) -> io::Result<()> {
+            bytes.write_all(&self.0.to_le_bytes())
         }
         fn decode(bytes: &[u8]) -> io::Result<Self> {
             Ok(Self(u64::from_le_bytes(bytes.try_into().map_err(io::Error::other)?)))

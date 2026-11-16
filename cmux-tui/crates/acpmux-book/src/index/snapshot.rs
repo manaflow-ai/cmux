@@ -66,6 +66,7 @@ mod write;
 #[cfg(test)]
 pub(super) use write::KinWriteStats;
 pub use write::SortedSnapshot;
+pub(super) use write::StreamGeneration;
 
 pub(super) const HEADER_BYTES: usize = 4096;
 const MAGIC: &[u8; 8] = b"ACIDX003";

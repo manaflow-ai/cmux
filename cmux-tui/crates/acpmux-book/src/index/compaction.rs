@@ -1,5 +1,8 @@
 //! Crash-safe snapshot installation after an O(1) log-generation rotation.
-use super::{DiskSnapshot, RowKey, SortedSnapshot, Summary, SummaryIndex, is_corrupt_snapshot_row};
+use super::{
+    DiskSnapshot, RowKey, SortedSnapshot, StreamGeneration, Summary, SummaryIndex,
+    is_corrupt_snapshot_row,
+};
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io;
@@ -101,17 +104,17 @@ impl Compaction {
             path.push(".kin");
             PathBuf::from(path)
         };
-        SortedSnapshot::write_stream_generation_with_table(
-            stage,
-            self.seq,
-            0,
-            None,
-            self.covered_generation,
-            super::snapshot::SnapshotMeta {
+        SortedSnapshot::write_stream_generation_with_table(StreamGeneration {
+            path: stage,
+            seq: self.seq,
+            log_offset: 0,
+            log_name: None,
+            covered_generation: self.covered_generation,
+            meta: super::snapshot::SnapshotMeta {
                 origins: index.origins().cloned().collect(),
                 marks: index.mirror_marks().collect(),
             },
-            index.merged_rows().filter_map(|row| {
+            rows: index.merged_rows().filter_map(|row| {
                 if cancelled.load(Ordering::Acquire) {
                     return Some(Err(io::Error::new(
                         io::ErrorKind::Interrupted,
@@ -136,8 +139,8 @@ impl Compaction {
                 }
                 Some(Ok(row))
             }),
-            Some(&table_stage),
-        )?;
+            table_path: Some(&table_stage),
+        })?;
         if cancelled.load(Ordering::Acquire) {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "compaction cancelled"));
         }

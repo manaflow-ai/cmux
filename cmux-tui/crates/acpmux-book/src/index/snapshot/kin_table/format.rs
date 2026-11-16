@@ -124,7 +124,11 @@ impl Pages<'_> {
         if self.packed >= u64::from(u32::MAX) {
             return Err(invalid("kin packed entry overflow"));
         }
-        entry.encode(&mut self.page[self.used * ENTRY_BYTES..(self.used + 1) * ENTRY_BYTES]);
+        entry.encode(
+            self.page
+                .get_mut(self.used * ENTRY_BYTES..(self.used + 1) * ENTRY_BYTES)
+                .ok_or_else(|| invalid("kin entry page offset"))?,
+        )?;
         self.used += 1;
         self.packed += 1;
         if self.used == ENTRIES_PER_PAGE {
@@ -150,8 +154,14 @@ impl Pages<'_> {
         let start = u32::try_from(start).map_err(|_| invalid("kin directory start overflow"))?;
         let len = u32::try_from(len).map_err(|_| invalid("kin directory length overflow"))?;
         let at = (slot as usize % SLOTS_PER_PAGE) * 8;
-        self.directory[at..at + 4].copy_from_slice(&start.to_le_bytes());
-        self.directory[at + 4..at + 8].copy_from_slice(&len.to_le_bytes());
+        self.directory
+            .get_mut(at..at + 4)
+            .ok_or_else(|| invalid("kin slot offset"))?
+            .copy_from_slice(&start.to_le_bytes());
+        self.directory
+            .get_mut(at + 4..at + 8)
+            .ok_or_else(|| invalid("kin slot length offset"))?
+            .copy_from_slice(&len.to_le_bytes());
         if slot as usize % SLOTS_PER_PAGE == SLOTS_PER_PAGE - 1 {
             self.flush_directory()?;
         }
@@ -179,15 +189,11 @@ fn encode_header(binding: Binding, head: TableHeader) -> [u8; TABLE_HEADER_BYTES
     bytes[..8].copy_from_slice(MAGIC);
     bytes[8..12].copy_from_slice(&VERSION.to_le_bytes());
     bytes[12..16].copy_from_slice(&binding.head_crc.to_le_bytes());
-    for (at, value) in [
-        (16, binding.seq),
-        (24, binding.data_end),
-        (32, binding.count),
-        (40, head.entries),
-        (56, head.packed_entries),
-    ] {
-        bytes[at..at + 8].copy_from_slice(&value.to_le_bytes());
-    }
+    bytes[16..24].copy_from_slice(&binding.seq.to_le_bytes());
+    bytes[24..32].copy_from_slice(&binding.data_end.to_le_bytes());
+    bytes[32..40].copy_from_slice(&binding.count.to_le_bytes());
+    bytes[40..48].copy_from_slice(&head.entries.to_le_bytes());
+    bytes[56..64].copy_from_slice(&head.packed_entries.to_le_bytes());
     bytes[48..52].copy_from_slice(&head.slots.to_le_bytes());
     bytes[52..56].copy_from_slice(&head.directory_pages.to_le_bytes());
     seal(&mut bytes);

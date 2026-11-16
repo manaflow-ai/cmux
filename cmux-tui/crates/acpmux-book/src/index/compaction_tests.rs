@@ -468,16 +468,16 @@ fn failed_table_write_preserves_the_snapshot_and_existing_destination() {
     let mut summary = row("kept", 1);
     summary.state = "closed".to_owned();
     summary.parent = Some(RowKey::new("local", "root"));
-    SortedSnapshot::write_stream_generation_with_table(
-        &snapshot,
-        1,
-        0,
-        None,
-        0,
-        SnapshotMeta::default(),
-        [Ok(Arc::new(summary))],
-        Some(&table),
-    )
+    SortedSnapshot::write_stream_generation_with_table(StreamGeneration {
+        path: &snapshot,
+        seq: 1,
+        log_offset: 0,
+        log_name: None,
+        covered_generation: 0,
+        meta: SnapshotMeta::default(),
+        rows: [Ok(Arc::new(summary))],
+        table_path: Some(&table),
+    })
     .unwrap();
     let reopened = DiskSnapshot::open(&snapshot).unwrap().unwrap();
     assert_eq!(reopened.len(), 1);

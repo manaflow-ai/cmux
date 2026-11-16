@@ -19,6 +19,17 @@ pub(in crate::index) struct KinWriteStats {
     pub pages_ns: u128,
 }
 
+pub(in crate::index) struct StreamGeneration<'a, Rows> {
+    pub path: &'a Path,
+    pub seq: u64,
+    pub log_offset: u64,
+    pub log_name: Option<&'a str>,
+    pub covered_generation: u64,
+    pub meta: SnapshotMeta,
+    pub rows: Rows,
+    pub table_path: Option<&'a Path>,
+}
+
 impl SortedSnapshot {
     pub const VERSION: u32 = 3;
 
@@ -75,7 +86,26 @@ impl SortedSnapshot {
         meta: impl Into<SnapshotMeta>,
         rows: impl IntoIterator<Item = io::Result<Arc<Summary>>>,
     ) -> io::Result<()> {
-        Self::write_stream_generation_with_table(
+        Self::write_stream_generation_with_table(StreamGeneration {
+            path: path.as_ref(),
+            seq,
+            log_offset,
+            log_name,
+            covered_generation,
+            meta: meta.into(),
+            rows,
+            table_path: None,
+        })
+        .map(|_| ())
+    }
+
+    pub(in crate::index) fn write_stream_generation_with_table<Rows>(
+        request: StreamGeneration<'_, Rows>,
+    ) -> io::Result<KinWriteStats>
+    where
+        Rows: IntoIterator<Item = io::Result<Arc<Summary>>>,
+    {
+        let StreamGeneration {
             path,
             seq,
             log_offset,
@@ -83,25 +113,11 @@ impl SortedSnapshot {
             covered_generation,
             meta,
             rows,
-            None,
-        )
-        .map(|_| ())
-    }
-
-    pub(in crate::index) fn write_stream_generation_with_table(
-        path: impl AsRef<Path>,
-        seq: u64,
-        log_offset: u64,
-        log_name: Option<&str>,
-        covered_generation: u64,
-        meta: impl Into<SnapshotMeta>,
-        rows: impl IntoIterator<Item = io::Result<Arc<Summary>>>,
-        table_path: Option<&Path>,
-    ) -> io::Result<KinWriteStats> {
+            table_path,
+        } = request;
         let started = std::time::Instant::now();
         let mut stats = KinWriteStats::default();
-        let path = path.as_ref();
-        let SnapshotMeta { origins, marks } = meta.into();
+        let SnapshotMeta { origins, marks } = meta;
         if marks.len() > 256 {
             return Err(codec::invalid("snapshot mark limit"));
         }
