@@ -323,4 +323,75 @@ mod tests {
         let worker = worker_blocked_on(Arc::new(Mutex::new(())));
         worker.stop(Duration::from_secs(5));
     }
+
+    /// The owner of a session on disk, with a cleanup worker that lives past
+    /// its stop: it waits on `lock`, as the real worker can at its last step.
+    /// The worker writes files of the session's folder, and the next owner's
+    /// start acts on them.
+    fn owner_with_a_worker_blocked_on(
+        session: &str,
+        lock: Arc<Mutex<()>>,
+    ) -> (std::path::PathBuf, Arc<Mux>) {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-session-release-cleanup-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        // The owner's own worker, if it started one, ends at this stop.
+        mux.stop_output_cleanup();
+        *mux.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(worker_blocked_on(lock));
+        (root, mux)
+    }
+
+    /// The text with which the open of `session` is refused, if it is.
+    fn refusal_of_the_next_open(root: &Path, session: &str) -> Option<String> {
+        WorkspaceRegistry::open(root, session).err().map(|error| format!("{error:#}"))
+    }
+
+    /// The owner's stop of its cleanup worker ran out, and the owner then
+    /// releases the session. While that worker lives, the session keeps its
+    /// owner: the next owner's open is refused.
+    #[test]
+    fn session_release_the_session_has_its_owner_while_the_cleanup_worker_lives() {
+        let session = "release-cleanup";
+        let lock = Arc::new(Mutex::new(()));
+        let held = lock.lock().unwrap();
+        let (root, mux) = owner_with_a_worker_blocked_on(session, lock.clone());
+        mux.shutdown();
+        mux.release_ownership(&root.join("control.sock"));
+        let refused = refusal_of_the_next_open(&root, session);
+        drop(held);
+        drop(mux);
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(
+            refused.as_deref().is_some_and(|text| text.contains("already owned by another daemon")),
+            "the next owner has the session while the cleanup worker of the owner before it \
+             lives: the next open's refusal: {refused:?}"
+        );
+    }
+
+    /// The same, and the owner's value is dropped before the next owner's
+    /// open (the server's function returned; the process did not end yet).
+    /// The session keeps its owner until that process ends.
+    #[test]
+    fn session_release_a_kept_session_stays_kept_after_the_owners_value_is_dropped() {
+        let session = "release-cleanup-drop";
+        let lock = Arc::new(Mutex::new(()));
+        let held = lock.lock().unwrap();
+        let (root, mux) = owner_with_a_worker_blocked_on(session, lock.clone());
+        mux.shutdown();
+        mux.release_ownership(&root.join("control.sock"));
+        let dropped = Arc::into_inner(mux).map(drop).is_some();
+        let refused = refusal_of_the_next_open(&root, session);
+        drop(held);
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(
+            refused.as_deref().is_some_and(|text| text.contains("already owned by another daemon")),
+            "the next owner has the session while the cleanup worker of the owner before it \
+             lives, after that owner's value was dropped (dropped: {dropped}): the next open's \
+             refusal: {refused:?}"
+        );
+        assert!(dropped, "setup: the test had the last handle of the owner's value");
+    }
 }

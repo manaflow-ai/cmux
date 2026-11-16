@@ -152,3 +152,27 @@ fn wait_for_session_release(
         ),
     }
 }
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam: for an open on this thread, how long the open waits for
+    /// an owner that said that it keeps the session until its exit.
+    static KEPT_OWNER_WAIT: std::cell::Cell<Option<std::time::Duration>> =
+        const { std::cell::Cell::new(None) };
+    /// Test seam: runs on this thread, one time for each open, when that
+    /// wait starts and before its first blocking call.
+    static KEPT_OWNER_WAIT_STARTED: std::cell::RefCell<Option<Box<dyn Fn()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Test seam: sets, for each later open on this thread, the bound of the
+/// wait for an owner that keeps the session until its exit, and what runs
+/// when such a wait starts.
+#[cfg(test)]
+pub(crate) fn set_kept_owner_wait_for_test(
+    bound: std::time::Duration,
+    started: Option<Box<dyn Fn()>>,
+) {
+    KEPT_OWNER_WAIT.with(|wait| wait.set(Some(bound)));
+    KEPT_OWNER_WAIT_STARTED.with(|hook| *hook.borrow_mut() = started);
+}

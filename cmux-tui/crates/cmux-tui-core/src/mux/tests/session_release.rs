@@ -24,6 +24,21 @@ const RELEASE_RECORD_FILE: &str = "previous-owner-release.json";
 const RELEASE_RECORD_KEY: &str = "previous_owner_release";
 /// The key of the event whose commit the journal writer is held at.
 const WRITER_EVENT: &str = "release_writer_1";
+/// What an owner writes in its record when it keeps the session until its
+/// exit.
+const KEPT_RELEASE: &str = "kept until the exit";
+/// What a next owner says when it is refused after its wait for such an
+/// owner.
+const KEPT_REASON: &str = "keeps the session until its exit";
+/// The longest wait for the thread of a next owner to say something. A
+/// bound for a thread that never comes, not a time the test measures.
+const NEXT_OWNER_THREAD_WAIT: Duration = Duration::from_secs(60);
+/// A bound of the next owner's wait that no test reaches: an event of the
+/// test ends that wait, or the open must not wait at all.
+const LONG_OWNER_WAIT: Duration = Duration::from_secs(60);
+/// A bound of the next owner's wait for an owner that never gives the
+/// session up: the open is refused when it ends.
+const SHORT_OWNER_WAIT: Duration = Duration::from_millis(50);
 
 fn try_open_owner(root: &Path, session: &str) -> anyhow::Result<Arc<Mux>> {
     let options = SurfaceOptions {
@@ -46,7 +61,7 @@ fn session_folder(owner: &Mux) -> std::path::PathBuf {
 
 /// The line that `owner` writes for its start, read back from the file of the
 /// session's start lines.
-fn start_line(owner: &Mux, folder: &Path) -> serde_json::Value {
+fn start_line(owner: &Mux, folder: &Path) -> Value {
     let timings = owner.take_startup_timings().expect("a start from a store has its laps");
     owner.record_startup_timings(&timings);
     let lines =
@@ -56,7 +71,7 @@ fn start_line(owner: &Mux, folder: &Path) -> serde_json::Value {
 }
 
 /// The keys of a start line, for a failure text (the line itself is long).
-fn keys(line: &serde_json::Value) -> Vec<&str> {
+fn keys(line: &Value) -> Vec<&str> {
     line.as_object().map(|fields| fields.keys().map(String::as_str).collect()).unwrap_or_default()
 }
 
@@ -65,7 +80,7 @@ fn keys(line: &serde_json::Value) -> Vec<&str> {
 /// out, as it does in a shutdown with a slow disk.
 struct HeldWriter {
     mux: Arc<Mux>,
-    resume: mpsc::SyncSender<()>,
+    resume: SyncSender<()>,
     producer: std::thread::JoinHandle<()>,
 }
 
@@ -124,6 +139,87 @@ impl HeldWriter {
         let _ = producer.join();
         mux
     }
+}
+
+/// Writes, in the session's folder, the record of an owner that keeps the
+/// session until its exit, as that owner writes it.
+fn write_kept_record(folder: &Path) {
+    let record = serde_json::json!({
+        "at_ms": 1_700_000_000_000_u64,
+        "pid": std::process::id(),
+        "release": KEPT_RELEASE,
+        "alive": ["session journal writer"],
+        "waited_ms": 2000,
+    });
+    std::fs::write(folder.join(RELEASE_RECORD_FILE), record.to_string()).unwrap();
+}
+
+/// Sets, for each later open on this thread, the longest wait for an owner
+/// that keeps the session. The flag that it returns says if an open waited.
+fn set_owner_wait(bound: Duration) -> Arc<AtomicBool> {
+    let waited = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&waited);
+    crate::workspace_registry::terminal_state_end::set_kept_owner_wait_for_test(
+        bound,
+        Some(Box::new(move || flag.store(true, Ordering::Release))),
+    );
+    waited
+}
+
+/// An open of a session that must not pass: the text of its refusal.
+fn refusal(root: &Path, session: &str) -> String {
+    match try_open_owner(root, session) {
+        Ok(next) => {
+            drop(next);
+            "the open passed".to_owned()
+        }
+        Err(error) => format!("{error:#}"),
+    }
+}
+
+/// What the thread of a next owner says to its test.
+enum NextOwner {
+    /// Its open waits for the owner before it.
+    Waiting,
+    /// Its open ended.
+    Done(Result<Arc<Mux>, String>),
+}
+
+/// Opens the session as its next owner on a thread of its own, with `bound`
+/// as the longest wait for an owner that keeps the session.
+fn open_next_owner_on_a_thread(
+    root: &Path,
+    session: &str,
+    bound: Duration,
+) -> (Receiver<NextOwner>, std::thread::JoinHandle<()>) {
+    let (events, next_owner) = mpsc::channel();
+    let (root, session) = (root.to_path_buf(), session.to_owned());
+    let thread = std::thread::spawn(move || {
+        let waiting = events.clone();
+        crate::workspace_registry::terminal_state_end::set_kept_owner_wait_for_test(
+            bound,
+            Some(Box::new(move || {
+                let _ = waiting.send(NextOwner::Waiting);
+            })),
+        );
+        let opened = try_open_owner(&root, &session).map_err(|error| format!("{error:#}"));
+        let _ = events.send(NextOwner::Done(opened));
+    });
+    (next_owner, thread)
+}
+
+/// Creates a conversation in the owner's conversation store, which the owner
+/// opens at its first use.
+fn create_conversation(owner: &Mux, key: &str) -> Result<(), String> {
+    let people: Vec<cmux_conversation::Participant> = serde_json::from_value(serde_json::json!([
+        {"id": "user_local", "kind": "human", "display_name": "Me"},
+        {"id": "agent_chief", "kind": "agent", "display_name": "Chief"}
+    ]))
+    .unwrap();
+    owner
+        .with_conversations(|store| store.create(key, "user_local", "Chief", &people))
+        .map(|_| ())
+        .map_err(|error| format!("{error:#}"))
 }
 
 /// What an owner reads of its store: the resource revision and the number
@@ -397,5 +493,178 @@ fn a_record_file_that_is_cut_in_the_middle_does_not_stop_the_next_owners_start()
         "the next owner's start line does not say that the owner before it left a record that \
          is cut: no field `{RELEASE_RECORD_KEY}`; the line's keys: {:?}",
         keys(&line)
+    );
+}
+
+/// An owner said in its record that it keeps the session until its exit. The
+/// next owner's open waits for it, and it has the session when that owner
+/// gives it up.
+#[test]
+fn the_next_owner_waits_for_an_owner_that_keeps_the_session_until_its_exit() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-wait-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "release-wait";
+    let old = open_owner(&root, session);
+    write_kept_record(&session_folder(&old));
+    let (next_owner, thread) = open_next_owner_on_a_thread(&root, session, LONG_OWNER_WAIT);
+    let first = next_owner
+        .recv_timeout(NEXT_OWNER_THREAD_WAIT)
+        .expect("the next owner's thread said nothing");
+    // The owner before gives the session up here: while the next owner waits
+    // for it or, with no wait, after that owner's open ended.
+    old.shutdown();
+    old.release_ownership(&root.join("control.sock"));
+    drop(old);
+    let (waited, opened) = match first {
+        NextOwner::Done(opened) => (false, opened),
+        NextOwner::Waiting => match next_owner.recv_timeout(NEXT_OWNER_THREAD_WAIT) {
+            Ok(NextOwner::Done(opened)) => (true, opened),
+            Ok(NextOwner::Waiting) => {
+                (true, Err("its open said two times that it waits".to_owned()))
+            }
+            Err(error) => (true, Err(format!("its open did not end: {error}"))),
+        },
+    };
+    let outcome = match &opened {
+        Ok(_) => "it has the session".to_owned(),
+        Err(error) => format!("refused: {error}"),
+    };
+    if !outcome.contains("its open did not end") {
+        let _ = thread.join();
+    }
+    drop(opened);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        waited && outcome == "it has the session",
+        "the next owner did not get the session of an owner that said that it keeps it until \
+         its exit, and that then gave it up: the open waited: {waited}; the open's end: {outcome}"
+    );
+}
+
+/// The owner before keeps the session and does not end. The next owner's
+/// open waits for its bound, and then it is refused with the reason.
+#[test]
+fn the_next_owner_says_why_when_the_kept_session_stays_kept_past_its_wait() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-bound-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "release-bound";
+    let old = open_owner(&root, session);
+    write_kept_record(&session_folder(&old));
+    let waited = set_owner_wait(SHORT_OWNER_WAIT);
+    let refused = refusal(&root, session);
+    let waited = waited.load(Ordering::Acquire);
+    drop(old);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        waited
+            && refused.contains("already owned by another daemon")
+            && refused.contains(KEPT_REASON),
+        "the next owner's refusal does not say that the owner before it keeps the session: the \
+         open waited: {waited}; the refusal: {refused}"
+    );
+}
+
+/// With no record of the owner before, the open of a session that has an
+/// owner is refused at once: the wait is only for an owner that said that it
+/// keeps the session.
+#[test]
+fn the_next_owner_does_not_wait_when_no_record_says_that_the_session_is_kept() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-owned-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "release-owned";
+    let old = open_owner(&root, session);
+    let waited = set_owner_wait(LONG_OWNER_WAIT);
+    let refused = refusal(&root, session);
+    let waited = waited.load(Ordering::Acquire);
+    drop(old);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        !waited && refused.contains("already owned by another daemon"),
+        "the open of a session that has a healthy owner was not refused at once: the open \
+         waited: {waited}; the refusal: {refused}"
+    );
+}
+
+/// A next owner that has the session reads the record of the owner before it
+/// into its start line and removes the file. So a later open, which that
+/// healthy owner refuses, does not wait.
+#[test]
+fn the_next_owner_removes_the_record_that_it_read_into_its_start_line() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-read-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "release-read";
+    let old = open_owner(&root, session);
+    let folder = session_folder(&old);
+    old.shutdown();
+    old.release_ownership(&root.join("control.sock"));
+    drop(old);
+    write_kept_record(&folder);
+
+    let waited = set_owner_wait(LONG_OWNER_WAIT);
+    let next = match try_open_owner(&root, session) {
+        Ok(next) => next,
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&root);
+            panic!("the record of the owner before stopped the next owner's start: {error:#}");
+        }
+    };
+    let line = start_line(&next, &folder);
+    let record_stays = folder.join(RELEASE_RECORD_FILE).exists();
+    let later = refusal(&root, session);
+    let waited = waited.load(Ordering::Acquire);
+    drop(next);
+    let _ = std::fs::remove_dir_all(&root);
+    let record = line.get(RELEASE_RECORD_KEY).map(ToString::to_string).unwrap_or_default();
+    assert!(
+        record.contains(KEPT_RELEASE)
+            && !record_stays
+            && !waited
+            && later.contains("already owned by another daemon"),
+        "the next owner did not take the record of the owner before it out of the session's \
+         folder: field `{RELEASE_RECORD_KEY}`: {record:?}; the record file is still there: \
+         {record_stays}; an open waited: {waited}; a later open: {later}"
+    );
+}
+
+/// The conversations of a session are a store of their own in the session's
+/// folder. An owner that had it open at its release cannot write it after
+/// the release.
+#[test]
+fn an_owner_that_released_its_session_cannot_write_its_conversation_store() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-talk-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "release-talk";
+    let mux = open_owner(&root, session);
+    let first = create_conversation(&mux, "release-talk-first");
+    mux.shutdown();
+    mux.release_ownership(&root.join("control.sock"));
+    let late = create_conversation(&mux, "release-talk-late");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(first.is_ok(), "setup: the owner writes its conversation store: {first:?}");
+    assert!(
+        late.is_err(),
+        "an owner that released its session wrote its conversation store, which the next owner \
+         has: its write: {late:?}"
+    );
+}
+
+/// An owner opens that store at its first use. A first use after the release
+/// writes nothing either.
+#[test]
+fn a_store_that_an_owner_opens_after_its_release_takes_no_write() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-open-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "release-open";
+    let mux = open_owner(&root, session);
+    mux.shutdown();
+    mux.release_ownership(&root.join("control.sock"));
+    let late = create_conversation(&mux, "release-open-late");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        late.is_err(),
+        "an owner that released its session opened its conversation store after the release \
+         and wrote it: its write: {late:?}"
     );
 }
