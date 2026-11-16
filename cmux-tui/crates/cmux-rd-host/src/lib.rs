@@ -70,15 +70,15 @@ mod mac;
 mod marker;
 #[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
 mod observe;
+mod permissions;
 #[cfg(feature = "bench")]
 mod process_cpu;
-// Wayland capture (xdg-desktop-portal ScreenCast + PipeWire), view-only. Unused until the
-// capture-backend seam in serve/host calls `portal::PortalDesktop::open`.
-mod permissions;
+// Wayland sharing: the portal handshakes and grant (`portal-dbus`) and the PipeWire capture
+// (`portal`), chosen by the capture-backend seam in desktop.rs.
 #[cfg(all(feature = "portal", target_os = "linux"))]
 #[allow(dead_code)]
 mod pipewire_capture;
-#[cfg(all(feature = "portal", target_os = "linux"))]
+#[cfg(all(feature = "portal-dbus", target_os = "linux"))]
 #[allow(dead_code)]
 mod portal;
 #[cfg(all(feature = "bench", target_os = "linux"))]

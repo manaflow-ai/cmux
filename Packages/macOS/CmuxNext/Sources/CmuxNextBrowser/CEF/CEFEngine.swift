@@ -28,6 +28,8 @@ public final class CEFEngine: BrowserEngine {
     public let signInCallbacks: CEFSignInCallbacks
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
+    /// The framework load ``beginEarlyLoad(_:)`` begins, from any thread; the runtime takes it with the stores (`adoptStores`).
+    nonisolated let earlyLoad = CEFEarlyLoad(loader: { CEFRuntime.loadLibrary($0) })
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
@@ -149,6 +151,15 @@ public final class CEFEngine: BrowserEngine {
         guard layout != nil else { return }
         adoptStores()
         CEFRuntime.shared.preload(layout: layout)
+    }
+
+    /// Starts mapping the shim and the framework of `layout` now, from any thread, on a background task, for a
+    /// caller that knows a Chromium page will ask soon (a restored Chromium chat). No Chromium code runs and
+    /// nothing touches the loader on the calling thread; `CefInitialize` still waits for a page (or the warm
+    /// start) on the main thread. Idempotent: a later call keeps the first call's load. The runtime's first start
+    /// or preload of the same layout takes this load and loads nothing again; for another layout it loads its own.
+    public nonisolated func beginEarlyLoad(_ layout: CEFRuntimeLayout) {
+        earlyLoad.begin(layout)
     }
 
     /// Holds every Chromium start's `CefInitialize` until `gate` opens (the first window frame), so a
@@ -350,6 +361,7 @@ public final class CEFEngine: BrowserEngine {
     /// (not in `init`: the runtime is built on Chromium's first use, not at launch).
     func adoptStores() {
         CEFRuntime.shared.adopt(stores: stores, signInCallbacks: signInCallbacks)
+        CEFRuntime.shared.adopt(earlyLoad: earlyLoad)
     }
 
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
