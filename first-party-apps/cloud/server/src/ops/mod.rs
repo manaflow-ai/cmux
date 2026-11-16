@@ -10,6 +10,7 @@ mod machine_projection;
 mod migration;
 mod plan;
 mod snapshot;
+pub(crate) mod start_retry;
 
 pub use declared::{backend_ops, declared_errors};
 pub use machine_projection::{Projection, WatchEvent};
