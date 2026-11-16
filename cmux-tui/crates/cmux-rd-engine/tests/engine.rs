@@ -507,3 +507,36 @@ fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
     e.on_datagram(&feedback(&Feedback::default()), false, 660_000);
     assert!(e.stats().target_bps >= start, "two percent loss stays below the congestion threshold");
 }
+
+#[test]
+fn the_host_holds_the_viewers_newest_ltr_set_and_drops_it_after_a_reset() {
+    let mut e = MediaEngine::new(
+        EngineConfig { width: 640, height: 480, ltr_enabled: true, ..EngineConfig::default() },
+        0,
+    );
+    let first = e.start(0).expect("first");
+    let encoded =
+        Encoded { access_unit: au(1_000), idr: true, t_capture_us: 0, ltr_token: Some(1) };
+    e.encoded(&first, Some(encoded), 0).expect("first packet");
+    // Two feedbacks: the viewer's set after 16 LTR frames, then after 4 more (it keeps its newest 16).
+    let older: Vec<u64> = (1..=16).collect();
+    let newer: Vec<u64> = (5..=20).collect();
+    for (at, tokens) in [(10_000, older), (20_000, newer.clone())] {
+        let fb =
+            Feedback { acked_frame: first.frame, acked_ltr_tokens: tokens, ..Feedback::default() };
+        e.on_datagram(&feedback(&fb), true, at);
+    }
+    let fb = Feedback { acked_frame: first.frame, need_recovery: true, ..newer_fb(&newer) };
+    let recovery = e.on_datagram(&feedback(&fb), true, 30_000).encode.expect("recovery");
+    assert_eq!(recovery.acknowledged_ltr_tokens, newer, "the newest 16, not the oldest");
+    // The viewer's decoder reset: acked frame 0 and no tokens. No later refresh may name old ones.
+    let reset = Feedback { need_recovery: true, ..Feedback::default() };
+    let out = e.on_datagram(&feedback(&reset), true, 2_000_000);
+    let keyframe = out.encode.expect("a reset asks for a keyframe");
+    assert!(keyframe.acknowledged_ltr_tokens.is_empty(), "{:?}", keyframe.acknowledged_ltr_tokens);
+    assert!(!keyframe.force_ltr_refresh);
+}
+
+fn newer_fb(tokens: &[u64]) -> Feedback {
+    Feedback { acked_ltr_tokens: tokens.to_vec(), ..Feedback::default() }
+}
