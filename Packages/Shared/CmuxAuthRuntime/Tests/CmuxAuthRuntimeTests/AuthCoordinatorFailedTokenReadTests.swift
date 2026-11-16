@@ -12,6 +12,8 @@ actor FailingReadsTokenStoreAuthClient: AuthClient {
     private var refresh: String?
     private let user: CMUXAuthUser?
     private var failingReads: Int
+    /// Reads that succeed before every later read fails (nil: no such limit).
+    private var readsBeforeFailing: Int?
     private var readFailures: UInt64 = 0
     private(set) var clearLocalSessionCallCount = 0
 
@@ -23,8 +25,16 @@ actor FailingReadsTokenStoreAuthClient: AuthClient {
     }
 
     func failForever() { failingReads = .max }
+    func failAfter(reads: Int) { readsBeforeFailing = reads }
 
     private func read(_ value: String?) -> String? {
+        if let left = readsBeforeFailing {
+            if left == 0 {
+                readFailures &+= 1
+                return nil
+            }
+            readsBeforeFailing = left - 1
+        }
         if failingReads > 0 {
             failingReads -= 1
             readFailures &+= 1
@@ -123,6 +133,27 @@ actor FailingReadsTokenStoreAuthClient: AuthClient {
             _ = try await coordinator.accessToken()
         }
         #expect(coordinator.isAuthenticated == true)
+        #expect(coordinator.lastSignOutReason == nil)
+        #expect(await client.clearLocalSessionCallCount == 0)
+    }
+
+    /// Review of #40469 (F1): the launch reads succeed, `/users/me` answers no user, and the refresh-token
+    /// check that decides "the session is dead" then hits a keychain refusal. That nil is not "no refresh
+    /// token survives": the cached session stays and nothing is cleared.
+    @Test func aFailedReadDuringValidationKeepsTheCachedSession() async throws {
+        let client = FailingReadsTokenStoreAuthClient(
+            access: "access", refresh: "refresh", user: nil, failingReads: 0
+        )
+        // The launch probe reads access then refresh; every read after that is refused.
+        await client.failAfter(reads: 2)
+        let (coordinator, store) = try makeCoordinator(client: client)
+
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        #expect(coordinator.isAuthenticated == true)
+        #expect(coordinator.currentUser == cachedUser)
+        #expect(store.bool(forKey: "has_tokens") == true)
         #expect(coordinator.lastSignOutReason == nil)
         #expect(await client.clearLocalSessionCallCount == 0)
     }
