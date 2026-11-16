@@ -121,7 +121,7 @@ public final class RemoteDesktopPaneView: NSView {
         // A transparent toolbar must not take clicks meant for the host, but it is never hidden:
         // a hidden view leaves the Accessibility tree, and VoiceOver could not reach Take over.
         // A faded toolbar's controls refuse focus; one that holds it (a Take over click) hands it to the capture view.
-        if !visible, toolbar.holdsFocus { window?.makeFirstResponder(capture) }
+        if !visible, toolbar.holdsFocus { FocusRoute(.system, "the remote desktop toolbar hid").moveKeyboard(in: window, to: capture) }
         toolbar.isRevealed = visible
         guard toolbar.alphaValue != target else { return }
         guard animated else {

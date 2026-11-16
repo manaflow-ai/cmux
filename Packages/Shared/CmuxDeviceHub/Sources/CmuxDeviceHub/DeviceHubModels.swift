@@ -4,8 +4,10 @@ public import Foundation
 /// other than ids decode leniently: a missing or differently typed optional
 /// field is nil, so a newer server never breaks an older app.
 
+/// A device's platform. `linux` is a Linux desktop that hosts its screen
+/// (`cmux-rd linux-host`); it is viewed like a Mac and never views.
 public enum DevicePlatform: String, Codable, Sendable, Equatable {
-    case macos, ios
+    case macos, ios, linux
 }
 
 /// What a viewer may do on a host's screen.
