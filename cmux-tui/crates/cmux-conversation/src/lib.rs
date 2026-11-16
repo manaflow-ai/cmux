@@ -61,8 +61,8 @@ pub use types::{
     ThreadResolution, ThreadState, ThreadStatus, WorkStatus,
 };
 pub use widget::{
-    MAX_WIDGET_FALLBACK_CHARS, MAX_WIDGET_NAME_BYTES, MAX_WIDGET_PROPS_BYTES, Widget, valid_widget,
-    valid_widget_app,
+    BUILT_IN_WIDGET_PUBLISHERS, MAX_WIDGET_FALLBACK_CHARS, MAX_WIDGET_NAME_BYTES,
+    MAX_WIDGET_PROPS_BYTES, Widget, is_extension_widget_app, valid_widget, valid_widget_app,
 };
 
 /// `Summary.owner` for conversations owned by a local daemon.

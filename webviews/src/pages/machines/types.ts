@@ -1,5 +1,5 @@
 // The right sidebar's Machines section (cmux-page://cmux.machines/): its ops, answered by the app's
-// MachineSectionPageProvider (CmuxNextApp/RightSidebar), which reads the machine registry, each
+// MachineSectionPageProvider (CmuxNextServer/AddMachine), which reads the machine registry, each
 // machine's last check, the person's hub-joined machines and the section's layout tunable.
 
 export const MachinesOps = {
@@ -19,7 +19,27 @@ export const MachinesOps = {
   /** `{row}` → `{removed}`: Remove a joined machine (asked first on the page). It is revoked if it can
    * still join and leaves every machine list; a false answer leaves the row where it was. */
   remove: "cmux.machines.remove",
+  /** `{row, again?}` → `JoinedDialAnswer`: New Workspace on a joined Mac the app reaches only through the
+   * hub (a `joined:<id>` row). The host asks that Mac (acpmux `_acpmux/machine_route_probe`) and, once
+   * it allows, connects its route and opens the workspace there. `again` asks once more for a row whose
+   * ask the person started and that Mac has not answered; any other call needs the person's click. */
+  openJoined: "cmux.machines.openJoined",
 } as const;
+
+/** The host's answer to `openJoined`: the workspace opened, the other Mac has not allowed it yet (it
+ * shows its consent card), its person said Not now, or it can't be reached (`reason`: acpmux's or the
+ * host's, e.g. `service.unknown` from a Mac whose cmux predates the consent). */
+export type JoinedDialAnswer =
+  | { state: "opened" }
+  | { state: "consent_required" }
+  | { state: "consent_declined" }
+  | { state: "unavailable"; reason?: string };
+
+/** Where a row's New Workspace on a joined Mac stands on the page (`MachinesState.dials`):
+ * `connecting` (asked, no answer yet), `waiting` (that Mac shows its card), `declined` (Not now),
+ * `unanswered` (no answer within the wait), `update` (that Mac's cmux is too old), `failed`
+ * (unreachable). */
+export type JoinedDialPhase = "connecting" | "waiting" | "declined" | "unanswered" | "update" | "failed";
 
 /** What a machine is: its icon and its group. */
 export type MachineKind = "local" | "cloud" | "ssh" | "server" | "joined";

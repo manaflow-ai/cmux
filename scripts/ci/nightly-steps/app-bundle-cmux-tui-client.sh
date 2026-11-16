@@ -45,7 +45,8 @@ fi
   --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
   --expected-commit "$cmux_tui_commit" \
   --require-capability wireguard-hub \
-  --require-acpmux
+  --require-acpmux \
+  --require-companions
 # The client and its SSH payloads arrive after the strip above, so
 # strip again; already-stripped binaries are unchanged. bin/cmux-tui and
 # bin/acpmux are symlinks to bin/cmux.

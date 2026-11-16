@@ -318,7 +318,9 @@ impl InteractiveWriter {
         }
         let writer_closed = state.writer_closed;
         drop(state);
-        if !writer_closed {
+        if writer_closed {
+            self.abort.release();
+        } else {
             self.abort(&io::Error::new(
                 io::ErrorKind::TimedOut,
                 "remote writer did not close before its deadline",

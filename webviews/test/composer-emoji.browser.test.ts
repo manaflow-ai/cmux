@@ -12,6 +12,8 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { playFailures } from "./support/galleryPlay";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
   setDefaultTimeout(150_000);
@@ -62,21 +64,24 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
   }
 
   function read(page: Page) {
-    return page.evaluate(() => {
-      const prompt = document.querySelector(".acpmux-composer-prompt [contenteditable='true']");
-      const menu = document.querySelector<HTMLElement>(".acpmux-emoji-menu");
-      const box = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
-      const rect = menu?.getBoundingClientRect();
-      return {
-        text: prompt?.textContent ?? "",
-        active: prompt?.getAttribute("aria-activedescendant") ?? null,
-        rows: [...document.querySelectorAll<HTMLElement>(".acpmux-emoji-row")].map((row) =>
-          row.getAttribute("aria-label"),
-        ),
-        menu: rect ? { left: rect.left, right: rect.right, bottom: rect.bottom, width: rect.width } : null,
-        box: box ? { left: box.left, right: box.right, top: box.top } : null,
-      };
-    });
+    return page.evaluate(
+      ({ COMPOSER_EDITOR }) => {
+        const prompt = document.querySelector(COMPOSER_EDITOR);
+        const menu = document.querySelector<HTMLElement>(".acpmux-emoji-menu");
+        const box = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
+        const rect = menu?.getBoundingClientRect();
+        return {
+          text: prompt?.textContent ?? "",
+          active: prompt?.getAttribute("aria-activedescendant") ?? null,
+          rows: [...document.querySelectorAll<HTMLElement>(".acpmux-emoji-row")].map((row) =>
+            row.getAttribute("aria-label"),
+          ),
+          menu: rect ? { left: rect.left, right: rect.right, bottom: rect.bottom, width: rect.width } : null,
+          box: box ? { left: box.left, right: box.right, top: box.top } : null,
+        };
+      },
+      { COMPOSER_EDITOR },
+    );
   }
 
   test("stills of every look, light and dark (with FAST_CHECKS_OUT)", async () => {
@@ -123,10 +128,10 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
   for (const variant of ["arrow-return", "return-sends", "emoticon-tab", "arrows-escape", "no-trigger", "heart"])
     test(`play ${variant} passes`, async () => {
       const page = await stage(variant);
-      const play = await page.evaluate(() => document.documentElement.dataset.galleryPlay ?? "");
-      if (play === "fail")
-        console.log(variant, JSON.stringify(await page.evaluate(() => window.cmuxGalleryPlayReport)));
-      expect(play).not.toBe("fail");
+      // What the play did, not how fast the runner drew it: a frame over 33 ms on the shared runner
+      // fails the gallery's own grade (play.ts) but not this test (support/galleryPlay.ts, cx-mfkky).
+      const report = await page.evaluate(() => JSON.stringify(window.cmuxGalleryPlayReport ?? {}));
+      expect([variant, playFailures(report)]).toEqual([variant, []]);
       expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).not.toBe("error");
       if (variant === "arrow-return") expect((await read(page)).text).toContain("Ship it 🧸");
       if (variant === "return-sends") expect((await read(page)).text).not.toContain("🧸");

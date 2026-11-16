@@ -514,11 +514,9 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 case let .message(data): self?.handleInput(data, session: session)
                 case .closed:
                     self?.endSession(ifCurrent: session)
-                    // A device hub session is this connection: tell the other side, then let it go.
-                    if signaling.endsSessionOnClose {
-                        try? await signaling.send(.bye)
-                        signaling.close()
-                    }
+                    // A transient media failure must leave an approved hub session alive so the
+                    // viewer can obtain a fresh ticket. Explicit viewer close still sends bye below.
+                    if signaling.endsSessionOnClose { signaling.close() }
                 case let .path(local, remote):
                     self?.log("path: this Mac \(local) ↔ viewer \(remote)\(local == "relay" || remote == "relay" ? " (TURN relay)" : " (direct)")")
                 case .video: break
@@ -1247,7 +1245,7 @@ public final class ScreenStreamViewer: @unchecked Sendable {
 
     /// Ends the session: an open channel first tells the host (`bye`), so it
     /// ends at once instead of waiting for WebRTC to notice the peer is gone.
-    public func close() {
+    public func close(sendBye: Bool = true) {
         let (link, socket, tasks, open) = lock.withLock { () -> (VNCPeerLink?, (any ScreenSignaling)?, [Task<Void, Never>], Bool) in
             defer { self.tasks.removeAll() }
             return (self.link, self.socket, self.tasks, self.isOpen)
@@ -1255,7 +1253,7 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         for task in tasks { task.cancel() }
         socket?.close()
         guard let link else { return }
-        guard open, link.sendText(Self.byeMessage) else {
+        guard sendBye, open, link.sendText(Self.byeMessage) else {
             link.close()
             return
         }

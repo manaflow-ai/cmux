@@ -10,10 +10,10 @@ const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle, ops } = await import("./testing");
 
-test("General lists the spaces and Browser the browser profiles, with no open-in-window link", async () => {
-  // The old section route (`#/settings/rooms`, `app settings rooms`) opens General.
+test("Sidebar lists the spaces and Browser the browser profiles, with no open-in-window link", async () => {
+  // The old section route (`#/settings/rooms`, `app settings rooms`) opens Sidebar, which shows the spaces.
   const page = await renderPage({ path: "/settings/rooms" });
-  expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("general");
+  expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("sidebar");
   expect(page.container.textContent).toContain("Work");
   expect(page.container.querySelectorAll('[data-card="rooms"] [data-host-row]').length).toBe(2);
   page.unmount();

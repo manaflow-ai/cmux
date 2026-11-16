@@ -20,6 +20,15 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# Loaded by path (base_red_excuse.py, and the pre-push gate from the hook folder, where install-git-hooks.sh and
+# refresh_checks.py put deadline_http.py beside it), so its own folder may not be on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
+# TIMEOUT stays the stall bound of each wait (urlopen's timeout before), and one fetch ends as a whole within
+# FETCH_SECONDS. Nothing bounded the whole fetch before, and no caller has an overall budget; 15 minutes is far
+# past any pinned lint tool or FFI pin file that is moving (tens of MB at most) and ends one that trickles.
+FETCH_SECONDS = 15 * 60
 GITHUB_RELEASE_DOWNLOAD = re.compile(r"https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)")
 
 
@@ -35,7 +44,8 @@ def fetch(url: str, out: Path, accept: str | None = None, timeout: float = 120) 
     if token and url.startswith("https://api.github.com/"):
         # Unredirected: the asset's redirect goes to a signed storage URL, which must not get the token.
         request.add_unredirected_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(request, timeout=timeout) as response, open(out, "wb") as sink:  # noqa: S310
+    with deadline_http.stream(request, FETCH_SECONDS, stall=timeout, raise_errors=True) as response, \
+            open(out, "wb") as sink:
         shutil.copyfileobj(response, sink)
 
 

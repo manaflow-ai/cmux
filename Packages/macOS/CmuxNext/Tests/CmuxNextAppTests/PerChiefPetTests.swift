@@ -24,7 +24,7 @@ import Testing
         var count = 0
     }
 
-    /// One Chief's settings popover with the pet rows installed, as `HomeChiefSurface` builds it.
+    /// One Chief's settings popover with the pet rows installed, as HomeHostView builds it.
     struct Popover {
         let view: HomeChiefSettingsView
         let rows: ChiefPetSettingsRows
@@ -77,7 +77,7 @@ import Testing
             let rows = ChiefPetSettingsRows(settings: { settings }, homes: ChiefPetHomes(), picks: picks)
             let redraws = Redraws()
             rows.onMascot = { redraws.count += 1 }
-            // HomeChiefSurface's order: the rows are installed and show the default Chief's character,
+            // HomeHostView's order: the rows are installed and show the default Chief's character,
             // then the conversation's Chief is known.
             rows.install(in: view, addRow: { view.addAppearanceRow($0, control: $1) }, open: { false })
             let popover = Popover(view: view, rows: rows, redraws: redraws)
@@ -93,7 +93,7 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let suite = "cnc-per-chief-pet-\(UUID().uuidString)"

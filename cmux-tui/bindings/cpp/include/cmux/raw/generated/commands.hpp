@@ -61,6 +61,7 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_reload(const BrowserReloadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel(const BrowserWheelRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel_guarded(const BrowserWheelGuardedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<CancelCreatingInputResult> cancel_creating_input(const CancelCreatingInputRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ChiefInspectResult> chief_inspect(const ChiefInspectRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ChiefWorkResult> chief_work(const ChiefWorkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});
@@ -149,6 +150,7 @@ public:
     [[nodiscard]] Result<JsonValue> delete_workspace_group(const DeleteWorkspaceGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AttachedViewOutcomeResult> detach_attached_view(const DetachAttachedViewRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> detach_client(const DetachClientRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> device_setup(const DeviceSetupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ExportLayoutResult> export_layout(const ExportLayoutRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> feed_local_handoff_abort(const FeedLocalHandoffAbortRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> feed_local_handoff_begin(const FeedLocalHandoffBeginRequest& request, RequestOptions options = {});
@@ -310,6 +312,7 @@ public:
     [[nodiscard]] Result<EmptyResult> swap_pane(const SwapPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalClipboardReplyResult> terminal_clipboard_reply(const TerminalClipboardReplyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> terminal_clipboard_subscribe(const TerminalClipboardSubscribeRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<TerminalCommandContextResult> terminal_command_context(const TerminalCommandContextRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalEventsResult> terminal_events(const TerminalEventsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TerminalHistoryPagesResult> terminal_history(const TerminalHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalLastCommandResult> terminal_last_command(const TerminalLastCommandRequest& request = {}, RequestOptions options = {});

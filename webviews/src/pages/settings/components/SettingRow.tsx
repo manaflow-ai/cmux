@@ -4,17 +4,17 @@ import { useRowState, useStore, type RowState } from "../context";
 import { Editor } from "../editors/Editor";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
-import type { SchemaRow } from "../schema";
+import { rowsByKey, type SchemaRow } from "../schema";
 import { managedText, type SettingsStore } from "../store";
 import { t, text } from "../strings";
 import { Highlight } from "./Highlight";
-import { ResetButton } from "./ResetButton";
 import { RowNotice } from "./RowNotice";
 
 /**
- * The menu of a setting's title and summary (right-click): copy its cmux.json key, or reset it (the
- * row's Reset control's path). Every row that edits a setting uses it, including the Theme page's
- * own rows (cx-64hi).
+ * The menu of a setting's title and summary (right-click): copy its cmux.json key, or reset it. The
+ * row has no Reset button (standup 2026-11-11: it shifted the row's controls), so this menu is the
+ * page's one reset path. Every row that edits a setting uses it, including the Theme page's own
+ * rows (cx-64hi).
  */
 export function useRowMenu(key: string): ContextMenuItem[] {
   return rowMenu(key, useRowState(key), useStore());
@@ -26,7 +26,8 @@ function rowMenu(key: string, state: RowState, store: SettingsStore): ContextMen
     { id: "copyKey", label: t("settingsPage.copySettingKey"), onSelect: () => void store.copy(key) },
     {
       id: "reset",
-      label: t("settingsPage.resetToDefault"),
+      // A color row's default is the theme's color.
+      label: rowsByKey.get(key)?.kind === "color" ? t("settingsPage.useThemeColor") : t("settingsPage.resetToDefault"),
       separatorBefore: true,
       disabled: !customized || managed !== null || !state.connected || !state.readable,
       onSelect: () => void store.reset(key),
@@ -58,9 +59,7 @@ export const SettingRow = memo(function SettingRow({
   const state = useRowState(row.key);
   const store = useStore();
   const labelId = useId();
-  const { managed, customized } = state;
-  const disabled = inactive || !state.connected || !state.readable || managed !== null;
-  const interfaceSize = row.key === "appearance.metrics.chromeFontSize" || row.key === "appearance.interfaceScale";
+  const disabled = inactive || !state.connected || !state.readable || state.managed !== null;
   const menu = rowMenu(row.key, state, store);
   return (
     <RowFrame
@@ -92,12 +91,6 @@ export const SettingRow = memo(function SettingRow({
         <ContextMenu className="row-control-menu" items={menu} ignore={TEXT_FIELDS}>
           <div className="row-control">
             <Editor row={row} value={state.value} disabled={disabled} labelId={labelId} />
-            <ResetButton
-              settingKey={row.key}
-              shown={(customized || interfaceSize) && !managed}
-              disabled={!state.connected || !state.readable || !customized}
-              label={row.kind === "color" ? t("settingsPage.useThemeColor") : undefined}
-            />
           </div>
         </ContextMenu>
       </div>

@@ -71,11 +71,14 @@ jobs:
             export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
             export GIT_CONFIG_VALUE_0
-            # The merge ref can lag a push or a base move: use it only when its parents are this
-            # event's base and head.
+            # The merge ref can lag a push: use it only when its second parent is this event's head.
+            # Its first may be any base commit: the event's base.sha is the base when the PR was last
+            # synced, often many merges behind on a busy base, so requiring it left this fallback
+            # unusable (language-boundaries.yml's, cmux#41500 at d059d7bd, 2026-11-11). The diff from
+            # whichever base GitHub merged with is still what the PR changes there.
             if git fetch --no-tags --filter=blob:none --depth=2 \
                  origin "+refs/pull/$PR/merge:refs/guard/merge" \
-               && [ "$(git rev-parse refs/guard/merge^1)" = "$BASE_SHA" ] \
+               && git rev-parse --verify --quiet refs/guard/merge^1 > /dev/null \
                && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \
                && git diff --name-only --no-renames refs/guard/merge^1 refs/guard/merge > "$RUNNER_TEMP/files.tsv"; then
               :

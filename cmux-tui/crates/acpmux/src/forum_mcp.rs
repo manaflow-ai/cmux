@@ -47,16 +47,24 @@ fn tools() -> Value {
     ])
 }
 
-/// Runs the server on stdin and stdout.
-pub async fn run() -> Result<()> {
-    crate::secret_mcp::serve(
+/// The server for the session in its env, its calls on `daemon`'s connection
+/// (`tools_mcp.rs`: one process serves it with acpmux's other servers).
+pub(crate) fn served(
+    daemon: &std::sync::Arc<crate::tools_mcp::Daemon>,
+) -> Result<crate::tools_mcp::Served> {
+    crate::tools_mcp::served(
         SERVER_NAME,
         SESSION_ENV,
         tools(),
         None,
+        daemon,
         |daemon, _session, params| async move { call(&daemon, &params).await },
     )
-    .await
+}
+
+/// Runs the server on stdin and stdout.
+pub async fn run() -> Result<()> {
+    crate::tools_mcp::serve_one(served).await
 }
 
 fn ok(text: String, structured: Value) -> Value {

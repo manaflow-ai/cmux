@@ -104,6 +104,24 @@ Draws windows in the plain theme color.
 
 It changes only what is drawn. Your `appearance.*` values and workspace and pane pictures stay as they are, and turning it off brings them back. Change it in **Settings > Appearance > Window Background** or with `cmux settings set ui.reducedBackgrounds true`.
 
+## `appearance.fontSmoothing`
+
+How text draws in cmux's own controls (tab titles, the sidebar, the command palette, menus, toasts, dialogs) and in its web pages (chat, Settings, New Tab). It follows the CSS `-webkit-font-smoothing` values.
+
+```json
+{
+  "appearance": { "fontSmoothing": "auto" }
+}
+```
+
+- `"auto"` (default): no override. Native controls use the Mac's own font smoothing (or none, if you turned it off for every app with `defaults -currentHost write -g AppleFontSmoothing -int 0`), and each web page keeps its own CSS. This is the look cmux had before the setting existed.
+- `"antialiased"`: thin, grayscale strokes everywhere, the look of `-webkit-font-smoothing: antialiased`. Small or dim text gets lighter: about 15% less ink for dark text on light, about 27% less for light text on dark, more so on a 1x display.
+- `"subpixel"`: the heavier macOS font smoothing everywhere, the look of `-webkit-font-smoothing: subpixel-antialiased`, even if smoothing is off for every app.
+
+`"system"`, the earlier name, still reads as `"auto"`.
+
+Web pages change at once. Native controls change after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Change it in **Settings > Appearance > Density and Motion** or with `cmux settings set appearance.fontSmoothing subpixel`.
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
@@ -242,7 +260,7 @@ Option-click on the + (a tab of the selected tab's kind) goes to the same place.
 
 ## `tabs.newTabTemplate`
 
-The layout of the New Tab page. The template dots under the page switch it in place and save the choice here (on `minimal` they are a widget, see `tabs.newTabWidgets` below).
+The layout of the New Tab page. On every template but `minimal`, the template dots under the page switch it in place and save the choice here.
 
 ```json
 {
@@ -250,7 +268,7 @@ The layout of the New Tab page. The template dots under the page switch it in pl
 }
 ```
 
-- `minimal` (the default): a short greeting and the composer. Everything else is a widget you turn on, see `tabs.newTabWidgets`.
+- `minimal` (the default): the composer, with its folder and machine, and nothing else.
 - `cards`: one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
 - `default`: one field with agent rows, recent chats as cards, and Tools.
 - `composer`: one large prompt field, with nothing else.
@@ -261,25 +279,26 @@ The layout of the New Tab page. The template dots under the page switch it in pl
 
 Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
 
-## `tabs.newTabWidgets`
+## `tabs.newTabApp`
 
-The `minimal` template, the default, shows a short greeting and the composer, which keeps its folder and machine. Everything else on it is a widget you turn on; with the project card, the actions or the chats on, the page takes the `default` template's layout around the composer. The other templates ignore these keys and draw what they always drew.
+An extension that draws the whole New Tab page, by its app id. The extension implements
+`cmux.newtab/1` (see `cmux-tui/crates/cmux-extension-sdk/README.md`). Unset (the default), cmux
+draws its own page, as above.
 
 ```json
 {
-  "tabs": { "newTabWidgets": { "chats": true, "styleDots": true } }
+  "tabs": { "newTabApp": "local/showcase-newtab" }
 }
 ```
 
-| Key | Default | Shows |
-| --- | --- | --- |
-| `greeting` | `true` | A short greeting by the time of day over the composer. |
-| `projects` | `false` | A card of this Mac and its recent projects. |
-| `actions` | `false` | The chats that need you, and New Terminal, New Browser Tab and New Chat. |
-| `chats` | `false` | The recent chats, as rows under the composer. |
-| `styleDots` | `false` | The template dots under the page. |
+- The page shows only the extension's view: its greeting, buttons and lists, in the app's look.
+- If the extension is not installed, is hidden or disabled, or its view fails, cmux draws its own page.
+- Go back to cmux's own page with `cmux settings reset tabs.newTabApp`.
+- The change applies to the next New Tab page. The native New Tab page (`tabs.nativeNewTabPage`)
+  does not use it.
 
-With every widget off the page still does everything: type a URL or a prompt, and find any chat with the palette (Cmd-P). Change them in **Settings > General > Tabs** or with `cmux settings set tabs.newTabWidgets.chats true`.
+Change it in **Settings > General > Tabs**, in the command palette, or with
+`cmux settings set tabs.newTabApp local/showcase-newtab`.
 
 ## `app.forkConversationDefaultDestination`
 
@@ -638,6 +657,7 @@ A binding you set yourself for either action stays when you pick a choice. Rebin
 | Option+Cmd+[ / ] | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Ctrl+Option+Cmd+1…9 | Select Space 1…9 (9 is the last) | `space.selectByNumber` |
 | Ctrl+Option+1…9 | Select Space 1…9 (the Number Keys default) | `space.selectByNumber` |
+| Ctrl+Option+Cmd+N | New Space | `space.new` |
 | Shift+Cmd+N | New Window, on a new space | `newWindow` |
 
 Ctrl+Cmd+Left / Right resize the focused pane (Ghostty's `resize_split`) and Ctrl+Cmd+1…9 focus pane 1…9, so the space keys add Option. macOS keeps Ctrl+arrows and Ctrl+digits for Mission Control. Rebinding an action (Settings > Keyboard Shortcuts or `shortcuts.bindings["space.next"]`) replaces all its default keys; `null` removes them. Every space action is also in the command palette (Shift+Cmd+P), the `cmux space …` CLI and MCP: for example `cmux space next`, `cmux space select-1-9 --index 2` and `cmux space open-in-new-window --space <space>`.

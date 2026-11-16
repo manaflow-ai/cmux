@@ -8,6 +8,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import { join } from "node:path";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -44,14 +45,11 @@ Object.assign(scope, replacements);
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
   delete scope.ondine;
   delete scope.mermaid;
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 // The pane's scheme handler serves this as `__lib/ondine.js`; loaded here it sets `globalThis.ondine`.

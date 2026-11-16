@@ -8,6 +8,7 @@ import { ConversationList, type ConversationListProps } from "./ConversationList
 import { ME, sampleConversations } from "./fixtures";
 import { listMetrics } from "./layout";
 import { listModel } from "./model";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -38,6 +39,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -105,13 +107,13 @@ test("Up and Down select through the grid then the rows; Return opens", async ()
   expect(calls).toEqual(["select:c-design", "select:c-morgan", "open:c-casey"]);
 });
 
-test("a letter typed in the list starts no search (it goes to the message box, as natively)", async () => {
+test("typing a letter in the list starts a search", async () => {
   const { element, calls } = await mount(3);
   const list = element.querySelector<HTMLElement>("[role='listbox']")!;
   await act(async () => {
     list.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "t", bubbles: true }));
   });
-  expect(calls).toEqual([]);
+  expect(calls).toEqual(["query:t"]);
 });
 
 test("a click opens; a Command-click only selects", async () => {
@@ -149,4 +151,23 @@ test("a row's drag start moves no row; the grid opens as the pointer goes up int
   // In the grid the row is a tile at its target: it leaves the rows.
   expect(rowIds()).toEqual(rows.filter((id) => id !== row.getAttribute("data-list-row")));
   await pointer("pointerup", 10, dom!.window);
+});
+
+test("a search with no match shows the Orb, No Results and a Clear Search that empties the query", async () => {
+  const { element, calls } = await mount(3, {
+    query: "zzz",
+    model: listModel(sampleConversations(3, NOW), { me: ME.id, now: NOW, language: "en-US", words, query: "zzz" }),
+    strings: createStrings({ en: { "sidebar.noResults": "No Results", "sidebar.clearSearch": "Clear Search" } }, [
+      "en",
+    ]),
+  });
+  const empty = element.querySelector<HTMLElement>(".hm-empty .ui-illustrated-empty")!;
+  expect(empty.querySelector("p")?.textContent).toBe("No Results");
+  const art = empty.querySelector("img")!;
+  expect(art.getAttribute("alt")).toBe("");
+  expect(art.getAttribute("width")).toBe("56");
+  const button = empty.querySelector<HTMLButtonElement>("button")!;
+  expect(button.textContent).toBe("Clear Search");
+  await act(async () => button.click());
+  expect(calls).toEqual(["query:"]);
 });

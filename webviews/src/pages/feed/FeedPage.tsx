@@ -31,14 +31,11 @@ export function FeedPage({ store, strings }: { store: FeedStore; strings: String
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
   // A lost page link says so only once it lasts (a launch, a daemon restart re-read on their own);
-  // the owner's own cloud state is said at once, in its words.
+  // so does the owner's own disconnected state, in its words (its link drops on the same restarts).
   const linkDown = useLasting(snap.link === "disconnected");
   const owner = snap.view?.connection;
-  const banner = linkDown
-    ? t("owner.disconnected")
-    : owner?.state === "disconnected"
-      ? owner.reason || t("owner.disconnected")
-      : undefined;
+  const ownerDown = useLasting(owner?.state === "disconnected");
+  const banner = linkDown ? t("owner.disconnected") : ownerDown ? owner?.reason || t("owner.disconnected") : undefined;
   const props = { store, snap, strings };
   const view = snap.route.view;
   return (
@@ -51,7 +48,7 @@ export function FeedPage({ store, strings }: { store: FeedStore; strings: String
       ) : (
         <NeedsYouView {...props} />
       )}
-      <NoticeStack queue={store.notices} dismissLabel={t("toast.dismiss")} />
+      <NoticeStack queue={store.notices} dismissLabel={t("toast.dismiss")} label={t("toast.region")} />
     </div>
   );
 }

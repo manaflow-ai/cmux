@@ -80,9 +80,10 @@ impl Hub {
             return Err(RpcError::invalid_params("fixed session ids cannot adopt another chat"));
         }
         let caller_selected_id = fixed_id.is_some();
-        // Harness discovery and launcher checks finish in the background. Bounded: a startup that
-        // never ends (a wedged agent host's adoption) answers with its phase, not silence.
-        self.wait_startup_within(super::startup::NEW_SESSION_STARTUP_WAIT).await?;
+        // Harness discovery and launcher checks finish in the background; a new chat waits for
+        // them only, never for another chat's adoption or log (`startup.rs`). Bounded: a
+        // preparation that never ends answers with its phase, not silence.
+        self.wait_spawn_ready_within(super::startup::NEW_SESSION_STARTUP_WAIT).await?;
         // Mutations wait for the complete index. A later durable check also refuses
         // malformed or partially written chats that the startup loader could not install.
         if caller_selected_id {
@@ -112,6 +113,7 @@ impl Hub {
             additional_directories,
             person,
             wait_start,
+            throwaway,
             require_asking,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
@@ -123,6 +125,8 @@ impl Hub {
             .map(|s| s.id.clone());
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
+        // A harness installed since the catalog loaded serves this start (`rediscover.rs`).
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
         let (
@@ -353,7 +357,7 @@ impl Hub {
             }
             meta.name = match name {
                 Some(n) => {
-                    if sessions.values().any(|s| s.meta().name == n) {
+                    if sessions.values().any(|s| s.read_meta(|m| m.name == n)) {
                         return Err(RpcError::invalid_params(format!(
                             "session name {n:?} is taken"
                         )));
@@ -366,13 +370,14 @@ impl Hub {
                 // A pooled harness was started under its name: keep it.
                 None => match self
                     .pool_claimed_name(&id)
-                    .filter(|n| !sessions.values().any(|s| s.meta().name == *n))
+                    .filter(|n| !sessions.values().any(|s| s.read_meta(|m| m.name == *n)))
                 {
                     Some(n) => n,
                     None => unique_name_among(&sessions, agent),
                 },
             };
             meta.wait_start = wait_start;
+            meta.throwaway = throwaway;
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
@@ -390,8 +395,9 @@ impl Hub {
         };
         let (session, created_stops) = session;
         self.update_live_session_index(&session);
-        // A session that came may be another row's parent: every closed row is built again.
-        self.events.changed();
+        // A session that came may be another row's parent: every closed row is built again. Its
+        // `created` record, below, notes the rows that read it (`Hub::note_rows_reading`).
+        self.events.all_rows_stale();
         let creation_guard = CreationGuard::new(self.clone(), session.clone(), created_stops);
         if let Err(e) = self.write_meta(&session) {
             // Leave the instance registered until CreationGuard finishes its purge;
@@ -412,6 +418,8 @@ impl Hub {
         // No `git` record exists yet; retain that baseline even if the chat grows before attach.
         self.restore_git_branch(&session, session.meta().git_branch);
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        // Opt-in usage patterns: one more chat on this harness (its kind, not the chat).
+        cmux_usage_patterns::count("agent-chat", agent);
         if let Some(a) = &adopt {
             let adopted = if fork_from.is_some() {
                 json!({"agentSessionId": a.agent_session_id, "fork": true})
@@ -620,7 +628,9 @@ impl Hub {
         let _spawning = self.spawn_lease(session).await;
         // Stopped since the request: it starts nothing and touches no agent. One a later request
         // started after the stop is that request's (it reopened the session).
-        if session.stops.load(Ordering::SeqCst) != stops {
+        // A chat being deleted starts nothing either, whatever stop count its request read
+        // (`Session::purging`).
+        if session.stops.load(Ordering::SeqCst) != stops || session.purging.load(Ordering::SeqCst) {
             return Err(stopped_while_starting());
         }
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
@@ -637,6 +647,7 @@ impl Hub {
         // agent is ended here and the session stays closed.
         if session.stops.load(Ordering::SeqCst) != stops
             || session.status() == SessionStatus::Closed
+            || session.purging.load(Ordering::SeqCst)
         {
             if let Some(started) = session.child.lock().await.take() {
                 started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
@@ -645,6 +656,12 @@ impl Hub {
                 self.end_unadopted_host(session).await;
             }
             child.kill().await;
+            // A chat deleted while this agent started: what the start made after the delete
+            // removed the chat's own goes too (its temporary folder, its caller token, its MCP
+            // config), or it outlived the chat.
+            if session.purging.load(Ordering::SeqCst) {
+                self.forget_start_leftovers(session).await;
+            }
             session.loading.store(false, Ordering::SeqCst);
             // As `kill` left it: a start above may have cleared it.
             session.closing.store(true, Ordering::SeqCst);
@@ -657,6 +674,21 @@ impl Hub {
         // The start is over: its harness runs at its CPU class from now on (`cpu_class.rs`).
         child.enter_run_class().await;
         Ok(child)
+    }
+
+    /// What an agent start of `session` writes beside the chat's own folder, removed again for a
+    /// start that ended because the chat is being deleted (`ensure_child`): the delete may have
+    /// removed them before the start wrote them.
+    async fn forget_start_leftovers(&self, session: &Session) {
+        crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
+        self.caller_registry.forget(&session.id);
+        #[cfg(unix)]
+        {
+            let id = session.id.clone();
+            let _ =
+                tokio::task::spawn_blocking(move || crate::agent::session_tmp::remove_session(&id))
+                    .await;
+        }
     }
 
     /// A creation that failed (`new_session`) leaves no session behind, unless a stop came
@@ -1320,15 +1352,18 @@ impl Hub {
         self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
-        }
+        self.spawn_inbound_loop(session).await;
 
         let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
             Ok(v) => v,
-            Err(e) => return Err(Self::explain_start_failure(session, e).await),
+            Err(e) => {
+                // An agent CLI that refuses to start signed out exits before it answers
+                // `initialize` ("agent process closed (grok): Authentication required"): typed
+                // the same as a `session/new` auth_required, so the start names it (hq#11225).
+                let mut e = Self::explain_start_failure(session, e).await;
+                crate::recovery::start_sign_in(&mut e, &meta.harness);
+                return Err(e);
+            }
         };
         let supports_load = init
             .get("agentCapabilities")
@@ -1491,7 +1526,13 @@ impl Hub {
                 .await
             {
                 Ok(v) => v,
-                Err(e) => return Err(Self::explain_start_failure(session, e).await),
+                Err(e) => {
+                    // An agent with no sign-in answers with ACP's auth_required: typed, so the
+                    // start names the agent and its sign-in, not a bare refusal (hq#11225).
+                    let mut e = Self::explain_start_failure(session, e).await;
+                    crate::recovery::start_sign_in(&mut e, &meta.harness);
+                    return Err(e);
+                }
             };
             let sid = res
                 .get("sessionId")
@@ -1643,6 +1684,20 @@ impl Hub {
         }
     }
 
+    /// How many requests wait on the agent of the session `key` now; None when it has none
+    /// running.
+    pub async fn agent_pending_requests(&self, key: &str) -> Option<usize> {
+        let session = self.resolve(key).ok()?;
+        let child = session.child.lock().await.clone()?;
+        Some(child.pending_requests().await)
+    }
+
+    /// How many client requests this hub's connections serve now, each holding its work slot
+    /// on its connection (`server/in_flight.rs`): a cancelled one leaves at once.
+    pub fn requests_in_flight(&self) -> usize {
+        self.requests_in_flight.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub(super) async fn child_for(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -1708,7 +1763,10 @@ impl Hub {
         {
             return Ok(child.clone());
         }
-        self.wait_startup().await;
+        // Its own host first, when one ran at the start (a second agent would take its turn),
+        // then what any agent start needs; never every other chat's adoption (`startup.rs`).
+        self.wait_adopted(session).await;
+        self.wait_spawn_ready().await;
         let meta = session.meta();
         let agent = meta.harness.clone();
         let (profile, defaults) = {

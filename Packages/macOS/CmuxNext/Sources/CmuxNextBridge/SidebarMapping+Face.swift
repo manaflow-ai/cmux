@@ -187,8 +187,10 @@ extension SidebarMapping {
             lastActivity: facts.lastActivityMs == 0 ? nil : Self.date(ms: facts.lastActivityMs),
             rowKind: facts.rowKind,
             agentWorking: statuses.working,
-            // A site with no favicon (none, or not loaded yet) keeps the slot with a globe the favicon replaces.
+            // A cmux page draws its own icon; a site with no favicon (none, or not loaded yet) keeps the slot with a
+            // globe the favicon replaces.
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: options.iconAsset)
+                ?? iconPage?.icon.map(WorkspaceIcon.page)
                 ?? iconPage?.favicon.map(WorkspaceIcon.favicon)
                 ?? (Self.isSite(iconTab, newTabPages: newTabPages) ? .pagePlaceholder : nil),
             color: color(workspace.color), kind: facts.kind,
@@ -220,6 +222,7 @@ extension SidebarMapping {
                                       branch: tab.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
                                       lastActivity: (listed?.lastActivityMs ?? 0) == 0 ? nil : Self.date(ms: listed?.lastActivityMs ?? 0))
                 // Its chat's running subagents and commands, which the tab row counts.
+                item.pageIcon = browserFaces[tab.id]?.icon
                 (item.subagentsRunning, item.commandsRunning) = Self.running(tab)
                 item.isFreed = tab.kind == .pty && tab.dead && tab.relaunch?.onShow == true
                 // What the tab row's line says beyond its folder (Leo 2026-11-01: "not much metadata").
@@ -235,7 +238,6 @@ extension SidebarMapping {
         row.focusedTab = focused.map { TabID($0.id) }
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
-        row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = at(facts.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
         // What an agent needs the person to do in a tab says why the row is marked; it comes

@@ -4,8 +4,8 @@ import AppKit
 import CmuxNextTestSupport
 import Testing
 
-/// A toast host that counts the times the window's avoidance link moves its toasts (the web toast
-/// host publishes the page a new floor there).
+/// A toast host that counts the times the window's avoidance link moves its toasts (the native
+/// toast host slides its toasts above the new floor there).
 @MainActor
 private final class ReanchorSpy: CmuxToastReanchoring {
     var reanchors = 0
@@ -18,8 +18,8 @@ private actor NoHost: AgentPaneHostProviding {
 
 /// A toast never covers the composer, and the composer never moves for a toast (Leo, 2026-11-07:
 /// "The composer should never ever rise up because there's some sort of ... tooltip type thing").
-/// The page reports its bottom stack; the toast host lifts the toasts above it (the floor it sends
-/// the overlay toast page, `CmuxToastAvoidance.floor`), and the pane tells the page nothing about toasts.
+/// The page reports its bottom stack; the toast host lifts the toasts above it (the floor of
+/// `CmuxToastAvoidance.floor`, where `CmuxToastOverlayHost` rests them), and the pane tells the page nothing about toasts.
 @MainActor @Suite(.closesItsWindows)
 struct AgentPaneToastAvoidanceTests {
     /// The page's report decodes to one box or none; more than one, or a bad one, is refused.

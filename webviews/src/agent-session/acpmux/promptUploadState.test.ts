@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { translate } from "./i18n";
 import { finishedPromptUpload, receivePromptUploadState, type PromptUploadState } from "./promptUploadState";
 
@@ -89,7 +90,11 @@ test("the shared page host delegates terminal upload events", async () => {
     expect((await result).uploadId).toBe("daemon-id");
     begin.resolve();
   } finally {
-    Object.assign(scope, previous);
+    await settleReact();
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete scope[key];
+      else scope[key] = value;
+    }
     dom.window.close();
   }
 });

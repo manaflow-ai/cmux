@@ -13,6 +13,7 @@ import type { Participant } from "../multiplayer/participants";
 import { QueuedMessageCard, type HeldAnswer, type QueuedMessageActionsValue } from "./QueuedMessageCard";
 import { ownQueue, queuedMessageRows } from "./queuedMessages";
 import { TurnActionsContext } from "./turnActions";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const CY: Participant = { id: "guest:sh-1.g-1", name: "Cy Park" };
 const ANA: Participant = { id: "tailnet:ana@example.com", name: "Ana" };
@@ -27,6 +28,7 @@ const KEYS = ["window", "document", "navigator", "Node", "HTMLElement", "Element
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved)

@@ -1,0 +1,133 @@
+{
+ "id": 130212680188,
+ "run_id": 42895363602,
+ "run_attempt": 2,
+ "head_sha": "fe40e51159521decd5305c2c8cdbcff25a24bfae",
+ "name": "cmux-next checks (god files, concurrency, crash safety, l10n)",
+ "status": "completed",
+ "conclusion": "failure",
+ "started_at": "2026-11-10T20:27:07Z",
+ "completed_at": "2026-11-10T20:32:23Z",
+ "steps": [
+  {
+   "name": "Set up job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 1,
+   "started_at": "2026-11-10T20:27:07Z",
+   "completed_at": "2026-11-10T20:27:07Z"
+  },
+  {
+   "name": "Set up runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 2,
+   "started_at": "2026-11-10T20:27:07Z",
+   "completed_at": "2026-11-10T20:27:08Z"
+  },
+  {
+   "name": "Companion workflows",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 53,
+   "started_at": "2026-11-10T20:31:08Z",
+   "completed_at": "2026-11-10T20:31:47Z"
+  },
+  {
+   "name": "Base-red classifier (per test)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 54,
+   "started_at": "2026-11-10T20:31:47Z",
+   "completed_at": "2026-11-10T20:31:52Z"
+  },
+  {
+   "name": "DEV update and classic import scripts",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 55,
+   "started_at": "2026-11-10T20:31:52Z",
+   "completed_at": "2026-11-10T20:31:55Z"
+  },
+  {
+   "name": "Routing replay (router changes)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 56,
+   "started_at": "2026-11-10T20:31:55Z",
+   "completed_at": "2026-11-10T20:31:55Z"
+  },
+  {
+   "name": "Check the app FFI pin",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 57,
+   "started_at": "2026-11-10T20:31:55Z",
+   "completed_at": "2026-11-10T20:31:59Z"
+  },
+  {
+   "name": "Daemon capabilities export is fresh",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 58,
+   "started_at": "2026-11-10T20:31:59Z",
+   "completed_at": "2026-11-10T20:31:59Z"
+  },
+  {
+   "name": "App capability references are listed",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 59,
+   "started_at": "2026-11-10T20:31:59Z",
+   "completed_at": "2026-11-10T20:32:02Z"
+  },
+  {
+   "name": "Capability texts never say update the app",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 60,
+   "started_at": "2026-11-10T20:32:02Z",
+   "completed_at": "2026-11-10T20:32:03Z"
+  },
+  {
+   "name": "Pushed commits add no violations",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 61,
+   "started_at": "2026-11-10T20:32:03Z",
+   "completed_at": "2026-11-10T20:32:21Z"
+  },
+  {
+   "name": "Fail on any red check",
+   "status": "completed",
+   "conclusion": "failure",
+   "number": 62,
+   "started_at": "2026-11-10T20:32:21Z",
+   "completed_at": "2026-11-10T20:32:21Z"
+  },
+  {
+   "name": "Post Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 123,
+   "started_at": "2026-11-10T20:32:21Z",
+   "completed_at": "2026-11-10T20:32:22Z"
+  },
+  {
+   "name": "Complete runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 124,
+   "started_at": "2026-11-10T20:32:22Z",
+   "completed_at": "2026-11-10T20:32:22Z"
+  },
+  {
+   "name": "Complete job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 125,
+   "started_at": "2026-11-10T20:32:22Z",
+   "completed_at": "2026-11-10T20:32:22Z"
+  }
+ ]
+}

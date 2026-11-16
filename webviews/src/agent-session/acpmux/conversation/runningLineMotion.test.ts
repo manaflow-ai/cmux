@@ -19,7 +19,7 @@ const loop = (
   name: string,
   target: Element | null,
   overrides: Partial<
-    Pick<RunningLineLoop, "playState" | "playbackRate" | "currentTime" | "duration" | "progress">
+    Pick<RunningLineLoop, "playState" | "playbackRate" | "currentTime" | "duration" | "iterations" | "progress">
   > = {},
 ): RunningLineLoop => ({
   name,
@@ -27,14 +27,18 @@ const loop = (
   playState: "running",
   playbackRate: 1,
   currentTime: 1,
-  duration: 2_400,
+  duration: 1_000,
+  iterations: 1,
   progress: 0.5,
   ...overrides,
 });
 
 test("the approved shimmer has one active loop on each text layer", () => {
   const { band, lit } = pair();
-  const check = checkRunningLineLoops([loop("cmux-shimmer-band", band), loop("cmux-shimmer-lit", lit)]);
+  const check = checkRunningLineLoops([
+    loop("cmux-cadenced-shimmer-band", band),
+    loop("cmux-cadenced-shimmer-lit", lit),
+  ]);
   expect(check.unapproved).toHaveLength(0);
   expect(check.duplicateTargets).toHaveLength(0);
   expect(hasCompleteRunningLineShimmer(check)).toBe(true);
@@ -43,9 +47,9 @@ test("the approved shimmer has one active loop on each text layer", () => {
 test("a duplicate loop on one layer is still a running-line failure", () => {
   const { band, lit } = pair();
   const check = checkRunningLineLoops([
-    loop("cmux-shimmer-band", band),
-    loop("cmux-shimmer-band", band),
-    loop("cmux-shimmer-lit", lit),
+    loop("cmux-cadenced-shimmer-band", band),
+    loop("cmux-cadenced-shimmer-band", band),
+    loop("cmux-cadenced-shimmer-lit", lit),
   ]);
   expect(check.duplicateTargets).toEqual([band]);
   expect(hasCompleteRunningLineShimmer(check)).toBe(false);
@@ -57,10 +61,15 @@ test("paused, zero-rate, stalled, and out-of-range layers are not treated as shi
     { playState: "paused" as const },
     { playbackRate: 0 },
     { currentTime: null },
+    { duration: 2_400 },
+    { iterations: Infinity },
     { progress: -0.1 },
     { progress: 1.1 },
   ]) {
-    const check = checkRunningLineLoops([loop("cmux-shimmer-band", band, overrides), loop("cmux-shimmer-lit", lit)]);
+    const check = checkRunningLineLoops([
+      loop("cmux-cadenced-shimmer-band", band, overrides),
+      loop("cmux-cadenced-shimmer-lit", lit),
+    ]);
     expect(hasCompleteRunningLineShimmer(check)).toBe(false);
   }
 });
@@ -69,20 +78,31 @@ test("names cannot approve null, arbitrary, or swapped shimmer targets", () => {
   const { band, lit } = pair();
   const arbitrary = element("other");
   const cases = [
-    [loop("cmux-shimmer-band", null), loop("cmux-shimmer-lit", lit)],
-    [loop("cmux-shimmer-band", arbitrary), loop("cmux-shimmer-lit", lit)],
-    [loop("cmux-shimmer-band", lit), loop("cmux-shimmer-lit", band)],
+    [loop("cmux-cadenced-shimmer-band", null), loop("cmux-cadenced-shimmer-lit", lit)],
+    [loop("cmux-cadenced-shimmer-band", arbitrary), loop("cmux-cadenced-shimmer-lit", lit)],
+    [loop("cmux-cadenced-shimmer-band", lit), loop("cmux-cadenced-shimmer-lit", band)],
   ];
   for (const check of cases.map(checkRunningLineLoops)) {
     expect(hasCompleteRunningLineShimmer(check)).toBe(false);
   }
 });
 
+test("a real infinite spinner remains unapproved beside finite sweeps", () => {
+  const { band, lit } = pair();
+  const check = checkRunningLineLoops([
+    loop("cmux-cadenced-shimmer-band", band),
+    loop("cmux-cadenced-shimmer-lit", lit),
+    loop("cmux-spin", element("cv-spinner"), { duration: 2_400, iterations: Infinity }),
+  ]);
+  expect(check.unapproved.map((entry) => entry.name)).toEqual(["cmux-spin"]);
+  expect(hasCompleteRunningLineShimmer(check)).toBe(false);
+});
+
 test("an active spinner or an idle/reduced-motion line is not approved", () => {
   const { band, lit } = pair();
   const spinner = checkRunningLineLoops([
-    loop("cmux-shimmer-band", band),
-    loop("cmux-shimmer-lit", lit),
+    loop("cmux-cadenced-shimmer-band", band),
+    loop("cmux-cadenced-shimmer-lit", lit),
     loop("cmux-spin", element("cv-spinner")),
   ]);
   expect(spinner.unapproved.map((entry) => entry.name)).toEqual(["cmux-spin"]);

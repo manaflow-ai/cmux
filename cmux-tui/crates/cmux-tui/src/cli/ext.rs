@@ -3,12 +3,16 @@
 //! An extension is an app on the app platform; `ext` is the author-facing
 //! noun and `cmux apps ...` keeps working unchanged. `ext new` scaffolds a
 //! folder, `ext dev` loads it into the running cmux and reloads it on every
-//! save (`dev.rs`), `ext list` and `ext remove` show and drop the folders
-//! `ext dev` loaded.
+//! save (`dev.rs`), `ext shot` shows what it rendered (`shot.rs`), `ext list`
+//! and `ext remove` show and drop the folders `ext dev` loaded.
 
 mod daemon;
 mod dev;
+#[cfg(test)]
+mod kinds_tests;
 mod scaffold;
+mod scene;
+mod shot;
 #[cfg(test)]
 mod tests;
 
@@ -40,15 +44,32 @@ pub(super) mod exit {
     pub const NO_DAEMON: i32 = 3;
     pub const MANIFEST_INVALID: i32 = 4;
     pub const BUILD_FAILED: i32 = 5;
+    /// `ext shot`: it loaded and rendered, but no picture was taken.
+    pub const SHOT_FAILED: i32 = 6;
     pub const INTERRUPTED: i32 = 130;
 }
 
 const HELP: &str = "\
 cmux ext: make a cmux extension and watch it change as you work.
-  cmux ext new NAME            a working extension folder ./NAME (a sidebar section)
+  cmux ext new NAME [--kind K] a working extension folder ./NAME on the SDK this cmux ships;
+                               K: sidebar (default, a sidebar section), session-info (a section
+                               in an agent chat's Session Info), pane (a view in a tab),
+                               newtab (a whole New Tab page, picked in tabs.newTabApp),
+                               command (a palette command, `cmux NAME ...` and an agent tool)
   cmux ext dev [DIR]           load DIR into cmux, then reload it on every save (Ctrl-C stops)
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
+  cmux ext shot [DIR] [--out PNG] [--json]
+                               one reload, then what it rendered: the view's outline and a
+                               picture of the cmux window that shows it; exit 6 no picture
+  cmux ext reload [NAME]       read the extension folders again now and rerun NAME (local/NAME,
+                               or every extension in a local folder): a save the watch missed
+                               shows, and a script that does not load names file:line while the
+                               last good view stays; exit 1 when one did not load
+  cmux reload-config           cmux-next.json, the Ghostty config and every local extension, at once
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
+  cmux ext capabilities [--op NAME] [--json]
+                               what an extension can read and do: each op's scope, risk class
+                               and consent text, from the running cmux (--json adds the types)
 
 ext dev options: --build CMD (run instead of the packer), --build-timeout SECS (default 120),
   --remove-on-exit, --no-install.
@@ -72,10 +93,25 @@ pub(super) struct DevOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Request {
     Help,
-    New { name: String, kind: String, dir: Option<PathBuf> },
+    New {
+        name: String,
+        kind: String,
+        dir: Option<PathBuf>,
+    },
     Dev(DevOptions),
+    Shot(shot::ShotOptions),
     List,
-    Remove { app: String },
+    Remove {
+        app: String,
+    },
+    /// `ext reload [NAME]`: `apps-reload` for one app, or every local one.
+    Reload {
+        app: Option<String>,
+    },
+    /// The running cmux's capability manifest, or one op's row.
+    Capabilities {
+        op: Option<String>,
+    },
 }
 
 /// Parses the words after `ext` (`--json` already taken out).
@@ -117,6 +153,9 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 return Err(usage(
                     "--kind widget needs the new tab page's widget interface, which this cmux does not have yet; --kind section works",
                 ));
+            }
+            if let Some(problem) = scaffold::pending(&kind) {
+                return Err(usage(&problem));
             }
             if !scaffold::KINDS.contains(&kind.as_str()) {
                 return Err(usage(&format!(
@@ -169,7 +208,51 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             }
             Ok(Request::Dev(options))
         }
+        "shot" => {
+            // One `ext dev --once` reload with no install card, plus where the picture goes.
+            let mut out = None;
+            let mut dev = vec!["dev".to_string(), "--once".into(), "--no-install".into()];
+            let mut words = rest.iter();
+            while let Some(word) = words.next() {
+                match word.as_str() {
+                    "--out" => match words.next() {
+                        // `-` is the PNG inline in a reply; ext shot names a file.
+                        Some(path) if path != "-" => out = Some(PathBuf::from(path)),
+                        _ => return Err(usage("--out needs a file path")),
+                    },
+                    "--once" | "--keep" | "--remove-on-exit" | "--no-install" => {
+                        return Err(usage(&format!(
+                            "{word}: ext shot reloads once and installs nothing"
+                        )));
+                    }
+                    "--build" | "--build-timeout" => {
+                        dev.push(word.clone());
+                        dev.extend(words.next().cloned());
+                    }
+                    _ => dev.push(word.clone()),
+                }
+            }
+            match parse(&dev)? {
+                Request::Dev(dev) => Ok(Request::Shot(shot::ShotOptions { dev, out })),
+                _ => Err(usage("ext shot")),
+            }
+        }
         "list" if rest.is_empty() => Ok(Request::List),
+        "reload" => match rest {
+            [] => Ok(Request::Reload { app: None }),
+            [name] if !name.starts_with('-') => match reload_target(name) {
+                Some(app) => Ok(Request::Reload { app: Some(app) }),
+                None => Err(usage(&format!("ext reload: {name} is not an extension name"))),
+            },
+            _ => Err(usage("ext reload takes at most one NAME")),
+        },
+        "capabilities" => match rest {
+            [] => Ok(Request::Capabilities { op: None }),
+            [flag, op] if flag == "--op" && !op.starts_with('-') => {
+                Ok(Request::Capabilities { op: Some(op.clone()) })
+            }
+            _ => Err(usage("ext capabilities takes --op NAME and --json")),
+        },
         "remove" => match rest {
             [app] if app.strip_prefix("local/").is_some_and(scaffold::valid_name) => {
                 Ok(Request::Remove { app: app.clone() })
@@ -269,8 +352,324 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
                 dev::run_watch(global, &options, globals)
             }
         }
+        Request::Shot(mut options) => {
+            options.dev.dir = absolute(options.dev.dir);
+            options.dev.bun = dev::find_bun();
+            if !options.dev.dir.is_dir() {
+                eprintln!("cmux: {} is not a folder", options.dev.dir.display());
+                return exit::USAGE;
+            }
+            // `window screenshot` makes a relative --out absolute itself; the child runs here too.
+            options.out = options.out.map(|out| {
+                if out.is_absolute() {
+                    out
+                } else {
+                    std::env::current_dir().map(|cwd| cwd.join(&out)).unwrap_or(out)
+                }
+            });
+            shot::run(global, &options, &globals, json_out)
+        }
         Request::List | Request::Remove { .. } => list_or_remove(global, request, json_out),
+        Request::Reload { app } => reload(global, app.as_deref(), json_out),
+        Request::Capabilities { op } => capabilities(global, op.as_deref(), json_out),
     }
+}
+
+/// The app id `ext reload NAME` asks for: `NAME` is `local/NAME`, and an
+/// id with its publisher (`local/x`, `acme/x` from `CMUX_APPS_DIRS`) is
+/// itself. `None` for a word that names no app.
+pub(super) fn reload_target(name: &str) -> Option<String> {
+    let ok = |part: &str| {
+        !part.is_empty()
+            && part.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    match name.split_once('/') {
+        Some((publisher, app)) if ok(publisher) && ok(app) => Some(name.to_string()),
+        None if ok(name) => Some(format!("local/{name}")),
+        _ => None,
+    }
+}
+
+/// `ext reload [NAME]`: one `apps-reload`, then a line per app. Exit 1 when
+/// a script did not load (the last good view stays), 3 with no daemon.
+fn reload(global: &GlobalArgs, app: Option<&str>, json_out: bool) -> i32 {
+    match reload_call(global, app) {
+        Ok(data) => {
+            if json_out {
+                println!("{data}");
+            } else {
+                print!("{}", reload_text(&data));
+            }
+            reload_exit(&data)
+        }
+        Err((code, message)) => {
+            eprintln!("cmux: {message}");
+            code
+        }
+    }
+}
+
+/// The daemon's `apps-reload` answer, or an exit code and message.
+fn reload_call(global: &GlobalArgs, app: Option<&str>) -> Result<Value, (i32, String)> {
+    let (sender, wakes) = channel();
+    let mut daemon = daemon::Daemon::connect(global, sender, wakes)
+        .map_err(|message| (exit::NO_DAEMON, message))?;
+    let mut request = json!({ "cmd": "apps-reload" });
+    if let Some(app) = app {
+        request["app"] = json!(app);
+    }
+    let older = || {
+        (
+            1,
+            format!(
+                "the running daemon cannot reload extensions on request (it is older than cmux ext reload); restart it with this cmux: {}",
+                super::fix_command::restart_routed_daemon()
+            ),
+        )
+    };
+    let data = match daemon.call(request) {
+        Ok(Ok(data)) => data,
+        // A daemon from before `apps-reload` refuses the request it cannot parse.
+        Ok(Err(message)) if message.contains("unknown variant `apps-reload`") => {
+            return Err(older());
+        }
+        Ok(Err(message)) => return Err((1, message)),
+        Err(_) => return Err((exit::NO_DAEMON, "the cmux daemon did not answer".to_string())),
+    };
+    if data.field("reloaded").as_array().is_none() {
+        return Err(older());
+    }
+    Ok(data)
+}
+
+/// 0 when every asked script loaded, else 1.
+pub(super) fn reload_exit(data: &Value) -> i32 {
+    if data.field("refused").as_array().is_some_and(|refused| !refused.is_empty()) {
+        exit::LOAD_FAILED
+    } else {
+        exit::OK
+    }
+}
+
+/// `reloaded local/x`, `local/y did not load (the last good version stays): REASON`,
+/// `removed local/z`; `no extensions in a local folder` when there was none.
+pub(super) fn reload_text(data: &Value) -> String {
+    let list =
+        |key: &str| -> Vec<Value> { data.field(key).as_array().cloned().unwrap_or_default() };
+    let mut out = String::new();
+    for app in list("reloaded") {
+        out.push_str(&format!("reloaded {}\n", app.as_str().unwrap_or("?")));
+    }
+    for row in list("refused") {
+        let reason = row.field("reason").as_str().unwrap_or("");
+        let reason = reason.strip_prefix("init: ").unwrap_or(reason);
+        out.push_str(&format!(
+            "{} did not load (the last good version stays):\n  {reason}\n",
+            row.field("app").as_str().unwrap_or("?")
+        ));
+    }
+    for app in list("removed") {
+        out.push_str(&format!("removed {} (its folder is gone)\n", app.as_str().unwrap_or("?")));
+    }
+    if out.is_empty() {
+        out.push_str("no extensions in a local folder (cmux ext new NAME makes one)\n");
+    }
+    out
+}
+
+/// `cmux [global options] reload-config [--json]`: one reload
+/// for cmux. The app reads `cmux-next.json` and the Ghostty config again
+/// (its Reload Configuration action), and the daemon reruns every local
+/// extension (`apps-reload`). Either half runs when the other cannot: with
+/// no app, the extensions still reload; the exit names the worse half.
+pub(super) fn run_reload_config_if_requested(args: &[String]) -> Option<i32> {
+    let (mut global, words) = super::parse_globals(args).ok()?;
+    let (verb, rest) = words.split_first()?;
+    if verb != "reload-config" {
+        return None;
+    }
+    let mut extra = Vec::new();
+    for word in rest {
+        match word.as_str() {
+            "--json" => global.output = OutputMode::Json,
+            "-h" | "--help" => {
+                println!(
+                    "usage: cmux reload-config [--json]\n\n  Reads cmux-next.json and the Ghostty config again, and reruns every extension in a\n  local folder (cmux ext reload). A file that does not parse, or a script that does not\n  load, keeps the last good version and is named with its file and line."
+                );
+                return Some(exit::OK);
+            }
+            other => extra.push(other.to_string()),
+        }
+    }
+    if !extra.is_empty() {
+        eprintln!("cmux: reload-config takes no arguments (got {})", extra.join(" "));
+        return Some(exit::USAGE);
+    }
+    let json_out = matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
+    let settings = reload_settings(&global);
+    let extensions = reload_call(&global, None);
+    let code = match (&settings, &extensions) {
+        (_, Ok(data)) if reload_exit(data) != exit::OK => exit::LOAD_FAILED,
+        (Err(_), Err((code, _))) => *code,
+        (Err(_), Ok(_)) | (Ok(()), Err(_)) => 1,
+        (Ok(()), Ok(_)) => exit::OK,
+    };
+    if json_out {
+        let half = |ok: bool, error: Option<String>| match error {
+            None if ok => json!({ "ok": true }),
+            error => json!({ "ok": false, "error": error }),
+        };
+        println!(
+            "{}",
+            json!({
+                "settings": half(settings.is_ok(), settings.as_ref().err().cloned()),
+                "extensions": match &extensions {
+                    Ok(data) => data.clone(),
+                    Err((_, message)) => json!({ "ok": false, "error": message }),
+                },
+            })
+        );
+    } else {
+        match &settings {
+            Ok(()) => println!("reloaded cmux-next.json and the Ghostty config"),
+            Err(message) => eprintln!("cmux: settings not reloaded: {message}"),
+        }
+        match &extensions {
+            Ok(data) => print!("{}", reload_text(data)),
+            Err((_, message)) => eprintln!("cmux: extensions not reloaded: {message}"),
+        }
+    }
+    Some(code)
+}
+
+/// The app's `reloadConfiguration` action (Reload Configuration in the
+/// palette and the app menu): settings and the Ghostty config.
+fn reload_settings(global: &GlobalArgs) -> Result<(), String> {
+    let describe = |error: &Value| {
+        error.field("message").as_str().map(str::to_string).unwrap_or_else(|| error.to_string())
+    };
+    let mut stream = super::app::connect_command(global).map_err(|error| describe(&error))?;
+    let mut params = Value::Object(super::app::action_run_params(
+        "reloadConfiguration",
+        super::app::ActionName::Any,
+        super::app::action_origin(),
+    ));
+    super::app::insert_run_key(&mut params, None)?;
+    match super::app::request_with_retry(
+        &mut stream,
+        "action.run",
+        &params,
+        std::time::Duration::from_secs(10),
+    )? {
+        Ok(_) => Ok(()),
+        Err(error) => Err(describe(&error)),
+    }
+}
+
+/// `ext capabilities`: the running daemon's capability manifest
+/// (`apps-capabilities`), so the answer is the API that cmux serves.
+fn capabilities(global: &GlobalArgs, op: Option<&str>, json_out: bool) -> i32 {
+    let (sender, wakes) = channel();
+    let mut daemon = match daemon::Daemon::connect(global, sender, wakes) {
+        Ok(daemon) => daemon,
+        Err(message) => {
+            eprintln!("cmux: {message}");
+            return exit::NO_DAEMON;
+        }
+    };
+    let request = match op {
+        Some(op) => json!({ "cmd": "apps-capabilities", "op": op }),
+        None => json!({ "cmd": "apps-capabilities" }),
+    };
+    let data = match daemon.call(request) {
+        Ok(Ok(data)) => data,
+        Ok(Err(message)) => {
+            eprintln!("cmux: {message}");
+            return 1;
+        }
+        Err(_) => {
+            eprintln!("cmux: the cmux daemon did not answer");
+            return exit::NO_DAEMON;
+        }
+    };
+    if data.field("ops").as_array().is_none() {
+        eprintln!(
+            "cmux: the running daemon has no capability manifest (it is older than cmux ext capabilities); restart it with this cmux: {}",
+            super::fix_command::restart_routed_daemon()
+        );
+        return 1;
+    }
+    if json_out {
+        println!("{data}");
+    } else {
+        print!("{}", capabilities_table(&data));
+    }
+    exit::OK
+}
+
+/// The text form: one line per op (op, scope, class, risk, gesture or
+/// escalation), then the never list's size and the API version.
+pub(super) fn capabilities_table(data: &Value) -> String {
+    let rows: Vec<[String; 4]> = data
+        .field("ops")
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| {
+            let text = |key: &str| row.field(key).as_str().unwrap_or("-").to_string();
+            if row.field("never").as_bool() == Some(true) {
+                return [text("op"), "never".into(), "-".into(), text("consent")];
+            }
+            let mut notes = Vec::new();
+            if row.field("gesture").as_bool() == Some(true) {
+                notes.push("needs a user gesture".to_string());
+            }
+            if let Some(scope) = row.field("escalation").field("scope").as_str() {
+                notes.push(format!("with a command: {scope}"));
+            }
+            if row.field("external").as_bool() == Some(true) {
+                notes.push("refused when sandboxed".to_string());
+            }
+            let risk = row.field("risk").as_str().unwrap_or("no grant");
+            [text("op"), text("scope"), format!("{} {risk}", text("class")), notes.join("; ")]
+        })
+        .collect();
+    const HEADERS: [&str; 4] = ["OP", "SCOPE", "CLASS RISK", "NOTES"];
+    let mut widths = HEADERS.map(str::len);
+    for row in &rows {
+        for (width, cell) in widths.iter_mut().zip(row) {
+            *width = (*width).max(cell.chars().count());
+        }
+    }
+    let mut out = String::new();
+    let mut line = |cells: [&str; 4]| {
+        let text = format!(
+            "{:w0$}  {:w1$}  {:w2$}  {}",
+            cells[0],
+            cells[1],
+            cells[2],
+            cells[3],
+            w0 = widths[0],
+            w1 = widths[1],
+            w2 = widths[2]
+        );
+        out.push_str(text.trim_end());
+        out.push('\n');
+    };
+    line(HEADERS);
+    for row in &rows {
+        line([&row[0], &row[1], &row[2], &row[3]]);
+    }
+    if let Some(never) = data.field("never").as_array() {
+        out.push_str(&format!(
+            "{} ops no app may call (cmux ext capabilities --op NAME says why one is refused)\n",
+            never.len()
+        ));
+    }
+    if let Some(version) = data.field("apiVersion").as_str() {
+        out.push_str(&format!("cmux app API {version}\n"));
+    }
+    out
 }
 
 /// `ext list` (the `local/` apps the daemon loads) and `ext remove ID` (drops

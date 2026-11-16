@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """The newest published app FFI release on the base: the one app-ffi-release.yml's re-pin pins.
 
-    python3 scripts/cmux-next/newest_app_ffi_release.py [--tip REF] [--manifest PATH] [--remote NAME]
+    python3 scripts/cmux-next/newest_app_ffi_release.py [--tip REF] [--pin-file PATH] [--remote NAME]
 
 Prints `SOURCE_SHA CHECKSUM` for the newest commit on TIP (default HEAD) that is newer than the release
-Packages/macOS/CmuxNext/Package.swift pins now and has a published cmux-app-ffi-<sha> release: its tag exists,
+Packages/macOS/CmuxNext/app-ffi-pin.json pins now and has a published cmux-app-ffi-<sha> release: its tag exists,
 its SOURCE_SHA names that commit, and its SHA256SUMS carries the archive's checksum. Latest wins: a newer FFI
 commit whose release is not published yet (its build was cancelled by a newer push, or is still running, so
 SOURCE_SHA or SHA256SUMS is a 404) is skipped, never waited for. The base's FFI sources may be ahead of the
@@ -13,11 +13,11 @@ compiles against it. When nothing newer is published it prints the current pin, 
 
 Reads tags with `git ls-remote` and release files anonymously from the release downloads: no API quota. A download
 that fails but for a 404 is read once more through the release-assets API (two anonymous calls).
-The current pin is read only through scripts/ci/app_ffi_pin.py's canonical match; a Package.swift that does not
-match it exits 1. The walk goes newest first, a page of PAGE commits at a time, and ends at the current pin's
+The current pin is read only through scripts/ci/app_ffi_pin.py's strict read; a pin file that is not canonical
+exits 1. The walk goes newest first, a page of PAGE commits at a time, and ends at the current pin's
 commit (it never goes older than the pin), so any number of unpublished releases is skipped; more than MAX_PAGES
 pages of commits since the pin is an error, never a silent stop.
-Exits 1 when a release file cannot be read for any reason but a 404, or when the manifest pins nothing.
+Exits 1 when a release file cannot be read for any reason but a 404, or when the pin file pins nothing.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = ROOT / "Packages/macOS/CmuxNext/Package.swift"
+PIN_FILE = ROOT / "Packages/macOS/CmuxNext/app-ffi-pin.json"
 ASSET = "CCmuxAppFFI.xcframework.zip"
 TAG = re.compile(r"refs/tags/cmux-app-ffi-([0-9a-f]{40})$")
 DOWNLOAD = re.compile(r"^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)$")
@@ -135,11 +135,11 @@ def release(base_url: str, sha: str) -> str:
     return found[0]
 
 
-def newest(tip: str, manifest: Path, remote: str, base_url: str, log=sys.stderr) -> tuple[str, str]:
+def newest(tip: str, pin_file: Path, remote: str, base_url: str, log=sys.stderr) -> tuple[str, str]:
     try:
-        current, checksum, _ = app_ffi_pin.read(manifest.read_text(encoding="utf-8"))
-    except app_ffi_pin.NotCanonical as why:
-        raise SystemExit(f"error: no canonical cmux-app-ffi pin in {manifest}: {why}") from why
+        current, checksum = app_ffi_pin.read(pin_file.read_text(encoding="utf-8"))
+    except (app_ffi_pin.NotCanonical, OSError) as why:
+        raise SystemExit(f"error: no canonical cmux-app-ffi pin in {pin_file}: {why}") from why
     tags = published_tags(remote)
     for sha in newer_commits(tip, current):
         if sha not in tags:
@@ -158,13 +158,13 @@ def newest(tip: str, manifest: Path, remote: str, base_url: str, log=sys.stderr)
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--tip", default="HEAD")
-    parser.add_argument("--manifest", type=Path, default=MANIFEST)
+    parser.add_argument("--pin-file", type=Path, default=PIN_FILE)
     parser.add_argument("--remote", default="origin")
     args = parser.parse_args(argv)
     repo = os.environ.get("GITHUB_REPOSITORY") or "manaflow-ai/cmux"
     base_url = os.environ.get("CMUX_APP_FFI_RELEASE_DOWNLOAD") or f"https://github.com/{repo}/releases/download"
     try:
-        sha, checksum = newest(args.tip, args.manifest, args.remote, base_url)
+        sha, checksum = newest(args.tip, args.pin_file, args.remote, base_url)
     except (OSError, RuntimeError, subprocess.CalledProcessError, urllib.error.URLError) as error:
         print(f"error: could not read the published app FFI releases: {error}", file=sys.stderr)
         return 1

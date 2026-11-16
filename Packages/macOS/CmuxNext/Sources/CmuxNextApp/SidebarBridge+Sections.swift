@@ -77,12 +77,11 @@ extension SidebarBridge {
         return (ActionID(rawValue: chosen.action), chosen.appArgument ? ["app": .string(app)] : [:])
     }
 
-    /// Keeps `model.itemInfo` current: a built-in whose action this build
-    /// does not register draws dimmed.
+    /// Writes `model.itemInfo` in this turn (the window's first frame reads it, `SidebarFirstFrame`) and keeps it current: a
+    /// built-in whose action this build does not register draws dimmed; with it, the drawn order's hold (`SidebarLaunchOrderHold`).
     func observeSections() {
         let model = model
         let registry = services.registry
-        // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
         // Another client's group fold (the sidebar document's fold-only batches) folds this window's rows. After the
         // `sidebarLayout` read, which starts this app's document.
@@ -97,28 +96,24 @@ extension SidebarBridge {
         let home = services.home
         // A band item's page face (the list rows' own), read in the observation so a favicon that loads replaces the item's globe.
         let pageFace = { [weak services] (workspace: WorkspaceModel, tab: TabModel, work: TabModel?) in services?.sidebarPageFace(workspace, tab: tab, work: work) ?? .init() }, faces = faceBuffers
-        sectionsObservation = Task { [weak self] in
-            // Also observed: the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
-            // the workspaces tiles and top rows name. The selected item comes from the one selection.
-            for await (layout, unread, homeUnread, shortcuts, workspaces, picture, previewFeatures) in ObservationStream({
-                () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?, Bool) in
-                _ = (apps.apps, ChiefSidebar.shared.status)
-                return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
-                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs, autoNames: settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true, pageFace: pageFace, faces: faces), chiefPicture(), settings?.snapshot.previewFeatures == true)
-            }) {
-                // The window closed: the bridge is gone, stop observing.
-                guard self != nil else { return }
-                // `model.layout` is written with the rows it projects (SidebarBridge.show).
-                let visibleLayout = SidebarRows.visibleLayout(layout, showAppStore: previewFeatures)
-                let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
-                                          unread: unread, homeUnread: homeUnread,
-                                          app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
-                                          workspace: { workspaces[$0] }, chiefFavicon: pictures.favicon(still: picture, image: picture.flatMap(uploads.image(at:))))
-                if model.itemInfo != infos { model.itemInfo = infos }
-                let suppressed = AppPresence(apps.apps).suppressed
-                if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
-            }
-        }
+        typealias Inputs = (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?)
+        let hold = SidebarLaunchOrderHold(home: store, document: { [weak services] in services?.sidebarDoc.store }).follow(model)
+        // The first pass runs in this call, in the turn that makes the sidebar; the pass's task follows the later changes.
+        // Also observed: the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
+        // the workspaces tiles and top rows name. The selected item comes from the one selection.
+        sectionsPass = SidebarSectionsPass(model: model, hold: hold, read: { () -> Inputs in
+            _ = (apps.apps, ChiefSidebar.shared.status)
+            return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
+                    Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs, autoNames: settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true, pageFace: pageFace, faces: faces), chiefPicture())
+        }, values: { (inputs: Inputs) in
+            let (layout, unread, homeUnread, shortcuts, workspaces, picture) = inputs
+            // `model.layout` is written with the rows it projects (SidebarBridge.show).
+            let infos = Self.itemInfo(for: SidebarRows.visibleLayout(layout), registered: { registry.action(for: $0) != nil },
+                                      unread: unread, homeUnread: homeUnread,
+                                      app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
+                                      workspace: { workspaces[$0] }, chiefFavicon: pictures.favicon(still: picture, image: picture.flatMap(uploads.image(at:))))
+            return (infos, AppPresence(apps.apps).suppressed)
+        })
     }
 
     /// Built-in tooltips use the same shortcut text as menus.

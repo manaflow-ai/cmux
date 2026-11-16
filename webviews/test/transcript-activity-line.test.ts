@@ -3,9 +3,21 @@
 // `agent.sessionStatus`): while a turn with a todo list runs, the list is pinned under the work
 // (toggle or not, Leo 2026-11-03) and, with the toggle, one line under it names what the agent is
 // doing now, in the "Working for" status's place. A turn without a list draws as before.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxPlanEntry, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ACTIVITY_LINE, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps each finished
+// run in sight as its folded summary line. The `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  // The clock on the live line, as before: "Working for" over the work is live-turn-clock.test.ts.
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs", "live-turn-clock": "line" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

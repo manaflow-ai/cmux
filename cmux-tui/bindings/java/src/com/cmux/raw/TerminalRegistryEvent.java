@@ -56,7 +56,7 @@ public final class TerminalRegistryEvent implements WireValue {
         Object rawOrigin = Wire.required(object, "origin");
         builder.origin(Wire.string(rawOrigin, "TerminalRegistryEvent.origin"));
         Object rawResult = Wire.required(object, "result");
-        builder.result(Wire.immutableJson(rawResult));
+        builder.result(Wire.immutableJson(ProtocolSupport.nonNull(rawResult, "TerminalRegistryEvent.result")));
         Object rawTerminalId = Wire.required(object, "terminal_id");
         builder.terminalId(Wire.string(rawTerminalId, "TerminalRegistryEvent.terminal_id"));
         Object rawTerminalRevision = Wire.required(object, "terminal_revision");

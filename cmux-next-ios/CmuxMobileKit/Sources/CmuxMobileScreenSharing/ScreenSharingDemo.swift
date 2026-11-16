@@ -17,7 +17,12 @@ public struct ScreenSharingDemoRoot: View {
 
     public var body: some View {
         ScreenSessionView(session: session, features: ScreenSharingViewerScreen.features) {}
-            .onAppear { session.connect() }
+            .onAppear {
+                // Turns with the phone like the real viewer.
+                ScreenSharingOrientation.shared.begin()
+                session.connect()
+            }
+            .onDisappear { ScreenSharingOrientation.shared.end() }
     }
 }
 #endif

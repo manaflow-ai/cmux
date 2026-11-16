@@ -160,6 +160,7 @@ extension AppStore {
         teams = []
         activeTeamID = ""
         workspaces = []
+        lastActiveTabByWorkspace = [:]
         macLinkStatus = [:]
         macLinkDiagnostics = [:]
         macData = [:]

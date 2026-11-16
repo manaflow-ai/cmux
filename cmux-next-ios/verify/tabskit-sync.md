@@ -1,5 +1,11 @@
 # CmuxTabsKit synced to upstream (2026-10-13)
 
+> **Retired 2026-11-11.** CmuxTabsKit and CmuxConversation now live in
+> feat-cmux-next, which holds the only copy; there is no upstream branch to sync
+> with or to file requests against. Make a change listed here directly in
+> `Packages/iOS/`. This file is kept as history. See `Packages/iOS/AGENTS.md`.
+
+
 `Packages/iOS/CmuxTabsKit` is now byte-identical to `origin/feat-cmux-next-tabs-kit`
 at 52bf6989026d ("titles start at progress 0.90; data source notices as a glass
 toast; forward glyph is the forward control's label"), which includes affa688cd012

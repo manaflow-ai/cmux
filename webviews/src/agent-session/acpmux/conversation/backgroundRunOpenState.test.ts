@@ -4,10 +4,19 @@
 // whichever member's key it was opened under, as a message run does (Leo, 2026-11-08: "if i have a
 // tool call expanded, the auto folding situation shouldn't collapse it when a new tool call comes in
 // and the folds reformat").
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { backgroundRunRowId, foldBackgroundRuns } from "./backgroundRuns";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+
+// These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws no run line
+// (backgroundTurnInline.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "background-turn-look": "line" };
+});
+afterAll(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

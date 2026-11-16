@@ -1,4 +1,4 @@
-import { errorMessage, isHostRefusal, startCancelled } from "./transportErrors";
+import { errorMessage, isHostRefusal, startCancelled, switchFailedText } from "./transportErrors";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -8,6 +8,14 @@ import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
 import { askStartMode, exactStartMode, onStartModeAskAgain, onStartModeKept } from "./startMode";
+import {
+  HARNESS_MISSING,
+  NOT_INSTALLED_REASON,
+  ROUTE_REASONS,
+  ROUTE_UNAVAILABLE,
+  SIGN_IN_REASON,
+  SIGN_IN_REQUIRED,
+} from "./startRefusal";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
 // A harness or model switch as an intent. The pick changes the
@@ -83,6 +91,9 @@ export type SwitchPort = {
   prewarm(harness: string, cwd?: string): void;
   /// The connection can take a prewarm hint (acpmux lists the method and calls it local).
   prewarmSupported(): boolean;
+  /// The folder a new chat of this pane starts in now (the start folder, startFolderModel.ts),
+  /// undefined for none: where a start the pane refused the folder of starts again.
+  startFolder?(): string | undefined;
   /// A new chat starts only with its first send (a chat on another machine, cx-k21v): a pick
   /// before it is remembered, and the send starts the session.
   startsOnSend?(): boolean;
@@ -122,6 +133,8 @@ export type SwitchView = {
     error?: string;
     /// The refusal's code (`agent_session.team_vm_blocked`, ...): the failed card's way out.
     code?: string;
+    /// A sign-in refusal (`agent_session.sign_in_required`) for a sign-in that expired, not one never made.
+    signInExpired?: true;
     queued: readonly QueuedSwitchPrompt[];
     config: SwitchConfig;
     cwd?: string;
@@ -133,7 +146,9 @@ export type SwitchView = {
   /// `from`, so a model the agent reports under another id never stays masked.
   model?: { sessionId: string; from?: string; model: string; answered?: boolean };
   /// A config option picked in a live session, drawn until the session reports the value.
-  config?: { sessionId: string; configId: string; from?: string; value: string };
+  /// `answered` as for `model`: once the agent answered, it draws only while the session still
+  /// reports `from`, so a value set elsewhere (another window, the CLI, a peer) shows as it is.
+  config?: { sessionId: string; configId: string; from?: string; value: string; answered?: boolean };
 };
 
 type Queued = QueuedSwitchPrompt & {
@@ -158,6 +173,7 @@ type Intent = {
   reused?: boolean;
   error?: string;
   code?: string;
+  signInExpired?: true;
   queued: Queued[];
   config: { model?: string; mode?: string; options: Record<string, string> };
   /// Each held mode or config pick's gesture ticket (`mode`, `config:<id>`), the newest pick's.
@@ -202,6 +218,21 @@ function deferred<T>() {
 
 const errorText = errorMessage;
 
+/// Whether a live pick (`SwitchView` `model` or `config`) has nothing left to draw on `snapshot`,
+/// whose session reports `reported` for it (HarnessSwitch.reconcile). A snapshot with no session
+/// yet (a chat still opening) settles nothing.
+function settledPick(
+  snapshot: Pick<AcpmuxSnapshot, "sessionId">,
+  pick: { sessionId: string; from?: string; answered?: boolean } & ({ model: string } | { value: string }),
+  reported: string | undefined,
+): boolean {
+  if (!snapshot.sessionId) return false;
+  if (snapshot.sessionId !== pick.sessionId) return true;
+  if (reported === undefined) return false;
+  const picked = "model" in pick ? pick.model : pick.value;
+  return reported === picked || (pick.answered === true && reported !== pick.from);
+}
+
 export class HarnessSwitch {
   private intent?: Intent;
   private modelPick?: SwitchView["model"];
@@ -235,15 +266,26 @@ export class HarnessSwitch {
   };
   readonly view = (): SwitchView => this.current;
 
-  /// Drops a live config pick once the host echoes the selected value. Keeping this in the
-  /// switch store prevents a late or reconnect snapshot from being masked by an old optimistic
-  /// value.
+  /// Drops a live model or config pick once it has nothing left to draw: the session reports the
+  /// picked value, the agent answered and the session reports a value other than the one the pick
+  /// left (it moved elsewhere: another window, the CLI, a peer, a restart), or the pane shows
+  /// another chat (a fork, a new chat in the pane, a chat picked in the list). A pick kept past any
+  /// of these drew again over the session's own value the next time the session reported the
+  /// value the pick left, after a restore, a reconnect or a return to the chat: the chip named a
+  /// model or level the chat no longer ran (Leo 2026-11-11: "switching models between chats, and
+  /// then the model picker state gets [messed up]").
   reconcile(snapshot: AcpmuxSnapshot): void {
-    const pick = this.configPick;
-    if (!pick || snapshot.sessionId !== pick.sessionId) return;
-    const option = snapshot.summary?.configOptions?.find((item) => item.id === pick.configId);
-    if (option?.currentValue !== pick.value) return;
-    this.configPick = undefined;
+    const model = this.modelPick && settledPick(snapshot, this.modelPick, snapshot.summary?.model);
+    const config =
+      this.configPick &&
+      settledPick(
+        snapshot,
+        this.configPick,
+        snapshot.summary?.configOptions?.find((item) => item.id === this.configPick?.configId)?.currentValue,
+      );
+    if (!model && !config) return;
+    if (model) this.modelPick = undefined;
+    if (config) this.configPick = undefined;
     this.changed();
   }
 
@@ -281,13 +323,22 @@ export class HarnessSwitch {
   /// heldOptions.ts), held as a pick during the switch is: applied before the first prompt.
   switchTo(
     harness: string,
-    folder?: string,
+    folder?: string | null,
     options: { deferred?: boolean; model?: string; options?: Readonly<Record<string, string>> } = {},
   ): Promise<string | undefined> {
     const previous = this.intent;
     const port = this.port;
     const shownSession = port?.shown();
-    const cwd = folder ?? previous?.cwd ?? shownSession?.cwd;
+    // `null`: a new chat with no folder (startFolderModel newChatFolder). acpmux's host fills it; an
+    // earlier start's folder never carries over, so one refused folder (a tab's inherited `~`) never
+    // becomes the folder of the next start, of this agent or another (cmux#40938).
+    // A folder the pane refused (`transport.path_outside_roots`) is never carried either: only a
+    // folder the person names again, which goes through the host's folder grant first, starts there.
+    const carried = previous ? this.restartFolder(previous) : undefined;
+    const cwd =
+      folder === null || (folder === undefined && carried === null)
+        ? undefined
+        : (folder ?? carried ?? shownSession?.cwd);
     const held = Object.entries(options.options ?? {});
     if (previous && previous.harness === harness && previous.phase !== "failed" && previous.cwd === cwd) {
       if (options.model) void this.pickModel(options.model);
@@ -373,7 +424,7 @@ export class HarnessSwitch {
     // After a failure, sending is retrying with this prompt.
     const restarts = intent.phase === "failed";
     if (restarts) {
-      void this.switchTo(intent.harness, intent.cwd, { deferred: !intent.shown });
+      void this.switchTo(intent.harness, this.restartFolder(intent), { deferred: !intent.shown });
       intent = this.intent!;
     }
     const { promise, resolve, reject } = (() => {
@@ -452,7 +503,7 @@ export class HarnessSwitch {
         if (this.modelPick !== pick) return false;
         this.modelPick = undefined;
         this.changed();
-        this.handlers.notice?.(t("switch.modelFailed", { model, reason: errorText(error) || "?" }));
+        this.handlers.notice?.(switchFailedText("model", model, error));
         return false;
       },
     );
@@ -474,12 +525,19 @@ export class HarnessSwitch {
       this.configPick = pick;
       this.modelPick = undefined;
       this.changed();
-      void port.setConfig(configId, value).catch((error) => {
-        if (this.configPick !== pick) return;
-        this.configPick = undefined;
-        this.changed();
-        this.handlers.notice?.(t("switch.modelFailed", { model: value, reason: errorText(error) || "?" }));
-      });
+      void port.setConfig(configId, value).then(
+        () => {
+          if (this.configPick !== pick) return;
+          this.configPick = { ...pick, answered: true };
+          this.changed();
+        },
+        (error) => {
+          if (this.configPick !== pick) return;
+          this.configPick = undefined;
+          this.changed();
+          this.handlers.notice?.(switchFailedText("model", value, error));
+        },
+      );
       return true;
     }
     this.holdConfig(this.intent, configId, value);
@@ -546,7 +604,8 @@ export class HarnessSwitch {
   /// Retry after a failure: starts the harness again (the prompt stays in the composer).
   retry(): void {
     const intent = this.intent;
-    if (intent?.phase === "failed") void this.switchTo(intent.harness, intent.cwd, { deferred: !intent.shown });
+    if (intent?.phase === "failed")
+      void this.switchTo(intent.harness, this.restartFolder(intent), { deferred: !intent.shown });
   }
 
   /// The user went elsewhere (another session, a fork, a default new chat): the switch ends and
@@ -688,7 +747,7 @@ export class HarnessSwitch {
       applied.push(
         ticket("mode")
           .then((t) => port.setMode(mode, t))
-          .catch((error) => this.handlers.notice?.(t("switch.modeFailed", { mode, reason: errorText(error) || "?" }))),
+          .catch((error) => this.handlers.notice?.(switchFailedText("mode", mode, error))),
       );
     for (const [configId, value] of Object.entries(options)) {
       const pick = offered ? heldOptionPick(configId, value, offered) : { configId, value };
@@ -757,7 +816,7 @@ export class HarnessSwitch {
   }
 
   private refused(model: string, error: unknown): void {
-    this.handlers.notice?.(t("switch.modelFailed", { model, reason: errorText(error) || "?" }));
+    this.handlers.notice?.(switchFailedText("model", model, error));
   }
 
   private fail(intent: Intent, error: unknown): void {
@@ -768,6 +827,7 @@ export class HarnessSwitch {
       intent.phase = "trust";
       intent.error = undefined;
       intent.code = undefined;
+      intent.signInExpired = undefined;
       // The Trust click's gesture goes to the answer; the prompt keeps its own send's gesture.
       const first = intent.queued[0];
       if (first && !first.ticket) this.handlers.holdPrompt?.(first.id);
@@ -775,9 +835,28 @@ export class HarnessSwitch {
       return;
     }
     intent.phase = "failed";
-    intent.error = errorText(error) || t("switch.unknownError");
+    // acpmux's spawn error says only the io error ("No such file or directory"), the same for a
+    // missing CLI and a gone folder; its `recovery` says which ("claude-agent-acp is not installed",
+    // "The folder … is gone"), so the card reads both: a missing agent gets Install, not a dead end.
+    const typed = error as { errorKind?: unknown; recovery?: unknown } | undefined;
+    const recovery =
+      typed?.errorKind === "spawn.failed" && typeof typed.recovery === "string" ? typed.recovery : undefined;
+    intent.error = [errorText(error) || t("switch.unknownError"), recovery].filter(Boolean).join("\n");
     const code = (error as { code?: unknown } | undefined)?.code;
     intent.code = typeof code === "string" ? code : undefined;
+    // An agent that is not signed in: cmux-tui codes it for another machine; acpmux on this Mac
+    // names it in `data.reason` only. Either is the one sign-in code the card reads (hq#11225).
+    const signIn = error as { reason?: unknown; errorKind?: unknown } | undefined;
+    if (intent.code === SIGN_IN_REQUIRED || signIn?.reason === SIGN_IN_REASON) {
+      intent.code = SIGN_IN_REQUIRED;
+      intent.signInExpired = signIn?.errorKind === "auth.expired" ? true : undefined;
+    } else intent.signInExpired = undefined;
+    // A missing agent or an unserved model route: cmux-tui codes them for another machine; acpmux
+    // on this Mac says them in `data.reason` only. Either reads as the one code (hq#11225).
+    if (!intent.code && typeof signIn?.reason === "string") {
+      if (signIn.reason === NOT_INSTALLED_REASON) intent.code = HARNESS_MISSING;
+      else if (ROUTE_REASONS.has(signIn.reason)) intent.code = ROUTE_UNAVAILABLE;
+    }
     if (intent.queued.length) {
       this.handBack(intent.queued);
       // The prompts are back in the composer (`handedBack`); acpmux's refusal reason rides along.
@@ -793,6 +872,16 @@ export class HarnessSwitch {
     intent.done.resolve(undefined);
   }
 
+  /// Where a start that ended starts again (Retry, a send after its failure, the next pick that
+  /// names no folder): its own folder, unless the pane refused that one (`transport.path_outside_roots`).
+  /// Then the pane's start folder as it is now, or `null` (no folder, the host fills it), never the
+  /// refused folder again, which could only fail the same way (cmux#40938).
+  private restartFolder(intent: Intent): string | null | undefined {
+    if (!refusedFolder(intent)) return intent.cwd;
+    const start = this.port?.startFolder?.();
+    return start && start !== intent.cwd ? start : null;
+  }
+
   private changed(): void {
     const intent = this.intent;
     this.current = {
@@ -805,6 +894,7 @@ export class HarnessSwitch {
           sessionId: intent.sessionId,
           error: intent.error,
           code: intent.code,
+          ...(intent.signInExpired && { signInExpired: true as const }),
           queued: intent.queued.map(({ id, text, at }) => ({ id, text, at })),
           config: intent.config,
           cwd: intent.cwd,
@@ -876,6 +966,8 @@ export function applySwitch(
     if (!config || !summary || summary.sessionId !== config.sessionId) return raw;
     const option = summary.configOptions?.find((item) => item.id === config.configId);
     if (!option || option.currentValue === config.value) return raw;
+    // Answered, and the session reports another value than the pick left: it is the session's.
+    if (config.answered && option.currentValue !== config.from) return raw;
     return {
       ...raw,
       summary: {
@@ -928,6 +1020,7 @@ export function applySwitch(
     phase: intent.phase === "failed" ? "failed" : intent.shown ? "starting" : "deferred",
     ...(intent.error && { error: intent.error }),
     ...(intent.code && { code: intent.code }),
+    ...(intent.signInExpired && { signInExpired: true as const }),
   };
   // A held prompt reads as sent: no start status on it (the Thinking line under it covers the
   // start, conversation/turns.ts), and its footer keeps the room the sent prompt's has.
@@ -962,4 +1055,9 @@ export function applySwitch(
     unavailable: undefined,
     missingReason: undefined,
   };
+}
+
+/// The pane's relay refused the intent's folder (AcpmuxPathPolicy): it is outside the pane's roots.
+function refusedFolder(intent: { phase: string; code?: string; cwd?: string }): boolean {
+  return intent.phase === "failed" && intent.code === "transport.path_outside_roots" && !!intent.cwd;
 }

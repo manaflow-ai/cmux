@@ -72,6 +72,11 @@ struct ForkApi {
   int (*install_prompt_reply)(int, int) = nullptr;
   char* (*omnibox_keywords)(int) = nullptr;
   int (*omnibox_input)(int, const char*, int, const char*, int) = nullptr;
+  // API version 33: omnibox preloading (Chrome's predictor, preconnect and
+  // direct-URL-input prerender for the omnibar).
+  int (*omnibox_preload_text_changed)(int, const char*, const char* const*, const int*, int, double*) = nullptr;
+  int (*omnibox_preload_opened)(int, const char*, int) = nullptr;
+  void (*set_omnibox_prerender)(int) = nullptr;
   void (*set_omnibox_suggestions_handler)(void (*)(void*, int, const char*, const char*), void*) = nullptr;
   int (*add_native_messaging_dir)(const char*, int) = nullptr;
   // API version 11: popup windows extensions create.
@@ -166,6 +171,8 @@ int NextInternalDevToolsId(int browser_id);
 // CMUX_SHIM_DEVTOOLS_EVENT. True when the message is consumed (a raw-send
 // reply), so it never reaches OnDevToolsMethodResult.
 bool ForwardDevToolsMessage(int browser_id, const void* message, size_t message_size);
+// The open DevTools frontend whose own id is `browser_id` (devtools_call_target.h); null when none.
+CefRefPtr<CefBrowser> DevToolsFrontendById(int browser_id);
 // The browser closed: drop its watch, raw-send mark and id counter.
 void ForgetDevToolsProtocol(int browser_id);
 
@@ -301,6 +308,10 @@ void ForgetDownloads();
 CefRefPtr<CefPermissionHandler> PermissionHandler();
 // Releases every waiting prompt callback (before CefShutdown).
 void ForgetPermissionPrompts();
+
+// Before CefShutdown: page requests waiting for their frame's URL (DeferredPageResource) stop
+// polling and are judged at once.
+void StopDeferredPageRequests();
 
 // A Proceed the host asked for on a certificate warning
 // (cmux_shim_certificate_proceed, shim_site.mm, UI thread): taken by the

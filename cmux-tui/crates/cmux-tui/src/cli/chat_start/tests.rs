@@ -2,13 +2,15 @@ use std::cell::Cell;
 
 use serde_json::{Value, json};
 
+use super::super::agents::turn::Outcome;
 use super::super::cloud_start_chat::Machine;
+use super::joined::{self, Carrier, JoinedMachine, Settled, Sources};
 use std::time::Duration;
 
 use super::{
     Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_preflight,
     here_wait, here_words, in_environment, names_cloud, new_args, parse, parse_with, pick_target,
-    read_setting, route, route_start, setting_stream, start_words,
+    read_setting, route, route_or_joined, route_start, setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -555,6 +557,239 @@ fn a_daemon_socket_reads_the_setting_from_its_owning_app() {
     );
 }
 
+/// acpmux's peers: an ssh peer, and the machines only the mesh hub reaches.
+fn hub() -> Vec<Value> {
+    vec![
+        json!({"name": "box", "connected": true, "state": "connected"}),
+        json!({"name": "studio", "connected": true, "state": "connected", "via": "hub"}),
+        json!({"name": "mini-2", "connected": true, "state": "connected", "via": "hub"}),
+    ]
+}
+
+/// The account's joined machines, as `cmux machine list` shows them.
+fn joined_rows() -> Vec<Value> {
+    vec![
+        json!({"kind": "joined", "id": "m_studio", "name": "studio", "hostname": "studio",
+               "state": "online"}),
+        // Labelled: the hub knows it by its hostname.
+        json!({"kind": "joined", "id": "m_desk", "name": "Desk Mac", "hostname": "mini-2",
+               "state": "offline"}),
+        json!({"kind": "joined", "id": "m_attic", "name": "attic", "hostname": "attic",
+               "state": "offline"}),
+        json!({"kind": "joined", "id": "m_old", "name": "old", "hostname": "old",
+               "state": "revoked"}),
+        json!({"kind": "joined", "id": "m_twin_a", "name": "twin-j", "hostname": "twin-a",
+               "state": "online"}),
+        json!({"kind": "joined", "id": "m_twin_b", "name": "twin-j", "hostname": "twin-b",
+               "state": "online"}),
+    ]
+}
+
+/// `route_or_joined` with the device fixtures and the joined machines; `rows` None: the
+/// account's list could not be read.
+fn on_joined(on: &str, rows: Option<Vec<Value>>) -> Result<Route, Value> {
+    route_or_joined(
+        Some(on),
+        || {
+            route(
+                Some(on),
+                Reads {
+                    catalog: || Ok(catalog()),
+                    signed_in: || true,
+                    cloud_machines: || Ok(listed()),
+                },
+            )
+        },
+        Sources { hub, rows: || rows.ok_or_else(|| "not signed in".to_owned()) },
+    )
+}
+
+fn joined_at(id: Option<&str>, name: &str, host: &str) -> Result<Route, Value> {
+    Ok(Route::Joined(JoinedMachine {
+        id: id.map(str::to_owned),
+        name: name.to_owned(),
+        host: host.to_owned(),
+        carrier: Carrier::Hub,
+    }))
+}
+
+/// A machine acpmux reaches itself, as `--on` resolves it.
+fn peer_at(host: &str) -> Result<Route, Value> {
+    Ok(Route::Joined(JoinedMachine {
+        id: None,
+        name: host.to_owned(),
+        host: host.to_owned(),
+        carrier: Carrier::Peer,
+    }))
+}
+
+/// A joined machine is found by its name, the hub's host name, or `joined:ID`, with no ssh.
+#[test]
+fn a_joined_machine_is_a_chat_target_by_name_or_id() {
+    // By name: the account's list is read even though the hub lists it (it decides).
+    let read = Cell::new(false);
+    let by_hub = route_or_joined(
+        Some("studio"),
+        || {
+            route(
+                Some("studio"),
+                Reads {
+                    catalog: || Ok(catalog()),
+                    signed_in: || true,
+                    cloud_machines: || Ok(listed()),
+                },
+            )
+        },
+        Sources {
+            hub,
+            rows: || -> Result<Vec<Value>, String> {
+                read.set(true);
+                Ok(joined_rows())
+            },
+        },
+    );
+    assert_eq!(by_hub, joined_at(Some("m_studio"), "studio", "studio"));
+    assert!(read.get(), "the account's list decides, not the hub's");
+    // By its account id, and by its label: the hub's host name is the hostname.
+    assert_eq!(
+        on_joined("joined:m_studio", Some(joined_rows())),
+        joined_at(Some("m_studio"), "studio", "studio")
+    );
+    assert_eq!(
+        on_joined("Desk Mac", Some(joined_rows())),
+        joined_at(Some("m_desk"), "Desk Mac", "mini-2")
+    );
+    // The account calls it offline, but the hub lists it now: the hub's word is newer.
+    assert_eq!(
+        on_joined("joined:m_desk", Some(joined_rows())),
+        joined_at(Some("m_desk"), "Desk Mac", "mini-2")
+    );
+    // Without the account's list, a name the hub lists is refused as unverified
+    // (`a_machine_only_the_hub_lists_is_refused_when_the_account_cannot_be_read`).
+    assert_eq!(code(on_joined("mini-2", None)), "chat_target.unverified");
+}
+
+/// An offline or revoked joined machine is refused with what to do; nothing starts.
+#[test]
+fn an_offline_or_revoked_joined_machine_is_refused_clearly() {
+    let offline = on_joined("attic", Some(joined_rows())).unwrap_err();
+    assert_eq!(offline["code"], "chat_target.unavailable");
+    assert_eq!(offline["retryable"], true);
+    assert!(offline["message"].as_str().unwrap().contains("attic is offline"), "{offline}");
+    assert!(offline["details"]["next"].as_str().unwrap().contains("machine doctor attic"));
+    assert_eq!(code(on_joined("joined:m_attic", Some(joined_rows()))), "chat_target.unavailable");
+
+    let revoked = on_joined("old", Some(joined_rows())).unwrap_err();
+    assert_eq!(revoked["code"], "chat_target.revoked");
+    assert!(revoked["message"].as_str().unwrap().contains("old was revoked"), "{revoked}");
+    assert!(revoked["details"]["next"].as_str().unwrap().contains("cmux machine add"));
+    assert_eq!(code(on_joined("joined:m_old", Some(joined_rows()))), "chat_target.revoked");
+}
+
+/// Unknown, ambiguous and unread joined machines keep a refusal that says what to run next;
+/// the catalog's devices and refusals win over a joined machine.
+#[test]
+fn joined_lookups_never_guess() {
+    assert_eq!(code(on_joined("joined:m_gone", Some(joined_rows()))), "chat_target.unknown_device");
+    assert_eq!(code(on_joined("joined:", Some(joined_rows()))), "chat_target.unknown_device");
+    // Not joined and not a device: the catalog's own refusal.
+    assert_eq!(code(on_joined("nowhere", Some(joined_rows()))), "chat_target.unknown_device");
+    assert_eq!(code(on_joined("twin-j", Some(joined_rows()))), "chat_target.ambiguous_device");
+    // `joined:ID` without the account's list says why it could not be read.
+    let unread = on_joined("joined:m_studio", None).unwrap_err();
+    assert_eq!(unread["code"], "chat_target.unknown_device");
+    assert!(unread["message"].as_str().unwrap().contains("not signed in"), "{unread}");
+    // A catalog device runs as before; an ssh device no joined machine names keeps no_route.
+    assert_eq!(on_joined("machine_mac", Some(joined_rows())), Ok(Route::Here));
+    assert_eq!(code(on_joined("machine_box", Some(joined_rows()))), "chat_target.no_route");
+    assert_eq!(code(on_joined("machine_term", Some(joined_rows()))), "chat_target.not_permitted");
+    // Reserved selectors never become a joined machine.
+    assert_eq!(on_joined("here", Some(joined_rows())), Ok(Route::Here));
+}
+
+/// A device the catalog lists but the CLI had no route to (no_route) starts through acpmux when
+/// a joined machine has that name: the e2e's `cmux chat --on DEVICE` case.
+#[test]
+fn a_catalog_device_without_a_route_is_its_joined_machine() {
+    let catalog = || {
+        Ok(json!([{"id": "machine_studio", "name": "studio", "origin": "server",
+                   "status": "running", "capabilities": ["agent_session"]}]))
+    };
+    let found = route_or_joined(
+        Some("studio"),
+        || {
+            route(
+                Some("studio"),
+                Reads { catalog, signed_in: || true, cloud_machines: || Ok(listed()) },
+            )
+        },
+        Sources { hub, rows: || Ok(joined_rows()) },
+    );
+    assert_eq!(found, joined_at(Some("m_studio"), "studio", "studio"));
+}
+
+/// The acpmux start: `session start NAME --machine HOST`, with the harness and folder.
+#[test]
+fn a_joined_start_is_acpmuxs_mesh_start() {
+    let machine = JoinedMachine {
+        id: Some("m_desk".into()),
+        name: "Desk Mac".into(),
+        host: "mini-2".into(),
+        carrier: Carrier::Hub,
+    };
+    // A joined machine has no Cloud environment to pick: refused, never dropped.
+    let in_env = start(&["--on", "Desk Mac", "--environment", "env_1", "go"]);
+    assert!(in_environment(&in_env, Route::Joined(machine.clone())).is_err());
+    let plain = start(&["--on", "Desk Mac", "Run the tests"]);
+    assert_eq!(
+        joined::start_words(&plain, &machine, "run-the-tests-abcd").unwrap(),
+        words(&["session", "start", "run-the-tests-abcd", "--machine", "mini-2", "--json"])
+    );
+    let full = start(&["--on", "x", "--agent", "codex", "--model", "gpt-6", "--cwd", "/w", "go"]);
+    assert_eq!(
+        joined::start_words(&full, &machine, "n").unwrap(),
+        words(&[
+            "session",
+            "start",
+            "n",
+            "--machine",
+            "mini-2",
+            "-m",
+            "codex/gpt-6",
+            "--cwd",
+            "/w",
+            "--json"
+        ])
+    );
+    // hq#11835 row 6: --wait waits on a joined machine too (it was refused); a bad --timeout,
+    // or one with no --wait, is still refused before anything starts.
+    assert_eq!(
+        joined::start_words(&start(&["--wait", "--timeout", "60", "go"]), &machine, "n").unwrap(),
+        words(&["session", "start", "n", "--machine", "mini-2", "--json"])
+    );
+    assert!(joined::start_words(&start(&["--timeout", "60", "go"]), &machine, "n").is_err());
+    assert!(
+        joined::start_words(&start(&["--wait", "--timeout", "0", "go"]), &machine, "n").is_err()
+    );
+    // The name: --name, else a few words of the prompt and four letters.
+    assert_eq!(joined::chat_name(&plain, "abcd"), "run-the-tests-abcd");
+    assert_eq!(joined::chat_name(&start(&["--name", "lane-a", "go"]), "abcd"), "lane-a");
+    assert_eq!(joined::chat_name(&start(&[]), "abcd"), "chat-abcd");
+    assert_eq!(joined::chat_name(&start(&["-"]), "abcd"), "chat-abcd");
+}
+
+/// The start's receipt: delivered means the chat runs there.
+#[test]
+fn a_joined_start_settles_on_its_receipt() {
+    assert_eq!(joined::settled(&json!({"state": "queued"})), Settled::Pending);
+    assert_eq!(joined::settled(&json!({"state": "leased"})), Settled::Pending);
+    assert_eq!(joined::settled(&json!({"state": "delivered", "detail": "s1"})), Settled::Started);
+    assert_eq!(
+        joined::settled(&json!({"state": "refused", "detail": "no harness"})),
+        Settled::Refused("refused: no harness".into())
+    );
+}
+
 #[test]
 fn a_chat_here_takes_a_repository() {
     let parsed = start(&["--repo", "https://gitlab.com/gitlab-org/gitlab-test", "hi"]);
@@ -742,4 +977,487 @@ fn a_refused_or_unset_setting_is_no_setting() {
         Ok(None)
     );
     finish(app);
+}
+
+/// #38355 review F2: the account's list decides before the hub's. A machine revoked on the
+/// account that the hub still lists (revocation reaches the hub later) is refused, never
+/// started on; so is it by its id.
+#[test]
+fn a_revoked_machine_the_hub_still_lists_is_refused() {
+    let stale_hub = || {
+        vec![
+            json!({"name": "old", "connected": true, "state": "connected", "via": "hub"}),
+            json!({"name": "studio", "connected": true, "state": "connected", "via": "hub"}),
+        ]
+    };
+    for on in ["old", "OLD", "joined:m_old"] {
+        let refused = route_or_joined(
+            Some(on),
+            || {
+                route(
+                    Some(on),
+                    Reads {
+                        catalog: || Ok(catalog()),
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                    },
+                )
+            },
+            Sources { hub: stale_hub, rows: || Ok(joined_rows()) },
+        );
+        assert_eq!(code(refused), "chat_target.revoked", "--on {on}");
+    }
+}
+
+/// #38355 review F3: a name matches without regard to case, and the start names the machine
+/// as the account (and the hub) spell it: `--on STUDIO` sends `--machine studio`.
+#[test]
+fn a_joined_machine_named_in_another_case_starts_under_its_own_name() {
+    let found = on_joined("STUDIO", Some(joined_rows()));
+    assert_eq!(found, joined_at(Some("m_studio"), "studio", "studio"));
+    let Ok(Route::Joined(machine)) = found else { unreachable!() };
+    let sent = joined::start_words(&start(&["--on", "STUDIO", "go"]), &machine, "n").unwrap();
+    assert_eq!(sent, words(&["session", "start", "n", "--machine", "studio", "--json"]));
+    // A label in another case: the account's label and the hub's host name.
+    assert_eq!(
+        on_joined("desk mac", Some(joined_rows())),
+        joined_at(Some("m_desk"), "Desk Mac", "mini-2")
+    );
+}
+
+/// #38355 review F1: `cmux acp` starts with no cmux credential in its environment (the list
+/// every `cmux` child is started without), whatever this process has; other variables pass.
+#[test]
+fn cmux_acp_starts_without_the_cmux_credentials() {
+    assert!(crate::devices::CREDENTIAL_ENV.contains(&"CMUX_JOIN"));
+    assert!(crate::devices::CREDENTIAL_ENV.contains(&"CMUX_CLOUD_ACCESS_TOKEN"));
+    let mut shell = cmux_process::Command::new("/bin/sh");
+    shell
+        .args([
+            "-c",
+            r#"printf '{"join":"%s","token":"%s","keep":"%s","argv":"%s"}' "${CMUX_JOIN-unset}" "${CMUX_CLOUD_ACCESS_TOKEN-unset}" "${KEEP_ME-unset}" "$0 $1 $2""#,
+        ])
+        .env("CMUX_JOIN", "cmj_secret")
+        .env("CMUX_CLOUD_ACCESS_TOKEN", "bearer_secret")
+        .env("KEEP_ME", "kept");
+    let command = joined::acp_command(shell, &["host", "ls"]);
+    let seen = joined::run_acp(command, &["host", "ls"], None, Duration::from_secs(60)).unwrap();
+    assert_eq!(seen["join"], "unset", "{seen}");
+    assert_eq!(seen["token"], "unset", "{seen}");
+    assert_eq!(seen["keep"], "kept", "{seen}");
+    assert_eq!(seen["argv"], "acp host ls", "{seen}");
+}
+
+/// The SHIP review's follow-up: a `cmux acp` that never answers is ended at the limit and the
+/// answer is `acpmux.timeout`, not a wait with no end.
+#[test]
+fn a_cmux_acp_that_hangs_ends_with_a_timeout_error() {
+    let mut hang = cmux_process::Command::new("/bin/sh");
+    hang.args(["-c", "exec sleep 600"]);
+    let began = std::time::Instant::now();
+    let answer =
+        joined::run_acp(hang, &["send", "h/n", "-"], Some("hi"), Duration::from_millis(300));
+    let error = answer.unwrap_err();
+    assert_eq!(error["code"], "acpmux.timeout", "{error}");
+    assert_eq!(error["retryable"], true);
+    assert!(began.elapsed() < Duration::from_secs(20), "{:?}", began.elapsed());
+}
+
+/// #38355 review 2a: without the account's list nothing says a machine the hub lists is still
+/// the person's (the hub may list a revoked one), so it is refused as unverified, never started
+/// on with no id.
+#[test]
+fn a_machine_only_the_hub_lists_is_refused_when_the_account_cannot_be_read() {
+    for name in ["mini-2", "Mini-2", "studio"] {
+        let refused = on_joined(name, None).unwrap_err();
+        assert_eq!(refused["code"], "chat_target.unverified", "{name}: {refused}");
+        assert_eq!(refused["retryable"], false);
+        let message = refused["message"].as_str().unwrap();
+        assert!(message.contains("could not be verified against your account"), "{message}");
+        assert!(message.contains("not signed in"), "{message}");
+        assert!(refused["details"]["next"].as_str().unwrap().contains("cmux login"), "{refused}");
+    }
+    // A name neither list names keeps the catalog's own refusal.
+    assert_eq!(code(on_joined("nowhere", None)), "chat_target.unknown_device");
+}
+
+/// #38355 review 1: the prompt was written before the bound started, so a prompt larger than a
+/// pipe to a `cmux acp` that never reads its stdin hung for as long as it ran. It is written
+/// inside the bound now: the answer is `acpmux.timeout` at the limit.
+#[test]
+fn a_large_prompt_to_a_cmux_acp_that_never_reads_ends_with_a_timeout() {
+    let mut deaf = cmux_process::Command::new("/bin/sh");
+    // Never reads its stdin; ends on its own after 8 s, so the unbounded write ends too.
+    deaf.args(["-c", "exec sleep 8"]);
+    let prompt = "x".repeat(1 << 20);
+    let began = std::time::Instant::now();
+    let answer =
+        joined::run_acp(deaf, &["send", "h/n", "-"], Some(&prompt), Duration::from_millis(300));
+    let elapsed = began.elapsed();
+    let error = answer.unwrap_err();
+    assert_eq!(error["code"], "acpmux.timeout", "{error}");
+    assert!(elapsed < Duration::from_secs(4), "{elapsed:?}");
+}
+
+/// A fake `cmux acp`: each call takes `slow` (or its whole limit, when that is shorter, and then
+/// times out as [`joined::run_acp`] does); records each call's words and limit.
+fn slow_acp<'a>(
+    slow: Duration,
+    answer: impl Fn(&[&str]) -> Value + 'a,
+    calls: &'a std::cell::RefCell<Vec<(String, Duration)>>,
+) -> impl FnMut(&[&str], Option<&str>, Duration) -> Result<Value, Value> + 'a {
+    move |words, _stdin, limit| {
+        calls.borrow_mut().push((words.join(" "), limit));
+        if limit < slow {
+            std::thread::sleep(limit);
+            return Err(json!({"code": "acpmux.timeout", "retryable": true}));
+        }
+        std::thread::sleep(slow);
+        Ok(answer(words))
+    }
+}
+
+/// #38355 review 3: each `cmux acp` call of a start had its own 120 s and the receipt loop
+/// checked the deadline only between reads, so a start could take 360 s under an error that
+/// said 120 s. One deadline bounds them all now: two calls of 0.9 s under a 1 s deadline end
+/// at the deadline, the second given only what was left.
+#[test]
+fn two_slow_calls_end_at_the_one_start_deadline() {
+    let calls = std::cell::RefCell::new(Vec::new());
+    let pending = |words: &[&str]| {
+        if words.first() == Some(&"session") && words.get(1) == Some(&"start") {
+            json!({"messageId": "m1", "state": "queued"})
+        } else {
+            json!({"state": "queued"})
+        }
+    };
+    let steps = joined::Steps {
+        words: &["session", "start", "n", "--machine", "studio", "--json"],
+        target: "studio/n",
+        prompt: Some("go"),
+        receipt: true,
+    };
+    let limit = Duration::from_secs(1);
+    let began = std::time::Instant::now();
+    let answer = joined::start_chat(
+        &steps,
+        limit,
+        Duration::from_millis(10),
+        slow_acp(Duration::from_millis(900), pending, &calls),
+    );
+    let elapsed = began.elapsed();
+    let error = answer.unwrap_err();
+    assert_eq!(error["code"], "chat_target.unavailable", "{error}");
+    assert!(error["message"].as_str().unwrap().contains("after 1s"), "{error}");
+    assert!(elapsed < limit + Duration::from_millis(300), "{elapsed:?} for a {limit:?} deadline");
+    let calls = calls.into_inner();
+    assert!(calls.len() >= 2, "{calls:?}");
+    assert!(calls.iter().skip(1).all(|(_, left)| *left < Duration::from_millis(200)), "{calls:?}");
+}
+
+/// #38355 review 4: a first prompt whose send timed out answered `retryable: true`, but it may
+/// have been delivered, so a retry sent it twice. It is not retryable now, and says which
+/// prompt id to look for. The send waits only for acceptance (`--no-wait`): a peer link's
+/// `--wait` waits for the whole turn.
+#[test]
+fn a_first_prompt_not_confirmed_in_time_is_not_retryable() {
+    let calls = std::cell::RefCell::new(Vec::new());
+    let started = |words: &[&str]| {
+        if words.first() == Some(&"send") {
+            json!({"deliveryId": "mesh:1", "status": "queued"})
+        } else {
+            json!({"messageId": "m1", "state": "delivered", "detail": "s1"})
+        }
+    };
+    let steps = joined::Steps {
+        words: &["session", "start", "n", "--machine", "studio", "--json"],
+        target: "studio/n",
+        prompt: Some("go"),
+        receipt: true,
+    };
+    // The start answers at once; the send takes longer than the deadline.
+    let mut acp = slow_acp(Duration::ZERO, started, &calls);
+    let mut slow_send = |words: &[&str], stdin: Option<&str>, limit: Duration| {
+        if words.first() == Some(&"send") {
+            std::thread::sleep(limit);
+            return Err(json!({"code": "acpmux.timeout", "retryable": true}));
+        }
+        acp(words, stdin, limit)
+    };
+    let answer = joined::start_chat(
+        &steps,
+        Duration::from_millis(500),
+        Duration::from_millis(10),
+        &mut slow_send,
+    );
+    let error = answer.unwrap_err();
+    assert_eq!(error["code"], "acpmux.timeout", "{error}");
+    assert_eq!(error["retryable"], false, "{error}");
+    assert!(error["message"].as_str().unwrap().contains("do not send it again"), "{error}");
+    assert!(
+        error["details"]["prompt_id"].as_str().is_some_and(|id| id.starts_with("cmux-chat-")),
+        "{error}"
+    );
+    // Accepted once queued, never after the turn; queued behind a running turn.
+    let words = joined::send_words("studio/n", "cmux-chat-0001");
+    assert!(words.iter().any(|word| word == "--no-wait"), "{words:?}");
+    assert!(words.iter().any(|word| word == "--no-steer"), "{words:?}");
+    assert!(!words.iter().any(|word| word == "--wait"), "{words:?}");
+    let id = words.iter().position(|word| word == "--prompt-id").unwrap();
+    assert_eq!(words[id + 1], "cmux-chat-0001");
+    // Started, then sent: both answers.
+    let calls = std::cell::RefCell::new(Vec::new());
+    let (receipt, sent) = joined::start_chat(
+        &steps,
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        slow_acp(Duration::ZERO, started, &calls),
+    )
+    .unwrap();
+    assert_eq!(receipt["detail"], "s1");
+    assert_eq!(sent.unwrap()["status"], "queued");
+}
+
+/// acpmux's peers as `acp host ls` lists them on a person's laptop: ssh peers added with
+/// `acpmux machine add` (no `via`), one down, and a machine only the hub reaches.
+fn laptop_peers() -> Vec<Value> {
+    vec![
+        json!({"name": "gcp-agent-lane-3", "carrier": "ssh", "connected": true,
+               "state": "connected"}),
+        json!({"name": "cosmic-gray", "carrier": "ssh", "connected": false, "state": "down",
+               "error": "ssh: connect to host cosmic-gray port 22: Operation timed out"}),
+        json!({"name": "gcp-agent-lane-6", "connected": true, "state": "connected",
+               "via": "hub"}),
+    ]
+}
+
+/// `route_or_joined` on the laptop: no catalog device has these names, and the account's list
+/// must not be needed for a machine acpmux reaches itself.
+fn on_laptop(on: &str, rows: impl FnOnce() -> Result<Vec<Value>, String>) -> Result<Route, Value> {
+    route_or_joined(
+        Some(on),
+        || {
+            route(
+                Some(on),
+                Reads {
+                    catalog: || Ok(catalog()),
+                    signed_in: || true,
+                    cloud_machines: || Ok(listed()),
+                },
+            )
+        },
+        Sources { hub: laptop_peers, rows },
+    )
+}
+
+/// hq#11835 row 2: `acpmux machine add gcp-agent-lane-3` made it `connected` in `acpmux machine
+/// ls`, with sessions listed as gcp-agent-lane-3/NAME, but `cmux chat --on gcp-agent-lane-3`
+/// answered `chat_target.unknown_device` ("no connected device has the id gcp-agent-lane-3"):
+/// only a machine joined through the hub was a target. Every machine acpmux reaches is one
+/// now, by its acpmux name in any case, with no sign-in.
+#[test]
+fn a_machine_acpmux_reaches_itself_is_a_chat_target() {
+    let unread = || -> Result<Vec<Value>, String> { panic!("read the account's list") };
+    assert_eq!(on_laptop("gcp-agent-lane-3", unread), peer_at("gcp-agent-lane-3"));
+    assert_eq!(on_laptop("GCP-Agent-Lane-3", unread), peer_at("gcp-agent-lane-3"));
+    // Signed out, it still starts: nothing about it is the account's.
+    let signed_out = || Err("not signed in".to_owned());
+    assert_eq!(on_laptop("gcp-agent-lane-3", signed_out), peer_at("gcp-agent-lane-3"));
+    // A peer acpmux cannot reach now is refused as retryable, saying why and what to run.
+    let down = on_laptop("cosmic-gray", unread).unwrap_err();
+    assert_eq!(down["code"], "chat_target.unavailable", "{down}");
+    assert_eq!(down["retryable"], true);
+    let message = down["message"].as_str().unwrap();
+    assert!(message.contains("acpmux cannot reach cosmic-gray now"), "{message}");
+    assert!(message.contains("Operation timed out"), "{message}");
+    assert!(down["details"]["next"].as_str().unwrap().contains("machine status cosmic-gray"));
+    // A machine only the hub lists still takes the account's check (unverified signed out).
+    assert_eq!(code(on_laptop("gcp-agent-lane-6", signed_out)), "chat_target.unverified");
+    // `joined:ID` never names a peer, and a name nothing lists keeps the catalog's refusal.
+    assert_eq!(
+        code(on_laptop("joined:gcp-agent-lane-3", signed_out)),
+        "chat_target.unknown_device"
+    );
+    assert_eq!(code(on_laptop("nowhere", || Ok(Vec::new()))), "chat_target.unknown_device");
+    // The fixtures' `box` is an ssh peer and a catalog device with no CLI route: acpmux starts it.
+    let found = route_or_joined(
+        Some("box"),
+        || {
+            route(
+                Some("box"),
+                Reads {
+                    catalog: || Ok(catalog()),
+                    signed_in: || true,
+                    cloud_machines: || Ok(listed()),
+                },
+            )
+        },
+        Sources { hub, rows: || Ok(joined_rows()) },
+    );
+    assert!(matches!(found, Ok(Route::Joined(JoinedMachine { carrier: Carrier::Peer, .. }))));
+}
+
+/// The start on a peer is acpmux's own `new --machine HOST`, detached, with the harness and
+/// folder; it answers once the session runs, so no receipt is read.
+#[test]
+fn a_peer_start_is_acpmuxs_new_on_that_machine() {
+    let Ok(Route::Joined(machine)) = peer_at("gcp-agent-lane-3") else { unreachable!() };
+    assert_eq!(machine.placement(), "peer:gcp-agent-lane-3");
+    let full = start(&["--on", "x", "--agent", "codex", "--model", "gpt-6", "--cwd", "/w", "go"]);
+    assert_eq!(
+        joined::start_words(&full, &machine, "n").unwrap(),
+        words(&[
+            "new",
+            "--machine",
+            "gcp-agent-lane-3",
+            "-n",
+            "n",
+            "-d",
+            "-m",
+            "codex/gpt-6",
+            "--cwd",
+            "/w",
+            "--json"
+        ])
+    );
+    let calls = std::cell::RefCell::new(Vec::new());
+    let answers = |words: &[&str]| match words.first() {
+        Some(&"new") => json!({"sessionId": "s-1", "name": "n", "state": "ready"}),
+        Some(&"send") => json!({"status": "delivered"}),
+        other => panic!("{other:?} called"),
+    };
+    let steps = joined::Steps {
+        words: &["new", "--machine", "gcp-agent-lane-3", "-n", "n", "-d", "--json"],
+        target: "gcp-agent-lane-3/n",
+        prompt: Some("go"),
+        receipt: false,
+    };
+    let (started, sent) = joined::start_chat(
+        &steps,
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        slow_acp(Duration::ZERO, answers, &calls),
+    )
+    .unwrap();
+    let said: Vec<String> = calls.into_inner().into_iter().map(|(words, _)| words).collect();
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(said[1].starts_with("send gcp-agent-lane-3/n - --no-wait"), "{said:?}");
+    // The answer keeps the record's id and name, not its whole 27 KB.
+    let answer = joined::start_answer(&machine, "gcp-agent-lane-3/n", started, sent);
+    assert_eq!(answer["placement"], "peer:gcp-agent-lane-3");
+    assert_eq!(answer["remote_session_id"], "s-1");
+    assert_eq!(answer["start"], json!({"sessionId": "s-1", "name": "n"}));
+    assert_eq!(answer["next"]["wait"], "cmux chat wait gcp-agent-lane-3/n");
+}
+
+/// A fake `cmux acp` for a wait: `acp wait` answers `waits` in turn, `session info` `infos`.
+fn wait_acp<'a>(
+    waits: &'a std::cell::RefCell<Vec<Result<Value, Value>>>,
+    infos: &'a std::cell::RefCell<Vec<Value>>,
+    said: &'a std::cell::RefCell<Vec<String>>,
+) -> impl FnMut(&[&str], Option<&str>, Duration) -> Result<Value, Value> + 'a {
+    move |words, _stdin, _limit| {
+        said.borrow_mut().push(words.join(" "));
+        match words.first() {
+            Some(&"wait") => waits.borrow_mut().remove(0),
+            Some(&"session") => Ok(infos.borrow_mut().remove(0)),
+            other => panic!("{other:?} called"),
+        }
+    }
+}
+
+fn waited(status: &str, reply: &str) -> Value {
+    json!({"sessions": [{"name": "h/n", "status": status, "reply": reply, "error": null,
+                         "pendingPermissions": 0}], "timedOut": false})
+}
+
+/// hq#11835 row 6: `cmux chat --on MACHINE --wait` was refused ("--wait and --timeout wait for
+/// a chat here or in Cloud"). It waits through `acpmux wait` now, and a wait that came back
+/// before the prompt's turn began (the chat still idle from the turn before) waits again.
+#[test]
+fn a_wait_on_another_machine_is_for_the_prompts_turn() {
+    let said = std::cell::RefCell::new(Vec::new());
+    // The first wait sees the turn before (the count is still 1); the second, the new turn.
+    let waits = std::cell::RefCell::new(vec![
+        Ok(waited("ready", "the old reply")),
+        Ok(waited("ready", "ok")),
+    ]);
+    let infos = std::cell::RefCell::new(vec![
+        json!({"turnCount": 1, "status": "ready"}),
+        json!({"turnCount": 2, "status": "ready"}),
+    ]);
+    let outcome =
+        joined::wait_turn("h/n", Some(1), Duration::from_secs(30), wait_acp(&waits, &infos, &said));
+    let Outcome::Done(answer) = outcome else { panic!("{outcome:?}") };
+    assert_eq!(answer["reply"], "ok");
+    assert_eq!(answer["session_id"], "h/n");
+    assert_eq!(answer["follow_up"]["wait"], "cmux chat wait h/n");
+    let said = said.into_inner();
+    assert_eq!(said.iter().filter(|words| words.starts_with("wait h/n --timeout ")).count(), 2);
+    // `chat wait` (no baseline) takes the first answer and reads no info.
+    let said = std::cell::RefCell::new(Vec::new());
+    let waits = std::cell::RefCell::new(vec![Ok(waited("ready", "last reply"))]);
+    let infos = std::cell::RefCell::new(Vec::new());
+    let outcome =
+        joined::wait_turn("h/n", None, Duration::from_secs(30), wait_acp(&waits, &infos, &said));
+    assert!(matches!(&outcome, Outcome::Done(answer) if answer["reply"] == "last reply"));
+    assert_eq!(said.into_inner().len(), 1);
+    // An info acpmux cannot answer leaves the wait's word: never a wait with no end.
+    let said = std::cell::RefCell::new(Vec::new());
+    let waits = std::cell::RefCell::new(vec![Ok(waited("ready", "ok"))]);
+    let infos = std::cell::RefCell::new(vec![json!({"error": {"code": "no_session"}})]);
+    let outcome =
+        joined::wait_turn("h/n", Some(0), Duration::from_secs(30), wait_acp(&waits, &infos, &said));
+    assert!(matches!(&outcome, Outcome::Done(answer) if answer["reply"] == "ok"));
+}
+
+/// acpmux's wait exits 3 at its timeout and 2 on a permission, its answer on stdout: they are
+/// `chat.wait_timeout` (exit 3) and `chat.permission_waiting` (exit 2), as for a chat here.
+#[test]
+fn a_wait_on_another_machine_times_out_and_stops_at_a_permission_as_here() {
+    let failed =
+        |answer: Value| Err(json!({"code": "acpmux.failed", "details": {"answer": answer}}));
+    let run = |first: Result<Value, Value>| {
+        let said = std::cell::RefCell::new(Vec::new());
+        let waits = std::cell::RefCell::new(vec![first]);
+        let infos = std::cell::RefCell::new(Vec::new());
+        joined::wait_turn("h/n", None, Duration::from_secs(30), wait_acp(&waits, &infos, &said))
+    };
+    let Outcome::Failed { error, exit } = run(failed(json!({"sessions": [], "timedOut": true})))
+    else {
+        panic!("done")
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3), "{error}");
+    assert_eq!(error["details"]["answer"]["timed_out"], true);
+    let mut blocked = waited("permission", "");
+    blocked["sessions"][0]["pendingPermissions"] = json!(1);
+    let Outcome::Failed { error, exit } = run(failed(blocked)) else { panic!("done") };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.permission_waiting"), 2), "{error}");
+    // A failure with no answer is the chat lost (exit 1), not a hang.
+    let Outcome::Failed { error, exit } = run(Err(json!({"code": "acpmux.unreachable"}))) else {
+        panic!("done")
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.lost"), 1), "{error}");
+    // The start's ids stay in the answer `--wait` prints.
+    let done = joined::with_answer(
+        Outcome::Done(json!({"reply": "ok"})),
+        json!({"session_id": "h/n", "placement": "peer:h", "reply": "not this"}),
+    );
+    let Outcome::Done(answer) = done else { unreachable!() };
+    assert_eq!(
+        (answer["reply"].as_str(), answer["placement"].as_str()),
+        (Some("ok"), Some("peer:h"))
+    );
+}
+
+/// `acp wait` prints its answer pretty and exits 2 or 3: the whole answer is kept with the
+/// failure (it was lost: only a single JSON line was parsed on a failing exit).
+#[test]
+fn a_failing_cmux_acp_keeps_its_pretty_answer() {
+    let mut shell = cmux_process::Command::new("/bin/sh");
+    shell.args(["-c", "printf '{\\n  \"timedOut\": true,\\n  \"sessions\": []\\n}\\n'; exit 3"]);
+    let error =
+        joined::run_acp(shell, &["wait", "h/n"], None, Duration::from_secs(60)).unwrap_err();
+    assert_eq!(error["code"], "acpmux.failed", "{error}");
+    assert_eq!(error["details"]["answer"]["timedOut"], true, "{error}");
 }

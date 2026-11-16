@@ -206,7 +206,7 @@ printf 'cleanup-dev-builds  (mode: %s)\n\n' "$([[ $apply -eq 1 ]] && echo APPLY 
 
 if (( ${#plan_skip[@]} > 0 )); then
     printf 'skipping:\n'
-    for entry in "${plan_skip[@]}"; do
+    for entry in ${plan_skip[@]+"${plan_skip[@]}"}; do
         IFS='|' read -r tag bytes reason <<< "$entry"
         printf '  %-40s %10s  (%s)\n' "$tag" "$(human_bytes "$bytes")" "$reason"
     done
@@ -219,7 +219,7 @@ if (( ${#plan_delete[@]} == 0 )); then
 fi
 
 printf 'would delete:\n'
-for entry in "${plan_delete[@]}"; do
+for entry in ${plan_delete[@]+"${plan_delete[@]}"}; do
     IFS='|' read -r tag bytes <<< "$entry"
     printf '  %-40s %10s\n' "$tag" "$(human_bytes "$bytes")"
 done
@@ -232,7 +232,7 @@ fi
 
 echo
 echo 'applying...'
-for entry in "${plan_delete[@]}"; do
+for entry in ${plan_delete[@]+"${plan_delete[@]}"}; do
     IFS='|' read -r tag _ <<< "$entry"
     while IFS= read -r p; do
         if [[ -e "$p" || -L "$p" ]]; then

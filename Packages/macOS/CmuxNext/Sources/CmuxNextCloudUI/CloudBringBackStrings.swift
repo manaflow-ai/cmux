@@ -78,6 +78,6 @@ public struct CloudBringBackStrings {
                               table: "Cloud", bundle: .module), detail)
     }
     public static func failed(_ detail: String) -> String {
-        String(format: String(localized: "cloud.bringBack.failed", defaultValue: "Couldn't bring the chat back. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@", table: "Cloud", bundle: .module), detail)
+        String(format: String(localized: "cloud.bringBack.failedPlain", defaultValue: "Couldn't bring the chat back. %@", table: "Cloud", bundle: .module), detail)
     }
 }

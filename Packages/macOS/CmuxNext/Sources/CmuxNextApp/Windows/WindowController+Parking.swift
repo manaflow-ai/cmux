@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextDaemon
 import CmuxNextHibernation
 import CmuxNextLayout
 
@@ -56,6 +57,14 @@ extension WindowController {
     /// workspace while a dock has the focus (`window.dockedWorkspaces`).
     func isOnScreenBeside(_ id: String) -> Bool {
         state.isOnScreenBeside(id)
+    }
+
+    /// Whether this window draws tab `id` of `pane` now: no top page, the pane in the viewport of the shown workspace's
+    /// active screen (`visiblePanes`), and `id` the tab its strip shows. Never a remembered selection, which outlives
+    /// a screen switch, a page or a scroll.
+    func showsOnScreen(_ id: String, in pane: PaneModel) -> Bool {
+        guard state.page == nil, let content else { return false }
+        return content.layoutModel.visiblePanes.contains { content.panes[$0].map { $0.pane === pane && $0.stripModel.selectedID?.rawValue == id } == true }
     }
 
     /// Parks `controller`; past the budget the oldest leave, never `controller` itself (a page may cover it).

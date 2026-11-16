@@ -119,12 +119,8 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.sha }}
-          # testflight-build.sh archives the commit with `git archive`, and
-          # check-tabskit-sync.sh compares packages with their upstream branches.
+          # testflight-build.sh archives the commit with `git archive`.
           fetch-depth: 0
-
-      - name: Fetch shared-package upstream branches
-        run: git fetch --no-tags origin feat-cmux-next-tabs-kit:refs/remotes/origin/feat-cmux-next-tabs-kit feat-imsg-parity-gui:refs/remotes/origin/feat-imsg-parity-gui
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -293,10 +289,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Fetch the built commit and shared-package upstream branches
+      - name: Fetch the built commit
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "$SHA" feat-cmux-next-tabs-kit:refs/remotes/origin/feat-cmux-next-tabs-kit feat-imsg-parity-gui:refs/remotes/origin/feat-imsg-parity-gui
+          git fetch --no-tags origin "$SHA"
           git cat-file -e "$SHA^{commit}"
 
       - name: Check the builder branch carries the signing script

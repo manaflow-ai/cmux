@@ -11,6 +11,7 @@ import { WorkingFor } from "./WorkingFor";
 import { StatusVerbContext } from "../statusVerbs";
 import { WaitingOnContext } from "./waitingOn";
 import { setChatDisplay } from "../chatDisplay";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -35,10 +36,11 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   setChatDisplay({});
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

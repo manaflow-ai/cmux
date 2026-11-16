@@ -687,20 +687,52 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     })?;
     client_setup.disarm();
 
-    while let Ok(frame) = receiver.recv() {
-        if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+    write_queued_frames(&mut stream, &receiver, &tap);
+    host.remove_client(client);
+    Ok(())
+}
+
+/// The client's writer: sends queued frames in order until the private
+/// wake sentinel (a sequence-0 ResyncRequired, never written), an Exit (written
+/// last) or a failed write. The frames already queued when the writer wakes go
+/// out together in one vectored write ([`write_frames`]), bounded by
+/// [`MAX_BATCH_FRAMES`] and [`MAX_BATCH_BYTES`]; the writer never waits for
+/// more, so a lone frame (an echo) leaves at once. Each frame's queue bytes are
+/// released after the write that carried it, as before.
+// perf-hot: 1us terminal-host-output (one writev per writer wake, per client)
+pub(crate) fn write_queued_frames(
+    stream: &mut HostStream,
+    receiver: &std::sync::mpsc::Receiver<Arc<Frame>>,
+    tap: &HostTap,
+) {
+    let mut batch: Vec<Arc<Frame>> = Vec::new();
+    while let Ok(first) = receiver.recv() {
+        let mut next = Some(first);
+        let mut batch_bytes = 0usize;
+        let mut last = false;
+        while let Some(frame) = next.take() {
+            if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+                tap.release(&frame);
+                last = true;
+                break;
+            }
+            batch_bytes = batch_bytes.saturating_add(retained_frame_bytes(&frame));
+            let exit = frame.kind == MessageKind::Exit;
+            batch.push(frame);
+            if exit {
+                last = true;
+                break;
+            }
+            if batch.len() < MAX_BATCH_FRAMES && batch_bytes < MAX_BATCH_BYTES {
+                next = receiver.try_recv().ok();
+            }
+        }
+        let written = batch.is_empty() || write_frames(stream, &batch).is_ok();
+        for frame in batch.drain(..) {
             tap.release(&frame);
-            break;
         }
-        let write_result = write_frame(&mut stream, &frame);
-        tap.release(&frame);
-        if write_result.is_err() {
-            break;
-        }
-        if frame.kind == MessageKind::Exit {
+        if !written || last {
             break;
         }
     }
-    host.remove_client(client);
-    Ok(())
 }

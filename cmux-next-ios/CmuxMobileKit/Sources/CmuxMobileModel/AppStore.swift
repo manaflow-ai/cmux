@@ -244,16 +244,41 @@ public final class AppStore {
         return workspaces.filter { macIDs.contains($0.macID) }
     }
 
-    /// The tab a workspace opens to: the last one used on this device, else
-    /// the tab on screen on the Mac, else its first tab.
+    /// The tab a workspace opens to (`WorkspaceOpeningTab`): a tab an open asked for
+    /// (`requestOpen`: a notification, a needs-you row, a search result, the relaunch
+    /// restore), else the tab last on screen there in this launch (Leo 2026-11-14), else the
+    /// active tab of the leftmost, topmost pane of the Mac's layout (user 2026-11-11;
+    /// `WorkspaceLayout.topLeftTabID`), else the tab on screen on the Mac, else its first tab.
+    /// The tab saved across launches does not pick a plain open; the relaunch restore asks for it.
     public func openingTab(for workspace: Workspace) -> WorkspaceTab? {
-        if let id = lastTabByWorkspace[workspace.id], let tab = workspace.tabs.first(where: { $0.id == id }) {
-            return tab
-        }
-        if let id = workspace.activeTabID, let tab = workspace.tabs.first(where: { $0.id == id }) {
-            return tab
-        }
-        return workspace.tabs.first
+        WorkspaceOpeningTab(requested: requestedTabByWorkspace[workspace.id],
+                            lastActive: lastActiveTabByWorkspace[workspace.id]).tab(in: workspace)
+    }
+
+    /// The tab on screen in each workspace in this launch (`noteOpened`): back to the list and
+    /// into the workspace again, it opens there. Never saved, so after a relaunch a workspace
+    /// first opens at its layout's top-left. Not observed: it only decides where the next
+    /// screen of the workspace starts, and a tab switch must not rebuild the screen that is up.
+    @ObservationIgnored public internal(set) var lastActiveTabByWorkspace: [String: String] = [:]
+
+    /// Tabs an open asked for, per workspace, until the workspace's screen appears
+    /// (`takeRequestedTab`). Never saved.
+    public private(set) var requestedTabByWorkspace: [String: String] = [:]
+
+    /// Opens `workspaceID` on `tabID` the next time its screen appears, instead of
+    /// its layout's top-left tab; also remembers it as the tab on screen.
+    public func requestOpen(tabID: String, in workspaceID: String) {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        if requestedTabByWorkspace[workspaceID] != tabID { requestedTabByWorkspace[workspaceID] = tabID }
+        noteOpened(tabID: tabID, in: workspaceID)
+    }
+
+    /// Consumes the request when the workspace's screen appears. Writes only when
+    /// there is one: an observed write that changes nothing still notifies.
+    public func takeRequestedTab(_ workspaceID: String) {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        guard requestedTabByWorkspace[workspaceID] != nil else { return }
+        requestedTabByWorkspace[workspaceID] = nil
     }
 
     /// When this device last opened each workspace (this session): "Done"
@@ -267,6 +292,7 @@ public final class AppStore {
     /// Records the tab on screen in a workspace (every activation).
     public func noteOpened(tabID: String, in workspaceID: String) {
         let workspaceID = resolvedWorkspaceID(workspaceID)
+        lastActiveTabByWorkspace[workspaceID] = tabID
         guard lastTabByWorkspace[workspaceID] != tabID else { return }
         lastTabByWorkspace[workspaceID] = tabID
         tabMemory.save(lastTabByWorkspace)
@@ -351,6 +377,8 @@ public final class AppStore {
         pendingWorkspaceIDs.remove(placeholderID)
         workspaces.removeAll { $0.id == placeholderID }
         if lastTabByWorkspace.removeValue(forKey: placeholderID) != nil { tabMemory.save(lastTabByWorkspace) }
+        lastActiveTabByWorkspace[placeholderID] = nil
+        if requestedTabByWorkspace[placeholderID] != nil { requestedTabByWorkspace[placeholderID] = nil }
     }
 
     /// Renames a workspace in place. Returns the previous title (for a
@@ -372,6 +400,7 @@ public final class AppStore {
         guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return nil }
         let removed = workspaces.remove(at: index)
         if lastTabByWorkspace.removeValue(forKey: workspaceID) != nil { tabMemory.save(lastTabByWorkspace) }
+        lastActiveTabByWorkspace[workspaceID] = nil
         return (removed, index)
     }
 
@@ -440,12 +469,12 @@ public final class AppStore {
         workspaces[index].tabs.remove(at: position)
         let tabs = workspaces[index].tabs
         let next = tabs.isEmpty ? nil : tabs[min(position, tabs.count - 1)]
-        if lastTabByWorkspace[workspaceID] == tabID {
+        if lastTabByWorkspace[workspaceID] == tabID || lastActiveTabByWorkspace[workspaceID] == tabID {
             if let next {
                 noteOpened(tabID: next.id, in: workspaceID)
             } else {
-                lastTabByWorkspace[workspaceID] = nil
-                tabMemory.save(lastTabByWorkspace)
+                lastActiveTabByWorkspace[workspaceID] = nil
+                if lastTabByWorkspace.removeValue(forKey: workspaceID) != nil { tabMemory.save(lastTabByWorkspace) }
             }
         }
         return next

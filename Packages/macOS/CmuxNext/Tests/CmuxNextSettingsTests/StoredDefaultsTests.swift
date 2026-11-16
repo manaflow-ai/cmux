@@ -16,7 +16,7 @@ import Testing
     func controller(_ text: String, managed: ManagedPreferences = ManagedPreferences()) async throws -> SettingsController {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         try Data(text.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(managed), managedWatchFiles: [])
         await settings.reload()
         return settings
@@ -41,6 +41,28 @@ import Testing
 
         try await settings.setSetting(style, to: .string(ChromeStyle.card.rawValue), by: .user)
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string("card"))
+    }
+
+    /// #41072 review: turning a login consent off in Settings stores the no (false is the schema's default), so a
+    /// DEV or NIGHTLY build, which reads no answer as yes, stops carrying the Codex login; the stored-defaults pass
+    /// keeps it too.
+    @Test func aLoginConsentsNoIsStoredAndStopsTheCarry() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        let consent = CloudCodexSignInConsentSetting()
+        let answer = { consent.consent(file: settings.fileRoot, effective: settings.snapshot.root, managed: false, copiesWithoutConsent: true) }
+        #expect(answer() == true, "never asked: a dogfood build carries it")
+        for path in [CloudCodexSignInConsentSetting.configPath, CloudLoginCopyConsentSetting.configPath] {
+            let descriptor = try #require(SettingsSchema.descriptor(for: path))
+            try await settings.setSetting(descriptor, to: .bool(true), by: .user)
+            try await settings.setSetting(descriptor, to: .bool(false), by: .user)
+            #expect(try await settings.file.value(at: path) == .bool(false))
+        }
+        #expect(answer() == false, "turned off in Settings: no carry")
+        let report = try await settings.forgetStoredDefaults(marker: try marker(), formerDefaults: [:])
+        #expect(report?.dropped[CloudCodexSignInConsentSetting.key] == nil)
+        #expect(try await settings.file.value(at: CloudCodexSignInConsentSetting.configPath) == .bool(false))
+        #expect(answer() == false)
     }
 
     /// MDM recommends another style, which fills the key when the file leaves it out, so only a
@@ -191,7 +213,7 @@ import Testing
         #expect(try await nightly.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
 
         // A DEV build launches on the same file with its own UserDefaults.
-        let dev = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let dev = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                      managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await dev.reload()
         let devMarker = try marker()
@@ -291,7 +313,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         try Data(#"{ "appearance": { "chromeStyle": "card", "theme": "Nord" }, "diff": { "layout": null } }"#.utf8).write(to: url)
-        let file = CmuxConfigFile(url: url)
+        let file = CmuxConfigFile(url: url, writer: TestSettingsWriter())
 
         let (removed, before) = try await file.removeUnchanged([
             (path: ["appearance", "chromeStyle"], value: .string(ChromeStyleSetting.fallback.rawValue)),

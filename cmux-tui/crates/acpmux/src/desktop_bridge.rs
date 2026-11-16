@@ -94,7 +94,7 @@ impl Bridge {
             at,
         };
         let dir = self.root.join(to.address).join("new");
-        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        crate::home_fs::create_dirs(&dir).with_context(|| format!("creating {}", dir.display()))?;
         crate::config::write_atomic(
             &dir.join(format!("{id}.json")),
             &serde_json::to_vec(&message)?,
@@ -112,7 +112,7 @@ impl Bridge {
         names.truncate(MAX_READ);
         let read = self.root.join(app.address).join("read");
         if mark && !names.is_empty() {
-            std::fs::create_dir_all(&read)?;
+            crate::home_fs::create_dirs(&read)?;
         }
         let mut out = Vec::with_capacity(names.len());
         for name in names {
@@ -122,11 +122,11 @@ impl Bridge {
             let Ok(message) = serde_json::from_slice::<Message>(&bytes) else {
                 // A file that is not a message never blocks the ones after it.
                 if mark {
-                    let _ = std::fs::rename(&path, read.join(&name));
+                    let _ = crate::home_fs::rename(&path, read.join(&name));
                 }
                 continue;
             };
-            if mark && std::fs::rename(&path, read.join(&name)).is_err() {
+            if mark && crate::home_fs::rename(&path, read.join(&name)).is_err() {
                 continue;
             }
             out.push(message);
@@ -156,7 +156,7 @@ fn prune(dir: &Path, keep: Duration) {
     for name in json_files(dir).unwrap_or_default() {
         let at = name.split('-').next().and_then(|t| t.parse::<u64>().ok());
         if at.is_some_and(|at| at < cutoff) {
-            let _ = std::fs::remove_file(dir.join(name));
+            let _ = crate::home_fs::remove_file(dir.join(name));
         }
     }
 }

@@ -7,9 +7,10 @@
 
 use cmux_agent_pane_policy::ffi::{
     CmuxAgentPaneBytes, CmuxAgentPanePolicy, ERR_INVALID, ERR_NULL, ERR_UNKNOWN_OP, NO_SHAPE, OK,
-    cmux_agent_pane_policy_bytes_free, cmux_agent_pane_policy_call, cmux_agent_pane_policy_check,
-    cmux_agent_pane_policy_filter_reply, cmux_agent_pane_policy_free, cmux_agent_pane_policy_new,
-    cmux_agent_pane_policy_observe,
+    cmux_agent_pane_policy_abi_version, cmux_agent_pane_policy_bytes_free,
+    cmux_agent_pane_policy_call, cmux_agent_pane_policy_check,
+    cmux_agent_pane_policy_check_gesture, cmux_agent_pane_policy_filter_reply,
+    cmux_agent_pane_policy_free, cmux_agent_pane_policy_new, cmux_agent_pane_policy_observe,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -96,6 +97,32 @@ fn check(
     serde_json::from_slice(&take(out)).unwrap()
 }
 
+/// A check of a later frame on this Mac with the gesture number the host
+/// names (0 none, 1 key, 2 click): the reply, or the error code.
+fn check_gesture(pane: &Handle, text: &str, gesture: u8) -> Result<Value, i32> {
+    let mut out = empty();
+    let code = unsafe {
+        cmux_agent_pane_policy_check_gesture(
+            pane.0,
+            text.as_ptr(),
+            text.len(),
+            false,
+            false,
+            gesture,
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            0,
+            &mut out,
+        )
+    };
+    if code != OK {
+        assert!(out.ptr.is_null(), "an error writes nothing");
+        return Err(code);
+    }
+    Ok(serde_json::from_slice(&take(out)).unwrap())
+}
+
 /// The pending permission frame a case's `denies` and `questions` stand for
 /// (the same frames tests/parity.rs feeds `PermissionOptions` directly).
 fn feed_permissions(pane: &Handle, case: &Value) {
@@ -141,7 +168,7 @@ fn c_abi_runs_the_check_corpus() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/check.json");
     let cases: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let cases = cases.as_array().unwrap();
-    assert_eq!(cases.len(), 70, "check.json: every case runs here too");
+    assert_eq!(cases.len(), 76, "check.json: every case runs here too");
     for case in cases {
         let pane = new();
         let s = &case["state"];
@@ -150,16 +177,86 @@ fn c_abi_runs_the_check_corpus() {
         }
         feed_permissions(&pane, case);
         let modes = s.get("mode_fields").filter(|m| !m.is_null());
-        let got = check(
-            &pane,
-            case["text"].as_str().unwrap(),
-            s["first"].as_bool().unwrap(),
-            s.get("remote_wire").and_then(Value::as_bool).unwrap_or(false),
-            s["token"].as_str(),
-            modes,
-        );
+        // A case that names the person's gesture (state `gesture`) runs
+        // through the check with a gesture; the others through the check
+        // without one, as a host that never learned the click rule calls it.
+        let got = match s.get("gesture").map(|g| g.as_str().unwrap()) {
+            None => check(
+                &pane,
+                case["text"].as_str().unwrap(),
+                s["first"].as_bool().unwrap(),
+                s.get("remote_wire").and_then(Value::as_bool).unwrap_or(false),
+                s["token"].as_str(),
+                modes,
+            ),
+            Some(name) => {
+                let number = match name {
+                    "key" => 1,
+                    "click" => 2,
+                    other => panic!("{}: no gesture {other}", case["name"]),
+                };
+                assert!(
+                    !s["first"].as_bool().unwrap() && modes.is_none() && s["token"].is_null(),
+                    "{}: a gesture case is a later frame with no token or mode fields",
+                    case["name"]
+                );
+                check_gesture(&pane, case["text"].as_str().unwrap(), number).unwrap()
+            }
+        };
         assert_eq!(got, case["expect"], "{}", case["name"]);
     }
+}
+
+/// The click rule through the C ABI: the check without a gesture argument
+/// (the only check before ABI 3) refuses an answer, so does a key press, and
+/// only a click passes it.
+#[test]
+fn c_abi_a_click_only_answer_passes_on_a_click_only() {
+    assert_eq!(cmux_agent_pane_policy_abi_version(), 3);
+    let pane = new();
+    call(pane.0, "add", json!({"session": "s1"})).unwrap();
+    let frames = [
+        r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/presets","params":{"name":"night","approveMode":true,"approveDigest":"sha256:ab","sessionId":"s1"}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/plan/build","params":{"sessionId":"s1","permissionId":"p1","target":"compare"}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/permission_respond","params":{"sessionId":"s1","permissionId":"p1","optionId":"yes"}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/permission_group_respond","params":{"sessionId":"s1","groupId":"g1","revision":1,"decisionKey":"k","decision":"allow_once"}}"#,
+    ];
+    for frame in frames {
+        let old = check(&pane, frame, false, false, None, None);
+        assert_eq!(old["refuse"], "transport.gesture_required", "no gesture argument: {frame}");
+        assert_eq!(old["id"], "5", "{frame}");
+        for gesture in [0, 1] {
+            let got = check_gesture(&pane, frame, gesture).unwrap();
+            assert_eq!(got["refuse"], "transport.gesture_required", "gesture {gesture}: {frame}");
+        }
+        let got = check_gesture(&pane, frame, 2).unwrap();
+        assert_eq!(got["facts"]["needs_click"], true, "a click: {frame}");
+        assert_eq!(got["facts"]["needs_gesture"], true, "a click: {frame}");
+        // A number that is no gesture is an error: the host refuses the frame.
+        assert_eq!(check_gesture(&pane, frame, 3), Err(ERR_INVALID), "{frame}");
+        assert_eq!(check_gesture(&pane, frame, 255), Err(ERR_INVALID), "{frame}");
+    }
+    // The host reads the list and the window from the same data.
+    let p = call(std::ptr::null(), "policy", json!({})).unwrap();
+    assert_eq!(
+        p["click_only"],
+        json!([
+            "_acpmux/permission_group_respond",
+            "_acpmux/permission_respond",
+            "_acpmux/plan/build",
+            "_acpmux/presets"
+        ])
+    );
+    assert_eq!(p["click_window_ms"], 1500);
+    // The refusal frame for the page takes the new code.
+    let refusal = call(
+        std::ptr::null(),
+        "refusal_frame",
+        json!({"id": "5", "code": "transport.gesture_required", "method": "_acpmux/presets"}),
+    )
+    .unwrap();
+    let refusal: Value = serde_json::from_str(refusal["frame"].as_str().unwrap()).unwrap();
+    assert_eq!(refusal["error"]["data"]["code"], "transport.gesture_required");
 }
 
 #[test]
@@ -263,8 +360,121 @@ fn c_abi_the_ops_without_a_pane() {
     let frame: Value = serde_json::from_str(frame["frame"].as_str().unwrap()).unwrap();
     assert_eq!(frame["id"], 4);
     assert_eq!(frame["error"]["data"]["code"], "transport.method_refused");
+    // The folder keys the host's disk check walks.
+    assert!(p["path_keys"].as_array().unwrap().contains(&json!("cwd")));
+    // A prompt's own id: one hand-off turn's label off, an id under two labels as it is.
+    let own = |id: &str| call(none, "own_prompt_id", json!({"id": id})).unwrap();
+    assert_eq!(own("handoff-3-p1"), json!({"id": "p1"}));
+    assert_eq!(own("handoff-1-handoff-2-x"), json!({"id": "handoff-1-handoff-2-x"}));
+    assert_eq!(own("p1"), json!({"id": "p1"}));
     // The pane's own ops need a pane.
     assert_eq!(call(none, "add", json!({"session": "s"})), Err(ERR_NULL));
+    assert_eq!(
+        call(none, "is_known_allow", json!({"permission": "p", "option": "o"})),
+        Err(ERR_NULL)
+    );
+}
+
+/// The pick a gesture ticket is bound to, asked without a frame check (the
+/// host redeems a ticket for a page op such as `cloud.startChat`, and holds a
+/// click's intent by the same values): every case of tests/cases/picks.json
+/// through the `pick` op, and each digest in them through `canonical_digest`.
+#[test]
+fn c_abi_runs_the_pick_corpus() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/picks.json");
+    let cases: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let cases = cases.as_array().unwrap();
+    assert!(!cases.is_empty(), "picks.json holds no cases");
+    let none = std::ptr::null();
+    let mut digests = 0;
+    for case in cases {
+        let name = &case["name"];
+        let request = json!({"method": case["method"], "params": case["params"]});
+        let got = call(none, "pick", request).unwrap();
+        assert_eq!(got["pick"]["method"], case["pick"]["method"], "{name} method");
+        assert_eq!(got["pick"]["params"], case["pick"]["params"], "{name} params");
+        // A click's intent holds a question's answers and annotations by this digest.
+        for key in ["answers", "annotations"] {
+            let value = &case["params"][key];
+            let want = &case["pick"]["params"][key];
+            if value.is_object() && want.is_string() {
+                let got = call(none, "canonical_digest", json!({"value": value})).unwrap();
+                assert_eq!(got, json!({"digest": want}), "{name} {key}");
+                digests += 1;
+            }
+        }
+    }
+    assert!(digests > 0, "picks.json holds no digest");
+    // A value with no canonical form has no digest.
+    assert_eq!(
+        call(none, "canonical_digest", json!({"value": {"q": 1.5}})).unwrap(),
+        json!({"digest": null})
+    );
+    assert_eq!(call(none, "canonical_digest", json!({})), Err(ERR_INVALID));
+    assert_eq!(call(none, "pick", json!({"method": 1})), Err(ERR_INVALID));
+    assert_eq!(call(none, "pick", json!({"method": "m", "params": []})), Err(ERR_INVALID));
+}
+
+/// The host reserves a permission answer's ticket only for an option the
+/// daemon offered as an allow (Swift `AcpmuxPermissionOptions.isKnownAllow`).
+#[test]
+fn c_abi_a_known_allow_is_an_option_the_daemon_offered_as_one() {
+    let pane = new();
+    let pending = |options: Value| {
+        json!({"jsonrpc": "2.0", "method": "_acpmux/permission_pending", "params": {
+        "permissionId": "p1", "request": {"options": options}}})
+    };
+    observe(
+        &pane,
+        &pending(json!([
+            {"optionId": "yes", "kind": "allow_once"},
+            {"optionId": "no", "kind": "reject_once"},
+        ])),
+        None,
+    );
+    let allow = |permission: &str, option: &str| {
+        call(pane.0, "is_known_allow", json!({"permission": permission, "option": option})).unwrap()
+    };
+    assert_eq!(allow("p1", "yes"), json!({"allow": true}));
+    assert_eq!(allow("p1", "no"), json!({"allow": false}));
+    // An option the pane never saw is no known allow, and no known deny.
+    assert_eq!(allow("p1", "other"), json!({"allow": false}));
+    assert_eq!(allow("p2", "yes"), json!({"allow": false}));
+    assert_eq!(
+        call(pane.0, "is_deny", json!({"permission": "p1", "option": "other"})).unwrap(),
+        json!({"deny": false})
+    );
+    // An option seen with two kinds counts as allow.
+    observe(&pane, &pending(json!([{"optionId": "no", "kind": "allow_always"}])), None);
+    assert_eq!(allow("p1", "no"), json!({"allow": true}));
+    assert_eq!(call(pane.0, "is_known_allow", json!({"permission": "p1"})), Err(ERR_INVALID));
+}
+
+/// A refusal the host words itself (a refused Enable harness): acpmux's own
+/// reason as `detail`, cut to 1000 characters, and why as the `reason` code.
+#[test]
+fn c_abi_a_refusal_carries_the_hosts_detail_and_reason() {
+    let none = std::ptr::null();
+    let data = |extra: Value| {
+        let mut request = json!({"id": "4", "code": "transport.harness_not_confirmed",
+            "method": "_acpmux/harness_enable"});
+        request.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let reply = call(none, "refusal_frame", request).unwrap();
+        let frame: Value = serde_json::from_str(reply["frame"].as_str().unwrap()).unwrap();
+        frame["error"]["data"].clone()
+    };
+    let plain = json!({"code": "transport.harness_not_confirmed", "origin": "native",
+        "method": "_acpmux/harness_enable"});
+    assert_eq!(data(json!({})), plain);
+    assert_eq!(
+        data(json!({"detail": "no such harness", "reason": "harness_gone"})),
+        json!({"code": "transport.harness_not_confirmed", "origin": "native",
+            "method": "_acpmux/harness_enable", "detail": "no such harness",
+            "reason": "harness_gone"})
+    );
+    // An empty detail is no detail.
+    assert_eq!(data(json!({"detail": ""})), plain);
+    assert_eq!(data(json!({"detail": "é".repeat(1200)}))["detail"], json!("é".repeat(1000)));
 }
 
 #[test]

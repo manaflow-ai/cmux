@@ -558,3 +558,41 @@ test("a surface past what one report carries keeps the page's own glass", async 
   // The one past the cap is never reported, so it shows the page's glass at once, not content on no glass.
   expect(drawn.at(-1)).toBe("0");
 });
+
+/** A trackpad pinch in Chromium: the visual viewport zooms and pans, the layout does not. */
+function pinch(doc: Document, scale: number, offsetLeft: number, offsetTop: number) {
+  const window = doc.defaultView!;
+  const visual = Object.assign(new window.EventTarget(), { scale, offsetLeft, offsetTop });
+  Object.defineProperty(window, "visualViewport", { value: visual, configurable: true });
+  return (next: { scale: number; offsetLeft: number; offsetTop: number }) => {
+    Object.assign(visual, next);
+    visual.dispatchEvent(new window.Event("resize"));
+  };
+}
+
+test("under a trackpad pinch a surface is reported where it shows, so the App's glass zooms with it", async () => {
+  // Leo, 2026-11-12: "when you e.g. zoom in to the ui with the trackpad it gives this super strange
+  // kinda ghost glass in the back?"
+  const doc = page();
+  pinch(doc, 2, 10, 20);
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, async (surfaces) => void reports.push(surfaces));
+  surface(doc);
+  await frames();
+  expect(reports.at(-1)).toEqual([
+    { id: "g1", level: "popover", left: 60, top: 80, right: 460, bottom: 320, radius: 24, opacity: 1 },
+  ]);
+});
+
+test("a pinch after the surface settled moves its report with no layout change", async () => {
+  const doc = page();
+  const zoom = pinch(doc, 1, 0, 0);
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, async (surfaces) => void reports.push(surfaces));
+  surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  expect(reports.at(-1)?.[0]).toMatchObject({ left: 40, top: 60, right: 240, bottom: 180, radius: 12 });
+  zoom({ scale: 1.5, offsetLeft: 0, offsetTop: 0 });
+  await frames();
+  expect(reports.at(-1)?.[0]).toMatchObject({ left: 60, top: 90, right: 360, bottom: 270, radius: 18 });
+});

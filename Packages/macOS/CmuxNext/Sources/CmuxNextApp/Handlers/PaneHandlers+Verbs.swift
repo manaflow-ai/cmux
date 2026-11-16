@@ -57,13 +57,14 @@ extension PaneHandlers {
             // Either way the window drops the stand-in and the focus goes to a live pane in this turn (showCancelledCreation).
             if invocation.target == nil, let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelSplit(showing: id) { ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window); return content.showCancelledCreation() }
             guard let pane = ctx.daemonPane(invocation) else { return }
-            if ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) { ctx.services.paneController(for: pane)?.workspace?.showCancelledCreation(); return }
+            if let opening = ctx.services.daemon(for: pane).cancelCreation(showing: pane) { let shown = ctx.services.paneController(for: pane); opening.forEach { ctx.services.keyRouter.creationInputCoordinator.drop(tab: $0, in: shown?.view.window) }; shown?.workspace?.showCancelledCreation(); return }
             // A person's close in the Home Chief pane keeps the pane and says why; the CLI and MCP
             // still ask and get the daemon's `dock-column-pinned` refusal (home-chief-pane.md).
             if invocation.origin == .user, ctx.services.paneController(for: pane)?.isPinnedDockPane == true {
                 return ctx.refuse(MiscHandlerStrings.homeChiefPaneStays)
             }
             let handle = pane.handle
+            ctx.services.keyRouter.creationInputCoordinator.drop(closing: [pane]) // a stand-in that is no split (a dock's, Cmd-N's first pane): no creation to cancel above
             // The pane leaves its window now and its neighbours spring into its space
             // (close-animation DESIGN.md); a refused close brings it back.
             let controller = ctx.services.paneController(for: pane)
@@ -90,6 +91,7 @@ extension PaneHandlers {
             // after it has no view and got a second close the daemon refused (`unknown pane`).
             let shown = others.compactMap { ctx.services.paneController(for: $0) }
             let unshown = others.filter { ctx.services.paneController(for: $0) == nil }
+            ctx.services.keyRouter.creationInputCoordinator.drop(closing: unshown)
             // One gesture: one question, one toast decision and one closed group over every closing tab (cx-lb4al).
             CloseUndoToasts.close(shown.map { (pane: $0, ids: $0.stripModel.orderedTabs.map(\.id)) })
             for other in unshown {

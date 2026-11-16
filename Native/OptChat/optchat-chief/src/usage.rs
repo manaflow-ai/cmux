@@ -356,11 +356,12 @@ impl Ledger {
     }
 
     /// Takes one trace event (`{"ts", "ev", ...}`) and appends its line, if
-    /// it ends a billable unit. A failed write is dropped, as the trace's.
-    pub fn observe(&self, event: &Value) {
+    /// it ends a billable unit; answers that line. A failed write is
+    /// dropped, as the trace's.
+    pub fn observe(&self, event: &Value) -> Option<Line> {
         let ev = event.get("ev").and_then(Value::as_str).unwrap_or("");
         if !billable(ev) {
-            return;
+            return None;
         }
         let mut state = self
             .state
@@ -378,9 +379,7 @@ impl Ledger {
             }
             state.fold.meter.seed(&line);
         }
-        let Some(line) = state.fold.observe(event, "live") else {
-            return;
-        };
+        let line = state.fold.observe(event, "live")?;
         if !state.live_marked {
             state.live_marked = true;
             let marker = self.writer.dir.join("live-since");
@@ -394,6 +393,7 @@ impl Ledger {
             }
         }
         let _ = self.writer.append(&line);
+        Some(line)
     }
 }
 

@@ -78,8 +78,8 @@ public final class SidebarView: NSView {
     let aboveRegion = SidebarRegionView(region: .top)
     let belowRegion = SidebarRegionView(region: .bottom)
     let footerRegion = SidebarRegionView(region: .bottom)
-    let aboveScroll = NSScrollView()
-    let belowScroll = NSScrollView()
+    let aboveScroll = OverlayScrollView()
+    let belowScroll = OverlayScrollView()
     /// Fade the bands' rows out at an edge while more are hidden there.
     // Built in the sections setup (no IUOs).
     lazy var aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
@@ -87,7 +87,7 @@ public final class SidebarView: NSView {
     /// The hairline between the top band and the list (quiet look). The
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
-    let newButton = SidebarIconButton(icon: .actionAdd, label: Strings.newWorkspace)
+    let newButton = SidebarIconButton(plus: Strings.newWorkspace)
     /// The +'s menu segment, right of the + as one split button (Lawrence 2026-10-30: "the dropdown
     /// on left of plus is ugly"): the + itself remains a one-click workspace action.
     let newWorkspaceOptionsButton = TitlebarBandButton(symbol: "chevron.down")
@@ -108,8 +108,9 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-    /// App health's dot and line on the footer line after the avatar (design/app-health.md); it shows and
-    /// hides itself and asks for a layout. It never fades with the footer.
+    /// App health's dot and line (design/app-health.md), over the sidebar just above the footer row, never in
+    /// its flow (``SidebarFooterBand/placeHealthIndicator(above:)``); it shows and hides itself and asks for a
+    /// layout. It never fades with the footer.
     public var healthIndicator: NSView? {
         didSet {
             oldValue?.removeFromSuperview()
@@ -139,6 +140,8 @@ public final class SidebarView: NSView {
     let cardSlotMotion = SidebarCardSlotMotion()
     /// The room the Updated card takes at the list's top once it is dragged there, on the same spring.
     let topCardMotion = SidebarCardSlotMotion()
+    /// The hidden footer's height the list takes in Minimal Mode with the pointer away (``SidebarFooterCollapseMotion``).
+    let footerCollapseMotion = SidebarFooterCollapseMotion()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -173,8 +176,6 @@ public final class SidebarView: NSView {
         buildHierarchy()
         list.hoverOccluded = { [weak self] point in self?.updatedCardView.covers(windowPoint: point) == true }
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
-        // The tab row's New Tab + (Leo 2026-11-07: one size class for both, in the middle of the two).
-        newButton.drawsAddGlyph = true
         newWorkspaceOptionsButton.setAccessibilityLabel(Strings.newWorkspaceOptions)
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
@@ -360,6 +361,7 @@ public final class SidebarView: NSView {
     private func joinSplitButtonCorners(_ joined: Bool) {
         let all: CACornerMask = [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
         newButton.layer?.maskedCorners = joined ? [.layerMinXMinYCorner, .layerMinXMaxYCorner] : all
+        newButton.plusLook?.segment = joined ? .leading : .alone
         newWorkspaceOptionsButton.layer?.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
     }
 
@@ -411,7 +413,7 @@ public final class SidebarView: NSView {
         // `sidebar.showNewWorkspaceChooser` (off by default, Lawrence 2026-10-30: "by default i dont want to have
         // workspace titlebar dropdowns at all"): without it the + stands alone and its right-click menu holds the chooser.
         let showsChevron = design.sidebarSections.showNewWorkspaceChooser && pairMinX >= x
-        newWorkspaceOptionsButton.isHidden = !showsChevron
+        SidebarHiddenState.apply(!showsChevron, to: newWorkspaceOptionsButton)
         // The + alone centers on the trailing column, the rows' status marks' and footer Search's one x (Leo
         // 2026-11-07: "the top of the sidebar with the subsequent elements below (workspaces and their notification
         // symbols, then the search icon)"); with its chooser segment the pair keeps the row's trailing inset.
@@ -425,7 +427,7 @@ public final class SidebarView: NSView {
             accessory.frame = Self.titlebarAccessoryFrame(fitting: accessory.fittingSize, x: x,
                                                           room: titlebarButtonsMinX - Metrics.space2 - x,
                                                           button: button, buttonY: buttonY, rowMidY: rowMidY)
-            accessory.isHidden = accessory.frame.isEmpty
+            SidebarHiddenState.apply(accessory.frame.isEmpty, to: accessory)
         }
         // The frames above are the row at rest; the band's edge on screen may hold it further right.
         titlebarRowShift = 0
@@ -443,10 +445,10 @@ public final class SidebarView: NSView {
         let spaceCount = model.profiles.count
         let showsProfiles = ProfileBarLogic.isVisible(profileCount: spaceCount) && (spacesPosition == .bottom || spaceCount > 1)
             && design.sidebarSections.showSpaces && !noFade
-        profileBar.isHidden = !showsProfiles
-        footerRegion.isHidden = noFade
-        searchButton.isHidden = noFade
-        liveModeBadge?.isHidden = noFade
+        SidebarHiddenState.apply(!showsProfiles, to: profileBar)
+        SidebarHiddenState.apply(noFade, to: footerRegion)
+        SidebarHiddenState.apply(noFade, to: searchButton)
+        if let liveModeBadge { SidebarHiddenState.apply(noFade, to: liveModeBadge) }
         for fade in [edgeFade, aboveFade, belowFade] { fade.fades = !noFade }
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
@@ -478,13 +480,21 @@ public final class SidebarView: NSView {
         // staged update card (UPDATE-CARD), the cards.
         let priorityHeight = layoutPriority(top: y + spacesHeight, width: b.width)
         let listTop = y + spacesHeight + priorityHeight
-        let listFrame = layoutBands(top: listTop + topCardHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
+        // Minimal Mode with the pointer away: the faded footer's height goes to the list, on the footer's fade.
+        let collapse = footerCollapseMotion.height(toward: footerCollapseTarget(footerRowHeight: footerHeight,
+                                                                                hasAccessories: !visibleSlots.isEmpty), in: self)
+        let pinnedCollapse = min(collapse, footerRegion.layoutResult.height), rowCollapse = collapse - pinnedCollapse
+        let listFrame = layoutBands(top: listTop + topCardHeight, footerHeight: footerHeight - rowCollapse + updateHeight + cardsHeight,
+                                   collapse: pinnedCollapse)
         if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
-        footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
+        footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight + rowCollapse, width: b.width, height: footerHeight)
         cardSlot.place(above: footer.frame.minY, top: listTop, width: b.width, slotHeight: slotHeight, in: self)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight, modelChanged: spacesChanged)
+        // App health's line over the sidebar, above the footer row and its cards: placed after the row, from
+        // nothing in it.
+        footerBand.placeHealthIndicator(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)

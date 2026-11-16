@@ -19,7 +19,8 @@ import { useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import { planName } from "../harnesses";
-import type { HarnessesRun, ProviderAccount } from "../ops";
+import { SETTINGS_SENTENCES, type HarnessesRun, type ProviderAccount } from "../ops";
+import { userMessage } from "../../shared/userMessage";
 import { t } from "../strings";
 
 /** The families whose accounts Settings can add (a login folder per account, or an API key). */
@@ -357,7 +358,7 @@ export function ProviderAccounts({ family, accounts }: { family: string; account
       .then(
         () => true,
         (failure: unknown) => {
-          setError(failure instanceof Error ? failure.message : String(failure));
+          setError(userMessage(failure, SETTINGS_SENTENCES));
           return false;
         },
       )

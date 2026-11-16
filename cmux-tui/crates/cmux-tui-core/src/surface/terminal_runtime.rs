@@ -43,6 +43,39 @@ impl ReaderCompletion {
     }
 }
 
+/// The seat of a terminal whose child is `process`, held by the terminal's
+/// runtime from here to its drop. It is taken when the runtime is made, which
+/// is before the terminal enters the session state: the accept loop counts
+/// the terminal's connections as a terminal's from this moment, and asks no
+/// session state for it (`diagnostics/terminal_seats.rs`). The seat names
+/// `terminal`, so the accept also reads from it which terminal a client is in.
+pub(super) fn terminal_seat(
+    mux: &Weak<Mux>,
+    process: Option<u32>,
+    terminal: &Option<TerminalPublicId>,
+) -> crate::diagnostics::TerminalSeat {
+    let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
+    match mux.upgrade() {
+        Some(mux) => mux.connection_stats().seat_terminal(process, terminal),
+        None => crate::diagnostics::TerminalSeat::unseated(process),
+    }
+}
+
+/// Where the host that starts a terminal of `mux` takes its seat
+/// (`diagnostics/terminal_seats.rs`, `HostSeating`): before the host starts
+/// the terminal's child, so that child's first connection is the terminal's.
+#[cfg(any(unix, windows))]
+pub(super) fn host_seating(
+    mux: &Weak<Mux>,
+    terminal: &Option<TerminalPublicId>,
+) -> crate::diagnostics::HostSeating {
+    let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
+    match mux.upgrade() {
+        Some(mux) => crate::diagnostics::HostSeating::of(mux.connection_stats().clone(), terminal),
+        None => crate::diagnostics::HostSeating::default(),
+    }
+}
+
 pub(super) struct ReaderCompletionGuard(pub(super) Arc<ReaderCompletion>);
 
 impl Drop for ReaderCompletionGuard {
@@ -113,10 +146,45 @@ impl PtyTerminalRuntime {
             metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
         }
         metadata.observe_output(bytes);
+        self.after_observed_output(metadata, bytes)
+    }
+
+    /// [`Self::observe_terminal_output`] that also rewrites the title ops
+    /// ghostty-vt skips (`titles`, the stream's
+    /// [`ShellMarks::titles_mut`](crate::prompt_mode_reset::ShellMarks::titles_mut)),
+    /// in the same one walk of the bytes. Returns the rewritten bytes, for
+    /// `crate::prompt_mode_reset::write_rewritten_output`, and the
+    /// notifications.
+    pub(super) fn observe_terminal_output_rewriting_titles<'a>(
+        &self,
+        titles: &mut crate::terminal_title::TitleTracker,
+        bytes: &'a [u8],
+    ) -> (Cow<'a, [u8]>, Vec<crate::terminal_metadata::TerminalNotification>) {
+        let mut metadata =
+            self.terminal_metadata.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !bytes.is_empty() {
+            metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
+        }
+        let rewritten = metadata.observe_output_rewriting_titles(titles, bytes);
+        (rewritten, self.after_observed_output(metadata, bytes))
+    }
+
+    fn after_observed_output(
+        &self,
+        mut metadata: std::sync::MutexGuard<'_, crate::terminal_metadata::TerminalMetadata>,
+        bytes: &[u8],
+    ) -> Vec<crate::terminal_metadata::TerminalNotification> {
         if self.tail_pin.feed(bytes)
             && let Some(mux) = self.mux.upgrade()
         {
             mux.queue_terminal_tail(self.event_surface_id);
+        }
+        // Mark and wake: the ports pass reads the screen later, off the reader.
+        if !bytes.is_empty()
+            && self.port_mark.mark()
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.queue_terminal_ports(self.event_surface_id);
         }
         metadata.take_admitted_notifications(Instant::now())
     }
@@ -260,6 +328,8 @@ pub struct PtyTerminalRuntime {
     /// while `SurfaceMeta::resource_identity` belongs to one view placement.
     pub(super) terminal_public_id: Option<Arc<TerminalPublicId>>,
     pub(super) journal_generation: Arc<str>,
+    /// This terminal's handle on its output store log (record_output).
+    pub(super) output_log: crate::output_store::OutputLogCache,
     /// Legacy terminal hosts remain attachable, but cannot source-fence
     /// output at daemon shutdown and therefore never enter journal capture.
     pub(super) journal_capture_supported: bool,
@@ -294,6 +364,9 @@ pub struct PtyTerminalRuntime {
     /// The last line of a pinned terminal (`terminal-tail-pin-v1`); idle
     /// unless the terminal is pinned.
     pub(crate) tail_pin: crate::terminal_tail::TailPinSlot,
+    /// Set when the terminal printed since the last ports pass
+    /// (`mux/terminal_port_watch.rs`); the reader only sets it.
+    pub(crate) port_mark: crate::mux::PortMark,
     /// OSC 133 command tracking (`terminal-command-history-v1`); idle unless
     /// the daemon records terminal commands.
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,
@@ -309,7 +382,9 @@ pub struct PtyTerminalRuntime {
     pub(super) pending_host_binding: Mutex<Option<crate::mux::PendingTerminalHostBinding>>,
     #[cfg(any(unix, windows))]
     pub(super) host_exit_record_path: Option<PathBuf>,
-    pub(super) pid: Option<u32>,
+    /// The child's process id, with the terminal's seat among the session's
+    /// terminals (`terminal_seat`).
+    pub(super) pid: crate::diagnostics::TerminalSeat,
     pub(super) command: Vec<String>,
     pub(super) cwd: Option<String>,
     /// How this incarnation ended, with its provenance (process end versus

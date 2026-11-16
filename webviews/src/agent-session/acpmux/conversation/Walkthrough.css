@@ -70,7 +70,6 @@
   padding: 0 0 4px;
   overflow-x: auto;
   list-style: none;
-  scrollbar-width: thin;
 }
 .cv-walk__step {
   display: flex;

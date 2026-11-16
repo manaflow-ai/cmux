@@ -103,7 +103,7 @@ impl HostShared {
             }
         };
         let (response_sender, response_receiver) = sync_channel(1);
-        let command = ParserCommand::Resize {
+        let command = ParserCommand::Resize(Box::new(ParserResize {
             cols,
             rows,
             cell_pixels: *cell_pixels,
@@ -112,7 +112,7 @@ impl HostShared {
             targeted_ack: targeted_ack.map(|(request_id, tap)| (request_id, tap.clone())),
             pty_previous,
             response: response_sender,
-        };
+        }));
         if self.parser_commands.send(command).is_err() {
             restore_pty();
             self.smart.close_failed_transition(source_cursor);

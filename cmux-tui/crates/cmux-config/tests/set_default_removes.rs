@@ -67,3 +67,21 @@ fn setting_the_default_removes_the_key() {
         "MDM recommends another value, so the default stays"
     );
 }
+
+/// cmux#41072 review: a DEV or NIGHTLY start reads an unset login consent as yes, so the person's no
+/// (the row's default, false) written over the socket is stored, never removed.
+#[test]
+fn a_login_consents_no_is_stored() {
+    for key in ["cloud.useMyCodexLoginOnMyCloudMachines", "cloud.useMyClaudeLoginOnMyCloudMachines"]
+    {
+        let (section, name) = key.split_once('.').expect("dotted");
+        let written = set(&state("{}", ManagedPreferences::default()), key, json!(false))
+            .expect("the file changes");
+        let root: Value = serde_json::from_str(&written).expect("JSON");
+        assert_eq!(
+            root.pointer(&format!("/{section}/{name}")),
+            Some(&json!(false)),
+            "{key}: {written}"
+        );
+    }
+}

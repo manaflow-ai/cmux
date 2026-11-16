@@ -8,7 +8,7 @@
 //! connection bound with `conversation-bind` to the participant id of a live
 //! record. The person's page (`chief-profile-ws-v1`): an authenticated
 //! WebSocket acting as `user_local` that is no remote client and no bound
-//! agent, and is either page `home-channels` or `home-messages` admitted with a credential
+//! agent, and is either page `home-channels` admitted with a credential
 //! bound to that page (`page-credential {page}`, the app's Channels page on
 //! its Chief owner) or no page with the daemon's own credential (a
 //! pairing-store credential is refused: a paired device can send any Origin);
@@ -755,7 +755,7 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
     if !unix {
         // The person's page (chief-profile-ws-v1): an authenticated WebSocket
         // as `user_local`, no bound agent, and either no page with the
-        // daemon's own credential, or page home-channels or home-messages admitted with a
+        // daemon's own credential, or page home-channels admitted with a
         // credential bound to that page. A pairing-store credential (an
         // approved pairing; the app's person credential shares the store) is
         // refused with or without a page Origin: a native client can send any
@@ -781,9 +781,7 @@ pub(super) fn person_page(mux: &Mux, client: u64) -> bool {
         .as_deref()
     {
         None => !ws.person,
-        Some(page) => {
-            matches!(page, "home-channels" | "home-messages") && ws.scoped_page && !ws.person
-        }
+        Some(page) => page == "home-channels" && ws.scoped_page && !ws.person,
     });
     admitted
         && !mux.is_remote_client(client)

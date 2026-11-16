@@ -57,6 +57,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// "classic" or "terminal"); the legacy "composer" value is still forwarded so the web page
     /// can migrate saved settings to Minimal. nil follows `layout`. The page validates it.
     public var template: String?
+    /// The extension that draws the whole page (`tabs.newTabApp`, an app id with `cmux.newtab/1`); nil
+    /// draws cmux's own page. The page draws its own too when that app is missing, hidden or fails.
+    public var app: String?
     /// The agent last picked.
     public var lastAgent: String?
     /// The harness and model picked last, anywhere and per folder; nil when none was.
@@ -80,21 +83,6 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: Integrate a harness was dismissed for good (`newTab.remember` `harnessHint: "dismissed"`); nil offers it
     /// when no harness is installed.
     public var harnessHintDismissed: Bool?
-    /// true: the page shows the widget view under its composer (Debug Settings `newTab.widgets`,
-    /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
-    public var widgets: Bool?
-    /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`: "greeting" (the
-    /// headline asking what to work on), "projects", "actions", "chats", "styleDots"); Minimal draws
-    /// the composer and only these besides. nil is Settings' defaults (none). The other layouts ignore it.
-    /// The page validates it.
-    public var pageWidgets: [String]?
-    /// The weather widget's last reading (`tabs.newTabWidgets.weather`, ``AgentPaneNewTabWeather``);
-    /// nil while it is off or before the first reading. The page dims one older than its refresh.
-    public var weather: AgentPaneNewTabWeather?
-    /// true: `tabs.newTabWidgets.greeting` is false in cmux.json, not the default
-    /// (``NewTabWidgetSettings/greetingTurnedOff``): Minimal keeps no room over the composer for the
-    /// headline, so the composer stays where it sat with the greeting off; nil keeps the room.
-    public var headlineOff: Bool?
     /// true: the page lists only its own connection's chats, not the store every page shares
     /// (another machine's page, ``warmedOnThisMac(_:)``); nil shares it.
     public var privateChatLists: Bool?
@@ -111,7 +99,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 layout: AgentPaneNewTabLayout? = nil,
                 lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
-                template: String? = nil, widgets: Bool? = nil, pageWidgets: [String]? = nil) {
+                template: String? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -122,17 +110,21 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.projects = projects
         self.layout = layout
         self.template = template
-        self.pageWidgets = pageWidgets
         self.lastAgent = lastAgent
         self.lastPicks = lastPicks
         self.home = home
         self.inputToken = nil
-        // nil follows the Debug Settings toggle, read as each page context is made.
-        self.widgets = (widgets ?? AgentPaneTunables.newTabWidgets.value) ? true : nil
     }
 }
 
 extension AgentPaneNewTab {
+    /// The page drawn by `app`'s `cmux.newtab/1` (`tabs.newTabApp`); nil draws cmux's own page.
+    public func showingApp(_ app: String?) -> AgentPaneNewTab {
+        var page = self
+        page.app = app
+        return page
+    }
+
     /// The newest chats a local page posted (`newTab.warm`), for the next page's ``warm``.
     @MainActor public internal(set) static var warmed: String?
     /// The largest `newTab.warm` the host keeps.
@@ -214,13 +206,17 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         public var keywords: [String]
         /// The action's shortcut keycaps (`["⌘", "T"]`); nil without one.
         public var keycaps: [String]?
+        /// The command palette's symbol name.
+        public var symbol: String?
 
-        public init(id: String, title: String, detail: String? = nil, keywords: [String] = [], keycaps: [String]? = nil) {
+        public init(id: String, title: String, detail: String? = nil, keywords: [String] = [],
+                    keycaps: [String]? = nil, symbol: String? = nil) {
             self.id = id
             self.title = title
             self.detail = detail
             self.keywords = keywords
             self.keycaps = keycaps
+            self.symbol = symbol
         }
     }
 
@@ -316,7 +312,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             "folders": folders,
             "projects": projects,
             "actions": actions.map { action in
-                optional([("id", action.id), ("title", action.title), ("detail", action.detail)])
+                optional([("id", action.id), ("title", action.title), ("detail", action.detail), ("symbol", action.symbol)])
                     .merging(["keywords": action.keywords]) { left, _ in left }
                     .merging(action.keycaps.map { ["keycaps": $0] } ?? [:]) { left, _ in left }
             },

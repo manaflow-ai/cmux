@@ -64,6 +64,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "cmux-next"))
 
 import procs  # noqa: E402
 import xbench  # noqa: E402
+from made_workspace import made_workspace  # noqa: E402
 
 CHROME_DEFAULT = "/Applications/Google Chrome.app"
 XTERM_DIR = os.path.join(REPO, "cmux-tui/frontends/web/node_modules/@xterm/xterm")
@@ -624,11 +625,11 @@ class CmuxArm(Arm):
 
     def workspace(self):
         reply = self.act("workspace.newAtBottom")
-        made = [i for i in reply.get("created", []) if str(i).startswith("ws_")]
+        made = made_workspace(reply, lambda: self.b.app.call("snapshot.get", timeout=30).get("topology"))
         if not made:
             raise NotRun(f"cmux: workspace.newAtBottom made no workspace ({str(reply)[:200]})")
-        self.act("goToWorkspace", workspace=made[0])
-        return made[0]
+        self.act("goToWorkspace", workspace=made)
+        return made
 
     def open(self, url):
         self.act("openBrowser.chromium", url=url)

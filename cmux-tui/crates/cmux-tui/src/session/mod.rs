@@ -20,6 +20,7 @@ pub(crate) mod tree;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use crate::local_actor::me;
 use cmux_tui_core::resource::ResourceOperation;
@@ -1079,6 +1080,14 @@ impl Session {
         }
     }
 
+    /// See [`RemoteSession::next_surface_overflow_retry`].
+    pub fn next_surface_overflow_retry(&self) -> Option<Instant> {
+        match self {
+            Session::Local(_) => None,
+            Session::Remote(remote) => remote.next_surface_overflow_retry(),
+        }
+    }
+
     /// Applies the render size through the authoritative mux resize path.
     /// Remote mirrors are created after the server resize, so their attach
     /// replay arrives at final geometry.
@@ -1696,6 +1705,24 @@ impl Session {
     pub(crate) fn tick_sidebar_doc(&self) {
         if let Session::Remote(remote) = self {
             remote.tick_sidebar_doc();
+        }
+    }
+
+    /// When the next sidebar document fallback read is due, if one is.
+    pub(crate) fn sidebar_doc_fallback_at(&self) -> Option<Instant> {
+        match self {
+            Session::Local(_) => None,
+            Session::Remote(remote) => remote.sidebar_doc_fallback_at(),
+        }
+    }
+
+    /// `wake` runs on another thread when this session changed state the
+    /// app loop reads after its idle wait without sending an event: a local
+    /// mux asked to shut down, or a sidebar document that fell back to reads.
+    pub(crate) fn set_idle_waker(&self, wake: impl Fn() + Send + Sync + 'static) {
+        match self {
+            Session::Local(mux) => mux.set_daemon_shutdown_waker(wake),
+            Session::Remote(remote) => remote.set_idle_waker(wake),
         }
     }
 

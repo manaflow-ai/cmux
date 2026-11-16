@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { isImagePath, isTemplatePath, linkPath } from "../src/agent-session/acpmux/chips/paths";
 import { bareImageSource } from "../src/agent-session/acpmux/conversation/inlineMedia";
 import { toolImages } from "../src/agent-session/acpmux/toolImages";
+import { settleReact } from "./support/domTeardown";
 
 const TEMPLATE = "/Users/me/site/public/${variant}-320.png";
 const OUTSIDE = "/Volumes/Shots/sidebar-320.png";
@@ -65,7 +66,8 @@ describe("rendered", () => {
       IS_REACT_ACT_ENVIRONMENT: true,
     });
   });
-  afterAll(() => {
+  afterAll(async () => {
+    await settleReact();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;
       else delete scope[key];

@@ -17,10 +17,12 @@ public nonisolated enum ActionWorkCause: Sendable, Hashable {
 extension ActionWorkFailure {
     /// A failure whose `message` is for the log and a capturing caller (it names a command, an op or a code, or is
     /// the daemon's own text); a person reads `reason` when there is one, else only that the change did not apply.
-    public init(log message: String, reason: String? = nil) {
+    /// `shown`: the handler already told the person (its own toast), so no reporter shows a second notice.
+    public init(log message: String, reason: String? = nil, shown: Bool = false) {
         self.init(message)
         cause = .daemon
         shownReason = reason
+        self.shown = shown
     }
 
     /// The one notice a person sees for this failure, or nil when it goes to the log only.

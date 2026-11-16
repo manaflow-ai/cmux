@@ -90,10 +90,13 @@ public struct WindowDockActions {
             guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
             return frame.undockChiefPanel() ? .done : .refused(RefusalStrings.chiefNotDocked)
         }
-        // Show/Hide Chief from Any App (Option-Shift-Space): cmux comes forward; a Chief already floating there takes
-        // the keys, else Show/Hide Chief runs (it hides the panel only when cmux was in front).
+        // Show/Hide Chief from Any App (Option-Shift-Space): the floating Chief (its own window over every app) shows
+        // or hides where the person is, cmux staying behind. Else cmux comes forward; a Chief already showing there
+        // takes the keys, else Show/Hide Chief runs (it hides the panel only when cmux was in front).
         registry.bindEffect("home.showHideChiefFromAnyApp") { invocation in
             guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
+            if !host.chiefHomeIsClassic, let frame = host.dockFrame(invocation), frame.frameChiefPanel.dockedEdge == nil,
+               frame.toggleChiefPanel() { return .done }
             let wasBehind = host.chiefBringAppForward()
             guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
             if wasBehind, frame.frameChiefPanelShown { frame.frameFocusChiefPanel(); return .done }

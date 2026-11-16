@@ -260,15 +260,12 @@ enum CloudHandlers {
         let address = record.url.absoluteString
         // The person's run scope, captured here: their approval goes on the tab this open makes.
         let scope = ActionRunScope.current, cache = services.cache
-        WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
-            guard let pane = terminal.pane else { return }
-            let created = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
+        WorkspaceHandlers.show(.browser(WorkspaceFirstBrowserTab(url: address, engine: .webkit, title: name), name: name) { _, created in
             // The approval goes on the exact tab the daemon made for this open, never on whichever
             // tab first shows the same address (#29208): until then the tab asks for Connect.
             let key = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
             await MainActor.run { cache.personOpenedRemoteView(key, url: record.url, scope: scope) }
-            if let surface = terminal.surface { try await connection.closeTab(surface) }
-        }
+        }, services: services, daemon: services.machines.local)
     }
 
     /// The existing workspace and pane where a Cloud terminal should land.

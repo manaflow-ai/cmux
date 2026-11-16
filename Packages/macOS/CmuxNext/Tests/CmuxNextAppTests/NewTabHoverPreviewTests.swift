@@ -34,7 +34,7 @@ import Testing
         defer { services.cache.browsers[key] = nil }
         let size = CGSize(width: 320, height: 200)
         // The hover card's thumbnails.
-        let previews = TabPreviewSource(cache: services.cache)
+        let previews = TabPreviewSource(cache: services.cache, pages: services.pages)
 
         // A page with content: its picture is the preview, a flat capture (not painted yet) is none.
         page.load(try #require(URL(string: "data:text/html,<h1>cmux</h1>")))
@@ -83,7 +83,7 @@ import Testing
         page.apply(.urlChanged(blank))
         page.apply(.failed(loading, BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCancelled, message: "cancelled", failingURL: old)))
         #expect(page.state.url == blank, "the cancelled load put the page before back")
-        #expect(await TabPreviewSource(cache: services.cache).previewImage(for: TabID(key), maxPixelSize: CGSize(width: 320, height: 200)) == nil,
+        #expect(await TabPreviewSource(cache: services.cache, pages: services.pages).previewImage(for: TabID(key), maxPixelSize: CGSize(width: 320, height: 200)) == nil,
                 "the page before was the New Tab page's preview")
     }
 

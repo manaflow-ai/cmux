@@ -252,7 +252,15 @@ fn prompt_sender(params: &Value) -> Option<AgentSender> {
     let field = |key: &str| sender.get(key).and_then(Value::as_str);
     let Some(name) = field("name") else {
         let unverified = AgentSender::new(UNVERIFIED_SENDER, field("class"), field("threadId"))?;
-        return Some(unverified.with_display(messages().unverified_sender, forwarder(sender)));
+        // The program acpmux saw send it (`sender_program.rs`) names it; it still routes as
+        // an unverified sender's.
+        // Still marked unverified: the program's file name is its own to choose.
+        let program = sender.pointer("/program/name").and_then(Value::as_str);
+        let shown = match program {
+            Some(program) => format!("{program} ({})", messages().unverified_sender),
+            None => messages().unverified_sender.to_owned(),
+        };
+        return Some(unverified.with_display(&shown, forwarder(sender)));
     };
     // Another Chief's turn: shown as that Chief (`[from chief:codex-chief]`),
     // the way local Chiefs name each other.
@@ -570,6 +578,13 @@ mod tests {
         assert_eq!(sender.name, UNVERIFIED_SENDER);
         assert_eq!(sender.shown(), messages().unverified_sender);
         assert_eq!(reply_route(&sender, None, "agent_mux", "Chief"), None);
+        // The program acpmux saw send it names it, still as an unverified sender.
+        let params = json!({"sessionId": "s", "prompt": [],
+            "_meta": {"acpmux": {"sender": {"verified": false, "transport": "unix",
+                "program": {"name": "next-autoland"}}}}});
+        let sender = prompt_sender(&params).expect("an unverified sender");
+        assert_eq!(sender.name, UNVERIFIED_SENDER);
+        assert_eq!(sender.shown(), format!("next-autoland ({})", messages().unverified_sender));
     }
 
     #[test]

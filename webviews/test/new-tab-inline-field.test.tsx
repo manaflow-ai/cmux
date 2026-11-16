@@ -14,6 +14,7 @@ import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -81,12 +82,8 @@ afterEach(() => {
   setComposerSettings({ attachmentView: "inline" });
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const noop = () => {};

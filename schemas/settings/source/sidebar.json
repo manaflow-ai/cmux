@@ -603,7 +603,7 @@
           },
           "help": {
             "key": "settings.sidebar.controlsOnHover.help",
-            "text": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."
+            "text": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on."
           },
           "kind": "toggle",
           "default": false,
@@ -663,11 +663,11 @@
           },
           "help": {
             "key": "settings.sidebar.minimal.help",
-            "text": "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
+            "text": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change."
           },
           "summary": {
             "key": "settings.sidebar.minimal.summary",
-            "text": "Rows show only icon, name and unread mark"
+            "text": "Buttons show only on hover"
           },
           "kind": "toggle",
           "default": false,
@@ -977,7 +977,7 @@
               }
             }
           ],
-          "default": "dot",
+          "default": "leftRail",
           "keywords": [
             "sidebar",
             "workspace",

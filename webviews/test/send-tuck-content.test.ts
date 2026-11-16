@@ -4,6 +4,7 @@
 // tucks away. Review of #38217, F2.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = ["window", "document"].map((key) => [key, key in scope, scope[key]] as const);
@@ -15,11 +16,8 @@ beforeAll(() => {
   </form></div>`);
   Object.assign(scope, { window: dom.window, document: dom.window.document });
 });
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 test("the tuck's copy is the prompt as sent, not the draft the composer holds when it clears", async () => {

@@ -259,3 +259,52 @@ fn a_runtime_respawn_does_not_count_its_terminal_twice() {
     close_terminal_runtime_for_test(&mux, &first);
     wait_for_kitty_image_budget(&mux);
 }
+
+/// A start counts its surviving hosts before the first adoption reserves:
+/// each adoption then starts with the share of all of them and never waits
+/// for another adoption's connect. The end of a respawn wave meanwhile gives
+/// back only the wave's own shares, not the adoptions'. An adoption that is
+/// given up (dropped unnamed) gives its share back.
+#[test]
+fn startup_adoptions_reserve_their_kitty_shares_without_waiting() {
+    const HOSTS: usize = 6;
+    const GIVEN_UP: usize = 2;
+    let mux = test_mux();
+    let mut expectations = mux.expect_kitty_image_adoptions(HOSTS);
+    // A respawn wave of the same start ends before the adoptions reserve
+    // (6 + 2 stays in the bucket of 8).
+    drop(mux.expect_kitty_image_wave(2));
+    let share = kitty_image_limits_for_capacity(HOSTS.next_power_of_two());
+    let given_up = expectations.split_off(HOSTS - GIVEN_UP);
+    let mut reservations = Vec::new();
+    for expectation in expectations {
+        let slot = mux.next_id();
+        let named = expectation.name(slot);
+        let started = Instant::now();
+        reservations.push(mux.reserve_kitty_image_surface(slot).unwrap());
+        drop(named);
+        let waited = started.elapsed();
+        assert!(waited < Duration::from_millis(100), "an adoption waited {waited:?}");
+    }
+    assert!(
+        reservations.iter().all(|reservation| reservation.initial_limits() == share),
+        "an adoption did not start with the share of every host {share:?}"
+    );
+    drop(given_up);
+    assert_eq!(
+        mux.kitty_image_budget.lock().unwrap().expected_adoptions,
+        0,
+        "given-up adoptions kept their Kitty shares"
+    );
+    let new_tab = mux.reserve_kitty_image_surface(mux.next_id()).unwrap();
+    assert_eq!(
+        new_tab.initial_limits(),
+        kitty_image_limits_for_capacity((HOSTS - GIVEN_UP + 1).next_power_of_two()),
+        "a new tab after given-up adoptions got the share of hosts that never adopted"
+    );
+    reservations.push(new_tab);
+    let (bytes, _, _) = granted(&reservations);
+    assert!(bytes <= KITTY_IMAGE_PROCESS_BUDGET_BYTES, "{bytes} bytes over the process budget");
+    drop(reservations);
+    wait_for_kitty_image_budget(&mux);
+}

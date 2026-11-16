@@ -55,7 +55,8 @@ public final class ScreenSession {
     public var preferences: ScreenPreferences
     public var credentials: VNCCredentials
     /// Automatic reconnects after a stream drops: how many tries (0 turns them
-    /// off), backing off 0, 1, 2, 4, 8 s, before the session fails.
+    /// off), backing off 0, 1, 2, 4, 8 s, before the session fails. A viewer
+    /// that needs a new ticket can use ``prepareForReconnect()`` first.
     @ObservationIgnored public var reconnectLimit = 5
 
     @ObservationIgnored public var onFrame: ((VNCFrame) -> Void)?
@@ -177,7 +178,28 @@ public final class ScreenSession {
         if imagePaste != .sending { imagePaste = .idle }
     }
     /// The stream dropped and is coming back on its own.
-    public private(set) var isReconnecting = false
+    public private(set) var isReconnecting = false {
+        didSet { if isReconnecting != oldValue { armReconnectNotice() } }
+    }
+    /// A reconnect has run for ``reconnectNoticeDelay`` without a picture: only now does the
+    /// view say "Reconnecting". Under it the last frame stays and nothing is said (a blip
+    /// the session recovers from by itself is not the person's problem).
+    public private(set) var reconnectNoticeDue = false
+    /// How long a reconnect stays silent: about the time after which a frozen picture
+    /// stops reading as a hiccup. A reattach lands well under it on a short drop.
+    public nonisolated static let reconnectNoticeDelay: Duration = .seconds(10)
+    @ObservationIgnored private var reconnectNoticeTask: Task<Void, Never>?
+    /// An owner that gets a fresh ticket for a dropped stream (a device hub viewer, whose
+    /// `reconnectLimit` is 0): a drop calls it, and when the owner takes the drop (true) the
+    /// session stays reconnecting over its last frame instead of showing the failed card first.
+    /// Not taken (false): the failed card, as without an owner.
+    @ObservationIgnored public var onDropped: (@MainActor () -> Bool)?
+    /// Connected, or reconnecting: the toolbar, shortcuts and trackpad keep their places so
+    /// the screen does not jump while it comes back.
+    public var keepsLiveLayout: Bool {
+        if case .connected = phase { return true }
+        return isReconnecting
+    }
     /// The connection stalled (ICE disconnected): no picture is coming,
     /// though WebRTC has not given up yet. Cleared when it recovers.
     public private(set) var isStalled = false
@@ -238,9 +260,8 @@ public final class ScreenSession {
 
     /// A screen stream whose signaling the app supplies: each `connect()`
     /// asks `signaling` for the connection to use (a device hub session's
-    /// ``TicketSignaling``, which admits once). Nil fails the connect, so a
-    /// dropped session does not reconnect on its own unless the app has a
-    /// new one ready.
+    /// ``TicketSignaling``, which admits once). Nil fails the connect; an app
+    /// that needs to reattach supplies a fresh ticket before reconnecting.
     public init(title: String, preferences: ScreenPreferences = ScreenPreferences(),
                 signaling: @escaping @MainActor () -> (any ScreenSignaling)?) {
         self.title = title
@@ -447,6 +468,12 @@ public final class ScreenSession {
             // Giving up: the dropped stream's room socket would keep reconnecting.
             stream?.close()
             stream = nil
+            if let onDropped {
+                // The owner reattaches with a new ticket: still reconnecting, never the failed card.
+                isReconnecting = true
+                phase = .connecting
+                if onDropped() { return }
+            }
             isReconnecting = false
             phase = .failed(message: message, needsSignIn: false)
             return
@@ -463,6 +490,20 @@ public final class ScreenSession {
         }
     }
 
+    /// Starts (or stops) the clock after which a reconnect is said out loud.
+    private func armReconnectNotice() {
+        reconnectNoticeTask?.cancel()
+        reconnectNoticeTask = nil
+        if reconnectNoticeDue { reconnectNoticeDue = false }
+        guard isReconnecting else { return }
+        reconnectNoticeTask = Task { [weak self] in
+            // wakeup-allow: one-shot, cancellable notice deadline; a recovered stream cancels it
+            try? await Task.sleep(for: Self.reconnectNoticeDelay)
+            guard !Task.isCancelled, let self, isReconnecting else { return }
+            reconnectNoticeDue = true
+        }
+    }
+
     /// Connects again under the reconnect policy: a failed attempt retries
     /// with backoff before the error shows. For a change that needs a new
     /// connection (the relay setting), where the host may still be dropping
@@ -474,6 +515,17 @@ public final class ScreenSession {
         reconnectAttempts = 0
         isReconnecting = true
         connect()
+    }
+
+    /// Leaves this session in the reconnecting state while an app obtains new
+    /// signaling credentials. The session object and its view state stay alive.
+    public func prepareForReconnect() {
+        guard !isClosed else { return }
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        disconnect(silently: true)
+        isReconnecting = true
+        phase = .connecting
     }
 
     /// The app came back to the foreground: a stream that dropped while it
@@ -549,7 +601,10 @@ public final class ScreenSession {
         client = nil
         // Closing a peer connection waits on WebRTC's threads (TURN
         // deallocation can take seconds): never on the main actor.
-        if let stream { Task.detached { stream.close() } }
+        if let stream {
+            let sendBye = !silently
+            Task.detached { stream.close(sendBye: sendBye) }
+        }
         stream = nil
         onTelepointers?(nil, nil)
         stats.targetFps = nil

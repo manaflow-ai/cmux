@@ -12,6 +12,7 @@ import {
   useNewTabPlaces,
   withHandshakeNewTab,
 } from "./adoption";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 // Cmd-N's first page shows without the Commands palette's actions and lists them on the frame after
 // (NewTabPage.fillPaletteActions). On a cold WebKit page the host injects the context (empty list)
@@ -40,9 +41,10 @@ beforeEach(() => {
   root = createRoot(dom.window.document.getElementById("root")!);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

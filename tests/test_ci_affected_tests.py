@@ -248,9 +248,9 @@ class AffectedTests(unittest.TestCase):
         self.assertTrue(any("outside the lane registry" in n["what"] for n in result["not_run"]), result["not_run"])
 
     def test_a_changed_test_that_needs_an_app_is_listed_not_run(self):
-        result = plan(["tests_v2/test_browser_api_p0.py"])
-        self.assertIn("tests_v2/test_browser_api_p0.py", [n["what"] for n in result["not_run"]])
-        self.assertFalse([u for u in result["units"] if "tests_v2/test_browser_api_p0.py" in u["argv"]])
+        result = plan(["tests_v2/test_tmux_compat_matrix.py"])
+        self.assertIn("tests_v2/test_tmux_compat_matrix.py", [n["what"] for n in result["not_run"]])
+        self.assertFalse([u for u in result["units"] if "tests_v2/test_tmux_compat_matrix.py" in u["argv"]])
 
     def test_a_webviews_build_input_runs_every_web_test(self):
         # vite configs, package.json and the lockfile change every test, though no test imports them.

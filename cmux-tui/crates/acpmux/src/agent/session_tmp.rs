@@ -141,9 +141,9 @@ pub(crate) fn make(base: &Path, acpmux_home: &Path, session_id: &str) -> Option<
 /// a symlink) owned by `uid`, narrowed to 0700 if it is wider.
 #[cfg(unix)]
 fn private_child(parent: &Path, name: &str, uid: u32) -> Option<PathBuf> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    use std::os::unix::fs::MetadataExt;
     let dir = parent.join(name);
-    match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+    match crate::home_fs::create_dir(&dir, 0o700) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(_) => return None,
@@ -153,7 +153,7 @@ fn private_child(parent: &Path, name: &str, uid: u32) -> Option<PathBuf> {
         return None;
     }
     if meta.mode() & 0o077 != 0 {
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).ok()?;
+        crate::home_fs::set_mode(&dir, 0o700).ok()?;
     }
     Some(dir)
 }
@@ -218,7 +218,7 @@ pub(crate) fn env_for(
 /// symlinks inside it either).
 fn remove_dir(dir: &Path) {
     if std::fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_dir())
-        && let Err(e) = std::fs::remove_dir_all(dir)
+        && let Err(e) = crate::home_fs::remove_dir_all(dir)
     {
         tracing::debug!(dir = %dir.display(), "session tmp folder not removed: {e}");
     }
@@ -278,7 +278,6 @@ const HOME_RECORD: &str = ".home";
 #[cfg(unix)]
 fn record_home(root: &Path, acpmux_home: &Path) {
     use std::io::Write as _;
-    use std::os::unix::fs::OpenOptionsExt as _;
     let path = root.join(HOME_RECORD);
     if std::fs::symlink_metadata(&path).is_ok() {
         return;
@@ -287,12 +286,12 @@ fn record_home(root: &Path, acpmux_home: &Path) {
     // record, and a second writer never replaces the first.
     let part = root.join(format!("{HOME_RECORD}.{}", uuid::Uuid::now_v7().simple()));
     if let Ok(mut file) =
-        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&part)
+        crate::home_fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&part)
     {
         if file.write_all(acpmux_home.as_os_str().as_encoded_bytes()).is_ok() {
-            let _ = std::fs::hard_link(&part, &path);
+            let _ = crate::home_fs::hard_link(&part, &path);
         }
-        let _ = std::fs::remove_file(&part);
+        let _ = crate::home_fs::remove_file(&part);
     }
 }
 

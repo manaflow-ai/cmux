@@ -7,6 +7,7 @@ from pathlib import Path
 
 import yaml
 
+import workflow_jobs
 from runs_on_labels import disallowed_labels, linux_runner_values
 
 
@@ -155,7 +156,7 @@ def _run_gate(**env_overrides: str) -> tuple[int, str]:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     gate = workflow["jobs"]["hosted-verification"]
     step = next(s for s in gate["steps"] if s.get("name") == "Require selected verification jobs")
-    env = {key: "success" for key, value in gate["env"].items() if key.endswith("_RESULT")}
+    env = {key: "success" for key, value in workflow_jobs.effective_env(workflow, gate).items() if key.endswith("_RESULT")}
     env.update({"MODE": "focused", "TEST_FILTER": "some_test", "PATH": "/usr/bin:/bin", **env_overrides})
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / "gate.sh"
@@ -180,7 +181,7 @@ def test_a_filter_that_one_host_runs_passes_and_one_that_no_host_runs_fails() ->
     assert code == 0, output
 
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    gate_env = workflow["jobs"]["hosted-verification"]["env"]
+    gate_env = workflow_jobs.effective_env(workflow, workflow["jobs"]["hosted-verification"])
     for job_name, variable in (("test", "LINUX_FOCUSED_SELECTED"), ("macos", "MACOS_FOCUSED_SELECTED")):
         job = workflow["jobs"][job_name]
         step = _focused_count_step(job)
@@ -317,6 +318,109 @@ def test_journal_sentinels_are_focused_only_and_full_uses_isolated_core_runner()
     assert "crates/cmux-tui-core" in cargo_test
 
 
+def _run_full_step(
+    workspace_fails: bool,
+    core_fails: bool = False,
+    build_fails: bool = False,
+    doc_fails: bool = False,
+) -> tuple[int, str]:
+    """Run the test job's full-mode `cargo test` step against a fake cargo and python3.
+
+    The fake cargo exits 101 for the workspace call when WORKSPACE_FAILS, 4 for the core
+    `--no-run` build when BUILD_FAILS, and 3 for the core doc tests when DOC_FAILS. The
+    fake python3 (the isolated core runner) exits 1 when CORE_FAILS. Returns the exit code
+    and every cargo and python3 call, in order.
+    """
+    steps = {step.get("name"): step for step in _test_job()["steps"]}
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        log = root / "calls.log"
+        fail = ""
+        if workspace_fails:
+            fail += 'case "$*" in *"--workspace --exclude cmux-tui-core"*) exit 101 ;; esac\n'
+        if build_fails:
+            fail += 'case "$*" in *"-p cmux-tui-core --locked --no-run"*) exit 4 ;; esac\n'
+        if doc_fails:
+            fail += 'case "$*" in *"-p cmux-tui-core --doc"*) exit 3 ;; esac\n'
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "cargo $*" >> "{log}"\n'
+            + fail,
+            encoding="utf-8",
+        )
+        python = root / "python3"
+        python.write_text(
+            f'#!/usr/bin/env bash\necho "python3 $*" >> "{log}"\n' + ("exit 1\n" if core_fails else ""),
+            encoding="utf-8",
+        )
+        for fake in (cargo, python):
+            fake.chmod(0o755)
+        script = root / "step.sh"
+        script.write_text(steps["cargo test"]["run"], encoding="utf-8")
+        work = root / "cmux-tui"
+        work.mkdir()
+        # GitHub runs `shell: bash` as `bash --noprofile --norc -eo pipefail`.
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=work,
+            env={"PATH": f"{root}:/usr/bin:/bin", "MODE": "full", "TEST_FILTER": "", "RUNNER_TEMP": str(root)},
+        )
+        calls = log.read_text(encoding="utf-8") if log.exists() else ""
+    return result.returncode, calls
+
+
+def test_a_red_workspace_still_runs_the_core_tests_and_fails_the_step() -> None:
+    """Full mode runs the workspace with --no-fail-fast, then the cmux-tui-core tests.
+
+    Under `bash -e` a red workspace (a base red in any crate) ended the step before the
+    cmux-tui-core unit and doc tests, so a PR shipped without them ever running. The core
+    tests must still run, and the step must still fail with the workspace status.
+    """
+    code, calls = _run_full_step(workspace_fails=True)
+    assert code == 101, (code, calls)
+    assert "python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py" in calls, calls
+    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
+
+    code, calls = _run_full_step(workspace_fails=False)
+    assert code == 0, (code, calls)
+    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
+
+
+def test_a_red_core_runner_still_runs_the_core_doc_tests_and_fails_the_step() -> None:
+    """A red isolated core runner must not skip the core doc tests, and the step fails.
+
+    With a red workspace too, the step fails with the first red status (the workspace).
+    """
+    code, calls = _run_full_step(workspace_fails=False, core_fails=True)
+    assert code == 1, (code, calls)
+    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
+
+    code, calls = _run_full_step(workspace_fails=True, core_fails=True)
+    assert code == 101, (code, calls)
+    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
+
+
+def test_a_red_doc_test_fails_the_step() -> None:
+    code, calls = _run_full_step(workspace_fails=False, doc_fails=True)
+    assert code == 3, (code, calls)
+    assert "python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py" in calls, calls
+
+    # The first red status wins: the workspace before the doc tests.
+    code, calls = _run_full_step(workspace_fails=True, doc_fails=True)
+    assert code == 101, (code, calls)
+
+
+def test_a_failed_core_build_skips_the_core_runner_and_still_runs_the_doc_tests() -> None:
+    code, calls = _run_full_step(workspace_fails=False, build_fails=True)
+    assert code == 4, (code, calls)
+    assert "python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py" not in calls, calls
+    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
+
+
 def test_tui_status_names_remain_stable() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     assert workflow["jobs"]["test"]["name"] == "test (${{ matrix.os }})"
@@ -364,8 +468,9 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert "a_daemon_integrated_zsh_titles_a_long_command_with_every_argument" in macos_commands
     assert "lint" in gate["needs"]
     assert "macos" in gate["needs"]
-    assert gate["env"]["LINT_RESULT"] == "${{ needs.lint.result }}"
-    assert gate["env"]["MACOS_RESULT"] == "${{ needs.macos.result }}"
+    gate_env = workflow_jobs.effective_env(workflow, gate)
+    assert gate_env["LINT_RESULT"] == "${{ needs.lint.result }}"
+    assert gate_env["MACOS_RESULT"] == "${{ needs.macos.result }}"
     assert 'require_success "lint" "$LINT_RESULT"' in gate_commands
     assert 'require_success "macOS lint and tests" "$MACOS_RESULT"' in gate_commands
 
@@ -490,7 +595,7 @@ def test_hosted_verification_gate_reports_every_selected_job_before_failing() ->
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     gate = workflow["jobs"]["hosted-verification"]
     step = next(s for s in gate["steps"] if s.get("name") == "Require selected verification jobs")
-    env = {key: "success" for key, value in gate["env"].items() if key.endswith("_RESULT")}
+    env = {key: "success" for key, value in workflow_jobs.effective_env(workflow, gate).items() if key.endswith("_RESULT")}
     env.update({"MODE": "focused", "TEST_FILTER": "some_test", "LINT_RESULT": "failure",
                 "MACOS_RESULT": "failure", "PATH": "/usr/bin:/bin"})
     with tempfile.TemporaryDirectory() as tmp:

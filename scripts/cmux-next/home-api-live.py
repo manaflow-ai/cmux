@@ -18,7 +18,6 @@ import argparse, json, os, socket, subprocess, sys, time
 import re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
-import home_page  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -137,7 +136,7 @@ try:
         sys.exit(1)
 
     opened = rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": channel}, "focus": True})
-    shown = poll(lambda: (g := home_page.drive(rpc, {"action": "geometry"})) and g.get("ok") and g, timeout=60)
+    shown = poll(lambda: (g := rpc("debug.home.drive", {"action": "geometry"})) and g.get("ok") and g, timeout=60)
     check("the Swift Home shows the channel", bool(shown), opened)
 
     root_text = f"root {stamp}"
@@ -179,8 +178,8 @@ try:
             check("message.retract marks the message retracted", bool(retracted.get("ok")) and bool(gone), gone or retracted)
     if shown:
         swift_text = f"from the Swift Home {stamp}"
-        home_page.drive(rpc, {"action": "type", "text": swift_text})
-        home_page.drive(rpc, {"action": "send"})
+        rpc("debug.home.drive", {"action": "type", "text": swift_text})
+        rpc("debug.home.drive", {"action": "send"})
         check("a Swift Home send reaches the second subscriber", bool(poll(lambda: watched(swift_text))),
               api(call="watch_read"))
         check("a Swift Home send is in the owner's snapshot", bool(poll(lambda: newest(channel, swift_text))))

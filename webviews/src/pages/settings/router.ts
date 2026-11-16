@@ -17,7 +17,8 @@ import type { SettingsStore } from "./store";
 export type SettingsRouterContext = { queryClient: QueryClient; store: SettingsStore };
 
 /** The route's search: the focused key, the workspace Change Background… came from, the sidebar
- * search's text (`q`) and its Changed filter (`changed=1`). Plain `?a=b` pairs, never JSON. */
+ * search's text (`q`). `changed=1` is the removed Changed filter's: an old link keeps it, and the page
+ * ignores it. Plain `?a=b` pairs, never JSON. */
 export type SettingsSearch = { focus?: string; workspace?: string; q?: string; changed?: true };
 
 export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSearch {
@@ -142,8 +143,6 @@ export type SettingsLocation = {
   workspace: string | null;
   /** The sidebar search's text; empty when not searching. */
   query: string;
-  /** Whether the search lists only changed settings. */
-  changedOnly: boolean;
 };
 
 /**
@@ -171,7 +170,6 @@ export function parseLocation(href: string): SettingsLocation {
     focus,
     workspace: url.searchParams.get("workspace"),
     query: url.searchParams.get("q") ?? "",
-    changedOnly: url.searchParams.get("changed") === "1",
   };
 }
 
@@ -179,13 +177,12 @@ export function sectionHref(
   section: string,
   focus?: string | null,
   workspace?: string | null,
-  filter?: { query?: string; changedOnly?: boolean },
+  filter?: { query?: string },
 ): string {
   const query = new URLSearchParams();
   if (focus) query.set("focus", focus);
   if (workspace) query.set("workspace", workspace);
   if (filter?.query) query.set("q", filter.query);
-  if (filter?.changedOnly) query.set("changed", "1");
   const search = query.toString();
   return `/settings/${encodeURIComponent(section)}${search ? `?${search}` : ""}`;
 }

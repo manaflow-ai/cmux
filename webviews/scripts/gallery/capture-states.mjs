@@ -10,7 +10,11 @@
 //                            "clip": ".css-selector (optional: crop to it, plus a margin)",
 //                            "setup": "JS run in the page before the shot (optional)",
 //                            "hover": ".css-selector the pointer rests on (optional)",
-//                            "arms": { "now": "", "A": "css…", "B": "css…" } }] }
+//                            "arms": { "now": "", "A": "css…", "B": "css…" },
+//                            "armQuery": { "A": { "exp": "turn-fold-replies", "arm": "groups" } } }] }
+// An arm's `armQuery` (optional) adds frame.html query parameters for that arm alone, so one build
+// shows an experiment's arms side by side (exp + arm pick the arm, gallery/frame/main.ts): a Before
+// row on the old arm and an After row on the shipped one.
 // Writes OUT_DIR/<shot>/<arm>-<scheme>-<background>.png and OUT_DIR/<shot>.png (the sheet), and prints
 // one JSON line per capture.
 import fs from "node:fs";
@@ -75,6 +79,7 @@ try {
         });
         if (shot.variant) query.set("variant", shot.variant);
         if (shot.opts) query.set("opts", shot.opts);
+        for (const [key, value] of Object.entries(shot.armQuery?.[arm] ?? {})) query.set(key, String(value));
         if (background !== "none") query.set("background", background);
         const file = path.join(dir, `${arm}-${scheme}-${background}.png`);
         try {

@@ -24,6 +24,22 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("app"),
         ..Action::DEFAULT
     },
+    // Customize…: customize cmux by asking (cmux-customize), opened from the palette and the
+    // app menu with no terminal. The CLI's own door is `cmux customize`; this one opens a panel
+    // that takes the keyboard, which automation never does unasked.
+    Action {
+        id: "customize.open",
+        group: GROUP,
+        title: t("ActionCatalog", "action.customize.open", "Customize…"),
+        keywords: &["customize", "customise", "personalize", "make it yours", "ask", "agent", "sidebar", "section", "widget", "extension", "theme", "profile", "preview", "apply", "discard", "rollback", "undo"],
+        category: "window",
+        symbol: "wand.and.rays",
+        surfaces: PALETTE | KEYBOARD | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action customize-open",
+        main_menu: Some("app"),
+        ..Action::DEFAULT
+    },
     Action {
         id: "newWindow",
         group: GROUP,

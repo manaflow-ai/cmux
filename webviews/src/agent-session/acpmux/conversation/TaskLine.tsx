@@ -1,6 +1,6 @@
 // A finished turn's started sub-sessions, one line each, kept in sight once the turn's work folds
 // (taskLines.ts): the task's harness mark, its title (what it is about, not its short name), its
-// state, and a chevron after them; its title is a link chip that opens the task's chat, where its
+// state; its title is a link chip that opens the task's chat, where its
 // report is, and only the chip lights under the pointer, never the whole line (Leo, 2026-11-05:
 // "subagents need to have their clickable bit be highlighted instead of the whole line click sending
 // me to the subagent righ split"). As
@@ -75,6 +75,7 @@ function TaskLine({ task }: { task: StartedTask }) {
         )
       }
       className={`cv-task-line${working ? " is-live" : ""}`}
+      chevron={false}
       ariaLabel={title}
       attributes={{ "data-task-line": state, "data-session-id": task.sessionId }}
     />

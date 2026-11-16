@@ -117,7 +117,7 @@ final class SidebarNeedsYouTrayView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let blocked = !tray.items.isEmpty
-        backing.backgroundColor = (Palette.sidebarBackground.usingColorSpace(.sRGB) ?? Palette.windowBackground).withAlphaComponent(1).cgColor
+        backing.backgroundColor = SidebarStyle.ground.withAlphaComponent(1).cgColor
         layer?.backgroundColor = nil
         tintFill.backgroundColor = (blocked ? Palette.attention.withAlphaComponent(0.08) : Palette.badgeFill).cgColor
         layer?.borderColor = (blocked ? Palette.attention.withAlphaComponent(0.4) : Palette.separator).cgColor
@@ -175,7 +175,7 @@ final class SidebarNeedsYouTrayLine: NSView {
             guard answers != (oldValue != nil) else { return }
             self.answers.isHidden = !answers
             reason.isHidden = answers
-            if !answers, window?.firstResponder === self { window?.makeFirstResponder(nil) }
+            if !answers, window?.firstResponder === self { FocusRoute(.system, "the Needs You tray was answered").moveKeyboard(in: window, to: nil) }
             needsLayout = true
         }
     }

@@ -108,7 +108,13 @@ if [[ -n "$(git status --porcelain=v1 --untracked-files=normal)" ]]; then
   git status --short >&2
   exit 65
 fi
-remote_sha="$(git ls-remote --exit-code origin "refs/heads/$BRANCH" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)"
+# Origin not answering stops here naming the network, not as an unpushed branch (an empty answer
+# is a branch origin lacks; scripts/cmux-next/lib/origin-net.sh has the retried form).
+if ! remote_lines="$(git ls-remote origin "refs/heads/$BRANCH")"; then
+  echo "error: origin did not answer git ls-remote; this is the network, not an unpushed branch" >&2
+  exit 69
+fi
+remote_sha="${remote_lines%%[[:space:]]*}"
 if [[ "$remote_sha" != "$SOURCE_SHA" ]]; then
   cat >&2 <<EOF
 push this branch first. The box resolves your commit by fetching it from

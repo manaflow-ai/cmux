@@ -28,7 +28,7 @@ import Testing
     }
 
     /// The viewer over a chat column of `width`, with the column's round compose button (38 points, 12 from the
-    /// left, centred 26 from the top, as the Home chat column placed it) drawn above it when `compose` is on.
+    /// left, centred 26 from the top, as `HomeChatColumnView` places it) drawn above it when `compose` is on.
     static func open(width: CGFloat, title: String, compose: Bool) async throws -> (HomePictureViewer, CGRect?) {
         let host = NSView(frame: CGRect(x: 0, y: 0, width: width, height: 700))
         let picture = try HomePictureViewerTests.image(width: 400, height: 250)

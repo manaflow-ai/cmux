@@ -280,10 +280,10 @@ extension WindowController: WindowDockFrame {
     var frameHome: String? { services.home.dock.isClassic ? nil : services.windowHomes.home(in: state.id)?.id }
     var frameChiefPanel: ChiefPanel { get { state.chiefPanel } set { state.chiefPanel = newValue } }
     var frameChiefPanelArm: ContinuousClock.Instant? { get { chiefPanelArm } set { chiefPanelArm = newValue } }
-    var frameChiefPanelShown: Bool { chiefPanelView.map { $0.superview === root.contentHost } ?? false }
+    var frameChiefPanelShown: Bool { chiefPanelView?.isShown(in: root.contentHost) ?? false }
     var frameChiefPanelHasKeys: Bool { frameChiefPanelShown && chiefPanelView?.hasKeys == true }
     func frameChiefPanelLies(toward direction: LayoutDirection) -> Bool { chiefPanelView?.lies(toward: direction, docked: state.chiefPanel.dockedEdge) ?? false }
-    func frameFocusChiefPanel() { chiefPanelView?.focusChief((chiefPanelView?.chief as? InternalPageView)?.focusTarget ?? (chiefPanelView?.chief as? HomeConversationPage)?.focusTarget) }
+    func frameFocusChiefPanel() { chiefPanelView?.focusChief((chiefPanelView?.chief as? InternalPageView)?.focusTarget ?? (chiefPanelView?.chief as? HomeHostView)?.focusTarget) }
     func frameFocusStage(toward direction: LayoutDirection?) { focusStagePane(toward: direction) }
     func frameChiefPanelDidChange() { frameDidChange() }
 
@@ -301,21 +301,25 @@ extension WindowController {
     func syncChiefPanel() -> ChiefPanel? {
         guard chiefPanelBelongsOnScreen, let chief = chiefPanelSource?() ?? homeChiefView() else { removeChiefPanel(); return nil }
         let view = chiefPanelView ?? makeChiefPanelView()
-        if view.superview !== root.contentHost { root.contentHost.addSubview(view) }
         if view.floating != (state.chiefPanel.dockedEdge == nil) { view.setFloating(state.chiefPanel.dockedEdge == nil) }
-        view.hold(chief)
+        view.mount(in: root.contentHost)
+        giveBackToHome(view.hold(chief))
         return state.chiefPanel
     }
 
     /// Takes the panel off screen; Home's pane that shows the Chief tab takes its view back.
     func removeChiefPanel() {
         guard let view = chiefPanelView, view.superview != nil else { return }
-        let hadKeys = view.hasKeys
-        let homeContent = content?.workspace.id == frameHome ? content : frameHome.flatMap { parked[$0] }
-        let panes = homeContent.map { Array($0.panes.values) } ?? []
-        if let chief = view.release() { for pane in panes where pane.view.content === chief { _ = pane.view.show(chief) } }
-        view.removeFromSuperview()
+        let hadKeys = view.hasKeys, homeContent = giveBackToHome(view.release())
+        view.unmount()
         if hadKeys, homeContent !== content { frameFocusStage(toward: nil) }
+    }
+
+    /// Home's pane that shows `chief` (a view the panel let go) takes it back; Home's content.
+    @discardableResult private func giveBackToHome(_ chief: NSView?) -> WorkspaceContentController? {
+        let home = content?.workspace.id == frameHome ? content : frameHome.flatMap { parked[$0] }
+        if let chief { for pane in home.map({ Array($0.panes.values) }) ?? [] where pane.view.content === chief { _ = pane.view.show(chief) } }
+        return home
     }
 
     /// The stage's pane nearest the panel (`direction` says where from), else its focused pane, takes the keys.
@@ -327,7 +331,7 @@ extension WindowController {
         guard let pane = nearest ?? focused else { return }
         content.layoutModel.focus(pane.layoutPaneID, notify: false, source: .keyMove(byPerson: true))
         content.focus.send(.focusPane(pane.layoutPaneID.rawValue, source: .intent))
-        if let target = pane.currentContent?.focusTarget, window.firstResponder !== target { window.makeFirstResponder(target) }
+        chiefPanelView?.yieldKeys(to: window); if let target = pane.currentContent?.focusTarget, window.firstResponder !== target { window.makeFirstResponder(target) }
     }
 
     /// The view of Home's Chief tab: the Home page in its pinned chat dock (its live view), else a conversation tab.
@@ -339,7 +343,7 @@ extension WindowController {
 
     private func makeChiefPanelView() -> ChiefPanelView {
         let settings = services.settings, look = ChiefPanelScreenLook(share: { [weak services] in services?.chiefScreenShare }, settings: { settings })
-        let view = ChiefPanelView(title: HomeStrings.chiefName, actions: .init(
+        let view = ChiefPanelView(title: HomeStrings.chiefName, launcher: ChiefLauncherPanel(frames: FloatingChatFrames(defaults: .standard, storageKey: ChiefLauncherPanel.framesKey)), actions: .init(
             toggleDock: { [weak self] in self.map { $0.toggleChiefPanelDock(edge: $0.services.chiefDockEdge) } }, hide: { [weak self] in self?.hideChiefPanel() },
             moved: { [weak self] in self?.state.chiefPanel.floatingFrame = $0; self?.frameChiefPanelDidChange() }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) },
             toggleSeesScreen: look.toggle, opened: { [weak self] in look.panelOpened(window: self?.window?.title) }))

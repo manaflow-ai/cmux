@@ -1,5 +1,6 @@
 public import AppKit
 import AVFoundation
+import CmuxNextCompat
 import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
@@ -97,7 +98,7 @@ public final class BackdropImageStore {
     func preview(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) -> NSImage? {
         let size = min(Self.previewPixelSize, maxPixelSize)
         let image = snapshotURL(selection, texture: texture, dark: dark).flatMap { Self.decode($0, maxPixelSize: size) }
-            ?? Self.thumbnail(of: selection).flatMap { Self.decode($0, maxPixelSize: size) }
+            ?? Self.thumbnail(of: selection.resolved(dark: dark)).flatMap { Self.decode($0, maxPixelSize: size) }
         return image.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
     }
 
@@ -141,6 +142,8 @@ public final class BackdropImageStore {
 
     /// The decoded, textured image of `selection`, loading it off the main actor once.
     func image(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) async -> NSImage? {
+        // Light and Dark loads the side the appearance shows, under that side's own key.
+        let selection = selection.resolved(dark: dark)
         let key = Key(id: selection.variantID(dark: dark), texture: texture)
         if let image = images[key] { return image }
         if case .art(let art) = selection, art.imageURL == nil {
@@ -162,9 +165,9 @@ public final class BackdropImageStore {
             load = running
         } else {
             let source = selection.resolvedImageURL(dark: dark), snapshot = snapshotURL(selection, texture: texture, dark: dark)
-            let size = maxPixelSize
+            let size = maxPixelSize, pin = selection.pinnedFrame
             load = Task.detached(priority: .userInitiated) {
-                Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture, dark: dark)
+                Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture, dark: pin?.dark ?? dark, frame: pin?.index)
             }
             loads[key] = load
         }
@@ -188,7 +191,7 @@ public final class BackdropImageStore {
     /// source file's size and modification date, so a replaced file never matches an old one.
     private func snapshotURL(_ selection: BackdropSelection, texture: BackdropTexture, dark: Bool = false) -> URL? {
         guard let snapshots, let source = selection.resolvedImageURL(dark: dark),
-              let attributes = try? FileManager.default.attributesOfItem(atPath: source.path) else { return nil }
+              let attributes = try? FileManager.checked.attributesOfItem(atPath: source.path) else { return nil }
         let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         let bytes = (attributes[.size] as? NSNumber)?.intValue ?? 0
         let identity = "\(selection.variantID(dark: dark))|\(texture.id)|\(maxPixelSize)|\(bytes)|\(modified)"
@@ -197,11 +200,11 @@ public final class BackdropImageStore {
 
     /// The snapshot when there is one, else the source decoded, textured and snapshotted.
     private nonisolated static func load(_ source: URL?, snapshot: URL?, maxPixelSize: Int,
-                                         texture: BackdropTexture, dark: Bool) -> Decoded? {
+                                         texture: BackdropTexture, dark: Bool, frame: Int? = nil) -> Decoded? {
         if let snapshot, let image = decode(snapshot, maxPixelSize: maxPixelSize) {
             return Decoded(image: image, rendered: false)
         }
-        guard let source, let image = decode(source, maxPixelSize: maxPixelSize, dark: dark) else { return nil }
+        guard let source, let image = decode(source, maxPixelSize: maxPixelSize, dark: dark, frame: frame) else { return nil }
         let textured = BackdropTextureRenderer(context: CIContext(options: [.cacheIntermediates: false]))
             .render(image, texture: texture)
         let result = textured ?? image
@@ -210,8 +213,9 @@ public final class BackdropImageStore {
     }
 
     /// The file decoded now (not when it first draws), its longest side at most `maxPixelSize`;
-    /// a video's first frame, and a dynamic HEIC's frame for light or `dark` (``BackdropAppearance``).
-    nonisolated static func decode(_ url: URL, maxPixelSize: Int, dark: Bool = false) -> CGImage? {
+    /// a video's first frame, and a dynamic HEIC's `frame` when it has one, else its frame for light
+    /// or `dark` (``BackdropAppearance``).
+    nonisolated static func decode(_ url: URL, maxPixelSize: Int, dark: Bool = false, frame pinned: Int? = nil) -> CGImage? {
         if AppleWallpapers.isVideo(url.path) { return poster(url, maxPixelSize: maxPixelSize) }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
@@ -220,7 +224,8 @@ public final class BackdropImageStore {
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        let frame = (dark ? BackdropAppearance.dark : .light).frame(in: source)
+        let frame = pinned.flatMap { $0 >= 0 && $0 < CGImageSourceGetCount(source) ? $0 : nil }
+            ?? (dark ? BackdropAppearance.dark : .light).frame(in: source)
         return CGImageSourceCreateThumbnailAtIndex(source, frame, options as CFDictionary)
     }
 
@@ -258,5 +263,34 @@ public final class BackdropImageStore {
             hash = hash &* 0x0000_0100_0000_01b3
         }
         return String(hash, radix: 16)
+    }
+}
+
+extension BackdropImageStore {
+    /// A phone-sized JPEG of the picture at `source` (light or `dark` frame, a video's poster) in
+    /// `folder`, for the iPhone's copy of this Mac's wallpaper (ask-87d30da8e5). Named by the
+    /// source's path, size and date, so an unchanged picture is written once; nil when it does not
+    /// decode. The folder keeps only the copy it returns: the phone fetches the current picture
+    /// alone, so an earlier one is deleted once the new one is in place. Off the main thread: it decodes.
+    public nonisolated static func phoneCopy(of source: URL, dark: Bool, maxPixelSize: Int = 1600, in folder: URL) -> URL? {
+        let attributes = try? FileManager.checked.attributesOfItem(atPath: source.path)
+        let modified = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let bytes = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+        let file = folder.appendingPathComponent(digest("\(source.path)|\(bytes)|\(modified)|\(dark)|\(maxPixelSize)") + ".jpg")
+        if !FileManager.checked.fileExists(atPath: file.path) {
+            guard let image = decode(source, maxPixelSize: maxPixelSize, dark: dark) else { return nil }
+            write(image, to: file)
+            guard FileManager.checked.fileExists(atPath: file.path) else { return nil }
+        }
+        removePhoneCopies(in: folder, except: file)
+        return file
+    }
+
+    /// Deletes every earlier phone copy in `folder` but `kept`.
+    private nonisolated static func removePhoneCopies(in folder: URL, except kept: URL) {
+        let names = (try? FileManager.checked.contentsOfDirectory(atPath: folder.path)) ?? []
+        for name in names where name.hasSuffix(".jpg") && name != kept.lastPathComponent {
+            try? FileManager.checked.removeItem(at: folder.appendingPathComponent(name))
+        }
     }
 }

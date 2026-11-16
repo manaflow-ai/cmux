@@ -16,6 +16,7 @@ import type { AcpmuxBackgroundCause, AcpmuxBackgroundTurn, AcpmuxBackgroundWeigh
 import type { Folds } from "./viewFolds";
 import type { Translate } from "../i18n";
 import { backgroundReactionLook, reactsOnCall } from "./backgroundReaction.experiment";
+import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
 
 /// The line of one background turn (direct.ts makes it at the turn's started record). Its rows are
 /// the rows an event between its started and ended record made (`inBackground`).
@@ -94,6 +95,11 @@ export function drawsBackgroundLine(row: AcpmuxRow): boolean {
   if (!foldsBackground(row)) return false;
   const turn = row.background!;
   const weight = backgroundWeight(turn);
+  // Inline (backgroundTurnLook.experiment.ts), only a line that names its task stays: its failure
+  // or its result. "Background update", "Scheduled check" and the rest draw nothing; the turn's
+  // tool calls draw where they ran (`hiddenInBackground`).
+  if (backgroundTurnsInline(experimentArm(backgroundTurnLook)) && weight !== "failure" && weight !== "result")
+    return false;
   if (weight !== "failure" && turn.attached && reactsOnCall(experimentArm(backgroundReactionLook))) return false;
   switch (weight) {
     case "silent":
@@ -118,7 +124,14 @@ export function headsBackground(row: AcpmuxRow): boolean {
 /// beside that walk avoids a second O(rows) pass on every streamed snapshot.
 export function collectFoldedBackgroundId(closed: Set<string>, row: AcpmuxRow, expanded: Folds): void {
   if (row.kind !== BACKGROUND_TURN || !row.background) return;
-  if (foldsBackground(row) && !expanded.has(row.id)) closed.add(row.background.id);
+  // Inline there is no line to open: a running or quiet turn's reply stays hidden whatever `expanded`
+  // holds, and any other turn's reply draws, as a silent one that ended with something to say has no
+  // line left to open to it.
+  const inline = backgroundTurnsInline(experimentArm(backgroundTurnLook));
+  const hides = inline
+    ? foldsBackground(row) && (row.background.running || row.background.quiet === true)
+    : foldsBackground(row) && !expanded.has(row.id);
+  if (hides) closed.add(row.background.id);
   else closed.delete(row.background.id);
 }
 
@@ -138,16 +151,28 @@ export function foldedBackgroundIds(rows: readonly AcpmuxRow[], expanded: Folds)
 export function foldBackgroundTurns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
   if (!rows.some((row) => row.kind === BACKGROUND_TURN)) return rows;
   const folding = foldedBackgroundIds(rows, expanded);
+  const inline = backgroundTurnsInline(experimentArm(backgroundTurnLook));
   return rows.filter((row) => {
     // A line that draws nothing still draws while open (Find opened it), so it can close again.
     if (row.kind === BACKGROUND_TURN)
       return (
         drawsBackgroundLine(row) ||
         headsBackground(row) ||
-        (expanded.has(row.id) && foldsBackground(row) && row.background?.hasRows === true)
+        (!inline && expanded.has(row.id) && foldsBackground(row) && row.background?.hasRows === true)
       );
-    return !(row.inBackground !== undefined && folding.has(row.inBackground));
+    return !hiddenInBackground(row, folding);
   });
+}
+
+/// Whether `row` is hidden behind its background turn (`folded`, from `foldedBackgroundIds`). With
+/// one line per turn, every row of a closed one is. Inline (Leo, 2026-11-11: "it should maybe
+/// arguably just be treated like a normal tool call"), a folding turn's tool calls draw where they
+/// ran, as any other call does, and only its reply stays hidden: a turn acpmux called quiet has
+/// nothing to tell (Leo: "why do you guys keep sending me this/get pinged to send this"), and a
+/// running one's reply waits until acpmux says whether it is.
+export function hiddenInBackground(row: AcpmuxRow, folded: ReadonlySet<string>): boolean {
+  if (row.inBackground === undefined || !folded.has(row.inBackground)) return false;
+  return row.kind === "assistant" || !backgroundTurnsInline(experimentArm(backgroundTurnLook));
 }
 
 /// The ids of the open background lines in `rows[start..end)`, which a cached turn compares.

@@ -45,7 +45,7 @@ struct ChiefOutboxView: View {
                                    verticalSizeClass == .compact ? theme.metrics.settingsRowHeight : theme.metrics.composerMinHeight * 2))
                 .scrollBounceBehavior(.basedOnSize)
                 HStack {
-                    if session.canRetryConnecting, session.barItem == nil {
+                    if session.canRetryConnecting, ChiefQuestionBar.displayed(session.barItem) == nil {
                         Button(String(localized: "mobile.chief.outbox.retry", defaultValue: "Retry", bundle: .module)) { session.retryConnecting() }
                             .disabled(session.isReconnecting)
                     }

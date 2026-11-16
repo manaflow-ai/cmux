@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { PermissionClientState, PermissionGroup } from "../src/agent-session/acpmux/permissions/protocol";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -67,10 +68,11 @@ beforeAll(async () => {
   await loadEditDiffHunks();
 });
 
-afterAll(() => {
+afterAll(async () => {
   for (const observer of renderObservers) observer.disconnect();
   renderObservers.clear();
   act(() => root?.unmount());
+  await settleReact();
   dom.window.close();
   for (const key of added) delete scope[key];
   for (const [key, had, value] of saved) {

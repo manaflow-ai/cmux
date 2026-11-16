@@ -1,0 +1,25 @@
+/* Completed work rests as one subdued sentence. Its existing name control and icon remain in the
+   activity row; its duration waits for hover or focus. The name opens the agent and its report. */
+.cv-subagent-done-row[data-report-look="compact"] > .cv-subagent-done {
+  color: var(--agent-muted);
+}
+.cv-subagent-done-row[data-report-look="compact"] .cv-subagent-done .cv-agent-tag {
+  padding-inline: 0;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+}
+.cv-subagent-done-row[data-report-look="compact"] .cv-subagent-done button.cv-agent-tag:is(:hover, :focus-visible, :active) {
+  color: var(--cv-text);
+  background: var(--ds-color-hover);
+}
+.cv-subagent-done-row[data-report-look="compact"] .cv-subagent-done__time {
+  opacity: 0;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+}
+.cv-subagent-done-row[data-report-look="compact"]:hover .cv-subagent-done__time,
+.cv-subagent-done-row[data-report-look="compact"]:has(:focus-visible) .cv-subagent-done__time,
+.cv-subagent-done-row[data-report-look="compact"]:has([data-popup-open]) .cv-subagent-done__time {
+  opacity: 1;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+}

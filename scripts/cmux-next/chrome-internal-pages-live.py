@@ -25,6 +25,7 @@ import argparse, glob, json, os, plistlib, socket, subprocess, sys, tempfile, ti
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -170,14 +171,14 @@ app = subprocess.Popen([BINARY], env={
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
     "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), "app socket", 180)
     if not (rpc("debug.surfaces") or {}).get("windows"):
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     # A fresh launch can open on Home with no workspace: make one, so a pane exists for the New Tab page.
     if not quiet_wait(focused_pane, 15):
-        print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
+        safe_print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
     wait_for(focused_pane, "a focused pane", 60)
 
     # 1. The New Tab field, no trailing slash.
@@ -186,7 +187,7 @@ try:
                    "a Chromium tab on chrome://extensions", 90)
     check(url == "chrome://extensions/", f"New Tab chrome://extensions loads the canonical URL: {url}")
     if url is None:
-        print(f"note: focused pane {focused_pane()}; chromium tabs {chromium_tabs()}", flush=True)
+        safe_print(f"note: focused pane {focused_pane()}; chromium tabs {chromium_tabs()}", flush=True)
     wait_for(lambda: any((t.get("title") or "") for t in chromium_tabs()), "the extensions page title", 20)
     snapshot("1-extensions-no-slash")
 

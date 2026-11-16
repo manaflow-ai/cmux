@@ -187,8 +187,9 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
     // A stopped fling should release its directional lead after the idle timeout. Without the
     // decay, the mounted range stays several viewports wider than the settled view indefinitely.
     // A jump far past the cap mounts the view alone (above); once the scroll's lead decays, the warm
-    // rows held through the fling come back around the settled view, a viewport either side, and
-    // nothing wider stays.
+    // rows held through the fling come back around the settled view, HISTORY_VIEWPORTS (4) above it
+    // and a viewport below (Leo, 2026-11-12: "if you try to scroll up, you can't really scroll much of
+    // anything up at all"), each reaching half a warm step further, and nothing wider stays.
     const mountedExtent = () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
@@ -202,7 +203,7 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
     await page.waitForFunction(`(${mountedExtent.toString()})() > 2.5`, undefined, { timeout: 2_000 });
     await page.evaluate(() => window.cmuxPaintFrame());
     const settled = await page.evaluate(`(${mountedExtent.toString()})()`);
-    expect(settled as number).toBeLessThanOrEqual(4);
+    expect(settled as number).toBeLessThanOrEqual(7.5);
     await page.close();
   });
   // Leo, 2026-11-08: scrolling up and down quickly shows "hard cutoffs where there's no text at

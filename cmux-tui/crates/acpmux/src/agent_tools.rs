@@ -48,6 +48,10 @@
 //!   sets `ACPMUX_AGENT_TOOLS=0` (isolated sessions such as the Chief's
 //!   compactor), and Claude args with `--strict-mcp-config`.
 //!   `ACPMUX_AGENT_TOOLS=0` on the daemon turns all of it off.
+//! - A project's own MCP servers (`project_mcp.rs`): a Claude Code start on a checkout that
+//!   still fills (at its head) gets each `.mcp.json` stdio server Claude would start, under its
+//!   name, as `cmux repo mcp-lazy`, which waits for the whole checkout. Left-out sessions too,
+//!   except under `--strict-mcp-config` and for a remote origin.
 //! - Agent memory (`cmux-agent-memory`, cmux#21611): `optchat-chief
 //!   agent-memory mcp`, long-term memory the user's Codex and Claude Code
 //!   sessions share, only when cmux.json sets `agents.memory.enabled` to
@@ -72,6 +76,7 @@ use serde_json::{Map, Value, json};
 
 pub mod claude_plugin_dirs;
 mod cua_helper;
+pub mod project_mcp;
 
 pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
 
@@ -235,6 +240,13 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
     ),
     ("cmux-live/SKILL.md", include_str!("../../../../skills/cmux-live/SKILL.md")),
+    // Diagrams, charts, math, decks, documents and opening pages beside the chat (hq
+    // docs/design/next-rich-output.md). The deck template is a file the agent copies.
+    ("cmux-rich-output/SKILL.md", include_str!("../skills/cmux-rich-output/SKILL.md")),
+    (
+        "cmux-rich-output/templates/deck.html",
+        include_str!("../skills/cmux-rich-output/templates/deck.html"),
+    ),
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
     // How the chat draws a plan, sub-sessions, links and a recap (`agent_guidance.rs`).
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
@@ -277,6 +289,9 @@ pub struct AgentTools {
     /// (`agent_displays.rs`): [`AgentTools::scoped`] then gives the
     /// computer use server its workspace's display, or leaves it out.
     pub displays: Option<PathBuf>,
+    /// Claude Code only: the project's own servers, wrapped for a start at a repository's head
+    /// ([`project_mcp`]). A name of cmux's own servers keeps cmux's.
+    pub project_servers: Map<String, Value>,
 }
 
 /// Where the tools come from; `current()` reads them from this process.
@@ -317,6 +332,13 @@ pub struct Inputs {
     /// Sessions get cmux's hosted MCP server with the signed-in person's tools
     /// (`hosted_mcp.rs`): [`crate::hosted_mcp::SWITCH_ENV`] is `1` (default off).
     pub hosted: bool,
+    /// Sessions get GitHub's own MCP server through the team's cmux GitHub connection
+    /// (`github_mcp.rs`): on a cmux Cloud machine whose Cloud agent mints GitHub tokens.
+    pub github: bool,
+    /// The `desktop-lease` binary when [`DESKTOP_LEASE_ENV`] names one (default off):
+    /// sessions get [`DESKTOP_LEASE_SERVER`], computer use on a leased desktop the host's
+    /// pool suspends while the model thinks (crates/desktop-lease, cmuxterm-hq#8741).
+    pub desktop_lease: Option<PathBuf>,
 }
 
 /// The acpmux command word of the helper v2 bridge (`acpmux cua-mcp`).
@@ -337,6 +359,15 @@ pub const OFFER_TOOLS_ENV: &str = "ACPMUX_OFFER_TOOLS";
 /// instructions come after its cache mark, so each extra server is
 /// uncached input on every turn.
 pub const SERVERS_ENV: &str = "ACPMUX_AGENT_TOOL_SERVERS";
+/// Opt in to leased desktops: the path of a `desktop-lease` binary. Unset (the default)
+/// gives sessions no such server. Its pool socket comes from `DESKTOP_LEASE_SOCKET` when set.
+pub const DESKTOP_LEASE_ENV: &str = "ACPMUX_DESKTOP_LEASE";
+/// The leased-desktop server's name (`desktop-lease mcp`).
+pub const DESKTOP_LEASE_SERVER: &str = "cmux-desktop";
+/// The lease owner the leased-desktop server reads: the session id, so a session's slots
+/// are its own and go back when it ends.
+const DESKTOP_LEASE_OWNER_ENV: &str = "DESKTOP_LEASE_OWNER";
+const DESKTOP_LEASE_SOCKET_ENV: &str = "DESKTOP_LEASE_SOCKET";
 
 impl Inputs {
     pub fn current() -> Self {
@@ -354,10 +385,12 @@ impl Inputs {
             acpmux: crate::self_command::SelfCommand::current().ok(),
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
             offers: var(OFFER_TOOLS_ENV).is_none_or(|v| v != "0"),
-            subsessions: crate::hub::subsessions::enabled(),
+            subsessions: crate::subsession_settings::enabled(),
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
             hosted: crate::hosted_mcp::enabled(),
+            github: crate::github_mcp::available(),
+            desktop_lease: var(DESKTOP_LEASE_ENV).map(PathBuf::from).filter(|p| is_executable(p)),
         }
     }
 }
@@ -556,8 +589,16 @@ pub fn claude_args_for(
     session_id: &str,
     cwd: &Path,
 ) -> Vec<String> {
-    if left_out(remote_origin, env, args) {
-        Vec::new()
+    // Under `--strict-mcp-config` Claude starts no project server; a remote origin's config
+    // stays empty (`left_out`).
+    let strict = args.iter().any(|a| a == "--strict-mcp-config");
+    let project_servers =
+        if remote_origin || strict { Map::new() } else { project_servers_at_head(env, cwd) };
+    let tools = if left_out(remote_origin, env, args) {
+        if project_servers.is_empty() {
+            return Vec::new();
+        }
+        AgentTools::default()
     } else {
         current()
             .scoped(env)
@@ -568,8 +609,23 @@ pub fn claude_args_for(
             .without_off(env)
             .fit_skills()
             .folded()
-            .claude_args(&mcp_config_path(&crate::config::home(), session_id))
+    };
+    AgentTools { project_servers, ..tools }
+        .claude_args(&mcp_config_path(&crate::config::home(), session_id))
+}
+
+/// The project's own servers wrapped to wait for the checkout ([`project_mcp`]), for a Claude
+/// Code start in `cwd` while that checkout still fills (a start at its head); none once it is in.
+fn project_servers_at_head(env: &BTreeMap<String, String>, cwd: &Path) -> Map<String, Value> {
+    // A linked chat folder probes as the folder it names, as `wrapped` walks it.
+    if !project_mcp::filling(&cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf())) {
+        return Map::new();
     }
+    let Some(cmux) = project_mcp::cmux_program() else {
+        tracing::warn!("agent tools: no cmux-tui beside acpmux; project MCP servers start at once");
+        return Map::new();
+    };
+    project_mcp::wrapped(cwd, &project_mcp::Claude::of(env, cwd), &cmux, project_mcp::filling)
 }
 
 /// The session's Claude Code MCP config file: `<home>/run/mcp/<session>.json`.
@@ -586,16 +642,40 @@ pub fn mcp_config_path(home: &Path, session_id: &str) -> PathBuf {
 /// Remove the session's MCP config when the session ends.
 pub fn remove_mcp_config(home: &Path, session_id: &str) {
     let path = mcp_config_path(home, session_id);
-    let _ = std::fs::remove_file(crate::bg_hook::denied_path(&path));
-    let _ = std::fs::remove_file(path);
+    let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(&path));
+    let _ = crate::home_fs::remove_file(path);
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
-    let mut tools = resolve_with_cua_helper(inputs, cua_helper::installed);
-    if crate::cli::cloud_join::require_joined_consent("control").is_err() {
+    resolve_gated(inputs, cua_helper::installed, || {
+        computer_use_allowed(crate::machine_record::local_computer_use_kept, || {
+            crate::machine_record::require_joined_consent("control").is_ok()
+        })
+    })
+}
+
+/// `resolve` with the OS account's answers passed in: `installed` finds an installed helper,
+/// `control_granted` says whether this machine may be controlled (a cloud-joined machine needs
+/// the person's "control" consent first). Tests pass their own, so no test reads or writes the
+/// account's machine consent, which a cloud-joined fleet Mac has.
+fn resolve_gated(
+    inputs: &Inputs,
+    installed: impl FnOnce(&Path) -> Option<PathBuf>,
+    control_granted: impl FnOnce() -> bool,
+) -> AgentTools {
+    let mut tools = resolve_with_cua_helper(inputs, installed);
+    if !control_granted() {
         tools.servers.retain(|server| server.name != "cmux-cua");
     }
     tools
+}
+
+/// Whether this daemon's own sessions get computer use (a remote-origin session gets no tools,
+/// [`left_out`]): on a joined machine only with local control consent, unless only signing in
+/// joined it (`kept`), which never takes the Mac's own tools away. `consent` is asked only then:
+/// it records a refusal.
+fn computer_use_allowed(kept: impl FnOnce() -> bool, consent: impl FnOnce() -> bool) -> bool {
+    kept() || consent()
 }
 
 fn resolve_with_cua_helper(
@@ -713,9 +793,19 @@ fn resolve_with_cua_helper(
         // send, ls, last and info (`acpmux_mcp.rs`): messages another session as this one,
         // instead of `acpmux send` in a shell; and the chat's daemon-owned background tasks.
         servers.push(McpServer {
-            name: crate::acpmux_mcp::SERVER_NAME.into(),
+            name: crate::acpmux_mcp_names::SERVER_NAME.into(),
             command: acpmux.exe.clone(),
             args: acpmux.args_lossy(&["acpmux-mcp"]),
+            env: vec![],
+        });
+    }
+    if let (true, Some(acpmux)) = (inputs.github, &inputs.acpmux) {
+        // GitHub's own MCP server through the team's GitHub connection (`github_mcp.rs`): the
+        // machine's Cloud agent mints each call's token; nothing goes in its env.
+        servers.push(McpServer {
+            name: crate::github_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["github-mcp"]),
             env: vec![],
         });
     }
@@ -732,6 +822,20 @@ fn resolve_with_cua_helper(
                 crate::hosted_mcp::CMUX_BIN_ENV.into(),
                 cmux.to_string_lossy().into_owned(),
             )],
+        });
+    }
+    if let Some(lease) = &inputs.desktop_lease {
+        // Leased desktops (`desktop-lease mcp`): `for_session` names the owner.
+        servers.push(McpServer {
+            name: DESKTOP_LEASE_SERVER.into(),
+            command: lease.clone(),
+            args: vec!["mcp".into()],
+            env: std::env::var(DESKTOP_LEASE_SOCKET_ENV)
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|s| (DESKTOP_LEASE_SOCKET_ENV.to_owned(), s))
+                .into_iter()
+                .collect(),
         });
     }
     if let Some(cmux) = executable("cmux")
@@ -765,7 +869,13 @@ fn resolve_with_cua_helper(
             }
         };
     let user_plugin_dir = user_plugin(&inputs.state_dir);
-    AgentTools { servers, plugin_dir, user_plugin_dir, displays: inputs.displays.clone() }
+    AgentTools {
+        servers,
+        plugin_dir,
+        user_plugin_dir,
+        displays: inputs.displays.clone(),
+        project_servers: Map::new(),
+    }
 }
 
 impl AgentTools {
@@ -788,7 +898,7 @@ impl AgentTools {
         }
         let scope = session_env.get(CUA_SCOPE_ENV).cloned().unwrap_or_default();
         let tools = session_env.get(MCP_TOOLS_ENV);
-        let gh = if self.servers.iter().any(|s| s.name == crate::acpmux_mcp::SERVER_NAME) {
+        let gh = if self.servers.iter().any(|s| s.name == crate::acpmux_mcp_names::SERVER_NAME) {
             gh_env(session_env, || crate::login_env::every_child_pairs(Some(session_env)))
         } else {
             Vec::new()
@@ -798,7 +908,7 @@ impl AgentTools {
             // The `acpmux` server's `pr_state` runs the agent's own `gh`: it gets the agent's gh
             // sign-in, which a client that passes a stdio server only an allowlisted env (Codex)
             // leaves out.
-            if server.name == crate::acpmux_mcp::SERVER_NAME {
+            if server.name == crate::acpmux_mcp_names::SERVER_NAME {
                 server.env.retain(|(k, _)| !GH_ENV.contains(&k.as_str()));
                 server.env.extend(gh.iter().cloned());
             }
@@ -808,7 +918,7 @@ impl AgentTools {
             // The `acpmux` server gets the list too: folded, `cmux` filters its
             // tools by the same names; standalone (cmux off or missing, so no
             // fold) the server's own filter is the only one (`acpmux_mcp::allowed`).
-            if (server.name == "cmux" || server.name == crate::acpmux_mcp::SERVER_NAME)
+            if (server.name == "cmux" || server.name == crate::acpmux_mcp_names::SERVER_NAME)
                 && let Some(tools) = tools
             {
                 server.env.push((MCP_TOOLS_ENV.to_owned(), tools.clone()));
@@ -864,7 +974,7 @@ impl AgentTools {
                     crate::cloud_repo_mcp::SERVER_NAME => {
                         matches!(k.as_str(), "CMUX_BIN" | "CMUX_SOCKET_PATH")
                     }
-                    crate::acpmux_mcp::SERVER_NAME => {
+                    crate::acpmux_mcp_names::SERVER_NAME => {
                         k == MCP_TOOLS_ENV || GH_ENV.contains(&k.as_str())
                     }
                     _ => false,
@@ -874,6 +984,10 @@ impl AgentTools {
             server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
             if server.name == "cmux" || server.name == MEMORY_SERVER_NAME {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
+            }
+            if server.name == DESKTOP_LEASE_SERVER {
+                server.env.retain(|(k, _)| k != DESKTOP_LEASE_OWNER_ENV);
+                server.env.push((DESKTOP_LEASE_OWNER_ENV.to_owned(), session_id.to_owned()));
             }
             let session_env = match server.name.as_str() {
                 crate::secret_mcp::SERVER_NAME => Some(crate::secret_mcp::SESSION_ENV),
@@ -898,7 +1012,7 @@ impl AgentTools {
             // Code config with it is a 0600 file (`claude_args`).
             if server.name == crate::subsession_mcp::SERVER_NAME
                 || server.name == crate::forum_mcp::SERVER_NAME
-                || server.name == crate::acpmux_mcp::SERVER_NAME
+                || server.name == crate::acpmux_mcp_names::SERVER_NAME
                 || server.name == crate::cloud_repo_mcp::SERVER_NAME
             {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
@@ -911,7 +1025,7 @@ impl AgentTools {
                     ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
                 server.env.extend(
-                    crate::hub::person::caller_env(session_id)
+                    crate::person_tokens::caller_env(session_id)
                         .into_iter()
                         .map(|(k, v)| (k.to_owned(), v)),
                 );
@@ -1024,6 +1138,9 @@ impl AgentTools {
         };
         let mut cmux = self.servers.remove(at);
         cmux.env.retain(|(k, _)| k != UPSTREAMS_ENV);
+        // acpmux's own servers run in one process (`tools_mcp.rs`): each keeps its own spec
+        // (a `cmux` that does not read `shared` starts it as before) and names the one launch.
+        let shared = shared_helper(&self.servers);
         // Always set, `[]` too: a value a harness passes on from its own env
         // (a preset's) must never name the servers.
         let upstreams: Vec<Value> = self
@@ -1038,6 +1155,11 @@ impl AgentTools {
                 if s.name == crate::secret_mcp::SERVER_NAME {
                     spec.set("callTimeoutSecs", json!(3600));
                 }
+                if let Some(shared) = &shared
+                    && crate::tools_mcp::owns(&s.name, &s.args)
+                {
+                    spec.set(SHARED_FIELD, shared.clone());
+                }
                 spec
             })
             .collect();
@@ -1048,7 +1170,7 @@ impl AgentTools {
 
     /// The servers as one Claude Code MCP config, or `None` without servers.
     pub fn mcp_config(&self) -> Option<Value> {
-        if self.servers.is_empty() {
+        if self.servers.is_empty() && self.project_servers.is_empty() {
             return None;
         }
         let mut servers = Map::new();
@@ -1059,6 +1181,9 @@ impl AgentTools {
                 s.name.clone(),
                 json!({"type": "stdio", "command": s.command, "args": s.args, "env": env}),
             );
+        }
+        for (name, server) in &self.project_servers {
+            servers.entry(name.clone()).or_insert_with(|| server.clone());
         }
         Some(json!({"mcpServers": servers}))
     }
@@ -1072,9 +1197,9 @@ impl AgentTools {
         let mut args = Vec::new();
         // Each launch starts the hook's turned-away calls afresh: one from a launch with other
         // servers is not a retry in this one.
-        let _ = std::fs::remove_file(crate::bg_hook::denied_path(config_file));
-        if self.servers.is_empty() {
-            let _ = std::fs::remove_file(config_file);
+        let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(config_file));
+        if self.servers.is_empty() && self.project_servers.is_empty() {
+            let _ = crate::home_fs::remove_file(config_file);
         }
         if let Some(config) = self.mcp_config() {
             match write_private(config_file, config.to_string().as_bytes()) {
@@ -1085,7 +1210,7 @@ impl AgentTools {
                 // Never fall back to inline JSON: that puts the token in argv. An earlier
                 // launch's file goes too, so the hook never reads servers this one lacks.
                 Err(e) => {
-                    let _ = std::fs::remove_file(config_file);
+                    let _ = crate::home_fs::remove_file(config_file);
                     tracing::warn!(
                         "agent tools: MCP config {} not written, session gets no MCP servers: {e:#}",
                         config_file.display()
@@ -1101,29 +1226,52 @@ impl AgentTools {
     }
 }
 
+/// The upstream spec field that names the process a server runs in when others run in it too
+/// (`cmux mcp serve`'s `upstream.rs`): `{command, args, env}`, the same for each of them.
+pub const SHARED_FIELD: &str = "shared";
+
+/// The one launch of acpmux's own servers in `servers` ([`crate::tools_mcp::SERVERS`]):
+/// `acpmux tools-mcp` under their prefix with every env value of theirs, all for the same
+/// session. None without such a server, or when two of them disagree (another command, prefix
+/// or value of a key): then each runs on its own, as before.
+fn shared_helper(servers: &[McpServer]) -> Option<Value> {
+    let mut launch: Option<(&PathBuf, &[String])> = None;
+    let mut env = BTreeMap::<&str, &str>::new();
+    for server in servers.iter().filter(|s| crate::tools_mcp::owns(&s.name, &s.args)) {
+        let (_, prefix) = server.args.split_last()?;
+        match launch {
+            None => launch = Some((&server.command, prefix)),
+            Some((command, first)) if *command == server.command && first == prefix => {}
+            Some(_) => return None,
+        }
+        for (key, value) in &server.env {
+            if env
+                .insert(key.as_str(), value.as_str())
+                .is_some_and(|before| before != value.as_str())
+            {
+                return None;
+            }
+        }
+    }
+    let (command, prefix) = launch?;
+    let mut args = prefix.to_vec();
+    args.push(crate::tools_mcp::ARG.to_owned());
+    Some(json!({"command": command, "args": args, "env": env}))
+}
+
 /// Write `bytes` to `path` as a 0600 file in a 0700 folder (to a temporary
 /// file first, then renamed, so claude never reads half a config).
 #[cfg(unix)]
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-    // A request during a lost home's shutdown never makes it again (`config::mark_home_lost`).
+    // A request during a lost home's shutdown never makes it again (`config::mark_home_lost`),
+    // and the file goes through the folder this daemon holds (`home_fs`): a home replaced after
+    // the check never gets it.
     crate::config::refuse_lost_home(path)?;
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-    let tmp = dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
-    let written = (|| -> std::io::Result<()> {
-        let mut f =
-            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        std::fs::rename(&tmp, path)
-    })();
-    if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    Ok(written?)
+    crate::home_fs::create_dir_all(dir, 0o700)?;
+    crate::home_fs::set_mode(dir, 0o700)?;
+    // The copy of a writer stopped before its rename is removed by the next write.
+    crate::config::write_atomic_checked(path, bytes)
 }
 /// Windows: the folder and the file owner-only (`owner_only.rs`).
 #[cfg(windows)]
@@ -1203,8 +1351,10 @@ fn materialize(state_dir: &Path, keep: impl Fn(&str) -> bool) -> anyhow::Result<
     if dir.join(".claude-plugin/plugin.json").is_file() {
         return Ok(dir);
     }
+    // Written through the folder this daemon holds (`home_fs`): a home replaced after the check
+    // never gets the plugin.
     crate::config::refuse_lost_home(state_dir)?;
-    std::fs::create_dir_all(state_dir)?;
+    crate::home_fs::create_dir_all(state_dir, 0o777)?;
     let tmp = state_dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
     let manifest = json!({
         "name": PLUGIN_NAME,
@@ -1217,19 +1367,19 @@ fn materialize(state_dir: &Path, keep: impl Fn(&str) -> bool) -> anyhow::Result<
     for (path, text) in files {
         let file = tmp.join(path);
         if let Some(parent) = file.parent() {
-            std::fs::create_dir_all(parent)?;
+            crate::home_fs::create_dir_all(parent, 0o777)?;
         }
-        std::fs::write(file, text)?;
+        crate::home_fs::write_synced(&file, text.as_bytes())?;
     }
-    match std::fs::rename(&tmp, &dir) {
+    match crate::home_fs::rename(&tmp, &dir) {
         Ok(()) => Ok(dir),
         // Another spawn wrote the same content first.
         Err(_) if dir.join(".claude-plugin/plugin.json").is_file() => {
-            let _ = std::fs::remove_dir_all(&tmp);
+            let _ = crate::home_fs::remove_dir_all(&tmp);
             Ok(dir)
         }
         Err(e) => {
-            let _ = std::fs::remove_dir_all(&tmp);
+            let _ = crate::home_fs::remove_dir_all(&tmp);
             Err(e.into())
         }
     }

@@ -101,7 +101,7 @@ as `readyCpuMs` in Chromium, and the wall time as `readyMs`, which an engine wit
 held to instead). CPU time, not wall time: a play's own waits (a scripted turn's quiet windows) and
 a runner busy with other shards stretch wall time without the state doing more work. A stage that
 never reports ready within the runner's 20 s wait fails as never ready. `ready-budgets.json` holds a default
-and a row for each state slower than it. A state past its budget by half again plus 500 ms is
+and a row for each state slower than it, or for a fast state held tighter than it. A state past its budget by half again plus 500 ms is
 rendered again, and fails only when its fastest run is still past it. A state that beats its row by
 a fifth is printed with the lower value. Rows only go down: download a run's `gallery-health-*`
 artifacts and run `bun ready-budgets.ts --from <dir>` to lower every row the run beat. It never

@@ -31,9 +31,12 @@ button.cv-filepeek__name:focus-visible > .cv-edit-diff__name {
   overflow: auto;
   overscroll-behavior: contain;
 }
+/* Past eight lines the read scrolls inside an eight-line box; its bottom edge fades only while more
+   lies under it (moreBelow.ts), hard once scrolled to the end. */
 .cv-filepeek__body[data-preview="cut"] {
   max-height: calc(8 * var(--cv-codeblock-line-height, 20px) + var(--ds-space-2));
-  overflow: hidden;
+}
+.cv-filepeek__body[data-preview="cut"][data-more-below] {
   --cv-fade-bottom: 28px;
   mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-fade-bottom)), transparent);
 }

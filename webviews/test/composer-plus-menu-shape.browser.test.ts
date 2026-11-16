@@ -14,8 +14,12 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import designScale from "../../schemas/design-scale/design-scale.json";
 
 await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () => {
+  /** Every popup's glass is the menu level (ui/glass/glass.css GLASS LEVELS; Leo, 2026-11-11: "the styles
+   * mix and they don't look good"): its tint, over its 32 px frost, is how dense the + menu is. */
+  const MENU_TINT = (designScale.glass.find((level) => level.name === "menu")?.tint ?? 78) / 100;
   setDefaultTimeout(150_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -78,6 +82,7 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
       };
       const popup = document.querySelector<HTMLElement>(`${plus}.acpmux-menu`)!;
       const css = getComputedStyle(popup);
+      const viewport = popup.querySelector<HTMLElement>(":scope > .ui-popup-scroll") ?? popup;
       const rows = [...popup.querySelectorAll<HTMLElement>(".acpmux-menu-item")].map((row) => {
         const label = row.querySelector(".acpmux-menu-label");
         const description = row.querySelector(".acpmux-menu-description");
@@ -115,8 +120,10 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
       return {
         popup: box(popup),
         maxHeight: css.maxHeight,
-        scrolls: popup.scrollHeight > popup.clientHeight + 1,
-        overflowY: css.overflowY,
+        scrolls: viewport.scrollHeight > viewport.clientHeight + 1,
+        // The rows scroll in the glass shell's inner viewport (ui/Menu.tsx `.ui-popup-scroll`), which
+        // turns into a scrollport only once its rows overflow (popupSurface.css).
+        overflowY: getComputedStyle(viewport).overflowY,
         headers: popup.querySelectorAll(".acpmux-menu-header").length,
         backdrop: css.backdropFilter || css.getPropertyValue("-webkit-backdrop-filter"),
         alpha,
@@ -213,7 +220,8 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
       const menu = await read(page, state);
       expect(menu.popup.height).toBeLessThanOrEqual(360);
       expect(Number.parseFloat(menu.maxHeight)).toBeLessThanOrEqual(360);
-      expect(menu.overflowY).toMatch(/auto|scroll/);
+      // Rows that overflow scroll inside; rows that fit need no scrollport.
+      if (menu.scrolls) expect(menu.overflowY).toMatch(/auto|scroll/);
       await page.close();
     });
 
@@ -240,8 +248,8 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
     }
     // Its own glass frosts what is behind it: no backdrop root around it, and a blur or an opaque fill.
     expect(menu.root).toBe("");
-    // Opaque, or glass dense enough over its blur that the pills read as frost, not text.
-    expect(menu.alpha >= 0.9 || (/blur/.test(menu.backdrop) && menu.alpha >= 0.8)).toBe(true);
+    // Opaque, or the one menu glass (its tint over its blur) that turns the pills to frost, not text.
+    expect(menu.alpha >= 0.9 || (/blur/.test(menu.backdrop) && menu.alpha >= MENU_TINT - 0.01)).toBe(true);
     await page.close();
   });
 });

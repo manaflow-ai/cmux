@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextWakeups
 import Foundation
 
-/// Link hints on a focused Chromium page (`f` follows, `F` opens a link in a
+/// Link hints on a focused page of either engine (`f` follows, `F` opens a link in a
 /// new browser split): the page script labels what is clickable on screen,
 /// the key router hands this controller every key while labels show, and a
 /// complete label clicks its element with trusted input (or opens its link).
@@ -15,7 +15,7 @@ public final class LinkHintController {
         /// on a later one (review 6603845634 findings 2 and 3), whatever tab it is on.
         let id: Int
         var keys: LinkHintSession
-        weak var tab: CEFTab?
+        weak var tab: (any BrowserTab)?
         weak var window: NSWindow?
         /// Whether this tab's page still has the keyboard in its window.
         let isFocused: () -> Bool
@@ -42,13 +42,13 @@ public final class LinkHintController {
     private let bound = DemandTimer(owner: "LinkHintController.answer")
 
     /// The page's answer to whether a text field has the keyboard (nil: the call failed); a test answers instead.
-    var focusAnswer: @MainActor (CEFTab) async -> Bool? = LinkHintController.pageFocus
+    var focusAnswer: @MainActor (any BrowserTab) async -> Bool? = LinkHintController.pageFocus
     /// The page's hint targets (nil: the call failed); a test answers instead.
-    var targetsAnswer: @MainActor (CEFTab) async -> [LinkHintTarget]? = LinkHintController.pageTargets
+    var targetsAnswer: @MainActor (any BrowserTab) async -> [LinkHintTarget]? = LinkHintController.pageTargets
     /// Gives keys to the page they were typed into, in order; a test records them instead.
     var send: @MainActor ([NSEvent]) -> Void = LinkHintController.dispatch
     /// Runs a label script (draw, narrow, remove) in `tab`'s page (nil: the call failed); a test answers instead.
-    var script: @MainActor (CEFTab, String) async -> BrowserJSValue? = LinkHintController.pageScript
+    var script: @MainActor (any BrowserTab, String) async -> BrowserJSValue? = LinkHintController.pageScript
     /// How long the page may take to say whether a text field has the keyboard; a test that ends the wait itself sets it longer.
     var answerBound: Duration = .milliseconds(500)
 
@@ -56,7 +56,12 @@ public final class LinkHintController {
 
     public var isActive: Bool { session != nil }
 
-    public func start(_ mode: LinkHintSession.Mode, tab: CEFTab, window: NSWindow?, isFocused: @escaping () -> Bool,
+    /// The notice a page with nothing to label shows.
+    public static var noLinksNotice: String {
+        String(localized: "linkHints.notice.noLinks", defaultValue: "No links on screen", bundle: .module)
+    }
+
+    public func start(_ mode: LinkHintSession.Mode, tab: any BrowserTab, window: NSWindow?, isFocused: @escaping () -> Bool,
                       openInSplit: @escaping (URL) -> Void, noLinks: @escaping () -> Void) {
         cancel()
         // The cancel gave held keys to the page, and one of them may have started a session (link hints on a chord): this
@@ -106,7 +111,7 @@ public final class LinkHintController {
     /// keys typed meanwhile go to the page, in order.
     func answerTimedOut() {
         guard let current = session, current.keys.hints == nil, !current.noField else { return }
-        if let tab = current.tab { tab.host.lifecycleTrace.record(tab.id, "link-hints no answer: keys go to the page") }
+        if let tab = current.tab { Self.trace(tab, "link-hints no answer: keys go to the page") }
         cancel()
     }
 
@@ -178,36 +183,36 @@ public final class LinkHintController {
         Task { [script] in _ = await script(tab, LinkHintSession.removeScript) }
     }
 
-    private static func pageScript(_ tab: CEFTab, _ source: String) async -> BrowserJSValue? {
+    private static func pageScript(_ tab: any BrowserTab, _ source: String) async -> BrowserJSValue? {
         try? await tab.evaluate(source, world: .isolated, gesture: .cmux)
     }
 
     /// Whether a text field of `tab`'s page has the keyboard: the focused element only (``LinkHintSession/focusScript``).
     /// The input journal gets the call's time.
-    private static func pageFocus(_ tab: CEFTab) async -> Bool? {
+    private static func pageFocus(_ tab: any BrowserTab) async -> Bool? {
         let clock = ContinuousClock(), began = clock.now
         guard let focus = try? await tab.evaluate(LinkHintSession.focusScript, world: .isolated, gesture: .cmux) else { return nil }
         let editing = LinkHintSession.editing(from: focus)
-        tab.host.lifecycleTrace.record(tab.id, "link-hints focus-check \(Self.ms(clock.now - began)) editing=\(editing)")
+        trace(tab, "link-hints focus-check \(Self.ms(clock.now - began)) editing=\(editing)")
         return editing
     }
 
     /// `tab`'s page's hint targets (``LinkHintSession/collectScript``). The input journal gets the call's time.
-    private static func pageTargets(_ tab: CEFTab) async -> [LinkHintTarget]? {
+    private static func pageTargets(_ tab: any BrowserTab) async -> [LinkHintTarget]? {
         let clock = ContinuousClock(), began = clock.now
         guard let value = try? await tab.evaluate(LinkHintSession.collectScript, world: .isolated, gesture: .cmux) else { return nil }
         let targets = LinkHintSession.targets(from: value)
-        tab.host.lifecycleTrace.record(tab.id, "link-hints targets \(Self.ms(clock.now - began)) count=\(targets.count)")
+        trace(tab, "link-hints targets \(Self.ms(clock.now - began)) count=\(targets.count)")
         return targets
     }
 
     private static func ms(_ duration: Duration) -> String { String(format: "%.1fms", Double(duration.components.attoseconds) / 1e15 + Double(duration.components.seconds) * 1000) }
 
     /// The page answered (nil: its focus check failed: the keys go to the page). With no text field, failed targets are none.
-    private func collected(_ answer: (editing: Bool, targets: [LinkHintTarget])?, from tab: CEFTab, session id: Int) {
+    private func collected(_ answer: (editing: Bool, targets: [LinkHintTarget])?, from tab: any BrowserTab, session id: Int) {
         guard var current = session, current.id == id, current.keys.hints == nil else { return }
         bound.cancel()
-        guard let answer else { tab.host.lifecycleTrace.record(tab.id, "link-hints no answer: keys go to the page"); return cancel() }
+        guard let answer else { Self.trace(tab, "link-hints no answer: keys go to the page"); return cancel() }
         let resolved = current.pending.resolve(&current.keys, targets: answer.targets, editing: answer.editing)
         session = current
         defer { deliver(resolved.page) }
@@ -246,7 +251,7 @@ public final class LinkHintController {
         for key in keys { if let window = key.window, window !== NSApp.keyWindow { window.sendEvent(key) } else { NSApp.sendEvent(key) } }
     }
 
-    private func apply(_ outcome: LinkHintSession.Outcome, on tab: CEFTab) {
+    private func apply(_ outcome: LinkHintSession.Outcome, on tab: any BrowserTab) {
         guard let current = session else { return }
         switch outcome {
         case .cancel, .passThrough:
@@ -270,7 +275,7 @@ public final class LinkHintController {
     }
 
     /// Removes the labels, then clicks `target` or opens its link. Labels a scroll removed mean stale positions: nothing.
-    private func pick(_ target: LinkHintTarget, of ended: Session, in tab: CEFTab) async {
+    private func pick(_ target: LinkHintTarget, of ended: Session, in tab: any BrowserTab) async {
         guard await script(tab, LinkHintSession.removeScript) == .bool(true) else { return }
         switch ended.keys.mode {
         case .follow: await Self.click(target, in: tab)
@@ -278,9 +283,15 @@ public final class LinkHintController {
         }
     }
 
-    /// A trusted click at the target's center (viewport CSS pixels), like
-    /// the user's own: links honor their target and page handlers run.
-    private static func click(_ target: LinkHintTarget, in tab: CEFTab) async {
+    /// The input journal of a Chromium tab (WebKit tabs keep none).
+    private static func trace(_ tab: any BrowserTab, _ line: String) {
+        (tab as? CEFTab)?.host.lifecycleTrace.record(tab.id, line)
+    }
+
+    /// A click at the target's center (viewport CSS pixels), like the user's own: links honor their
+    /// target and page handlers run.
+    private static func click(_ target: LinkHintTarget, in tab: any BrowserTab) async {
+        guard let tab = tab as? CEFTab else { return await clickInPage(target, in: tab) }
         // A native click (fork API 29) opens no DevTools session: the tab's renderer stays shareable.
         if tab.sendClick(x: target.x * tab.emulationInputScale, y: target.y * tab.emulationInputScale) { return }
         for type in ["mouseMoved", "mousePressed", "mouseReleased"] {
@@ -290,5 +301,12 @@ public final class LinkHintController {
                 "type": type, "x": target.x * tab.emulationInputScale, "y": target.y * tab.emulationInputScale, "button": pressed ? "left" : "none", "clickCount": pressed ? 1 : 0,
             ])
         }
+    }
+
+    /// WebKit has no trusted click from the host: the person's command clicks the element at the
+    /// target's center as a user gesture (a `target=_blank` link opens its tab, a field takes
+    /// the keyboard).
+    private static func clickInPage(_ target: LinkHintTarget, in tab: any BrowserTab) async {
+        _ = try? await tab.evaluate(LinkHintSession.clickScript(target), world: .isolated, gesture: .agent)
     }
 }

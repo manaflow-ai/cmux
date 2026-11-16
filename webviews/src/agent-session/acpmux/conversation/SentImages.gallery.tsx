@@ -186,7 +186,9 @@ export default componentEntry<Props>({
   variants: {
     pasted: {
       note: "Three pasted screenshots (square, wide, tall): each the whole image at most 120px tall; hover names its size.",
-      props: { images: pasted },
+      // Sized, as the pane's own paste is (it measured each image): the unsized read, whose square
+      // slots take their shapes when the bytes land, is "loading" and "loading-sized"'s to show.
+      props: { images: pasted.map((image) => ({ ...image, width: image.shot!.width, height: image.shot!.height })) },
     },
     "wide-strip": {
       note: "A strip cut from a chat (1568×74, Leo's 2026-11-05 capture): the whole strip at 320px wide, never a magnified crop of its middle.",

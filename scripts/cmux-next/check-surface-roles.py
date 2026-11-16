@@ -22,11 +22,14 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 SOURCE = "schemas/surface-roles/surface-roles.json"
 CSS_FILE = "webviews/src/ui/glass/glass.css"
 SWIFT_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/SurfaceRole.swift"
+DESIGN_SCALE = "schemas/design-scale/design-scale.json"
 # What this check reads. scripts/web_lint_prepush.py runs it alone when a push touches one (declared_inputs()).
-INPUTS = (SOURCE, CSS_FILE, SWIFT_FILE)
+INPUTS = (SOURCE, DESIGN_SCALE, CSS_FILE, SWIFT_FILE)
 BEGIN = "/* surface-roles:begin. Follows " + SOURCE + " (scripts/cmux-next/check-surface-roles.py checks it). */"
 END = "/* surface-roles:end */"
-# The neutral glass's gray levels (FloatingGlassStyle.look): dark veil, light veil.
+# The neutral glass's gray levels (FloatingGlassStyle.look): dark veil, light veil. The web reads them
+# as the design scale's glass material tokens (--ds-material-neutral-*, --ds-material-rim-*), so every
+# neutral role mixes the one material at its own opacity and names no color of its own.
 DARK_GRAY, LIGHT_GRAY = 0.11, 0.99
 FIELDS = {"name", "for", "tone", "cornerDepth", "webRadius", "castsShadow", "reduceTransparency"}
 NEUTRAL_FIELDS = FIELDS | {"style", "veil", "rim"}
@@ -168,9 +171,19 @@ extension FloatingGlassStyle {{
     )
 
 
+def material():
+    # The design scale's glass material must be the gray levels the native neutral looks draw.
+    with open(os.path.join(ROOT, DESIGN_SCALE)) as handle:
+        glass = json.load(handle)["glassMaterial"]
+    assert (glass["neutralLight"], glass["neutralDark"], glass["rimLit"], glass["rimShade"]) == (
+        LIGHT_GRAY, DARK_GRAY, 1, 0), "%s glassMaterial differs from FloatingGlassStyle.look's grays" % DESIGN_SCALE
+    return {LIGHT_GRAY: "--ds-material-neutral-light", DARK_GRAY: "--ds-material-neutral-dark", 1: "--ds-material-rim-lit",
+            0: "--ds-material-rim-shade"}
+
+
 def gray(white, alpha):
-    level = round(white * 255)
-    return "rgb(%d %d %d / %s%%)" % (level, level, level, num(round(alpha * 100, 2)))
+    # The material's token at the role's opacity (color-mix with transparent is the gray at that alpha).
+    return "color-mix(in srgb, var(%s) %s%%, transparent)" % (material()[white], num(round(alpha * 100, 2)))
 
 
 def theme_veil(alpha):
@@ -184,7 +197,8 @@ def css_block(data):
         "/* The overlay surface roles (CmuxNextDesign SurfaceRole): a card, toast or sheet reads its radius,",
         "   veil and rim here; popovers and menus are .ui-popup.ui-glass (--ui-popup-radius, the tint above).",
         "   Glass, never opaque: a fill on an overlay covers less than --surface-near-opaque; Reduce",
-        "   Transparency is the one opaque path (--glass-opaque). */",
+        "   Transparency is the one opaque path (--glass-opaque). A neutral role's veil and rims are one",
+        "   material, the design scale's (--ds-material-neutral-*, --ds-material-rim-*), at the role's opacities. */",
         ":root {",
         "  --surface-near-opaque: %s%%;" % num(round(data["nearOpaque"] * 100, 2)),
     ]

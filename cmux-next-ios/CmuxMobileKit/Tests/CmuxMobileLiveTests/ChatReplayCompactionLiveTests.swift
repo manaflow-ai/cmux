@@ -9,7 +9,7 @@ import Testing
 /// buffer grows with messages rather than tokens, and a later reader still draws
 /// exactly the transcript the first one drew.
 @MainActor
-@Suite struct ChatReplayCompactionLiveTests {
+@Suite(.timeLimit(.minutes(2))) struct ChatReplayCompactionLiveTests {
     nonisolated static let chunks = 3000
 
     nonisolated static func fakeAcpmux() -> MockMacLink {

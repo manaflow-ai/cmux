@@ -237,17 +237,6 @@ jobs:
               echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
               exit 1
             fi
-            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
-              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
-            hook="${GLAEDA_HOOK_SHA256:-}"
-            listed=""
-            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
-              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
-            fi
-            if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-              exit 1
-            fi
             echo "claim=owned" >> "$GITHUB_OUTPUT"
           fi
 
@@ -999,13 +988,13 @@ jobs:
           names=()
           if [ -n "$UPLOADED_ASSETS" ]; then
             read -ra names <<<"$UPLOADED_ASSETS"
-            for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+            for name in ${names[@]+"${names[@]}"}; do expect+=(--expect-asset "$name"); done
             expect+=(--expect-count "$UPLOADED_COUNT")
           else
             # Resumed: everything on the release plus the MDM files the upload
             # step publishes, which the immutable-asset guard does not list.
             read -ra names <<<"$RESUME_ASSETS"
-            for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+            for name in ${names[@]+"${names[@]}"}; do expect+=(--expect-asset "$name"); done
             expect+=(--expect-count "$RESUME_COUNT")
             for file in docs/mdm/com.manaflow.cmux.* docs/mdm/cmux-example.mobileconfig \
               docs/mdm/ddm-legacy-profile-declaration.json docs/mdm/managed-preferences.md; do
@@ -1014,7 +1003,7 @@ jobs:
           fi
           python3 scripts/ci/finalize-release.py publish \
             --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --release-id "$RELEASE_ID" \
-            --generate-notes --prerelease false --make-latest "$MAKE_LATEST" "${expect[@]}"
+            --generate-notes --prerelease false --make-latest "$MAKE_LATEST" ${expect[@]+"${expect[@]}"}
 
       - name: Upload release appcast to R2
         if: (steps.guard_release_assets.outputs.skip_upload != 'true' || steps.guard_release_assets.outputs.resume_release_id != '') && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
@@ -1064,7 +1053,7 @@ jobs:
     environment: release
     needs: [build-ghostty-cli-helper, resolve-release-cmux-tui-client, pick-sign-runner, build-sign-notarize]
     # The same run signs on Blacksmith when the owned Mac took build-sign-notarize but its claim gate never passed
-    # (glaeda refused the job, or a hook scripts/ci/glaeda-signing-hooks.txt does not list admitted it).
+    # (glaeda refused the job).
     if: "!cancelled() && github.run_attempt == 1 && needs.pick-sign-runner.outputs.owned != '' && needs.build-sign-notarize.result != 'skipped' && needs.build-sign-notarize.result != 'cancelled' && needs.build-sign-notarize.outputs.claim != 'owned'"
     # Blacksmith only: this run's sign when the owned Mac refused the job (its claim gate).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-sign-runner.outputs.alternate || needs.pick-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}

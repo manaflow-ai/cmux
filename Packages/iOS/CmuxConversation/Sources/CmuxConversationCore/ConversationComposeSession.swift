@@ -9,6 +9,8 @@ public final class ConversationComposeSession {
     public enum Change: Sendable, Equatable {
         case recipients
         case suggestions
+        /// ``rows`` changed.
+        case rows
         case sending
     }
 
@@ -16,6 +18,15 @@ public final class ConversationComposeSession {
     public private(set) var draft = ConversationRecipientDraft()
     /// Autocomplete rows for `draft.query`, newest query only.
     public private(set) var suggestions: [ConversationContact] = []
+    /// The rows under To: (``ConversationComposeListing``): the listing's
+    /// sections while nobody is chosen and nothing is typed, else the
+    /// suggestions with the listing's actions among them. Without a listing,
+    /// the suggestions alone (Messages).
+    public private(set) var rows: [ConversationComposeRow] = []
+    /// cmux Home's sections and actions; nil for Messages' sheet.
+    public weak var listing: (any ConversationComposeListing)? {
+        didSet { refreshRows() }
+    }
     public private(set) var isSending = false
     public var onChange: (@MainActor (Change) -> Void)?
     public var suggestionLimit = 20
@@ -34,6 +45,7 @@ public final class ConversationComposeSession {
         draft.setText(text)
         onChange?(.recipients)
         search()
+        refreshRows()
     }
 
     /// Picks an autocomplete row (or a contact from the + picker).
@@ -41,6 +53,7 @@ public final class ConversationComposeSession {
         draft.add(contact)
         clearSuggestions()
         onChange?(.recipients)
+        refreshRows()
     }
 
     /// Return in the To: field. With suggestions showing, Return takes the
@@ -54,6 +67,7 @@ public final class ConversationComposeSession {
         guard let recipient = draft.commitText() else { return }
         clearSuggestions()
         onChange?(.recipients)
+        refreshRows()
         guard let handle = recipient.handle else { return }
         Task { [weak self, directory] in
             let lookup: ConversationHandleLookup
@@ -78,6 +92,7 @@ public final class ConversationComposeSession {
     public func remove(_ id: String) {
         draft.remove(id)
         onChange?(.recipients)
+        refreshRows()
     }
 
     /// Backspace; true when a token was selected or deleted.
@@ -85,6 +100,7 @@ public final class ConversationComposeSession {
     public func backspace() -> Bool {
         guard draft.backspace() else { return false }
         onChange?(.recipients)
+        refreshRows()
         return true
     }
 
@@ -114,7 +130,29 @@ public final class ConversationComposeSession {
             guard let self, !Task.isCancelled, generation == self.searchGeneration else { return }
             self.suggestions = found
             self.onChange?(.suggestions)
+            self.refreshRows()
         }
+    }
+
+    /// Rebuilds ``rows`` from the draft, the suggestions and the listing (the
+    /// host calls it when the listing's data changes: its Chiefs or team
+    /// arrived). Reports `.rows` only when they changed.
+    public func refreshRows() {
+        let next: [ConversationComposeRow]
+        if let listing {
+            if draft.recipients.isEmpty, draft.query.isEmpty {
+                next = listing.idleRows(excluding: draft.contactIDs)
+            } else if !draft.query.isEmpty {
+                next = listing.typedRows(matches: suggestions, query: draft.query)
+            } else {
+                next = []
+            }
+        } else {
+            next = suggestions.map(ConversationComposeRow.contact)
+        }
+        guard next != rows else { return }
+        rows = next
+        onChange?(.rows)
     }
 
     // MARK: First send

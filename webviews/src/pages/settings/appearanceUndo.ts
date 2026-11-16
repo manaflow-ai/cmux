@@ -7,9 +7,33 @@ import { rowsByKey } from "./schema";
 import type { SettingsState } from "./store";
 import { t, text } from "./strings";
 
-/** The Settings pages whose rows the stack records (Appearance and Theme), and Personalization, which
- * draws their cards and shows the same Undo bar (it holds no rows of its own). */
-export const APPEARANCE_CATEGORIES: readonly string[] = ["personalization", "appearance", "theme"];
+/** The Settings pages whose rows the stack records and that show its Undo bar: Appearance,
+ * Personalization (which draws the old Theme page's cards) and Sidebar (every row of it was
+ * Appearance's before the pages split). */
+// Theme is no category: Personalization holds it (an unknown id would read as General).
+export const APPEARANCE_CATEGORIES: readonly string[] = ["personalization", "appearance", "sidebar"];
+
+/** The look rows that left Appearance for a page of mixed rows (Tabs and Panes, Terminal): the stack
+ * still records them and Reset to Defaults still resets them, as before the split, while the
+ * behavior rows beside them (new tab position, focus follows mouse) stay out of it. */
+const MOVED_LOOK_KEYS: readonly string[] = [
+  "appearance.chromeStyle",
+  "layout.paneSeparation",
+  "layout.panePadding",
+  "layout.paneCornerRadius",
+  "layout.cornerPadding",
+  "layout.paneBorder",
+  "layout.paneBorderColor",
+  "layout.paneBorderWidth",
+  "focusRing.enabled",
+  "focusRing.style",
+  "focusRing.contrast",
+  "focusRing.color",
+  "focusRing.width",
+  "focusRing.showWhenSinglePane",
+  "terminal.fontFamily",
+  "terminal.fontSize",
+];
 
 /** Appearance keys the page no longer shows that the app still loads (#22379): a value someone
  * set still applies, so Reset to Defaults resets it too, the only way Settings can put it back. */
@@ -21,6 +45,7 @@ function trackedKeys(): ReadonlySet<string> {
     ...APPEARANCE_CATEGORIES.flatMap((id) => categoryRows(id))
       .filter((row) => !row.page_hidden)
       .map((row) => row.key),
+    ...MOVED_LOOK_KEYS,
     ...RETIRED_APPEARANCE_KEYS,
   ]);
   return tracked;

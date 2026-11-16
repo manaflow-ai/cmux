@@ -1,6 +1,6 @@
 // The default New Tab is calm (Leo 2026-10-11, "why is the default new tab showing all this
 // stuff"): the composer, then at most five recent chats as quiet rows with "All Chats" for the
-// rest. No tools row, no Recently Closed, no All chats table. Its send control is a real button,
+// rest. Create buttons stay under the composer. No Recently Closed or All chats table. Its send control is a real button,
 // the composer's arrow-up disc: off while the field is empty, filled once there is text.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -9,6 +9,7 @@ import type { Root } from "react-dom/client";
 import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -60,16 +61,13 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
 
-test("the default New Tab shows the composer and five recent chats, nothing else", async () => {
+test("the default stage shows the composer, create buttons and five recent chats", async () => {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const root: Root = createRoot(host);
@@ -83,6 +81,7 @@ test("the default New Tab shows the composer and five recent chats, nothing else
           lastAgent="claude"
           loadChatsPage={async () => ({ ready: true, chats: [] })}
           onOpenChat={noop}
+          onCreate={noop}
           onAsk={noop}
           onOpen={noop}
           onSearch={noop}
@@ -100,8 +99,60 @@ test("the default New Tab shows the composer and five recent chats, nothing else
       chats: host.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length,
     };
     expect(page).toEqual({ tools: 0, closed: 0, allChatsTable: 0, chats: 5 });
+    expect([...host.querySelectorAll(".nt-create button")].map((button) => button.textContent)).toEqual([
+      "New terminal",
+      "New browser tab",
+      "New chat",
+    ]);
     await act(async () => host.querySelector<HTMLButtonElement>(".nt-chats-all")!.click());
     expect(showAll).toBe(1);
+
+    // The All Chats layouts keep the buttons: their suggestions no longer list the create actions.
+    for (const template of ["threads", "console"] as const) {
+      await act(async () =>
+        root.render(
+          <NewTabScreen
+            template={template}
+            snapshot={noChat(manySessions(12))}
+            lastAgent="claude"
+            loadChatsPage={async () => ({ ready: true, chats: [] })}
+            onOpenChat={noop}
+            onCreate={noop}
+            onAsk={noop}
+            onOpen={noop}
+            onSearch={noop}
+            onShell={noop}
+            onJump={noop}
+            onOpenSession={noop}
+            onShowAll={noop}
+          />,
+        ),
+      );
+      expect(host.querySelector(".nt-screen[data-all-chats]"), template).not.toBeNull();
+      expect(
+        [...host.querySelectorAll(".nt-create button")].map((button) => button.textContent),
+        template,
+      ).toEqual(["New terminal", "New browser tab", "New chat"]);
+    }
+    await act(async () =>
+      root.render(
+        <NewTabScreen
+          template="default"
+          snapshot={noChat(manySessions(12))}
+          lastAgent="claude"
+          loadChatsPage={async () => ({ ready: true, chats: [] })}
+          onOpenChat={noop}
+          onCreate={noop}
+          onAsk={noop}
+          onOpen={noop}
+          onSearch={noop}
+          onShell={noop}
+          onJump={noop}
+          onOpenSession={noop}
+          onShowAll={() => (showAll += 1)}
+        />,
+      ),
+    );
 
     const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!;
     const look = () => ({

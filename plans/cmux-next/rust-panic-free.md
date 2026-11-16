@@ -37,6 +37,21 @@ stack overflow, out of memory, a signal) never loses user state.
    from the journal and the output store (crash-only design, section 6).
 6. Every parser that sees outside bytes has a fuzz target (section 7).
 
+### Fixed-record codecs
+
+A fixed record size does not prove a slice passed to its encoder or decoder has
+that size. Consume fields with `Read::read_exact` / `Write::write_all` or checked
+chunks, propagate short-buffer errors through spill sorting and optional-index
+writers, and use `get_mut` for calculated page offsets. Constant ranges into
+fixed-size arrays are bounded by the array type. Do not silence the entire codec
+module's indexing lint.
+
+Detector: `scripts/cmux-next/rust_panic_ratchet.py` enables production-target
+`clippy::indexing_slicing`; ordinary `clippy --all-targets -- -D warnings` does not
+cover that lint by itself. Run both. The kin-table regression
+`fixed_records_reject_every_truncation_without_panicking` covers every cut of the
+entry, edge and level record encodings (cmux#44281).
+
 ## 2. Inventory (before, feat-cmux-next 7c48cdf2c40e, 2026-10-22)
 
 The baseline file is measured at the landing's merged head (65a4003019ad):

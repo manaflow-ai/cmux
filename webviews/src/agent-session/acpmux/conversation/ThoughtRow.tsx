@@ -8,8 +8,9 @@ import { useTranscriptViewContext } from "./transcriptDisclosureModel";
 import { formatDuration } from "./turns";
 import { isQuietThought, thoughtDuration, thoughtParts } from "./thoughts";
 import { THOUGHT_LIVE_PX, thoughtLayout, thoughtLine } from "./thoughtRowModel";
+import { thoughtChoices } from "./thoughtChoices";
 /// The reader's open or closed, by thought, so a row the transcript unmounts and mounts again keeps it.
-const choices = new Map<string, boolean>();
+const choices = thoughtChoices;
 
 /// A thought's text as drawn: its headings as muted titles (thoughtParts), one wrapper so the live
 /// viewport's column keeps the parts in order.
@@ -163,9 +164,9 @@ export const ThoughtRow = memo(function ThoughtRow({
   );
 });
 
-/// A thought as one step of an opened group (ToolGroupRow.tsx). The thought that led into the run
-/// (`lead`) starts open: "Thought" or "Thought for 6s" with the disclosure right after the words, its
-/// whole text under them, as Claude Code desktop lists a run's (cmux#27896 parked that disclosure at
+/// A thought as one step of an opened group (ToolGroupRow.tsx). Every one starts closed. The thought
+/// that led into the run (`lead`), opened, reads "Thought" or "Thought for 6s" with the disclosure
+/// right after the words, its whole text under them, as Claude Code desktop lists a run's (cmux#27896 parked that disclosure at
 /// the row's far edge; gallery agent-pane.claude-desktop-organization keeps it as `lead-edge`); closed, its words on one line cut with an ellipsis and
 /// the disclosure right after them. A later thought is one quiet row like ThoughtRow's, the brain
 /// glyph and its words, that opens to "Thought" or "Thought for 12s" over its whole text
@@ -179,7 +180,11 @@ export function StepThought({ item, id, lead = false }: { item: AcpmuxActivity; 
   // (a render that only read the kept choices was memoized on `id` and never changed); a row React
   // reuses for another `id` reads that one's kept choice.
   const [chosen, setChosen] = useState<{ id: string; open: boolean } | undefined>(undefined);
-  const open = chosen?.id === id ? chosen.open : (choices.get(id) ?? lead);
+  // Closed until the reader opens it, the lead one too: opening or closing a run never opens a thought
+  // by itself (Lucas, 2026-11-11), as the Codex app lists a run's thoughts as one line each. Thinking
+  // and Verbose, the views for reading the work, open the lead one, as before.
+  const view = useTranscriptViewContext();
+  const open = chosen?.id === id ? chosen.open : (choices.get(id) ?? (lead && view !== "normal"));
   const bodyId = useId();
   const choose = (next: boolean) => {
     choices.set(id, next);

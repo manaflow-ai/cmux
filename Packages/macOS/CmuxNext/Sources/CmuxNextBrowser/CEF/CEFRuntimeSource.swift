@@ -14,6 +14,8 @@ public final class CEFRuntimeSource {
     /// Why there is no layout yet; nil means "not bundled" for a build with
     /// no pack.
     public private(set) var pending: CEFUnavailableReason?
+    /// The tab notice that says this tab uses WebKit while Chromium is missing: it goes on ``install(_:)``.
+    public let waitingNotice = BrowserWaitingNotice()
 
     /// Creates a source.
     ///
@@ -39,6 +41,7 @@ public final class CEFRuntimeSource {
         guard self.layout == nil else { return false }
         self.layout = layout
         pending = nil
+        waitingNotice.end()
         return true
     }
 

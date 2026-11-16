@@ -7,7 +7,8 @@
 // In an empty composer, Up edits my last message. The text clears only when the owner took the
 // message; the owner's event shows it. A right-click in the field opens the composer's own menu
 // (POLISH.md right-click contract): Cut, Copy, Paste, Paste as Plain Text, Attach Files… and
-// Insert Mention; the edits run in the app (composerEdit.ts).
+// Insert Mention; the edits run in the app (composerEdit.ts). Cmd-Z and Shift-Cmd-Z undo and redo
+// the text and the staged files on one line (attachmentUndo.ts).
 import { useContext, useEffect, useRef, useState, type RefObject } from "react";
 import { pasteIsOnlyFileNames } from "../../agent-session/acpmux/attachments";
 import { PromptEditor, type PromptEditorHandle } from "../../agent-session/acpmux/composer/PromptEditor";
@@ -21,6 +22,7 @@ import { AttachmentTray, type PendingAttachment } from "./AttachmentViews";
 import { ComposerEdit, type ComposerEditCommand } from "./composerEdit";
 import { QUOTE_EVENT, quoteMarkdown } from "./quoteSelection";
 import { attachmentClass, attachmentType, refusal, type AttachmentService } from "./attachmentService";
+import { useFileUndo } from "./useFileUndo";
 import { Avatar } from "./Avatar";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
 import { HomeIcon, type HomeIconName } from "./icons";
@@ -114,6 +116,24 @@ export function Composer({
   const empty = !value.trim() && ready.length === 0;
   const patchFile = (id: string, patch: Partial<PendingAttachment>) =>
     setFiles((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  const filesNow = useRef(files);
+  filesNow.current = files;
+  const upload = (id: string, file: File) => {
+    if (!attachments) return;
+    const controller = new AbortController();
+    uploads.current.set(id, controller);
+    attachments.service
+      .upload(attachments.conversation, file, (progress) => patchFile(id, { progress }), controller.signal)
+      .then(
+        (part) => patchFile(id, { part }),
+        (error: unknown) => {
+          if (!controller.signal.aborted) patchFile(id, { error: uploadError(error, t) });
+        },
+      )
+      .finally(() => {
+        if (uploads.current.get(id) === controller) uploads.current.delete(id);
+      });
+  };
   const addFiles = (list: Iterable<File>) => {
     if (!attachments || disabled) return;
     const added: PendingAttachment[] = [];
@@ -132,24 +152,60 @@ export function Composer({
         reader.onload = () => typeof reader.result === "string" && patchFile(id, { thumb: reader.result });
         reader.readAsDataURL(file);
       }
-      const controller = new AbortController();
-      uploads.current.set(id, controller);
-      attachments.service
-        .upload(attachments.conversation, file, (progress) => patchFile(id, { progress }), controller.signal)
-        .then(
-          (part) => patchFile(id, { part }),
-          (error: unknown) => {
-            if (!controller.signal.aborted) patchFile(id, { error: uploadError(error, t) });
-          },
-        )
-        .finally(() => uploads.current.delete(id));
+      upload(id, file);
     }
-    if (added.length) setFiles((current) => [...current, ...added]);
+    if (!added.length) return;
+    const index = filesNow.current.length;
+    filesNow.current = [...filesNow.current, ...added];
+    setFiles((current) => [...current, ...added]);
+    noteFileEdit({ kind: "add", items: added, index });
+  };
+  /// Takes `items` out of the tray; an upload still running stops.
+  const takeOut = (items: readonly PendingAttachment[]) => {
+    const ids = new Set(items.map((item) => item.id));
+    for (const id of ids) {
+      uploads.current.get(id)?.abort();
+      uploads.current.delete(id);
+    }
+    filesNow.current = filesNow.current.filter((item) => !ids.has(item.id));
+    setFiles((current) => current.filter((item) => !ids.has(item.id)));
+  };
+  /// Puts `items` back at `index` as they were (with the newest picture, progress and stored part
+  /// they had); one whose upload was stopped uploads again.
+  const putBack = (items: readonly PendingAttachment[], index: number) => {
+    for (const item of items)
+      if (!item.part && !item.error && !uploads.current.has(item.id)) upload(item.id, item.file);
+    const place = (current: readonly PendingAttachment[]) => {
+      const ids = new Set(items.map((item) => item.id));
+      const rest = current.filter((item) => !ids.has(item.id));
+      const at = Math.min(index, rest.length);
+      return [...rest.slice(0, at), ...items, ...rest.slice(at)];
+    };
+    filesNow.current = place(filesNow.current);
+    setFiles(place);
   };
   const removeFile = (id: string) => {
-    uploads.current.get(id)?.abort();
-    setFiles((current) => current.filter((item) => item.id !== id));
+    const index = filesNow.current.findIndex((item) => item.id === id);
+    const item = filesNow.current[index];
+    if (!item) return;
+    takeOut([item]);
+    noteFileEdit({ kind: "remove", items: [item], index });
   };
+  /// The files an add or remove left in the tray, as they are now (a picture or upload that ended
+  /// after the edit stays with them).
+  const current = (items: readonly PendingAttachment[]) =>
+    items.map((item) => filesNow.current.find((each) => each.id === item.id) ?? item);
+  /// The staged files' adds and removes share Cmd-Z and Shift-Cmd-Z with the text (useFileUndo.ts).
+  const fileUndo = useFileUndo(editor, root, { takeOut, putBack, current });
+  const noteFileEdit = fileUndo.noteFileEdit;
+  /// Text the composer writes itself (a quote, the clear after a send): a new edit like typing, though
+  /// the editor reports no change for it.
+  const writeText = (update: (current: string) => string) => {
+    setValue(update);
+    fileUndo.textWritten();
+  };
+  const writeTextRef = useRef(writeText);
+  writeTextRef.current = writeText;
   // Every upload ends with the composer (a conversation switch makes a new one).
   useEffect(() => {
     const live = uploads.current;
@@ -203,8 +259,12 @@ export function Composer({
     const sending = ready;
     void onSend(markdown, sending.length ? sending : undefined).then((sent) => {
       if (!sent) return;
-      setValue((current) => (current === markdown ? "" : current));
-      if (sending.length) setFiles((current) => current.filter((item) => !item.part || !sending.includes(item.part)));
+      writeText((current) => (current === markdown ? "" : current));
+      if (sending.length) {
+        setFiles((current) => current.filter((item) => !item.part || !sending.includes(item.part)));
+        // Sent files are gone for good: no undo brings them back.
+        fileUndo.clear();
+      }
     });
   };
   const format = (kind: MarkdownFormat, anchor: Element) => {
@@ -241,7 +301,7 @@ export function Composer({
     const take = (event: Event) => {
       const text = (event as CustomEvent<string>).detail;
       if (!text || disabledRef.current) return;
-      setValue((current) => quoteMarkdown(text) + current);
+      writeTextRef.current((current) => quoteMarkdown(text) + current);
       editor.current?.focus();
     };
     node.addEventListener(QUOTE_EVENT, take);
@@ -364,9 +424,11 @@ export function Composer({
           onChange={(markdown) => {
             setValue(markdown);
             refreshFormats();
+            fileUndo.textChanged();
           }}
           onCaret={refreshFormats}
           onKeyDown={(event) => {
+            if (fileUndo.keyDown(event)) return;
             if (event.key === "Escape" && onCancel) {
               event.preventDefault();
               onCancel();

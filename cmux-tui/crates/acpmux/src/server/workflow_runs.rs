@@ -82,6 +82,7 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
                 conn,
                 crate::rpc::method::SESSION_NEW,
                 create,
+                None,
             ))
             .await?;
             let session_id = created.get("sessionId").and_then(Value::as_str).ok_or_else(|| {

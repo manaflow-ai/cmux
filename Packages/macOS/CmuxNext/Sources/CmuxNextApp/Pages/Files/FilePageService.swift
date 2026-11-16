@@ -223,7 +223,7 @@ final class FilePageService: InternalPageProvider {
         }
         let accepted = document.edited(text: text, baseHash: baseHash)
         if accepted == .tooLarge, warnedTooLarge.insert(url.path).inserted, let window = tabs[key]?.page?.window {
-            _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery:\(url.path)", message: FilePageStrings.noRecovery(url.lastPathComponent),
+            _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery:\(url.path)", kind: "file-recovery", message: FilePageStrings.noRecovery(url.lastPathComponent),
                                                      duration: .seconds(8)), in: window)
         }
         return accepted

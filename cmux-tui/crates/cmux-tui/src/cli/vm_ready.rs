@@ -22,6 +22,7 @@ pub(super) mod tests;
 
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonGet as _;
 use serde_json::{Map, Value, json};
 
 use super::GlobalArgs;
@@ -108,10 +109,6 @@ fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
 }
 
-fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
-    value.get(key).and_then(Value::as_str)
-}
-
 /// `cmux vm new … --wait`: the create, then [`wait_until_ready`].
 pub(super) fn new_and_wait(runner: &mut dyn Runner, request: &NewWait) -> Result<Value, Value> {
     let started = runner.now();
@@ -119,7 +116,7 @@ pub(super) fn new_and_wait(runner: &mut dyn Runner, request: &NewWait) -> Result
     create.extend(request.create.iter().cloned());
     create.push("--json".to_owned());
     let created = step_result(&runner.cmux(&create))?;
-    let id = text(&created, "machine_id").map(str::to_owned);
+    let id = created.get_str("machine_id").map(str::to_owned);
     wait_until_ready(
         runner,
         Ready {
@@ -196,14 +193,14 @@ fn wait_running(
         let listed = step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))?;
         let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
         let row = rows.iter().find(|row| match id {
-            Some(id) => text(row, "machine_id") == Some(id),
-            None => text(row, "title") == Some(name) && text(row, "machine_id") != replaces,
+            Some(id) => row.get_str("machine_id") == Some(id),
+            None => row.get_str("title") == Some(name) && row.get_str("machine_id") != replaces,
         });
         if let Some(row) = row {
-            let status = text(row, "status").unwrap_or("unknown");
-            let row_id = text(row, "machine_id").unwrap_or_default().to_owned();
+            let status = row.get_str("status").unwrap_or("unknown");
+            let row_id = row.get_str("machine_id").unwrap_or_default().to_owned();
             if status == "running" && !row_id.is_empty() {
-                return Ok((row_id, text(row, "title").unwrap_or(name).to_owned()));
+                return Ok((row_id, row.get_str("title").unwrap_or(name).to_owned()));
             }
             if matches!(status, "failed" | "destroyed" | "deleting") {
                 return Err(refusal(
@@ -235,9 +232,9 @@ fn wait_config(runner: &mut dyn Runner, id: &str, deadline: Instant) -> Result<V
         // No status file yet (the applier has not started) is a wait, not a failure.
         if let Ok(answer) = step_result(&runner.cmux(&read))
             && let Some(status) =
-                text(&answer, "text").and_then(|t| serde_json::from_str::<Value>(t).ok())
+                answer.get_str("text").and_then(|t| serde_json::from_str::<Value>(t).ok())
         {
-            match text(&status, "state") {
+            match status.get_str("state") {
                 Some("done") => return Ok(status),
                 Some("failed") => {
                     return Err(refusal(
@@ -268,7 +265,7 @@ fn deliver(runner: &mut dyn Runner, id: &str, deadline: Instant) -> Result<Value
     let ask = words(&["cloud", "deliver-secrets", "--target", &target, "--json"]);
     loop {
         let answer = step_result(&runner.cmux(&ask))?;
-        let status = text(&answer, "status").unwrap_or("delivered");
+        let status = answer.get_str("status").unwrap_or("delivered");
         if !matches!(status, "pending" | "delivering") {
             return Ok(json!({
                 "status": status,
@@ -297,8 +294,8 @@ pub(super) fn fresh_vm_name() -> String {
 pub(super) fn print(global: &GlobalArgs, result: Result<Value, Value>) -> i32 {
     match result {
         Ok(value) if global.output == super::OutputMode::Human => {
-            let title = text(&value, "title").unwrap_or_default();
-            let target = text(&value, "target").unwrap_or_default();
+            let title = value.get_str("title").unwrap_or_default();
+            let target = value.get_str("target").unwrap_or_default();
             let config = value.pointer("/machine_config/state").and_then(Value::as_str);
             let delivered =
                 value.pointer("/secrets/delivered").and_then(Value::as_array).map_or(0, Vec::len);

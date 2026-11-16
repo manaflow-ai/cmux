@@ -13,6 +13,13 @@ import tempfile
 import unittest
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/swiftpm_build_metrics.py"
@@ -76,6 +83,32 @@ if os.environ.get('FAKE_STALE_ALWAYS') or pathlib.Path(os.environ['FAKE_STALE'])
 print('Build complete! (0.1s)')
 """
 
+# Every wrapper run ends within this, with any process it started.
+RUN_TIMEOUT_SECONDS = 120
+
+
+def run_bounded(argv, **kwargs):
+    """subprocess.run with a timeout that kills the whole process group: a git the wrapper started cannot outlive it."""
+    process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, **kwargs)
+    try:
+        stdout, stderr = process.communicate(timeout=RUN_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        raise
+    return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
+
+
+def real_git():
+    """The git binary itself, from git's exec path, never a wrapper named git that is first on PATH.
+
+    A fake git that execs `shutil.which("git")` can exec a wrapper that hands the call to the first
+    git on PATH, which is the fake again. The two exec each other in one process that no timeout sees.
+    """
+    exec_path = subprocess.check_output(["git", "--exec-path"], text=True, timeout=30).strip()
+    binary = Path(exec_path) / "git"
+    return str(binary) if os.access(binary, os.X_OK) else shutil.which("git")
+
 
 class SwiftPMBuildMetricsTests(unittest.TestCase):
     def setUp(self):
@@ -99,14 +132,15 @@ class SwiftPMBuildMetricsTests(unittest.TestCase):
         self.summary = Path(self.temporary.name) / "summary.md"
 
     def git(self, *arguments):
-        return subprocess.check_output(["git", "-C", str(self.root), *arguments], stderr=subprocess.DEVNULL)
+        return subprocess.check_output(["git", "-C", str(self.root), *arguments], stderr=subprocess.DEVNULL,
+                                       timeout=RUN_TIMEOUT_SECONDS)
 
     def run_build(self, role="swift-test", command=None, **environment):
         env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}", GITHUB_STEP_SUMMARY=str(self.summary), **environment)
-        result = subprocess.run([
+        result = run_bounded([
             sys.executable, str(SCRIPT), "--role", role, "--output-dir", str(self.output),
             "--", *(command or ["swift", "build", "--build-tests"]),
-        ], cwd=self.package, env=env, capture_output=True)
+        ], cwd=self.package, env=env)
         receipt = json.loads((self.output / f"{role}.json").read_text())
         return result, receipt
 
@@ -142,20 +176,19 @@ class SwiftPMBuildMetricsTests(unittest.TestCase):
         self.assertIn("swift", receipt["compatibility_missing"])
         self.output = Path(self.temporary.name) / "not-a-directory"
         self.output.write_text("occupied")
-        result = subprocess.run([
+        result = run_bounded([
             sys.executable, str(SCRIPT), "--role", "swift-test", "--output-dir", str(self.output),
             "--", "swift", "build", "--build-tests",
-        ], cwd=self.package, capture_output=True, env=dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}", FAKE_EXIT="7"))
+        ], cwd=self.package, env=dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}", FAKE_EXIT="7"))
         self.assertEqual(result.returncode, 7, result.stderr)
         self.assertIn(b"stderr preserved", result.stdout)
 
     def test_unobserved_sources_cannot_look_equivalent(self):
-        real_git = shutil.which("git")
         fake_git = self.bin / "git"
         fake_git.write_text(
             "#!/usr/bin/env python3\nimport os,sys\n"
             "if 'ls-files' in sys.argv: sys.exit(3)\n"
-            f"os.execv({real_git!r}, sys.argv)\n"
+            f"os.execv({real_git()!r}, sys.argv)\n"
         )
         fake_git.chmod(0o755)
         for source in ("first source", "different source"):
@@ -213,7 +246,7 @@ class SwiftPMBuildMetricsTests(unittest.TestCase):
             steps = jobs[role]["steps"]
             build = next(step for step in steps if step.get("name") == "Build package and tests")
             upload = next(step for step in steps if step.get("name") == "Upload the test build measurement and log")
-            result = subprocess.run(["bash", "-c", build["run"]], cwd=self.package, capture_output=True, env=dict(
+            result = run_bounded(["bash", "-c", build["run"]], cwd=self.package, env=dict(
                 os.environ, PATH=f"{self.bin}:{os.environ['PATH']}", RUNNER_TEMP=str(runner_temp), FAKE_EXIT="9",
             ))
             self.assertEqual(result.returncode, 9, result.stderr)

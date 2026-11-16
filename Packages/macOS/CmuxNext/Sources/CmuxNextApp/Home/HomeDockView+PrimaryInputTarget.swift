@@ -1,21 +1,23 @@
 import AppKit
-import CmuxNextHome
 
-/// The docked Home's tab is an internal page whose content is this view, so the page path
-/// (`FocusEffectApplier` `.page`, the key dispatcher's `TabContent.primaryInput`) asks it for a
-/// primary input. Both its views are web pages with their own focus (the Messages page gives its
-/// message box the keyboard itself, `home.messages.focusComposer`; ``shownPageView`` takes the
-/// pane's focus), so neither declares a native one. Up and Down while the pane has the keyboard
-/// outside the Messages page step its box's history (``HomeComposerHandoff/historyArrow(_:outside:)``).
+/// The docked Home's tab is an internal page whose content is this view, so
+/// the page path (`FocusEffectApplier` `.page`, the key dispatcher's
+/// `TabContent.primaryInput`) reaches Home's message box through it. Before,
+/// only a conversation tab (`HomeHostView`) declared one: focusing the dock's
+/// pane made the dock view itself first responder, which takes no keys, and
+/// typing went nowhere until a click in the transcript. The Messages view
+/// forwards to its list and transcript; the Channels page (a web page with its
+/// own focus) declares none.
 extension HomeDockView: PrimaryInputTarget {
-    var primaryInputView: NSView? { nil }
-    var acceptsRedirectedTyping: Bool { mode == .messages }
+    var primaryInputView: NSView? { mode == .messages ? messages?.primaryInputView : nil }
 
-    func routesToPrimaryInput(_ event: NSEvent) -> Bool {
-        mode == .messages && messages.flatMap { HomeComposerHandoff.historyArrow(event, outside: $0.page) } != nil
+    /// The Messages view's keys (Home's one key path: `HomeHostView`).
+    func routesToPrimaryInput(_ event: NSEvent) -> Bool { mode == .messages && messages?.routesToPrimaryInput(event) == true }
+
+    func beginTyping(with event: NSEvent) { if mode == .messages { messages?.beginTyping(with: event) } }
+
+    func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
+        guard mode == .messages, let messages else { return false }
+        return messages.primaryInputShouldTakeKeyboard(from: responder)
     }
-
-    func beginTyping(with event: NSEvent) { if let messages { messages.recallHistory(event, page: messages.page) } }
-
-    func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool { false }
 }

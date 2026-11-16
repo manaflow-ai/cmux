@@ -15,6 +15,7 @@ enum BrowserHandlers {
         BrowserDeviceHandlers.bind(into: registry, context: context)
         bindSplits(into: registry, context: context)
         bindLinkHints(into: registry, context: context)
+        bindScroll(into: registry, context: context)
         BrowserEnabledToggle.bind(into: registry, context: context)
         BrowsingDataClear.bindClearHistory(registry, context: context)
         registry.bind("palette.browserToggleOmnibar", run: { invocation in try context.shownPage(invocation).chrome.toggleOmnibar() })
@@ -219,14 +220,18 @@ enum BrowserHandlers {
         }
     }
 
-    /// `f` and `F` in a Chromium page (`LinkHintController`).
+    /// `j`, `k`, `gg`, Shift-G in either engine (``BrowserPageScroll``): from a page's unhandled letters or the palette.
+    private static func bindScroll(into registry: ActionRegistry, context: AppActionContext) {
+        for scroll in BrowserPageScroll.allCases { _ = registry.bindEffect(ActionID(rawValue: scroll.actionID), requires: nil, effect: { try context.page($0).tab.scroll(scroll); return .done }) }
+    }
+
+    /// `f` and `F` in a page of either engine (`LinkHintController`).
     private static func bindLinkHints(into registry: ActionRegistry, context: AppActionContext) {
         for (id, mode) in [("browserLinkHints", LinkHintSession.Mode.follow), ("browserLinkHintsNewSplit", .newSplit)] {
             registry.bind(ActionID(rawValue: id), run: { invocation in
                 let pane = try context.pane(invocation)
                 let entry = try context.page(invocation)
-                guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: LinkHintStrings.engine) }
-                let services = context.services
+                let tab = entry.tab, services = context.services
                 let controller = services.windowController(showing: pane)
                 let tabKey = services.cache.key(of: tab)
                 // Links stay in the page's browser profile.
@@ -242,7 +247,7 @@ enum BrowserHandlers {
                     } catch let failure as ActionFailure {
                         state.showNotice(failure.message)
                     } catch {}
-                }, noLinks: { [weak state = entry.state] in state?.showNotice(LinkHintStrings.noLinks) })
+                }, noLinks: { [weak state = entry.state] in state?.showNotice(LinkHintController.noLinksNotice) })
             })
         }
     }

@@ -25,7 +25,8 @@ Safari, on one Mac, the same way for every browser:
 Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
   - local pages on 127.0.0.1 (pages.py), no network-dependent rows;
   - every launch starts from its own APFS clone of a template profile made
-    once per browser (one launch, settle, quit); HOME and CFFIXED_USER_HOME
+    once per browser (one launch, settle until its first-run writes end, quit:
+    settle_template); HOME and CFFIXED_USER_HOME
     point into the run folder, so nothing touches the worker's ~/Library;
   - Chromium browsers get --user-data-dir --remote-debugging-port
     --no-first-run --no-default-browser-check --password-store=basic
@@ -76,6 +77,15 @@ sys.path.insert(0, os.path.join(HERE, "..", "cmux-next"))
 import budget  # noqa: E402
 import pages  # noqa: E402
 import procs  # noqa: E402
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 ROWS = [
     # id, label, unit, in the tweet's table
@@ -135,6 +145,56 @@ def now_ms() -> float:
 
 def sleep(seconds: float):
     time.sleep(seconds)  # bench: a deliberate settle or idle window
+
+
+def tree_states(root: str) -> dict[str, tuple[float, int]]:
+    """(mtime, size) of every file under `root`."""
+    states = {}
+    for folder, _dirs, files in os.walk(root):
+        for file in files:
+            path = os.path.join(folder, file)
+            try:
+                info = os.lstat(path)
+            except OSError:
+                continue
+            states[path] = (info.st_mtime, info.st_size)
+    return states
+
+
+# A template launch must outlast a browser's first-run jobs, or every launch cloned from it runs them
+# again inside its measured windows. cmux NEXT's Chromium: the component updater's first check 60 s
+# after start (Widevine, CRL set, optimization hints, on-device suggest, subresource filter, each also
+# copied into component_crx_cache), done by about 95 s. A 45 s template ended before it, so every
+# launch's Home window paid 23 to 62 MB of it (runs 43649027609 and step 2fc0210280de). The built-in
+# uBlock Origin's filter cache (Local Extension Settings, IndexedDB, about 70 MB) is written again on
+# every launch, not once, so no template holds it: that is app idle cost, and the Home row keeps it.
+CHROMIUM_COMPONENT_CHECK_S = 60.0  # ChromeConfigurator's InitialDelay, without --component-updater=fast-update
+TEMPLATE_MIN_S = CHROMIUM_COMPONENT_CHECK_S + 15.0
+TEMPLATE_QUIET_S = 30.0
+TEMPLATE_MAX_S = 150.0  # past the component updater (done by ~95 s); uBO and Dawn caches never go quiet
+TEMPLATE_POLL_S = 5.0
+
+
+def settle_template(root: str, minimum: float, quiet: float = TEMPLATE_QUIET_S, cap: float = TEMPLATE_MAX_S,
+                    clock=time.monotonic, wait=sleep, states=tree_states) -> tuple[float, list[str]]:
+    """Wait at least `minimum` s, then until no file under `root` changed for `quiet` s; stop at `cap` s
+    whatever happens (the stop condition). Answers the seconds waited and the files still changing at the
+    end (empty when it went quiet), so a template that hit the cap names its writers."""
+    start = clock()
+    wait(minimum)
+    last = states(root)
+    quiet_since = clock()
+    changed: list[str] = []
+    while clock() - quiet_since < quiet:
+        if clock() - start >= cap:
+            return clock() - start, changed
+        wait(max(0.0, min(TEMPLATE_POLL_S, quiet - (clock() - quiet_since), cap - (clock() - start))))
+        now = states(root)
+        changed = sorted(path for path, state in now.items() if last.get(path) != state)
+        if changed:
+            quiet_since = clock()
+        last = now
+    return clock() - start, []
 
 
 # ---------------------------------------------------------------- helper
@@ -360,13 +420,13 @@ class ChromiumBrowser(Browser):
         if handle in self.tabs:
             self.tabs.remove(handle)
 
-    def template(self, profile: str, settle: float):
+    def template(self, profile: str, settle):
         self.launch(profile, self.server.url("idle", "template"))
         try:
             self.ready()
             if not self.can_link:
                 self.new_tab(self.server.url("idle", "template"), "template")
-            sleep(settle)
+            settle()
         finally:
             self.quit()
 
@@ -461,11 +521,11 @@ class CmuxBrowser(Browser):
             self.instance = None
         self.tabs = []
 
-    def template(self, profile: str, settle: float):
+    def template(self, profile: str, settle):
         self.launch(profile, None)
         try:
             self.ready()
-            sleep(settle)
+            settle()
         finally:
             self.quit()
 
@@ -493,7 +553,7 @@ class SafariBrowser(Browser):
         self.tabs.append(tab_id)
         return tab_id
 
-    def template(self, profile: str, settle: float):
+    def template(self, profile: str, settle):
         return
 
 
@@ -563,9 +623,18 @@ class Run:
         template = os.path.join(self.work, "templates", browser.name)
         if os.path.isdir(template) or browser.name == "safari":
             return
-        log(f"{browser.name}: template profile ({self.args.template_settle:.0f} s)")
+        log(f"{browser.name}: template profile (at least {self.args.template_settle:.0f} s, then until "
+            f"{TEMPLATE_QUIET_S:.0f} s with no writes, at most {TEMPLATE_MAX_S:.0f} s)")
         os.makedirs(template)
-        browser.template(template, self.args.template_settle)
+
+        def settle():
+            took, writing = settle_template(template, self.args.template_settle)
+            if writing:
+                log(f"{browser.name}: template still writing after {took:.0f} s (cap): "
+                    + ", ".join(os.path.relpath(path, template) for path in writing[:5]))
+            else:
+                log(f"{browser.name}: template quiet after {took:.0f} s")
+        browser.template(template, settle)
 
     # -- cold launches
 
@@ -755,8 +824,8 @@ class Run:
             # LaunchServices refuses to start apps for a process outside a logged-in
             # console user's session (RBSRequestErrorDomain Code=5 "Launch failed"):
             # no row can be measured on this host.
-            print(f"PERF-BENCH-NO-GUI launchd domain {meta['machine']['session']!r}: `open` cannot start an app "
-                  "here (needs a host with a logged-in console user)", flush=True)
+            safe_print(f"PERF-BENCH-NO-GUI launchd domain {meta['machine']['session']!r}: `open` cannot start an app "
+                       "here (needs a host with a logged-in console user)", flush=True)
             sys.exit(3)
         if not meta["machine"]["displays"].get("count"):
             log("WARNING: no active display: paint, switch and video rows may not be meaningful")
@@ -1057,7 +1126,8 @@ def main():
     run.add_argument("--idle", type=float, default=60)
     run.add_argument("--active", type=float, default=30)
     run.add_argument("--settle", type=float, default=30)
-    run.add_argument("--template-settle", type=float, default=45)
+    run.add_argument("--template-settle", type=float, default=TEMPLATE_MIN_S,
+                     help="template minimum, past Chromium's 60 s component-updater check (settle_template)")
     run.add_argument("--max-load", type=float, default=4)
     run.add_argument("--quiet-wait", type=float, default=120)
     run.add_argument("--cmux-ref", default="")

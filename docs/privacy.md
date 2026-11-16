@@ -21,7 +21,30 @@ you turn it off, and the `DisableTelemetry` managed policy turns it off for ever
   Before sending, `crash_scrub` runs the same rules as the scrubber above on the panic message, location and
   backtrace, and `seeded_secrets_never_leave_in_a_panic_event` seeds them the same way.
 
+- The Chief (`optchat-chief`, the host behind Home's Chief chat) sends anonymous product events to PostHog
+  (`us.i.posthog.com`): turns, subagents, latency, token counts, cost, error classes and activation milestones, as
+  closed tokens and numbers. It never sends message, reply, task or report text, tool arguments, error messages,
+  paths, URLs or names, and IP geolocation is off. A Chief on this Mac is known only by a random install id; a Cloud
+  Chief, which runs on cmux's servers for a signed-in account, sends as that account's user id and team id, like
+  the server's own Cloud events. The same switches turn it off: `sendAnonymousTelemetry` in the app (the running
+  Chief re-reads it every few minutes), `app.sendAnonymousTelemetry: false` in `cmux-next.json`, the
+  `DisableTelemetry` policy, `DO_NOT_TRACK=1` or `CMUX_CHIEF_ANALYTICS=off`; turning it off deletes the events still
+  waiting. Its panics go to the crash reporting host through the app with the location and backtrace only, never
+  the panic message. The event list: [chief-product-analytics.md](posthog/chief-product-analytics.md).
+
 Hang reports go to cmux.com only after you agree to send them, and the app never asks while telemetry is off.
+
+## Usage patterns (local only)
+
+Usage patterns are off until you turn on Record Usage Patterns (`diagnostics.usagePatterns`, Settings > Privacy and
+Security). They are never sent anywhere: each daemon on the machine (`cmux-tui`, acpmux) keeps one small file of
+counters under the state directory's `usage-patterns` folder (`cmux-tui/crates/cmux-usage-patterns`). A counter
+names a code-defined family and an identifier the program defines: a command or operation name, a split direction,
+a transport, a client kind, a harness, a token kind, or a 12-digit opaque stand-in for a paired machine's id. The
+key filter (`clean_key`) refuses anything with a space, quote, `@`, `?`, `=`, `~`, a backslash, `:/` or more than one
+`/`, so no prompt, terminal text, URL, file path or title becomes a key. Each family keeps at most 200 keys and the
+per-day rollup 90 days. `cmux usage-patterns` and the Agent Stats page show them; `cmux usage-patterns reset`
+deletes them.
 
 ## Hosts
 
@@ -37,8 +60,9 @@ Each row is a host, its kind and what the app sends there. Kinds:
   check stays exact.
 
 Not in this list: hosts you type or open yourself (the browser, git remotes, SSH hosts, a self-hosted server or an
-API endpoint you configure), hosts an agent you run reaches on its own, and a host the code builds from parts at run
-time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com`) and IP addresses are skipped.
+API endpoint you configure), hosts an agent you run reaches on its own, and a host made entirely of parts known only
+at run time. A host the code builds around a fixed name (`https://${site}.atlassian.net`) is listed with `*` for
+each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com`) and IP addresses are skipped.
 
 
 
@@ -54,8 +78,10 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `cdn.agentclientprotocol.com` | connects | the public registry of ACP coding agents, read by the daemon |
 | `api.anthropic.com` | connects | the Anthropic API, when you use an Anthropic key or sign in a Cloud machine's Claude |
 | `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
+| `*.atlassian.net` | connects | the Jira integration: your company's Jira site, only when an agent uses it in your signed-in browser |
 | `api.bing.com` | connects | search suggestions as you type, when Bing is your search engine |
 | `chatgpt.com` | connects | OpenAI's Codex backend, when you use Codex with a ChatGPT sign-in; install script |
+| `api.cloudflare.com` | connects | the Cloudflare API, only when you run `cmux keys connect cloudflare` or `cmux keys mint` |
 | `cdnjs.cloudflare.com` | connects | scripts and styles an agent's rendered page may load |
 | `cmux.com` | connects | cmux's website and API: sign-in callback, hang reports (when telemetry is on), billing, docs and deep links |
 | `files.cmux.com` | connects | downloads: updates, release notes, art, the cmux CLI |
@@ -64,6 +90,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
 | `github.com` | connects | git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media |
 | `api.github.com` | connects | the GitHub API, through the GitHub CLI or the app, for repos and PRs you open |
+| `api.githubcopilot.com` | connects | GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls |
 | `uploads.github.com` | connects | GitHub uploads, through the GitHub CLI |
 | `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies |
 | `camo.githubusercontent.com` | connects | images in GitHub pages and agent replies |
@@ -83,8 +110,10 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `fonts.gstatic.com` | connects | fonts an agent's rendered page may load |
 | `www.linkedin.com` | connects | the LinkedIn integration, only when an agent uses it in your signed-in browser |
 | `app.notion.com` | connects | the Notion integration, only when an agent uses it in your signed-in browser |
-| `api.open-meteo.com` | connects | weather on the new tab page, when shown |
-| `geocoding-api.open-meteo.com` | connects | weather on the new tab page, when shown |
+| `api.open-meteo.com` | connects | the clock and weather widget's forecast, only when you install it (a customize template) |
+| `geocoding-api.open-meteo.com` | connects | the clock and weather widget's city search, only when you install it (a customize template) |
+| `somafm.com` | connects | the radio player's station list and the song each station plays, only when you install it (a customize template) |
+| `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
 | `api.stack-auth.com` | connects | the sign-in service |
@@ -107,15 +136,13 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `herdr.dev` | connects | the agent-detection catalog, read by the daemon |
 | `cmux-api-development.debussy.workers.dev` | connects | cmux API in development builds |
 | `cmux-api-staging.debussy.workers.dev` | connects | cmux API on staging, only when chosen |
+| `cmux-api-preview-*.debussy.workers.dev` | connects | cmux API of one pull request's preview, only when chosen |
 | `cmux-device-hub.debussy.workers.dev` | connects | the device hub: pairing and screen sharing between your devices (production) |
 | `cmux-device-hub-dev.debussy.workers.dev` | connects | the device hub in development builds |
 | `cmux-mobile-api-dev.debussy.workers.dev` | connects | the iPhone pairing API in development builds |
 | `cmux-platform-development.debussy.workers.dev` | connects | cmux Cloud platform API in development builds |
 | `cmux-platform-production.debussy.workers.dev` | connects | cmux Cloud services on our hosting provider (production): platform API |
 | `cmux-platform-staging.debussy.workers.dev` | connects | cmux Cloud platform API on staging, only when chosen |
-| `cmux-v2.debussy.workers.dev` | connects | the iPhone app's host API (production) |
-| `cmux-v2-development.debussy.workers.dev` | connects | the iPhone app's host API in development builds |
-| `cmux-v2-staging.debussy.workers.dev` | connects | the iPhone app's host API on staging, only when chosen |
 | `cmux-vnc-signal.debussy.workers.dev` | connects | screen sharing signaling between your devices |
 | `api.artic.edu` | connects | museum art for backgrounds, when you search for art |
 | `www.artic.edu` | connects | museum art for backgrounds, when you search for art |
@@ -141,6 +168,8 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `console.mistral.ai` | opens | a page to get an API key, opened from Settings |
 | `openrouter.ai` | opens | a page to get an API key, opened from Settings |
 | `console.x.ai` | opens | a page to get an API key, opened from Settings |
+| `accounts.x.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
+| `auth.x.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `airbnb.com` | opens | a site the address bar suggests before it is in your history |
 | `amazon.com` | opens | a site the address bar suggests before it is in your history |
 | `console.aws.amazon.com` | opens | a page to get an API key, opened from Settings |
@@ -158,6 +187,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `search.brave.com` | opens | a search engine, when you search with it |
 | `claude.com` | opens | Anthropic sign-in pages, opened when you sign an agent in |
 | `platform.claude.com` | opens | Anthropic sign-in pages, opened when you sign an agent in |
+| `cursor.com` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `cnn.com` | opens | a site the address bar suggests before it is in your history |
 | `platform.deepseek.com` | opens | a page to get an API key, opened from Settings |
 | `discord.com` | opens | a site the address bar suggests before it is in your history |
@@ -219,6 +249,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | Host | Kind | What for |
 |---|---|---|
 | `x.ai` | identifier | an xAI tool method name, not a host |
+| `customize.io` | identifier | the error code `cmux customize` prints when a file read or write fails, not a host |
 | `netlify.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `ngrok-free.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vercel.app` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -226,6 +257,9 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `hf.co` | identifier | a git host name, so it is not shown as one of your computers |
 | `huggingface.co` | identifier | a git host name, so it is not shown as one of your computers |
 | `repl.co` | identifier | a shared hosting domain, so sites under it are told apart |
+| `manaflow.ai` | identifier | an email domain of the cmux team: an account under it gets the team's verbose connectivity diagnostics, and the iPhone app reports its major connectivity incidents to the cmux mobile service for the team's Slack; nothing is sent to the domain itself |
+| `manaflow.com` | identifier | an email domain of the cmux team, as `manaflow.ai` |
+| `captive.apple.com` | connects | only for a cmux team account, after a Mac stayed unreachable for 30 s: the iPhone app checks Apple's captive portal page (as iOS does) to tell its own outage from a cmux one |
 | `amazonaws.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `s3.amazonaws.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `www.apple.com` | identifier | an XML or SVG namespace, never fetched |
@@ -267,6 +301,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `www.ietf.org` | identifier | an RTP header extension id, never fetched |
 | `json-schema.org` | identifier | a JSON schema id, never fetched |
 | `www.w3.org` | identifier | an XML or SVG namespace, never fetched |
+| `schemas.microsoft.com` | identifier | the Task Scheduler XML namespace in acpmux's Windows logon task, never fetched |
 | `freestyle.sh` | identifier | a cloud host name the app recognizes |
 | `ac.uk` | identifier | a public suffix, so sites under it are told apart |
 | `ltd.uk` | identifier | a public suffix, so sites under it are told apart |
@@ -283,6 +318,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `webauthn.io` | example | a sample saved passkey |
 | `cdn-example.net` | example | a sample in a dialog |
 | `mini.tail1234.ts.net` | example | a placeholder in a settings field |
+| `*.example.ts.net` | example | a device address in the Debug menu's sample device list |
 | `r.org` | example | a value in a self-check |
 
 ### Text that looks like a host name
@@ -291,6 +327,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 |---|---|---|
 | `task.ai` | not-a-host | a symbol or icon name |
 | `argument.app` | not-a-host | a localized string key |
+| `toast.detail.io` | not-a-host | a localized string key |
 | `cmux.app` | not-a-host | a file name |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |
@@ -315,6 +352,5 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `build.sh` | not-a-host | a file name |
 | `cmux-debug-cli.sh` | not-a-host | a file name |
 | `login.sh` | not-a-host | a file name |
-| `web-lint.sh` | not-a-host | a file name |
 | `libopenh264-2.6.0-linux-arm64.8.so` | not-a-host | a file name |
 | `libopenh264-2.6.0-linux64.8.so` | not-a-host | a file name |

@@ -282,7 +282,7 @@ struct SidebarSelectionBatchCloseTests {
             print("SidebarSelectionBatchClose: raced batch failure \(String(describing: failure)), toasts \(toasts.map(\.message)), offered \(offered.shown)")
 
             #expect(failure == nil, "the batch failed: \(String(describing: failure))")
-            #expect(!toasts.contains { $0.id == "workspace-close-refused" }, "a refusal toast beside the batch's: \(toasts.map(\.message))")
+            #expect(!toasts.contains { $0.id == CmuxToast.refusalID }, "a refusal toast beside the batch's: \(toasts.map(\.message))")
             #expect(offered.shown == [WorkspaceBulkClose.closedToast(8)], "toasts offered: \(offered.shown)")
             try await PinnedPageTests.until({ Self.listed(ids, services).isEmpty }, within: .seconds(30))
         }

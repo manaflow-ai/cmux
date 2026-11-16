@@ -177,17 +177,18 @@ pub(crate) fn lease_was_free(file: &File) -> bool {
     false
 }
 
-/// Block until the exclusive lease on `file` is ours (retrying EINTR). It is
-/// held until `file` closes.
+/// Block until the exclusive lease on `file` is ours (retrying EINTR): its
+/// host has exited. The lease is let go before this returns (unlocked, not
+/// only closed later), so a child the server forked meanwhile keeps no lease
+/// and the next liveness probe reads the host as dead.
 pub(crate) fn wait_lease_exclusive(file: &File) -> std::io::Result<()> {
+    use cmux_file_lock::{FileLock, Kind};
     loop {
-        // SAFETY: a blocking exclusive lock on an owned descriptor.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
-            return Ok(());
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::Interrupted {
-            return Err(error);
+        // The same blocking exclusive flock, on the same open file description.
+        match FileLock::take(file.try_clone()?, Kind::Exclusive) {
+            Ok(_taken) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
         }
     }
 }
@@ -203,5 +204,27 @@ impl Drop for TerminalHostPublicationLock {
     fn drop(&mut self) {
         // SAFETY: flock only changes the advisory lock on this valid descriptor.
         let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+    }
+}
+
+#[cfg(test)]
+mod wait_tests {
+    use super::*;
+
+    /// A wait for a host's exit lets go of the lease it took, also while a child the server
+    /// forked meanwhile has the descriptor: else the next liveness probe reads the dead host
+    /// as live, and its record, proof and endpoint stay.
+    #[test]
+    fn a_finished_wait_leaves_the_lease_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = crate::fork_tests::Scratch::new("lease");
+        let path = dir.path().join("host.live");
+        fs::write(&path, b"").unwrap();
+        let marker = File::open(&path).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        wait_lease_exclusive(&marker).unwrap();
+        drop(marker);
+        let free = crate::fork_tests::free(&path);
+        drop(keeper);
+        assert!(free, "the wait left the lease held");
     }
 }

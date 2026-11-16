@@ -9,7 +9,14 @@ extension DaemonService {
     public func closeRuns(surfaces: [SurfaceID], commands: [CloseRun]) -> [CloseRun] {
         guard surfaces.count > 1, supports(DaemonCapability.batchClose.rawValue) else { return commands }
         let close: DaemonCommandBody = { @Sendable [surfaces] connection in _ = try await connection.closeTabs(surfaces, endTerminals: false) }
-        return [("close-tabs", preparingClose(of: surfaces, then: close))]
+        return [(Self.batchCloseLabel(commands), preparingClose(of: surfaces, then: close))]
+    }
+
+    /// Keep each distinct kind/entrypoint when one command replaces several.
+    /// Repeated tabs of the same kind do not grow the diagnostic line.
+    static func batchCloseLabel(_ commands: [CloseRun]) -> String {
+        let labels = Set(commands.map { $0.0 }).sorted().joined(separator: "; ")
+        return "close-tabs [\(labels)]"
     }
 
     /// Runs `runs` in order (``runReportingTimeout(_:_:)`` each): whether

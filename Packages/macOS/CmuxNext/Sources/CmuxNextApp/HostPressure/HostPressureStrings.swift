@@ -38,15 +38,6 @@ enum HostPressureStrings {
         String(localized: "hostPressure.stop", defaultValue: "Stop", table: "HostPressure", bundle: .module)
     }
 
-    static func stopTitle(_ name: String) -> String {
-        String(format: String(localized: "hostPressure.stop.title", defaultValue: "Stop %@?", table: "HostPressure", bundle: .module), name)
-    }
-
-    static var stopBody: String {
-        String(localized: "hostPressure.stop.body", defaultValue: "Its agent stops now. The chat stays, and a new message resumes it.",
-               table: "HostPressure", bundle: .module)
-    }
-
     /// The critical banner: the title's meaning, then acpmux's reasons in its words.
     static func banner(_ reasons: String) -> String {
         String(format: String(localized: "hostPressure.banner", defaultValue: "This Mac is overloaded: %@", table: "HostPressure", bundle: .module),

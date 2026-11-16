@@ -45,6 +45,18 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" (no new CI tests, CLAUDE.md). It runs scripts/cmux-next/cargo-locks.py in a throwaway
+    # repository and reads rust-workspaces.yml only as data (that the workflow calls the script). Run it by hand
+    # when the script or that workflow changes. Exit: as below.
+    "tests/test_cargo_locks.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It pins
+    # scripts/cmux-next/check-single-host-fallbacks.py, which the pre-push gate runs strictly and CI runs
+    # with --advisory; it reads the workflows only as that script's data. Exit: as below.
+    "tests/test_ci_single_host_fallbacks.py",
+    # lane = "manual" in tests/test-execution.d/other.toml (no new CI tests, CLAUDE.md). It pins
+    # scripts/install-axe-ci.sh's sha256 refusal and reads ios-e2e.yml only to check it calls that script, not the
+    # Homebrew tap. Run it by hand when either changes. Exit: as below.
+    "tests/test_install_axe_ci.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
@@ -85,6 +97,10 @@ UNWIRED: set[str] = {
     # a temp workspace that a sparse checkout was left in, and needs the whole tree after it; run it by hand after
     # changing that step or a sparse checkout in a job that shares the builder's workspace.
     "tests/test_nightly_warm_checkout_sparse.py",
+    # lane = "manual" for the same rule. It runs the warm nightly-next builder's checkout step from nightly.yml on
+    # an empty slot beside a temp git mirror and checks the slot borrows the mirror (glaeda's borrow record and the
+    # alternates line) before its fetch; run it by hand after changing that step or glaeda's borrow record.
+    "tests/test_nightly_warm_checkout_borrows_mirror.py",
     # lane = "manual" for the same rule. It reads nightly.yml only to keep the pinned Sparkle key of
     # nightly_next_artifact_check.py equal to NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY; run it by hand when that
     # helper or the workflows that call it change.
@@ -92,6 +108,10 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that the nightly-next tail jobs run in the dispatched
     # post-publish run, off the push group; run it by hand after changing those jobs or their dispatch.
     "tests/test_nightly_next_tail_off_push_group.py",
+    # lane = "manual" for the same rule. It checks that a nightly-next loop run holds the push slot only in
+    # nightly-next-one, that the next notes start from the live feed, and the tick wake; run it by hand after
+    # changing nightly.yml's concurrency, nightly-next-one or wake-nightly-next-tick.
+    "tests/test_nightly_next_push_slot_at_build.py",
     # lane = "manual" for the same rule. It checks the single nightly-next loop: one push group held through the
     # GitHub release, the rest of the tail dispatched, and the retry at the newest head; run it by hand after
     # changing decide, retry-nightly-next or dispatch-published-in.
@@ -100,12 +120,22 @@ UNWIRED: set[str] = {
     # dispatch-nightly-next-sign hands the unsigned app to a sign run in its own group); run it by hand after
     # changing decide, the sign-stage dispatch, retry-nightly-next or resume-unsigned-nightly.py.
     "tests/test_nightly_next_pipeline.py",
+    # lane = "manual" for the same rule (tests/test-execution.d/nightly.toml). It checks the one-job nightly-next
+    # path of nightly.yml (gate, concurrency, shared steps, the kept Zig cache and the single Zig install); run it
+    # by hand after changing nightly-next-one or a step it shares with the split jobs.
+    "tests/test_nightly_next_one_job.py",
     # lane = "manual" for the same rule. It checks that every nightly upload-artifact step has one retry that keeps
     # the first try's condition; run it by hand after adding or changing an upload in nightly.yml.
     "tests/test_nightly_artifact_uploads_retry.py",
     # lane = "manual" for the same rule. It checks that the nightly deltas are built without the Sparkle key, off
     # the whole-Mac hold; run it by hand after changing build-nightly-deltas, generate-nightly-deltas or their scripts.
     "tests/test_nightly_deltas_keyless_prebuild.py",
+    # lane = "manual" for the same rule. It checks that build-nightly-deltas waits for a quiet nightly-next loop
+    # before the keyed job asks for the signer Mac; run it by hand after changing the yield script or the delta jobs.
+    "tests/test_nightly_deltas_yield.py",
+    # lane = "manual" for the same rule. It checks that nightly-next-one's Release compile has its own step bound;
+    # run it by hand after changing that step or the job's timeout.
+    "tests/test_nightly_next_build_step_bound.py",
     # lane = "manual" for the same rule. It runs decide's browser-import block from nightly.yml in node and
     # checks the outputs the build and publish jobs read; run it by hand after changing that block.
     "tests/test_nightly_next_notary_full_import.py",
@@ -126,6 +156,33 @@ UNWIRED: set[str] = {
     # `deployment: false`, so the PR logs no "temporarily deployed" event. Run it by hand after adding an
     # environment to a job.
     "tests/test_ci_secrets_only_environments_log_no_deployment.py",
+    # lane = "manual" for the same rule. The first proves each derived job list red against its pre-fix reader
+    # with fixture workflows; the second fails on a guard that reads a job field raw instead of through
+    # tests/workflow_jobs.py. Run both by hand after changing a job-list guard or the resolver. Exit: as above.
+    "tests/test_ci_job_list_fixture_mutations.py",
+    "tests/test_ci_guards_read_through_workflow_jobs.py",
+    # lane = "manual" for the same rule. It fails when a job on a self-hosted selector downloads an artifact into a
+    # relative directory a persistent worker may still hold files in; run it by hand after adding a download-artifact step.
+    "tests/test_ci_self_hosted_downloads_are_fresh.py",
+    # lane = "manual" for the same rule. It fails when a publishing step of coderouter-release.yml or app-ffi-release.yml
+    # loses its release-ref gate or a workflow_dispatch can reach it; run it by hand after editing either workflow.
+    "tests/test_ci_release_publish_tag_gate.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml): it pins scripts/cmux-next/check-single-host-fallbacks.py,
+    # which ci-guards.yml runs only with --advisory and the pre-push gate runs strictly. Run it by hand after
+    # changing the checker or .github/single-host-fallbacks.json.
+    "tests/test_ci_single_host_fallbacks.py",
+    # No new CI tests (CLAUDE.md). It needs cargo, which no guard step has, and reads rust-workspaces.yml's lock
+    # check step; that job runs scripts/cmux-next/cargo-locks.py check --strict itself on every Rust change. Run
+    # it by hand after changing cargo-locks.py or that step.
+    "tests/test_cargo_locks.py",
+    # lane = "manual" (tests/test-execution.d/other.toml; no new CI tests, CLAUDE.md). It reads four workflows
+    # only as text (each failing step asks cargo-locks.py explain) and lists cargo --locked wrappers. Run it by hand
+    # after changing cargo-locks.py or a step that runs cargo with --locked.
+    "tests/test_cargo_locks_explain.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It reads
+    # cmux-tui-build-package.yml as data: the shipped fat-LTO legs' warm sticky disks and their
+    # restore/record calls. Run it by hand after changing those steps. Exit: as above.
+    "tests/test_ci_cmux_tui_fat_warm_target.py",
 }
 
 

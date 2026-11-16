@@ -2,6 +2,7 @@
 import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileTerminal
+import CmuxMobileWorkspaces
 import CmuxSpinner
 import SwiftUI
 
@@ -21,24 +22,32 @@ import SwiftUI
 ///   with no Mac to reach them through;
 /// - `chiefoff`: Home's "Chief Is Off" card (the Cloud Chief's brain is off, as every new
 ///   account's is): A, the one Home shows, in its four states (off, turning on, failed,
-///   unavailable on this account), then the variants it was picked from, B and C.
+///   unavailable on this account), then the variants it was picked from, B and C;
+/// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
+/// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
+/// - `terminalchat`: Toggle Terminal and Chat's Chat | Terminal control (`TerminalChatToggleGallery`): A, the one
+///   the tabs show, on both faces and with a face disabled, then the variants it was picked from, B and C.
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
     }
 
     let scene: String
+    /// `-cmux-mobile-gallery-appearance light|dark`: the scheme the shots use (else the system's).
+    let scheme: ColorScheme?
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
         scene = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
+        let look = arguments.firstIndex(of: "-cmux-mobile-gallery-appearance").flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil }
+        scheme = look == "dark" ? .dark : look == "light" ? .light : nil
     }
 
     public var body: some View {
         Group {
             switch scene {
             case "terminal":
-                TerminalConnectingView(state: .offline(mac: "Aziz's Mac Studio"), topInset: 60) {}
+                TerminalConnectingView(topInset: 60)
                     .background(Color.black)
             case "card":
                 cards
@@ -50,12 +59,19 @@ public struct RecoveryGalleryRoot: View {
                 chiefOff
             case "signedout":
                 signedOut
+            case "cloudmachines":
+                NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
+            case "theme-mocha", "theme-solarized", "theme-wallpaper":
+                MacThemeGallery(variant: scene)
+            case "terminalchat":
+                TerminalChatToggleGallery()
             default:
                 states
             }
         }
         .ignoresSafeArea(edges: scene == "terminal" ? .all : [])
         .accessibilityIdentifier("recoveryGallery.\(scene)")
+        .preferredColorScheme(scheme)
     }
 
     private var states: some View {

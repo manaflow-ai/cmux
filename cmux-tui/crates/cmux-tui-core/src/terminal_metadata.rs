@@ -11,6 +11,7 @@
 //! roster policy.
 
 use base64::Engine;
+use std::borrow::Cow;
 use std::time::{Duration, Instant};
 
 const MAX_OSC_BODY_BYTES: usize = 4096;
@@ -57,8 +58,131 @@ struct OscCollector {
 }
 
 impl OscCollector {
+    // perf-hot: 0.1ns/byte terminal-output-scan (every output byte, host and daemon)
     fn observe(&mut self, bytes: &[u8], mut receive: impl FnMut(&[u8])) {
-        for &byte in bytes {
+        let mut index = 0;
+        while let Some(rest) = bytes.get(index..) {
+            // On the ground, outside a UTF-8 sequence, only an ESC, a C1
+            // control or a UTF-8 lead byte moves the state: every byte up to
+            // the next ESC or byte >= 0x80 is skipped at once.
+            if self.state == OscState::Ground && self.utf8_continuations == 0 {
+                index = index.saturating_add(find_esc_or_high(rest));
+                // A whole valid UTF-8 code point on the ground moves nothing
+                // but the UTF-8 bounds, which it leaves at the continuation
+                // range: jump it instead of stepping each byte.
+                let skip = utf8_code_point_len(bytes.get(index..).unwrap_or_default());
+                if skip > 0 {
+                    index = index.saturating_add(skip);
+                    self.utf8_min = 0x80;
+                    self.utf8_max = 0xbf;
+                    continue;
+                }
+            }
+            let Some(&byte) = bytes.get(index) else { break };
+            index = index.saturating_add(1);
+            self.observe_byte(byte, &mut receive);
+        }
+    }
+
+    /// [`OscCollector::observe`] and `titles.rewrite` in one walk of `bytes`:
+    /// the bytes with their title ops rewritten (borrowed when none was).
+    ///
+    /// While both scanners are on the ground only a [scan stop](is_scan_stop)
+    /// moves either one, so the walk jumps to the next stop. A whole CSI that
+    /// is no window op leaves both where they were, so it is jumped once for
+    /// both. The UTF-8 fields are not stepped over the jumped bytes; at a stop
+    /// and at the end they are rebuilt from at most the last three bytes
+    /// ([`OscCollector::sync_utf8`]), so UTF-8 text costs no stops.
+    // perf-hot: 0.1ns/byte terminal-output-scan (every output byte, host and daemon)
+    fn observe_rewriting_titles<'a>(
+        &mut self,
+        titles: &mut crate::terminal_title::TitleTracker,
+        bytes: &'a [u8],
+        mut receive: impl FnMut(&[u8]),
+    ) -> Cow<'a, [u8]> {
+        let mut out: Option<Vec<u8>> = None;
+        let mut copied = 0usize;
+        let mut index = 0usize;
+        // Where the UTF-8 fields last held exactly: the bytes after it up to
+        // `index` were jumped on the ground.
+        let mut exact = 0usize;
+        while let Some(rest) = bytes.get(index..) {
+            if self.state == OscState::Ground && titles.on_ground() {
+                let stop = index.saturating_add(find_scan_stop(rest));
+                if stop >= bytes.len() {
+                    index = bytes.len();
+                    break;
+                }
+                let tail = bytes.get(stop..).unwrap_or_default();
+                let skip = crate::terminal_title::csi_not_window_op_len(tail);
+                if skip > 0 {
+                    // The ESC ends any UTF-8 sequence and the CSI's bytes
+                    // are ASCII: both scanners stay on the ground, and the
+                    // UTF-8 fields read as after an ASCII byte.
+                    self.reset_utf8();
+                    index = stop.saturating_add(skip);
+                    exact = index;
+                    continue;
+                }
+                self.sync_utf8(bytes, exact, stop);
+                index = stop;
+            }
+            let Some(&byte) = bytes.get(index) else { break };
+            index = index.saturating_add(1);
+            exact = index;
+            self.observe_byte(byte, &mut receive);
+            // On its ground the title tracker moves only on an ESC.
+            if byte != 0x1b && titles.on_ground() {
+                continue;
+            }
+            let Some(title) = titles.step_byte(byte) else { continue };
+            let out = out.get_or_insert_with(|| {
+                Vec::with_capacity(bytes.len().saturating_add(title.len()).saturating_add(6))
+            });
+            out.extend_from_slice(bytes.get(copied..index).unwrap_or_default());
+            copied = index;
+            out.extend_from_slice(b"\x1b]2;");
+            out.extend_from_slice(&title);
+            out.push(0x07);
+        }
+        if exact < index {
+            self.sync_utf8(bytes, exact, index);
+        }
+        match out {
+            None => Cow::Borrowed(bytes),
+            Some(mut out) => {
+                out.extend_from_slice(bytes.get(copied..).unwrap_or_default());
+                Cow::Owned(out)
+            }
+        }
+    }
+
+    /// Brings the UTF-8 fields from `bytes[exact]` to `bytes[at]`, over bytes
+    /// the scan jumped on the ground (none a scan stop, so they move nothing
+    /// else). A byte outside the continuation range sets the fields alone,
+    /// whatever came before it, and a sequence has at most three
+    /// continuations: only the bytes from the last such byte in the three
+    /// before `at` matter. When there is none, three or more continuation
+    /// bytes ended any sequence; fewer are stepped from `exact`.
+    fn sync_utf8(&mut self, bytes: &[u8], exact: usize, at: usize) {
+        let from = at.saturating_sub(3).max(exact);
+        let window = bytes.get(from..at).unwrap_or_default();
+        let replay_from = match window.iter().rposition(|byte| !(0x80..=0xbf).contains(byte)) {
+            Some(lead) => from.saturating_add(lead),
+            None if from == exact => exact,
+            None => {
+                self.reset_utf8();
+                return;
+            }
+        };
+        for &byte in bytes.get(replay_from..at).unwrap_or_default() {
+            self.observe_byte(byte, &mut |_| {});
+        }
+    }
+
+    /// Advance over one byte of output.
+    fn observe_byte(&mut self, byte: u8, receive: &mut impl FnMut(&[u8])) {
+        {
             if self.utf8_continuations > 0 {
                 if (self.utf8_min..=self.utf8_max).contains(&byte) {
                     self.utf8_continuations -= 1;
@@ -70,7 +194,7 @@ impl OscCollector {
                     // UTF-8 continuation range.
                     self.utf8_min = 0x80;
                     self.utf8_max = 0xbf;
-                    continue;
+                    return;
                 }
                 // An invalid or truncated UTF-8 sequence cannot hide the
                 // next control byte. Process this byte again as framing.
@@ -112,14 +236,14 @@ impl OscCollector {
                 },
                 OscState::Body => match byte {
                     0x18 | 0x1a => self.cancel(),
-                    0x07 | 0x9c => self.finish(&mut receive),
+                    0x07 | 0x9c => self.finish(receive),
                     0x1b => self.state = OscState::BodyEscape,
                     _ => self.push(byte),
                 },
                 OscState::BodyEscape => match byte {
                     0x18 | 0x1a => self.cancel(),
-                    b'\\' => self.finish(&mut receive),
-                    0x07 | 0x9c => self.finish(&mut receive),
+                    b'\\' => self.finish(receive),
+                    0x07 | 0x9c => self.finish(receive),
                     0x1b => {
                         // A second ESC remains a possible ST prefix. Keep
                         // one literal ESC in the bounded body and wait.
@@ -208,12 +332,59 @@ fn utf8_sequence_bounds(byte: u8) -> (u8, u8, u8) {
     }
 }
 
-fn utf8_continuation_count(byte: u8) -> u8 {
-    utf8_sequence_bounds(byte).0
+/// Length of the complete, valid UTF-8 multibyte code point at the start of
+/// `bytes` (the bounds `utf8_sequence_bounds` gives its lead byte), or 0.
+fn utf8_code_point_len(bytes: &[u8]) -> usize {
+    let Some(&lead) = bytes.first() else { return 0 };
+    let (continuations, min, max) = utf8_sequence_bounds(lead);
+    let len = usize::from(continuations).saturating_add(1);
+    let Some(tail) = bytes.get(1..len) else { return 0 };
+    let mut tail = tail.iter();
+    match tail.next() {
+        Some(second) if (min..=max).contains(second) => {}
+        _ => return 0,
+    }
+    if tail.all(|byte| (0x80..=0xbf).contains(byte)) { len } else { 0 }
 }
 
-fn is_string_opener(byte: u8) -> bool {
-    matches!(byte, 0x90 | 0x98 | 0x9d | 0x9f | 0x9e)
+/// Index of the first ESC or byte >= 0x80 in `bytes`, or its length. Whole
+/// 16-byte blocks are tested with a branch-free fold the compiler vectorizes.
+fn find_esc_or_high(bytes: &[u8]) -> usize {
+    const BLOCK: usize = 16;
+    let is_stop = |byte: u8| byte == 0x1b || byte >= 0x80;
+    let mut skipped = 0usize;
+    for block in bytes.chunks_exact(BLOCK) {
+        if block.iter().fold(false, |found, &byte| found | is_stop(byte)) {
+            break;
+        }
+        skipped = skipped.saturating_add(BLOCK);
+    }
+    let rest = bytes.get(skipped..).unwrap_or_default();
+    skipped.saturating_add(rest.iter().position(|&byte| is_stop(byte)).unwrap_or(rest.len()))
+}
+
+/// A byte that moves the OSC collector or the title tracker when both are on
+/// the ground: an ESC, or a C1 control that opens a string (DCS, SOS, OSC,
+/// PM, APC). A UTF-8 continuation byte with one of those values is told
+/// apart only after the scan stops on it.
+fn is_scan_stop(byte: u8) -> bool {
+    (byte == 0x1b) | (byte == 0x90) | (byte == 0x98) | (byte.wrapping_sub(0x9d) < 3)
+}
+
+/// Index of the first [scan stop](is_scan_stop) in `bytes`, or its length.
+/// Whole 16-byte blocks are tested with a branch-free fold the compiler
+/// vectorizes.
+fn find_scan_stop(bytes: &[u8]) -> usize {
+    const BLOCK: usize = 16;
+    let mut skipped = 0usize;
+    for block in bytes.chunks_exact(BLOCK) {
+        if block.iter().fold(false, |found, &byte| found | is_scan_stop(byte)) {
+            break;
+        }
+        skipped = skipped.saturating_add(BLOCK);
+    }
+    let rest = bytes.get(skipped..).unwrap_or_default();
+    skipped.saturating_add(rest.iter().position(|&byte| is_scan_stop(byte)).unwrap_or(rest.len()))
 }
 
 /// The state of an OSC 9;4 progress report (ConEmu and Windows Terminal).
@@ -501,65 +672,103 @@ impl TerminalMetadata {
         // chunk contains no new ESC or C1 introducer.
         if self.osc.state == OscState::Ground
             && self.osc.utf8_continuations == 0
-            && !bytes.iter().any(|byte| {
-                *byte == 0x1b || is_string_opener(*byte) || utf8_continuation_count(*byte) != 0
-            })
+            && find_esc_or_high(bytes) == bytes.len()
         {
             return;
         }
-        let progress = &mut self.progress;
-        let kitty = &mut self.kitty;
-        let notifications = &mut self.notifications;
-        let shell_marks = &mut self.shell_marks;
-        let activity = &mut self.activity;
-        self.osc.observe(bytes, |body| {
-            let Some(separator) = body.iter().position(|byte| *byte == b';') else {
-                return;
-            };
-            let data = &body[separator + 1..];
-            let notification = match &body[..separator] {
-                b"9" => {
-                    *progress = String::from_utf8_lossy(data)
-                        .chars()
-                        .filter(|character| !character.is_control())
-                        .take(MAX_PROGRESS_CHARS)
-                        .collect();
-                    osc9_is_notification(data)
-                        .then(|| TerminalNotification::new(b"", data))
-                        .flatten()
-                }
-                b"777" => {
-                    let Some(rest) = data.strip_prefix(b"notify;") else { return };
-                    let Some(title_end) = rest.iter().position(|byte| *byte == b';') else {
-                        return;
-                    };
-                    TerminalNotification::new(&rest[..title_end], &rest[title_end + 1..])
-                }
-                b"99" => observe_kitty_notification(kitty, data),
-                b"133" => {
-                    if let Some(mark) = crate::shell_history::ShellMark::parse(data) {
-                        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-                        if activity.observe(mark, now_ms) {
-                            progress.clear();
-                        }
-                        if shell_marks.len() == crate::shell_history::MAX_PENDING_MARKS {
-                            shell_marks.remove(0);
-                        }
-                        shell_marks.push(mark);
-                    }
-                    None
-                }
-                _ => None,
-            };
-            if let Some(notification) = notification {
-                if notifications.len() == MAX_PENDING_NOTIFICATIONS {
-                    notifications.remove(0);
-                }
-                notifications.push(notification);
-            }
-        });
+        let (osc, mut sink) = self.split_osc();
+        osc.observe(bytes, |body| sink.receive(body));
     }
 
+    /// [`Self::observe_output`] and the title rewrite of
+    /// `crate::prompt_mode_reset::write_output` (`titles`, the stream's
+    /// [`ShellMarks::titles_mut`](crate::prompt_mode_reset::ShellMarks::titles_mut))
+    /// in one walk of the bytes: the host parser's per-frame scan. Returns
+    /// `bytes` with their title ops rewritten, for
+    /// `crate::prompt_mode_reset::write_rewritten_output`.
+    pub(crate) fn observe_output_rewriting_titles<'a>(
+        &mut self,
+        titles: &mut crate::terminal_title::TitleTracker,
+        bytes: &'a [u8],
+    ) -> Cow<'a, [u8]> {
+        let (osc, mut sink) = self.split_osc();
+        osc.observe_rewriting_titles(titles, bytes, |body| sink.receive(body))
+    }
+
+    fn split_osc(&mut self) -> (&mut OscCollector, OscBodySink<'_>) {
+        let sink = OscBodySink {
+            progress: &mut self.progress,
+            kitty: &mut self.kitty,
+            notifications: &mut self.notifications,
+            shell_marks: &mut self.shell_marks,
+            activity: &mut self.activity,
+        };
+        (&mut self.osc, sink)
+    }
+}
+
+/// What a finished OSC body updates in [`TerminalMetadata`].
+struct OscBodySink<'m> {
+    progress: &'m mut String,
+    kitty: &'m mut KittyPending,
+    notifications: &'m mut Vec<TerminalNotification>,
+    shell_marks: &'m mut Vec<crate::shell_history::ShellMark>,
+    activity: &'m mut crate::terminal_activity::ShellActivity,
+}
+
+impl OscBodySink<'_> {
+    fn receive(&mut self, body: &[u8]) {
+        let progress: &mut String = &mut *self.progress;
+        let kitty: &mut KittyPending = &mut *self.kitty;
+        let notifications: &mut Vec<TerminalNotification> = &mut *self.notifications;
+        let shell_marks: &mut Vec<crate::shell_history::ShellMark> = &mut *self.shell_marks;
+        let activity: &mut crate::terminal_activity::ShellActivity = &mut *self.activity;
+        let Some(separator) = body.iter().position(|byte| *byte == b';') else {
+            return;
+        };
+        let data = &body[separator + 1..];
+        let notification = match &body[..separator] {
+            b"9" => {
+                *progress = String::from_utf8_lossy(data)
+                    .chars()
+                    .filter(|character| !character.is_control())
+                    .take(MAX_PROGRESS_CHARS)
+                    .collect();
+                osc9_is_notification(data).then(|| TerminalNotification::new(b"", data)).flatten()
+            }
+            b"777" => {
+                let Some(rest) = data.strip_prefix(b"notify;") else { return };
+                let Some(title_end) = rest.iter().position(|byte| *byte == b';') else {
+                    return;
+                };
+                TerminalNotification::new(&rest[..title_end], &rest[title_end + 1..])
+            }
+            b"99" => observe_kitty_notification(kitty, data),
+            b"133" => {
+                if let Some(mark) = crate::shell_history::ShellMark::parse(data) {
+                    let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+                    if activity.observe(mark, now_ms) {
+                        progress.clear();
+                    }
+                    if shell_marks.len() == crate::shell_history::MAX_PENDING_MARKS {
+                        shell_marks.remove(0);
+                    }
+                    shell_marks.push(mark);
+                }
+                None
+            }
+            _ => None,
+        };
+        if let Some(notification) = notification {
+            if notifications.len() == MAX_PENDING_NOTIFICATIONS {
+                notifications.remove(0);
+            }
+            notifications.push(notification);
+        }
+    }
+}
+
+impl TerminalMetadata {
     /// Metadata that keeps feeding `program_status` (a reconnect replaces the
     /// rest).
     #[cfg_attr(not(unix), allow(dead_code))]
@@ -661,10 +870,16 @@ impl TerminalMetadata {
         }
     }
 
-    /// Whether the command, prompt or last-output fact changed since the last
-    /// call (marks it taken).
+    /// Whether the command or prompt fact changed since the last call (marks
+    /// it taken): a durable edge, one terminal upsert commit.
     pub(crate) fn take_busy_change(&mut self) -> bool {
-        self.activity.take_change()
+        self.activity.take_edge_change()
+    }
+
+    /// Whether the last output moved a whole publish interval since the last
+    /// call (marks it taken): a live fact, never a commit.
+    pub(crate) fn take_output_change(&mut self) -> bool {
+        self.activity.take_output_change()
     }
 
     /// Whether `take_progress_change` or `take_busy_change` would report a
@@ -689,6 +904,291 @@ impl TerminalMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl OscCollector {
+        /// The byte-at-a-time scan [`OscCollector::observe`] replaced.
+        fn observe_reference(&mut self, bytes: &[u8], mut receive: impl FnMut(&[u8])) {
+            for &byte in bytes {
+                self.observe_byte(byte, &mut receive);
+            }
+        }
+
+        /// The state a later byte can see: the UTF-8 bounds matter only
+        /// inside a sequence.
+        fn observable(&self) -> Observable {
+            let (min, max) =
+                if self.utf8_continuations > 0 { (self.utf8_min, self.utf8_max) } else { (0, 0) };
+            (self.state, self.body.clone(), self.utf8_continuations, min, max)
+        }
+    }
+
+    /// Output that reaches every state of the collector: plain and colored
+    /// text, OSC 9/777/99/133 with BEL, ST and C1 ST, a C1 OSC, string
+    /// controls that hide an OSC, cancels, valid UTF-8 whose continuation
+    /// bytes are C1 values, invalid and overlong UTF-8, and an oversized body.
+    pub(super) fn adversarial_output() -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"plain text\r\n\x1b[1;31mred\x1b[0m \x1b]9;4;1;42\x07");
+        out.extend_from_slice(b"\x1b]777;notify;Title;Body text\x1b\\\x1b]99;i=1:d=0;Hi\x1b\\");
+        out.extend_from_slice(b"\x1b]133;A\x07$ \x1b]133;C\x07\x1b]133;D;0\x07");
+        out.extend_from_slice(b"\x9d9;c1 osc\x9c\x1bPq\x1b]9;hidden\x07\x1b\\\x90x\x9c");
+        out.extend_from_slice("caf\u{e9} \u{dd} \u{2500}\u{2502} \u{1f600}".as_bytes());
+        out.extend_from_slice(b"\xc3\x9d9;lead then c1\x9c\xe0\x80\x9d9;overlong\x07");
+        out.extend_from_slice(b"\xed\xa0\x9d\xf4\x90\x9d\x1b]9;can\x18\x1b]9;sub\x1a");
+        out.extend_from_slice(b"\x1b\x1b]9;esc esc\x1b\x1b\\\x1b]9;\x1bx\x07\x1b_apc\x1b\x1b\\");
+        out.extend_from_slice(b"\x1b]9;");
+        out.extend(std::iter::repeat_n(b'z', MAX_OSC_BODY_BYTES + 3));
+        out.extend_from_slice(b"\x07\x1b]9;\xe2\x94\x80 after\x07tail");
+        out
+    }
+
+    /// What [`OscCollector::observable`] returns.
+    type Observable = (OscState, Vec<u8>, u8, u8, u8);
+
+    fn collect(
+        chunks: &[&[u8]],
+        observe: impl Fn(&mut OscCollector, &[u8], &mut dyn FnMut(&[u8])),
+    ) -> (Vec<Vec<u8>>, Vec<Observable>) {
+        let mut collector = OscCollector::default();
+        let mut bodies = Vec::new();
+        let mut states = Vec::new();
+        for chunk in chunks {
+            observe(&mut collector, chunk, &mut |body| bodies.push(body.to_vec()));
+            states.push(collector.observable());
+        }
+        (bodies, states)
+    }
+
+    /// The jumping scan finds the bodies the byte-at-a-time scan found and
+    /// leaves the same state, for every split of adversarial output into two
+    /// chunks, for empty chunks, and for deterministic random byte soup.
+    #[test]
+    fn osc_scan_matches_the_byte_at_a_time_reference() {
+        let fast = |collector: &mut OscCollector, bytes: &[u8], receive: &mut dyn FnMut(&[u8])| {
+            collector.observe(bytes, receive);
+        };
+        let reference =
+            |collector: &mut OscCollector, bytes: &[u8], receive: &mut dyn FnMut(&[u8])| {
+                collector.observe_reference(bytes, receive);
+            };
+        let stream = adversarial_output();
+        for at in 0..=stream.len() {
+            let chunks: [&[u8]; 3] = [&stream[..at], b"", &stream[at..]];
+            assert_eq!(collect(&chunks, fast), collect(&chunks, reference), "split at {at}");
+        }
+        // Whole code points the scan jumps, next to C1 framing, truncated
+        // and overlong sequences it steps.
+        let utf8 = "é→✓日本語│🙂\u{9d}9;c1 é\u{9c}".as_bytes().iter().copied();
+        let stream: Vec<u8> =
+            utf8.chain(*b"\xe0\x80\x9d\xc3\x1b]9;x\xf0\x9f\x99\x07\xed\xa0\x80").collect();
+        for at in 0..=stream.len() {
+            let chunks: [&[u8]; 2] = [&stream[..at], &stream[at..]];
+            assert_eq!(collect(&chunks, fast), collect(&chunks, reference), "split at {at}");
+        }
+        let alphabet = b"\x1b\x07\x18\x1a\x9c\x9d\x90\x80\xbf\xc3\xe0\xed\xf0\xf4]P\\9;1A ";
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        for _ in 0..2_000 {
+            let mut soup = Vec::new();
+            for _ in 0..64 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                soup.push(alphabet[(seed % alphabet.len() as u64) as usize]);
+                if seed.is_multiple_of(5) {
+                    soup.extend_from_slice(b"plain ascii run ");
+                }
+            }
+            let at = (seed as usize) % (soup.len() + 1);
+            let chunks: [&[u8]; 2] = [&soup[..at], &soup[at..]];
+            assert_eq!(collect(&chunks, fast), collect(&chunks, reference), "soup {soup:?}");
+        }
+    }
+
+    /// What one scanner run over `chunks` gives: each chunk's rewritten
+    /// bytes, the OSC bodies, the collector's state after each chunk and the
+    /// title tracker's at the end.
+    type SharedRun = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Observable>, String);
+
+    fn shared_run(chunks: &[&[u8]], reference: bool) -> SharedRun {
+        let mut collector = OscCollector::default();
+        let mut titles = crate::terminal_title::TitleTracker::default();
+        let (mut rewritten, mut bodies, mut states) = (Vec::new(), Vec::new(), Vec::new());
+        for chunk in chunks {
+            let mut receive = |body: &[u8]| bodies.push(body.to_vec());
+            let out = if reference {
+                collector.observe_reference(chunk, &mut receive);
+                titles.rewrite_reference_for_bench(chunk).into_owned()
+            } else {
+                collector.observe_rewriting_titles(&mut titles, chunk, &mut receive).into_owned()
+            };
+            rewritten.push(out);
+            states.push(collector.observable());
+        }
+        (rewritten, bodies, states, format!("{titles:?}"))
+    }
+
+    /// The title tracker's hard cases: pushes and pops in every parameter
+    /// form, OSC 1 before and after an OSC 2, ESC and C0 inside a CSI, an
+    /// over-long CSI, and the bench's colored and UTF-8 text.
+    fn title_and_text_output() -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"plain \x1b[1;31mred\x1b[0m\x1b]1;icon\x07\x1b[22;0t");
+        out.extend_from_slice(
+            b"\x1b]2;one\x1b\\\x1b[22t\x1b]0;two\x07\x1b[23;2t\x1b[23t\x1b[23;1t",
+        );
+        out.extend_from_slice(b"\x1b[2\x1b[22;0t\x1b]2;x\x18\x1b]2;y\x1a\x1b]2;z\x1b[23t");
+        out.extend_from_slice(b"\x1b[11111111111111111111;0t\x1b[2\n2;0t\x1b[?22t\x1b[23;0t");
+        out.extend_from_slice(b"\xff\xfe\x9d\x1b\x1b]1;late icon\x07\x1b]2;\xe2\x94\x80\x07");
+        out.extend_from_slice("\x1b[38;5;208mcargo\x1b[0m é→✓日本語│🙂 ok\r\n".as_bytes());
+        out.extend_from_slice("日\u{9d}本\u{9e}語\u{9f}\x1b[22;0t\x1b]2;t\x07\x1b[23t".as_bytes());
+        out
+    }
+
+    /// The shared scan rewrites the titles, finds the OSC bodies and leaves
+    /// both scanners' state exactly as the two byte-at-a-time references run
+    /// one after the other, for every split of adversarial output into two
+    /// chunks with an empty one between, for three-way splits of UTF-8 text
+    /// next to C1 framing, and for deterministic random byte soup.
+    #[test]
+    fn shared_scan_matches_the_title_and_osc_references() {
+        let mut stream = adversarial_output();
+        stream.extend_from_slice(&title_and_text_output());
+        for at in 0..=stream.len() {
+            let chunks: [&[u8]; 3] = [&stream[..at], b"", &stream[at..]];
+            assert_eq!(shared_run(&chunks, false), shared_run(&chunks, true), "split at {at}");
+        }
+        let text = "é→✓日本語│🙂\u{9d}9;c1 é\u{9c}🙂\u{90}x\u{9c}".as_bytes().iter().copied();
+        let text: Vec<u8> =
+            text.chain(*b"\xe0\x80\x9d\xc3\x1b]9;x\xf0\x9f\x99\x07\xed\xa0").collect();
+        for first in 0..=text.len() {
+            for second in first..=text.len() {
+                let chunks = [&text[..first], &text[first..second], &text[second..]];
+                let at = (first, second);
+                assert_eq!(shared_run(&chunks, false), shared_run(&chunks, true), "{at:?}");
+            }
+        }
+        let alphabet =
+            b"\x1b\x07\x18\x1a\x9c\x9d\x9e\x9f\x90\x98\x80\xbf\xc3\xe0\xed\xf0\xf4[]P\\t;0123m?A ";
+        let mut seed = 0x51f1_5e3d_7a0b_c4e9u64;
+        for _ in 0..4_000 {
+            let mut soup = Vec::new();
+            for _ in 0..64 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                soup.push(alphabet[(seed % alphabet.len() as u64) as usize]);
+                if seed.is_multiple_of(5) {
+                    soup.extend_from_slice("plain ascii run é ".as_bytes());
+                }
+            }
+            let at = (seed as usize) % (soup.len() + 1);
+            let chunks: [&[u8]; 2] = [&soup[..at], &soup[at..]];
+            assert_eq!(shared_run(&chunks, false), shared_run(&chunks, true), "soup {soup:?}");
+        }
+    }
+
+    /// Output with no title op to rewrite comes back borrowed, not copied.
+    #[test]
+    fn the_shared_scan_does_not_copy_output_it_leaves_alone() {
+        let mut metadata = TerminalMetadata::default();
+        let mut titles = crate::terminal_title::TitleTracker::default();
+        let out = metadata.observe_output_rewriting_titles(
+            &mut titles,
+            "\x1b[31mred\x1b[0m é \x1b]2;title\x07 \x1b]9;4;1;5\x07".as_bytes(),
+        );
+        assert!(matches!(out, Cow::Borrowed(_)));
+        assert_eq!(metadata.osc_progress(), "4;1;5");
+    }
+
+    #[test]
+    fn find_scan_stop_stops_at_the_first_esc_or_c1_string_opener() {
+        for len in 0..40usize {
+            for stop in [None, Some(0x1b), Some(0x90), Some(0x98), Some(0x9d), Some(0x9f)] {
+                for at in 0..len.max(1) {
+                    // Bytes the scan passes: text, UTF-8 leads, other C1 values.
+                    let mut bytes: Vec<u8> =
+                        (0..len).map(|i| [b'a', 0xc3, 0x9c, 0x80, 0x9a][i % 5]).collect();
+                    let expected = match stop {
+                        Some(byte) if at < len => {
+                            bytes[at] = byte;
+                            at
+                        }
+                        _ => len,
+                    };
+                    assert_eq!(find_scan_stop(&bytes), expected, "len {len} stop {stop:?} at {at}");
+                }
+            }
+        }
+    }
+
+    /// The three output scanners over 64 KiB of colored log output and of
+    /// box-drawing TUI output: ns per byte, jumping scan against the
+    /// byte-at-a-time reference. Run on the fleet:
+    /// `cargo test -p cmux-tui-core --release --lib terminal_output_scan_bench -- --ignored --nocapture`
+    #[test]
+    #[ignore = "bench"]
+    fn terminal_output_scan_bench() {
+        let mut colored = Vec::new();
+        let mut boxes = Vec::new();
+        for line in 0.. {
+            if colored.len() >= 64 * 1024 {
+                break;
+            }
+            colored.extend_from_slice(
+                format!("\x1b[32m2026-11-10T12:00:{line:02}Z\x1b[0m INFO request served in 3ms id={line}\r\n")
+                    .as_bytes(),
+            );
+            boxes.extend_from_slice(
+                format!(
+                    "\x1b[{};1H\u{2502} cell {line:5} \u{2502}\x1b[7m sel \x1b[27m\u{2502}",
+                    line % 40
+                )
+                .as_bytes(),
+            );
+        }
+        for (name, stream) in [("colored-log", &colored), ("box-tui", &boxes)] {
+            let rounds = 400;
+            let time = |reference: bool| {
+                let start = Instant::now();
+                for _ in 0..rounds {
+                    let mut collector = OscCollector::default();
+                    let mut titles = crate::terminal_title::TitleTracker::default();
+                    if reference {
+                        collector.observe_reference(stream, |_| {});
+                        std::hint::black_box(titles.rewrite_reference_for_bench(stream));
+                    } else {
+                        collector.observe(stream, |_| {});
+                        std::hint::black_box(titles.rewrite(stream));
+                    }
+                    std::hint::black_box(collector.state);
+                }
+                start.elapsed().as_nanos() as f64 / (rounds as f64 * stream.len() as f64)
+            };
+            let (reference, fast) = (time(true), time(false));
+            println!(
+                "SCAN-BENCH {name} reference_ns_per_byte={reference:.3} fast_ns_per_byte={fast:.3}"
+            );
+        }
+    }
+
+    #[test]
+    fn find_esc_or_high_stops_at_the_first_esc_or_high_byte() {
+        for len in 0..40 {
+            for stop in [None, Some(0x1b), Some(0x80), Some(0xff)] {
+                for at in 0..len.max(1) {
+                    let mut bytes = vec![b'a'; len];
+                    let expected = match stop {
+                        Some(byte) if at < len => {
+                            bytes[at] = byte;
+                            at
+                        }
+                        _ => len,
+                    };
+                    assert_eq!(find_esc_or_high(&bytes), expected, "{bytes:?}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn osc_9_4_progress_parses_states_and_reports_each_change_once() {

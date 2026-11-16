@@ -120,6 +120,10 @@ await requireBrowserLane("transcript-tool-row-consistency.test.ts", async () => 
     test(`an opened lead thought reads its label with the chevron right after it (${theme.file})`, async () => {
       const page = await open("agent-pane.claude-desktop-organization", "shared", theme.name, 760);
       try {
+        const thought = page.locator(".cv-step.is-lead .cv-step-thought");
+        expect(await thought.getAttribute("aria-expanded")).toBe("false");
+        await thought.click();
+        await page.locator(".cv-step.is-lead .cv-step-thought__body").waitFor();
         const lead = await page.evaluate(() => {
           const button = document.querySelector<HTMLElement>(".cv-step.is-lead .cv-step-thought")!;
           const label = button.querySelector<HTMLElement>(".cv-tool__text")!;

@@ -202,11 +202,53 @@ fn an_unbound_machine_refuses_within_the_ticket_command_timeout() {
     let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
     assert_eq!(reply["error"]["code"], "vm.unbound");
     assert!(started.elapsed() >= UNBOUND_WAIT);
+    // The refusal's journal line has its own token, its code and its message.
+    let logged = LOGGED.lock().unwrap().clone();
+    assert!(
+        logged.iter().any(|l| l.starts_with("carrier ticket: refused vm.unbound in ") && l.contains(" ms: ")),
+        "{logged:?}"
+    );
     assert!(
         started.elapsed() < Duration::from_secs(10),
         "past the 10 s an older session host waits"
     );
     drop(server);
+}
+
+/// Every success reads `<what> in N ms`, every refusal `refused <code> ...`
+/// with its message on one line: a journal reader tells them apart by the
+/// token alone, and no line carries the ticket.
+#[test]
+fn a_refusal_line_has_its_own_token_and_a_success_line_never_has_it() {
+    let issued = json!({ "ok": true, "ticket": TICKET, "expires_at": T0 + 60_000 });
+    assert_eq!(
+        super::outcome_line(&issued, "prefetched", "", 893),
+        "carrier ticket: prefetched in 893 ms"
+    );
+    assert_eq!(
+        super::outcome_line(&issued, "issued", " (kept)", 776),
+        "carrier ticket: issued (kept) in 776 ms"
+    );
+    let slow = json!({ "ok": false, "error": { "code": "carrier.slow", "message": "the ticket\nis slow" } });
+    assert_eq!(
+        super::outcome_line(&slow, "fetched for an ask", " (kept)", 25_000),
+        "carrier ticket: refused carrier.slow (kept) in 25000 ms: the ticket is slow"
+    );
+    let bare = json!({ "ok": false });
+    assert_eq!(
+        super::outcome_line(&bare, "refreshed", "", 4),
+        "carrier ticket: refused unknown in 4 ms"
+    );
+    let long =
+        json!({ "ok": false, "error": { "code": "auth.refused", "message": "x".repeat(1000) } });
+    let line = super::outcome_line(&long, "issued", "", 1);
+    assert!(line.len() < 300, "{line}");
+    for line in [
+        super::outcome_line(&issued, "prefetched", "", 1),
+        super::outcome_line(&issued, "issued", "", 1),
+    ] {
+        assert!(!line.contains("refused") && !line.contains(TICKET), "{line}");
+    }
 }
 
 #[test]

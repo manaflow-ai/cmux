@@ -36,6 +36,7 @@ export function ToastLayer({
         drag={drag}
         topHost={topHost}
         dismissLabel={t("toast.dismiss")}
+        label={t("toast.region")}
       />
     </div>
   );

@@ -7,7 +7,7 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, settle } = await import("./testing");
+const { renderPage, rowElement, settle } = await import("./testing");
 
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="mobile"]');
 const state: IPhoneHostState = {
@@ -63,7 +63,10 @@ test("Mobile is its own category with the allow switch; Accounts has no iPhone c
   await act(async () => page.provider.setHost({ ...page.provider.host, iphone: state }));
   await settle();
   expect(page.container.querySelector('[data-row-key="mobile.allowIPhoneConnections"]')).not.toBeNull();
-  // The terminal sizing policy row; its priority order is set on the phone and stays hidden here.
+  // The terminal sizing policy row sits under the iPhone card's More Options (the page's first);
+  // its priority order is set on the phone and stays hidden here.
+  await act(async () => page.container.querySelector<HTMLElement>(".more-options")!.click());
+  await settle();
   expect(page.container.querySelector('[data-row-key="mobile.terminalSizing"]')).not.toBeNull();
   expect(page.container.querySelector('[data-row-key="mobile.terminalSizingOrder"]')).toBeNull();
   expect(card(page.container)).not.toBeNull();
@@ -142,9 +145,12 @@ test("Phone Access rows remain visible and removable when the legacy host is off
 });
 
 test("the switch writes the setting through cmux.settings.set", async () => {
+  // The old Mobile link opens Devices, whose device list has switches of its own above this row.
   const page = await renderPage({ path: "/settings/mobile" });
   await settle();
-  const toggle = page.container.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  const toggle = rowElement(page.container, "mobile.allowIPhoneConnections").querySelector<HTMLButtonElement>(
+    '[role="switch"]',
+  )!;
   await act(async () => toggle.click());
   await settle();
   const writes = page.provider.log.filter((entry) => entry.op === "cmux.settings.set");

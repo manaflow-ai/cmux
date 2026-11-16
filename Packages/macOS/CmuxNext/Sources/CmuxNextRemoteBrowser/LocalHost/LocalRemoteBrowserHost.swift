@@ -43,7 +43,8 @@ public final class LocalRemoteBrowserHost {
     private let process: Process
     /// The write end of the host's stdin; its writes and its close go through the feed's queue.
     private let lifeline: PipeFeed
-    /// Kept open so a later stdout write never fails with a closed pipe.
+    /// Kept open, and read for the host's whole life (the bytes after the listening line are
+    /// dropped), so a later stdout write neither fails with a closed pipe nor waits on a full one.
     private let output: Pipe
     private let exits: AsyncStream<Int32>
     public private(set) var isStopped = false
@@ -95,16 +96,28 @@ public final class LocalRemoteBrowserHost {
         process.standardOutput = output
         let errorLog = try? FileHandle(forWritingTo: log)
         process.standardError = errorLog ?? FileHandle.nullDevice
+        // The host's stdout is read for the host's whole life: the listening line below, then what
+        // it prints after that, dropped (nobody else reads it, and a full pipe, 64 KB, stops the
+        // host in its next write). Not `bytes`: Foundation reads every `bytes` reader in the app
+        // one at a time, so one that waits on a quiet pipe keeps the others from reading
+        // (``FileHandle/readyChunks()``).
+        let outputReader = output.fileHandleForReading
+        let (chunks, stopReading) = outputReader.readyChunks()
         let (exits, exited) = AsyncStream.makeStream(of: Int32.self, bufferingPolicy: .bufferingNewest(1))
         process.terminationHandler = { @Sendable finished in
             // Runs on a Foundation queue, never the main thread.
             try? FileManager.default.removeItem(at: work)
+            // The host is gone: the reading stops and our read end closes, also when a helper
+            // it left behind still holds the pipe open.
+            stopReading()
+            try? outputReader.close()
             exited.yield(finished.terminationStatus)
             exited.finish()
         }
         do {
             try process.run()
         } catch {
+            stopReading()
             try? FileManager.default.removeItem(at: work)
             throw Failure.launch(String(describing: error))
         }
@@ -137,14 +150,16 @@ public final class LocalRemoteBrowserHost {
         }
         defer { deadlineTask.cancel() }
         var listening: RemoteBrowserHostListening?
-        do {
-            // Ends at the first listening line, or at end of file (the host exited).
-            for try await line in output.fileHandleForReading.bytes.lines {
+        var pending = Data()
+        // Ends at the first listening line, or when the host's stdout ends (the host exited).
+        read: for await chunk in chunks {
+            pending.append(chunk)
+            while let newline = pending.firstIndex(of: 0x0A) {
+                let line = String(decoding: pending[pending.startIndex..<newline], as: UTF8.self)
+                pending.removeSubrange(pending.startIndex...newline)
                 listening = RemoteBrowserHostListening(line: line)
-                if listening != nil { break }
+                if listening != nil { break read }
             }
-        } catch {
-            listening = nil
         }
         deadlineTask.cancel()
         guard let listening, !deadline.fired else {
@@ -154,6 +169,8 @@ public final class LocalRemoteBrowserHost {
             }
             throw Failure.exitedBeforeListening(log: log)
         }
+        // task-owner: reads and drops the host's stdout after the listening line; it ends when the host exits
+        Task.detached { for await _ in chunks {} }
         return LocalRemoteBrowserHost(endpoint: listening.endpoint, secret: secret, process: process, lifeline: lifeline,
                                       output: output, exits: exits, logURL: log)
     }

@@ -109,10 +109,14 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
             out.push(Issue::error(at, "path.missing", format!("{p} does not exist")));
             continue;
         }
+        // A folder entry (`web/`) covers the folder itself (`runtime.web.root: "web"`) and
+        // everything under it.
         if let Some(files) = &files
-            && !files
-                .iter()
-                .any(|f| p == *f || p.starts_with(&format!("{}/", f.trim_end_matches('/'))))
+            && !files.iter().any(|f| {
+                let f = f.trim_end_matches('/');
+                let p = p.trim_end_matches('/');
+                p == f || p.starts_with(&format!("{f}/"))
+            })
         {
             out.push(Issue::error(
                 at.clone(),
@@ -120,10 +124,19 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
                 format!("{p} is not listed in files"),
             ));
         }
-        if at == "/runtime/main"
-            && std::fs::metadata(&full).map(|md| md.len() > MAIN_LIMIT).unwrap_or(false)
-        {
-            out.push(Issue::error(at, "limit.main", "runtime.main is larger than 2 MiB"));
+        if at == "/runtime/main" {
+            if std::fs::metadata(&full).map(|md| md.len() > MAIN_LIMIT).unwrap_or(false) {
+                out.push(Issue::error(at, "limit.main", "runtime.main is larger than 2 MiB"));
+            } else if let Ok(script) = std::fs::read(&full) {
+                // The script the host runs: no character that hides what it
+                // does (hidden.rs). Not UTF-8 is the host's own refusal.
+                if let Some(issue) = std::str::from_utf8(&script)
+                    .ok()
+                    .and_then(|text| crate::hidden::script_issue(&at, &p, text))
+                {
+                    out.push(issue);
+                }
+            }
         }
     }
     out

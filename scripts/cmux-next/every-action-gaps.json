@@ -212,7 +212,6 @@
   "space.delete": "deletes data",
   "space.setDefaults": "opens another app, a web site or changes system defaults",
   "stash.importOneTab": "opens a file panel or writes files outside the app",
-  "switchRightSidebarToMachines": "uses the Cloud, a remote machine, a phone or computer use",
   "tab.restart": "ends or restarts the app",
   "tab.screenshot": "opens a file panel or writes files outside the app",
   "tabGroup.deleteSaved": "deletes data",

@@ -71,7 +71,7 @@ enum DestructiveConfirmation {
                           button: CloudStrings.deleteFirewallRule)
         case "git.worktree.remove": return invocation[GitRepositoryActions.pinnedPathName] == nil ? nil : Prompt(title: GitRepositoryActions.removeTitle, body: GitRepositoryActions.removeBody(discard: invocation["discard"]?.boolValue == true), button: GitRepositoryActions.removeButton, returnConfirms: false)
         default:
-            return await question(for: id, invocation, context, warn: warn)
+            return await question(for: id, invocation, context, warn: warn) ?? services.registry.descriptor(for: id).flatMap { CatalogRequestHandlers.confirmation(for: $0) }.map { Prompt(title: $0.title, body: $0.body, button: $0.button) } // else a destructive request row's generic question
         }
     }
 
@@ -121,7 +121,7 @@ enum DestructiveConfirmation {
                           button: HomeStrings.deleteChiefButton, returnConfirms: false)
         case .leaveConversation?:
             // The group's name in the question; a conversation not listed is refused by the action.
-            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownConversation(services)
+            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownPage(services)?.shown
             guard let id, let info = services.home.groupActions.info(id), info.isGroup else { return nil }
             let prompt = info.leavePrompt
             return Prompt(title: prompt.title, body: prompt.body, button: prompt.button)

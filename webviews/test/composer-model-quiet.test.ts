@@ -8,9 +8,8 @@
 //     the capture showed. The gallery stage loads no pages/shared/desktop.css, so that sheet is put in
 //     the page as the app's pane has it, and what the shared ring then draws is measured: a 1 px
 //     hairline at 22%, not its own 1.5 px at 48%;
-//   - the context ring sits on the row's grid: on the buttons' center line, its glyph 15 px after the
-//     effort (the 8 px pill inset of #24138, the ring's padding and composerFooterShared.css's 2 px),
-//     not the 17 that read as a loose spinner;
+//   - the context ring sits on the row's grid: on the buttons' center line, left of the model button,
+//     its glyph just before the button;
 //   - the button, its labels and the mode use the composer's own font, the prompt's (the app's UI
 //     font), so a fallback can never come from the row itself;
 //   - the row keeps "Opus 5.5  Medium" while it fits (a 410 px composer: live-qa read "Opus Med" with
@@ -27,6 +26,7 @@ import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
+import { COMPOSER_MD, MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-model-quiet.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -201,49 +201,48 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     expect(outside, "no copy of it outside that query").toBeNull();
   });
 
-  test("the context ring sits on the row's grid, its glyph after the effort with no margin of its own", async () => {
+  test("the context ring sits on the row's grid, its glyph just before the model button", async () => {
     const page = await open("quiet-chips");
     const grid = await page.evaluate((selector) => {
       const button = document.querySelector<HTMLElement>(selector)!;
-      const effort = button.querySelector<HTMLElement>(".acpmux-model-detail:not(.acpmux-fit-label)")!;
       const ring = document.querySelector<HTMLElement>(".acpmux-composer-foot .acpmux-context-ring")!;
       const glyph = ring.querySelector("svg")!.getBoundingClientRect();
-      const text = document.createRange();
-      text.selectNodeContents(effort);
-      const words = text.getBoundingClientRect();
       const box = button.getBoundingClientRect();
       const ringBox = ring.getBoundingClientRect();
       return {
-        gap: glyph.left - words.right,
+        gap: box.left - glyph.right,
         centers: Math.abs((box.top + box.bottom) / 2 - (ringBox.top + ringBox.bottom) / 2),
       };
     }, BUTTON);
     await page.close();
-    // The button's 8 px pill inset (#24138), the ring's own padding and the 2 px of
-    // composerFooterShared.css, which outranks composerLocation.css's legacy margin: 15 px, not the
-    // 17 that read as a loose spinner beside the button (Leo 2026-10-21).
-    expect(grid.gap, "the ring's glyph follows the effort with no margin of its own").toBeLessThanOrEqual(16);
-    expect(grid.gap, "and never touches it").toBeGreaterThanOrEqual(6);
+    // The ring starts the right-aligned group, left of the model (composerLocation.css, the ring-left
+    // rule): half its box past the glyph and the ring gap, then the button's own pill inset (#24138).
+    // Close enough to read as one group, never on the button.
+    expect(grid.gap, "the ring's glyph sits just before the model button").toBeLessThanOrEqual(14);
+    expect(grid.gap, "and never on it").toBeGreaterThanOrEqual(2);
     expect(grid.centers, "on the buttons' center line").toBeLessThanOrEqual(0.5);
   });
 
   test("the model button, its labels and the mode use the composer's font, the prompt's", async () => {
     const page = await open("quiet-chips");
-    const fonts = await page.evaluate(() => {
-      const family = (selector: string) => {
-        const element = document.querySelector(selector);
-        return element ? getComputedStyle(element).fontFamily : `missing ${selector}`;
-      };
-      return {
-        token: getComputedStyle(document.documentElement).getPropertyValue("--font-ui").trim(),
-        composer: family(".acpmux-composer"),
-        prompt: family(".acpmux-composer-box .acpmux-md"),
-        button: family(".acpmux-composer-foot .acpmux-model .acpmux-picker-button"),
-        name: family(".acpmux-composer-foot .acpmux-model-name"),
-        effort: family(".acpmux-composer-foot .acpmux-model-detail"),
-        mode: family(".acpmux-composer-foot .acpmux-access .acpmux-picker-button"),
-      };
-    });
+    const fonts = await page.evaluate(
+      ({ COMPOSER_MD }) => {
+        const family = (selector: string) => {
+          const element = document.querySelector(selector);
+          return element ? getComputedStyle(element).fontFamily : `missing ${selector}`;
+        };
+        return {
+          token: getComputedStyle(document.documentElement).getPropertyValue("--font-ui").trim(),
+          composer: family(".acpmux-composer"),
+          prompt: family(COMPOSER_MD),
+          button: family(".acpmux-composer-foot .acpmux-model .acpmux-picker-button"),
+          name: family(".acpmux-composer-foot .acpmux-model-name"),
+          effort: family(".acpmux-composer-foot .acpmux-model-detail"),
+          mode: family(".acpmux-composer-foot .acpmux-access .acpmux-picker-button"),
+        };
+      },
+      { COMPOSER_MD },
+    );
     await page.close();
     const { token, ...parts } = fonts;
     // The app's UI font token (styles.css `.acpmux-composer { font-family: var(--font-ui) }`,
@@ -259,56 +258,60 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
 
   /** The forms the quiet row shows: each unit's visible label, and whether its controls fit. */
   const row = (page: Page) =>
-    page.evaluate(() => {
-      const foot = document.querySelector<HTMLElement>(".acpmux-composer-foot")!;
-      const visible = (element: Element) => {
-        const style = getComputedStyle(element);
-        return style.position !== "absolute" && style.visibility !== "hidden" && style.display !== "none";
-      };
-      const label = (unit: string) =>
-        [...foot.querySelectorAll<HTMLElement>(`[data-fit-part="${unit}"]`)]
-          .filter(visible)
-          .map((part) => part.dataset.label ?? part.textContent?.trim() ?? "")
-          .join(" ");
-      const boxes = [
-        foot.querySelector(".acpmux-access .acpmux-picker-button"),
-        foot.querySelector(".acpmux-model .acpmux-picker-button"),
-        foot.querySelector(".acpmux-context-ring"),
-      ]
-        .filter((element): element is Element => element !== null)
-        .map((element) => element.getBoundingClientRect());
-      const edge = foot.getBoundingClientRect();
-      const overlap = boxes.some((box, index) => index > 0 && box.left < boxes[index - 1]!.right - 0.5);
-      const outside = boxes.some((box) => box.left < edge.left - 0.5 || box.right > edge.right + 0.5);
-      const composer = document.querySelector<HTMLElement>(".acpmux-composer")!;
-      const style = getComputedStyle(composer);
-      return {
-        composer: composer.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
-        model: label("model"),
-        effort: label("effort"),
-        access: label("access"),
-        steps: [...foot.attributes].filter((attribute) => attribute.name.startsWith("data-fit-")).map((a) => a.name),
-        // What the model button shows: its visible text and drawn labels, in order.
-        button: [...foot.querySelectorAll<HTMLElement>(".acpmux-model .acpmux-picker-button *")]
-          .filter((element) => visible(element) && element.getBoundingClientRect().width > 0)
-          .map(
-            (element) =>
-              [...element.childNodes]
-                .filter((node) => node.nodeType === Node.TEXT_NODE)
-                .map((node) => node.textContent)
-                .join("") +
-              (element.dataset.label && /^".+"$/.test(getComputedStyle(element, "::before").content)
-                ? element.dataset.label
-                : ""),
-          )
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim(),
-        overlap,
-        outside,
-        overflow: foot.scrollWidth > foot.clientWidth + 0.5,
-      };
-    });
+    page.evaluate(
+      ({ MODEL_PICKER }) => {
+        const foot = document.querySelector<HTMLElement>(".acpmux-composer-foot")!;
+        const visible = (element: Element) => {
+          const style = getComputedStyle(element);
+          return style.position !== "absolute" && style.visibility !== "hidden" && style.display !== "none";
+        };
+        const label = (unit: string) =>
+          [...foot.querySelectorAll<HTMLElement>(`[data-fit-part="${unit}"]`)]
+            .filter(visible)
+            .map((part) => part.dataset.label ?? part.textContent?.trim() ?? "")
+            .join(" ");
+        // In the row's order: the mode, the context ring, then the model (the ring stands left of it).
+        const boxes = [
+          foot.querySelector(".acpmux-access .acpmux-picker-button"),
+          foot.querySelector(".acpmux-context-ring"),
+          foot.querySelector(MODEL_PICKER),
+        ]
+          .filter((element): element is Element => element !== null)
+          .map((element) => element.getBoundingClientRect());
+        const edge = foot.getBoundingClientRect();
+        const overlap = boxes.some((box, index) => index > 0 && box.left < boxes[index - 1]!.right - 0.5);
+        const outside = boxes.some((box) => box.left < edge.left - 0.5 || box.right > edge.right + 0.5);
+        const composer = document.querySelector<HTMLElement>(".acpmux-composer")!;
+        const style = getComputedStyle(composer);
+        return {
+          composer: composer.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+          model: label("model"),
+          effort: label("effort"),
+          access: label("access"),
+          steps: [...foot.attributes].filter((attribute) => attribute.name.startsWith("data-fit-")).map((a) => a.name),
+          // What the model button shows: its visible text and drawn labels, in order.
+          button: [...foot.querySelectorAll<HTMLElement>(".acpmux-model .acpmux-picker-button *")]
+            .filter((element) => visible(element) && element.getBoundingClientRect().width > 0)
+            .map(
+              (element) =>
+                [...element.childNodes]
+                  .filter((node) => node.nodeType === Node.TEXT_NODE)
+                  .map((node) => node.textContent)
+                  .join("") +
+                (element.dataset.label && /^".+"$/.test(getComputedStyle(element, "::before").content)
+                  ? element.dataset.label
+                  : ""),
+            )
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim(),
+          overlap,
+          outside,
+          overflow: foot.scrollWidth > foot.clientWidth + 0.5,
+        };
+      },
+      { MODEL_PICKER },
+    );
 
   // Frame widths: the composer is SIDES (32 px) narrower (488, 414 and 308 px; 208 and 168 px). Since #24938
   // took the harness label out of the row it holds only the mode, the model button and the ring; the

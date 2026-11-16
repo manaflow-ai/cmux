@@ -31,6 +31,9 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import classify_failures as cf  # noqa: E402
 import guard_attribution as ga  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 REPO = "manaflow-ai/cmux"
 HEAD = "a" * 40
 
@@ -433,7 +436,9 @@ class CmuxBotTokenWorkflowShape(unittest.TestCase):
     def test_artifact_publisher_keeps_the_r2_environment_secret_boundary(self) -> None:
         document = yaml.safe_load((ROOT / ".github/workflows/dogfood-artifact-publish.yml").read_text())
         publish = document["jobs"]["publish"]
-        self.assertEqual(publish["environment"]["name"], "artifacts")
+        environment = workflow_jobs.resolve(publish, "publish").environment
+        self.assertIsNotNone(environment)
+        self.assertEqual(environment["name"], "artifacts")
         self.assertFalse(any(step.get("id") == "cmux-bot-token" for step in publish["steps"]))
         for step in publish["steps"]:
             token = step.get("env", {}).get("GH_TOKEN")

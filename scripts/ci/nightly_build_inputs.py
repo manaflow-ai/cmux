@@ -36,6 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import cmux_next_route as next_route  # noqa: E402
 import detect_ci_change_areas as detect  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -179,6 +180,12 @@ def build_inputs_changed(paths: list[str], root: Path = ROOT) -> tuple[bool, str
         if path.startswith(NIGHTLY_SHIPPED_SOURCES):
             return True, f"{path} is built into what the Nightly publishes"
         if is_pull_request_ci_config(path):
+            continue
+        # The Cloud VM image, services and agent configs: no Xcode project, Package.swift or build
+        # script names them (test_no_app_input_is_named_by_a_build_input). The image roll alone
+        # (images/cmux-vm/inputs.lock.json) lands about 100 times a day, and each one read as an app
+        # change, so the nightly built, signed and notarized the same app again.
+        if next_route.no_app_input(path):
             continue
         candidates.append(path)
     if not candidates:

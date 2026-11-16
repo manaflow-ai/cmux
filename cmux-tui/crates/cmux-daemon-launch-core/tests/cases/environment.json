@@ -1,6 +1,6 @@
 [
  {
-  "name": "the ghostty identity does not advertise a version",
+  "name": "the terminal identity is cmux and does not carry a version (the daemon adds it)",
   "op": "ghostty_identity",
   "request": {
    "home": "/home/u",
@@ -9,7 +9,7 @@
   "expect": {
    "TERM": "xterm-256color",
    "COLORTERM": "truecolor",
-   "TERM_PROGRAM": "ghostty"
+   "TERM_PROGRAM": "cmux"
   }
  },
  {
@@ -27,7 +27,7 @@
   "expect": {
    "TERM": "xterm-256color",
    "COLORTERM": "truecolor",
-   "TERM_PROGRAM": "ghostty"
+   "TERM_PROGRAM": "cmux"
   }
  },
  {
@@ -45,7 +45,7 @@
   "expect": {
    "TERM": "xterm-256color",
    "COLORTERM": "truecolor",
-   "TERM_PROGRAM": "ghostty",
+   "TERM_PROGRAM": "cmux",
    "GHOSTTY_RESOURCES_DIR": "/Applications/cmux.app/Contents/Resources/ghostty"
   }
  },
@@ -64,7 +64,7 @@
   "expect": {
    "TERM": "xterm-ghostty",
    "COLORTERM": "truecolor",
-   "TERM_PROGRAM": "ghostty"
+   "TERM_PROGRAM": "cmux"
   }
  },
  {

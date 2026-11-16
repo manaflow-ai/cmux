@@ -5,10 +5,9 @@ name: cmux-next iPhone INTERNAL builder trigger
 # A dispatch from GITHUB_TOKEN starts a run (GitHub's documented exception), so
 # no extra credential is needed. Rules: scripts/ci/ios_internal_builder.py plan
 # (iOS change since the last upload, or any change after 12 hours; skip a head
-# already uploaded, building or failed; skip a head whose shared iOS packages
-# drift from upstream, which the archive refuses, and fail this run red so
-# the drift is seen; back off 30 min doubling to
-# 6 h while builds keep failing). The schedule is the periodic fallback
+# already uploaded, building or failed; back off 30 min doubling to 6 h while
+# builds keep failing). Packages/iOS live in feat-cmux-next itself, so the plan
+# never compares them with another branch. The schedule is the periodic fallback
 # and runs only once this file is on the default branch.
 # Design: plans/cmux-next/ios-testflight-builder-DESIGN.md.
 on:
@@ -48,7 +47,6 @@ jobs:
             scripts/ci
             cmux-next-ios/project.yml
             cmux-next-ios/CmuxMobileKit/Package.swift
-            cmux-next-ios/scripts/check-tabskit-sync.sh
           sparse-checkout-cone-mode: false
 
       - name: Decide
@@ -59,7 +57,7 @@ jobs:
           set -euo pipefail
           head="$(git rev-parse HEAD)"
           echo "head=$head" >> "$GITHUB_OUTPUT"
-          # A person's dispatch skips the failure backoff (never the drift check or a running build of the head).
+          # A person's dispatch skips the failure backoff (never a running build of the head).
           force=()
           [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] || force=(--force)
           python3 scripts/ci/ios_internal_builder.py plan --head "$head" --repo . "${force[@]}"

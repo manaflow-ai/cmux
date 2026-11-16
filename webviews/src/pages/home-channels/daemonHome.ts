@@ -35,14 +35,7 @@ import {
   type HomeLiveSnapshot,
   type HomeMessage,
   type HomeParticipant,
-  type HomeLinkPreviewPart,
-  type HomeLocation,
-  type HomeWidgetPart,
   type HomePart,
-  type HomeQuestion,
-  type HomeQuestionItem,
-  type HomeQuestionOption,
-  type HomeQuestionState,
   type HomeReaction,
   type HomeResolvedLink,
   type HomeRun,
@@ -144,132 +137,17 @@ function part(raw: Json): HomePart {
       return {
         type: "work",
         title: String(raw.session ?? ""),
-        session: String(raw.session ?? ""),
         status: status as "running",
         preview: raw.preview as string | undefined,
       };
     }
     case "attachment":
       return attachmentPart(raw);
-    case "question":
-      // The owner's question part (spec/commands.md `Question`; Swift `AgentQuestion(conversationPart:)`).
-      return questionPart(raw) ?? { type: "other", text: "question" };
-    case "link_preview": {
-      const link: HomeLinkPreviewPart = { type: "link_preview", url: String(raw.url ?? "") };
-      if (typeof raw.title === "string" && raw.title) link.title = raw.title;
-      if (typeof raw.site === "string" && raw.site) link.site = raw.site;
-      const image = derivedImage(raw.image);
-      if (image) link.image = image;
-      return link;
-    }
-    case "location": {
-      if (typeof raw.latitude !== "number" || typeof raw.longitude !== "number")
-        return { type: "other", text: "location" };
-      const place: HomeLocation = { type: "location", latitude: raw.latitude, longitude: raw.longitude };
-      if (typeof raw.label === "string" && raw.label) place.label = raw.label;
-      return place;
-    }
-    case "widget":
-      return widgetPart(raw);
+    case "link_preview":
+      return { type: "other", text: String(raw.url ?? "") };
     default:
-      return { type: "other", text: unknownPartText(raw) };
+      return { type: "other", text: String(raw.type ?? "") };
   }
-}
-
-/** A stored `widget` part (Swift `HomeWireMapping` "widget"): without an app or a fallback it reads
- * as its fallback, else its link, as text. */
-export function widgetPart(raw: Json): HomePart {
-  const fallback = typeof raw.fallback === "string" ? raw.fallback : "";
-  const url = typeof raw.url === "string" && raw.url ? raw.url : undefined;
-  if (typeof raw.app !== "string" || !raw.app || !fallback) return { type: "other", text: fallback || url || "" };
-  const props = raw.props && typeof raw.props === "object" && !Array.isArray(raw.props) ? (raw.props as Json) : {};
-  const widget: HomeWidgetPart = {
-    type: "widget",
-    app: raw.app,
-    widget: typeof raw.widget === "string" && raw.widget ? raw.widget : "cmux.chat.widget/1",
-    props,
-    fallback,
-  };
-  if (url) widget.url = url;
-  return widget;
-}
-
-/** A part type this page does not draw, as native showed it (HomeCoreMapping): by its link when it
- * carries one, else its type (ConversationPart.plainText). A widget is `widgetPart`'s. */
-export function unknownPartText(raw: Json): string {
-  if (typeof raw.url === "string" && raw.url) return raw.url;
-  return String(raw.type ?? "");
-}
-
-const HARNESSES = new Set(["claude", "codex", "acp", "chief"]);
-const PREVIEW_FORMATS = new Set(["monospace", "markdown", "html"]);
-
-/** A stored `question` part, or undefined when it is not one (no session, no readable item). */
-export function questionPart(raw: Json): HomeQuestion | undefined {
-  const session = optStr(raw.session);
-  if (session === undefined || !Array.isArray(raw.items)) return undefined;
-  const items: HomeQuestionItem[] = [];
-  for (const entry of raw.items as unknown[]) {
-    if (!entry || typeof entry !== "object") continue;
-    const item = entry as Json;
-    const id = optStr(item.id);
-    const prompt = optStr(item.prompt);
-    if (id === undefined || prompt === undefined) continue;
-    const options: HomeQuestionOption[] = [];
-    for (const value of Array.isArray(item.options) ? (item.options as unknown[]) : []) {
-      if (!value || typeof value !== "object") continue;
-      const option = value as Json;
-      const optionId = optStr(option.id);
-      const label = optStr(option.label);
-      if (optionId === undefined || label === undefined) continue;
-      const out: HomeQuestionOption = { id: optionId, label };
-      if (optStr(option.detail) !== undefined) out.detail = String(option.detail);
-      const preview = option.preview as Json | undefined;
-      if (preview && typeof preview === "object" && typeof preview.text === "string") {
-        const format = PREVIEW_FORMATS.has(String(preview.format)) ? preview.format : "monospace";
-        out.preview = { text: preview.text, format: format as "monospace" };
-      }
-      options.push(out);
-    }
-    const shown: HomeQuestionItem = {
-      id,
-      prompt,
-      options,
-      multiSelect: item.multi_select === true,
-      allowsOther: item.allows_other !== false,
-    };
-    if (optStr(item.header) !== undefined) shown.header = String(item.header);
-    items.push(shown);
-  }
-  if (!items.length) return undefined;
-  const question: HomeQuestion = {
-    type: "question",
-    harness: (HARNESSES.has(String(raw.harness)) ? raw.harness : "chief") as HomeQuestion["harness"],
-    session,
-    items,
-    state: questionState(raw.state),
-  };
-  if (optStr(raw.permission) !== undefined) question.permission = String(raw.permission);
-  if (optStr(raw.agent) !== undefined) question.agent = String(raw.agent);
-  return question;
-}
-
-function questionState(raw: unknown): HomeQuestionState {
-  const state = raw && typeof raw === "object" ? (raw as Json) : {};
-  if (state.kind === "cancelled") return { kind: "cancelled" };
-  if (state.kind !== "answered") return { kind: "pending" };
-  const answer = state.answer && typeof state.answer === "object" ? (state.answer as Json) : {};
-  const selections: Record<string, { optionIds: string[]; other?: string }> = {};
-  const raws = answer.selections && typeof answer.selections === "object" ? (answer.selections as Json) : {};
-  for (const [item, value] of Object.entries(raws)) {
-    const selection = value && typeof value === "object" ? (value as Json) : {};
-    const ids = Array.isArray(selection.option_ids)
-      ? (selection.option_ids as unknown[]).filter((id) => typeof id === "string")
-      : [];
-    selections[item] = { optionIds: ids as string[] };
-    if (typeof selection.other === "string") selections[item].other = selection.other;
-  }
-  return { kind: "answered", selections };
 }
 
 function derivedImage(raw: unknown): HomeDerivedImage | undefined {
@@ -581,8 +459,6 @@ export function conversation(raw: Json, me: string): HomeConversation {
   };
   if (result.pinned && typeof raw.pin_position === "number") result.pinPosition = raw.pin_position;
   if (raw.marked_unread === true) result.markedUnread = true;
-  const readers = Object.entries(cursors).filter(([id, seq]) => id !== me && typeof seq === "number" && seq > 0);
-  if (readers.length > 0) result.readCursors = Object.fromEntries(readers.map(([id, seq]) => [id, { seq }]));
   const text = plain(last);
   if (text !== undefined) result.lastText = text;
   // The last message's time orders the list even when it was deleted (a read never moves a row).

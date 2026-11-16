@@ -54,11 +54,6 @@ host proves a click on a web link in the Chief chat with a confirmation for that
 page relay, and the link opens on the right side of the home workspace. The page's own WebSocket
 has no confirmation, so the call is refused there (`gesture_required`).
 
-Page `home-messages` (the docked Home's Messages view) has exactly the entry, the raw conversation
-commands, the conversation events and the owner-page admission of `home-channels`: it is the same
-client of the same conversations, drawn as Messages. Everything this spec says of `home-channels`
-holds for it.
-
 With `chief-profile-ws-v1`, page `home-channels` also manages the person's Chiefs: it may call
 `chief.profile.list`, `chief.profile.get`, `chief.profile.history`, `chief.profile.avatar.get`,
 `chief.profile.avatar.set` and `chief.profile.update`, and `chief.profile.create`,

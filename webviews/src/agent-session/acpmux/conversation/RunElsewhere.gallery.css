@@ -5,3 +5,21 @@
 .cv-run-elsewhere-looks[data-look="accent"] .cv-run-elsewhere-chip {
   color: var(--agent-accent);
 }
+/* The stays-here line's alternative looks; `line` is conversation.css's own. `edge` lifts it into
+   the row's trailing slot, `card` gives it the panel's ring and fill. */
+.cv-run-elsewhere-looks[data-note="edge"] .cv-run-elsewhere-line {
+  max-width: 40%;
+  margin-left: auto;
+  padding-left: 0;
+  line-height: var(--cv-tool-row-height);
+  text-align: right;
+  transform: translateY(-100%);
+}
+.cv-run-elsewhere-looks[data-note="card"] .cv-run-elsewhere-line {
+  margin: var(--ds-space-1) 0 var(--ds-space-2) var(--cv-tool-text-inset, 0);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--cv-card-fill);
+  color: var(--cv-text);
+}

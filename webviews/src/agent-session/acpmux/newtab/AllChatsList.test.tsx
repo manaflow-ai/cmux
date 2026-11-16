@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { resetSettledChatsForTests } from "./settledCache";
 import { resetDeviceChatsForTests, setDeviceChats } from "./deviceChats";
 import { useChatPages, type AllChatsPage, type LoadChatsPage } from "./allChatsListModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 type Request = {
   params: Parameters<LoadChatsPage>[0];
@@ -47,11 +48,12 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
   resetDeviceChatsForTests();
   resetSettledChatsForTests();
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

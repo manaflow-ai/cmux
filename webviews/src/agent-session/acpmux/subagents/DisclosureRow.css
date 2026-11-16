@@ -63,6 +63,12 @@
   border-radius: 5px;
   color: var(--cv-text-muted);
 }
+.cv-disclosure__line > .cv-disclosure__toggle.is-status {
+  flex: 0 1 auto;
+}
+.cv-disclosure__toggle.is-status > .cv-disclosure__status {
+  max-width: none;
+}
 .cv-disclosure__toggle:hover,
 .cv-disclosure__toggle:focus-visible {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);

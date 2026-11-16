@@ -9,7 +9,8 @@ that made it.
 
 - `scripts/ci/sealed_secrets.py`: `seal_bundle(repo, environment, key_id, key, {NAME: value})`
   seals with libsodium's `crypto_box_seal` (the encryption GitHub's secrets API takes) and returns a
-  bundle (JSON: target repo, environment, `key_id`, `key`, ciphertexts). `put BUNDLE` stores it.
+  bundle (JSON: target repo, environment, `key_id`, `key`, ciphertexts). `put BUNDLE` stores it;
+  `put DIRECTORY` stores every `bundle-*.json` in a multi-destination output directory.
 - A bundle whose environment is `None` goes to the repository's own Actions secrets, for a job with no
   `environment:` (cmux-platform's `ci.yml`: targets `platform-staging` and `platform-production`). Pin
   `gh api repos/OWNER/REPO/actions/secrets/public-key` for it; `put` needs write access to that repository's secrets.
@@ -26,14 +27,15 @@ that made it.
 `.github/workflows/cloud-capture-provision.yml` takes no inputs and runs only from `feat-cmux-next`,
 in the `cloud-vm-staging` environment. It finds or creates the staging test account
 (`cloud_capture_provision.py`), sets a new random password and the `pro` operator plan, checks that
-the account signs in, and uploads the `sealed-secrets` artifact. That artifact holds
-`CLOUD_CAPTURE_STACK_EMAIL` and `CLOUD_CAPTURE_STACK_PASSWORD`, sealed to the team's `cloud-capture`
-capture environment. To run it and store the result:
+the account signs in, and uploads the `sealed-secrets` artifact. A multi-destination target writes one
+ciphertext-only bundle per destination. The `journey` target stores its staging account in
+`cmux-next-vm-image-dev` as `CMUX_DOGFOOD_STACK_EMAIL/PASSWORD` and in `cmux-next-cloud-journey` as
+`CMUX_STAGING_STACK_EMAIL/PASSWORD`; the latter does not touch that environment's production pair. To run it and store the result:
 
 ```sh
 gh workflow run cloud-capture-provision.yml -R manaflow-ai/cmux --ref feat-cmux-next
 gh run download RUN_ID -R manaflow-ai/cmux -n sealed-secrets -D "$(mktemp -d)"
-python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets.json
+python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets
 ```
 
 Rerun it to rotate the password. The capture job reads only the two secrets. It never sees the

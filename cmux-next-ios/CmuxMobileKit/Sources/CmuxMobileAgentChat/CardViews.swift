@@ -253,11 +253,9 @@ public struct QuestionCard: View {
         let item = state.item
         let count = question.items.count
         return VStack(alignment: .leading, spacing: 12) {
-            if showsHeader || count > 1 {
+            // No icon beside the header (Aziz, 2026-11-13): the item's header and "1 of N" only.
+            if (showsHeader && item.header != nil) || count > 1 {
                 HStack(spacing: 8) {
-                    if showsHeader {
-                        Image(systemName: "questionmark.bubble")
-                    }
                     if let header = item.header {
                         Text(header.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(.secondary).tracking(0.6)
                     }
@@ -349,7 +347,7 @@ public struct QuestionCard: View {
             .background(chosen ? Color.cmuxMobileFillSelected : Color.cmuxMobileFill, in: .rect(cornerRadius: 14, style: .continuous))
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .sensoryFeedback(.selection, trigger: chosen)
         .accessibilityAddTraits(chosen ? .isSelected : [])
     }
@@ -383,7 +381,7 @@ public struct QuestionCard: View {
                     .background(Color.cmuxMobileFill, in: .rect(cornerRadius: 14, style: .continuous))
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
             }
         }
     }
@@ -637,7 +635,7 @@ struct NextStepTryView: View {
                             .foregroundStyle(ticked.contains(index) ? .secondary : .primary)
                             .multilineTextAlignment(.leading)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityIdentifier("agentChat.nextStep.verify.\(index)")
                 }
             }

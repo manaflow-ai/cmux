@@ -35,6 +35,8 @@ enum Stun {
 }
 
 impl LinkCfg {
+    /// Only `--listen-systemd` (Linux, host.rs) builds one outside tests.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn new(names: Vec<String>) -> Self {
         Self { names, resolved: Arc::default() }
     }
@@ -147,6 +149,7 @@ mod with_link {
         offers: u32,
         candidates: usize,
         incoming: Vec<Incoming>,
+        path_rtt_us: Option<u64>,
     }
 
     impl<'a, S: Read + Write + AsRawFd> HybridCarrier<'a, S> {
@@ -159,6 +162,7 @@ mod with_link {
                 offers: 0,
                 candidates: 0,
                 incoming: Vec::new(),
+                path_rtt_us: None,
             }
         }
 
@@ -179,6 +183,9 @@ mod with_link {
                 eprintln!("cmux-rd host: udp link down: {reason}");
             }
             self.up = up;
+            if !up {
+                self.path_rtt_us = None;
+            }
             self.stream.send_control(&Control::LinkState { up, reason })
         }
 
@@ -265,7 +272,8 @@ mod with_link {
                     NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
                         out.push(Incoming::Datagram(d));
                     }
-                    NetEvent::Endpoint(EndpointEvent::PathChanged { route, .. }) => {
+                    NetEvent::Endpoint(EndpointEvent::PathChanged { route, rtt_us, .. }) => {
+                        self.path_rtt_us = route.and(rtt_us);
                         match (route.is_some(), self.up) {
                             (true, false) => self.state(true, None)?,
                             (false, true) => {
@@ -329,6 +337,14 @@ mod with_link {
             self.pump_link(out).map_err(|e| format!("control write failed: {e}"))
         }
 
+        fn path_rtt_us(&self) -> Option<u64> {
+            if self.up {
+                self.path_rtt_us
+            } else {
+                None
+            }
+        }
+
         fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
             match &self.net {
                 Some(net) if self.up && datagram.len() <= LINK_MAX_DATAGRAM => {
@@ -347,7 +363,9 @@ mod with_link {
 
 /// Parses `--link-stun HOST:PORT[,HOST:PORT...]`. Only the form is checked
 /// here (a malformed entry is an error); names resolve later
-/// ([`LinkCfg::resolve_stun`]), and one that does not is left out.
+/// ([`LinkCfg::resolve_stun`]), and one that does not is left out. Only `--listen-systemd`
+/// (Linux, host.rs) reads `--link-stun` outside tests.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn stun_names(list: Option<&str>) -> Result<Vec<String>, String> {
     let Some(list) = list else {
         return Ok(Vec::new());
@@ -516,6 +534,9 @@ mod tests {
         }
         assert!(carrier.is_up(), "the link never came up");
         assert!(got.iter().any(|d| d == b"up"), "the viewer's datagram never arrived");
+        let rtt = carrier.path_rtt_us();
+        assert!(rtt.is_some(), "the live link reports its measured RTT");
+        assert_eq!(carrier.path_rtt_us(), rtt, "a read must not consume the route RTT");
         // Media goes on the link now, not on the stream.
         carrier.send_datagram(b"media").expect("send");
         let net = viewer_net.take().expect("viewer link");
@@ -537,6 +558,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(!carrier.is_up(), "still on the link after the viewer closed it");
+        assert_eq!(carrier.path_rtt_us(), None, "the socket must not reuse the old link RTT");
         carrier.send_datagram(b"back").expect("send");
         assert!(viewer.frames().iter().any(|(ty, p)| *ty == FRAME_DATAGRAM && p == b"back"));
     }

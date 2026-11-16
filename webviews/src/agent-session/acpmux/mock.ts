@@ -19,6 +19,14 @@ import {
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
 import { lightTurn, loadTurn, streamedReply, streamedTool } from "./loadFixture";
+import {
+  journeyCell,
+  journeyHarnesses,
+  journeyHealth,
+  journeyStartError,
+  journeyTurnFailure,
+  type JourneyCell,
+} from "./journeyFixture";
 
 /** Gallery-only auth data. The mock daemon consumes this; production direct clients do not. */
 export type MockSessionAuth = {
@@ -321,6 +329,8 @@ export class MockAcpmuxSocket {
   private queue: Promise<unknown> = Promise.resolve();
   /// Prompts sent and not yet finished; one sent while another runs is reported queued.
   private pending = 0;
+  /// The first-user journey cell this daemon serves (`?journey=HARNESS:STATE`), if any.
+  private readonly journey: JourneyCell | undefined;
 
   /// `delay` paces the scripted turn; tests pass one that resolves at once.
   constructor(
@@ -328,9 +338,11 @@ export class MockAcpmuxSocket {
       new Promise((resolve) => window.setTimeout(resolve, ms)),
     private readonly script?: MockScript,
   ) {
-    // A replayed turn starts from an empty session, as the recording did.
+    // A replayed turn starts from an empty session, as the recording did. A first-user journey cell
+    // (journeyFixture.ts) starts on a machine with no chats at all.
+    this.journey = script ? undefined : journeyCell();
     if (script) this.sessions = [{ ...scriptSession }];
-    else this.seed(Date.now());
+    else if (!this.journey) this.seed(Date.now());
     MockAcpmuxSocket.live = this;
     queueMicrotask(() => {
       this.readyState = 1;
@@ -585,7 +597,14 @@ export class MockAcpmuxSocket {
           },
         };
       case FORK_OP:
-        return this.fork(target, Number(params.throughSeq));
+        // `live`: the whole chat as it is now; `harness` (and `model`): onto another harness, as a
+        // model switch in a started chat forks it in place (App.tsx `chat.switchModel`).
+        return this.fork(
+          target,
+          params.live === true ? Number.MAX_SAFE_INTEGER : Number(params.throughSeq),
+          typeof params.harness === "string" ? params.harness : undefined,
+          typeof params.model === "string" ? params.model : undefined,
+        );
       case "_acpmux/watch":
         return { sessions: this.sessions };
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
@@ -603,7 +622,9 @@ export class MockAcpmuxSocket {
           // A gallery state can stand for a Mac with no agent CLI (`mockHarnesses`).
           harnesses: this.script
             ? scriptHarnesses
-            : ((globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses ?? harnesses),
+            : this.journey
+              ? journeyHarnesses(this.journey)
+              : ((globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses ?? harnesses),
           ...(typeof params.cwd === "string" && this.profileFolder(params.cwd)
             ? { folderProfiles: this.folderProfiles() }
             : {}),
@@ -672,6 +693,7 @@ export class MockAcpmuxSocket {
       }
       // Gallery data may override this mock daemon's health, never the real direct client.
       case "_acpmux/harness/health": {
+        if (this.journey) return { harnesses: journeyHealth(this.journey) };
         const fixture = globalThis as MockAuthGlobals;
         const native = fixture.cmuxAcpmuxMockNative?.["harness.health"] as
           | { health?: { id?: string; auth?: "signedIn" | "signedOut" | "expired" | "unknown"; login?: string } }
@@ -901,6 +923,11 @@ export class MockAcpmuxSocket {
         ).cmuxAcpmuxMockStart;
         if (start?.delayMs) await this.delay(start.delayMs);
         if (start?.error) throw Object.assign(new Error(start.error), { code: -32603 });
+        // A journey cell's daemon has only its harness, when that is installed (config.rs's refusal).
+        const journeyRefusal =
+          this.journey &&
+          journeyStartError(this.journey, String(params._meta?.acpmux?.harness ?? this.journey.harness));
+        if (journeyRefusal) throw Object.assign(new Error(journeyRefusal.message), { code: journeyRefusal.code });
         // A new chat opens in the project of the session it was started from.
         const from = this.sessions.find((entry) => entry.sessionId === this.attached) ?? this.sessions[0];
         const profile = mockFolderProfiles.find((entry) => entry.id === params._meta?.acpmux?.harness);
@@ -919,6 +946,10 @@ export class MockAcpmuxSocket {
           params._meta?.acpmux?.harness === "codex" ? "codex" : "claude",
         );
         if (params._meta?.acpmux?.harness) created.harness = params._meta.acpmux.harness;
+        if (this.journey) {
+          const own = journeyHarnesses(this.journey)[0];
+          Object.assign(created, { harness: own!.id, name: own!.id, family: own!.id, model: own!.models[0]!.id });
+        }
         // It runs on the same machine, with the harness's model the catalog offers.
         if (from?.host) Object.assign(created, { host: from.host, hostKind: from.hostKind });
         if (this.script) created.model = scriptHarnesses[0]!.models[0]!.id;
@@ -1076,7 +1107,7 @@ export class MockAcpmuxSocket {
   }
 
   /// A new session holding `target`'s events through `throughSeq`, under its own sequence.
-  private fork(target: string, throughSeq: number): { sessionId: string } {
+  private fork(target: string, throughSeq: number, harness?: string, model?: string): { sessionId: string } {
     const source = this.sessions.find((entry) => entry.sessionId === target);
     if (!source || !Number.isFinite(throughSeq)) throw new Error(`cannot fork ${target}`);
     const sessionId = `mock-session-${this.sessions.length + 1}`;
@@ -1089,6 +1120,8 @@ export class MockAcpmuxSocket {
     const turns = this.events.filter((entry) => entry.sessionId === sessionId && entry.kind === "turn_result").length;
     const created = {
       ...source,
+      ...(harness ? { harness } : {}),
+      ...(model ? { model } : {}),
       sessionId,
       status: "idle",
       unread: false,
@@ -1127,6 +1160,10 @@ export class MockAcpmuxSocket {
       msg: { ...(recorded ?? { text: prompt }), promptId, ...(images.length > 0 ? { images } : {}) },
     });
     this.emit(target, { mux: "turn_started" });
+    const failure = this.journey
+      ? journeyTurnFailure(this.journey, String(this.sessions.find((entry) => entry.sessionId === target)?.harness))
+      : undefined;
+    if (failure) return this.failTurn(target, running, failure);
     const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
     for (const step of steps) {
       if (!this.script) await this.delay(350);
@@ -1142,6 +1179,26 @@ export class MockAcpmuxSocket {
     this.running = undefined;
     this.touch(target, { status: "idle", indicator: running.cancelled ? null : "done" });
     return { stopReason: running.cancelled ? "cancelled" : "end_turn" };
+  }
+
+  /// A turn the agent refused, logged as acpmux logs it (hub/turns.rs): `turn_error`, then a failed
+  /// `turn_result` with the error's kind and recovery, and `session/prompt` answers with the error.
+  private async failTurn(
+    target: string,
+    running: { cancelled: boolean; target: string },
+    failure: NonNullable<ReturnType<typeof journeyTurnFailure>>,
+  ): Promise<never> {
+    await this.delay(350);
+    const turnCount = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 1);
+    const fields = { error: failure.message, code: failure.code, ...failure.data };
+    this.emit(target, { mux: "turn_error", msg: { ...fields, turnSeq: turnCount } });
+    this.emit(target, {
+      mux: "turn_result",
+      msg: { status: "failed", ...fields, errorText: failure.message, turnSeq: turnCount, turnCount, trigger: false },
+    });
+    if (this.running === running) this.running = undefined;
+    this.touch(target, { status: "idle", indicator: null });
+    throw Object.assign(new Error(failure.message), { data: failure.data });
   }
 
   /// Updates a session's summary and tells the client, as the daemon does.

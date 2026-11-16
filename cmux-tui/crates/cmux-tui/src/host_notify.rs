@@ -73,7 +73,7 @@ impl HostTerminalInfo {
         let program = get("TERM_PROGRAM").unwrap_or_default();
         let term = get("TERM").unwrap_or_default();
         let cmux_terminal = get("CMUX_TUI_TERMINAL_ID");
-        let terminal = if cmux_terminal.is_some() {
+        let terminal = if cmux_terminal.is_some() || program == "cmux" {
             HostTerminal::Cmux
         } else if program.eq_ignore_ascii_case("ghostty") || get("GHOSTTY_RESOURCES_DIR").is_some()
         {
@@ -352,6 +352,7 @@ mod attention_passthrough_tests {
         assert_eq!(cmux.terminal, HostTerminal::Cmux);
         assert_eq!(cmux.cmux_terminal.as_deref(), Some("term_1"));
         assert!(detect(&[("TERM_PROGRAM", "ghostty"), ("TMUX", "/tmp/x,1,0")]).multiplexed);
+        assert_eq!(detect(&[("TERM_PROGRAM", "cmux")]).terminal, HostTerminal::Cmux);
         assert!(detect(&[("TERM", "screen-256color")]).multiplexed);
     }
 

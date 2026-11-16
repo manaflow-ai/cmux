@@ -40,4 +40,16 @@ struct CloudCodexSignInConsentSettingTests {
         // The Claude answer is not the Codex one.
         #expect(setting.consent(file: ["cloud": ["useMyClaudeLoginOnMyCloudMachines": true]], effective: none, managed: false) == nil)
     }
+
+    /// DEV and NIGHTLY carry the Codex login the way they carry Claude's: no answer is yes there, and
+    /// only there. A no or a managed key stays no; Release keeps asking once.
+    @Test func dogfoodBuildsCarryCodexUnlessThePersonSaidNo() {
+        let no: JSONValue = ["cloud": ["useMyCodexLoginOnMyCloudMachines": false]]
+        #expect(setting.consent(file: none, effective: none, managed: false, copiesWithoutConsent: true) == true)
+        #expect(setting.consent(file: none, effective: none, managed: false, copiesWithoutConsent: false) == nil)
+        #expect(setting.consent(file: no, effective: no, managed: false, copiesWithoutConsent: true) == false)
+        #expect(setting.consent(file: none, effective: no, managed: false, copiesWithoutConsent: true) == false)
+        #expect(setting.consent(file: yes, effective: yes, managed: true, copiesWithoutConsent: true) == false)
+        #expect(setting.consent(file: yes, effective: yes, managed: false, copiesWithoutConsent: false) == true)
+    }
 }

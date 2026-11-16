@@ -47,6 +47,10 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+# nightly-sign.yml runs this as `python3 -I`, which leaves the script's folder off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
 SOURCE_WORKFLOW_PATH = ".github/workflows/nightly.yml"
 SOURCE_WORKFLOW_FILE = "nightly.yml"
@@ -301,7 +305,10 @@ def fetch_tarball(gh: GitHub, artifact: dict, expected_tarball: str, dest: Path)
     limit = int(artifact.get("size_in_bytes") or 0) + (64 << 20)
     written = 0
     try:
-        with urllib.request.urlopen(urllib.request.Request(url), timeout=300) as resp, zip_path.open("wb") as out:
+        # Each wait ends after 300 s of silence, as urlopen(timeout=300) did, and the whole download within the
+        # admit job's own 30-minute limit (nightly-sign.yml), which nothing short of the job bounded before.
+        with deadline_http.stream(urllib.request.Request(url), 30 * 60, stall=300, raise_errors=True) as resp, \
+                zip_path.open("wb") as out:
             while chunk := resp.read(CHUNK):
                 written += len(chunk)
                 if written > limit:

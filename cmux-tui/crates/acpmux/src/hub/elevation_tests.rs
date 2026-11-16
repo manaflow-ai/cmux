@@ -189,16 +189,17 @@ async fn a_sudo_that_asks_for_no_password_never_hands_it_to_the_command() {
     let sudo = fake_sudo(&dir);
     std::fs::write(dir.join("nopasswd"), "").unwrap();
     let started = std::time::Instant::now();
-    let out =
-        run(&sudo, &ask(&["sh", "-c", "cat | od -c"], 30), Zeroizing::new(PASSWORD.to_owned()))
-            .await;
+    let out = run(
+        &sudo,
+        &ask(&["sh", "-c", "printf ran:; cat"], 30),
+        Zeroizing::new(PASSWORD.to_owned()),
+    )
+    .await;
     assert_eq!(out["exitCode"], 0, "{out}");
-    // `od -c` of an empty stdin prints only the zero offset.
-    assert_eq!(
-        out["stdout"].as_str().unwrap().trim(),
-        "0000000",
-        "the command read the password: {out}"
-    );
+    // The command ran and `cat` copied every byte of its stdin, which was empty: none of the
+    // password reached it. (No `od`: an empty input prints its zero offset on some macOS
+    // releases and nothing on others.)
+    assert_eq!(out["stdout"], "ran:", "the command read the password: {out}");
     // The account's passwordless rule was found before anything ran: sudo -n, no password and
     // no prompt to wait for (review F1 of 852e490: a command could print the prompt itself).
     let calls = std::fs::read_to_string(dir.join("calls")).unwrap();

@@ -1,8 +1,8 @@
 //! `initdb` argv and the generated config files (server.md 8.1 to 8.4).
 
 use super::{
-    ADMIN_MAP, ADMIN_ROLE, APPS_MAP, AppDb, ClusterSpec, DbMode, MAX_SOCKET_PATH, PgError, PgPlan,
-    SHARED_DATABASE, SOCKET_GROUP, valid_os_user,
+    ADMIN_MAP, ADMIN_ROLE, APPS_MAP, AppDb, ClusterSpec, DbMode, PgError, PgPlan, SHARED_DATABASE,
+    SOCKET_GROUP, valid_os_user,
 };
 use crate::platform::{HostPath, Platform};
 use crate::ports::POSTGRES_DEFAULT;
@@ -39,7 +39,7 @@ pub(super) fn validate(spec: &ClusterSpec) -> Result<(), PgError> {
     }
     if spec.platform != Platform::Windows {
         let len = socket_file(spec).len();
-        if len > MAX_SOCKET_PATH {
+        if len > cmux_unix_socket::PORTABLE_MAX_PATH_BYTES {
             return Err(PgError::SocketPathTooLong(len));
         }
     }

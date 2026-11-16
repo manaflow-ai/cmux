@@ -174,6 +174,56 @@ pub(super) struct ServerProcess {
     pid: Arc<Mutex<Option<u32>>>,
 }
 
+/// A started server that no thread owns yet: dropped, it is killed and
+/// reaped, so a failed start leaves no process and no zombie.
+struct ReapOnDrop(Option<std::process::Child>);
+
+impl Drop for ReapOnDrop {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// Starts one of a server's threads. Tests make the n-th start fail
+/// ([`fail_thread_start_for_test`]), as a thread limit would.
+fn thread(name: String, body: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
+    #[cfg(test)]
+    if FAIL_THREAD_START.with(|fail| {
+        let left = fail.get();
+        fail.set(left.saturating_sub(1));
+        left == 1
+    }) {
+        return Err(std::io::Error::other("thread start failed (test)"));
+    }
+    std::thread::Builder::new().name(name).spawn(body).map(drop)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// 0: no failure; n: the n-th thread start from now fails.
+    static FAIL_THREAD_START: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The pid of the last server this test thread spawned.
+    static LAST_SPAWNED_PID: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+pub(super) fn last_spawned_pid_for_test() -> Option<u32> {
+    LAST_SPAWNED_PID.with(std::cell::Cell::take)
+}
+
+/// Makes the `nth` thread start of this test thread's next spawn fail.
+#[cfg(test)]
+pub(super) fn fail_thread_start_for_test(nth: usize) {
+    FAIL_THREAD_START.with(|fail| fail.set(nth));
+}
+
 impl ServerProcess {
     /// Spawns `binary` with only `env` set. `on_line` runs on the
     /// reader thread for each stdout line, `on_log` for each stderr line,
@@ -202,12 +252,14 @@ impl ServerProcess {
             let _ = child.wait();
             return Err(std::io::Error::other("the server has no stdio pipes"));
         };
+        #[cfg(test)]
+        LAST_SPAWNED_PID.with(|last| last.set(Some(child.id())));
         let pid = Arc::new(Mutex::new(Some(child.id())));
+        // Until the reaper thread runs, a failed start kills and waits the child.
+        let mut child = ReapOnDrop(Some(child));
         let (queue, outgoing) = sync_channel(QUEUE);
-        std::thread::Builder::new()
-            .name(format!("cmux-app-server-w:{name}"))
-            .spawn(move || write_loop(stdin, outgoing))?;
-        std::thread::Builder::new().name(format!("cmux-app-server-e:{name}")).spawn(move || {
+        thread(format!("cmux-app-server-w:{name}"), move || write_loop(stdin, outgoing))?;
+        thread(format!("cmux-app-server-e:{name}"), move || {
             for line in BufReader::new(stderr).lines() {
                 let Ok(mut line) = line else { break };
                 if line.len() > LOG_LINE_BYTES {
@@ -221,7 +273,7 @@ impl ServerProcess {
             }
         })?;
         let reaper = pid.clone();
-        std::thread::Builder::new().name(format!("cmux-app-server:{name}")).spawn(move || {
+        thread(format!("cmux-app-server:{name}"), move || {
             let mut lines = BufReader::new(stdout);
             let mut line = Vec::new();
             loop {
@@ -243,6 +295,7 @@ impl ServerProcess {
                 // SAFETY: signalling our own child by pid; it is not reaped yet.
                 unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
             }
+            let Some(mut child) = child.0.take() else { return };
             let exit = match child.wait() {
                 Ok(status) => {
                     use std::os::unix::process::ExitStatusExt;
@@ -917,3 +970,7 @@ impl Supervisor {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "servers_spawn_tests.rs"]
+mod spawn_tests;

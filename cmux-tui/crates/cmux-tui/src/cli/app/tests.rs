@@ -11,18 +11,7 @@ fn args(words: &[&str]) -> Vec<String> {
 fn call(command: AppCommand) -> (&'static str, Value) {
     match command {
         AppCommand::Call { method, params, .. } => (method, params),
-        AppCommand::Open { .. }
-        | AppCommand::Events { .. }
-        | AppCommand::DebugCall { .. }
-        | AppCommand::Screenshot { .. }
-        | AppCommand::Right { .. }
-        | AppCommand::Renderers { .. }
-        | AppCommand::Settings(_)
-        | AppCommand::Nightly(_)
-        | AppCommand::Live(_)
-        | AppCommand::Version => {
-            panic!("expected a call")
-        }
+        other => panic!("expected a call, got {other:?}"),
     }
 }
 
@@ -353,6 +342,21 @@ fn remote_views_reads_the_release_remote_view_state() {
     assert_eq!(params, json!({ "tab": "tab_1" }));
     assert!(parse(&args(&["app", "remote-views", "connect"])).is_err());
     assert!(parse(&args(&["app", "remote-views", "--mode", "control"])).is_err());
+}
+
+/// `cmux app mac-screens` reads the app's release Mac Screen state, all tabs or
+/// one; it is a read, never an `action.run`, and takes no other word.
+#[test]
+fn mac_screens_reads_the_release_mac_screen_state() {
+    let (method, params) = call(parse(&args(&["app", "mac-screens"])).unwrap().unwrap());
+    assert_eq!(method, "mac_screen.state");
+    assert_eq!(params, json!({}));
+    let (method, params) =
+        call(parse(&args(&["app", "mac-screens", "--tab", "tab_1"])).unwrap().unwrap());
+    assert_eq!(method, MAC_SCREENS_METHOD);
+    assert_eq!(params, json!({ "tab": "tab_1" }));
+    assert!(parse(&args(&["app", "mac-screens", "connect"])).is_err());
+    assert!(parse(&args(&["app", "mac-screens", "--input", "x"])).is_err());
 }
 
 /// `cmux app machines` and `cmux app join-line` call the app's every-build
@@ -1205,9 +1209,12 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
         | AppCommand::Renderers { .. }
+        | AppCommand::ChatPerf { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Live(_)
+        | AppCommand::Try(_)
+        | AppCommand::LaunchTimes(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -1450,22 +1457,42 @@ fn open_dash_from_a_program_in_a_terminal_is_interactive() {
     // `cmux --quiet open --link -` with the URL on stdin. Stdin is the URL, not the person:
     // stdout alone tells, or the tab opens in the background and Enter seems to do nothing.
     let link = args(&["--link", "--caller", "gh", "-"]);
-    assert!(open_is_interactive(&link, false, true));
-    assert!(!open_is_interactive(&link, false, false), "an agent's pipe stays in the background");
+    assert!(open_is_interactive(&link, false, true, true));
+    assert!(
+        !open_is_interactive(&link, false, false, false),
+        "an agent's pipe stays in the background"
+    );
     let mut stdin = "https://github.com/login/device\n".as_bytes();
     let environment = std::collections::HashMap::new();
-    let AppCommand::Open { requests, .. } =
-        parse_open_with(&link, open_is_interactive(&link, false, true), &environment, &mut stdin)
-            .unwrap()
-    else {
+    let AppCommand::Open { requests, .. } = parse_open_with(
+        &link,
+        open_is_interactive(&link, false, true, true),
+        &environment,
+        &mut stdin,
+    )
+    .unwrap() else {
         panic!("expected open command")
     };
     assert_eq!(requests[0].method, "browser.open_link");
     assert_eq!(requests[0].params["focus"], true);
     // A typed `cmux open URL` still needs both; `-` after `--` is a path, not stdin.
-    assert!(open_is_interactive(&args(&["https://a.example/"]), true, true));
-    assert!(!open_is_interactive(&args(&["https://a.example/"]), false, true));
-    assert!(!open_is_interactive(&args(&["--", "-"]), false, true));
+    assert!(open_is_interactive(&args(&["https://a.example/"]), true, true, true));
+    assert!(!open_is_interactive(&args(&["https://a.example/"]), false, true, true));
+    assert!(!open_is_interactive(&args(&["--", "-"]), false, true, true));
+}
+
+#[test]
+fn open_dash_from_a_program_with_its_output_elsewhere_is_interactive() {
+    // Lawrence 2026-11-12: `pscale auth login` in a cmux-next terminal printed its device URL,
+    // and no page showed. pscale (Go's `exec.Command("open", url).Run()`, as pkg/browser does)
+    // runs `open` with stdin and stdout on /dev/null, so the shim's `cmux open --link -` has no
+    // terminal on either. The process still has the person's terminal as its controlling
+    // terminal, which an agent's command (run with no terminal) does not: the page takes the focus.
+    let link = args(&["--link", "--caller", "pscale", "-"]);
+    assert!(open_is_interactive(&link, false, false, true), "a program in the person's terminal");
+    assert!(!open_is_interactive(&link, false, false, false), "an agent's command has no terminal");
+    // A typed `cmux open URL` with its output redirected stays as it was: stdin and stdout tell.
+    assert!(!open_is_interactive(&args(&["https://a.example/"]), true, false, true));
 }
 
 #[test]

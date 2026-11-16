@@ -228,9 +228,23 @@ pub(super) fn for_each_line_rev_from(
     end: u64,
     visit: &mut dyn FnMut(&[u8]) -> bool,
 ) -> Result<()> {
+    for_each_line_rev_between(file, 0, end, visit)
+}
+
+/// [`for_each_line_rev_from`] over the bytes of `file` from offset `start` (a line start) to `end`.
+pub(super) fn for_each_line_rev_between(
+    file: &mut File,
+    start: u64,
+    end: u64,
+    visit: &mut dyn FnMut(&[u8]) -> bool,
+) -> Result<()> {
     use std::io::{Seek, SeekFrom};
     const BLOCK: u64 = 64 * 1024;
+    let floor = start;
     let mut end = file.seek(SeekFrom::End(0))?.min(end);
+    if end <= floor {
+        return Ok(());
+    }
     // The blocks of a line whose start is in an earlier block, newest first: each block is read
     // and scanned once, so a line of many megabytes costs its length, not its length squared.
     let mut carry: Vec<Vec<u8>> = Vec::new();
@@ -241,8 +255,8 @@ pub(super) fn for_each_line_rev_from(
         }
         line
     };
-    while end > 0 {
-        let start = end.saturating_sub(BLOCK);
+    while end > floor {
+        let start = end.saturating_sub(BLOCK).max(floor);
         let mut block = vec![0u8; (end - start) as usize];
         file.seek(SeekFrom::Start(start))?;
         file.read_exact(&mut block)?;

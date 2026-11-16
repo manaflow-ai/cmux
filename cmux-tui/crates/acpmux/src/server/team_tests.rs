@@ -123,7 +123,7 @@ fn setup(enabled: bool) -> (Arc<Hub>, Arc<FakeHub>) {
     let hub = Hub::new(config, store);
     assert!(hub.resolve(OWN).is_ok());
     let fake = Arc::new(FakeHub::default());
-    assert!(hub.mesh.set(fake.clone()).is_ok());
+    hub.mesh.set(fake.clone());
     (hub, fake)
 }
 
@@ -477,6 +477,9 @@ async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire
             attempts: 0,
             never_sent: false,
             relay_post: None,
+            open_on_peer: false,
+            pin: None,
+            proof: None,
             error: None,
             accepted: None,
             created_at: crate::store::now_ms(),

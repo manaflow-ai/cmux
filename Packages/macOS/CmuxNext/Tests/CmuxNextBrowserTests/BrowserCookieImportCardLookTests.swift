@@ -118,7 +118,6 @@ import Testing
         #expect(glass.tone == SurfaceRole.toast.tone, "the window toasts' tone")
         #expect(glass.cornerRadius == SurfaceRole.toast.cornerRadius)
         #expect(glass.material == toast.material, "the window toasts' material on this Mac")
-        #expect(!glass.prefersBlurToLiquidGlass, "Liquid Glass where this Mac draws it, as the toasts on the same overlay host")
         #expect(glass.samplesBehindWindow, "the blur (macOS 14 and 15) samples the page behind the overlay window")
     }
 
@@ -129,15 +128,5 @@ import Testing
         #expect(!layer.masksToBounds)
         #expect(layer.shadowOpacity > 0)
         #expect(layer.shadowPath != nil)
-    }
-
-    @Test func aSurfaceThatPrefersTheBlurTakesItOverLiquidGlassButKeepsReduceTransparency() {
-        let clear = ReduceTransparency(system: { false }, changes: NotificationCenter())
-        let surface = OverlaySurfaceView(interactive: true, reduceTransparency: clear, tone: .neutralGlass(.dialog))
-        surface.prefersBlurToLiquidGlass = true
-        #expect(surface.material != .liquidGlass)
-        let opaque = OverlaySurfaceView(interactive: true, reduceTransparency: .alwaysOpaque, tone: .neutralGlass(.dialog))
-        opaque.prefersBlurToLiquidGlass = true
-        #expect(opaque.material == .opaque)
     }
 }

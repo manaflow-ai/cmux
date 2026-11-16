@@ -9,6 +9,8 @@ before the close). Run on cmux-lawrence-2 (GUI host), never the laptop.
 Usage: close-toast-live.py TAG APP OUT_DIR
 """
 import json, os, pwd, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 TAG, APP, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
@@ -199,7 +201,7 @@ try:
         before = pane_tabs(pane)
         # Idle means the shell owns the terminal: its startup (prompt hooks) may still run a program.
         idle = wait(lambda: foreground(value["terminal_id"]) in SHELLS, 15)
-        print("idle foreground:", foreground(value["terminal_id"]), flush=True)
+        safe_print("idle foreground:", foreground(value["terminal_id"]), flush=True)
         check("idle-shell-idle", idle, foreground(value["terminal_id"]))
         reply = close_tab(value["tab_id"])
         check("idle-close-ran", reply.get("performed"), reply)
@@ -240,7 +242,7 @@ try:
     made = cli("workspace", "create", "--name", "ct-others", "--json")
     first = (json.loads(made).get("value") or {}) if made.startswith("{") else {}
     p0 = first.get("pane_id")
-    print("others workspace:", made[:300], flush=True)
+    safe_print("others workspace:", made[:300], flush=True)
     if p0:
         rpc("action.run", {"action": "tab.focus", "target": "tab:%s" % first.get("tab_id"), "focus": True, "wait": True})
         known = {p0}
@@ -282,7 +284,7 @@ try:
     if value.get("tab_id"):
         cli("terminal", value["terminal_id"], "write", "--text", "sleep 1000\n")
         made = cli("tab", "group", "create", "--tabs", value["tab_id"], "--name", "busy", "--json")
-        print("group:", made[:300], flush=True)
+        safe_print("group:", made[:300], flush=True)
         group = (json.loads(made).get("value") or {}).get("id") if made.startswith("{") else None
         check("group-created", group, made)
         time.sleep(2)  # test harness: sleep becomes the foreground program
@@ -295,12 +297,12 @@ try:
         undo_state("group")
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "end.png")}, timeout=60)
 finally:
-    print("teardown quit:", json.dumps(rpc("action.run", {"id": "quit", "args": {"endSessions": True}}, timeout=10))[:200])
+    safe_print("teardown quit:", json.dumps(rpc("action.run", {"id": "quit", "args": {"endSessions": True}}, timeout=10))[:200])
     for proc in launched:
         try:
             proc.wait(timeout=60)
         except subprocess.TimeoutExpired:
-            print("pid %d did not quit; SIGKILL" % proc.pid, flush=True)
+            safe_print("pid %d did not quit; SIGKILL" % proc.pid, flush=True)
             os.kill(proc.pid, signal.SIGKILL)  # the PID launched here, never a pattern
     subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env={**os.environ, "ACPMUX_HOME": ACPMUX_HOME,
                    "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}, capture_output=True, timeout=30)
@@ -309,7 +311,7 @@ finally:
     time.sleep(3)  # test harness: let daemons exit before the leftover check
     ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
     left = [line for line in ps.splitlines() if (APP + "/") in line and "close-toast-live" not in line]
-    print("leftovers of this bundle: %d" % len(left), flush=True)
+    safe_print("leftovers of this bundle: %d" % len(left), flush=True)
 failed = [name for name, ok in results if not ok]
 print("RESULT pass=%d fail=%d %s" % (len(results) - len(failed), len(failed), " ".join(failed)), flush=True)
 sys.exit(1 if failed else 0)

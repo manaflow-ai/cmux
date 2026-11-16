@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextSettings
 import CmuxNextTabs
 
@@ -58,8 +59,19 @@ enum DebugObjectMenu {
                 DelayedPopUp(menu: shown, at: at, in: strip).schedule()
                 services.debugFixtures.objectMenu = shown // its folders are walked by their rows
                 answer["menu"] = .string(menu)
+            case "browserProfile":
+                // The browser toolbar's profile button menu of the focused pane's page (tour:browser-profile-menu).
+                guard let pane = controller.focusedPane, case .browser(let entry) = pane.currentContent else {
+                    return failure("the focused pane shows no browser page")
+                }
+                let shown = BrowserToolbarHandlers.profileMenu(for: entry, services: services)
+                let anchor: NSView = entry.chrome ?? pane.view
+                let at = NSPoint(x: anchor.bounds.maxX - 120, y: anchor.isFlipped ? 40 : anchor.bounds.maxY - 40)
+                DelayedPopUp(menu: shown, at: at, in: anchor).schedule()
+                services.debugFixtures.objectMenu = shown
+                answer["menu"] = .string(menu)
             default:
-                return failure("menu is workspace, tab or pane")
+                return failure("menu is workspace, tab, pane or browserProfile")
             }
         }
         let folders = params["folders"]?.arrayValue?.compactMap(\.stringValue) ?? []

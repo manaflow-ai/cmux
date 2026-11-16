@@ -64,7 +64,7 @@ import Testing
         try Data("{}".utf8).write(to: url)
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()
@@ -284,5 +284,13 @@ import Testing
         defaults.set(try JSONEncoder().encode(["dismissed": true, "imported": false]), forKey: "browserImportOffer.state")
         let offer = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
         #expect(offer.state.offers(Self.personalPage))
+    }
+
+    /// Lawrence 2026-11-09 (msg 26162): the banner shows less often. Only a page that asks the person to
+    /// sign in (a password or username field) offers it; an ordinary page never does.
+    @Test func onlyAPageThatAsksToSignInOffersTheBanner() {
+        let state = BrowserImportOfferState()
+        #expect(state.offers(BrowserImportOfferPage(isPersonal: true, showsOtherNotice: false, asksSignIn: true)))
+        #expect(!state.offers(BrowserImportOfferPage(isPersonal: true, showsOtherNotice: false, asksSignIn: false)))
     }
 }

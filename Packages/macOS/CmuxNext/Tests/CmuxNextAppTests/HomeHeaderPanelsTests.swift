@@ -35,7 +35,6 @@ struct HomeHeaderPanelsTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let suite = "cmux-home-header-panels-test-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(testSuiteName: suite))
-        services.rightSidebarDefaults = defaults
         services.windows.ordersWindowsIn = false
         AppActions.bind(services)
         let controller = try #require(services.windows.openWindow(workspaces: ["hp-workspace"]))
@@ -64,46 +63,27 @@ struct HomeHeaderPanelsTests {
     }
 
     /// Nothing is open by default: a fresh window's header shows every toggle off (a Chief's
-    /// conversation), and only the sidebar toggle elsewhere. Share Screen with Chief shows even
+    /// conversation), and no toggle elsewhere. Share Screen with Chief shows even
     /// while the Debug toggle hides the rest: it is the sharing indicator too.
     @Test func aFreshWindowShowsEveryToggleOff() throws {
         let h = try Self.harness()
         defer { h.close() }
         let chief = HomeHeaderPanels.items(h.context(isChief: true), enabled: true)
-        #expect(chief.map(\.id) == ["screenShare", "memory", "rightSidebar"])
+        #expect(chief.map(\.id) == ["screenShare", "memory"])
         #expect(chief.allSatisfy { !$0.isOn }, "nothing opens on the right by default")
-        #expect(!h.controller.rightSidebar.isVisible)
         let dm = HomeHeaderPanels.items(h.context(isChief: false), enabled: true)
-        #expect(dm.map(\.id) == ["rightSidebar"], "a DM has no Chief memory")
+        #expect(dm.isEmpty, "a DM has no Chief memory and no screen share")
         #expect(HomeHeaderPanels.items(h.context(isChief: true), enabled: false).map(\.id) == ["screenShare"],
                 "the Debug toggle hides the cluster but the sharing toggle")
         #expect(HomeHeaderPanels.items(h.context(isChief: false), enabled: false).isEmpty)
     }
 
-    /// The sidebar toggle follows the window's right sidebar, whichever entry point moved it, and a
-    /// click on it toggles that sidebar.
-    @Test func theSidebarToggleFollowsTheModelAndTogglesIt() throws {
-        let h = try Self.harness()
-        defer { h.close() }
-        let isOn = { HomeHeaderPanels.items(h.context(isChief: false), enabled: true).first { $0.id == "rightSidebar" }?.isOn }
-        #expect(isOn() == false)
-        #expect(h.services.registry.perform("toggleRightSidebar"))
-        #expect(isOn() == true, "the palette or ⌥⌘B opened it: the button lights")
-        #expect(HomeHeaderPanels.toggle("rightSidebar", h.context(isChief: false)))
-        #expect(!h.controller.rightSidebar.isVisible, "the button closed it")
-        #expect(isOn() == false)
-        #expect(HomeHeaderPanels.toggle("rightSidebar", h.context(isChief: false)))
-        #expect(h.controller.rightSidebar.isVisible, "and opens it again")
-        #expect(isOn() == true)
-    }
-
     /// The tooltip carries the panel action's shortcut.
-    @Test func theSidebarTooltipShowsItsShortcut() throws {
+    @Test func theMemoryTooltipShowsItsActionsShortcut() throws {
         let h = try Self.harness()
         defer { h.close() }
-        let item = try #require(HomeHeaderPanels.items(h.context(isChief: false), enabled: true).first)
-        #expect(item.shortcut == h.services.registry.shortcutDisplay(for: "toggleRightSidebar"))
-        #expect(item.shortcut != nil)
+        let item = try #require(HomeHeaderPanels.items(h.context(isChief: true), enabled: true).first { $0.id == "memory" })
+        #expect(item.shortcut == h.services.registry.shortcutDisplay(for: ChiefInspectorHandlers.toggleActionID))
     }
 
     /// Home as the daemon lists it: the pinned dock (Home's page) and, when given, a right column.
@@ -138,5 +118,37 @@ struct HomeHeaderPanelsTests {
         #expect(ChiefMemoryPageService.tabs(in: others).isEmpty)
         let alone = try #require(Self.home(right: nil).workspaces.first)
         #expect(ChiefMemoryPageService.tabs(in: alone).isEmpty, "Home alone: nothing open on the right")
+    }
+
+    /// The bar draws the host's items and reports a click by id; the same ids keep their buttons.
+    @Test func theBarDrawsItsItemsAndReportsClicks() throws {
+        let bar = HomeHeaderPanelBar()
+        var clicked: [String] = []
+        bar.onToggle = { clicked.append($0) }
+        bar.set([HomeHeaderPanelItem(id: "memory", symbol: "brain", label: "Memory Inspector", isOn: false),
+                 HomeHeaderPanelItem(id: "screenShare", symbol: "display", label: "Share Screen", shortcut: "⌥⌘B", isOn: true)])
+        #expect(bar.buttons.count == 2)
+        #expect(bar.intrinsicContentSize.width == 2 * HomeHeaderPanelBar.buttonSize + HomeHeaderPanelBar.spacing)
+        #expect(bar.buttons.map(\.isOn) == [false, true])
+        #expect(bar.buttons[1].themedToolTipShortcut == "⌥⌘B")
+        #expect(bar.buttons[0].accessibilityLabel() == "Memory Inspector")
+        let first = bar.buttons[0]
+        bar.set([HomeHeaderPanelItem(id: "memory", symbol: "brain", label: "Memory Inspector", isOn: true),
+                 HomeHeaderPanelItem(id: "screenShare", symbol: "display", label: "Share Screen", isOn: false)])
+        #expect(bar.buttons[0] === first, "a state change keeps the button")
+        #expect(bar.buttons.map(\.isOn) == [true, false])
+        bar.buttons[1].performClick(nil)
+        #expect(clicked == ["screenShare"])
+        // Only the buttons are hits: the gap drags the window with the header.
+        bar.frame = NSRect(origin: .zero, size: bar.intrinsicContentSize)
+        bar.layoutSubtreeIfNeeded()
+        let superview = FlippedView(frame: bar.frame)
+        superview.addSubview(bar)
+        #expect(bar.hitTest(CGPoint(x: 14, y: 14)) === bar.buttons[0])
+        #expect(bar.hitTest(CGPoint(x: HomeHeaderPanelBar.buttonSize + HomeHeaderPanelBar.spacing / 2, y: 14)) == nil)
+    }
+
+    private final class FlippedView: NSView {
+        override var isFlipped: Bool { true }
     }
 }

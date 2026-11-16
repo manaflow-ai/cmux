@@ -63,6 +63,20 @@ extension AppearanceSettingsSchema {
                 keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize"]
             ),
             SettingDescriptor(
+                FontSmoothingSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.fontSmoothing", "Text Smoothing"),
+                help: SettingsText.keyed("settings.appearance.fontSmoothing.help", "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting."),
+                kind: .choice([
+                    SettingChoice(FontSmoothing.auto.rawValue, SettingsText.keyed("settings.choice.fontSmoothingAuto", "Auto")),
+                    SettingChoice(FontSmoothing.antialiased.rawValue, SettingsText.keyed("settings.choice.fontSmoothingThin", "Thin")),
+                    SettingChoice(FontSmoothing.subpixel.rawValue, SettingsText.keyed("settings.choice.fontSmoothingSmooth", "Smooth")),
+                ]),
+                default: .string(FontSmoothingSetting.fallback.rawValue),
+                keywords: ["AppleFontSmoothing", "antialiased", "antialiasing", "auto", "bold", "crisp", "font", "rendering", "smooth", "smoothing", "subpixel", "system", "text", "thin", "weight"]
+            ),
+            SettingDescriptor(
                 InterfaceScaleSetting.configPath,
                 section: .appearance,
                 group: group,
@@ -124,6 +138,16 @@ extension AppearanceSettingsSchema {
                 defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
                 keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]
             ).consumed(by: [.cmuxBrowser, .cmuxNext]),
+            SettingDescriptor(
+                LayoutMetricSetting.sidebarRowHeightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.sidebarRowHeight", "Workspace Row Height"),
+                kind: .number(SettingNumber(LayoutMetricSetting.sidebarRowHeightRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarRowHeightPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["sidebar", "workspace", "row", "height", "thinner", "sidebarRowHeight"]
+            ),
             SettingDescriptor(
                 BordersSetting.configPath,
                 section: .appearance,
@@ -199,6 +223,31 @@ extension AppearanceSettingsSchema {
                 kind: .choice(ChromeStyleSetting.choices),
                 default: .string(ChromeStyleSetting.fallback.rawValue),
                 keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline", "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps", "blocks"]
+            ),
+            SettingDescriptor(
+                TitleAreaToneSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.titleAreaTone", "Title Area"),
+                help: SettingsText.keyed("settings.appearance.titleAreaTone.help", "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."),
+                summary: SettingsText.keyed("settings.appearance.titleAreaTone.summary", "One color or a subtle tone for the title area"),
+                kind: .choice([
+                    SettingChoice(TitleAreaTone.oneColor.rawValue, SettingsText.keyed("settings.choice.titleAreaTone.oneColor", "One Color")),
+                    SettingChoice(TitleAreaTone.subtleTone.rawValue, SettingsText.keyed("settings.choice.titleAreaTone.subtleTone", "Subtle Tone")),
+                ]),
+                default: .string(TitleAreaToneSetting.fallback.rawValue),
+                keywords: ["tone", "subtle tone", "two tone", "one color", "single color", "monochrome", "title", "titlebar", "tab bar", "tabs", "chrome", "divider", "contrast", "background"]
+            ),
+            SettingDescriptor(
+                TitleAreaContrastSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.titleAreaContrast", "Title Area Contrast"),
+                help: SettingsText.keyed("settings.appearance.titleAreaContrast.help", "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."),
+                summary: SettingsText.keyed("settings.appearance.titleAreaContrast.summary", "How much the title and tab bar stand apart"),
+                kind: .number(SettingNumber(TitleAreaContrastSetting.range, step: 0.05, unit: .fraction, placeholder: TitleAreaContrastSetting.placeholder)),
+                default: .number(TitleAreaContrastSetting.fallback),
+                keywords: ["contrast", "title", "titlebar", "tab bar", "tabs", "chrome", "shade", "intensity", "darker", "softer", "frame"]
             ),
         ]
     }

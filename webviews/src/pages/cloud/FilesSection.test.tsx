@@ -6,6 +6,7 @@ import type { MachineDetail } from "./detail";
 import type { CloudStore } from "./store";
 import type { Strings } from "../shared/i18n";
 import { FilesSection } from "./FilesSection";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><body></body>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -29,7 +30,8 @@ const clientPath = fileURLToPath(
 );
 delete require.cache[clientPath];
 const { createRoot } = require(clientPath) as typeof import("react-dom/client");
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [name, value] of savedGlobals) {
     if (value === undefined) delete globals[name];

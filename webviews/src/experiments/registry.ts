@@ -5,7 +5,6 @@ import { diffTreeDisclosure, treeNameFade } from "../agent-session/acpmux/change
 import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment";
 import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQueue.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
-import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
@@ -13,8 +12,8 @@ import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlac
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
-import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
+import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgroundTurnLook.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartComposer.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
@@ -23,6 +22,8 @@ import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
 import { compactingLine } from "../agent-session/acpmux/conversation/compactingLine.experiment";
 import { liveLineTimes } from "../agent-session/acpmux/conversation/liveLineTimes.experiment";
+import { liveTurnClock } from "../agent-session/acpmux/conversation/liveTurnClock.experiment";
+import { runScroll } from "../agent-session/acpmux/conversation/runScroll.experiment";
 import { oneRowPerCall } from "../agent-session/acpmux/conversation/oneRowPerCall.experiment";
 import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgroundHintRoom.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
@@ -40,6 +41,8 @@ import { startedSessionCards } from "../agent-session/acpmux/started/startedSess
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
 import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
+import { liveTurnWork } from "../agent-session/acpmux/conversation/liveTurnWork.experiment";
+import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
@@ -54,6 +57,7 @@ import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.exp
 import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
+import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
@@ -82,7 +86,9 @@ import { followMotion } from "../agent-session/acpmux/conversation/followMotion.
 import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
 import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
+import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
+import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -98,6 +104,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   finishedTaskLook,
   claudeTurnFold,
   commandLabelLook,
+  liveTurnWork,
+  jumpUpButton,
   turnFoldReplies,
   turnFoldSteered,
   workedForMessages,
@@ -105,7 +113,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapHeight,
   threadMinimapGutter,
   threadMinimapRestTick,
-  newTabHeadline,
   newTabComposerTrailingGap,
   newTabIconColumn,
   threadMinimapLit,
@@ -126,8 +133,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   toolErrorLook,
   tableActionsPlace,
   expandRowLook,
-  selectionReplyWrap,
   backgroundReactionLook,
+  backgroundTurnLook,
   cloudStartLook,
   cloudProgressLook,
   cloudStartAskLook,
@@ -135,6 +142,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveLineTokens,
   compactingLine,
   liveLineTimes,
+  liveTurnClock,
+  runScroll,
   oneRowPerCall,
   backgroundHintRoom,
   trayPanelLook,
@@ -144,6 +153,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerHatLook,
   hatQuestionsLook,
   hatChevronLook,
+  hatTuckLook,
   goalHatPlace,
   hatDoneLook,
   hatDoneCheckPlace,
@@ -172,7 +182,9 @@ export const EXPERIMENTS: readonly Experiment[] = [
   sendStopMorph,
   sendMenuLook,
   fieldGrowthMotion,
+  composerDockMotion,
   teamAudit,
+  jumpPairLook,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

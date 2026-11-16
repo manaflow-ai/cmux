@@ -41,6 +41,10 @@ struct RosterRequests {
     wanted: u64,
     /// A caller asked for a fold through the journal head (the catch-up).
     head: bool,
+    /// A caller waits for the roster (the catch-up, the stop): the pass saves
+    /// the snapshot at the cursor it reaches, however short the stretch of
+    /// journal since the last save.
+    flush: bool,
     /// Terminals closed since: retired once the roster folded a journal head
     /// read after they were recorded, so none of their earlier events brings
     /// an entry back.
@@ -66,6 +70,9 @@ pub(super) struct RosterPass {
     pub(super) wanted: u64,
     /// Fold through the journal head read in this pass.
     pub(super) head: bool,
+    /// Save the snapshot at the cursor this pass reaches whenever it is not
+    /// saved there yet ([`RosterRequests::flush`]).
+    pub(super) flush: bool,
     /// Retire these closed terminals once the roster folded that head.
     pub(super) retire: Vec<String>,
 }
@@ -109,6 +116,7 @@ impl RosterControl {
         requests.asked = requests.asked.saturating_add(1);
         let ticket = requests.asked;
         requests.head |= head;
+        requests.flush = true;
         requests.pending = true;
         self.wake.notify_one();
         while requests.done < ticket {
@@ -155,7 +163,13 @@ impl RosterControl {
 
     /// The owner finishes the work recorded so far, then ends.
     fn stop(&self) {
-        self.lock().stopping = true;
+        let mut requests = self.lock();
+        requests.stopping = true;
+        // The last pass saves the snapshot at the roster's cursor, so the next
+        // start replays nothing this run folded.
+        requests.flush = true;
+        requests.pending = true;
+        drop(requests);
         self.wake.notify_all();
     }
 
@@ -271,6 +285,7 @@ fn run_owner(control: &RosterControl, mux: &Weak<Mux>) {
             let pass = RosterPass {
                 wanted: requests.wanted,
                 head: std::mem::take(&mut requests.head),
+                flush: std::mem::take(&mut requests.flush),
                 retire: std::mem::take(&mut requests.retire),
             };
             (pass, requests.asked)

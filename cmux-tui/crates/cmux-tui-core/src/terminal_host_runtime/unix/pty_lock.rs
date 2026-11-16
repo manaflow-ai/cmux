@@ -110,7 +110,18 @@ pub(crate) fn remove_released(record_path: &Path, terminal_id: &str, incarnation
 
 fn remove_released_path(path: &Path) {
     let Ok(file) = open_lock_file(path, false) else { return };
-    if matches!(try_lock(&file), Ok(true)) && still_named(&file, path) {
+    remove_released_file(file, path);
+}
+
+/// [`remove_released_path`] on the fence file opened as `file`.
+fn remove_released_file(file: File, path: &Path) {
+    use cmux_file_lock::{FileLock, Kind};
+    // Held only to remove the file; the drop unlocks before it closes, so a
+    // replacement host that opened this inode first takes it and retries on
+    // a new file, also while a child the server forked meanwhile has this
+    // descriptor.
+    let Ok(lock) = FileLock::try_take(file, Kind::Exclusive) else { return };
+    if still_named(lock.file(), path) {
         let _ = fs::remove_file(path);
     }
 }
@@ -170,6 +181,33 @@ mod tests {
         assert!(!lock_path(&record, "t", "released").exists());
         assert!(dir.join("t.json").exists(), "the sweep removed a non-fence file");
         drop(held);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// A replacement host that opened a released fence just before the sweep removed it
+    /// takes its lock on that file, also while a child the server forked meanwhile still has
+    /// the sweep's descriptor: else its launch fails as "another terminal host still owns the
+    /// PTY" instead of retrying on the new file.
+    #[test]
+    fn a_swept_fence_is_free_while_a_forked_child_keeps_the_sweeps_descriptor() {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-pty-lock-fork-{}-{}",
+            std::process::id(),
+            RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let record = dir.join("t.json");
+        drop(PtyOwnershipLock::acquire(&record, "t", "i").unwrap());
+        let path = lock_path(&record, "t", "i");
+        let early = open_lock_file(&path, false).unwrap();
+        let sweep = open_lock_file(&path, false).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        remove_released_file(sweep, &path);
+        // SAFETY: flock on a descriptor `early` keeps open through the call.
+        let taken = unsafe { libc::flock(early.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
+        drop(keeper);
+        assert!(!path.exists(), "the sweep removed the released fence");
+        assert!(taken, "the sweep's lock stayed held through a forked child's copy");
         let _ = fs::remove_dir_all(dir);
     }
 }

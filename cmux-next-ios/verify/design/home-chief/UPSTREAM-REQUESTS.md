@@ -1,5 +1,11 @@
 # CmuxConversation requests from the Home and Chief design pass
 
+> **Retired 2026-11-11.** CmuxTabsKit and CmuxConversation now live in
+> feat-cmux-next, which holds the only copy; there is no upstream branch to sync
+> with or to file requests against. Make a change listed here directly in
+> `Packages/iOS/`. This file is kept as history. See `Packages/iOS/AGENTS.md`.
+
+
 For the `feat-imsg-parity-gui` owner. From the designer's review in
 [SPEC.md](SPEC.md) (2026-10-14), items U1 to U6, plus one request (U7)
 that came up while implementing the mobile side.

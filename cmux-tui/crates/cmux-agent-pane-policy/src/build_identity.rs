@@ -350,6 +350,26 @@ impl BuildIdentity {
         })
     }
 
+    /// The app daemon's state directory (`CMUX_TUI_STATE_DIR`) under
+    /// `app_support` (`~/Library/Application Support/cmux-next` for a real
+    /// app): `tags/<tag>/tui` for a kept tag, `builds/<key>/tui` for names
+    /// of the key, `None` for release (cmux-tui's default root) and outside
+    /// any bundle (CmuxNext `BuildIdentity.daemonStateDirectory(appSupport:)`,
+    /// vectors `app_daemon.state_dir`). An untagged channel app that adopted
+    /// the old shared session runs on the default root instead
+    /// ([`Self::legacy_session_marker`]); callers check that first.
+    pub fn daemon_state_dir(&self, app_support: &Path) -> Option<PathBuf> {
+        if self.kind == BuildKind::Unbundled {
+            return None;
+        }
+        match &self.kept {
+            Some(KeptNames { session_tag, .. }) => {
+                session_tag.as_ref().map(|tag| app_support.join("tags").join(tag).join("tui"))
+            }
+            None => Some(app_support.join("builds").join(&self.key).join("tui")),
+        }
+    }
+
     /// This build's directory under `~/Library/Application Support/cmux`
     /// (`app_support` is that `cmux` directory): the directory itself for
     /// NIGHTLY and outside any bundle, else `builds/<key>` below it.
@@ -452,5 +472,32 @@ mod path_identity_tests {
         ] {
             assert_eq!(path_identity(&own), own);
         }
+    }
+}
+
+#[cfg(test)]
+mod daemon_state_dir_tests {
+    use super::BuildIdentity;
+    use std::path::Path;
+
+    /// Every vectors case's `app_daemon.state_dir` (CmuxNext's
+    /// `daemonStateDirectory(appSupport:)` of the same build): a pure path,
+    /// no real build's directory is touched.
+    #[test]
+    fn the_daemon_state_dir_is_the_vectors_one() {
+        let text = include_str!("../../../../schemas/build-identity/vectors.json");
+        let vectors: serde_json::Value = serde_json::from_str(text).unwrap();
+        let app_support = Path::new(vectors["app_support"].as_str().unwrap());
+        let mut wrong = Vec::new();
+        for case in vectors["cases"].as_array().unwrap() {
+            let build =
+                BuildIdentity::new(case["bundle_id"].as_str(), case["bundled_tag"].as_str());
+            let want = case["app_daemon"]["state_dir"].as_str().map(std::path::PathBuf::from);
+            let got = build.daemon_state_dir(app_support);
+            if got != want {
+                wrong.push(format!("{}: {got:?} (want {want:?})", case["name"]));
+            }
+        }
+        assert!(wrong.is_empty(), "daemon state dirs of the wrong build:\n{}", wrong.join("\n"));
     }
 }

@@ -32,12 +32,13 @@ pub(super) fn handle_command_with_cancellation(
     // public ids; a released SDK rejects the unknown fields.
     let public_ids = cmd.names_a_terminal_view()
         && mux.control_clients.supports_capability(client, TERMINAL_PUBLIC_IDS_CAPABILITY);
+    let pruned = cmd.prunes_its_own_reply();
     let mut result = dispatch_command(mux, client, cmd, writer, cancellation);
     if public_ids && let Ok(reply) = &mut result {
         *reply = cmd_terminals::with_public_ids(mux, std::mem::take(reply));
     }
     // A remote device's lists leave incognito workspaces out (#31210).
-    if let Ok(reply) = &mut result {
+    if !pruned && let Ok(reply) = &mut result {
         incognito_remote::prune_reply(mux, client, reply);
     }
     if let Some(claim) = claim
@@ -46,28 +47,6 @@ pub(super) fn handle_command_with_cancellation(
         claim.finish(mux, client);
     }
     result
-}
-
-impl Command {
-    /// The commands whose reply names one terminal or view by `surface` and
-    /// `terminal_id`: with `terminal-public-ids-v1` they carry its public ids.
-    fn names_a_terminal_view(&self) -> bool {
-        matches!(
-            self,
-            Self::Run { .. }
-                | Self::ResolveTerminal { .. }
-                | Self::NewTab { .. }
-                | Self::NewBrowserTab { .. }
-                | Self::NewWorkspace { .. }
-                | Self::CreateTerminal { .. }
-                | Self::NewScreen(_)
-                | Self::NewPane { .. }
-                | Self::NewPaneRight(_)
-                | Self::Split(_)
-                | Self::MoveTerminal { .. }
-                | Self::NewRow(_)
-        )
-    }
 }
 
 fn dispatch_command(
@@ -148,6 +127,9 @@ fn dispatch_command(
             )
         }
         Command::RemoteHostApp => remote_host_command::app(mux, client),
+        Command::DeviceSetup { device, verb, allow_agents, dry_run } => {
+            device_setup_command::handle(mux, client, writer, device, &verb, allow_agents, dry_run)
+        }
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
@@ -259,7 +241,13 @@ fn dispatch_command(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux, writer.lines_written()),
+        Command::ListWorkspaces { known, limit } => cmd_workspaces::list_workspaces(
+            mux,
+            client,
+            writer.lines_written(),
+            known.as_ref(),
+            limit,
+        ),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
         }
@@ -290,6 +278,9 @@ fn dispatch_command(
             cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
         Command::Send(params) => cmd_terminal_io::send(mux, client, writer, params),
+        Command::CancelCreatingInput { terminal_id } => {
+            creating_input::cancel(mux, client, &terminal_id)
+        }
         Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
         Command::ClearHistory { surface, fallback_key } => {
             cmd_terminal_io::clear_history(mux, surface, fallback_key)
@@ -360,24 +351,13 @@ fn dispatch_command(
         Command::TerminalLastCommand { surface, terminal_id } => {
             cmd_terminals::terminal_last_command(mux, surface, terminal_id)
         }
+        Command::TerminalCommandContext { surface, intent } => {
+            cmd_terminals::terminal_command_context(mux, surface, intent)
+        }
         Command::TerminalResumeCommand { surface, terminal_id, command } => {
             cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
         }
-        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
-            cmd_tabs::new_tab(
-                mux,
-                client,
-                actor,
-                pane,
-                cwd,
-                env,
-                cols,
-                rows,
-                keep,
-                terminal_id,
-                shell_args,
-            )
-        }
+        Command::NewTab(params) => cmd_tabs::new_tab(mux, client, actor, params),
         Command::NewConversationTab(params) => cmd_tabs::new_conversation_tab(mux, client, params),
         Command::BindConversationTabSession(params) => {
             cmd_tabs::bind_conversation_tab_session(mux, actor, params)
@@ -422,8 +402,8 @@ fn dispatch_command(
         Command::NewWorkspace { name, cols, rows } => {
             cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
         }
-        Command::CreateWorkspace { name, key, mutation } => {
-            cmd_workspaces::create_workspace(mux, client, name, key, mutation)
+        Command::CreateWorkspace { name, key, first_tab, mutation } => {
+            cmd_workspaces::create_workspace(mux, client, name, key, first_tab, mutation)
         }
         Command::CreateTerminal {
             workspace,
@@ -439,6 +419,8 @@ fn dispatch_command(
             env,
             keep,
             detached,
+            create_workspace,
+            workspace_name,
             mutation,
         } => cmd_terminals::create_terminal(
             mux,
@@ -457,6 +439,7 @@ fn dispatch_command(
             env,
             keep,
             detached,
+            create_workspace.then_some(workspace_name),
             mutation,
         ),
         Command::NewScreen(params) => cmd_screens::new_screen(mux, client, params),
@@ -1015,6 +998,10 @@ fn dispatch_command(
             expected_generation,
             expected_terminal_id,
             replay_history_rows,
+            output_coalesce_ms,
+            replay_history_start,
+            hybrid_stream,
+            hybrid_frame,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -1033,6 +1020,9 @@ fn dispatch_command(
                 expected_generation,
                 expected_terminal_id,
                 replay_history_rows,
+                output_coalesce_ms,
+                replay_history_start,
+                (hybrid_stream, hybrid_frame),
                 snapshot,
             )
         }

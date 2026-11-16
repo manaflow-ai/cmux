@@ -9,17 +9,24 @@
 //! allowlist as every other tool. A list from an earlier start
 //! (`upstream_listing.rs`) answers `tools/list` without starting the server,
 //! so a chat that never calls one of its tools never starts it.
+//!
+//! Servers whose specs name the same `shared` launch (acpmux's own five, `acpmux tools-mcp`,
+//! `tools_mcp.rs`) run in one process: each sends its requests with its name in `_meta`
+//! ([`acpmux::tools_mcp::SERVER_META`]), and each answer goes back to the request that waits
+//! for it, so a call that waits (a secret card) holds no other server's call.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
-use super::computer_use_gate::{self, Gate};
+use super::computer_use_gate::{self, AppCaller, Gate};
+use super::cua_recovery;
 use cmux_json::JsonSet as _;
 
 /// The env acpmux gives the `cmux` server: a JSON array of
@@ -35,6 +42,11 @@ const START_BACKOFF: Duration = Duration::from_secs(60);
 /// One call, unless the spec says (`callTimeoutSecs`: acpmux gives the
 /// secret card, which waits for the person, an hour).
 const CALL_TIMEOUT: Duration = Duration::from_secs(300);
+/// A server's process ends after this long with no call; its tools stay listed and the next
+/// call starts it again. A harness keeps an idle chat's `cmux mcp serve` running for days (one
+/// Codex app-server held 15 on Leo's Mac, 2026-11-14), and each kept its computer use proxy and
+/// acpmux's servers running under it: 90 processes, about 300 MB, for chats no one used.
+pub(super) const IDLE_STOP: Duration = Duration::from_secs(10 * 60);
 const PROTOCOL_VERSION: &str = "2025-06-18";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,6 +56,36 @@ pub(super) struct Spec {
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
     pub call_timeout: Duration,
+    /// The process it runs in with other servers (acpmux's `shared`), instead of its own.
+    pub shared: Option<Launch>,
+}
+
+/// A process to start: its command, args and env.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Launch {
+    pub command: PathBuf,
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+}
+
+impl Launch {
+    /// `{command, args, env}` in a spec, or None when it is not that.
+    fn from_json(item: &Value) -> Option<Self> {
+        let command = PathBuf::from(item["command"].as_str()?);
+        let args = item["args"]
+            .as_array()
+            .map(|args| args.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        let env = item["env"]
+            .as_object()
+            .map(|env| {
+                env.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Some(Self { command, args, env })
+    }
 }
 
 /// The servers in `value` (the env's JSON). A bad entry is left out and
@@ -59,23 +101,12 @@ pub(super) fn specs(value: Option<std::ffi::OsString>) -> Vec<Spec> {
         .iter()
         .filter_map(|item| {
             let name = item["name"].as_str()?.to_owned();
-            let command = PathBuf::from(item["command"].as_str()?);
-            let args = item["args"]
-                .as_array()
-                .map(|args| args.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-                .unwrap_or_default();
-            let env = item["env"]
-                .as_object()
-                .map(|env| {
-                    env.iter()
-                        .filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned())))
-                        .collect()
-                })
-                .unwrap_or_default();
+            let Launch { command, args, env } = Launch::from_json(item)?;
             let call_timeout = item["callTimeoutSecs"]
                 .as_u64()
                 .map_or(CALL_TIMEOUT, |secs| Duration::from_secs(secs.clamp(1, 24 * 3600)));
-            Some(Spec { name, command, args, env, call_timeout })
+            let shared = item.get("shared").and_then(Launch::from_json);
+            Some(Spec { name, command, args, env, call_timeout, shared })
         })
         .collect()
 }
@@ -133,7 +164,7 @@ pub(super) fn rules(spec: &Spec, own: Option<&str>) -> Option<String> {
 pub(super) struct Upstream {
     spec: Spec,
     pub prefix: String,
-    conn: Option<Conn>,
+    conn: Option<Arc<Conn>>,
     /// Its tools as the server lists them (original names).
     tools: Option<Vec<Value>>,
     pub instructions: Option<String>,
@@ -142,6 +173,15 @@ pub(super) struct Upstream {
     failed: Option<(String, Instant)>,
     /// Where lists from earlier starts are kept (`upstream_listing.rs`).
     listings: Option<PathBuf>,
+    /// The legacy computer use proxy's current endpoint, read when a call finds the
+    /// helper unreachable (`cua_recovery.rs`); `None` for every other server.
+    endpoint: Option<cua_recovery::EndpointSource>,
+    /// What kept the proxy off the current endpoint at the last read
+    /// (`cua_recovery::endpoint_note`), said when recovery gives up.
+    endpoint_note: Option<String>,
+    /// When it last started or answered a call: its process ends [`IDLE_STOP`] after
+    /// ([`stop_idle`]).
+    used: Instant,
 }
 
 /// Why a request has no result.
@@ -161,17 +201,156 @@ impl Failure {
     }
 }
 
+/// A running server process. Requests go out on its stdin, and a thread reads its stdout and
+/// gives each answer to the request that waits for it (by id), so the servers that share it
+/// (`Spec::shared`) call it at the same time. It ends when the last upstream holding it lets go.
 struct Conn {
-    child: Child,
-    stdin: ChildStdin,
-    lines: mpsc::Receiver<String>,
-    next_id: u64,
+    child: Mutex<Child>,
+    wire: Arc<Wire>,
+}
+
+/// What the reader thread shares with the requests (never the child: it ends the process).
+struct Wire {
+    stdin: Mutex<ChildStdin>,
+    waiting: Mutex<HashMap<u64, mpsc::Sender<Value>>>,
+    next_id: AtomicU64,
+    /// Its stdout ended: the process exited or closed it.
+    ended: AtomicBool,
 }
 
 impl Drop for Conn {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+/// The processes of shared launches, while an upstream holds one.
+static SHARED: Mutex<Vec<(Launch, Weak<Conn>)>> = Mutex::new(Vec::new());
+
+impl Conn {
+    /// `launch` started, its stdout read on a thread named for `prefix`.
+    fn start(launch: &Launch, prefix: &str) -> Result<Self, String> {
+        let mut child = Command::new(&launch.command)
+            .args(&launch.args)
+            // This server's own folding and allowlist stay with it.
+            .env_remove(ENV)
+            .envs(launch.env.iter().map(|(k, v)| (k, v)))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|error| format!("cannot start {}: {error}", launch.command.display()))?;
+        let stdin = child.stdin.take().ok_or("no stdin")?;
+        let stdout = child.stdout.take().ok_or("no stdout")?;
+        let wire = Arc::new(Wire {
+            stdin: Mutex::new(stdin),
+            waiting: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+            ended: AtomicBool::new(false),
+        });
+        let reader = wire.clone();
+        let read = std::thread::Builder::new()
+            .name(format!("cmux-mcp-upstream-{prefix}"))
+            .spawn(move || reader.read(stdout));
+        let conn = Self { child: Mutex::new(child), wire };
+        // Dropped on failure: the child ends with it.
+        read.map_err(|error| error.to_string())?;
+        Ok(conn)
+    }
+
+    /// The running process of `launch` other upstreams hold, else a new one.
+    fn shared(launch: &Launch, prefix: &str) -> Result<Arc<Self>, String> {
+        let mut shared = SHARED.lock().unwrap_or_else(PoisonError::into_inner);
+        shared.retain(|(_, conn)| conn.upgrade().is_some_and(|conn| conn.alive()));
+        if let Some(conn) =
+            shared.iter().find(|(running, _)| running == launch).and_then(|(_, c)| c.upgrade())
+        {
+            return Ok(conn);
+        }
+        let conn = Arc::new(Self::start(launch, prefix)?);
+        shared.push((launch.clone(), Arc::downgrade(&conn)));
+        Ok(conn)
+    }
+
+    fn alive(&self) -> bool {
+        !self.wire.ended.load(Ordering::SeqCst)
+    }
+
+    fn notify(&self, method: &str) -> Result<(), String> {
+        self.wire
+            .write(&json!({"jsonrpc": "2.0", "method": method}))
+            .map_err(|error| format!("write: {error}"))
+    }
+
+    /// One request, answered or not within `timeout`.
+    fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value, Failure> {
+        let wire = &self.wire;
+        let id = wire.next_id.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = mpsc::channel();
+        wire.waiting.lock().unwrap_or_else(PoisonError::into_inner).insert(id, tx);
+        let forget = || {
+            wire.waiting.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+        };
+        // The reader marks the end before it lets go of the waiting requests: one added after
+        // that sees the mark.
+        if !self.alive() {
+            forget();
+            return Err(Failure::Lost(format!("the server exited before {method}")));
+        }
+        let message = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        if let Err(error) = wire.write(&message) {
+            forget();
+            return Err(Failure::Lost(format!("the server closed its input: {error}")));
+        }
+        let reply = match rx.recv_timeout(timeout) {
+            Ok(reply) => reply,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                forget();
+                let secs = timeout.as_secs();
+                return Err(Failure::Lost(format!("no answer to {method} in {secs} s")));
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(Failure::Lost(format!("the server exited during {method}")));
+            }
+        };
+        if let Some(error) = reply.get("error") {
+            return Err(Failure::Refused(error["message"].as_str().unwrap_or("error").to_owned()));
+        }
+        Ok(reply["result"].clone())
+    }
+}
+
+impl Wire {
+    fn write(&self, message: &Value) -> std::io::Result<()> {
+        let mut stdin = self.stdin.lock().unwrap_or_else(PoisonError::into_inner);
+        writeln!(stdin, "{message}").and_then(|()| stdin.flush())
+    }
+
+    /// Gives each answer on `stdout` to its request; answers the server's own requests with
+    /// method not found and skips its notifications. At the end, every waiting request learns
+    /// that the server is gone.
+    fn read(&self, stdout: std::process::ChildStdout) {
+        for line in BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            let Ok(reply) = serde_json::from_str::<Value>(&line) else { continue };
+            if reply.get("method").is_some() {
+                if let Some(their_id) = reply.get("id") {
+                    let refused = json!({"jsonrpc": "2.0", "id": their_id,
+                        "error": {"code": -32601, "message": "not supported by cmux"}});
+                    let _ = self.write(&refused);
+                }
+                continue;
+            }
+            let Some(id) = reply["id"].as_u64() else { continue };
+            let waiter = self.waiting.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+            if let Some(waiter) = waiter {
+                let _ = waiter.send(reply);
+            }
+        }
+        self.ended.store(true, Ordering::SeqCst);
+        self.waiting.lock().unwrap_or_else(PoisonError::into_inner).clear();
     }
 }
 
@@ -179,7 +358,34 @@ impl Upstream {
     pub(super) fn new(spec: Spec) -> Self {
         let prefix = prefix(&spec.name);
         let listings = super::upstream_listing::default_dir();
-        Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None, listings }
+        let endpoint = cua_recovery::applies(&spec).then(cua_recovery::acpmux_endpoint);
+        Self {
+            spec,
+            prefix,
+            conn: None,
+            tools: None,
+            instructions: None,
+            failed: None,
+            listings,
+            endpoint,
+            endpoint_note: None,
+            used: Instant::now(),
+        }
+    }
+
+    /// Ends its process when it has had no call for `idle`, keeping its tools listed (the next
+    /// call starts it again). While a process runs, how long until it would be idle; `None`
+    /// when none runs.
+    pub(super) fn stop_if_idle(&mut self, idle: Duration) -> Option<Duration> {
+        self.conn.as_ref()?;
+        let left = idle.saturating_sub(self.used.elapsed());
+        if left.is_zero() {
+            // The child ends with its connection (`Conn::drop`); a shared one once no other
+            // server holds it.
+            self.conn = None;
+            return None;
+        }
+        Some(left)
     }
 
     /// The same server with its stored lists kept in `dir` (none: never stored).
@@ -187,6 +393,58 @@ impl Upstream {
     pub(super) fn with_listings(mut self, dir: Option<PathBuf>) -> Self {
         self.listings = dir;
         self
+    }
+
+    /// The same server, recovered as the computer use proxy with endpoints from `source`.
+    #[cfg(test)]
+    pub(super) fn with_endpoint(mut self, source: cua_recovery::EndpointSource) -> Self {
+        self.endpoint = Some(source);
+        self
+    }
+
+    /// The pid of its running process (tests kill it).
+    #[cfg(test)]
+    pub(super) fn pid(&self) -> Option<u32> {
+        let conn = self.conn.as_ref()?;
+        Some(conn.child.lock().unwrap_or_else(PoisonError::into_inner).id())
+    }
+
+    /// Whether its process runs and its output is open (tests).
+    #[cfg(test)]
+    pub(super) fn alive(&self) -> bool {
+        self.conn.as_ref().is_some_and(|conn| conn.alive())
+    }
+
+    /// Whether a call that found the helper unreachable recovers (`cua_recovery.rs`).
+    fn recovers(&self) -> bool {
+        self.endpoint.is_some()
+    }
+
+    /// Before a retry: the current endpoint goes in the spec, and the proxy starts again
+    /// (it gives up on a helper for good after one failed connection).
+    fn reconnect_for_retry(&mut self) {
+        if let Some(source) = self.endpoint.as_ref() {
+            let read = source();
+            if let Ok(Some(socket)) = &read
+                && cua_recovery::apply(&mut self.spec, socket)
+            {
+                eprintln!("cmux mcp: the {} server moves to the current endpoint", self.spec.name);
+            }
+            let note = cua_recovery::endpoint_note(&read);
+            if let Some(why) = &note
+                && self.endpoint_note.as_ref() != Some(why)
+            {
+                eprintln!("cmux mcp: the {} server keeps its endpoint: {why}", self.spec.name);
+            }
+            self.endpoint_note = note;
+        }
+        self.conn = None;
+        self.failed = None;
+    }
+
+    /// What kept the proxy off the current endpoint at the last read, if anything.
+    fn endpoint_note(&self) -> Option<&str> {
+        self.endpoint_note.as_deref()
     }
 
     /// Whether the server's process runs.
@@ -255,7 +513,7 @@ impl Upstream {
     /// Starts the server when it is not running, so a stored list gives way
     /// to its own before a call is checked against it.
     pub(super) fn connect(&mut self) -> Result<(), String> {
-        if self.conn.is_none() { self.start() } else { Ok(()) }
+        if self.conn.as_ref().is_some_and(|conn| conn.alive()) { Ok(()) } else { self.start() }
     }
 
     /// The server's own name of cmux tool `name`, when it is one of its.
@@ -275,20 +533,23 @@ impl Upstream {
         meta: Option<&Value>,
         cap: Option<Duration>,
     ) -> Result<Value, (String, &'static str)> {
-        if self.conn.is_none() {
+        if !self.conn.as_ref().is_some_and(|conn| conn.alive()) {
             self.start().map_err(|error| (error, "not_run"))?;
         }
+        self.used = Instant::now();
         let mut params = json!({"name": tool, "arguments": arguments});
         if let (Some(meta), Some(fields)) = (meta, params.as_object_mut()) {
             fields.insert("_meta".to_owned(), meta.clone());
         }
         let timeout = cap.map_or(self.spec.call_timeout, |cap| cap.min(self.spec.call_timeout));
-        match self.request("tools/call", params, timeout) {
+        let answered = self.request("tools/call", params, timeout);
+        self.used = Instant::now();
+        match answered {
             Ok(result) => Ok(result),
             Err(Failure::Refused(error)) => Err((error, "not_run")),
             Err(Failure::Lost(error)) => {
-                // A dead or late server starts again on the next call; the
-                // call itself may have run.
+                // A dead or late server starts again on the next call (a shared one once no
+                // other server holds it); the call itself may have run.
                 self.conn = None;
                 Err((error, "in_progress"))
             }
@@ -308,31 +569,18 @@ impl Upstream {
         self.conn = None;
         // The key before the start: a list is stored only for the command it came from.
         let key = self.listings.as_ref().and_then(|_| super::upstream_listing::key(&self.spec));
-        let mut child = Command::new(&self.spec.command)
-            .args(&self.spec.args)
-            // This server's own folding and allowlist stay with it.
-            .env_remove(ENV)
-            .envs(self.spec.env.iter().map(|(k, v)| (k, v)))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|error| format!("cannot start {}: {error}", self.spec.command.display()))?;
-        let stdin = child.stdin.take().ok_or("no stdin")?;
-        let stdout = child.stdout.take().ok_or("no stdout")?;
-        let (tx, lines) = mpsc::channel();
-        std::thread::Builder::new()
-            .name(format!("cmux-mcp-upstream-{}", self.prefix))
-            .spawn(move || {
-                for line in BufReader::new(stdout).lines() {
-                    let Ok(line) = line else { break };
-                    if tx.send(line).is_err() {
-                        break;
-                    }
-                }
-            })
-            .map_err(|error| error.to_string())?;
-        self.conn = Some(Conn { child, stdin, lines, next_id: 1 });
+        self.conn = Some(match &self.spec.shared {
+            Some(launch) => Conn::shared(launch, &self.prefix)?,
+            None => {
+                let spec = &self.spec;
+                let own = Launch {
+                    command: spec.command.clone(),
+                    args: spec.args.clone(),
+                    env: spec.env.clone(),
+                };
+                Arc::new(Conn::start(&own, &self.prefix)?)
+            }
+        });
         let init = self
             .request(
                 "initialize",
@@ -366,63 +614,29 @@ impl Upstream {
         }
         self.tools = Some(tools);
         self.failed = None;
+        self.used = Instant::now();
         Ok(())
     }
 
     fn notify(&mut self, method: &str) -> Result<(), String> {
-        let conn = self.conn.as_mut().ok_or("not started")?;
-        writeln!(conn.stdin, "{}", json!({"jsonrpc": "2.0", "method": method}))
-            .and_then(|()| conn.stdin.flush())
-            .map_err(|error| format!("write: {error}"))
+        self.conn.as_ref().ok_or("not started")?.notify(method)
     }
 
-    /// One request; answers the server's own requests with method not found
-    /// and skips its notifications.
+    /// One request, for this server: in a shared process its name goes in `_meta`.
     fn request(
         &mut self,
         method: &str,
-        params: Value,
+        mut params: Value,
         timeout: Duration,
     ) -> Result<Value, Failure> {
-        let conn = self.conn.as_mut().ok_or_else(|| Failure::Lost("not started".into()))?;
-        let id = conn.next_id;
-        conn.next_id += 1;
-        let message = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        writeln!(conn.stdin, "{message}")
-            .and_then(|()| conn.stdin.flush())
-            .map_err(|error| Failure::Lost(format!("the server closed its input: {error}")))?;
-        let deadline = Instant::now() + timeout;
-        loop {
-            let left = deadline.saturating_duration_since(Instant::now());
-            let line = match conn.lines.recv_timeout(left) {
-                Ok(line) => line,
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    let secs = timeout.as_secs();
-                    return Err(Failure::Lost(format!("no answer to {method} in {secs} s")));
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(Failure::Lost(format!("the server exited during {method}")));
-                }
-            };
-            let Ok(reply) = serde_json::from_str::<Value>(&line) else { continue };
-            if reply.get("method").is_some() {
-                if let Some(their_id) = reply.get("id") {
-                    let refused = json!({"jsonrpc": "2.0", "id": their_id,
-                        "error": {"code": -32601, "message": "not supported by cmux"}});
-                    let _ = writeln!(conn.stdin, "{refused}").and_then(|()| conn.stdin.flush());
-                }
-                continue;
-            }
-            if reply["id"] != id {
-                continue;
-            }
-            if let Some(error) = reply.get("error") {
-                return Err(Failure::Refused(
-                    error["message"].as_str().unwrap_or("error").to_owned(),
-                ));
-            }
-            return Ok(reply["result"].clone());
+        let conn = self.conn.clone().ok_or_else(|| Failure::Lost("not started".into()))?;
+        if self.spec.shared.is_some()
+            && let Some(fields) = params.as_object_mut()
+            && let Some(meta) = fields.entry("_meta").or_insert_with(|| json!({})).as_object_mut()
+        {
+            meta.insert(acpmux::tools_mcp::SERVER_META.to_owned(), json!(self.spec.name));
         }
+        conn.request(method, params, timeout)
     }
 }
 
@@ -431,7 +645,7 @@ impl Upstream {
 pub(super) struct Proxied {
     pub prefix: String,
     pub name: String,
-    pub inner: std::sync::Arc<std::sync::Mutex<Upstream>>,
+    pub inner: Arc<Mutex<Upstream>>,
     pub listed: Vec<Value>,
     pub instructions: Option<String>,
 }
@@ -441,7 +655,7 @@ impl Proxied {
         Self {
             prefix: upstream.prefix.clone(),
             name: upstream.name().to_owned(),
-            inner: std::sync::Arc::new(std::sync::Mutex::new(upstream)),
+            inner: Arc::new(Mutex::new(upstream)),
             listed: Vec::new(),
             instructions: None,
         }
@@ -460,6 +674,32 @@ impl Proxied {
     }
 }
 
+/// Ends each server's process once it has had no call for `idle` ([`IDLE_STOP`]), on a thread
+/// that sleeps until the next one could be idle and ends once every server is dropped. A server
+/// a call holds is skipped: the call marks it used when it ends.
+pub(super) fn stop_idle(
+    servers: Vec<Weak<Mutex<Upstream>>>,
+    idle: Duration,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new().name("cmux-mcp-upstream-idle".into()).spawn(move || {
+        loop {
+            let mut next = idle;
+            let mut any = false;
+            for server in &servers {
+                let Some(server) = server.upgrade() else { continue };
+                any = true;
+                if let Ok(mut upstream) = server.try_lock() {
+                    next = next.min(upstream.stop_if_idle(idle).unwrap_or(idle));
+                }
+            }
+            if !any {
+                return;
+            }
+            std::thread::sleep(next.max(Duration::from_millis(10)));
+        }
+    })
+}
+
 /// Claude Code's name of the tool call a `tools/call` runs for (`_meta`), which its PreToolUse
 /// hook got too, with the subagent that made the call (acpmux's `bg_hook.rs` records it there).
 pub(super) const TOOL_USE_ID: &str = "claudecode/toolUseId";
@@ -474,47 +714,117 @@ pub(super) fn passed_meta(params: &Value) -> Option<Value> {
 
 /// A proxied tool call, runnable on any thread.
 pub(super) struct ProxiedCall {
-    pub inner: std::sync::Arc<std::sync::Mutex<Upstream>>,
+    pub inner: Arc<Mutex<Upstream>>,
     pub name: String,
     pub arguments: Value,
     /// What it passes on of its caller's `_meta` ([`passed_meta`]).
     pub meta: Option<Value>,
     /// A computer use call's setup check (`computer_use_gate`).
     pub gate: Gate,
+    /// The app, for a helper restart when the computer use helper stays unreachable
+    /// (`cua_recovery.rs`). `None`: recovery only reconnects.
+    pub app: Option<AppCaller>,
+}
+
+/// One try of a proxied call.
+enum Tried {
+    /// The server's result or a final error, as the call answers.
+    Done(Value),
+    /// The computer use helper was not reached and the call did not run: why.
+    Unreachable(String, Value),
 }
 
 impl ProxiedCall {
     /// The server's result, or a tool error with the call's state. A
-    /// computer use call first waits for setup when it is not done.
+    /// computer use call first waits for setup when it is not done, and one that finds
+    /// the helper unreachable reconnects, restarts the helper and retries
+    /// (`cua_recovery.rs`).
     pub(super) fn run(self, cap: Option<Duration>) -> Value {
         if let Gate::Check(check) = self.gate
             && let Some(result) = check.run()
         {
             return result;
         }
-        let mut upstream = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Err(message) = upstream.connect() {
-            let error = json!({"code": "upstream.failed",
-                "message": format!("{}: {message}", upstream.name()),
-                "details": {}, "retryable": true});
-            return super::tool_error(super::envelope(error, "not_run", None));
+        let mut upstream = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let recovers = upstream.recovers();
+        let started = Instant::now();
+        let mut restarted = false;
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            let left = cap.map(|cap| cap.saturating_sub(started.elapsed()));
+            let (why, failure) = match Self::once(
+                &mut upstream,
+                &self.name,
+                &self.arguments,
+                self.meta.as_ref(),
+                left,
+            ) {
+                Tried::Done(result) => return result,
+                Tried::Unreachable(why, failure) => (why, failure),
+            };
+            let wait = cua_recovery::backoff(tries);
+            let out_of_time = left.is_some_and(|left| left <= wait + Duration::from_secs(1));
+            if !recovers || tries >= cua_recovery::TRIES || out_of_time {
+                if !recovers {
+                    return failure;
+                }
+                let error = cua_recovery::gave_up(
+                    &why,
+                    tries,
+                    restarted,
+                    started.elapsed(),
+                    upstream.endpoint_note(),
+                );
+                return super::tool_error(super::envelope(error, "not_run", None));
+            }
+            // From the second retry on the helper itself may be down: the app restarts it.
+            if tries >= 2
+                && let Some(app) = &self.app
+            {
+                restarted |= cua_recovery::restart_helper(app);
+            }
+            std::thread::sleep(wait);
+            upstream.reconnect_for_retry();
         }
-        let Some(tool) = upstream.owns(&self.name) else {
-            let error = json!({"code": "upstream.failed", "message": format!(
-                "{}: the server no longer lists {}", upstream.name(), self.name),
-                "details": {}, "retryable": true});
-            return super::tool_error(super::envelope(error, "not_run", None));
+    }
+
+    /// One try: connect, then call.
+    fn once(
+        upstream: &mut Upstream,
+        name: &str,
+        arguments: &Value,
+        meta: Option<&Value>,
+        cap: Option<Duration>,
+    ) -> Tried {
+        let server = upstream.name().to_owned();
+        let failed = |message: String, state: &'static str| {
+            let error = json!({"code": "upstream.failed",
+                "message": format!("{server}: {message}"),
+                "details": {}, "retryable": state == "not_run"});
+            super::tool_error(super::envelope(error, state, None))
         };
-        match upstream.call(&tool, self.arguments, self.meta.as_ref(), cap) {
-            Ok(result) => result,
+        if let Err(message) = upstream.connect() {
+            // The proxy did not start, so the call cannot have run: always safe to retry.
+            let result = failed(message.clone(), "not_run");
+            return Tried::Unreachable(message, result);
+        }
+        let Some(tool) = upstream.owns(name) else {
+            return Tried::Done(failed(format!("the server no longer lists {name}"), "not_run"));
+        };
+        match upstream.call(&tool, arguments.clone(), meta, cap) {
+            // The proxy answers an unreached helper as an error result: the call did not run.
+            Ok(result) => match cua_recovery::error_text(&result) {
+                Some(text) if cua_recovery::unreachable(&text) => Tried::Unreachable(text, result),
+                _ => Tried::Done(result),
+            },
             Err((message, state)) => {
-                let error = json!({
-                    "code": "upstream.failed",
-                    "message": format!("{}: {message}", upstream.name()),
-                    "details": {},
-                    "retryable": state == "not_run",
-                });
-                super::tool_error(super::envelope(error, state, None))
+                let result = failed(message.clone(), state);
+                if state == "not_run" && cua_recovery::unreachable(&message) {
+                    Tried::Unreachable(message, result)
+                } else {
+                    Tried::Done(result)
+                }
             }
         }
     }
@@ -594,6 +904,7 @@ impl<B: super::Backend> super::Server<B> {
             None
         };
         let arguments = Value::Object(arguments.clone());
+        let app = computer_use.as_ref().and_then(|_| self.backend.app_caller());
         let gate = match computer_use {
             Some(tool) => computer_use_gate::gate(
                 &tool,
@@ -606,6 +917,6 @@ impl<B: super::Backend> super::Server<B> {
             None => Gate::Run,
         };
         let meta = self.call_meta.clone();
-        Some(ProxiedCall { inner, name: name.to_owned(), arguments, meta, gate })
+        Some(ProxiedCall { inner, name: name.to_owned(), arguments, meta, gate, app })
     }
 }

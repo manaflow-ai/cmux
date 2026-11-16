@@ -22,6 +22,12 @@ use serde_json::json;
 
 const USAGE: &str = "usage: cmux link seed plan --local FOLDER --bundle OUT [--base SHA]";
 
+/// The one https URL a machine clones (`https://github.com/OWNER/NAME.git`) and `OWNER/NAME`
+/// of a GitHub remote URL in any form git takes; None for anything else.
+pub(super) fn github_url(url: &str) -> Option<(String, String)> {
+    github::parse(url).map(|repo| (repo.url(), repo.slug()))
+}
+
 pub(super) fn run(args: &[String]) -> i32 {
     if matches!(args.first().map(String::as_str), None | Some("-h" | "--help" | "help")) {
         println!("{USAGE}");

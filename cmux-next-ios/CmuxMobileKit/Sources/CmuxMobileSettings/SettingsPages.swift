@@ -105,7 +105,12 @@ struct AccountPage: View {
         }
         .settingsPage("Account")
         .task(id: auth.user?.id) { await loadMethods() }
-        .confirmationDialog("Delete your cmux account?", isPresented: $confirmsDeletion, titleVisibility: .visible) {
+        // An alert, not a confirmation dialog: on iOS 26 a confirmation
+        // dialog opens as a popover with no Cancel button, closed only by a
+        // tap outside it. Account deletion (Guideline 5.1.1(v)) shows Cancel
+        // beside Delete Account on every iPhone and iPad.
+        .alert("Delete your cmux account?", isPresented: $confirmsDeletion) {
+            Button("Cancel", role: .cancel) {}
             Button("Delete Account", role: .destructive) { Task { await delete() } }
         } message: {
             Text("Your cmux account is used by every cmux app (Mac, iPhone and web). Deleting it signs you out everywhere, removes your Macs and phones from the cmux service and permanently deletes your account. This can't be undone.")
@@ -476,7 +481,7 @@ struct TransportPage: View {
                         .padding(.vertical, 4)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityAddTraits(settings.transport == kind ? .isSelected : [])
                     .accessibilityIdentifier("settings.transport.\(kind.rawValue)")
                 }
@@ -488,12 +493,23 @@ struct TransportPage: View {
                 }
             }
             Section {
-                Toggle(isOn: $settings.ultraOnCellular) {
-                    Text("Ultra mode on cellular")
+                Picker(selection: $settings.ultra) {
+                    ForEach(UltraConnection.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Text("Ultra mode")
                 }
-                .accessibilityIdentifier("settings.transport.ultraOnCellular")
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.transport.ultra")
             } footer: {
-                Text("On cellular, WireGuard sends repair data so a network that drops packets stays fast. Uses about 2 to 3 times the cellular data. Applies at the next connection.")
+                Text("Auto sends no extra data while the network is clean, and repair data within a round trip of the first lost packet, so a dropped packet costs milliseconds instead of seconds. On cellular, Auto keeps the repair data within the data it protects; Always sends it on every network, at about 2 to 3 times the data. Applies at the next connection.")
+            }
+            Section {
+                Toggle(isOn: $settings.alignKeepalives) {
+                    Text("Align keepalives")
+                }
+                .accessibilityIdentifier("settings.transport.alignKeepalives")
+            } footer: {
+                Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
             }
             #if !DEBUG
             Section {

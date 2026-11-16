@@ -1,4 +1,5 @@
 import CmuxMobileTransport
+import enum CmuxMobileModel.UserFacingError
 import Foundation
 import Observation
 import os
@@ -1023,9 +1024,9 @@ enum LinkErrorText {
             if error.code == "forbidden", error.message == "only http, https and about:blank load" {
                 return String(localized: "Update cmux on your Mac to open this page on your iPhone.")
             }
-            return error.message.isEmpty ? error.code : error.message
+            return UserFacingError.message(error)
         }
-        return String(describing: error)
+        return UserFacingError.message(error, fallback: "The page couldn't load. Try again.")
     }
 }
 

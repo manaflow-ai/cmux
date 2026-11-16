@@ -12,6 +12,7 @@ import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -105,11 +106,7 @@ afterEach(() => {
 
 afterAll(async () => {
   (await import("../src/agent-session/acpmux/cloudMachines")).setCloudMachinesForTestAccount(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 // What `_acpmux/status` reports (cmux-tui/crates/acpmux/src/peer.rs Peer::summary): an `ssh://`
@@ -899,12 +896,21 @@ test("New Tab, previews on: New Worktree starts the chat in the worktree the hos
   expect(folderName()).toContain("fox");
 });
 
-test("New Tab, previews on: the host's refusal shows above the card, and the folder stays", async () => {
+test("New Tab, previews on: a refused worktree says so above the card, and the folder stays", async () => {
   await mountNewTab(async () => {
     throw new Error("not a git repository");
   });
   await newWorktreeFromMenu();
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
+  // Said plainly; the host's own words (git's) go to the log (Leo, 2026-11-12: "we want good error
+  // states. We don't want busted errors.").
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe(t("worktree.failedPlain"));
+  expect(host.textContent).not.toContain("not a git repository");
+  // Retry asks for the same folder's worktree again.
+  expect(
+    [...host.querySelectorAll<HTMLButtonElement>(".acpmux-folder-choice-button")].some(
+      (button) => button.textContent === t("project.retry"),
+    ),
+  ).toBe(true);
   expect(folderName()).toBe("app");
 });
 

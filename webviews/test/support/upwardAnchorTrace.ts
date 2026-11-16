@@ -6,6 +6,8 @@ export type UpwardAnchorFrame = {
   requestedPixels: number;
   wheelPixels: number;
   scrollTop: number;
+  /** The room held above the loaded rows for older history (the spacer's `data-older-room`), px. */
+  room: number;
   anchorId: string | null;
   drift: number | null;
   wheelGeometryPixels: number;
@@ -17,6 +19,8 @@ export type UpwardAnchorFrame = {
   topEdgeGap: number;
   bottomEdgeGap: number;
   rowBoxIds: string[];
+  /** The first row pair whose gap no spacing token explains: `previous>next gap/expected`. */
+  unexpectedPair: string | null;
 };
 
 /** Runs in the page with paintedFrames installed; it deliberately closes over no test state. */
@@ -24,10 +28,13 @@ export async function traceUpwardAnchors({
   steps,
   restFrames = 24,
   foldStream = false,
+  drag = false,
 }: {
   steps: number[];
   restFrames?: number;
   foldStream?: boolean;
+  /** A scrollbar drag: each step moves the offset with no wheel event, as dragging the thumb does. */
+  drag?: boolean;
 }) {
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) throw new Error("transcript scroller missing");
@@ -45,6 +52,7 @@ export async function traceUpwardAnchors({
     footerRow: 6,
     footerSlot: 7,
     worked: 9,
+    card: 10,
   } as const;
 
   function gridPx(name: string): number {
@@ -60,7 +68,17 @@ export async function traceUpwardAnchors({
     const kind = [...row.classList].find((name) => name.startsWith("acpmux-") && !name.startsWith("acpmux-row"));
     // A turn's "Worked for" line, as every family folds a turn under it now (Codex parity): the room
     // under its rule is its own, so no gap follows it (transcriptGrid.ts MARK_WORKED, #37727).
-    if (kind === "acpmux-worked") return transcriptMark.worked;
+    if (kind === "acpmux-worked" || (kind === "acpmux-working" && !row.classList.contains("acpmux-row--below")))
+      return transcriptMark.worked;
+    // A live footer after work uses the run gap, even though it shares the compact step height.
+    if (kind === "acpmux-working" || kind === "acpmux-thinking" || kind === "acpmux-activityLine") {
+      if (row.classList.contains("acpmux-row--after-step")) return transcriptMark.indicator;
+      if (row.classList.contains("acpmux-row--below")) return transcriptMark.footerSlot;
+      return kind === "acpmux-activityLine" ? transcriptMark.step : transcriptMark.indicator;
+    }
+    // An edited-files card (VirtualTranscript rowKind "editedFiles"; transcriptGrid.ts MARK_CARD): the
+    // run gap from the one-line rows and prose around it, a step row toward a footer or a prompt.
+    if (kind === "acpmux-editedFiles") return transcriptMark.card;
     if (
       row.classList.contains("acpmux-row--line") ||
       row.classList.contains("acpmux-row--after-step") ||
@@ -84,8 +102,6 @@ export async function traceUpwardAnchors({
         ? transcriptMark.other
         : transcriptMark.prompt;
     if (kind === "acpmux-assistant") return transcriptMark.message;
-    if (kind === "acpmux-working" || kind === "acpmux-thinking" || kind === "acpmux-activityLine")
-      return row.classList.contains("acpmux-row--below") ? transcriptMark.footerSlot : transcriptMark.indicator;
     if (kind === "acpmux-turnSummary")
       return row.querySelector(".cv-turn-actions:not(.cv-turn-actions--empty)")
         ? transcriptMark.footerRow
@@ -104,19 +120,26 @@ export async function traceUpwardAnchors({
     if (previous === transcriptMark.worked && next !== transcriptMark.prompt) return 0;
     if (previous === transcriptMark.worked) previous = transcriptMark.step;
     if (next === transcriptMark.worked) next = transcriptMark.step;
+    // transcriptGrid.ts: a card stands the run gap from steps and prose; else it is a step row.
+    const near = (mark: number) =>
+      mark === transcriptMark.step || mark === transcriptMark.message || mark === transcriptMark.card;
+    if ((previous === transcriptMark.card && near(next)) || (next === transcriptMark.card && near(previous)))
+      return run;
+    if (previous === transcriptMark.card) previous = transcriptMark.step;
+    if (next === transcriptMark.card) next = transcriptMark.step;
     if (
       (next === transcriptMark.footerRow || next === transcriptMark.footerSlot) &&
       previous === transcriptMark.message
     )
       return footer;
+    // A turn that ended on work: its footer row sits the footer gap under the run's last line.
+    if (next === transcriptMark.footerRow && previous === transcriptMark.step) return footer;
     if ((next === transcriptMark.indicator || next === transcriptMark.footerSlot) && previous === transcriptMark.prompt)
       return block;
     if (previous === transcriptMark.prompt || next === transcriptMark.prompt) return turn;
-    if (
-      previous === transcriptMark.step &&
-      (next === transcriptMark.step || next === transcriptMark.indicator || next === transcriptMark.footerSlot)
-    )
-      return 0;
+    if (previous === transcriptMark.step && next === transcriptMark.step) return 0;
+    if (previous === transcriptMark.step && (next === transcriptMark.indicator || next === transcriptMark.footerSlot))
+      return run;
     // A run of steps or a status line and the reply's prose by it (transcriptGrid.ts TRANSCRIPT_RUN_GAP,
     // design/transcript-spacing.md rule 4).
     if (
@@ -276,6 +299,7 @@ export async function traceUpwardAnchors({
           wheelPixels: command.applied,
           wheelGeometryPixels: command.geometry,
           scrollTop: scroller.scrollTop,
+          room: Number(scroller.querySelector("[data-older-room]")?.getAttribute("data-older-room") ?? 0),
           anchorId: anchor?.id ?? null,
           drift,
           rowBoxGap: Math.max(0, ...positiveGaps.map((each) => each.gap)),
@@ -286,6 +310,9 @@ export async function traceUpwardAnchors({
           topEdgeGap,
           bottomEdgeGap,
           rowBoxIds: rowBoxGaps.flatMap((each) => [each.previous, each.next]),
+          unexpectedPair: unexpectedRowBoxGaps[0]
+            ? `${unexpectedRowBoxGaps[0].previous}>${unexpectedRowBoxGaps[0].next} ${unexpectedRowBoxGaps[0].gap.toFixed(1)}/${unexpectedRowBoxGaps[0].expected}`
+            : null,
         });
         previous = current;
         if (samples.length === commands.length) {
@@ -311,7 +338,12 @@ export async function traceUpwardAnchors({
         }
         let applied = 0;
         let geometry = 0;
-        if (asked !== 0) {
+        if (asked !== 0 && drag) {
+          const before = scroller.scrollTop;
+          scroller.scrollTop = before + asked;
+          applied = scroller.scrollTop - before;
+          geometry = applied;
+        } else if (asked !== 0) {
           // A precise pixel wheel goes through the real reader-intent/cancellation handlers. A
           // synthetic event has no native default, so apply exactly that default here, recording
           // the clamped distance separately from any later layout/anchor scroll write.

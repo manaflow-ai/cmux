@@ -110,6 +110,7 @@
    "exit": {
     "acpmux": 6,
     "cmux-browser-host": 4,
+    "cmux-tui": 1,
     "cmux-tui-core": 4
    },
    "expect": {
@@ -124,6 +125,7 @@
    "panic_macro": {
     "acpmux": 2,
     "cmux-pane-protocol": 1,
+    "cmux-scope": 1,
     "cmux-server": 1,
     "cmux-tui": 1,
     "cmux-tui-core": 3
@@ -135,7 +137,7 @@
   "swift": {
    "dynamic_dispatch": {
     "CmuxNextAgentPane": 2,
-    "CmuxNextBrowser": 16,
+    "CmuxNextBrowser": 18,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 6,
     "CmuxNextPages": 4,
@@ -153,8 +155,9 @@
     "CMUXMobileCore": 1,
     "CmuxAppAttest": 1,
     "CmuxNextAgentActivity": 1,
+    "CmuxNextAgentList": 2,
     "CmuxNextAgentPane": 5,
-    "CmuxNextApp": 4,
+    "CmuxNextApp": 5,
     "CmuxNextChromiumRuntime": 1,
     "CmuxNextCloud": 1,
     "CmuxNextCompat": 10,

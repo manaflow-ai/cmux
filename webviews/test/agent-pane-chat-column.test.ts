@@ -19,10 +19,15 @@
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+//
+// Four cases test the `runs` arm of live-turn-work, not the shipped `line` arm (`open` with `liveRuns`):
+// the command or the thought they open is a finished step of a turn that still runs, which only `runs`
+// draws (support/liveTurnRuns.ts). The other cases take the shipped arms.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { BUBBLE } from "../src/agent-session/acpmux/transcriptSpacing";
@@ -174,9 +179,11 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// view must follow what is drawn, not an estimate a later frame takes back (cx-next-ghostty-config).
   const LOADED = 6;
 
-  async function open(chat: Chat, width: number, height = 700, loaded = false): Promise<Page> {
+  /// `liveRuns`: the `runs` arm of live-turn-work, for a test of a finished call or thought of the running turn.
+  async function open(chat: Chat, width: number, height = 700, loaded = false, liveRuns = false): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height } });
     await installPaintedFrames(page);
+    if (liveRuns) await pinLiveTurnRuns(page);
     if (loaded)
       await (await page.context().newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: LOADED });
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -460,7 +467,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   test("opening a command's output keeps the command under the pointer", async () => {
     const chat = newChat();
-    const page = await open(chat, 900);
+    const page = await open(chat, 900, 700, false, true);
     await toStart(page);
     const command = commandToggle(page);
     await command.waitFor();
@@ -551,6 +558,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
         right: Math.round(row.right - box.right),
         height: box.height,
         oneLine: text.bottom - text.top < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
+        lineHeight: parseFloat(getComputedStyle(node).lineHeight),
+        paddingTop: parseFloat(getComputedStyle(node).paddingTop),
+        paddingBottom: parseFloat(getComputedStyle(node).paddingBottom),
       };
     });
     // Tinted glass (Leo 2026-10-20): the window shows through, but the tint is there.
@@ -560,13 +570,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // 16 at the sides, as ChatGPT and Claude (design/transcript-spacing.md "Prompt bubble").
     expect(bubble.left).toBeGreaterThanOrEqual(BUBBLE.paddingInline - 2);
     expect(bubble.left).toBeLessThanOrEqual(BUBBLE.paddingInline);
-    // The text sits centred in the bubble's height: one line is 44 tall, its block padding what the line
-    // leaves (design/transcript-spacing.md "Prompt bubble", BUBBLE.oneLine). The glyph box's top and
-    // bottom gaps are equal; how they compare with the 16 at the sides depends on the face's ascent
-    // (DejaVu's put them within 2 of it, Inter's taller ascent 3 off), which the spec
-    // does not fix.
-    expect(Math.abs(bubble.top - bubble.bottom)).toBeLessThanOrEqual(1);
-    if (bubble.oneLine) expect(Math.abs(bubble.height - BUBBLE.oneLine)).toBeLessThanOrEqual(0.5);
+    // The fixed bubble padding is symmetric; glyph ascent varies with the selected reading font.
+    expect(bubble.paddingTop).toBe(10);
+    expect(bubble.paddingBottom).toBe(10);
+    if (bubble.oneLine) expect(Math.abs(bubble.height - (bubble.lineHeight + 20))).toBeLessThanOrEqual(0.5);
     expect(bubble.right).toBe(0);
     await page.close();
   });
@@ -575,7 +582,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   // (Copy Output), so a hover shows none. A prompt's action row has Copy, as Claude Code's does
   // (Leo, 2026-10-20).
   test("a hover shows Copy on a prompt's action row, none on a tool row", async () => {
-    const page = await open(newChat(), 900);
+    const page = await open(newChat(), 900, 700, false, true);
     /// The Copy buttons in the row holding `text` (or `selector`'s element) that show, by their own and
     /// their parents' opacity.
     const shown = (text: string | undefined, selector?: string) =>
@@ -620,19 +627,28 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   // Closed, a thought's button reads its words (Codex parity); open, "Thought".
   const thoughtToggle = (page: Page) => page.locator("button.cv-thought[aria-expanded]");
 
-  test("a long thought streams, then folds when the next step starts without moving the rows above it", async () => {
+  test("a long thought draws as its folded line while it streams, and the next step moves nothing above it", async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
-    const page = await open(chat, 900);
-    // Streaming: the Codex-style turn draws no row for the thought yet; the turn's live line at its foot says one of the default
-    // The default status mode is Thinking only, with nothing to open.
+    const page = await open(chat, 900, 700, false, true);
+    // One more chunk, live: the thought streams now, so the line says Thinking. Without it the
+    // recorded chunks are all the line has heard, and a page that took SILENT_MS to load would
+    // rightly say "Waiting" (Thinking.tsx).
+    push(chat, "in", "agent_thought_chunk", {
+      ...update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "\n" } }),
+    });
+    // Streaming: the thought draws from its first words as the line it folds to once done, closed
+    // (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the thinking
+    // ... I only started seeing your thinking bit, like, seven seconds in"), its text not drawn. The
+    // turn's live line at its foot says Thinking.
     await page
       .locator(".cv-worked.is-below .cv-thinking", {
         hasText: /^Thinking/,
       })
       .waitFor();
+    await thoughtToggle(page).waitFor();
+    expect(await thoughtToggle(page).getAttribute("aria-expanded")).toBe("false");
     expect(await page.getByText("Step 60: check the retry path.", { exact: false }).count()).toBe(0);
-    expect(await thoughtToggle(page).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();
     await page.mouse.wheel(0, -1600);
     await settle(page);
@@ -648,6 +664,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       }),
     });
     await thoughtToggle(page).waitFor({ state: "attached" });
+    // The thought's line was drawn before the call came, so nothing new mounts that the view would
+    // settle on: watch the frames the call's arrival draws before reading them.
+    await page.waitForFunction(() => ((window as any).__frames?.length ?? 0) > 5);
     const tops = (await stop(page)).map((frame) => frame.top);
     expect(await thoughtToggle(page).getAttribute("aria-expanded")).toBe("false");
     expect(tops.length).toBeGreaterThan(5);
@@ -656,7 +675,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   });
 
   test("opening and closing a folded thought keeps its line under the pointer", async () => {
-    const page = await open(newChat(THOUGHT), 900);
+    const page = await open(newChat(THOUGHT), 900, 700, false, true);
     await toStart(page);
     const toggle = thoughtToggle(page);
     await toggle.waitFor();

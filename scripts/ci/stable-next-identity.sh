@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Make the cmux NEXT Stable copy of a published cmux NEXT nightly build (stable-next.yml).
+# Make the cmux NEXT Stable copy of a published nightly-next build (stable-next.yml). Since
+# 2026-11-05 (hq#7156) the track ships each build once, as cmux NIGHTLY (com.cmuxterm.app.nightly).
 #
 # Stable ships the exact bits the nightly shipped, under its own identity, so the gates that ran on
 # the nightly's commit and the launch smokes of the signed copy describe what installs get:
@@ -10,16 +11,17 @@
 #   feed        STABLE_FEED_URL (.../nightly-next/stable/appcast-arm64.xml)
 #   icon        the regular cmux icon (Assets.xcassets/AppIcon.appiconset as AppIcon.icns), not the
 #               Nightly one
-# Version, commit and SUPublicEDKey stay as built. Entitlements: cmux.next-dev.entitlements, as the
-# nightly (no restricted entitlement, so no provisioning profile).
+# Version, commit and SUPublicEDKey stay as built. Entitlements: cmux.next-dev.entitlements (no
+# restricted entitlement, so no provisioning profile): the input's NIGHTLY profile names
+# 7WLXT3NR37.com.cmuxterm.app.nightly and its keychain group, which this id may not claim.
 #
 # Usage:
-#   scripts/ci/stable-next-identity.sh <next-dmg> <build> <out-dir>
+#   scripts/ci/stable-next-identity.sh <nightly-dmg> <build> <out-dir>
 #
 # Environment:
 #   APPLE_SIGNING_IDENTITY       Developer ID identity (build.keychain), or "-" for an ad-hoc dry run
 #   STABLE_FEED_URL              SUFeedURL of the result
-#   EXPECTED_SPARKLE_PUBLIC_KEY  SUPublicEDKey the NEXT app must carry, unchanged
+#   EXPECTED_SPARKLE_PUBLIC_KEY  SUPublicEDKey the nightly app must carry, unchanged
 #   EXPECTED_COMMIT              the 40-hex commit the stable gates tested; the bundle's CMUXCommit
 #                                must be its prefix, so no gate vouches for another commit
 #   ICON_SOURCE                  optional: the appiconset to build AppIcon.icns from
@@ -28,7 +30,7 @@
 set -euo pipefail
 
 if [[ $# -ne 3 ]]; then
-  echo "usage: $0 <next-dmg> <build> <out-dir>" >&2
+  echo "usage: $0 <nightly-dmg> <build> <out-dir>" >&2
   exit 2
 fi
 NEXT_DMG="$1"
@@ -39,7 +41,8 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "EXPECTED_COMMIT must be a 40-hex commit: $EXPECTED_COMMIT" >&2; exit 1; }
 ICON_SOURCE="${ICON_SOURCE:-$ROOT_DIR/Assets.xcassets/AppIcon.appiconset}"
 
-NEXT_ID="com.cmuxterm.app.nightly.cmux-next"
+NEXT_ID="com.cmuxterm.app.nightly"
+NEXT_NAME="cmux NIGHTLY"
 STABLE_ID="com.cmuxterm.app.nightly.cmux-next-stable"
 STABLE_NAME="cmux NEXT Stable"
 STABLE_SCHEME="cmux-next-stable"
@@ -59,11 +62,11 @@ cleanup() {
 }
 trap cleanup EXIT
 hdiutil attach "$NEXT_DMG" -nobrowse -readonly -mountpoint "$mount_dir" -quiet
-next_app="$mount_dir/cmux NEXT.app"
-[[ -d "$next_app" ]] || { echo "no cmux NEXT.app in $NEXT_DMG" >&2; exit 1; }
+next_app="$mount_dir/$NEXT_NAME.app"
+[[ -d "$next_app" ]] || { echo "no $NEXT_NAME.app in $NEXT_DMG" >&2; exit 1; }
 
 plist_get() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist"; }
-[[ "$(plist_get "$next_app" CFBundleIdentifier)" == "$NEXT_ID" ]] || { echo "input is not cmux NEXT" >&2; exit 1; }
+[[ "$(plist_get "$next_app" CFBundleIdentifier)" == "$NEXT_ID" ]] || { echo "input is not $NEXT_NAME ($NEXT_ID)" >&2; exit 1; }
 [[ "$(plist_get "$next_app" CFBundleVersion)" == "$BUILD" ]] || { echo "input is not build $BUILD" >&2; exit 1; }
 [[ "$(plist_get "$next_app" SUPublicEDKey)" == "$EXPECTED_SPARKLE_PUBLIC_KEY" ]] || { echo "input SUPublicEDKey is not the track key" >&2; exit 1; }
 commit="$(plist_get "$next_app" CMUXCommit)"
@@ -108,6 +111,9 @@ pb "Set :CFBundleIconName $STABLE_ICON" >/dev/null 2>&1 || pb "Add :CFBundleIcon
 
 # A stapled ticket names the old CDHash; the notarization staples a new one.
 rm -f "$app/Contents/CodeResources"
+# The NIGHTLY profile is for com.cmuxterm.app.nightly; kept, sign-cmux-bundle.sh would reconcile
+# the entitlements against it and the app would claim another App ID.
+rm -f "$app/Contents/embedded.provisionprofile"
 
 # Whole bundle, inside out, as the nightly-identity copy does (nightly-next-legacy-identity.sh):
 # launchd plists re-stamped from the new bundle id, helpers, SSH payloads, plugins, the Chromium
@@ -122,6 +128,15 @@ fi
 
 [[ "$(plist_get "$app" CFBundleIdentifier)" == "$STABLE_ID" ]] || { echo "signed app has the wrong bundle id" >&2; exit 1; }
 [[ "$(plist_get "$app" CFBundleVersion)" == "$BUILD" ]] || { echo "signed app is not build $BUILD" >&2; exit 1; }
+[[ ! -e "$app/Contents/embedded.provisionprofile" ]] || { echo "signed app still embeds a provisioning profile" >&2; exit 1; }
+signed_entitlements="$(codesign -d --entitlements :- "$app" 2>/dev/null)"
+for restricted in com.apple.application-identifier com.apple.developer.team-identifier keychain-access-groups \
+  com.apple.developer.web-browser.public-key-credential; do
+  if grep -q "<key>$restricted</key>" <<<"$signed_entitlements"; then
+    echo "signed app claims $restricted, which needs the NIGHTLY profile" >&2
+    exit 1
+  fi
+done
 codesign --verify --deep --strict --verbose=2 "$app"
 "$ROOT_DIR/scripts/verify-app-bundle-channel-metadata.sh" "$app" next-stable
 echo "cmux NEXT Stable build $BUILD: $app"

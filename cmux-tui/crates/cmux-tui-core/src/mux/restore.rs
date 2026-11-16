@@ -238,6 +238,17 @@ pub(super) fn restore_resource_state(
             })?]
             .id,
         );
+        // `floating-panes-v1`: an entry of a pane the store no longer has is dropped, not an error.
+        let floating = screen
+            .floating
+            .iter()
+            .filter_map(|entry| {
+                let pane = *pane_slots.get(&entry.pane)?;
+                Some(cmux_layout_reducer::floating_panes::Floating { pane, frame: entry.frame })
+            })
+            .collect::<Vec<_>>();
+        let floating =
+            cmux_layout_reducer::floating_panes::normalized(&root.pane_ids_vec(), &floating);
         let restored_screen = Screen {
             id,
             public_id: screen.public_id.clone(),
@@ -250,6 +261,7 @@ pub(super) fn restore_resource_state(
             viewport_base_width,
             layout_columns,
             layout_revision: 0,
+            floating,
             layout_undo: Default::default(),
         };
         anyhow::ensure!(
@@ -316,6 +328,8 @@ pub(super) fn restore_resource_state(
         workspaces.iter().enumerate().map(|(index, workspace)| (workspace.id, index)).collect();
     let workspace_id_by_key =
         workspaces.iter().map(|workspace| (workspace.key.clone(), workspace.id)).collect();
+    // One set of route generations for the four routing tables of this session state (`crate::route_table`).
+    let route_generations = crate::route_table::RouteGenerations::default();
     Ok(RestoredResourceState {
         state: State {
             workspaces,
@@ -327,12 +341,19 @@ pub(super) fn restore_resource_state(
             focus_sequence: 0,
             active_workspace,
             panes,
-            surfaces: Default::default(),
-            terminal_catalog: Default::default(),
-            terminal_catalog_by_runtime: Default::default(),
-            terminal_catalog_by_host: Default::default(),
+            surfaces: crate::route_table::RouteTable::with_generations(route_generations.clone()),
+            terminal_catalog: crate::route_table::RouteTable::with_generations(
+                route_generations.clone(),
+            ),
+            terminal_catalog_by_runtime: crate::route_table::RouteTable::with_generations(
+                route_generations.clone(),
+            ),
+            terminal_catalog_by_host: crate::route_table::RouteTable::with_generations(
+                route_generations,
+            ),
             split_screens: HashMap::new(),
             resource_indexes: indexes,
+            tab_places: Default::default(),
         },
         next_id,
         contents,

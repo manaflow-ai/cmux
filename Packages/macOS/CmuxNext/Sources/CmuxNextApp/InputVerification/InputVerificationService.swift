@@ -33,8 +33,10 @@ final class InputVerificationService {
         let monitor = InputInvariantMonitor(tag: tag)
         monitor.services = services
         self.monitor = monitor
+        let focusLog = services.focusLog
         (NSApp as? CmuxApplication)?.inputObserver = { event in
             journal.record(event)
+            focusLog.noteInput(event)
             switch event.type {
             case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp: monitor.noteChange()
             default: break

@@ -3,7 +3,7 @@
 messages/channels should be via cmd shift p (in fact should just be 2 diff things in section like Home and Channels,
 where u have to cmd shift p to enable channels in the first place").
 
-Home is the home workspace with the `home-dock` tab in its left dock. Its Messages view (the home-messages page) is the sidebar's Home
+Home is the home workspace with the `home-dock` tab in its left dock. Its Messages view (native) is the sidebar's Home
 entry; its Channels view (hq-ec's React page) is a second entry right after Home, shown only while `home.channelsEnabled`
 is on (off by default). The dock has no header switch and no Ctrl-Option-Cmd-H any more. Real input (cua-driver: the
 window server's pointer and key events to the app's pid) drives the palette and the sidebar; the app's control socket
@@ -18,14 +18,14 @@ reads the state. It checks:
 - with Channels shown, Cmd-Shift-P, "disable channels", Return: the entry goes and Home is selected (Messages);
 - the CLI path (`action.run` by CLI name with origin cli, as `cmux home enable-channels` sends it) and the action list
   (CLI and MCP offered) for enable, disable and switch-view;
-- after a relaunch Channels stays off.
+- this Mac's old Messages-list pins (seeded through debug.home.drive legacy_pins) move into the daemon once, at the
+  next launch, in their order; an unpin in the daemon afterwards stays (the move does not run again).
 Screenshots of each step. Runs on cmux-lawrence-2 through
 `nx-remote --needs input --input-reason "..." --app-from-fleet cmux --tag <tag> --ref <sha> -- 'python3 scripts/cmux-next/home-channels-entry.py'`
 with an isolated HOME and Chief home under /tmp; it launches the app itself and ends with quitEndSessions,
 endAgents and the tag's acpmux daemon shutdown. Reads NX_APP, NX_APP_TAG, NX_APP_STOP, NX_ARTIFACTS, NX_CAPTURE.
 """
 import json, os, shutil, socket, subprocess, sys, tempfile, time
-
 
 APP, TAG = os.environ["NX_APP"], os.environ["NX_APP_TAG"]
 OUT, STOP = os.environ.get("NX_ARTIFACTS", "/tmp/home-channels-entry"), os.environ.get("NX_APP_STOP", "")
@@ -92,6 +92,10 @@ def dock():
 
 def shot(name):
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, name + ".png")}, 60)
+
+
+def drive(action, **params):
+    return rpc("debug.home.drive", dict(params, action=action)) or {}
 
 
 def config_value():
@@ -308,6 +312,10 @@ def owner_line():
     return Line(path) if path else None
 
 
+def native_row(conversation):
+    return next((r for r in dock().get("messages_list") or [] if r.get("id") == conversation), {})
+
+
 def action_surfaces(action_id):
     listed = (rpc("action.list") or {}).get("actions") or []
     entry = next((a for a in listed if a.get("id") == action_id), {}) or {}
@@ -337,7 +345,7 @@ try:
         time.sleep(1)  # test harness wait: let a late note draw before the negative check
         check("Cloud %s shows no note" % cloud, not dock().get("messages_note"), {"cloud": cloud, "note": dock().get("messages_note")})
 
-    # Three conversations to open.
+    # This Mac's old Messages-list pins, for the move at the next launch.
     owner = owner_line()
     if check("the Chief home's daemon socket answers", owner is not None):
         me = (owner.request("home-inbox") or {}).get("me") or "user_local"
@@ -348,6 +356,7 @@ try:
             owner.request("conversation-op", conversation=conv, idempotency_key="pin%d-m-%s" % (n, stamp),
                           op={"kind": "message.send", "client_msg_id": "pin%d-m-%s" % (n, stamp), "parts": [{"type": "text", "text": "pin %d" % n}]})
             pins.append(conv)
+        poll(lambda: all(native_row(c) for c in pins), 30)
 
     # Enable Channels from the palette with real keys.
     run("home.openConversation", {"conversation": pins[1]}) if pins else None
@@ -418,14 +427,40 @@ try:
     check("the CLI's disable hides the entry and selects Home", bool(poll(lambda: channels_item() is None, 15)) and bool(in_mode("messages")),
           {"items": items(), "dock": dock()})
 
+    # Last in launch 1, right before the quit (no owner change in between): this Mac's old Messages-list pins, which the
+    # next launch moves into the daemon.
+    if pins:
+        seeded = drive("legacy_pins", pins=[pins[2], pins[0]])
+        check("the old per-Mac pins are seeded (pin2, pin0)", seeded.get("ok") is True and seeded.get("pins") == [pins[2], pins[0]], seeded)
 finally:
     quit_app(app)
 
-# Launch 2: Channels stays off.
+# Launch 2: the old pins are in the daemon, once.
 app = launch(2)
 try:
     run("home.show")
     check("after a relaunch Channels stays off", poll(home_item, 30) is not None and channels_item() is None, items())
+    owner = owner_line() if pins else None
+    if owner and pins:
+        inbox = lambda: owner.request("home-inbox").get("rows") or []
+        def migrated():
+            rows = {r["id"]: r for r in inbox()}
+            two, zero, one = rows.get(pins[2], {}), rows.get(pins[0], {}), rows.get(pins[1], {})
+            return two.get("pinned") and zero.get("pinned") and not one.get("pinned") and (two.get("pinPosition") or two.get("pin_position") or 0) < (zero.get("pinPosition") or zero.get("pin_position") or 0)
+        check("the old pins are in the daemon in their order (pin2 before pin0; pin1 unpinned)", bool(poll(migrated, 60)),
+              [r for r in inbox() if r["id"] in pins])
+        check("Messages shows the moved pins", bool(poll(lambda: native_row(pins[2]).get("pinned") and native_row(pins[0]).get("pinned"), 30)),
+              [native_row(c) for c in pins])
+        left = drive("legacy_pins")
+        check("this Mac keeps none of the moved pins", left.get("ok") is True and not (set(left.get("pins") or []) & set(pins)), left)
+        shot("8-pins-moved")
+        owner.request("conversation-inbox-op", conversation=pins[0], op={"kind": "inbox.pin", "pinned": False})
+        check("an unpin in the daemon shows in Messages", bool(poll(lambda: native_row(pins[0]) and not native_row(pins[0]).get("pinned"), 15)), native_row(pins[0]))
+        owner.request("conversation-op", conversation=pins[1], idempotency_key="pin1-n-%s" % stamp,
+                      op={"kind": "message.send", "client_msg_id": "pin1-n-%s" % stamp, "parts": [{"type": "text", "text": "another reply"}]})
+        time.sleep(3)  # test harness wait: the rows are read again after this change; a second move would pin pin0 again
+        check("the move does not run again (pin0 stays unpinned)", not any(r["id"] == pins[0] and r.get("pinned") for r in inbox()),
+              [r for r in inbox() if r["id"] in pins])
 finally:
     quit_app(app)
     rpc("action.run", {"id": "endAgents"}, timeout=10)

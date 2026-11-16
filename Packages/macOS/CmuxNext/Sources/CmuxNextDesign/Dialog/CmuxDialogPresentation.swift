@@ -2,9 +2,9 @@ public import AppKit
 public import CmuxNextDesignTokens
 
 /// One shown dialog, as its host and its drawing see it: the spec, every field's current value, and
-/// the keyboard (`CmuxDialogKeys`). It draws nothing. The drawing is the overlay page's React dialog
-/// (webviews/src/pages/overlay/dialog), which a ``CmuxDialogRendering`` connects: the page sends the
-/// person's edits and presses here, and gets the values automation sets and the focus moves keys ask.
+/// the keyboard (`CmuxDialogKeys`). It draws nothing. The drawing is ``CmuxDialogView`` (a
+/// ``CmuxDialogRendering``): the card sends the person's edits and presses here, and gets the values
+/// automation sets and the focus moves keys ask.
 /// `CmuxDialogCenter` owns the answer.
 @MainActor
 public final class CmuxDialogPresentation {
@@ -18,9 +18,9 @@ public final class CmuxDialogPresentation {
     var onPress: ((String) -> Void)?
     /// The drawing of this dialog, while one shows it.
     public weak var renderer: (any CmuxDialogRendering)?
-    /// The view the host shows (the overlay page), while it is on screen.
+    /// The view the host shows (the card's region), while it is on screen.
     public internal(set) weak var view: NSView?
-    /// The card's rect in ``view``'s coordinates, as the page last laid it out; nil before.
+    /// The card's rect in ``view``'s coordinates, as it last laid out; nil before.
     public var cardRect: CGRect? {
         didSet {
             guard cardRect != nil else { return }
@@ -161,7 +161,7 @@ public final class CmuxDialogPresentation {
     }
 }
 
-/// What draws a shown dialog (the overlay page): told when automation changes a value and when a
+/// What draws a shown dialog (``CmuxDialogView``): told when automation changes a value and when a
 /// key moves the focus, so the card shows the same state the center reports.
 @MainActor
 public protocol CmuxDialogRendering: AnyObject {

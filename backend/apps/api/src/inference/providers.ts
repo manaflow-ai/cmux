@@ -3,7 +3,7 @@ import type { ProviderId } from "./catalog.ts"
 
 /**
  * Provider adapters of the model router (open-source models only). Vercel AI Gateway, OpenRouter,
- * Fireworks, Baseten, DeepInfra, Azure AI Foundry, OpenAI and our own endpoint speak OpenAI chat/completions, so their
+ * Fireworks, Baseten, DeepInfra, Azure AI Foundry, OpenAI, Particle and our own endpoint speak OpenAI chat/completions, so their
  * adapter is a base URL, a key and a few body fields. Workers AI is reached through the Worker's
  * AI binding (no key) and is translated in workers-ai.ts.
  *
@@ -62,6 +62,9 @@ export const providerTarget = (env: Env, provider: ProviderId): ProviderTarget |
     case "openai":
       // OpenAI's own API. GPT-5 models take max_completion_tokens, not max_tokens (upstream.ts).
       return openai("https://api.openai.com/v1/chat/completions", env.INFERENCE_OPENAI_KEY)
+    case "particle":
+      // Particle's OpenAI-compatible API (docs.particle.ai). Only particle-ai/particle-1 routes here (catalog.ts).
+      return openai("https://api.particle.ai/v1/chat/completions", env.INFERENCE_PARTICLE_KEY)
     case "custom":
       // Our own OpenAI-compatible endpoint (a self-hosted model server, or any other router).
       return env.INFERENCE_CUSTOM_URL ? openai(env.INFERENCE_CUSTOM_URL, env.INFERENCE_CUSTOM_KEY) : undefined

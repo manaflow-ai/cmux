@@ -20,6 +20,7 @@ pub mod ffi;
 pub mod json;
 pub mod model;
 pub mod palette;
+pub mod request;
 pub mod strings;
 pub mod tables;
 pub mod text;
@@ -91,7 +92,11 @@ impl Action {
     }
 
     pub fn palette_tier(&self) -> PaletteTier {
-        if palette::DAILY.contains(&self.id) {
+        // Debug-only rows ("Debug: <name>", Internal Developer Mode) share one tier, so they keep the
+        // catalog's order: last, sorted by name (the app's `withDebugActionsLast`).
+        if self.is_debug_only {
+            PaletteTier::Niche
+        } else if palette::DAILY.contains(&self.id) {
             PaletteTier::Daily
         } else if palette::NICHE.contains(&self.id) || self.palette_family().is_some() {
             PaletteTier::Niche

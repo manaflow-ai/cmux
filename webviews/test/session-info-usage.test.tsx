@@ -28,6 +28,7 @@ import {
   usageStatsOf,
 } from "../src/agent-session/acpmux/usageStats";
 import { SessionPager, withUsage } from "../src/agent-session/acpmux/sessionPages";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -63,6 +64,7 @@ afterEach(async () => {
   root = undefined;
   resetSessionInfoState();
   setSessionInfoMore(true);
+  await settleReact();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];

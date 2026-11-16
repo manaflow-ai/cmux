@@ -11,7 +11,7 @@ const { renderPage, settle } = await import("./testing");
 
 async function thisWorkspace(appBackground: string, workspaceValue: string | null) {
   const page = await renderPage({
-    path: "/settings/appearance?workspace=ws-1",
+    path: "/settings/personalization?workspace=ws-1",
     mock: {
       values: { "appearance.background": appBackground },
       workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: workspaceValue, opacity: null }],

@@ -44,6 +44,7 @@ import Testing
         }
         var target: HoverTarget { HoverTarget(id: Self.id, window: window?.windowNumber ?? 0, delay: .zero) }
         var hoverCardWindow: NSWindow? { window }
+        var hoverCardGroup: HoverCardGroup? { .sidebar }
         func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? { nil }
         func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
             guard let window else { return nil }

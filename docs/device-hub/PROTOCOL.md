@@ -32,6 +32,26 @@ host-signed allow lists are later work.
   the same Stack user in two projects is two hub users. `session` is a
   JWT (ES256, `iss: device-hub`, `sub: userId`, 1 h). Send it as
   `Authorization: Bearer <session>` on every call.
+- **Machine sign-in**: a machine the person joined to cmux (`acpmux host
+  join`) keeps a cmux-platform machine credential, not their Stack token. It
+  signs in with `POST /v1/auth/machine {credential, deviceId}` → `{session, ownerKind: "user", machineId, teamId,
+  userId, scope: "machine", expiresAt}`. The hub asks cmux-platform (the origin
+  `MACHINE_ORIGINS` names for a Stack project) `GET
+  /v1/machines/credentials/self` with the credential as bearer, and trusts
+  only that answer: the credential's person (`userId`, cmux-platform's
+  `user_` + 20 hex of sha256 of `stack:<projectId>:<sub>`) and expiry.
+  Nothing the machine says about itself names the account. The hub records
+  that id beside `"<projectId>:<sub>"` at each `/v1/auth/stack`, so a person
+  who never signed in to the hub has no account to join a machine to (403
+  `account_not_on_hub`). The `machine` session is the one device's
+  `deviceId` (every call signed by it), ends with the credential (at most
+  1 h), carries no Stack token (no cmux relay), and may register that device
+  and turn its sharing on or off, besides what a host session may (403
+  `machine_scope` otherwise). It may not anchor the device, so the machine
+  renews only by signing in again, and cmux-platform is asked every time: a
+  revoked or expired credential is refused at once, and the last session
+  issued for it ends within 1 h. Without `MACHINE_ORIGINS` the route is 503
+  `machine_auth_unavailable`.
 - **Device key**: each device has two P-256 keys in its Secure Enclave
   (CryptoKit `SecureEnclave.P256.Signing` and `.KeyAgreement`). Public keys are
   sent as base64 of the X9.63 uncompressed point (65 bytes).
@@ -59,7 +79,7 @@ host-signed allow lists are later work.
 ## Records (User DO SQLite)
 
 ```
-devices(id TEXT PK, name, platform 'macos'|'ios', signing_key, agreement_key,
+devices(id TEXT PK, name, platform 'macos'|'ios'|'linux', signing_key, agreement_key,
         created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
         name_pinned INT 0/1, owner_kind, owner_id)
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,
@@ -103,6 +123,7 @@ end reason, the decision, or `old->new` for a permission change).
 |---|---|---|---|
 | `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
+| `POST /v1/auth/machine` | `{credential, deviceId}` | `{session, userId, scope, ownerKind, machineId, teamId, expiresAt}` | A joined machine's sign-in (Identity, Machine sign-in): cmux-platform names the person; the `machine` session sets up and serves only `deviceId`. 401 when cmux-platform does not accept the credential or it expired, 403 `machine_no_person` or `account_not_on_hub`, 503 `machine_auth_unavailable`. |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
 | `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
@@ -115,6 +136,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `POST /v1/sessions` | `{hostId, scope}` | `{session:{id, state, scope}}` | From the viewer. See flow. |
 | `POST /v1/sessions/:id/decision` | `{decision:'deny'\|'once'\|'always', scope}` | `{session}` | From the host device only. `scope` defaults to the requested one and may lower `full` to `view`, never raise it (400). `always` stores the permission. Requests expire after 5 min: the server ends them (`session.revoked`, reason `expired`) without waiting for a decision. If setting up the approved session fails, it ends with `approve_failed` and the call returns 500. |
 | `POST /v1/sessions/:id/end` | `{reason}` | `{}` | Either side; idempotent. Pushes `session.revoked`. Without `reason`: `host_stopped` from the host, `viewer_disconnected` from the viewer. |
+| `POST /v1/sessions/:id/reattach` | `{}` | `{session, ticket}` | Viewer only. Re-admits the original viewer/host pair while `approved`/`live`, with the stored scope capped by current permission; returns a 30 s viewer ticket and pushes matching 30 s tickets to both devices. It cannot revive an ended session or broaden access. |
 | `POST /v1/sessions/:id/ice` | | `{ice:[…]}` | Fresh cmux relay credentials while `approved`/`live` (checked against cmux billing on every call; else `[]`); otherwise 409 `session_not_active`. |
 | `GET /v1/relays` | | `{relays:[…]}` | Each relay carries `sealed: {<this device id>: blob}` or `{}`. |
 | `PUT /v1/relays/:id` | `{name, urls, authMode, sealed, enabled, priority}` | `{relay}` | `sealed`: `{deviceId: base64}` for every device. |
@@ -136,7 +158,13 @@ v1 does not rate-limit yet), `internal` (500).
 device (a new one replaces the old, which is closed with code 4000; a removed
 device's socket is closed with 4001, a signed-out one's with 4003). `online`
 counts only open sockets: one the server has closed counts as offline at once,
-before the client answers the close frame.
+before the client answers the close frame. A socket the device has sent
+nothing on for 75 s (two missed pings plus 15 s; neither a ping nor any other
+frame) also counts as offline: a device that dropped without closing its
+socket (sleep, lost network, a killed app) is closed with code 4004 and a
+reason saying how long it was silent, `devices.changed` goes to the other
+devices, and its offline grace (Session flow, 8) counts from when it was last
+heard. 4004 is not terminal: the app reconnects.
 Connecting pushes `devices.changed` to every device, the connecting one
 included (its own entry is now `online`); disconnecting pushes it to the
 others. Server → device messages:
@@ -151,9 +179,10 @@ others. Server → device messages:
 {type:'session.revoked', sessionId, reason}    // to both; end at once
 {type:'session.ended', sessionId, reason}
 ```
-Device → server: `{type:'ping'}` (auto-response `{type:'pong'}`). The
-auto-response matches bytes exactly: send the text frame `{"type":"ping"}`, no
-spaces; the reply is `{"type":"pong"}`. Other device frames are ignored.
+Device → server: `{type:'ping'}` (auto-response `{type:'pong'}`), every 30 s.
+The auto-response matches bytes exactly: send the text frame `{"type":"ping"}`, no
+spaces; the reply is `{"type":"pong"}`. Other device frames are ignored, but
+count as a sign of life.
 `viewerKeyFingerprint` is the lowercase hex SHA-256 of the viewer's 65-byte
 signing key. Pushes reach only connected devices; there is no backlog, so a
 device refetches state after it reconnects: its devices, relays, its own
@@ -188,6 +217,8 @@ to each host), so a change made while it was away never leaves an old value.
    signing keys to the Session DO when it creates it, so the Session DO
    verifies the JWS, `exp`, `sid`, `dev` = `X-Device-Id` = the role's device,
    the device signature, and burns `jti` (SQLite). At most one socket per role.
+   A reattach ticket additionally carries `reattach:true`, expires after 30 s,
+   and may replace an existing socket only for the same device.
    Failures, before the upgrade: 401 `ticket_invalid` (bad, expired or other
    session), 403 `ticket_invalid` (other device), 401 `bad_signature` /
    `stale_timestamp`, 401 `replay` (used `jti`), 409 `role_taken`, 404
@@ -208,20 +239,33 @@ to each host), so a change made while it was away never leaves an old value.
 6. When both are connected the Session DO marks the session `live` (audit
    `started`). A signaling socket that closes or fails ends signaling for that
    side only, never the session: the peer connection may still be up, and the
-   other side's socket stays open. A session ends on `bye`, `/end`,
+   other side's socket stays open and gets
+   `{type:'peer-left', role, reason}` (`role` is the side that left; `reason`
+   is `closed <code>[: <reason>]` or `error: <why>`), so a side still setting
+   up can stop waiting. It is sent once per socket, never relayed from a
+   device, and not sent once the session has ended. A session ends on `bye`, `/end`,
    revocation (7) or the offline grace (8); then the Session DO closes both
    sockets and deletes its storage. A `bye` is provisional for 3 s: if an
    authoritative end follows (a client often sends `bye` and then `/end`), its
    reason wins; otherwise the session ends with reason `bye` (audit `ended`
    with duration, push `session.ended` to both).
+   When a live stream loses its media path, the viewer closes its signaling
+   socket without `bye`, calls `POST /v1/sessions/:id/reattach` after the
+   1/2/4/8/16/30 s backoff, and uses the returned viewer ticket. The hub also
+   pushes the matching host ticket, so the Mac can serve the same session
+   again. This path checks the original viewer device, host device, saved
+   scope, current permission, sharing switch and host online state; its tickets
+   expire after 30 s.
 7. Revocation: removing a device, lowering a permission, turning sharing off,
    signing out, or ending from either side pushes `session.revoked` to both
    devices, closes the signaling sockets with code 4002 and audits `ended`
    with the same reason; the
    host closes the peer connection at once; `/ice` stops renewing. Pending
    requests are ended the same way.
-8. Offline devices: when a device's last User DO socket closes or errors while
-   it has open sessions, the server waits 30 s. If it has not reconnected by
+8. Offline devices: when a device's last User DO socket closes, errors or
+   goes silent (75 s with no frame) while it has open sessions, the server
+   waits 30 s from when it was last heard (so a silent device's sessions end
+   when it is found silent). If it has not reconnected by
    then, every session where it is viewer or host ends: audit `ended` with
    reason `peer_offline`, push `session.ended` (reason `peer_offline`) to both
    devices, and the Session DO closes its sockets. A socket replaced by a new
@@ -243,7 +287,7 @@ authoritative end does not replace its reason. The same string is pushed in `ses
 | `viewer_disconnected` | the viewer called `/end` without a reason | `session.revoked` |
 | any other string | the `reason` given to `/end` (≤100 chars) | `session.revoked` |
 | `expired` | a pending request was not decided within 5 min | `session.revoked` |
-| `peer_offline` | a device stayed disconnected for 30 s | `session.ended` |
+| `peer_offline` | a device stayed disconnected for 30 s, or was silent for 75 s | `session.ended` |
 | `bye` | a device sent `bye` and no authoritative reason followed within 3 s | `session.ended` |
 | `approve_failed` | the server could not set up the approved session | `session.revoked` |
 

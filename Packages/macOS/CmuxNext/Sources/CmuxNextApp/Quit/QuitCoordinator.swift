@@ -1,7 +1,10 @@
 import AppKit
+import CmuxNextAgentActivity
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextSettings
@@ -10,8 +13,8 @@ import os
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
 /// hands every quit here: it takes the origin (`QuitOriginTracker`), asks
-/// about unsaved documents, decides (`QuitPolicy`; no quit asks how to quit),
-/// then completes (`QuitSteps`, CmuxNextControl): save and close windows, and
+/// about unsaved documents, decides (`QuitPolicy`; no quit asks how to quit, and Cmd-Q, the menu and the Dock
+/// quit the app only, CMUX-630), then completes (`QuitSteps`, CmuxNextControl): save and close windows, and
 /// for End end the local terminals and stop the local daemon. A failed end
 /// step shows `QuitFailureAlert` (Retry or Quit Anyway). Remote sessions are
 /// never ended.
@@ -36,16 +39,17 @@ final class QuitCoordinator {
     /// Holds each quit step to its limit and marks its end in the launch marks.
     let steps = QuitStepLimiter(mark: { DebugTimings.markLaunch($0) })
     /// Chromium's close, the quit's last engine step (tests replace it). An app quit closes every page
-    /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave). The windows
-    /// go away before CefShutdown blocks the main thread (2 to 3.4 s under load, cmuxterm-hq#6338),
-    /// so a decided quit looks done instead of a frozen window; the deadline ends the process after.
+    /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave), then `engineWillStop`.
     lazy var closeEngines: @MainActor () async -> Void = { [weak self] in
-        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, beforeEngineStop: QuitCoordinator.hideWindowsForEngineStop)
+        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, beforeEngineStop: { await self?.engineWillStop() })
     }
 
-    /// Orders out every visible window: the quit is decided and its saves ran (`stopBrowserEngines`).
-    static func hideWindowsForEngineStop() {
-        for window in NSApp?.windows ?? [] where window.isVisible { window.orderOut(nil) }
+    /// Right before CefShutdown, which never returned before the 4 s deadline in the quit hang files (cmuxterm-hq#8608, #11994): the windows
+    /// go (a decided quit looks done), the drafts the closing pages queued reach disk, and the process ends `engineShutdownLimit` later.
+    func engineWillStop(hide: () -> Void = { for window in NSApp?.windows ?? [] where window.isVisible { window.orderOut(nil) } }) async {
+        hide()
+        await services.stateFilesDrained()
+        deadline.endSooner(after: QuitDeadline.engineShutdownLimit, reason: "CefShutdown began")
     }
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
@@ -88,19 +92,20 @@ final class QuitCoordinator {
         DebugTimings.markLaunch("quit.requested")
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
-        let origin = origins.consume(appleEventReason: Self.quitReason())
+        let origin = origins.consume(appleEventReason: NSAppleEventManager.shared().quitReason)
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
         logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
-            // Unsaved documents are the quit's one question (R96 quit hook).
+            let choice = QuitPolicy.decide(origin, behavior: behavior)
+            // Unsaved documents (R96 quit hook) are the only question a quit can ask.
             guard await resolveUnsaved(origin) else {
                 isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
                 quitRefused()
                 return
             }
-            await complete(QuitPolicy.decide(origin, behavior: behavior), sender)
+            await complete(choice, sender)
         }
         return .terminateLater
     }
@@ -144,7 +149,7 @@ final class QuitCoordinator {
 
     /// The quit's steps after the decision `choice` (`QuitSteps.run`).
     func quitSteps(_ choice: QuitSessionsChoice) -> QuitSteps {
-        let services = services
+        let services = services, steps = steps
         return QuitSteps(
             prepareWindows: { [steps] in
                 let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: { AgentQuitFiles.isIncognito($0, in: services) })
@@ -195,10 +200,8 @@ final class QuitCoordinator {
                 // Nothing is written when nothing changed.
                 await services.home.flushCacheForQuit()
                 guard let self else { return }
-                // CefShutdown runs on the main thread and can block it for
-                // good: from here the quit ends by a deadline whatever it
-                // does (a keep quit's deadline is armed already and stays),
-                // and a debug build reports that hang, never asserts it.
+                // CefShutdown runs on the main thread and can block it for good: from here the quit ends by a deadline whatever it
+                // does (a keep quit's deadline is armed already and stays), and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 watchdog?.endHangAssertions()
                 #if DEBUG || CMUX_BENCH_HOOKS
@@ -234,14 +237,5 @@ final class QuitCoordinator {
     private func sheetWindow() -> NSWindow? {
         let candidates = [services.windows.active?.window, NSApp?.mainWindow] + services.windows.controllers.map(\.window)
         return candidates.compactMap { $0 }.first { $0.isVisible && !$0.isMiniaturized && $0.attachedSheet == nil }
-    }
-
-    /// `kAEQuitReason` of the quit Apple event being handled, if any.
-    private static func quitReason() -> OSType? {
-        guard let event = NSAppleEventManager.shared().currentAppleEvent,
-              event.eventClass == AEEventClass(kCoreEventClass), event.eventID == AEEventID(kAEQuitApplication),
-              let reason = event.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) ?? event.paramDescriptor(forKeyword: AEKeyword(kAEQuitReason))
-        else { return nil }
-        return reason.enumCodeValue
     }
 }

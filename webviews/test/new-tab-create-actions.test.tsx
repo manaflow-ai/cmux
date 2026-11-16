@@ -8,6 +8,7 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -70,17 +71,14 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   for (const key of added) delete scope[key];
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
 
-test("New Tab's create actions open a terminal, a browser tab and a chat", async () => {
+test("Minimal's create buttons open a terminal, a browser tab and a chat", async () => {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -112,7 +110,7 @@ test("New Tab's create actions open a terminal, a browser tab and a chat", async
         root.render(
           <QueryClientProvider client={new QueryClient()}>
             <NewTabScreen
-              template="default"
+              template="minimal"
               snapshot={noChat()}
               lastAgent="claude"
               cwd="/Users/you/src/app"
@@ -121,7 +119,12 @@ test("New Tab's create actions open a terminal, a browser tab and a chat", async
           </QueryClientProvider>,
         ),
       );
-      labels = [...host.querySelectorAll(".nt-create [data-create]")].map((button) => button.textContent?.trim());
+      expect(host.querySelector(".nt-screen[data-minimal]")).not.toBeNull();
+      const group = host.querySelector(".nt-create")!;
+      expect(group).not.toBeNull();
+      expect(group.previousElementSibling?.classList.contains("nt-composer")).toBe(true);
+      expect(group.closest(".nt-popover, .nt-suggest")).toBeNull();
+      labels = [...group.querySelectorAll("[data-create]")].map((button) => button.textContent?.trim());
       const button = host.querySelector<HTMLButtonElement>(`.nt-create [data-create="${kind}"]`);
       expect(button, `no ${kind} create action`).toBeTruthy();
       await act(async () => button!.click());
@@ -171,7 +174,7 @@ test("New chat sends what the field holds, and a second click opens nothing more
       root.render(
         <QueryClientProvider client={new QueryClient()}>
           <NewTabScreen
-            template="default"
+            template="minimal"
             snapshot={noChat()}
             lastAgent="claude"
             cwd="/Users/you/src/app"

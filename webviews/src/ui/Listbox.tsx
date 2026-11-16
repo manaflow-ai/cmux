@@ -36,6 +36,12 @@ export interface ListboxProps<T> {
   activeIndex?: number;
   onActiveIndexChange?(index: number): void;
   listRef?: Ref<HTMLDivElement>;
+  /**
+   * A popup list's glass (`ui-popup ui-glass ...`): drawn on an outer shell so the glass, rim and
+   * exterior shadow stay outside the rows' edge fade (popupSurface.css `.ui-popup-scroll-shell`).
+   */
+  shellClassName?: string;
+  shellRef?: Ref<HTMLDivElement>;
   empty?: ReactNode;
   /** Content rendered after the rows, such as a loading or status note. */
   footer?: ReactNode;
@@ -64,6 +70,8 @@ export function Listbox<T>({
   activeIndex,
   onActiveIndexChange,
   listRef: externalListRef,
+  shellClassName,
+  shellRef,
   empty,
   footer,
   "aria-busy": ariaBusy,
@@ -133,11 +141,11 @@ export function Listbox<T>({
     }
   };
 
-  return (
+  const list = (
     <div
       ref={attachList}
       id={listId}
-      className={cx("ui-listbox ui-scroll-edge-fade", className)}
+      className={cx("ui-listbox ui-scroll-edge-fade", shellClassName !== undefined && "ui-popup-scroll", className)}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a native select cannot hold rich rows.
       role="listbox"
       // Controlled highlights belong to a field that keeps virtual focus (for example the
@@ -181,6 +189,12 @@ export function Listbox<T>({
       )}
       {items.length === 0 && empty}
       {footer}
+    </div>
+  );
+  if (shellClassName === undefined) return list;
+  return (
+    <div ref={shellRef} className={cx(shellClassName, "ui-popup-scroll-shell")}>
+      {list}
     </div>
   );
 }

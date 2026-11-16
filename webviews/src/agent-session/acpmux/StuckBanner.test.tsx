@@ -5,15 +5,17 @@ import { JSDOM } from "jsdom";
 import { StuckBanner } from "./StuckBanner";
 import { prefillStuckNudge } from "./stuckNudge";
 import type { Translate } from "./i18n";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

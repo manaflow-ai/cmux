@@ -108,7 +108,7 @@ import Testing
                 guard case let .group(id) = row.key, let header = list.rowViews[row.key] as? GroupHeaderRowView else { continue }
                 let name = list.convert(header.titleFrame, from: header).minX
                 let membersX = list.frame(for: row).minX + list.railReach(for: row)
-                #expect(name == membersX + SidebarStyle.horizontalInset - Metrics.space1,
+                #expect(name == membersX + SidebarStyle.contentInset - Metrics.space1,
                         "\(density.rawValue) \(id.rawValue): name at \(name), members at \(membersX)")
             }
         }

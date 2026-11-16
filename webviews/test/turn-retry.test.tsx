@@ -5,8 +5,14 @@
 // failed turn's Retry now asks acpmux first, and sends the prompt again only where acpmux cannot.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { RetryNotSent, resendToOwner, retryFailedTurn } from "../src/agent-session/acpmux/conversation/turnRetry";
+import {
+  RetryNotSent,
+  resendToOwner,
+  retryFailedTurn,
+  retryFailedPrompt,
+} from "../src/agent-session/acpmux/conversation/turnRetry";
 import { RETRY_METHOD, TURN_RETRY } from "../src/agent-session/acpmux/subagents/retryState";
+import { teardownDom } from "./support/domTeardown";
 
 const refusal = (reason: string, why?: string) =>
   Object.assign(new Error(`${reason}: refused`), { reason, ...(why ? { data: { why } } : {}) });
@@ -118,13 +124,9 @@ const { TurnActionsContext } = await import("../src/agent-session/acpmux/convers
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const failed = {
@@ -435,4 +437,111 @@ test("the footer's plain resend says Retrying…, and Couldn't retry when the se
   expect([note(), footerRetry().hasAttribute("disabled")]).toEqual(["Retrying…", true]);
   await act(async () => answer(false));
   expect([note(), footerRetry().hasAttribute("disabled")]).toEqual(["Couldn't retry", false]);
+});
+
+test("failed attachment prompts recover through the footer when turn retry is unavailable", async () => {
+  const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
+  const { restoreInline } = await import("../src/agent-session/acpmux/inlinePrompt");
+  const { attachmentBlocks } = await import("../src/agent-session/acpmux/attachments");
+  type Row = import("../src/agent-session/acpmux/model").AcpmuxRow;
+  const image = { kind: "image" as const, id: "image-1", name: "screenshot.png", mimeType: "image/png" };
+  const file = { kind: "file" as const, name: "notes.txt", uri: "file:///home/dev/notes.txt", mimeType: "text/plain" };
+  for (const parts of [[image], [file], [{ kind: "text" as const, text: "Inspect both" }, image, file]]) {
+    const text = parts[0]?.kind === "text" ? parts[0].text : "";
+    const prompt: Row = { id: "attachment-prompt", kind: "user", version: 1, at: 1, text, inlineParts: parts };
+    const footer = turnView(
+      [
+        prompt,
+        {
+          id: "attachment-failure",
+          version: 1,
+          at: 2,
+          kind: "turnSummary",
+          status: "failed",
+          error: "agent process closed",
+        },
+      ],
+      new Set(),
+      { now: 3 },
+    ).find((row) => row.kind === "turnSummary")!;
+    expect(footer.retryRowId).toBe(prompt.id);
+    expect(footer.prompt).toBe(text);
+    for (const unknownMethod of [false, true]) {
+      const client = {};
+      const restored: unknown[][] = [];
+      const sent: Awaited<ReturnType<typeof restoreInline>>[] = [];
+      let requested = 0;
+      await act(async () =>
+        root.render(
+          <TurnActionsContext.Provider
+            value={{
+              retryFailed: (rowId, input) =>
+                retryFailedPrompt({
+                  sessionId: "chat-1",
+                  rowId,
+                  prompt: input,
+                  client,
+                  currentClient: () => client,
+                  owns: () => true,
+                  capabilities: unknownMethod ? undefined : new Set(),
+                  request: async () => {
+                    requested += 1;
+                    throw Object.assign(new Error("Method not found"), { code: -32601 });
+                  },
+                  restore: async (id, input) => {
+                    restored.push([id, input]);
+                    return restoreInline(prompt, input, async () => ({ mimeType: "image/png", data: "aW1hZ2U=" }));
+                  },
+                  send: async (draft) => {
+                    sent.push(draft);
+                  },
+                }),
+            }}
+          >
+            <TurnFooter key={`${parts.length}-${unknownMethod}`} row={footer} />
+          </TurnActionsContext.Provider>,
+        ),
+      );
+      expect(footerRetry()).toBeTruthy();
+      await act(async () => footerRetry().click());
+      expect(requested).toBe(unknownMethod ? 1 : 0);
+      expect(restored).toEqual([[prompt.id, text]]);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.input).toContain(text);
+      const blocks = sent[0]!.attachments.flatMap(attachmentBlocks);
+      if (parts.includes(image))
+        expect(blocks).toContainEqual(expect.objectContaining({ type: "image", data: "aW1hZ2U=" }));
+      if (parts.includes(file))
+        expect(blocks).toContainEqual(expect.objectContaining({ type: "resource_link", uri: file.uri }));
+    }
+  }
+});
+
+test("failed prompt recovery never sends after an attachment restore loses its owner or fails", async () => {
+  for (const failure of ["owner", "client", "unavailable"] as const) {
+    const client = {};
+    let current = client;
+    let owns = true;
+    const sent: unknown[] = [];
+    const note = await retryFailedPrompt({
+      sessionId: "chat-1",
+      rowId: "image-prompt",
+      prompt: "",
+      client,
+      currentClient: () => current,
+      owns: () => owns,
+      capabilities: new Set(),
+      request: async () => undefined,
+      restore: async () => {
+        if (failure === "owner") owns = false;
+        if (failure === "client") current = {};
+        if (failure === "unavailable") throw new Error("image unavailable");
+        return { input: "", attachments: [{ id: "image-1" }] };
+      },
+      send: async (draft) => {
+        sent.push(draft);
+      },
+    });
+    expect([failure, note, sent]).toEqual([failure, "retry.failed", []]);
+  }
 });

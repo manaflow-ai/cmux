@@ -51,6 +51,8 @@ extension ChatController {
     /// text selection (the person holds it to copy). Home's transcript has no
     /// arrow-key scrolling, so nothing else in the pane loses its arrows.
     func historyTakesArrowKeys(from responder: NSResponder?) -> Bool {
+        // The open picture viewer's Up and Down switch its comparison's rows.
+        if openPictureViewer != nil { return false }
         if responder is NSText || responder is NSTextField { return false }
         if let doc = responder as? TranscriptDocumentView, doc === host.scrollView.document,
            selection.dragging || !selection.isEmpty {

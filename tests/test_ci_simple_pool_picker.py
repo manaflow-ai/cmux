@@ -15,11 +15,11 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("simple_pool_picker", ROOT / "scripts/ci/simple_pool_picker.py")
-assert spec and spec.loader
-picker = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = picker
-spec.loader.exec_module(picker)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import simple_pool_picker as picker  # noqa: E402
 
 
 def pool(label: str, capacity: int, running: int = 0, queued: int = 0, *, reserved: int = 0,

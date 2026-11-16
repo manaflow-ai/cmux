@@ -3,6 +3,7 @@
 // no optimistic copy and never holds a password: reveal, copy and export happen in native sheets,
 // and the page only learns that they finished. React reads it through `useSyncExternalStore`.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import type { SortMode } from "./model";
 import {
@@ -334,7 +335,10 @@ export class PasswordsStore {
   private report(error: unknown): void {
     if (isPageError(error) && error.code === PasswordCodes.cancelled) return;
     if (isPageError(error) && error.code === PasswordCodes.unavailable) {
-      this.set({ notice: { kind: "failed", message: error.message } });
+      // The owner words this one for the person (PasswordStrings).
+      this.set({
+        notice: { kind: "failed", message: userMessage(error, { [PasswordCodes.unavailable]: OWNER_SENTENCE }) },
+      });
       void this.reload();
       return;
     }
@@ -353,5 +357,5 @@ export class PasswordsStore {
 
 function failure(error: unknown): Partial<PasswordsSnapshot> {
   if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected" };
-  return { notice: { kind: "failed", message: error instanceof Error ? error.message : String(error) } };
+  return { notice: { kind: "failed", message: userMessage(error) } };
 }

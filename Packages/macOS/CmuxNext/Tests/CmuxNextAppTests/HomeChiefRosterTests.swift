@@ -54,6 +54,9 @@ struct HomeChiefRosterTests {
         #expect(unii.place == .thisMac)
         #expect(unii.listBadge?.hasPrefix(HomeModelStrings.placeThisMac) == true)
         #expect(unii.accessibilityLabel.hasPrefix("Unii, " + HomeModelStrings.placeThisMac))
+        // The list draws the tag after the name.
+        let entry = HomeSidebarView.entry(unii)
+        #expect(entry.shownTitle.hasPrefix("Unii \u{00B7} " + HomeModelStrings.placeThisMac))
         // A DM gets no tag.
         #expect(model.rows.first { $0.id == Self.ada }?.listBadge == nil)
     }
@@ -102,7 +105,20 @@ struct HomeChiefRosterTests {
         #expect(HomeCloudChiefs(hosted: chiefs.hosted).otherHost(of: Self.hosted.rawValue) == nil)
     }
 
+    @Test func noSegmentedControlFloatsOverTheChat() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let view = HomeHostView(services: services, conversation: Self.hosted.rawValue)
+        view.frame = NSRect(x: 0, y: 0, width: 600, height: 700)
+        view.layoutSubtreeIfNeeded()
+        #expect(!Self.descendants(of: view).contains { $0 is NSSegmentedControl })
+    }
+
     // MARK: Fixtures
+
+    static func descendants(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap(descendants)
+    }
 
     static func chief(_ id: CmuxHomeCore.ConversationID, _ agent: String, _ title: String, at: TimeInterval) -> InboxRow {
         row(id, title: title, participants: [Participant(id: ParticipantID(agent), kind: .agent, displayName: title, agentClass: .chief)], at: at)

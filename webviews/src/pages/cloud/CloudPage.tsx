@@ -78,7 +78,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
           {snap.refusal && (
             <PlanNotice refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />
           )}
-          {snap.blocked === "no_snapshot_configured" && (
+          {snap.blocked === "no_snapshot_configured" && !snap.create?.blocked && (
             <div className="cloud-error cloud-blocked" role="alert">
               <span className="cloud-error-text">{t(L.noSnapshotConfigured)}</span>
               <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>
@@ -104,7 +104,8 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
         <SpendCapBanner state={snap} strings={strings} {...capBannerProps} />
         <MigrationBanner store={store} state={snap} strings={strings} />
         {snap.refusal && <PlanNotice refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />}
-        {snap.blocked === "no_snapshot_configured" && (
+        {/* An open create sheet that says it itself takes it: one notice, not two. */}
+        {snap.blocked === "no_snapshot_configured" && !snap.create?.blocked && (
           <div className="cloud-error cloud-blocked" role="alert">
             <span className="cloud-error-text">{t(L.noSnapshotConfigured)}</span>
             <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>

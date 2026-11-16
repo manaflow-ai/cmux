@@ -36,6 +36,7 @@ import { translate } from "../src/agent-session/acpmux/i18n";
 import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
 import { SummaryButton } from "../src/agent-session/acpmux/summary/SummaryButton";
 import { until } from "./support/until";
+import { settleReact } from "./support/domTeardown";
 
 function deferred<T = unknown>() {
   let resolve!: (value: T) => void;
@@ -869,6 +870,7 @@ afterEach(async () => {
   if (previousTabRow) setTabRow(previousTabRow);
   previousTabRow = undefined;
   previousHeader = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, { had, value }] of saved) {

@@ -26,6 +26,8 @@ Usage: layout-loop-stress-live.py TAG APP OUT_DIR
 Exit 0 = all steps clean. Writes OUT_DIR/layout-loop-stress.json.
 """
 import json, os, pwd, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 TAG, APP, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
@@ -244,7 +246,7 @@ log = open(os.path.join(OUT, "app-%s.log" % TAG), "a")
 # LAYOUT_STRESS_APP_ARGS: extra launch arguments for this process only,
 # e.g. "-AppleShowScrollBars Always" (legacy scrollers, as with a mouse).
 app = subprocess.Popen([BINARY] + os.environ.get("LAYOUT_STRESS_APP_ARGS", "").split(), env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-print("launched pid %d" % app.pid, flush=True)
+safe_print("launched pid %d" % app.pid, flush=True)
 results, failures = [], []
 try:
     deadline = time.time() + 180
@@ -300,7 +302,7 @@ try:
                 failures += check("%s %d" % (action, i + 1), app, results)
         rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "after-stress.png")}, timeout=60)
 finally:
-    print("quit:", json.dumps(quit_end_sessions())[:200], flush=True)
+    safe_print("quit:", json.dumps(quit_end_sessions())[:200], flush=True)
     try:
         app.wait(timeout=30)
     except subprocess.TimeoutExpired:

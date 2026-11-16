@@ -7,17 +7,39 @@ public nonisolated enum ActionCatalog {
     /// Every catalog descriptor, in catalog order.
     /// Stored, as the Swift catalog's was: objects built against either declaration link (a computed
     /// `all` has no addressor, so a warm build's stale test objects failed to link).
-    public static let all: [ActionDescriptor] = RustActionCatalog.shared.descriptors
+    /// Debug-only rows come last, titled "Debug: <name>" and sorted by name (`withDebugActionsLast`).
+    public static let all: [ActionDescriptor] = RustActionCatalog.shared.descriptors.withDebugActionsLast()
 
     /// IDs from before the catalog or renamed since, mapped to their canonical catalog ID. The
     /// registry folds these on register and lookup so older call sites, keybindings and scripts
     /// keep working.
     public static let legacyAliases: [ActionID: ActionID] = RustActionCatalog.shared.legacyAliases
 
+    /// Each catalog request row's daemon request, by id: the App sends it with no handler of its
+    /// own (`CatalogRequestHandlers`).
+    public static let requests: [ActionID: ActionCatalogRequest] = RustActionCatalog.shared.requests
+
+    /// The `op:` suggestion sources the catalog's arguments name, by source name.
+    public static let listSources: [String: ActionCatalogListSource] = RustActionCatalog.shared.listSources
+
     /// The descriptors one catalog group declares (`AppStoreActionCatalog`, ...), in catalog order.
     static func descriptors(inGroup group: String) -> [ActionDescriptor] {
         let groupOf = RustActionCatalog.shared.groupOf
         return all.filter { groupOf[$0.id] == group }
+    }
+}
+
+nonisolated extension [ActionDescriptor] {
+    /// Debug-only actions are Command Palette rows only (Lawrence 2026-11-09: "move all debug things to
+    /// cmd shift p"), shown while Internal Developer Mode is on (`DebugActionGate`): each titled
+    /// "Debug: <name>", listed last and sorted by name (`DebugActionsPaletteOnlyTests`: no menu placement).
+    func withDebugActionsLast() -> [ActionDescriptor] {
+        var debug = filter(\.isDebugOnly)
+        for index in debug.indices {
+            debug[index].title = String(format: DebugActionGate.titleFormat, debug[index].title)
+        }
+        debug.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        return filter { !$0.isDebugOnly } + debug
     }
 }
 

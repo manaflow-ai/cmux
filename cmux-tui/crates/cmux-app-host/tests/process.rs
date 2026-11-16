@@ -27,10 +27,15 @@ mod apps {
 
     impl Host {
         fn spawn() -> Self {
+            Self::spawn_with(&[])
+        }
+
+        fn spawn_with(env: &[(&str, &str)]) -> Self {
             let (ours, theirs) = UnixStream::pair().expect("socketpair");
             let fd = theirs.as_raw_fd();
             let mut command = Command::new(BIN);
             command.env_clear().stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::inherit());
+            command.envs(env.iter().copied());
             // SAFETY: dup2 is async-signal-safe; it runs in the child before exec.
             unsafe {
                 command.pre_exec(move || {
@@ -111,6 +116,24 @@ mod apps {
         }
         let all: String = seen.iter().map(Value::to_string).collect::<String>() + &scene_text;
         assert!(all.contains("1 working · 1 waiting"), "{all}");
+        host.send(json!({ "t": "shutdown" }));
+        assert_eq!(host.child.wait().expect("wait").code(), Some(0));
+    }
+
+    /// The sandbox refuses every file open, and libc reads the local zone's file lazily, at the
+    /// first local-time call. Unless the host loads it before the sandbox holds, an extension's
+    /// `new Date().getHours()` is UTC. TZ stands in for a non-UTC /etc/localtime here (both are
+    /// zoneinfo files libc must open).
+    #[test]
+    fn local_time_inside_the_sandbox_is_the_machines_zone() {
+        let mut host = Host::spawn_with(&[("TZ", "Asia/Tokyo")]);
+        host.send(json!({ "t": "init", "app": { "id": "local/clock", "version": "1.0.0" }, "api_version": "1.0.0",
+            "main": common::app("return { render: () => Text(`offset ${new Date(0).getTimezoneOffset()} hour ${new Date(0).getHours()}`) }") }));
+        let mut seen = Vec::new();
+        host.until("ready", &|_| json!({}), &mut seen);
+        host.send(json!({ "t": "mount", "mount": "m", "export": "render", "ctx": {} }));
+        let scene = host.until("scene", &|_| json!({}), &mut seen);
+        assert!(scene["ops"].to_string().contains("offset -540 hour 9"), "{scene}");
         host.send(json!({ "t": "shutdown" }));
         assert_eq!(host.child.wait().expect("wait").code(), Some(0));
     }

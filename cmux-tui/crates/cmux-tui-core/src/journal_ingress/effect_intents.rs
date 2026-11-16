@@ -2,7 +2,7 @@
 //! receipts, terminal records, workspace registry revisions).
 //!
 //! The request thread waits for the receipt with the same bounded deadline
-//! and commit fence as a producer receipt (`journal_durable_wait()`, then at
+//! and commit fence as a producer receipt (the ingress's durable wait, then at
 //! most `JOURNAL_COMMIT_RESULT_WAIT` for a commit the writer already
 //! admitted). A writer error, a dropped receipt or an expired deadline
 //! returns an error; nothing waits without a bound. A commit the writer
@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use super::{
     COMMIT_PENDING, JournalCommitIndeterminate, JournalIngressCompletion, JournalIngressEvent,
-    JournalIngressSender, JournalWriterOwner, QueuedJournalEvent, journal_durable_wait,
+    JournalIngressSender, JournalWriterOwner, QueuedJournalEvent,
 };
 use crate::workspace_registry::{RegistryIntent, RegistryReceipt};
 
@@ -97,7 +97,7 @@ impl JournalIngressSender {
             return EffectSend::Sent(Err(anyhow::anyhow!(super::disk_full::WAITER_ERROR)));
         }
         let (completion, result) = sync_channel(1);
-        let deadline = Instant::now() + journal_durable_wait();
+        let deadline = Instant::now() + self.state.durable_wait();
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
         if let Err((error, event)) = self.enqueue_until_or_return(
             sender,

@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { EnvironmentPicker } from "./EnvironmentPicker";
 import type { RunMode } from "./sandboxRun";
 import { translate } from "./i18n";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -54,6 +55,7 @@ afterEach(async () => {
     });
   root = undefined;
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

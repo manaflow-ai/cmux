@@ -47,6 +47,11 @@ final class SettingsWindowService: InternalPageProvider {
     private var waiting: (section: SettingsSection?, setting: String?, focus: Bool, route: String?)?
     /// Cached projection for the wallpaper grid in the host-lists payload.
     var backdropRowsCache = BackdropCatalogPageRowsCache()
+    /// Settings > Menus' reads and writes (ContextMenusSettingsPage); one route, so its menus' JSON is built once per change.
+    private(set) lazy var contextMenusRoute = ContextMenusPageProvider { [weak services] in
+        guard let services, let settings = services.settings else { return nil }
+        return ContextMenusSettingsPage(registry: services.registry, settings: settings)
+    }
     var isWaiting: Bool { waiting != nil }
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
@@ -145,9 +150,9 @@ final class SettingsWindowService: InternalPageProvider {
 
     /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
     /// anchor opens its section.
-    /// The Development section (and its keys) exists only in DEV builds: elsewhere a request for
+    /// The Development section (and its keys) exists only in DEV and NIGHTLY builds: elsewhere a request for
     /// it opens Settings on the default page (the page hides the category the same way).
-    static func route(section: SettingsSection?, setting: String?, devBuild: Bool = DevTools.isDebugBuild) -> String? {
+    static func route(section: SettingsSection?, setting: String?, devBuild: Bool = DevTools.isEnabled) -> String? {
         if let setting, let descriptor = SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: setting)) {
             guard descriptor.section != .development || devBuild else { return nil }
             return "#/settings/\(descriptor.section.rawValue)?focus=\(descriptor.id)"

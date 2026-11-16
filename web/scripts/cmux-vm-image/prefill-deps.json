@@ -1,0 +1,6 @@
+{
+  "npm": {
+    "base": ["react", "react-dom", "vite", "typescript", "@types/react", "@types/node", "eslint", "prettier", "zod", "vitest"],
+    "measured": []
+  }
+}

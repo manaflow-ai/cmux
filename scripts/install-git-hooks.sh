@@ -45,6 +45,15 @@ case "$PYTHON3_BIN" in
         exit 1
         ;;
 esac
+# PATH's python3 is recorded when it imports yaml; else the first of the hooks' candidates that does; else PATH's
+# (scripts/git-hooks/hook_python.sh, the same picker pre-push runs each time).
+# shellcheck source=git-hooks/hook_python.sh
+source "$REPO_ROOT/scripts/git-hooks/hook_python.sh"
+if ! hook_python_pick 1 "$PYTHON3_BIN" "$REPO_ROOT" "$(cd "$GIT_COMMON_DIR" && pwd -P)"; then
+    echo "error: no Python 3.9+ here runs the hooks. Tried: $HOOK_PYTHON_TRIED." >&2
+    exit 1
+fi
+PYTHON3_BIN="$HOOK_PYTHON"
 # One install at a time per clone. post-merge runs this in every worktree that pulls a hook change, and every
 # worktree shares this hook folder and .git/config: two at once collide on `git config` (its lock file), and
 # two cleanups would remove one tree together. The installer runs as the child of a python3 that holds an
@@ -157,6 +166,10 @@ install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
 install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
 # pre-push always runs the web lint and the cmux-next checks gate; its namespace autofix part runs only when
 # the --namespace-fix helpers below are installed.
+# Its per-host Python picker first, so a push that starts mid-install never finds the new hook without it.
+install -m 0644 scripts/git-hooks/hook_python.sh "$TRUSTED_HOOK_DIR/hook_python.sh"
+# The merge drivers run through the same picker (their git config names this, below).
+install -m 0755 scripts/git-hooks/merge_python.sh "$TRUSTED_HOOK_DIR/merge_python.sh"
 install -m 0755 scripts/git-hooks/pre-push "$TRUSTED_HOOK_DIR/pre-push"
 install -m 0644 scripts/web_lint_prepush.py "$TRUSTED_HOOK_DIR/web_lint_prepush.py"
 install -m 0644 scripts/cmux-next/prepush-gate.py "$TRUSTED_HOOK_DIR/cmux_next_prepush_gate.py"
@@ -166,6 +179,8 @@ install -m 0644 scripts/git-hooks/refresh_checks.py "$TRUSTED_HOOK_DIR/refresh_c
 install -m 0644 scripts/cmux-next/git_batch.py "$TRUSTED_HOOK_DIR/git_batch.py"
 # ...and its lint-tool download fallback (shared with scripts/ci/base_red_excuse.py, which runs from scripts/ci alone).
 install -m 0644 scripts/ci/github_release_download.py "$TRUSTED_HOOK_DIR/github_release_download.py"
+# ...and the HTTP transport that fallback imports from beside itself.
+install -m 0644 scripts/ci/deadline_http.py "$TRUSTED_HOOK_DIR/deadline_http.py"
 install -m 0644 scripts/ci/base_merge_warning.py "$TRUSTED_HOOK_DIR/base_merge_warning.py"
 # The hooks are per clone: every worktree of it (main-based ones too) runs these copies. A push in another
 # worktree can run while this installs, so each install writes a new versioned copy and points the
@@ -182,43 +197,15 @@ mkdir -p "$TRUSTED_CHECKS_STAGE"
 : > "$TRUSTED_CHECKS_STAGE/.in-use"
 # One python3 copies every checker: a mkdir and a cp per file forked about 2,600 times for 1,300 files, and on
 # a loaded Mac (load 100+, 2026-11-03) that took more than 300 s, so the land queue's install timed out on every
-# train and nothing landed for days. lint/ holds the linters' configs; arch_rules/ holds the rule modules
-# arch-ratchet.py loads from its own directory (without it the installed ratchet runs no layer gate). Folders are
-# made only below the stage (relative to its open folder): a stage that is gone fails this install instead of
-# coming back without its .in-use. A tracked file missing from the checkout fails it too, as cp did.
-COPY_CHECKERS='
-import os
-import shutil
-import sys
-
-stage, prefix = sys.argv[1], "scripts/cmux-next/"
-stage_fd = os.open(stage, os.O_RDONLY | os.O_DIRECTORY)
-for raw in sys.stdin.buffer.read().split(b"\0"):
-    if not raw:
-        continue
-    checker = os.fsdecode(raw)
-    relative = checker[len(prefix):]
-    if "/" in relative and not relative.startswith(("lint/", "arch_rules/")):
-        continue
-    parts = relative.split("/")[:-1]
-    for depth in range(1, len(parts) + 1):
-        try:
-            os.mkdir("/".join(parts[:depth]), dir_fd=stage_fd)
-        except FileExistsError:
-            pass
-    shutil.copy2(checker, os.path.join(stage, relative))
-'
-git ls-files -z scripts/cmux-next | "$PYTHON3_BIN" -I -c "$COPY_CHECKERS" "$TRUSTED_CHECKS_STAGE"
-# check-package-dependency-lists.py imports the Swift source masker from scripts/; the installed copy reads it here.
-if [[ -f scripts/swift_source_mask.py ]]; then
-    cp -p scripts/swift_source_mask.py "$TRUSTED_CHECKS_STAGE/swift_source_mask.py"
-fi
-# The commit and tree the copy is made from, for refresh_checks.py; "worktree" when scripts/cmux-next differs from HEAD.
-if git diff --quiet HEAD -- scripts/cmux-next && git rev-parse -q --verify HEAD >/dev/null; then
-    printf '%s %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD:scripts/cmux-next)" > "$TRUSTED_CHECKS_STAGE/.source"
-else
-    echo worktree > "$TRUSTED_CHECKS_STAGE/.source"
-fi
+# train and nothing landed for days. What it copies is scripts/git-hooks/checks-copy-inputs, turned into
+# (source, destination) pairs by refresh_checks.py (copy_pairs), the same function a pre-push refresh copies with.
+# It copies exactly those pairs, writes them into the copy (.pairs) and stamps the copy (.source) from them, so no
+# file is copied that the freshness stamp does not cover. lint/ holds the linters' configs; arch_rules/ holds the
+# rule modules arch-ratchet.py loads from its own directory (without it the installed ratchet runs no layer gate).
+# Folders are made only below the stage: a stage that is gone fails this install instead of coming back without
+# its .in-use. A tracked file missing from the checkout fails it too, as cp did.
+"$PYTHON3_BIN" -I scripts/git-hooks/refresh_checks.py --repo "$REPO_ROOT" --install-copy "$TRUSTED_CHECKS_STAGE" \
+    </dev/null >/dev/null
 mv "$TRUSTED_CHECKS_STAGE" "$TRUSTED_HOOK_DIR/$CHECKS_VERSION"
 PREVIOUS_CHECKS=""
 if [[ -L "$TRUSTED_CHECKS_DIR" ]]; then
@@ -240,6 +227,8 @@ install -m 0644 scripts/ci/validate_test_execution_registry.py "$TRUSTED_HOOK_DI
 install -m 0644 scripts/ci/test_execution_registry.py "$TRUSTED_HOOK_DIR/test_execution_registry.py"
 install -m 0644 scripts/ci/workload_entrypoints.py "$TRUSTED_HOOK_DIR/workload_entrypoints.py"
 install -m 0644 scripts/normalize-pbxproj.py "$TRUSTED_HOOK_DIR/normalize-pbxproj.py"
+# The one reader of the bun version webviews/package.json pins (pre-commit's vp bootstrap).
+install -m 0644 scripts/webviews_bun_version.py "$TRUSTED_HOOK_DIR/webviews_bun_version.py"
 printf '%s\n' "$PYTHON3_BIN" > "$TRUSTED_HOOK_DIR/python3-path"
 chmod 0644 "$TRUSTED_HOOK_DIR/python3-path"
 
@@ -321,16 +310,16 @@ install -m 0755 scripts/merge-daemon-capabilities.py "$MERGE_DRIVER_DIR/merge-da
 install -m 0755 scripts/merge-insertions.py "$MERGE_DRIVER_DIR/merge-insertions.py"
 install -m 0644 scripts/ci/merge_main_resolver.py "$MERGE_DRIVER_DIR/ci/merge_main_resolver.py"
 install -m 0755 scripts/normalize-pbxproj.py "$MERGE_DRIVER_DIR/normalize-pbxproj.py"
-printf -v XCSTRINGS_DRIVER '%q -I %q %%O %%A %%B %%P %%L' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-xcstrings.py"
-printf -v PBXPROJ_DRIVER '%q -I %q %%O %%A %%B %%P' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-pbxproj.py"
-printf -v BASELINE_DRIVER '%q -I %q %%O %%A %%B %%P' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-baseline.py"
-printf -v CAPABILITIES_DRIVER '%q -I %q %%O %%A %%B %%P' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
-printf -v INSERTIONS_DRIVER '%q -I %q %%O %%A %%B %%P %%L' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-insertions.py"
+printf -v XCSTRINGS_DRIVER '/bin/bash %q %q %%O %%A %%B %%P %%L' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-xcstrings.py"
+printf -v PBXPROJ_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-pbxproj.py"
+printf -v BASELINE_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-baseline.py"
+printf -v CAPABILITIES_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
+printf -v INSERTIONS_DRIVER '/bin/bash %q %q %%O %%A %%B %%P %%L' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-insertions.py"
 git config merge.xcstrings-v2.name "Xcode string catalog (trusted key-wise three-way merge)"
 git config merge.xcstrings-v2.driver "$XCSTRINGS_DRIVER"
 # Neutralize the checkout-relative command installed by older setup versions.

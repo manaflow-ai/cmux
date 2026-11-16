@@ -153,4 +153,14 @@ import Testing
         // Nothing kept for another account's key.
         #expect(transcripts.cached("mac:mac-1") == nil)
     }
+
+    @Test func nothingKeptGivesNoSessionUnlessAnEmptyOneIsAsked() {
+        // New Message keeps its blank page (nil); a failed open asks for an empty session instead.
+        let feed = MacHomeFeed(rowsCache: nil, transcripts: nil, accountID: { nil })
+        let route = MacConversationRoute(conversationID: "c-none", chief: nil, title: "Nothing kept")
+        #expect(feed.keptSession(for: route) == nil)
+        let empty = feed.keptSession(for: route, orEmpty: true)
+        #expect(empty != nil)
+        #expect(empty?.lastMessage == nil)
+    }
 }

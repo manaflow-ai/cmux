@@ -110,10 +110,13 @@ export async function playScriptedTurn(
 ): Promise<void> {
   const ANSWER_ID = SCRIPTED_ANSWER_ID;
   const base = history(historyTurns);
+  // The turn happens now, after the chat was opened: a row from before the open never enters
+  // (openBreakpoint.ts). The script's times stay relative to its prompt at 100_000.
+  const now = Date.now() - 100_000;
   const prompt: AcpmuxRow = {
     id: SCRIPTED_PROMPT_ID,
     version: 1,
-    at: 100_000,
+    at: 100_000 + now,
     kind: "user",
     text: "Why does the relay fall over?",
   };
@@ -124,7 +127,22 @@ export async function playScriptedTurn(
   let ended = false;
   const put = (row: Omit<AcpmuxRow, "version">) => {
     version += 1;
-    turn.set(row.id, { ...row, version } as AcpmuxRow);
+    // A call's own times are on the same clock as its row's (a call that ended after the steer was
+    // sent ends after it here too: turns.ts afterSends compares them).
+    const shift = (at: number | undefined) => (at === undefined ? undefined : at + now);
+    const items = row.items?.map((item) =>
+      item.tool && (item.tool.startedAt !== undefined || item.tool.endedAt !== undefined)
+        ? {
+            ...item,
+            tool: {
+              ...item.tool,
+              ...(item.tool.startedAt !== undefined && { startedAt: shift(item.tool.startedAt) }),
+              ...(item.tool.endedAt !== undefined && { endedAt: shift(item.tool.endedAt) }),
+            },
+          }
+        : item,
+    );
+    turn.set(row.id, { ...row, ...(items && { items }), at: row.at + now, version } as AcpmuxRow);
   };
   const emit = () => {
     if (scheduled) return;
@@ -415,7 +433,9 @@ async function playTransition(
     emit();
     await wait(250);
     step("tool-done");
-    put(activityRow("live-activity-1", 100_002, [toolItem(0, "Read relay.ts", "read", "completed")]));
+    // It ends after the steer was sent (direct.ts stamps a call's end with its event's time).
+    const done = toolItem(0, "Read relay.ts", "read", "completed");
+    put(activityRow("live-activity-1", 100_002, [{ ...done, tool: { ...done.tool, endedAt: 100_007 } }]));
     emit();
     await wait(150);
     // The agent reads the steer as its next text starts (direct.ts landSteer).

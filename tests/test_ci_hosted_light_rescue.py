@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """scripts/ci/hosted_light_rescue.py: a declared hosted light job that GitHub-hosted Ubuntu never assigns is failed
-over to its re-run route (attempt 2) after about 3 minutes, bounded to pull request runs at attempt 1."""
+over to its re-run route (attempt 2) after about 2 minutes, bounded to pull request runs at attempt 1."""
 
 from __future__ import annotations
 
@@ -117,7 +117,7 @@ class Scope(unittest.TestCase):
         self.assertEqual(rescue.with_callers(["b.yml", "a.yml"], None), ["a.yml", "b.yml"])
 
     def test_only_a_job_with_no_runner_on_hosted_ubuntu_past_the_bound_is_stalled(self):
-        self.assertTrue(rescue.stalled(job("PR size", waited=181), NOW))
+        self.assertTrue(rescue.stalled(job("PR size", waited=121), NOW))
         self.assertFalse(rescue.stalled(job("PR size", waited=60), NOW))
         self.assertFalse(rescue.stalled(job("PR size", runner_id=1000291949), NOW))
         self.assertFalse(rescue.stalled(job("PR size", status="in_progress"), NOW))

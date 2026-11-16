@@ -11,11 +11,11 @@ const MAX_WORKERS: usize = 16;
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
     client: u64,
-    line: &str,
+    line: &super::line_value::LineValue<'_>,
     writer: &MessageWriter,
 ) -> Option<bool> {
-    let cmd = crate::cloud_repos::frame_command(line)?;
-    let request: Value = serde_json::from_str(line).ok()?;
+    let cmd = crate::cloud_repos::frame_command_of(line.value()?)?;
+    let request = line.value()?.clone();
     let id = request.get("id").cloned().unwrap_or(Value::Null);
     let permitted = permitted(mux, client, &cmd, &request);
     if !permitted {
@@ -98,6 +98,7 @@ fn session_matches_surface(mux: &Mux, request: &Value) -> bool {
 mod tests {
     use super::*;
     use crate::server::agent_session_attach_tests::agent_tab;
+    use crate::server::line_value::LineValue;
     use crate::server::{BoundedOutbound, QueuedSink};
 
     fn client(mux: &Mux, transport: ClientTransport) -> (u64, MessageWriter, Arc<BoundedOutbound>) {
@@ -113,7 +114,10 @@ mod tests {
         let minted = mux.mint_acp_session_credential("own-chat", None).unwrap();
         let request = json!({"id":1,"cmd":"cloud.repo.add","session":"other-chat",
             "repo":"org/repo","credential":minted["credential"]});
-        assert_eq!(try_handle(&mux, client, &request.to_string(), &writer), Some(true));
+        assert_eq!(
+            try_handle(&mux, client, &LineValue::new(&request.to_string()), &writer),
+            Some(true)
+        );
         let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(reply["error_code"], "remote_denied");
         let own = json!({"session":"own-chat","credential":minted["credential"]});
@@ -203,7 +207,10 @@ mod tests {
                 let mut frame = request;
                 frame["cmd"] = json!(cmd);
                 frame["id"] = json!("bound-repo");
-                assert_eq!(try_handle(&mux, remote, &frame.to_string(), &writer), Some(true));
+                assert_eq!(
+                    try_handle(&mux, remote, &LineValue::new(&frame.to_string()), &writer),
+                    Some(true)
+                );
                 let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
                 assert_eq!(reply["id"], "bound-repo");
                 assert_eq!(reply["error_code"], "remote_denied");

@@ -25,10 +25,10 @@ extension AppServices {
     /// A page beside `work` (an agent's PR in a split) keeps the name `work` gives.
     /// Every read is this row's own (its workspace's incognito answer, its tab's page): no other row's change maps it (F6).
     func sidebarPageFace(_ workspace: WorkspaceModel, tab: TabModel, work: TabModel?) -> SidebarMapping.PageFace {
-        let favicon = sidebarPageFavicon(workspace, tab: tab)
         let names = WorkspaceAutoNameWiring(services: self, workspace: workspace).reader
         let audio = tab.kind != .browser ? nil : BrowserTabAudio.rowAudio(cache.existingBrowser(tab.id)?.tab.state)
-        return .init(title: names.label(workspace, front: tab, work: work), favicon: favicon, audio: audio)
+        return .init(title: names.label(workspace, front: tab, work: work), favicon: sidebarPageFavicon(workspace, tab: tab), audio: audio,
+                     icon: tab.kind != .browser ? nil : BrowserTabIconState.pageIcon(tab.url.flatMap { URL(string: $0) }))
     }
 
     /// The favicon `tab` shows in `workspace`'s sidebar row and band item; nil for a tab that is not a page, and while

@@ -61,8 +61,9 @@ import Testing
         let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
         sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
         sidebar.layoutSubtreeIfNeeded()
-        let image = try #require(sidebar.newButton.image)
-        let sidebarExtent = Self.inkWidth(image)
+        sidebar.newButton.layout()
+        let sidebarShape = try #require(sidebar.newButton.plusLook?.glyphLayer, "the sidebar's + is the standard + look")
+        let sidebarExtent = try #require(sidebarShape.path).boundingBoxOfPath.width + sidebarShape.lineWidth
 
         // Before: the tab row's + reached 10 pt plus its 1.4 pt stroke, the sidebar's about 8 pt.
         #expect(abs(tabExtent - sidebarExtent) <= 0.5, "tab row + \(tabExtent) pt, sidebar + \(sidebarExtent) pt")
@@ -74,28 +75,5 @@ import Testing
         let glyph = try #require(chooser.subviews.first as? TitlebarBandButton)
         #expect(glyph.symbolPointSize?() == Metrics.addMenuChevronPointSize)
         #expect(Metrics.addMenuChevronPointSize < Metrics.smallIconSize, "the chevron is still the 12 pt one beside a smaller +")
-    }
-
-    /// The width in points of what `image` draws (its non-clear columns at 4x).
-    private static func inkWidth(_ image: NSImage) -> CGFloat {
-        let scale: CGFloat = 4
-        let width = Int(image.size.width * scale), height = Int(image.size.height * scale)
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8,
-                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-                                         bytesPerRow: 0, bitsPerPixel: 0) else { return 0 }
-        rep.size = image.size
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        image.draw(in: NSRect(origin: .zero, size: image.size))
-        NSGraphicsContext.restoreGraphicsState()
-        var minX = width, maxX = -1
-        for x in 0..<width {
-            for y in 0..<height where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.3 {
-                minX = min(minX, x)
-                maxX = max(maxX, x)
-                break
-            }
-        }
-        return maxX < minX ? 0 : CGFloat(maxX - minX + 1) / scale
     }
 }

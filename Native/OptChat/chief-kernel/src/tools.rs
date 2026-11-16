@@ -142,7 +142,7 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
     }
     if !subagent && allows("spawn") {
         list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "minLength": 1, "description": "Override automatic placement with here/local/mac (this Mac), cloud (also cloud:small|medium|large), or a paired machine name."}, "harness": {"type": "string", "minLength": 1, "description": SPAWN_HARNESS_DESCRIPTION}, "model": {"type": "string", "minLength": 1, "description": SPAWN_MODEL_DESCRIPTION}, "sidebar": {"type": "string", "enum": ["auto", "shown", "hidden"], "description": SPAWN_SIDEBAR_DESCRIPTION}}, "required": ["tasks"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "minLength": 1, "description": "Override automatic placement with here/local/mac (this Mac), cloud (also cloud:small|medium|large), or a paired machine name."}, "harness": {"type": "string", "minLength": 1, "description": SPAWN_HARNESS_DESCRIPTION}, "model": {"type": "string", "minLength": 1, "description": SPAWN_MODEL_DESCRIPTION}, "sidebar": {"type": "string", "enum": ["auto", "user", "chief"], "description": SPAWN_SIDEBAR_DESCRIPTION}}, "required": ["tasks"], "additionalProperties": false}}));
     }
     if !subagent && allows("tell") {
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
@@ -216,14 +216,7 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
             "text": {"type": "string", "description": "The message, in Markdown."},
             "attachments": {"type": "array", "items": text, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file) or http(s) URLs (a link card)."},
             "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."},
-            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."},
-            "widget": {"type": "object", "description": "A card drawn natively in the chat by an installed cmux app's cmux.chat.widget/1 export (a PR status card: app cmux/pr-card, props {repo, number}). Clients without the app show fallback.",
-              "properties": {
-                "app": {"type": "string", "description": "The app id, publisher/name."},
-                "props": {"type": "object", "description": "The widget's input data (at most 16 KiB)."},
-                "fallback": {"type": "string", "description": "Plain text shown where the widget cannot draw (iPhone, notifications)."},
-                "url": {"type": "string", "description": "An https link older builds show."}},
-              "required": ["app", "fallback"], "additionalProperties": false}},
+            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."}},
           "additionalProperties": false}}));
         list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {

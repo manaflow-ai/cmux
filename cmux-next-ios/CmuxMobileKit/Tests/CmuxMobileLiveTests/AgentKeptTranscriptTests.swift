@@ -9,7 +9,7 @@ import Testing
 /// each chat's newest records on disk, bounded, and draws them at once; with none kept it shows a
 /// loading state; the attach then reads only what came after the kept records.
 @MainActor
-@Suite struct AgentKeptTranscriptTests {
+@Suite(.timeLimit(.minutes(2))) struct AgentKeptTranscriptTests {
     typealias Long = LongChatOpenLiveTests
 
     static let summary = AgentSessionSummary(id: "s7", name: "Fix", harness: "codex", agentName: "Codex", cwd: "/tmp/w",

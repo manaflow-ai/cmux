@@ -15,6 +15,7 @@ doctest = false
 [dependencies]
 bytes.workspace = true
 cmux-cloud-environment.workspace = true
+cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
 futures = "0.3"
 getrandom.workspace = true

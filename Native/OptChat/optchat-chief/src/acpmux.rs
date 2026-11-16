@@ -994,6 +994,44 @@ pub(crate) fn whole_list<E: std::fmt::Display>(
     Ok(reply)
 }
 
+/// Rows a page of a chat's process list asks for: acpmux's most (`process_page_params`).
+const PROCESS_PAGE: u64 = 1_000;
+
+/// The ids of every running process of `session`, read page by page (`limit` and the
+/// `nextCursor` of the rest), each request asked by `ask`. Not one unpaged
+/// `_acpmux/process/list`: that holds only the newest processes that fit one reply
+/// (`omitted` the rest), so stopping a chat from it left its older running processes running.
+/// An acpmux from before pages answers the whole list with no cursor. A cursor that comes
+/// again is refused, never read in a loop.
+pub(crate) fn running_processes<E: std::fmt::Display>(
+    ask: impl Fn(&str, Value) -> Result<Value, E>,
+    session: &str,
+) -> Result<Vec<String>, String> {
+    let mut params = json!({"sessionId": session, "limit": PROCESS_PAGE});
+    let (mut running, mut read) = (Vec::new(), HashSet::new());
+    loop {
+        let page = ask("_acpmux/process/list", params.clone())
+            .map_err(|e| format!("process list: {e}"))?;
+        running.extend(
+            page.get("processes")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|p| p.get("state").and_then(Value::as_str) == Some("running"))
+                .filter_map(|p| p.get("id").and_then(Value::as_str).map(str::to_owned)),
+        );
+        let Some(cursor) = page.get("nextCursor").and_then(Value::as_str) else {
+            return Ok(running);
+        };
+        if !read.insert(cursor.to_owned()) {
+            return Err(format!(
+                "process list: cursor {cursor:?} came again; it would never end"
+            ));
+        }
+        params["cursor"] = json!(cursor);
+    }
+}
+
 /// A list answer's rows (`_acpmux/sessions`, `_acpmux/watch`), those that do
 /// not parse skipped; None when it has no `sessions` (an acpmux whose watch
 /// answers without the list).
@@ -1188,7 +1226,19 @@ pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
     if waits_on_harness(spec) {
         meta["waitStart"] = json!(true);
     }
+    if is_compactor(spec) {
+        meta["throwaway"] = json!(true);
+    }
     meta
+}
+
+/// A compactor node's session: purged at `end_node` minutes after its one prompt, so acpmux keeps
+/// no long prompt body in its log (`_meta.acpmux.throwaway`, acpmux `hub/ephemeral.rs`). Each node's
+/// prompt is about 3.1 MB, about 1,000 nodes an hour, and the log wrote each one and its journal
+/// copy, then deleted it (cmuxterm-hq#9636: 549 GB in 23.6 h on Leo's laptop). An acpmux from
+/// before the key ignores it (an unknown `_meta.acpmux` key is not refused on `session/new`).
+fn is_compactor(spec: &SessionSpec) -> bool {
+    spec.tags.get(CHIEF_ROLE_TAG).map(String::as_str) == Some(COMPACTOR_ROLE)
 }
 
 /// The Chief's own sessions on this machine (its turns, which answer a person's message, and the
@@ -1411,17 +1461,7 @@ impl AgentPort for Acpmux {
 
     fn kill_processes(&self, session: &str) -> Result<usize, String> {
         let client = self.client()?;
-        let list = client
-            .request("_acpmux/process/list", json!({"sessionId": session}))
-            .map_err(|e| format!("process list: {e}"))?;
-        let running: Vec<String> = list
-            .get("processes")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|p| p.get("state").and_then(Value::as_str) == Some("running"))
-            .filter_map(|p| p.get("id").and_then(Value::as_str).map(str::to_owned))
-            .collect();
+        let running = running_processes(|m, p| client.request(m, p), session)?;
         // One process that will not die does not keep the rest running.
         let mut ended = 0;
         let mut errors = Vec::new();
@@ -1753,6 +1793,62 @@ mod whole_list_tests {
 }
 
 #[cfg(test)]
+mod running_processes_tests {
+    use std::cell::RefCell;
+
+    use serde_json::{Value, json};
+
+    use super::running_processes;
+
+    /// A chat with more processes than one page (2,500, every other one running): every
+    /// running one is found, the oldest too, by following each page's cursor. One unpaged
+    /// list held only the newest that fit, so stopping the chat left the older ones running.
+    #[test]
+    fn every_running_process_past_one_page_is_found() {
+        const PROCESSES: usize = 2_500;
+        let id = |i: usize| format!("chat/task-{i:05}");
+        let asked = RefCell::new(0);
+        let running = running_processes(
+            |m: &str, p: Value| {
+                assert_eq!(m, "_acpmux/process/list");
+                *asked.borrow_mut() += 1;
+                let limit = p["limit"].as_u64().expect("a page asks a limit") as usize;
+                let start = p["cursor"]
+                    .as_str()
+                    .map_or(0, |c| c["chat/task-".len()..].parse::<usize>().unwrap() + 1);
+                let end = (start + limit).min(PROCESSES);
+                let rows: Vec<Value> = (start..end)
+                    .map(|i| json!({"id": id(i), "state": if i.is_multiple_of(2) { "running" } else { "ended" }}))
+                    .collect();
+                let next = (end < PROCESSES).then(|| id(end - 1));
+                Ok::<_, String>(json!({"processes": rows, "nextCursor": next}))
+            },
+            "chat",
+        )
+        .unwrap();
+        assert_eq!(running.len(), PROCESSES / 2);
+        assert_eq!(
+            running.first(),
+            Some(&id(0)),
+            "the oldest running process too"
+        );
+        assert!(*asked.borrow() > 1, "more than one page was read");
+    }
+
+    /// A cursor that comes again is an error, never a loop.
+    #[test]
+    fn a_repeated_cursor_is_refused() {
+        let reply = running_processes(
+            |_: &str, _: Value| {
+                Ok::<_, String>(json!({"processes": [], "nextCursor": "chat/task-1"}))
+            },
+            "chat",
+        );
+        assert!(reply.is_err(), "{reply:?}");
+    }
+}
+
+#[cfg(test)]
 mod wait_start_tests {
     use super::{SessionSpec, chief_tags, session_meta};
 
@@ -1766,6 +1862,26 @@ mod wait_start_tests {
         assert!(
             session_meta(&SessionSpec::default(), None)
                 .get("waitStart")
+                .is_none()
+        );
+    }
+
+    /// cmuxterm-hq#9636: a compactor node's session asks acpmux to keep no long prompt body; a
+    /// Chief turn (a person's chat) and any other session keep theirs.
+    #[test]
+    fn only_a_compactor_session_is_throwaway() {
+        let spec = |role: &str| SessionSpec {
+            tags: chief_tags("home", role),
+            ..SessionSpec::default()
+        };
+        assert_eq!(
+            session_meta(&spec(super::COMPACTOR_ROLE), None)["throwaway"],
+            true
+        );
+        assert!(session_meta(&spec("turn"), None).get("throwaway").is_none());
+        assert!(
+            session_meta(&SessionSpec::default(), None)
+                .get("throwaway")
                 .is_none()
         );
     }

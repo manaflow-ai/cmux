@@ -35,6 +35,15 @@ test("an update ends the turn only when it takes the line away", () => {
   );
 });
 
+test("switching the running status line does not end its turn", () => {
+  const running = [row("u", "user"), row("working-u", "working"), row(LIVE_THINKING, "thinking")];
+  const status = [row("u", "user"), row("activityLine-u", "activityLine")];
+  expect(hasLiveLine(status)).toBe(true);
+  expect(endsTurn(running, status)).toBe(false);
+  expect(endsTurn(status, running)).toBe(false);
+  expect(endsTurn(status, [row("u", "user"), row("worked-u", "worked"), row("answer")])).toBe(true);
+});
+
 test("a user line another agent or the inbox drew is not the turn's prompt", () => {
   // An incoming message's line (model.ts `isLineRow`) after the prompt regroups under a new id as the
   // turn ends: the prompt above it stays, so the turn ended.
@@ -79,10 +88,95 @@ test("a capture from another chat plays nothing and draws nothing of it", async 
   dom.window.close();
 });
 
-test("a long fold keeps every 120 Hz frame under the bound, at the duration cap too", async () => {
-  // Review of #40350 (F1): at the 720 ms cap a 274 px fold on the settle's curve moved 19.34 px in
-  // its first 120 Hz frame, past the two thirds of a line turn-transition-jumps.test.ts holds every
-  // transition's frames to.
+test("folded work stays between the header and final answer while they move", async () => {
+  const { JSDOM } = await import("jsdom");
+  const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await import("./turnEndFold");
+  const dom = new JSDOM("<!doctype html><main></main>", { pretendToBeVisual: true });
+  const thread = dom.window.document.querySelector<HTMLElement>("main")!;
+  const proto = dom.window.HTMLElement.prototype;
+  Object.defineProperty(proto, "offsetTop", {
+    get() {
+      return Number.parseFloat(this.style.top) || 0;
+    },
+  });
+  Object.defineProperty(proto, "offsetHeight", {
+    get() {
+      return Number.parseFloat(this.style.height) || 0;
+    },
+  });
+  proto.getBoundingClientRect = function () {
+    return {
+      top: this.offsetTop,
+      bottom: this.offsetTop + this.offsetHeight,
+      height: this.offsetHeight,
+      left: 0,
+      right: 100,
+      width: 100,
+      x: 0,
+      y: this.offsetTop,
+      toJSON() {},
+    };
+  };
+  const frames = new Map<HTMLElement, Keyframe[]>();
+  proto.animate = function (keyframes) {
+    // A copy also plays its cover clip after its motion (turnEndFold.ts `clipped`): keep the motion.
+    const next = keyframes as Keyframe[];
+    if (!frames.has(this) || next.some((frame) => frame.translate !== undefined)) frames.set(this, next);
+    return { cancel() {}, finish() {} } as Animation;
+  };
+  const draw = (id: string, kind: string, top: number, height: number) => {
+    const node = dom.window.document.createElement("article");
+    node.className = `acpmux-row acpmux-${kind}`;
+    node.dataset.rowId = id;
+    node.style.top = `${top}px`;
+    node.style.height = `${height}px`;
+    thread.append(node);
+    return node;
+  };
+  draw("working-u", "working", 0, 34);
+  draw("work", "activity", 34, 60);
+  draw("answer", "assistant", 94, 50);
+  draw(LIVE_THINKING, "thinking", 144, 22);
+  const capture = captureTurnEnd(thread, thread, [row("worked-u", "worked"), row("answer")], "chat")!;
+  expect(capture.rows.find((entry) => entry.id === "worked-u")?.copy).toBeUndefined();
+  expect(capture.rows.some((entry) => entry.id === "worked-u")).toBe(true);
+  const copy = capture.rows.find((entry) => entry.id === "work")!.copy!;
+  thread.replaceChildren();
+  draw("worked-u", "worked", 100, 34);
+  draw("answer", "assistant", 134, 50);
+  const fold = playTurnEnd(thread, capture, "chat")!;
+  try {
+    const motion = frames.get(copy)!;
+    expect(motion).toBeDefined();
+    expect(motion[0]!.clipPath).toBe("inset(0px -4096px 0px -4096px)");
+    expect(motion.at(-1)!.clipPath).toBe("inset(0px -4096px 60px -4096px)");
+    expect(motion.at(-1)!.translate).toBe("0 100px");
+    const header = frames.get(thread.querySelector('[data-row-id="worked-u"]') as HTMLElement)!;
+    const answer = frames.get(thread.querySelector('[data-row-id="answer"]') as HTMLElement)!;
+    const interpolate = (from: number, to: number, progress: number) => from + (to - from) * progress;
+    const translated = (motion: Keyframe[], progress: number) =>
+      interpolate(
+        Number.parseFloat(String(motion[0]!.translate).split(" ")[1]!),
+        Number.parseFloat(String(motion.at(-1)!.translate).split(" ")[1]!),
+        progress,
+      );
+    const clipped = (frame: Keyframe) => Number.parseFloat(String(frame.clipPath).split(" ")[2]!);
+    for (const progress of [0, 0.25, 0.5, 0.75, 1]) {
+      const top = copy.offsetTop + translated(motion, progress);
+      const bottom = top + copy.offsetHeight - interpolate(clipped(motion[0]!), clipped(motion.at(-1)!), progress);
+      expect(top).toBeGreaterThanOrEqual(100 + translated(header, progress) + 34);
+      expect(bottom).toBeLessThanOrEqual(134 + translated(answer, progress));
+    }
+  } finally {
+    settleTurnEnd(thread, fold);
+    dom.window.close();
+  }
+});
+
+test("a long fold resolves on the settle, its frames under the bound up to what the straight line fits", async () => {
+  // Leo, 2026-11-11, on the long fold that ran up to 1.2 s: "It looks like the f***ing Star Wars
+  // scroll-up animation ... it should not be slow." Every fold now ends with the settle; review of
+  // #40350 (F1) still holds where the straight line can: no 120 Hz frame past the bound.
   const { turnEndFoldTiming } = await import("./turnEndFold");
   const { bezierAt, parseBezier } = await import("../../../ui/cubicBezier");
   const { currentChatMetrics } = await import("../chatDisplay");
@@ -90,17 +184,17 @@ test("a long fold keeps every 120 Hz frame under the bound, at the duration cap 
   const { MOTION_SETTLE, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
   const line = currentChatMetrics().lineHeight;
   const frame = 1000 / 120;
-  for (const px of [100, 274, 500, 800]) {
+  for (const px of [100, 274, 290, 800, 2000]) {
     const { ms, easing } = turnEndFoldTiming(px, MOTION_SETTLE_MS, MOTION_SETTLE);
     const curve = parseBezier(easing);
     expect(curve).toBeDefined();
-    // The fold resolves fast: never past four settles for these moves.
-    expect(ms).toBeLessThanOrEqual(4 * MOTION_SETTLE_MS + frame);
+    // Never longer than the settle, however far it moves.
+    expect(ms).toBe(MOTION_SETTLE_MS);
     const drawn = (t: number) => px * bezierAt(curve!, Math.min(1, t / ms));
-    expect(drawn(frame)).toBeLessThanOrEqual(ARRIVAL_FRAME_LINES * line + 1e-6);
+    expect(drawn(ms)).toBeCloseTo(px, 6);
+    if (px > 290) continue;
     for (let t = frame; t < ms + frame; t += frame)
       expect(drawn(t) - drawn(t - frame)).toBeLessThanOrEqual(ARRIVAL_FRAME_LINES * line + 1e-6);
-    expect(drawn(ms)).toBeCloseTo(px, 6);
   }
   // A short fold keeps the settle as it is.
   expect(turnEndFoldTiming(40, MOTION_SETTLE_MS, MOTION_SETTLE)).toEqual({
@@ -109,16 +203,14 @@ test("a long fold keeps every 120 Hz frame under the bound, at the duration cap 
   });
 });
 
-test("the fold's curve search keeps the timings it found before", async () => {
-  // Review of #40627 (F1): the search ran about 33k curve reads for 274 px. Made constant cost, it
-  // still picks the same length and curve.
+test("the fold's curve search picks the least lean that fits, and the straight line past it", async () => {
   const { turnEndFoldTiming } = await import("./turnEndFold");
   const { MOTION_SETTLE, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
   const timing = (px: number) => turnEndFoldTiming(px, MOTION_SETTLE_MS, MOTION_SETTLE);
-  expect(timing(100)).toEqual({ ms: 372, easing: MOTION_SETTLE });
-  expect(timing(274)).toEqual({ ms: 720, easing: "cubic-bezier(0.198, 0.854, 0.38, 0.927)" });
-  expect(timing(800)).toEqual({ ms: 720, easing: "cubic-bezier(0.306, 0.437, 0.609, 0.719)" });
-  expect(timing(2000)).toEqual({ ms: 1222, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
+  expect(timing(100)).toEqual({ ms: 180, easing: "cubic-bezier(0.236, 0.708, 0.46, 0.854)" });
+  expect(timing(274)).toEqual({ ms: 180, easing: "cubic-bezier(0.328, 0.354, 0.655, 0.677)" });
+  expect(timing(800)).toEqual({ ms: 180, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
+  expect(timing(2000)).toEqual({ ms: 180, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
 });
 
 test("the fold's curve search for a 2000 px move stays under half a millisecond", async () => {
@@ -138,4 +230,38 @@ test("the fold's curve search for a 2000 px move stays under half a millisecond"
   for (let index = 0; index < 5; index += 1) run(2000);
   const runs = Array.from({ length: 21 }, () => run(2000)).sort((a, b) => a - b);
   expect(runs[10]!).toBeLessThan(0.5);
+});
+
+test("a copy of a row that went draws only outside the rows that come over it", async () => {
+  // agent-pane-stream-row-overlap: the copy of a folded call ("Checked git status") fading where it
+  // was while the reply slid up over it drew its text under the reply's in the fold's first frames.
+  const { coverClip } = await import("./turnFold");
+  const row = (from: number, to: number, height: number) => ({ from, to, height, padTop: 0, padBottom: 8 });
+  // The copy at 100..132 (text to 124); the reply starts under it at 140 and slides up to 60.
+  const copy = { from: 100, to: 100, height: 32, padTop: 0, padBottom: 8 };
+  const reply = row(140, 60, 120);
+  const clip = coverClip(copy, [reply], 0)!;
+  // First frame: nothing of the reply is over the copy (it starts 8 px under its box). Last frame:
+  // the reply's top is at 60, so all of the copy's 32 px is hidden from the bottom up.
+  expect(clip[0].clipPath).toBe("inset(0px -4096px 0px -4096px)");
+  expect(clip[1].clipPath).toBe("inset(0px -4096px 72px -4096px)");
+  // At every frame between (both move linearly on one clock, and so does the clip) the copy's drawn
+  // text stays over the reply's top.
+  for (let step = 0; step <= 10; step += 1) {
+    const p = step / 10;
+    const replyTop = reply.from + (reply.to - reply.from) * p;
+    const shownBottom = Math.min(copy.from + copy.height - copy.padBottom, copy.from + copy.height - 72 * p);
+    if (shownBottom > copy.from) expect(shownBottom).toBeLessThanOrEqual(replyTop + 1e-9);
+  }
+  // A row that stays clear of the copy hides nothing of it.
+  expect(coverClip(copy, [row(0, 0, 40), row(200, 180, 40)], 0)).toBeUndefined();
+  // A row sliding up under the copy clips its bottom; the copy's own clip is kept.
+  const under = coverClip(copy, [row(140, 110, 40)], 4)!;
+  expect(under[0].clipPath).toBe("inset(0px -4096px 4px -4096px)");
+  expect(under[1].clipPath).toBe("inset(0px -4096px 22px -4096px)");
+  // A row over the copy that starts clipped at the copy's top (the reply over the live line when a
+  // lagging turn ends) draws nothing over it at first, and the fold moves the copy down to that row's
+  // bottom at rest (turnEndFold.ts `covers`): the copy keeps every line on every frame.
+  const above = { from: 20, to: 0, height: 120, padTop: 0, padBottom: 8, clip: 40 };
+  expect(coverClip({ ...copy, to: 120 }, [above], 0)).toBeUndefined();
 });

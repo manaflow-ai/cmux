@@ -23,12 +23,15 @@ The app is started by its executable from this job and ended by exact pid; it ne
 the user's cmux. The tag's daemons end through TagTeardown.
 """
 import json, os, plistlib, socket, stat, subprocess, sys, threading, time
+import tempfile
 
 APP = os.environ["NX_APP"]
 TAG = os.environ["NX_APP_TAG"]
 CREDS = os.path.expanduser("~/.secrets/cmuxterm-dev.env")
 WORKER = "https://cmux-api-development.debussy.workers.dev"
-OUT = os.environ.get("NX_ARTIFACTS") or f"/tmp/link-gui-{os.getpid()}"
+# One private dir (short, for the sockets): a guessable /tmp name could be planted by another account first.
+PRIV = tempfile.mkdtemp(prefix="lkg-", dir="/tmp")
+OUT = os.environ.get("NX_ARTIFACTS") or os.path.join(PRIV, "out")
 os.makedirs(OUT, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 STEPS = []
@@ -139,8 +142,8 @@ def remove_own_socket(path):
 config = os.path.join(OUT, "cmux.json")
 with open(config, "w") as f:
     f.write("{}\n")
-HOME_ACP = f"/tmp/lkg-acp-{os.getpid()}"
-ACP_SOCKET = f"/tmp/lkg-acp-{os.getpid()}.sock"
+HOME_ACP = os.path.join(PRIV, "acp-home")
+ACP_SOCKET = os.path.join(PRIV, "acp.sock")
 os.makedirs(HOME_ACP, mode=0o700, exist_ok=True)
 env = dict(os.environ)
 env.update({"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",

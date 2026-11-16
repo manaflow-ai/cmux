@@ -29,6 +29,8 @@ public nonisolated enum RemoteRdControl: Sendable, Equatable {
     case streamRefused(stream: UInt16, reason: String)
     /// Closes an opened stream; no answer.
     case streamClose(stream: UInt16)
+    /// Host to viewer with the `cursor` cap: one cursor shape.
+    case cursorShape(RemoteRdCursorShape)
     /// A message type this viewer does not know (a newer host); ignored.
     case unknown(String)
 }
@@ -68,6 +70,7 @@ nonisolated extension RemoteRdControl: Codable {
                 reason: try fields.decode(String.self, forKey: .reason)
             )
         case "stream_close": self = .streamClose(stream: try fields.decode(UInt16.self, forKey: .stream))
+        case "cursor_shape": self = .cursorShape(try RemoteRdCursorShape(from: decoder))
         default: self = .unknown(tag)
         }
     }
@@ -121,6 +124,9 @@ nonisolated extension RemoteRdControl: Codable {
         case let .streamClose(stream):
             try tag.encode("stream_close", forKey: .t)
             try fields.encode(stream, forKey: .stream)
+        case let .cursorShape(shape):
+            try tag.encode("cursor_shape", forKey: .t)
+            try shape.encode(to: encoder)
         case let .unknown(name):
             try tag.encode(name, forKey: .t)
         }

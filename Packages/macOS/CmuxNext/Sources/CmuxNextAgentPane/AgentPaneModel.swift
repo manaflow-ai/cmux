@@ -26,13 +26,24 @@ public final class AgentPaneModel {
     /// for a chat read cold, for a page that says nothing, and for the host's
     /// own give-up path, which keep the fade unless a child-window page is replacing a saved frame.
     public internal(set) var paintedFromKeptTail = false
+    /// That first frame was the chat's settled view (`pane.painted`'s `settled`, hq#9655 stage 1):
+    /// the chat as it stands, not a partial page on its way to it. The loading state ends on it in
+    /// one step, as for a kept tail. False for a page that says nothing and for the give-up path.
+    public internal(set) var paintedSettled = false
     /// The first reveal came from the page's after-render report, rather than the watchdog.
     @ObservationIgnored var pageReportedPaint = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
+    /// The waits for another process this open ran before its first paint, as the host sees them.
+    @ObservationIgnored public internal(set) var openWaits = AgentPaneOpenWaits()
     /// The page's acpmux client is connected and its page actions answer (`pane.clientReady`); false
     /// while it connects or after it lost its connection. A prewarmed New Tab page serves a tab
     /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
     @ObservationIgnored public internal(set) var clientReady = false
+    /// A push that waits for the page's client (``AgentPaneView/attachExternal(_:claimed:)``): the old
+    /// host runs a script at once, so a page still loading would miss it. Runs once, on `pane.clientReady`.
+    @ObservationIgnored var whenClientReady: (@MainActor () -> Void)?
+    /// The page's finish sound (`pane.finishSound`), with its own gap between sounds.
+    @ObservationIgnored let finishSound = AgentPaneFinishSound()
 
     /// The tab this pane shows (the store's id), asked each time: what a pane keeps per view, not per
     /// chat, is kept by it (its transcript's place, ``AgentPaneScrollAnchors``; its Session Info, the
@@ -74,7 +85,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
     /// The agent picked on the new tab screen, to remember (`newTab.remember`).
     @ObservationIgnored public var onRememberNewTab: ((AgentPaneRememberedPick) -> Void)?
-    /// The new tab page's style switch picked a template, or its edit mode changed a widget.
+    /// The new tab page's style switch picked a template.
     @ObservationIgnored public var onEditNewTab: ((AgentPaneNewTabEdit) -> Void)?
     /// The location bar picked an open tab or workspace (`tab.jump`).
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
@@ -198,6 +209,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public internal(set) var toastAvoidance: CGRect?
     /// Called when ``toastAvoidance`` changes: the view moves the window's toasts clear of it.
     @ObservationIgnored var onToastAvoidance: (() -> Void)?
+    /// Shows the page's feedback as a native toast (`pane.toast`); the view shows it in its window. Nil:
+    /// the page draws it itself.
+    @ObservationIgnored var onToast: ((CmuxToast) -> Void)?
     /// The page's floating glass the App draws under the page.
     @ObservationIgnored public let hostGlass = AgentPaneHostGlass()
     /// Declarative native controls published by the page for the shared tab row.
@@ -206,8 +220,6 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onTabRowToolMenuRequested: ((String, String?) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
-    /// `dictation.watchMicrophone {on}`: the view starts or stops watching the microphone for the page.
-    @ObservationIgnored var onWatchMicrophone: ((Bool) -> Void)?
     /// Takes back a long recording the pane's dictation gave the page, for chat `session`
     /// (``AgentPaneDictation/takeRecording(_:session:)``); nil for any other path.
     @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> AgentPaneIssuedRecording?)?
@@ -372,6 +384,16 @@ public final class AgentPaneModel {
     @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
+    /// Writes the page's `pane.copyText` text and says whether it took: the person's clipboard in the app
+    /// (``writeGeneralClipboard(_:)``), a recorder in a test, which must never replace the clipboard of whoever
+    /// runs it and runs where a session has no pasteboard server (the fleet's: every write failed there).
+    @ObservationIgnored let writeClipboard: @MainActor (String) -> Bool
+
+    /// The app's clipboard write: replaces the general pasteboard's contents with `text`.
+    public static func writeGeneralClipboard(_ text: String) -> Bool {
+        NSPasteboard.general.clearContents()
+        return NSPasteboard.general.setString(text, forType: .string)
+    }
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
     @ObservationIgnored public var neverPooled = false
     /// What a new chat inherits from the tab it was opened from.
@@ -384,9 +406,11 @@ public final class AgentPaneModel {
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport()
+        transport: AgentPaneTransport = AgentPaneTransport(),
+        writeClipboard: @escaping @MainActor (String) -> Bool = AgentPaneModel.writeGeneralClipboard
     ) {
         self.allowsTabConversion = allowsTabConversion
+        self.writeClipboard = writeClipboard
         self.host = host
         self.attentionTabs = attentionTabs
         self.transport = transport
@@ -467,7 +491,9 @@ public final class AgentPaneModel {
         newTab = nil
         // The spare's start folder was no tab's; the chat's folder comes with its session.
         handshakeCwd = nil
-        (hasPainted, paintedFromKeptTail, pageReportedPaint) = (false, false, false)
+        (hasPainted, paintedFromKeptTail, paintedSettled, pageReportedPaint) = (false, false, false, false)
+        // The chat's open starts here: the page's own load and connection ran before any tab asked.
+        openWaits = AgentPaneOpenWaits()
         return true
     }
 
@@ -484,8 +510,8 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .hostGlass, .toastAvoidance, .projectIcon, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
-             .sandboxState, .subagentShown, .dictationSources, .watchMicrophone: break
+             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .completeFolder, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
+             .sandboxState, .subagentShown, .dictationSources: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
         case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
@@ -533,19 +559,25 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .clientReady(let ready):
             clientReady = ready
+            if ready { openWaits.ran(.connected) }
+            if ready, let waiting = whenClientReady {
+                whenClientReady = nil
+                waiting()
+            }
             return AgentPaneReply.success()
         case .framePacing(let intervals):
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
         case .renderRate(let full):
             onRenderRate?(full)
             return AgentPaneReply.success()
-        case .painted(let fromKeptTail):
+        case .painted(let fromKeptTail, let settled):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
             // The first report only, and before `markPainted`: the pane's loading state leaves on
             // that call, and what that frame drew is what decides whether the page fades in
             // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.
             if !hasPainted {
                 paintedFromKeptTail = fromKeptTail
+                paintedSettled = settled
                 pageReportedPaint = true
             }
             markPainted()
@@ -574,6 +606,7 @@ public final class AgentPaneModel {
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
         case .editNewTab(let edit): guard let onEditNewTab else { return Self.unsupported(edit.method) }; onEditNewTab(edit); return AgentPaneReply.success()
         case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
+        case .finishSound(let kind): finishSound.play(kind); return AgentPaneReply.success()
         case .readAloud(let command):
             guard let readAloud else { return Self.unsupported("readAloud") }
             if case .speak(let id, let text, let language) = command { readAloud.speak(text, id: id, language: language, owner: self) } else { readAloud.stop() }
@@ -595,6 +628,7 @@ public final class AgentPaneModel {
         case .attachDropped(let kind, let names): return await attachDropped(kind, names: names)
         // A chat on another machine gets the gesture's source only (`attachSource`).
         case .attachSource(let kind, let names, let gestureAt): return await attachSource(kind, names: names, gestureAt: gestureAt)
+        case .attachExternal: return await takeExternalAttachments()
         case .attachmentSourceIcon(let bundleId):
             return AgentPaneReply.success(sourceIcons.dataURL(bundleId).map { ["src": $0] } ?? [:])
         case .useFolder(let cwd, let confirm) where remoteChat:
@@ -640,6 +674,11 @@ public final class AgentPaneModel {
         case .projectIcon where remoteChat:
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()
+        case .completeFolder where remoteChat:
+            // A chat on another machine: its folders are there, and this Mac's disk is never listed.
+            return AgentPaneReply.success(["folders": [String]()])
+        case .completeFolder(let path):
+            return AgentPaneReply.success(["folders": await AgentPaneFolderCompletion().foldersInBackground(path) ?? []])
         case .projectIcon(let cwd):
             // Off the main actor, cached by file and modification date; neither keeps the page's letters.
             let answer = await AgentPaneProjectIcons.shared.answer(for: cwd)
@@ -810,7 +849,7 @@ public final class AgentPaneModel {
             } catch {
                 return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
             }
-        case .paneAction, .moveToMachine, .diffTurn, .diffPatch, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .hostGlass, .toastAvoidance, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .moveToMachine, .diffTurn, .diffPatch, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -830,10 +869,6 @@ public final class AgentPaneModel {
             // unrelated typing and spend it here. A key on the mic goes through Globe-D instead.
             guard transport.gestures.consumeAnswerClick() else { return Self.transportFailure(.gestureRequired) }
             return dictationHandoff.reply(composer)
-        case .watchMicrophone(let on):
-            guard let onWatchMicrophone else { return Self.unsupported("dictation.watchMicrophone") }
-            onWatchMicrophone(on)
-            return AgentPaneReply.success()
         case .dictationSources:
             let sources = dictationHandoff.sources()
             sourceIcons.noteDictationApps(sources.compactMap { $0["bundleId"] as? String })

@@ -41,6 +41,26 @@ pub fn discover_harnesses(route: Option<&str>) -> BTreeMap<String, HarnessProfil
     found
 }
 
+/// Whether PATH discovery adds a harness `head` names (a profile or a family) once its program is
+/// installed: `claude`, `codex`, `gemini`, `cmux`... A new session's start reads PATH again only
+/// for such a name (`hub/rediscover.rs`); any other name (a typo) keeps its refusal at once.
+pub fn discoverable(head: &str) -> bool {
+    static NAMES: std::sync::OnceLock<std::collections::BTreeSet<String>> =
+        std::sync::OnceLock::new();
+    NAMES
+        .get_or_init(|| {
+            // Every program found: what discovery adds on a host that has them all.
+            let every = |bin: &str| Some(format!("/{bin}"));
+            let mut found = discover_harnesses_from(None, &every);
+            add_coderouter_route(&mut found, Some("route"), &every);
+            add_cmux_router_with(&mut found, &every, None);
+            let families: Vec<String> =
+                found.iter().map(|(name, p)| super::derive_family(name, p)).collect();
+            families.into_iter().chain(found.into_keys()).collect()
+        })
+        .contains(head)
+}
+
 /// The Muse Code ACP adapter's program (cmux-muse-acp).
 pub const MUSE_ACP: &str = "muse-acp";
 
@@ -334,6 +354,10 @@ pub fn discover_harnesses_from(
         // `hermes acp`. Its provider and model come from ~/.hermes
         // (`hermes model`).
         ("hermes", "hermes"),
+        // Google Antigravity's CLI speaks ACP itself since 1.5: `agy acp`
+        // (antigravity.google/docs/ide/extensions/acp). Without `agy`, the
+        // ACP Registry's `agy_acp_server.par` still takes `antigravity`.
+        ("antigravity", "agy"),
     ] {
         // An ~/.acpx entry keeps its name, except the reserved Claude names:
         // `claude` and `claude-sr` are acpmux's own Claude Code adapter
@@ -356,7 +380,7 @@ pub fn discover_harnesses_from(
                 "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
                 "grok" => (HarnessKind::Acp, vec![path, "agent".into(), "stdio".into()]),
-                "cursor-agent" | "hermes" => (HarnessKind::Acp, vec![path, "acp".into()]),
+                "cursor-agent" | "hermes" | "agy" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
                 "opencode" | "opencode2" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "dsh" => (HarnessKind::Acp, vec![path, "--profile".into(), "acp".into()]),
@@ -723,5 +747,49 @@ mod hermes_tests {
         let acpx = r#"{"agents": {"hermes": {"argv": ["/Users/me/bin/my-hermes", "acp"]}}}"#;
         let found = discover_harnesses_from(Some(acpx), &on_path(&["hermes"]));
         assert_eq!(found["hermes"].argv, ["/Users/me/bin/my-hermes", "acp"]);
+    }
+}
+
+#[cfg(test)]
+mod antigravity_tests {
+    use super::*;
+
+    fn on_path(names: &'static [&'static str]) -> impl Fn(&str) -> Option<String> {
+        move |name| names.contains(&name).then(|| format!("/opt/bin/{name}"))
+    }
+
+    /// Google Antigravity's `agy` CLI speaks ACP itself since 1.5 (`agy
+    /// acp`). On PATH it is the `antigravity` harness, so a NEXT chat can
+    /// start it without the ACP Registry's separate server.
+    #[test]
+    fn agy_on_path_runs_agy_acp() {
+        let found = discover_harnesses_from(None, &on_path(&["agy"]));
+        let agy = found.get("antigravity").expect("agy on PATH is a harness");
+        assert_eq!(agy.kind, HarnessKind::Acp);
+        assert_eq!(agy.argv, ["/opt/bin/agy", "acp"]);
+        assert_eq!(crate::config::derive_family("antigravity", agy), "antigravity");
+    }
+
+    /// An `antigravity` the person imported from ~/.acpx stays theirs.
+    #[test]
+    fn antigravity_imported_from_acpx_stays_theirs() {
+        let acpx = r#"{"agents": {"antigravity": {"argv": ["/Users/me/bin/my-agy", "acp"]}}}"#;
+        let found = discover_harnesses_from(Some(acpx), &on_path(&["agy"]));
+        assert_eq!(found["antigravity"].argv, ["/Users/me/bin/my-agy", "acp"]);
+    }
+}
+
+#[cfg(test)]
+mod discoverable_tests {
+    use super::*;
+
+    #[test]
+    fn names_discovery_adds_are_discoverable_and_others_are_not() {
+        for name in ["claude", "codex", "gemini", "opencode", "cmux", "claude-sr", "claude-cr"] {
+            assert!(discoverable(name), "{name}");
+        }
+        for name in ["claud", "chief", "unii", "my-profile", ""] {
+            assert!(!discoverable(name), "{name}");
+        }
     }
 }

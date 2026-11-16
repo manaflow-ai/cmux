@@ -213,6 +213,19 @@ pub fn classify_path(kind: AdapterKind, root: &Path, path: &Path) -> PathRole {
     }
 }
 
+/// The folders of a `kind` root that hold its session files, when the root holds other busy
+/// files beside them: a watcher watches these folders whole and the root's own entries and
+/// store files ([`classify_path`]) one by one, so writes to the rest never reach it. `None`:
+/// the root is watched whole. Codex's home holds its logs and databases (`logs_2.sqlite` and
+/// its WAL, written several times a second by every running Codex), its history, shell
+/// snapshots and caches beside `sessions/` and `archived_sessions/`.
+pub fn session_folders(kind: AdapterKind) -> Option<&'static [&'static str]> {
+    match kind {
+        AdapterKind::Codex => Some(codex::SESSION_FOLDERS),
+        _ => None,
+    }
+}
+
 /// `Session` when `session` holds, else `Store` when `store` holds, else `Ignore`.
 pub(crate) fn role(session: bool, store: bool) -> PathRole {
     if session {

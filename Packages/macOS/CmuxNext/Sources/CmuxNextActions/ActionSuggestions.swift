@@ -29,6 +29,10 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let sidebarItems = "sidebarItems"
     /// Every density: the built-ins, then the user's custom ones (the App lists them).
     public static let densities = "densities"
+    /// The sidebar toggle's glyphs (`debug.sidebarToggleIcon`, the Debug Settings choice).
+    public static let debugSidebarToggleIcons = "debugSidebarToggleIcons"
+    /// The status indicators' icon sets (`debug.statusIconSet`, the Debug Settings choice).
+    public static let debugStatusIconSets = "debugStatusIconSets"
     /// The Home conversations a message can go to (Send Message To…, Send To…; Chiefs first).
     public static let homeRecipients = "homeRecipients"
     /// The people and Chiefs a new group can have (New Group Chat's `members`), by participant id:

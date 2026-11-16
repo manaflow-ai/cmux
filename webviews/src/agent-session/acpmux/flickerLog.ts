@@ -15,14 +15,28 @@
 //   followed a DOM change, their intervals' `p50`, `p95` and `max` in ms, `miss120` and `miss60`
 //   (intervals that missed a 120 Hz or a 60 Hz frame), `over50`, and `ms` the span covered (Leo,
 //   2026-11-07: "find, like, where we're dropping frames"). `cmux perf record` reads them.
+// - `remount`: a transcript row or a tool call's row unmounted and mounted again in one commit
+//   (`what`: row or tool, `kind`): it draws again from nothing, a flash where nothing changed.
+// - `reply-unpainted`: a turn ended with a reply the chat holds, and once the page settled the
+//   followed view did not paint it (conversation/replyPainted.ts): `why` and the row's height `h`.
+// - `focus-lost`: a text input lost the keyboard with no key or click in the last half second
+//   (focusLossWatch.ts): `cause`, `what`, `to`; the app also writes it to its focus log.
 //
 // Frames are timed only while the page changes: a DOM mutation arms a frame watch that stops a
 // second after the last one, never a loop that runs while the page is still.
 //
 // No text of the chat goes out: kinds, numbers and short words. Events are sent in batches at
-// most once a second, through the app's own WebKit handler only: the gallery's stand-in and tests send nothing.
+// most once a second, fire and forget: on the shared page host as the `cmux.agent.diag.flicker` op
+// (AgentPageProvider), else through the app's own WebKit handler. The gallery's stand-in for that
+// handler, and tests that hand it no sender, send nothing. Before the page host sent them (Leo's
+// NIGHTLY, 2026-11-11), the ring file held no page line at all, only the app's own.
+
+import { watchFocusLoss } from "./focusLossWatch";
+import { postNative } from "./native";
 
 export type FlickerEvent = { kind: string; at: number } & Record<string, string | number | boolean>;
+/// Hands one batch to the app; it may return the host's (ignored) answer.
+export type FlickerSend = (events: FlickerEvent[]) => unknown;
 type Send = (events: FlickerEvent[]) => void;
 
 export const LONG_FRAME_MS = 100;
@@ -36,6 +50,10 @@ export class FlickerLog {
   private held: FlickerEvent[] = [];
   private dropped = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  /// A flush waits for the end of the recording task (`soon`).
+  private queued = false;
+  /// When the last batch went out (`now`'s clock).
+  private sentAt = -Infinity;
   private mounts = 0;
 
   constructor(
@@ -44,6 +62,7 @@ export class FlickerLog {
     // Called through a closure: Chromium refuses `setTimeout` called as this object's method.
     private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = (run, ms) =>
       setTimeout(run, ms),
+    private readonly soon: (run: () => void) => void = (run) => queueMicrotask(run),
   ) {}
 
   record(kind: string, fields: Record<string, string | number | boolean> = {}): void {
@@ -51,8 +70,23 @@ export class FlickerLog {
       this.held.shift();
       this.dropped += 1;
     }
-    this.held.push({ ...fields, kind, at: this.now() });
-    this.timer ??= this.schedule(() => this.flush(), FLUSH_MS);
+    const at = this.now();
+    this.held.push({ ...fields, kind, at });
+    if (this.timer !== undefined || this.queued) return;
+    // A batch a second at most, sent at the end of the task that recorded it when the last one went out over a
+    // second ago: a page at rest arms no timer for the records a change left (a chat switch's mount and frames
+    // records woke the pane at rest a second later, bench/chat-switch.bench.ts idle_wakeups). Only a record
+    // within a second of the last batch waits, for the rest of that second.
+    const wait = this.sentAt + FLUSH_MS - at;
+    if (wait > 0) {
+      this.timer = this.schedule(() => this.flush(), wait);
+      return;
+    }
+    this.queued = true;
+    this.soon(() => {
+      this.queued = false;
+      this.flush();
+    });
   }
 
   /// The transcript's root mounted: the first is the page's own, any later one a remount.
@@ -69,6 +103,7 @@ export class FlickerLog {
     if (this.dropped) events[0] = { ...events[0]!, dropped: this.dropped };
     this.held = [];
     this.dropped = 0;
+    this.sentAt = this.now();
     this.send(events);
   }
 }
@@ -125,18 +160,24 @@ export class FrameWatch {
   private windowStart: number | undefined;
   private windowEnd = 0;
 
+  /// `stopWhenStill`: the engine reports long frames itself (`long-animation-frame`), so a frame that drew no
+  /// change has nothing to time: the watch stops at the first such frame, not WATCH_MS after the change. A page at
+  /// rest then asks for no frame at all; before, each change at rest (a minute label, a presence row) cost a second
+  /// of frames, 43 to 60 wakeups (bench chat_switch.*.idle_wakeups).
   constructor(
     private readonly report: (ms: number) => void,
     private readonly visible: () => boolean,
     private readonly frame: (run: (time: number) => void) => void,
     private readonly now: () => number,
     private readonly summary: (stats: FrameStats) => void = () => undefined,
+    private readonly stopWhenStill = false,
   ) {}
 
   arm(): void {
     this.until = this.now() + WATCH_MS;
     this.pending = true;
     if (this.running) return;
+    if (this.windowStart !== undefined && this.now() - this.windowStart >= WINDOW_MS) this.endWindow();
     this.running = true;
     // From the change itself: a frame that the change made long is the first one timed.
     this.last = this.visible() ? this.now() : undefined;
@@ -169,6 +210,12 @@ export class FrameWatch {
     this.drew = visible && this.pending;
     this.pending = false;
     this.last = visible ? time : undefined;
+    if (this.stopWhenStill && !this.drew && this.now() < this.until) {
+      // Still: no frame until the next change. The window stays open, so changes a few frames apart still make
+      // one summary a second; the next change closes a window that is a second old (`arm`).
+      this.running = false;
+      return;
+    }
     if (this.now() >= this.until) {
       this.running = false;
       this.endWindow();
@@ -197,6 +244,33 @@ export function noteTranscriptReplace(cause: string, blank: boolean, n: number):
   log?.record("transcript-replace", { cause, blank, n });
 }
 
+/// The ended turn's final reply is not painted where the reader follows (conversation/replyPainted.ts):
+/// `why` names what hides it, `h` the row's height; nothing before startFlickerLog.
+export function noteReplyUnpainted(why: string, h: number): void {
+  log?.record("reply-unpainted", { why, h });
+}
+
+/// Ids of drawn things (`row:<id>`, `tool:<call id>`) unmounted in the commit now running: one that
+/// mounts again in the same commit was remounted in place (its key, its type or a parent's changed),
+/// which draws it again from nothing and replays its entrance: the flicker Leo sees on a settled tool
+/// call (2026-11-14: "im also seeing more flickers/rerenders of tool calls recently").
+const unmountedNow = new Set<string>();
+
+/// A transcript row or a tool call's row unmounted; `noteMounted` in the same commit is a remount.
+export function noteUnmounted(id: string): void {
+  if (!log) return;
+  if (unmountedNow.size === 0) queueMicrotask(() => unmountedNow.clear());
+  unmountedNow.add(id);
+}
+
+/// A transcript row or a tool call's row mounted: in the commit that unmounted it, a `remount`
+/// (`what`: row or tool, `kind`: the row's or the call's kind). Nothing before startFlickerLog.
+export function noteMounted(id: string, what: "row" | "tool", kind: string | undefined): void {
+  if (!log || !unmountedNow.has(id)) return;
+  unmountedNow.delete(id);
+  log.record("remount", { what, kind: kind ?? "" });
+}
+
 /// Long frames from the engine's `long-animation-frame` entries; false when it has none or refuses
 /// the observer (the frame watch takes over).
 function observeLongFrames(
@@ -216,29 +290,54 @@ function observeLongFrames(
   }
 }
 
-/// Starts the detector once, in the app's own WebKit pane. A detector that cannot start never
-/// stops the pane from mounting.
-export function startFlickerLog(win: Window = window): void {
+/// The shared page host's sender: each batch is the `cmux.agent.diag.flicker` op, which the app
+/// writes to the ring file and answers at once (AgentPageProvider, before the pane's model).
+export function pageHostFlickerSend(post: typeof postNative = postNative): FlickerSend {
+  return (events) => post("diag.flicker", { events });
+}
+
+/// Starts the detector once: through `send` (the page host's, pageHostFlickerSend) when given, else
+/// through the app's own WebKit handler. A detector that cannot start never stops the pane from
+/// mounting.
+export function startFlickerLog(win: Window = window, send?: FlickerSend): void {
   try {
-    install(win);
+    install(win, send);
   } catch {
     // The pane matters more than its flicker record.
   }
 }
 
-function install(win: Window): void {
-  const handler = win.webkit?.messageHandlers?.agentSession;
-  // The gallery's stand-in for the app's handler (gallery/frame/agentPane.ts) gets no events.
-  if (log || !handler || (handler as { standIn?: boolean }).standIn) return;
-  const send: Send = (events) => {
+/// Tests: the page starts again with no detector.
+export function resetFlickerLogForTests(): void {
+  log?.flush();
+  log = undefined;
+}
+
+/// `send` that never throws and never waits: a batch the app refuses or loses is dropped.
+function quiet(send: FlickerSend): Send {
+  return (events) => {
     try {
-      void Promise.resolve(
-        handler.postMessage({ id: crypto.randomUUID(), method: "diag.flicker", params: { events } }),
-      ).catch(() => undefined);
+      void Promise.resolve(send(events)).catch(() => undefined);
     } catch {
-      // A page that lost its handler has nobody to tell.
+      // A page that lost its host has nobody to tell.
     }
   };
+}
+
+/// The old host's sender: the app's `agentSession` handler; none for the gallery's stand-in
+/// (gallery/frame/agentPane.ts) or a page without the handler.
+function webKitSend(win: Window): Send | undefined {
+  const handler = win.webkit?.messageHandlers?.agentSession;
+  if (!handler || (handler as { standIn?: boolean }).standIn) return undefined;
+  return quiet((events) =>
+    handler.postMessage({ id: crypto.randomUUID(), method: "diag.flicker", params: { events } }),
+  );
+}
+
+function install(win: Window, pageHostSend: FlickerSend | undefined): void {
+  if (log) return;
+  const send = pageHostSend ? quiet(pageHostSend) : webKitSend(win);
+  if (!send) return;
   const flicker = new FlickerLog(send);
   log = flicker;
   const doc = win.document;
@@ -256,8 +355,9 @@ function install(win: Window): void {
     (run) => win.requestAnimationFrame(run),
     () => win.performance.now(),
     (stats) => flicker.record("frames", stats),
+    engineLongFrames,
   );
-  new MutationObserver(() => watch.arm()).observe(doc.documentElement, {
+  new (win as Window & typeof globalThis).MutationObserver(() => watch.arm()).observe(doc.documentElement, {
     childList: true,
     subtree: true,
     characterData: true,
@@ -269,4 +369,6 @@ function install(win: Window): void {
     if (doc.visibilityState === "visible") watch.arm();
   });
   win.addEventListener("pagehide", () => flicker.flush());
+  // A text input that loses the keyboard with no key or click: the app's focus log (focusLossWatch.ts).
+  watchFocusLoss(win, (fields) => flicker.record("focus-lost", fields));
 }

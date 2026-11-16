@@ -33,15 +33,21 @@ enum AgentPaneHarnessCard {
                              socket: String) async -> Outcome {
         do {
             switch request {
-            case .harnessUpdate(let id):
-                // Each updater may run 15 minutes (acpmux `probe.rs`); an auto-update may hold the turn.
-                let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/harness/update", params: ["ids": [id]],
-                                                               deadline: .seconds(35 * 60), detailed: true)
-                let row = (result["results"] as? [[String: Any]])?.first { $0["id"] as? String == id }
-                var value: [String: Any] = ["ok": row?["ok"] as? Bool ?? false]
-                if let version = row?["version"] as? String { value["version"] = version }
-                if let error = row?["error"] as? String { value["error"] = error }
-                return Outcome(reply: AgentPaneReply.success(value))
+            case .harnessUpdate(let ids, let each):
+                // Each updater may run 15 minutes (acpmux `probe.rs`), one after another; an
+                // auto-update may hold the turn.
+                let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/harness/update", params: ["ids": ids],
+                                                               deadline: .seconds(20 * 60 * ids.count + 15 * 60), detailed: true)
+                let rows = result["results"] as? [[String: Any]] ?? []
+                let answer = { (id: String) -> [String: Any] in
+                    let row = rows.first { $0["id"] as? String == id }
+                    var value: [String: Any] = ["ok": row?["ok"] as? Bool ?? false]
+                    if let version = row?["version"] as? String { value["version"] = version }
+                    if let error = row?["error"] as? String { value["error"] = error }
+                    return value
+                }
+                if each { return Outcome(reply: AgentPaneReply.success(["results": ids.map { ["id": $0].merging(answer($0)) { $1 } }])) }
+                return Outcome(reply: AgentPaneReply.success(answer(ids.first ?? "")))
             case .harnessRestart:
                 // Only a chat this pane started or shows: the page can adopt any id (`chat.persistSession`).
                 guard let session = sessionId, transport.sessions.contains(session) else {

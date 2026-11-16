@@ -175,6 +175,17 @@ impl HostedReader {
                 break;
             };
             let Some(transition) = transition else { continue };
+            // Plain Output frames already queued behind this one join it:
+            // one parse and one terminal lock for a backlog of small reads.
+            let mut stream_broke = false;
+            let transition = match transition {
+                HostedTransition::Output(output) => {
+                    let (output, broke) = coalesce_queued_output(output, &frames, &mut stager);
+                    stream_broke = broke;
+                    HostedTransition::Output(output)
+                }
+                transition => transition,
+            };
             let flow = match transition {
                 transition @ (HostedTransition::Output(_)
                 | HostedTransition::OutputWithColors { .. }) => self.apply_output(
@@ -233,6 +244,9 @@ impl HostedReader {
             // Bells rung by this transition's parser work, emitted with
             // neither the terminal nor the geometry lock held.
             self.pending_bells.publish(&mux, surface.id);
+            if stream_broke {
+                break;
+            }
         }
         frames.abandon();
         StreamEnd {
@@ -355,6 +369,49 @@ impl HostedReader {
         }
         self.reconnect(surface, pty, identity)
     }
+}
+
+/// The most bytes one apply takes from adjacent Output frames. A host
+/// frame carries at most one 64 KiB PTY read, so coalescing only joins
+/// smaller reads; a large frame is applied alone, with no extra copy.
+const OUTPUT_COALESCE_BYTES: usize = 64 * 1024;
+
+/// `output` and the plain Output frames already queued right behind it, up
+/// to [`OUTPUT_COALESCE_BYTES`], as one chunk. It never waits for a frame, so
+/// echo latency does not change; a frame of any other kind (a Bell, a
+/// targeted response, colors) ends the run and keeps its place in the order.
+/// Each frame still passes the stager, so the sequence check holds; `true`
+/// when one failed it: the stream then ends after `output` is applied, as
+/// it did when that frame was read on its own.
+fn coalesce_queued_output(
+    mut output: Vec<u8>,
+    frames: &host_frames::HostFrames,
+    stager: &mut HostedFrameStager,
+) -> (Vec<u8>, bool) {
+    while let Some(frame) = frames.try_recv_if(|frame| {
+        frame.kind == MessageKind::Output
+            && frame.flags == 0
+            && frame.request_id == 0
+            && output.len().saturating_add(frame.payload.len()) <= OUTPUT_COALESCE_BYTES
+    }) {
+        match stager.push(frame) {
+            Ok(Some(HostedTransition::Output(more))) => output.extend_from_slice(&more),
+            // A plain Output frame stages nothing else; anything else is a
+            // stream the stager refused.
+            _ => return (output, true),
+        }
+    }
+    (output, false)
+}
+
+/// Tests: [`coalesce_queued_output`].
+#[cfg(test)]
+pub(super) fn coalesce_queued_output_for_test(
+    output: Vec<u8>,
+    frames: &host_frames::HostFrames,
+    stager: &mut HostedFrameStager,
+) -> (Vec<u8>, bool) {
+    coalesce_queued_output(output, frames, stager)
 }
 
 /// Wakes input that waits out a lost host connection (surface/input.rs)

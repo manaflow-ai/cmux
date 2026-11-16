@@ -1,6 +1,21 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "chat-rows-frame-apply": {
+      "what": "one slice of a v2 chat's row batch in the frame lane (webviews rows/receiver.ts drain): parse and apply changes one at a time, give way to a pending key, commit and answer taken at the batch's end",
+      "bench": "cd webviews && bun bench/page-row-store.bench.ts (v2.frame_paced: apply ms per batch, taken per frame, longest task, one 256 KiB change)",
+      "owner": "agent chat"
+    },
+    "terminal-host-output": {
+      "what": "one PTY read in a terminal host (terminal_host_runtime/shared): publish_pty_frame makes the one shared Output frame, and the client writer sends the frames queued at each wake in one vectored write",
+      "bench": "cmux-tui/scripts/bench-terminal-perf.py (throughput and busy sections: MB/s and host CPU %), on the bench Mac with cmux-tui and cmux-tui-host built",
+      "owner": "terminal host"
+    },
+    "local-pty-output": {
+      "what": "one PTY read of a terminal the daemon runs in-process (--ephemeral, Windows fallback; surface/spawn.rs reader): the read, the bytes already waiting read into the same buffer, one parse",
+      "bench": "cargo test --release -p cmux-tui --test terminal_throughput_stages -- --ignored --nocapture (daemon-ephemeral stage: MB/s and busiest threads)",
+      "owner": "terminal host"
+    },
     "chats-window-query": {
       "what": "one keystroke on the command palette's chats page: acpmux's query window (chats/window.rs ranked_rows) ranks every chat's title, then searches the held text of every chat for the words (chats/text.rs ChatText::search, one pass, its answer kept until the text changes) and builds the snippets of the rows it shows",
       "bench": "cargo test -p acpmux --lib chats::text::tests::search_bench -- --ignored --nocapture (2,000 chats; prints p50/p95/max per keystroke)",
@@ -25,6 +40,11 @@
       "what": "terminal key to committed frame (input write, echo, parse, draw)",
       "bench": "scripts/cmux-next/bench-typing.py",
       "owner": "PL-typing"
+    },
+    "terminal-output-scan": {
+      "what": "the byte scanners every terminal output chunk runs in the host and in the daemon mirror: the title tracker (terminal_title.rs TitleTracker::rewrite), the OSC metadata collector (terminal_metadata.rs OscCollector::observe) and the prompt mark search (prompt_mode_reset.rs); each jumps over the bytes no state can change on",
+      "bench": "cargo test -p cmux-tui-core --release --lib terminal_output_scan_bench -- --ignored --nocapture (64 KiB colored log and box-drawing TUI output; prints ns per byte, jumping scan and byte-at-a-time reference)",
+      "owner": "cmux-tui"
     },
     "home-key": {
       "what": "Home composer key to frame",
@@ -126,6 +146,11 @@
       "bench": "cmux-tui-rust-check.sh test a_streamed_tokens_line_is_built_once_for_every_attached_connection (FANOUT-ENCODE line), then scripts/measure/acpmux-overhead.sh bench=daemon (STRESS token to client, 2 clients) on the fleet",
       "owner": "PL-acpmux (HOT PATH AUDIT area F: hpa-stream)"
     },
+    "agent-chat-token-rows": {
+      "what": "one streamed token's pass over the agent chat's rows in the pane (App.tsx turnRowsShown: the started chat cards, the subagent lines, turns.ts turnViewFrom, the layout); each pass starts at the first changed row (prefixFlatMap.ts noteKeptPrefix), so a long chat costs what a short one does",
+      "bench": "cd webviews && PAIRED=1 CLOCK=cpu bun bench/transcript-replay.bench.ts --only long (god/small p95 ratio of token and thought), and FIXTURE=god PROFILE=1 for the steps that grow with rows",
+      "owner": "agent chat (CMUX-571)"
+    },
     "composer-draft-typing": {
       "what": "one key in the agent chat composer: the prompt's markdown written from each top-level block's kept markdown (MarkdownField.tsx blockwiseMarkdown), so only the block the key changed is serialized",
       "bench": "CMUX_LATENCY_DRAFTS=1 bun webviews/scripts/latency/run.ts --page \"chat draft typing\" (10k and 200k-character drafts, 3,000-turn chat)",
@@ -145,6 +170,26 @@
       "what": "one new workspace put at its sidebar slot once the daemon reports it (WindowManager.applyPendingPlacements -> SidebarBridge.place): the rows it maps from their stores. It maps the new row only, at 60 workspaces as at 826. Still O(session) per placement and not covered by this budget: the two rows passes (structure walk and SidebarModel.setSections), the document projection in the Rust mirror, and the slot rule's copy of every row (SidebarSection.withoutPlaceholders, counted as slot_rows).",
       "bench": "count: CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspacePlacementCostTests (on a build mini; rows_made, doc_reshows, project, slot_rows per placement)",
       "owner": "WORKSPACE LIST 800"
+    },
+    "command-stats": {
+      "what": "the session daemon's count of one request by command name and client kind (diagnostics/command_stats.rs: CommandStats::start, start_line, Cell::record; server/connection_frame.rs handle_connection_frame and handle_request_with_cancellation): three clock reads, one probe of a fixed table, four relaxed atomic updates, no lock, no allocation after the first request of a name",
+      "bench": "cargo test --release -p cmux-tui-core --lib bench_command_stats_cost_per_request -- --ignored --nocapture (in cmux-tui, on a build mini; prints COMMAND-STATS-BENCH with ping_with_ns, ping_without_ns and added_ns for 1 000 000 ping requests, same binary)",
+      "owner": "COMMAND STATS"
+    },
+    "transcript-turn-end": {
+      "what": "a turn's end under a reader scrolled up into its work (agent chat): conversation/turnEndHold.ts foldsToHold and rowsToHold decide which folds stay open and which runs stay out so no row in view moves or folds away; #41213 skipped the Worked for there and the perf cron's ui.transcript.turn_end rows went from 0 to 612 px drift and 12 rows lost (cmux#24569)",
+      "bench": "cd webviews && bun bench/transcript-turn-end-shift.bench.ts 2 (Chromium and WebKit: anchor_drift_px 0, rows_lost 0, cls under 0.01), before and after",
+      "owner": "agent chat transcript"
+    },
+    "ios-terminal-chat-swap": {
+      "what": "a tap on the iPhone's Chat | Terminal control (cmux-next-ios WorkspaceTabsSource+TerminalChat.swift swapTerminalChat): Rust's terminal_chat_swap, one face flag, and the parked pair (TerminalChatPair) laid out with the other face visible; no reload, the chat's scroll kept",
+      "bench": "swift test --package-path cmux-next-ios/CmuxMobileKit --filter terminal_chat_swap on an iOS simulator (CmuxMobileInstantPerfTests TerminalChatSwapPerfTests: INSTANTPERF terminal_chat_swap with p50 and p95 of each way, small vs god chat; Leo's target p95 under 100 ms)",
+      "owner": "iOS"
+    },
+    "new-tab-omnibar-keystroke": {
+      "what": "one keystroke in the New Tab field: screenRows ranks the open tabs, workspaces, visited pages, palette actions, chats and agent starts for the typed text (webviews newtab/screenModel.ts, launchRows.ts), over lists folded once per host update (omnibar.ts foldedTexts)",
+      "bench": "cd webviews && bun bench/new-tab-omnibar-keystroke.bench.ts (stress fixture: 2,000 actions, 500 chats, 200 folders; prints p50/p95/p99/max µs per key; --no-agents for the rows without the agent sources)",
+      "owner": "new tab"
     }
   }
 }

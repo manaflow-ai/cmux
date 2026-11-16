@@ -604,15 +604,10 @@ pub fn save(home: &Path, body: &[u8]) -> Result<bool, String> {
         return Ok(false);
     }
     crate::config::refuse_lost_home(&dir).map_err(|e| e.to_string())?;
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the folder.
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(&dir)
-            .map_err(|e| e.to_string())?;
-    }
+    crate::home_fs::create_dir_all(&dir, 0o700).map_err(|e| e.to_string())?;
     #[cfg(windows)]
     crate::owner_only::create_dir_all(&dir).map_err(|e| e.to_string())?;
     crate::config::write_atomic(&path, body).map_err(|e| e.to_string())?;

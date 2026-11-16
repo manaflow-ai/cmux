@@ -303,6 +303,27 @@ impl Mux {
         let _ = terminal_hex;
     }
 
+    /// The spare host process (R81) for a terminal whose host launches
+    /// inside its creation, when new terminals run on host processes. The
+    /// caller refills the slot after its launch
+    /// ([`Self::refill_spare_terminal_host`]).
+    #[cfg(any(unix, windows))]
+    pub(crate) fn take_spare_terminal_host(
+        &self,
+    ) -> Option<crate::terminal_host_runtime::StandbyTerminalHost> {
+        // Holder terminals start on the holder: a spare would only be killed.
+        if !self.uses_terminal_host_runtime() || holder_model() {
+            return None;
+        }
+        self.terminal_work.standby.take()
+    }
+
+    /// Start the next spare in the background when one is wanted.
+    #[cfg(any(unix, windows))]
+    pub(crate) fn refill_spare_terminal_host(&self) {
+        self.terminal_work.standby.refill(&self.terminal_work);
+    }
+
     /// Whether new terminals run in durable host processes (tests may use
     /// in-process surfaces).
     #[cfg(any(unix, windows))]

@@ -1,0 +1,759 @@
+//! `cmux app try <PR|branch|sha>`, `cmux app try undo`, `cmux app try status`:
+//! run another commit's cmux in this app, the cheapest way there is, with no
+//! checkout (cmuxterm-hq docs/design/nightly-live-updates.md, step 2).
+//!
+//! Leo (2026-11-14): "How deep and fast and ergonomic is hot swapping and can
+//! we push it further and productionize it further".
+//!
+//! The path is picked here, cheapest first:
+//! 1. **Live.** CI signs `cmux-tui/<sha>/mac-live.json` per merge: the
+//!    commit's Mac binaries and `live_from`, every app commit that can take
+//!    them without the app changing. When the app's CMUXCommit is listed, each
+//!    binary is downloaded into the store and checked (size, sha256), the prior
+//!    files are kept by sha256, the new ones are renamed into
+//!    `Contents/Resources/bin`, and the app's daemon is handed over (SIGTERM to
+//!    the owner `server status` names; the app's reconnect starts the next one
+//!    from the new file, terminals kept). Any failed check puts every file back.
+//! 2. **Full app.** A build of the commit in the nightly feed
+//!    (`updates.builds`) installs through `updates.switch_build`, as
+//!    `cmux nightly install` does.
+//! 3. Otherwise it says which build is missing and exits 1: it never builds.
+//!
+//! Every run writes a receipt (`last.json`, `history.jsonl`) with its phases
+//! and steps; `undo` puts back what the last try replaced, `status` prints it.
+
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use cmux_json::JsonGet as _;
+use serde_json::{Value, json};
+
+use super::super::{GlobalArgs, OutputMode};
+use super::UsageError;
+use super::nightly::{self, Switched, Target};
+use crate::localization::TryMessages;
+use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
+
+mod live;
+mod resolve;
+
+/// `updates.builds` reads the feed's notes, verdicts and pulled list.
+const LIST_TIMEOUT: Duration = Duration::from_secs(35);
+
+/// A parsed `cmux app try` command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Command {
+    Help,
+    Try { target: String, dry_run: bool, app: Option<PathBuf> },
+    Undo { dry_run: bool },
+    Status,
+}
+
+fn messages() -> &'static TryMessages {
+    &crate::localization::catalog().app_control.app_try
+}
+
+/// Parses the words after `app try`.
+pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
+    let unexpected = |value: &str| {
+        UsageError::new(
+            crate::localization::catalog()
+                .app_control
+                .unexpected_argument
+                .replace("{value}", value),
+        )
+    };
+    if rest.first().map(String::as_str) == Some("help")
+        || rest.iter().any(|word| word == "--help" || word == "-h")
+    {
+        return Ok(Command::Help);
+    }
+    let mut dry_run = false;
+    let mut app = None;
+    let mut words = Vec::new();
+    let mut iter = rest.iter();
+    while let Some(word) = iter.next() {
+        match word.as_str() {
+            "--dry-run" => dry_run = true,
+            "--app" => {
+                let value = iter.next().ok_or_else(|| UsageError::new(messages().usage))?;
+                app = Some(PathBuf::from(value));
+            }
+            other if other.starts_with("--app=") => {
+                app = other.strip_prefix("--app=").map(PathBuf::from);
+            }
+            other if other.starts_with('-') => return Err(unexpected(other)),
+            other => words.push(other.to_owned()),
+        }
+    }
+    match words.as_slice() {
+        [verb] if verb == "status" => {
+            if dry_run || app.is_some() {
+                return Err(UsageError::new(messages().usage));
+            }
+            Ok(Command::Status)
+        }
+        [verb] if verb == "undo" => {
+            if app.is_some() {
+                return Err(unexpected("--app"));
+            }
+            Ok(Command::Undo { dry_run })
+        }
+        [target] => {
+            if resolve::classify(target).is_none() {
+                return Err(UsageError::new(messages().not_found.replace("{target}", target)));
+            }
+            Ok(Command::Try { target: target.clone(), dry_run, app })
+        }
+        [] => Err(UsageError::new(messages().usage)),
+        [_, extra, ..] => Err(unexpected(extra)),
+    }
+}
+
+/// Runs `command`.
+pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
+    let messages = messages();
+    if *command == Command::Help {
+        println!("{}", messages.usage);
+        return 0;
+    }
+    if let Command::Try { target, dry_run, app } = command {
+        return run_try(global, target, *dry_run, app.as_deref());
+    }
+    // `status` and `undo` read the store of the app this CLI belongs to.
+    let (app, _) = find_app(global, None);
+    let Some(store) = store_for(app.as_deref()) else {
+        return failure("try.no_state", messages.no_state, global.output);
+    };
+    match command {
+        Command::Undo { dry_run } => undo(global, &store, *dry_run),
+        Command::Help | Command::Try { .. } | Command::Status => status(global, &store),
+    }
+}
+
+fn store_for(app: Option<&Path>) -> Option<Store> {
+    Store::default_root(app).map(|root| Store { root })
+}
+
+// ------------------------------------------------------------------ the plan
+
+/// What `mac-live.json` said for the commit.
+#[derive(Debug)]
+enum Live {
+    Missing,
+    Refused(String),
+    Found(LivePayload),
+}
+
+/// The path a try takes.
+#[derive(Debug)]
+enum Plan {
+    Live { files: Vec<Wanted> },
+    Full { build: Value, from: String },
+    None { why: Vec<String> },
+}
+
+impl Plan {
+    fn path(&self) -> &'static str {
+        match self {
+            Self::Live { .. } => "live",
+            Self::Full { .. } => "full",
+            Self::None { .. } => "none",
+        }
+    }
+}
+
+/// The cheapest path to `commit` for an app at `app_commit`: live when the
+/// signed file lists the app; else a switchable build of the commit in the
+/// feed listing `builds`; else none, with every reason.
+fn choose(
+    commit: &str,
+    app_commit: Option<&str>,
+    live: &Live,
+    builds: Option<Result<&Value, &str>>,
+    base: &str,
+) -> Plan {
+    let messages = messages();
+    let mut why = Vec::new();
+    match (live, app_commit) {
+        (Live::Missing, _) => why.push(messages.why_no_live.replace("{commit}", short(commit))),
+        (Live::Refused(error), _) => why.push(messages.why_live_refused.replace("{error}", error)),
+        (Live::Found(_), None) => why.push(messages.why_no_app_commit.to_owned()),
+        (Live::Found(payload), Some(app_commit)) => {
+            if live::takes(&payload.live_from, app_commit) {
+                match live::wanted(payload, base) {
+                    Ok(files) => return Plan::Live { files },
+                    Err(error) => {
+                        why.push(messages.why_live_refused.replace("{error}", &error));
+                    }
+                }
+            } else {
+                why.push(messages.why_not_live_from.replace("{app_commit}", app_commit));
+            }
+        }
+    }
+    match builds {
+        None => {}
+        Some(Err(error)) => why.push(messages.why_no_feed.replace("{error}", error)),
+        Some(Ok(listing)) => {
+            let found = listing.get_array("builds").iter().find(|build| {
+                build.get_nonempty_str("commit").is_some_and(|built| {
+                    built.len() >= 7 && (commit.starts_with(built) || built.starts_with(commit))
+                })
+            });
+            match found.and_then(|build| build.get_nonempty_str("build")) {
+                None => why.push(messages.why_not_in_feed.replace("{commit}", short(commit))),
+                Some(number) => {
+                    let target = Target::Build(number.to_owned());
+                    match nightly::pick(
+                        listing,
+                        &target,
+                        &crate::localization::catalog().app_control.nightly,
+                    ) {
+                        Ok(build) => {
+                            let from = listing.get_str("installed").unwrap_or_default().to_owned();
+                            return Plan::Full { build: build.clone(), from };
+                        }
+                        Err((_, message)) => why.push(message),
+                    }
+                }
+            }
+        }
+    }
+    Plan::None { why }
+}
+
+/// Sets one field of a JSON object; `value["key"] = ..` would panic on a non-object.
+fn set(value: &mut Value, key: &str, field: Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert(key.to_owned(), field);
+    }
+}
+
+fn short(commit: &str) -> &str {
+    commit.get(..12).unwrap_or(commit)
+}
+
+fn plan_json(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) -> Value {
+    let mut value = json!({
+        "path": plan.path(),
+        "commit": commit,
+        "app": app.to_string_lossy(),
+        "app_commit": app_commit,
+    });
+    match plan {
+        Plan::Live { files } => {
+            let files = files
+                .iter()
+                .map(|wanted| match &wanted.binary {
+                    Some(binary) => {
+                        json!({ "file": wanted.file, "sha256": binary.sha256, "size": binary.size })
+                    }
+                    None => json!({ "file": wanted.file, "remove": true }),
+                })
+                .collect();
+            set(&mut value, "files", files);
+        }
+        Plan::Full { build, from } => {
+            set(&mut value, "build", build.clone());
+            set(&mut value, "from_build", json!(from));
+        }
+        Plan::None { why } => {
+            set(&mut value, "why", json!(why));
+        }
+    }
+    value
+}
+
+fn plan_human(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) -> String {
+    let messages = messages();
+    match plan {
+        Plan::Live { files } => messages
+            .plan_live
+            .replace("{commit}", short(commit))
+            .replace("{count}", &files.iter().filter(|w| w.binary.is_some()).count().to_string())
+            .replace("{app}", &app.to_string_lossy())
+            .replace("{app_commit}", app_commit.unwrap_or_default()),
+        Plan::Full { build, from } => messages
+            .plan_full
+            .replace("{build}", build.get_str("build").unwrap_or_default())
+            .replace("{commit}", short(commit))
+            .replace("{from}", from),
+        Plan::None { why } => {
+            let mut text = messages.plan_none.replace("{commit}", short(commit));
+            for reason in why {
+                text.push_str("\n  - ");
+                text.push_str(reason);
+            }
+            text.push('\n');
+            text.push_str(&messages.never_builds.replace("{commit}", short(commit)));
+            text
+        }
+    }
+}
+
+// ------------------------------------------------------------------ try
+
+/// The app to change and the app's control connection, when one answers.
+fn find_app(
+    global: &GlobalArgs,
+    named: Option<&Path>,
+) -> (Option<PathBuf>, Option<std::os::unix::net::UnixStream>) {
+    let stream = super::connect_command(global).ok();
+    let mut stream = stream;
+    let from_socket = stream.as_mut().and_then(|stream| {
+        match super::exchange(stream, "system.identify", json!({}), super::READ_TIMEOUT) {
+            Ok(Ok(value)) => value.get_nonempty_str("app_bundle_path").map(PathBuf::from),
+            _ => None,
+        }
+    });
+    if let Some(app) = named {
+        // The control connection is kept only when it is that app's: the full-app path must
+        // never install into another app than the one named (a side copy beside a NIGHTLY).
+        let same = from_socket.as_deref().is_some_and(|socket_app| {
+            socket_app == app
+                || matches!((socket_app.canonicalize(), app.canonicalize()), (Ok(l), Ok(r)) if l == r)
+        });
+        return (Some(app.to_path_buf()), stream.filter(|_| same));
+    }
+    let app = from_socket.or_else(|| {
+        let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+        crate::app_identity::containing_app_bundle(&exe)
+    });
+    (app, stream)
+}
+
+/// CMUXCommit of the app's Info.plist (a nightly stamps it short).
+fn app_commit(app: &Path) -> Option<String> {
+    let info = plist::Value::from_file(app.join("Contents/Info.plist")).ok()?;
+    let commit = info.as_dictionary()?.get("CMUXCommit")?.as_string()?.trim().to_ascii_lowercase();
+    ((7..=40).contains(&commit.len()) && commit.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then_some(commit)
+}
+
+fn read_live(commit: &str, base: &str) -> Live {
+    let url = format!("{base}{commit}/mac-live.json");
+    match live::get_small(&url, live::LIVE_MAX_BYTES) {
+        Ok(None) => Live::Missing,
+        Err(error) => Live::Refused(error),
+        Ok(Some(body)) => {
+            match live::verify(&body, &cmux_host::updater::channel::trusted_keys(), commit) {
+                Ok(payload) => Live::Found(payload),
+                Err(error) => Live::Refused(error),
+            }
+        }
+    }
+}
+
+fn read_builds(stream: Option<&mut std::os::unix::net::UnixStream>) -> Result<Value, String> {
+    let Some(stream) = stream else {
+        return Err("no app answers on its control socket".to_owned());
+    };
+    match super::exchange(stream, "updates.builds", json!({ "limit": 50 }), LIST_TIMEOUT) {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(error)) => Err(error.get_str("message").unwrap_or("refused").to_owned()),
+        Err(message) => Err(message),
+    }
+}
+
+fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path>) -> i32 {
+    let messages = messages();
+    let started = Instant::now();
+    let mut phases = Phases::default();
+    let Some(spec) = resolve::classify(target) else {
+        return failure(
+            "try.not_found",
+            &messages.not_found.replace("{target}", target),
+            global.output,
+        );
+    };
+    let t = Instant::now();
+    let commit = match resolve::resolve(&spec) {
+        Ok(commit) => commit,
+        Err(resolve::Unresolved::RateLimited) => {
+            return failure("try.rate_limited", messages.rate_limited, global.output);
+        }
+        Err(resolve::Unresolved::NotFound) => {
+            return failure(
+                "try.not_found",
+                &messages.not_found.replace("{target}", target),
+                global.output,
+            );
+        }
+        Err(resolve::Unresolved::Other(error)) => {
+            let text =
+                messages.resolve_failed.replace("{target}", target).replace("{error}", &error);
+            return failure("try.resolve_failed", &text, global.output);
+        }
+    };
+    phases.add("resolve", t);
+    let (app, mut stream) = find_app(global, named);
+    let Some(app) = app else {
+        return failure("try.no_app", messages.no_app, global.output);
+    };
+    let Some(store) = store_for(Some(&app)) else {
+        return failure("try.no_state", messages.no_state, global.output);
+    };
+    let store = &store;
+    let app_commit = app_commit(&app);
+    let base = live::files_base();
+    let t = Instant::now();
+    let live = read_live(&commit, &base);
+    phases.add("plan", t);
+    let mut plan = choose(&commit, app_commit.as_deref(), &live, None, &base);
+    if !matches!(plan, Plan::Live { .. }) {
+        let t = Instant::now();
+        let builds = read_builds(stream.as_mut());
+        plan = choose(
+            &commit,
+            app_commit.as_deref(),
+            &live,
+            Some(builds.as_ref().map_err(String::as_str)),
+            &base,
+        );
+        phases.add("plan", t);
+    }
+    let planned = plan_json(&plan, &commit, &app, app_commit.as_deref());
+    let mut receipt = json!({
+        "schema": 1, "action": "try", "target": target, "commit": commit,
+        "path": plan.path(), "app": app.to_string_lossy(), "app_commit": app_commit,
+        "at": now(),
+    });
+    if dry_run || matches!(plan, Plan::None { .. }) {
+        let code = i32::from(matches!(plan, Plan::None { .. }));
+        if let (false, Plan::None { why }) = (dry_run, &plan) {
+            // A try that found no build is a failed try: history keeps why, last.json stays.
+            set(&mut receipt, "ok", json!(false));
+            set(&mut receipt, "why", json!(why));
+            set(&mut receipt, "phases", phases.json());
+            if let Ok(_lock) = store.lock() {
+                let _ = store.append_history(&receipt);
+            }
+        }
+        if global.output == OutputMode::Human {
+            println!("{}", plan_human(&plan, &commit, &app, app_commit.as_deref()));
+            if dry_run {
+                println!("{}", messages.dry_run);
+            }
+            return code;
+        }
+        if code != 0 {
+            let message = plan_human(&plan, &commit, &app, app_commit.as_deref());
+            return super::super::wire::print_local_error(
+                &json!({ "code": "try.no_build", "message": message, "plan": planned }),
+                global.output,
+                1,
+            );
+        }
+        return super::super::wire::print_local_success(&planned, global.output);
+    }
+    let _lock = match store.lock() {
+        Ok(lock) => lock,
+        Err(error) => return failure("try.state", &error, global.output),
+    };
+    match plan {
+        Plan::None { .. } => 1,
+        Plan::Full { build, from } => {
+            set(&mut receipt, "build", build.get("build").cloned().unwrap_or(Value::Null));
+            set(&mut receipt, "from_build", json!(from));
+            let Some(mut stream) = stream else {
+                set(&mut receipt, "ok", json!(false));
+                set(&mut receipt, "error", json!("no app answers on its control socket"));
+                let _ = store.append_history(&receipt);
+                return failure(
+                    "app.transport",
+                    "no app answers on its control socket",
+                    global.output,
+                );
+            };
+            if global.output == OutputMode::Human {
+                println!(
+                    "{}",
+                    plan_human(&Plan::Full { build: build.clone(), from }, &commit, &app, None)
+                );
+            }
+            let code = switch(global, &mut stream, &build);
+            set(&mut receipt, "ok", json!(code == 0));
+            set(&mut receipt, "phases", phases.json());
+            // Only a switch that went through becomes the receipt undo reads; a refused one
+            // leaves the last good try (and its undo) in place.
+            if code == 0 {
+                if let Err(error) = store.record(&receipt) {
+                    return failure("try.state", &error, global.output);
+                }
+            } else {
+                let _ = store.append_history(&receipt);
+            }
+            code
+        }
+        Plan::Live { files } => {
+            let daemon = app_daemon(&app);
+            let result = try_live(&app, &files, store, &daemon, &mut phases);
+            finish(global, store, receipt, result, phases, started, &commit, &app)
+        }
+    }
+}
+
+/// Fetches and checks every file, then swaps them in: nothing in the app
+/// changes before every byte is here and checked.
+fn try_live(
+    app: &Path,
+    files: &[Wanted],
+    store: &Store,
+    daemon: &dyn Daemon,
+    phases: &mut Phases,
+) -> Result<live::Applied, String> {
+    let t = Instant::now();
+    let mut changes = Vec::new();
+    for wanted in files {
+        let to = store.fetch(wanted)?;
+        let sha = wanted.binary.as_ref().map(|binary| binary.sha256.clone());
+        changes.push(Change { file: wanted.file.clone(), to: to.zip(sha), expect: None });
+    }
+    phases.add("fetch", t);
+    live::apply(app, &changes, store, daemon, phases)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish(
+    global: &GlobalArgs,
+    store: &Store,
+    mut receipt: Value,
+    result: Result<live::Applied, String>,
+    phases: Phases,
+    started: Instant,
+    commit: &str,
+    app: &Path,
+) -> i32 {
+    let messages = messages();
+    let undo = receipt.get("action").and_then(Value::as_str) == Some("undo");
+    set(&mut receipt, "phases", phases.json());
+    set(
+        &mut receipt,
+        "seconds",
+        json!((started.elapsed().as_secs_f64() * 1000.0).round() / 1000.0),
+    );
+    let applied = match result {
+        Ok(applied) => applied,
+        Err(error) => {
+            set(&mut receipt, "ok", json!(false));
+            set(&mut receipt, "error", json!(error));
+            // A failed run changed nothing: the last good receipt (and its undo) stays last.
+            let _ = store.append_history(&receipt);
+            let text =
+                messages.failed.replace("{commit}", short(commit)).replace("{error}", &error);
+            return failure("try.failed", &text, global.output);
+        }
+    };
+    set(&mut receipt, "ok", json!(true));
+    set(&mut receipt, "changed", json!(applied.changed));
+    set(&mut receipt, "steps", applied.steps);
+    set(&mut receipt, "undo", json!({ "files": applied.prior }));
+    if applied.changed
+        && let Err(error) = store.record(&receipt)
+    {
+        return failure("try.state", &error, global.output);
+    }
+    if global.output != OutputMode::Human {
+        return super::super::wire::print_local_success(&receipt, global.output);
+    }
+    let seconds = format!("{:.1}", started.elapsed().as_secs_f64());
+    let line = match (undo, applied.changed) {
+        (_, false) => messages
+            .already
+            .replace("{app}", &app.to_string_lossy())
+            .replace("{commit}", short(commit)),
+        (false, true) => messages
+            .applied
+            .replace("{commit}", short(commit))
+            .replace("{app}", &app.to_string_lossy())
+            .replace("{seconds}", &seconds),
+        (true, true) => messages
+            .undone
+            .replace("{commit}", short(commit))
+            .replace("{app}", &app.to_string_lossy())
+            .replace("{seconds}", &seconds),
+    };
+    println!("{line}");
+    0
+}
+
+fn switch(global: &GlobalArgs, stream: &mut std::os::unix::net::UnixStream, build: &Value) -> i32 {
+    let number = build.get("build").cloned().unwrap_or(Value::Null);
+    match nightly::switch_build(stream, json!({ "build": number })) {
+        Switched::Answer(Ok(value)) => match global.output {
+            OutputMode::Human => 0,
+            _ => super::super::wire::print_local_success(&value, global.output),
+        },
+        Switched::Answer(Err(error)) => {
+            super::super::wire::print_operation_error(&error, global.output)
+        }
+        Switched::Restarted => match global.output {
+            OutputMode::Human => 0,
+            _ => super::super::wire::print_local_success(
+                &json!({ "switching_to": number }),
+                global.output,
+            ),
+        },
+        Switched::Failed(message) => failure("app.transport", &message, global.output),
+    }
+}
+
+/// The app's own daemon: `server status` from its `bin/cmux`, on its session socket.
+fn app_daemon(app: &Path) -> live::AppDaemon {
+    let cli = app.join(live::BIN).join("cmux");
+    let socket = daemon_socket(&cli);
+    live::AppDaemon { cli, socket }
+}
+
+#[cfg(target_os = "macos")]
+fn daemon_socket(cli: &Path) -> Option<PathBuf> {
+    let identity = crate::app_identity::AppIdentity::detect(|_| None, Some(cli))?;
+    crate::app_identity::app_daemon_socket(&identity)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn daemon_socket(_cli: &Path) -> Option<PathBuf> {
+    None
+}
+
+// ------------------------------------------------------------------ undo and status
+
+fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
+    let messages = messages();
+    let started = Instant::now();
+    let last = store.last();
+    let Some(last) = last
+        .filter(|last| last.get_str("action") == Some("try") && last.get_bool("ok") == Some(true))
+    else {
+        return failure("try.nothing_to_undo", messages.nothing_to_undo, global.output);
+    };
+    let commit = last.get_str("commit").unwrap_or_default().to_owned();
+    let app = PathBuf::from(last.get_str("app").unwrap_or_default());
+    if last.get_str("path") == Some("full") {
+        let from = last.get_str("from_build").unwrap_or_default().to_owned();
+        let text = messages.undo_full.replace("{build}", &from);
+        if dry_run || from.is_empty() {
+            if global.output == OutputMode::Human {
+                println!("{text}");
+                return i32::from(from.is_empty());
+            }
+            return super::super::wire::print_local_success(
+                &json!({ "path": "full", "build": from }),
+                global.output,
+            );
+        }
+        let mut stream = match super::connect_command(global) {
+            Ok(stream) => stream,
+            Err(error) => return super::super::wire::print_local_error(&error, global.output, 3),
+        };
+        let listing = match read_builds(Some(&mut stream)) {
+            Ok(listing) => listing,
+            Err(error) => return failure("app.transport", &error, global.output),
+        };
+        let build = match nightly::pick(
+            &listing,
+            &Target::Build(from),
+            &crate::localization::catalog().app_control.nightly,
+        ) {
+            Ok(build) => build.clone(),
+            Err((code, message)) => return failure(code, &message, global.output),
+        };
+        if global.output == OutputMode::Human {
+            println!("{text}");
+        }
+        let code = switch(global, &mut stream, &build);
+        let receipt = json!({ "schema": 1, "action": "undo", "path": "full", "commit": commit, "build": build.get("build"), "app": app.to_string_lossy(), "at": now(), "ok": code == 0 });
+        // As for a try: only a switch that went through replaces the receipt.
+        let _ = if code == 0 { store.record(&receipt) } else { store.append_history(&receipt) };
+        return code;
+    }
+    let files = last
+        .get("undo")
+        .and_then(|undo| undo.get("files"))
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    // Locked before the files are checked, so no other try or undo moves them in between.
+    let _lock = match (dry_run, store.lock()) {
+        (true, _) => None,
+        (false, Ok(lock)) => Some(lock),
+        (false, Err(error)) => return failure("try.state", &error, global.output),
+    };
+    let changes = match live::undo_changes(&app, &last) {
+        Ok(changes) => changes,
+        Err(error) => return failure("try.undo_refused", &error, global.output),
+    };
+    if dry_run {
+        let value = json!({ "path": "live", "app": app.to_string_lossy(), "commit": commit, "files": files });
+        if global.output == OutputMode::Human {
+            println!(
+                "{}",
+                messages
+                    .undo_plan
+                    .replace("{count}", &changes.len().to_string())
+                    .replace("{app}", &app.to_string_lossy())
+            );
+            println!("{}", messages.dry_run);
+            return 0;
+        }
+        return super::super::wire::print_local_success(&value, global.output);
+    }
+    let mut phases = Phases::default();
+    let daemon = app_daemon(&app);
+    let result = live::apply(&app, &changes, store, &daemon, &mut phases);
+    let receipt = json!({ "schema": 1, "action": "undo", "path": "live", "commit": commit, "app": app.to_string_lossy(), "at": now() });
+    finish(global, store, receipt, result, phases, started, &commit, &app)
+}
+
+/// Undoes the last live try into `app` with `daemon` (the testable core of `undo`).
+#[cfg(test)]
+fn undo_live(store: &Store, daemon: &dyn Daemon) -> Result<live::Applied, String> {
+    let last = store.last().ok_or("no receipt")?;
+    let app = PathBuf::from(last.get_str("app").unwrap_or_default());
+    let changes = live::undo_changes(&app, &last)?;
+    live::apply(&app, &changes, store, daemon, &mut Phases::default())
+}
+
+fn status(global: &GlobalArgs, store: &Store) -> i32 {
+    let messages = messages();
+    let Some(last) = store.last() else {
+        return failure("try.no_receipt", messages.no_receipt, global.output);
+    };
+    if global.output != OutputMode::Human {
+        return super::super::wire::print_local_success(&last, global.output);
+    }
+    let phases = last
+        .get("phases")
+        .and_then(Value::as_object)
+        .map(|phases| {
+            phases
+                .iter()
+                .map(|(name, secs)| format!("{name} {}", secs.as_f64().unwrap_or_default()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    println!(
+        "{}",
+        messages
+            .status_line
+            .replace("{action}", last.get_str("action").unwrap_or_default())
+            .replace("{commit}", short(last.get_str("commit").unwrap_or_default()))
+            .replace("{path}", last.get_str("path").unwrap_or_default())
+            .replace("{app}", last.get_str("app").unwrap_or_default())
+            .replace("{phases}", &phases)
+    );
+    0
+}
+
+fn failure(code: &str, message: &str, output: OutputMode) -> i32 {
+    super::super::wire::print_local_error(&json!({ "code": code, "message": message }), output, 1)
+}
+
+fn now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests;

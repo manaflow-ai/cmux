@@ -96,6 +96,7 @@ import {
 } from "./dev-tree";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
 import {
+  AGENT_TOOLS_BAKED_ROLES,
   AGENT_TOOLS_PROFILE,
   agentToolsDaemonEnv,
   agentToolsFiles,
@@ -107,7 +108,6 @@ import {
   rdHostPath,
   rdSetupCommand,
 } from "./agent-tools";
-import { BROWSER_ROLE } from "./browser-probe";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
@@ -127,6 +127,7 @@ import { aptUpdateCommand } from "./apt-update";
 import {
   baseInputTree,
   cachedInstallCommand,
+  imageInputsSha256,
   imagePackagesCommand,
   layerLabel,
   isAppProgram,
@@ -161,6 +162,10 @@ import {
 } from "./sshd";
 import {
   aptClosureProblems,
+  type AptDeb,
+  aptDebFetchCommand,
+  aptLocalInstallCommand,
+  aptPins,
   bakedPrograms,
   aptPinArgs,
   basePackageProblems,
@@ -242,8 +247,8 @@ export type BakeOptions = {
   updateLock: boolean;
   keepBuilder: boolean;
   promotion: boolean;
-  /** Bake the agent tools (agent-tools.ts); off by default. */
-  agentTools?: boolean;
+  /** Bake the required Cloud desktop closure (agent-tools.ts); on for Cloud Native bakes. */
+  agentTools: boolean;
   /** Team VM image (TEAM_VM_SNAPSHOT): adds the team files root /srv/team (teamVmDirsCommand). */
   teamVm?: boolean;
   /** Bake the cmux dev tree (dev-tree.ts); off by default. */
@@ -535,39 +540,25 @@ async function checkBase(ctx: Ctx): Promise<void> {
  */
 export const APT_BATCH_BYTES = 20_000_000;
 
-/** The base image's apt index: the dated snapshot, else the public archive (aptUpdateCommand). */
+/** The base image's apt index: the dated snapshot, else the public archive (aptUpdateCommand). Only pgdg's install reads an index. */
 export const APT_UPDATE_COMMAND = aptUpdateCommand({ log: "/tmp/apt-update.log", sources: "/etc/apt/sources.list.d/ubuntu.sources", saved: "/tmp/ubuntu.sources.snapshot" });
 
-/** `pkg=version size` for every locked package, from the updated apt index (Size: field). */
-export function aptSizesCommand(packages: Readonly<Record<string, string>>): string {
-  return `apt-cache show --no-all-versions ${aptPinArgs(packages)} | awk '/^Package: /{p=$2} /^Version: /{v=$2} /^Size: /{print p "=" v " " $2}'`;
-}
+/** Where the bake fetches locked Ubuntu .debs (clean.py empties it before the snapshot). */
+export const APT_DEB_DIR = "/var/cache/apt/archives";
 
-export function parseAptSizes(stdout: string): Map<string, number> {
-  const sizes = new Map<string, number>();
-  for (const line of stdout.trim().split("\n")) {
-    const [pin, size] = line.trim().split(" ");
-    if (pin && size && /^\d+$/.test(size)) sizes.set(pin, Number(size));
-  }
-  return sizes;
-}
-
-/** Greedy batches in name order; every locked pin must have a size (the index has that exact version). */
+/** Greedy batches in name order, sized from the lock's .debs (apt.ubuntu.debs); a pin with no .deb is refused. */
 export function aptDownloadBatches(
   packages: Readonly<Record<string, string>>,
-  sizes: ReadonlyMap<string, number>,
+  debs: Readonly<Record<string, AptDeb>>,
   maxBytes = APT_BATCH_BYTES,
 ): Array<{ pins: string[]; bytes: number }> {
-  const entries = Object.entries(packages).sort(([a], [b]) => a.localeCompare(b));
-  // Every missing pin at once: all of them missing means the index is empty (a mirror outage), not the lock.
-  const missing = entries.map(([name, version]) => `${name}=${version}`).filter((pin) => !sizes.has(pin));
-  if (missing.length > 0) throw new Error(`apt index has no size for ${missing.length} of ${entries.length} locked pins (${missing.join(", ")})`);
+  const pins = aptPins(packages);
+  const missing = pins.filter((pin) => !debs[pin]);
+  if (missing.length > 0) throw new Error(`apt.ubuntu.debs has no .deb for ${missing.length} of ${pins.length} locked pins (${missing.join(", ")}); run images/cmux-vm/apt-debs.ts`);
   const batches: Array<{ pins: string[]; bytes: number }> = [];
   let current: { pins: string[]; bytes: number } = { pins: [], bytes: 0 };
-  for (const [name, version] of entries) {
-    const pin = `${name}=${version}`;
-    const size = sizes.get(pin);
-    if (size === undefined) continue;
+  for (const pin of pins) {
+    const size = debs[pin]!.size;
     if (current.pins.length > 0 && current.bytes + size > maxBytes) {
       batches.push(current);
       current = { pins: [], bytes: 0 };
@@ -580,18 +571,21 @@ export function aptDownloadBatches(
 }
 
 /**
- * Download one batch into the apt cache with `apt-get download` (exactly these pins, no
- * dependency resolution). Safe to re-run: a .deb already in the cache that dpkg-deb can read
- * is kept, a broken one is removed and fetched again. The offline install verifies hashes.
+ * Fetch and install a locked Ubuntu closure by content (aptDebFetchCommand, aptLocalInstallCommand): no apt index is
+ * read, so a pin the public archive has superseded comes from the dated snapshot instead of failing the bake (run
+ * 43932356313: the snapshot's index update hit its 90 s cap, the archive fallback had moved ca-certificates on, and
+ * "apt index has no size"). The snapshot can be too slow for one 5-minute exec (the guest agent's cap), so the
+ * fetch runs in batches of about APT_BATCH_BYTES, each its own step.
  */
-export function aptDownloadBatchCommand(pins: readonly string[]): string {
-  return [
-    "cd /var/cache/apt/archives || exit 1",
-    "need=''",
-    `for p in ${pins.map(sq).join(" ")}; do n=\${p%%=*}; e=$(printf %s "\${p#*=}" | sed 's/:/%3a/g'); f=$(ls "\${n}_\${e}_"*.deb 2>/dev/null | head -1); if [ -n "$f" ] && dpkg-deb --info "$f" >/dev/null 2>&1; then continue; fi; rm -f "\${n}_\${e}_"*.deb; need="$need $p"; done`,
-    `if [ -n "$need" ]; then apt-get download $need >/tmp/apt-dl.log 2>&1 || { tail -40 /tmp/apt-dl.log; exit 1; }; fi`,
-    `echo "fetched $(echo $need | wc -w) of ${pins.length}"`,
-  ].join("; ");
+async function installUbuntuDebs(ctx: Ctx, prefix: string, packages: Readonly<Record<string, string>>, log: string): Promise<void> {
+  const { vm, L } = ctx;
+  const { ubuntu } = ctx.lock.apt;
+  const batches = aptDownloadBatches(packages, ubuntu.debs);
+  L.log(`${prefix} fetch: ${Object.keys(packages).length} packages, ${batches.length} batches: ${batches.map((b) => `${b.pins.length} pkgs ${(b.bytes / 1e6).toFixed(1)} MB`).join(", ")}`);
+  for (const [i, batch] of batches.entries()) {
+    await L.step(vm, `${prefix}-download-${i + 1}-of-${batches.length}`, aptDebFetchCommand(ubuntu.debs, batch.pins, ubuntu.uri, APT_DEB_DIR));
+  }
+  await L.step(vm, `${prefix}-install`, `${aptLocalInstallCommand(ubuntu.debs, aptPins(packages), APT_DEB_DIR, log)}; grep -c '^Setting up' ${log}`);
 }
 
 async function installApt(ctx: Ctx): Promise<void> {
@@ -599,17 +593,7 @@ async function installApt(ctx: Ctx): Promise<void> {
   const { ubuntu, pgdg } = lock.apt;
   await L.step(vm, "apt-sources-snapshot", "cp /etc/apt/sources.list.d/ubuntu.sources /etc/apt/ubuntu.sources.live");
   await writeGuestFile(vm, "/etc/apt/sources.list.d/ubuntu.sources", ubuntuSourcesFile(ubuntu), 0o644);
-  await L.step(vm, "apt-update", APT_UPDATE_COMMAND);
-  // The locked mirror can be too slow for one 5-minute exec (the guest agent's cap), so the
-  // closure is downloaded in batches of about APT_BATCH_BYTES, each its own step, then
-  // installed offline (--no-download) from the apt cache.
-  const sizes = parseAptSizes(await L.step(vm, "apt-sizes", aptSizesCommand(ubuntu.packages)));
-  const batches = aptDownloadBatches(ubuntu.packages, sizes);
-  L.log(`apt download: ${Object.keys(ubuntu.packages).length} packages, ${batches.length} batches: ${batches.map((b) => `${b.pins.length} pkgs ${(b.bytes / 1e6).toFixed(1)} MB`).join(", ")}`);
-  for (const [i, batch] of batches.entries()) {
-    await L.step(vm, `apt-download-${i + 1}-of-${batches.length}`, aptDownloadBatchCommand(batch.pins));
-  }
-  await L.step(vm, "apt-install-ubuntu", `apt-get install -y --no-install-recommends --no-download ${aptPinArgs(ubuntu.packages)} >/tmp/apt.log 2>&1 || { tail -40 /tmp/apt.log; exit 1; }; grep -c '^Setting up' /tmp/apt.log`);
+  await installUbuntuDebs(ctx, "apt-ubuntu", ubuntu.packages, "/tmp/apt.log");
   // postgresql-common would create and start a 17/main cluster on install; the image carries binaries only.
   await L.step(vm, "pgdg-key", `mkdir -p /etc/postgresql-common/createcluster.d && printf 'create_main_cluster = false\\n' > /etc/postgresql-common/createcluster.d/00-cmux.conf && curl -fsSL --retry 3 -o ${PGDG_KEY} ${sq(pgdg.keyUrl)} && printf '%s  %s\\n' ${pgdg.keySha256} ${PGDG_KEY} | sha256sum -c --quiet -`);
   await writeGuestFile(vm, "/etc/apt/sources.list.d/pgdg.sources", pgdgSourcesFile(pgdg, PGDG_KEY), 0o644);
@@ -731,12 +715,12 @@ async function configureSshd(ctx: Ctx): Promise<void> {
 }
 
 /**
- * The first-use packages roles-off refuses: every first-use closure, less the browser role's closure when
- * --agent-tools bakes that role (browserRoleBakePhases). A layered bake reruns roles-off in the agents layer, on a
- * system layer whose agent tools already installed the browser closure (fontconfig, which display-wm shares).
+ * The first-use packages roles-off refuses: every first-use closure, less the closures of the roles --agent-tools
+ * bakes (AGENT_TOOLS_BAKED_ROLES: browser, and display-wm for the desktop session; browserRoleBakePhases). A layered
+ * bake reruns roles-off in the agents layer, on a system layer whose agent tools already installed those closures.
  */
 export function refusedFirstUsePackages(lock: InputsLock, agentTools: boolean): string[] {
-  const baked = new Set(agentTools ? Object.keys(lock.apt.ubuntu.firstUse[BROWSER_ROLE] ?? {}) : []);
+  const baked = new Set(agentTools ? AGENT_TOOLS_BAKED_ROLES.flatMap((role) => Object.keys(lock.apt.ubuntu.firstUse[role] ?? {})) : []);
   return [...new Set(Object.values(lock.apt.ubuntu.firstUse).flatMap((closure) => Object.keys(closure)))].filter((p) => !baked.has(p)).sort();
 }
 
@@ -845,10 +829,9 @@ export function desktopRecord(lock: InputsLock): { role: "desktop"; program: str
 async function installDevTree(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   const tree = devTreeLock(ctx.lock);
-  const sizes = parseAptSizes(await L.step(vm, "dev-tree-apt-sizes", aptSizesCommand(tree.apt)));
-  const batches = aptDownloadBatches(tree.apt, sizes);
-  for (const [i, batch] of batches.entries()) await L.step(vm, `dev-tree-apt-download-${i + 1}-of-${batches.length}`, aptDownloadBatchCommand(batch.pins));
-  await L.step(vm, "dev-tree-apt-install", `${DPKG_LIST} > /root/dev-tree-before.tsv && { apt-get install -y --no-install-recommends --no-download ${aptPinArgs(tree.apt)} >/tmp/apt-dev-tree.log 2>&1 || { tail -40 /tmp/apt-dev-tree.log; exit 1; }; } && ${DPKG_LIST} > /root/dev-tree-after.tsv`);
+  await L.step(vm, "dev-tree-dpkg-before", `${DPKG_LIST} > /root/dev-tree-before.tsv`);
+  await installUbuntuDebs(ctx, "dev-tree-apt", tree.apt, "/tmp/apt-dev-tree.log");
+  await L.step(vm, "dev-tree-dpkg-after", `${DPKG_LIST} > /root/dev-tree-after.tsv`);
   const before = parseDpkgList(await readGuestText(vm, "/root/dev-tree-before.tsv"));
   const problems = aptClosureProblems(tree.apt, dpkgChanges(before, parseDpkgList(await readGuestText(vm, "/root/dev-tree-after.tsv"))), before);
   if (problems.length > 0) throw new Error(`dev tree apt closure differs from devTree.apt:\n${problems.join("\n")}`);
@@ -1074,6 +1057,17 @@ export function layerFlags(options: BakeOptions): string[] {
   return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree"].filter((f): f is string => Boolean(f));
 }
 
+/**
+ * The image's inputs_sha256 (layers.ts imageInputsSha256) from the lock, this bake's layerFlags and the input
+ * tree. The full and the layered bake both call this, so one lock gives one value. Undefined where the key would
+ * not cover the image: --dev-tree carries a checkout of this commit, and --update-lock can rewrite the lock
+ * mid-bake. The platform then falls back to the image's id@revision.
+ */
+export function bakeInputsSha256(options: BakeOptions, lockText: string, inputTree: string): string | undefined {
+  if (options.devTree || options.updateLock) return undefined;
+  return imageInputsSha256(lockText, layerFlags(options), inputTree);
+}
+
 /** Every snapshot on the account, page by page (one default page can miss a cached layer's slug). */
 async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<Array<{ id: string; slug?: string | null }>> {
   const all: Array<{ id: string; slug?: string | null }> = [];
@@ -1143,10 +1137,19 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       agentToolsFiles(lock);
       result.desktop = desktopRecord(lock);
     }
+    // The full bake records the key too, but needs no git for it: without the tree it records none.
+    let inputTree: string | undefined;
+    try {
+      inputTree = baseInputTree(REPO_ROOT);
+    } catch (error) {
+      if (options.layered) throw error;
+      L.log(`no inputs_sha256: ${String(error)}`);
+    }
+    if (inputTree !== undefined) result.inputsSha256 = bakeInputsSha256(options, lockText, inputTree);
     if (options.layered) {
       // layers.ts: system -> agents -> app. A cached layer is reused by its slug; a missing one is built on its
       // parent and kept (its builder is on a ledger of its own, which the run's cleanup never reads).
-      const keys = layerKeys(lockText, layerFlags(options), baseInputTree(REPO_ROOT));
+      const keys = layerKeys(lockText, layerFlags(options), inputTree!);
       const layerLedger = new Ledger(path.join(options.outDir, "layers", "resources.tsv"));
       const snapshots = await allSnapshots(fs);
       const layers: Array<Record<string, unknown>> = [];
@@ -1201,14 +1204,17 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
+  const promotion = hasFlag("--promotion", argv);
   return {
     tag,
     outDir: path.resolve(argValue("--out-dir", argv) ?? `cmux-vm-image-out/${tag}`),
     lockPath: path.resolve(argValue("--lock", argv) ?? DEFAULT_LOCK_PATH),
     updateLock: hasFlag("--update-lock", argv),
     keepBuilder: hasFlag("--keep-builder", argv),
-    promotion: hasFlag("--promotion", argv),
-    agentTools: hasFlag("--agent-tools", argv),
+    promotion,
+    // Cloud Native images always carry the desktop closure. The legacy promotion
+    // path is the only image bake that intentionally keeps it off.
+    agentTools: !promotion,
     teamVm: hasFlag("--team-vm", argv),
     devTree: hasFlag("--dev-tree", argv),
     prodCopy: hasFlag("--prod-copy", argv),

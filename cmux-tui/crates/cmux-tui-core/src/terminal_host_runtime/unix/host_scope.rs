@@ -73,7 +73,7 @@ pub(crate) fn busctl_args(pid: u32) -> Vec<String> {
 
 /// The parent PID of `pid` from `/proc/<pid>/stat` (Linux).
 fn parent_pid(pid: u32) -> Option<u32> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
     // The command name may hold spaces or parentheses: parse after the last ')'.
     stat.rsplit_once(')')?.1.split_whitespace().nth(1)?.parse().ok()
 }
@@ -150,6 +150,15 @@ fn cgroup_names_scope(cgroup: &str, pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The parent of a host is read whatever bytes the name of its program
+    /// has.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_parent_of_a_host_is_read_for_each_program_name() {
+        let child = cmux_tui_platform::CutNameChild::start("host-scope").expect("child");
+        assert_eq!(parent_pid(child.id()), Some(std::process::id()));
+    }
 
     /// The move is complete only when the host's own cgroup names its scope:
     /// the host forks the shell right after Launch, and a shell forked

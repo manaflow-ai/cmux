@@ -10,8 +10,9 @@
 // (transcript-interim-prose-gap.test.ts).
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { activity, chat, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxActivity } from "../model";
+import { openEndedStretch } from "./endedStretchPlay";
 
 const command = (title: string, line: string) =>
   tool(title, "execute", "completed", { command: line, description: title });
@@ -34,6 +35,10 @@ const rows = [
     ],
     9.9,
   ),
+  // The run's stretch ended with its summary while the chat works on: under the shipped
+  // live-turn-work `line` a stretch still running draws none of its runs, only the live line, so the
+  // notes sit between drawn rows once their stretch ended (turns.ts `codexRuns`).
+  summary(9.8, { status: "completed", durationMs: 12_000, toolCount: 4 }),
 ];
 
 const snapshot = chat(rows, { title: "Retry fix", isWorking: true });
@@ -42,6 +47,7 @@ const snapshot = chat(rows, { title: "Retry fix", isWorking: true });
 /// command's row, which opens that command's output instead.
 const openRun: Play = async (ctx) => {
   const run = '.acpmux-activity .cv-tool.is-run[aria-expanded="false"]';
+  await openEndedStretch(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(`${run}, .cv-tool-note`));
   if (ctx.document.querySelector(run)) await ctx.click({ selector: run });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-tool-note").length === 2);

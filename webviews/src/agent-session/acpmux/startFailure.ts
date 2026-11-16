@@ -1,7 +1,13 @@
 import { failureCopy, failureKind } from "./failureCopy";
 import type { Translate } from "./i18n";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
-import { startRefusalAction } from "./startRefusal";
+import {
+  CMUX_ROUTER_HARNESS,
+  HARNESS_MISSING,
+  ROUTE_UNAVAILABLE,
+  SIGN_IN_REQUIRED,
+  startRefusalAction,
+} from "./startRefusal";
 
 /// The start-failed card's words (SwitchNotice.tsx): one plain sentence, the agent's raw words for
 /// Details, and Install when the agent is not on the machine and cmux knows how to install it
@@ -15,6 +21,9 @@ export type StartFailureView = {
   detail?: string;
   /// The command Install runs in a terminal tab.
   install?: string;
+  /// The agent is not on the machine: a surface without a terminal (New Tab) still offers Install,
+  /// through Agents setup, which installs it and continues the draft.
+  notInstalled?: true;
 };
 
 /// The spawn words for a binary that is not there: the spawn's own `ENOENT` ("spawn claude-agent-acp:
@@ -34,8 +43,11 @@ function writtenForPeople(text: string): boolean {
 
 export function startFailureView(
   t: Translate,
-  switching: { harness: string; name: string; error?: string; code?: string },
+  switching: { harness: string; name: string; error?: string; code?: string; signInExpired?: true },
 ): StartFailureView {
+  if (switching.code === SIGN_IN_REQUIRED) return signInView(t, switching);
+  if (switching.code === HARNESS_MISSING) return missingView(t, switching);
+  if (switching.code === ROUTE_UNAVAILABLE) return routeView(t, switching);
   // The switch's own stand-in for no words ("unknown error") says nothing worth a Details.
   const words = switching.error?.trim();
   const raw = words && words !== t("switch.unknownError") ? words : undefined;
@@ -49,6 +61,7 @@ export function startFailureView(
     return {
       sentence: t("switch.notInstalled", { agent: switching.name }),
       detail: raw,
+      notInstalled: true,
       ...(install ? { install } : {}),
     };
   }
@@ -61,4 +74,46 @@ export function startFailureView(
       ? t("turn.failure.spawnFailed", { harness: switching.name })
       : failureCopy(t, raw, { name: switching.name, harness: switching.harness }, switching.code);
   return { sentence, detail: raw };
+}
+
+/// A start whose agent is not signed in on the machine (hq#11225): the agent by name, the expired
+/// sign-in said as one, and the agent's own words (or the host's) under Details. Sign in is the
+/// card's action (startRefusal.ts), so the sentence names only the cause.
+function signInView(t: Translate, switching: { name: string; error?: string; signInExpired?: true }): StartFailureView {
+  const agent = switching.name.trim();
+  const sentence = !agent
+    ? t("switch.signInRequiredUnnamed")
+    : t(switching.signInExpired ? "switch.signInExpired" : "switch.signInRequired", { agent });
+  return withDetail(t, sentence, switching.error);
+}
+
+/// The refusal's own words (the host's or the agent's) under Details, unless they say nothing more.
+function withDetail(t: Translate, sentence: string, error: string | undefined): StartFailureView {
+  const words = error?.trim();
+  const detail = words && words !== t("switch.unknownError") && words !== sentence ? words : undefined;
+  return detail ? { sentence, detail } : { sentence };
+}
+
+/// A start of an agent the machine does not have (`agent_session.harness_missing`, hq#11225): the
+/// agent by name, as a spawn that found no CLI reads, with Install where cmux knows its installer
+/// (SwitchNotice offers it only for a chat on this Mac).
+function missingView(t: Translate, switching: { harness: string; name: string; error?: string }): StartFailureView {
+  const agent = switching.name.trim();
+  const sentence = agent ? t("switch.notInstalled", { agent }) : t("switch.notInstalledUnnamed");
+  const install = INSTALL_COMMANDS[switching.harness];
+  return { ...withDetail(t, sentence, switching.error), notInstalled: true, ...(install ? { install } : {}) };
+}
+
+/// A start whose model route cannot serve it on the machine (`agent_session.route_unavailable`,
+/// hq#11225). The cmux router is named as the router; any other agent by its route. The words hold
+/// for as long as the refusal does: it comes only when the route truly cannot serve the start.
+function routeView(t: Translate, switching: { harness: string; name: string; error?: string }): StartFailureView {
+  const agent = switching.name.trim();
+  const sentence =
+    switching.harness === CMUX_ROUTER_HARNESS
+      ? t("switch.routerUnavailable")
+      : agent
+        ? t("switch.routeUnavailable", { agent })
+        : t("switch.routeUnavailableUnnamed");
+  return withDetail(t, sentence, switching.error);
 }

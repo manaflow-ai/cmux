@@ -25,6 +25,29 @@
       }
     }
   },
+  "settings.choice.neko": {
+    "source": "Neko",
+    "identityLocales": {
+      "de": {
+        "reason": "Neko (Japanese for cat) is the icon theme's name; German keeps the loanword as written.",
+        "values": [
+          "Neko"
+        ]
+      },
+      "es": {
+        "reason": "Neko (Japanese for cat) is the icon theme's name; Spanish keeps the loanword as written.",
+        "values": [
+          "Neko"
+        ]
+      },
+      "fr": {
+        "reason": "Neko (Japanese for cat) is the icon theme's name; French keeps the loanword as written.",
+        "values": [
+          "Neko"
+        ]
+      }
+    }
+  },
   "settings.choice.agentChatPresentationMessages": {
     "source": "Messages",
     "identityLocales": {
@@ -6817,6 +6840,10 @@
     "class": "brand",
     "source": "Mac"
   },
+  "devices.platform.linux": {
+    "class": "brand",
+    "source": "Linux"
+  },
   "devices.platform.ios": {
     "class": "brand",
     "source": "iPhone"
@@ -7435,5 +7462,22 @@
   "liveWeb.failed": {
     "class": "brand",
     "source": "cmux Live: %@"
+  },
+  "settings.category.chat": {
+    "source": "Chat",
+    "identityLocales": {
+      "de": {
+        "reason": "Chat is the standard German noun for a chat conversation.",
+        "values": [
+          "Chat"
+        ]
+      },
+      "es": {
+        "reason": "Chat is the standard Spanish noun for a chat conversation.",
+        "values": [
+          "Chat"
+        ]
+      }
+    }
   }
 }

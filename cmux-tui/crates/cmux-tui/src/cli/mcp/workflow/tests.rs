@@ -268,6 +268,7 @@ fn native_workflow_host_drops_a_disabled_upstream_before_another_call() {
         args: Vec::new(),
         env: Vec::new(),
         call_timeout: Duration::from_secs(1),
+        shared: None,
     })));
     refresh_tools(&mut server, &json!({"allowedTools":null,"upstreamNames":[]})).unwrap();
     assert!(server.upstreams.is_empty());
@@ -291,6 +292,7 @@ fn native_workflow_host_refuses_saved_results_from_a_revoked_upstream() {
         args: Vec::new(),
         env: Vec::new(),
         call_timeout: Duration::from_secs(1),
+        shared: None,
     }));
     proxied.listed.push(json!({"name":name}));
     server.upstreams.push(proxied);

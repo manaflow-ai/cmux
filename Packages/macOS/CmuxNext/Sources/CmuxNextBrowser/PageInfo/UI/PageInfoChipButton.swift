@@ -27,7 +27,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         super.init(frame: frame)
         wantsLayer = true
         focusRingType = .none
-        layer?.cornerRadius = OmnibarStyle.chipCornerRadius
+        layer?.cornerRadius = OmnibarStyle.chipButtonCornerRadius
         layer?.cornerCurve = .continuous
         icon.imageScaling = .scaleNone
         text.isHidden = true
@@ -59,13 +59,13 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
     private func applyTint() {
         performWithTheme {
             let tint = indicator.tone == .danger ? PageInfoStyle.danger : OmnibarStyle.textPrimary
-            icon.contentTintColor = tint
+            icon.contentTintColor = indicator.tone == .danger ? tint : OmnibarStyle.resultsIcon
             text.textColor = tint
         }
     }
 
     private func apply() {
-        icon.image = NSImage.icon(symbol: indicator.symbol, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
+        icon.image = NSImage.icon(symbol: indicator.symbol, size: OmnibarStyle.iconSide)
         applyTint()
         text.font = OmnibarStyle.font
         text.stringValue = labelText ?? ""
@@ -88,6 +88,8 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
 
     override func layout() {
         super.layout()
+        // The bar's height can change live (density, `browser.omnibar.height`): the corner follows it.
+        layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: min(bounds.width, bounds.height))
         let side = bounds.height
         let iconSize = icon.intrinsicContentSize
         icon.frame = NSRect(x: (side - iconSize.width) / 2, y: (side - iconSize.height) / 2, width: iconSize.width, height: iconSize.height)

@@ -283,8 +283,17 @@ impl ShellActivity {
     /// Whether the command or prompt fact changed, or the last output moved
     /// a whole interval past the one published, since the last call (marks
     /// it taken).
+    #[cfg(test)]
     pub(crate) fn take_change(&mut self) -> bool {
-        let changed = self.has_change();
+        let edge = self.take_edge_change();
+        self.take_output_change() || edge
+    }
+
+    /// Whether the command or prompt fact changed since the last call (marks
+    /// it taken): a durable edge, one terminal upsert commit. The commit
+    /// carries the last output too, so that is marked with it.
+    pub(crate) fn take_edge_change(&mut self) -> bool {
+        let changed = self.has_edge_change();
         if changed {
             self.published = (self.busy_since_ms, self.interactive, self.prompt_since_ms);
             self.published_output_ms = self.last_output_ms;
@@ -293,18 +302,35 @@ impl ShellActivity {
         changed
     }
 
+    /// Whether the last output moved a whole interval past the one published
+    /// (marks it taken): a live fact, sent to the open streams and never
+    /// committed.
+    pub(crate) fn take_output_change(&mut self) -> bool {
+        let changed = self.has_output_change();
+        if changed {
+            self.published_output_ms = self.last_output_ms;
+        }
+        changed
+    }
+
     /// Whether `take_change` would report a change now; marks nothing. The
     /// output reader asks this, and the terminal publisher takes the change.
     pub(crate) fn has_change(&self) -> bool {
-        let output_moved = match (self.last_output_ms, self.published_output_ms) {
+        self.has_edge_change() || self.has_output_change()
+    }
+
+    fn has_edge_change(&self) -> bool {
+        (self.busy_since_ms, self.interactive, self.prompt_since_ms) != self.published
+            || self.last_command != self.published_last_command
+    }
+
+    fn has_output_change(&self) -> bool {
+        match (self.last_output_ms, self.published_output_ms) {
             (Some(last), Some(published)) => {
                 last < published || last - published >= OUTPUT_PUBLISH_INTERVAL_MS
             }
             (last, published) => last != published,
-        };
-        (self.busy_since_ms, self.interactive, self.prompt_since_ms) != self.published
-            || self.last_command != self.published_last_command
-            || output_moved
+        }
     }
 }
 

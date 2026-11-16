@@ -1,3 +1,4 @@
+import type { ChipFace } from "./chipFace";
 // The composer's model picker's props, the combos it lands, and its height bounds (ModelPicker.tsx).
 import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./composerPickerModel";
@@ -32,6 +33,10 @@ export type ModelPickerProps = {
   switching?: { harness: string; name: string; mark?: string };
   /// The chip's secondary text after the model: the chosen effort, when it is not the default.
   detail?: string;
+  /// The chip's logo, name and effort as one value (chipFace.ts). When given, it is what the chip
+  /// draws (a switch to another harness still draws that harness); `label`, `detail` and
+  /// `detailShort` then only feed the menu.
+  face?: ChipFace;
   /// How much of the context window the chat has used ("42% of context used"), shown in the
   /// chip's tooltip: the controls row draws no context ring (hq#1957 item 15 compact row).
   usage?: string;
@@ -77,9 +82,6 @@ export type ModelPickerProps = {
   onSetUpPick?(pick: SetupRequest): void;
   /// What that setup is doing: the compact menu's setup strip.
   setup?: QuickSetup;
-  /// Set while the picker is mounted to a call that opens its menu (the compact one when `quick`
-  /// is set), whose rail switches harness: the footer's harness item opens it (ComposerHarness.tsx).
-  opener?: { current: (() => void) | undefined };
   /// The chat has started, so its harness is fixed, as in Claude Code (Leo 2026-10-19): the menu
   /// lists `harness`'s models alone, with search and More models, and no harness rail, Starred tab
   /// or Add harness…; the compact menu draws no rail either. A New Tab or a chat with no message

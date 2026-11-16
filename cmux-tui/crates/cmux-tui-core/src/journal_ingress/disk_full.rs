@@ -184,6 +184,9 @@ impl DiskFullRetry {
             } else if kept.len() < KEEP_MAX {
                 kept.push(queued);
             } else {
+                // Its terminal owes a gap marker, offered ahead of its next record, a
+                // checkpoint or the last barrier of a shutdown (terminal_offer.rs).
+                state.owe_gap_for_dropped(&queued.event);
                 dropped += 1;
             }
         };

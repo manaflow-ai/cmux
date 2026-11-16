@@ -96,6 +96,8 @@ public actor AgentSessionAttachClient {
         var vmKind = false
         /// `agent-session-start-model-v1`.
         var model = false
+        /// `agent-session-start-mode-v1`.
+        var startMode = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
         /// `agent-session-children-v1`.
@@ -112,6 +114,8 @@ public actor AgentSessionAttachClient {
         var settings = false
         /// `agent-session-login-v1`.
         var login = false
+        /// `agent-session-login-machine-v1`.
+        var loginMachine = false
         /// `agent-session-content-v1`.
         var content = false
         /// `agent-session-context-v1`.
@@ -176,6 +180,10 @@ public actor AgentSessionAttachClient {
     /// An explicit `model` requires `agent-session-start-model-v1`; older daemons retain the
     /// existing cwd/harness start when no model was requested.
     ///
+    /// `startMode`: the person's mode pick, sent only to the caller's own Cloud VM (`ownerLink`)
+    /// whose daemon lists `agent-session-start-mode-v1`. An older machine starts without it, in
+    /// its own start mode, and the chat's reported mode then names that.
+    ///
     /// `ownerLink`: set for a Cloud machine (from the app's own record of it, never the guest's).
     /// A chat starts there only while it gives the same link id before the connection and as the
     /// start is sent (the link's attach answer said the signed-in caller owns the machine, and
@@ -186,7 +194,7 @@ public actor AgentSessionAttachClient {
     /// that same connection, checked before it: if it ended meanwhile the start fails, never
     /// goes out over a new one.
     public func start(cwd: String?, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
-                      ownerLink: OwnerLink? = nil, model: String? = nil) async throws -> String {
+                      ownerLink: OwnerLink? = nil, model: String? = nil, startMode: String? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
@@ -200,7 +208,8 @@ public actor AgentSessionAttachClient {
         }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
-                                      model: model, servesModel: served.model)
+                                      model: model, servesModel: served.model,
+                                      startMode: startMode, servesStartMode: served.startMode)
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
@@ -247,7 +256,8 @@ public actor AgentSessionAttachClient {
     /// does not advertise is never sent (its `deny_unknown_fields` would refuse the start).
     static func startParams(cwd: String?, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
                             servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
-                            model: String? = nil, servesModel: Bool = false) -> [String: any Sendable] {
+                            model: String? = nil, servesModel: Bool = false,
+                            startMode: String? = nil, servesStartMode: Bool = false) -> [String: any Sendable] {
         var params: [String: any Sendable] = [:]
         if let cwd { params["cwd"] = cwd }
         if let harness { params["harness"] = harness }
@@ -258,6 +268,9 @@ public actor AgentSessionAttachClient {
             if let instance = personKey.instance { params["person_instance"] = instance }
         }
         if callerOwnsVM, servesVMKind { params["vm_kind"] = "owner" }
+        // The mode pick goes only with the owner word: the daemon applies it on the caller's own
+        // Cloud VM and nowhere else.
+        if callerOwnsVM, servesVMKind, servesStartMode, let startMode, !startMode.isEmpty { params["mode"] = startMode }
         return params
     }
 
@@ -582,6 +595,27 @@ public actor AgentSessionAttachClient {
                               timeout: Self.loginTimeout(op) ?? requestTimeout)
     }
 
+    /// `agent-session-login` for a new chat with no session yet (`agent-session-login-machine-v1`,
+    /// hq#11225): one step of its agent's sign-in on that machine itself (acpmux's
+    /// `_acpmux/agent_login/<op>` with no session), on this client's surface, an unbound tab of that
+    /// machine's store. The daemon there gates it as a start: `ownerLink` as for
+    /// ``start(cwd:harness:homeConfirmed:personKey:ownerLink:model:startMode:)``, and the step goes
+    /// with `vm_kind: "owner"` over the connection the owner answer was read for. A daemon without
+    /// the capability answers `unsupported`, so the card says to sign in on that machine instead.
+    public func machineLogin(_ op: String, _ fields: [String: String], ownerLink: OwnerLink? = nil) async throws -> Data {
+        let unsupported = Data(#"{"refused":{"reason":"unsupported"}}"#.utf8)
+        guard mode == .attach else { return unsupported }
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { _ in }
+        guard served.loginMachine else { return unsupported }
+        var params: [String: any Sendable] = ["op": op]
+        for (key, value) in fields { params[key] = value }
+        if callerOwnsVM { params["vm_kind"] = "owner" }
+        guard !transport.isClosed else {
+            throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the sign-in step was sent")
+        }
+        return try await call("agent-session-login", params, timeout: Self.loginTimeout(op) ?? requestTimeout, on: transport)
+    }
+
     /// The code ``btw(_:)`` throws for a daemon without `agent-session-btw-v1`.
     public static let btwUnsupported = "agent_session.btw_unsupported"
 
@@ -775,6 +809,7 @@ public actor AgentSessionAttachClient {
                             keyedReason: identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue),
                             vmKind: identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue),
                             model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
+                            startMode: identity.supports(DaemonCapability.agentSessionStartMode.rawValue),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),
@@ -783,6 +818,7 @@ public actor AgentSessionAttachClient {
                             folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
                             login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),
+                            loginMachine: identity.supports(DaemonCapability.agentSessionLoginMachine.rawValue),
                             content: identity.supports(DaemonCapability.agentSessionContent.rawValue),
                             context: identity.supports(DaemonCapability.agentSessionContext.rawValue),
                             btw: identity.supports(DaemonCapability.agentSessionBtw.rawValue))

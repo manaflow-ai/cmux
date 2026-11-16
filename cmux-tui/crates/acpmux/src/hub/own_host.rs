@@ -110,7 +110,7 @@ mod segment_tests {
     fn peer_row(hub: &Hub, peer: &str, id: &str, name: &str) {
         let row = RemoteSession {
             peer: peer.into(),
-            summary: json!({"sessionId": id, "name": name, "peer": peer}),
+            summary: json!({"sessionId": id, "name": name, "peer": peer}).into(),
             receipt: SessionReceipt {
                 host_id: peer.into(),
                 mux_session_id: id.into(),
@@ -118,7 +118,7 @@ mod segment_tests {
                 generation: 1,
             },
         };
-        hub.remote_sessions.lock().unwrap().insert(format!("{peer}/{id}"), row);
+        hub.remote_sessions.write().insert(format!("{peer}/{id}"), row);
     }
 
     fn id(r: Result<Arc<Session>, RpcError>) -> String {
@@ -293,7 +293,8 @@ mod segment_tests {
         let row = RemoteSession {
             peer: "hb".into(),
             summary: json!({"sessionId": "r1", "name": "hb/c/lane", "peer": "hb",
-                            "status": "closed"}),
+                            "status": "closed"})
+            .into(),
             receipt: SessionReceipt {
                 host_id: "hb".into(),
                 mux_session_id: "r1".into(),
@@ -301,7 +302,7 @@ mod segment_tests {
                 generation: 1,
             },
         };
-        hub.remote_sessions.lock().unwrap().insert("hb/r1".into(), row);
+        hub.remote_sessions.write().insert("hb/r1".into(), row);
         assert_eq!(id(hub.resolve("lane")), "m1");
         assert!(hub.resolve_remote("lane").is_none());
     }

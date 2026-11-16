@@ -141,7 +141,7 @@ final class AgentDialogDesk {
         }
         guard line.isPerson else {
             throw ControlError(code: "person_required", message: Self.text("agentDialogs.notPerson",
-                "acpmux did not take this app's person proof; answer the question in cmux"), data: ["request_id": .string(id)])
+                "cmux couldn't confirm the answer came from you; answer the question in the cmux window"), data: ["request_id": .string(id)])
         }
         guard let data = try? built.params.data(), let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             throw ControlError(code: "internal", message: Self.text("agentDialogs.encodeFailed", "The answer could not be encoded"))
@@ -201,7 +201,7 @@ final class AgentDialogDesk {
     /// A connection and the pending prompt `id` names on it; the caller closes the connection.
     private func find(_ id: String) async throws -> (any AgentDialogLine, Pending) {
         guard let line = await open() else {
-            throw ControlError(code: "unavailable", message: Self.text("agentDialogs.noAcpmux", "No agent daemon (acpmux) answers in this app"))
+            throw ControlError(code: "unavailable", message: Self.text("agentDialogs.noAcpmux", "No agent daemon answers in this app"))
         }
         guard let prompt = await line.pendingPrompts().first(where: { $0.permission == id }) else {
             line.close()

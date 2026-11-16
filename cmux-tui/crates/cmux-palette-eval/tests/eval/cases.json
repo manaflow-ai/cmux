@@ -101,7 +101,7 @@
     },
     {
       "query": "toggle sidebar",
-      "expect": ["action:toggleSidebar", "action:toggleRightSidebar"],
+      "expect": ["action:toggleSidebar"],
       "group": "exact"
     },
     {
@@ -231,7 +231,7 @@
     },
     {
       "query": "sidebar",
-      "expect": ["action:toggleSidebar", "action:toggleRightSidebar"],
+      "expect": ["action:toggleSidebar"],
       "group": "partial"
     },
     {
@@ -454,7 +454,7 @@
     },
     {
       "query": "files",
-      "expect": ["action:switchRightSidebarToFiles", "action:palette.openFilesPane", "action:file.open"],
+      "expect": ["action:palette.openFilesPane", "action:file.open"],
       "group": "concept"
     },
     {

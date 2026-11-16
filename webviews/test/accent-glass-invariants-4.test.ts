@@ -1,4 +1,5 @@
 // cmux-web-test-timeout: 480
+// cmux-web-test-alone
 // Part 4 of 7 of the accent and glass invariants over every web gallery stage
 // (test/support/accentGlassInvariants.ts has the rules, the stages and why they are split).
 // Its dev server is the gallery's: vite.config.gallery-dev.ts.

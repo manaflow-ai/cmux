@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxConnectivityTelemetry
 import CmuxMobileDesign
 import CmuxSpinner
 import OSLog
@@ -7,13 +8,15 @@ import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
-/// The account's Cloud page Settings lists (Automations) and its Connect GitHub row. They come
-/// from the Chief module, which holds the account's Cloud calls; Settings only places them.
+/// The account's Cloud pages Settings lists (Cloud Machines, Automations) and its Connect GitHub
+/// row. They come from the Chief module, which holds the account's Cloud calls; Settings only places them.
 public struct SettingsCloudPages {
+    public var machines: () -> AnyView
     public var automations: () -> AnyView
     public var connectGitHub: () -> AnyView
 
-    public init(automations: @escaping () -> AnyView, connectGitHub: @escaping () -> AnyView) {
+    public init(machines: @escaping () -> AnyView, automations: @escaping () -> AnyView, connectGitHub: @escaping () -> AnyView) {
+        self.machines = machines
         self.automations = automations
         self.connectGitHub = connectGitHub
     }
@@ -81,6 +84,9 @@ enum PhoneLogs {
         } catch {
             lines.append(String(localized: "The log could not be read: \(error.localizedDescription)"))
         }
+        lines += ["", "Connectivity journal (\(ConnectivityTelemetry.shared.audience.rawValue)):"]
+        let journal = ConnectivityJournal.applicationSupport().contents().split(separator: "\n").suffix(limit)
+        lines += journal.isEmpty ? ["(empty)"] : journal.map(String.init)
         return lines.joined(separator: "\n")
     }
 }

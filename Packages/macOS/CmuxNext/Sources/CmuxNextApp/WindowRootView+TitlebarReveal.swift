@@ -25,27 +25,28 @@ extension WindowRootView {
             let glass = trafficLightsGlass
             Motion.feedback.animate(.hover, in: glass) { glass.animator().alphaValue = revealed && self.titlebarReveal.state.pointerInside ? 1 : 0 }
         }
-        // The pointer over the sidebar shows its chrome: its + button and these buttons above it.
+        // The pointer over a shown or floating sidebar shows its chrome: its + button and these buttons above it.
         sidebar.sidebarView.onChromeRevealChange = { [weak self] revealed in
             guard let self else { return }
-            if revealed {
+            if revealed, !sidebarHidden || sidebar.model.isFloating {
                 if sidebarHoverHold == nil { sidebarHoverHold = titlebarReveal.hold() }
             } else {
-                sidebarHoverHold?.release()
-                sidebarHoverHold = nil
+                endSidebarHoverHold()
             }
         }
     }
 
+    func endSidebarHoverHold() { sidebarHoverHold?.release(); sidebarHoverHold = nil }
+
     /// Whether the buttons hide at rest. With the sidebar open they always
     /// show, as its + button does (Lawrence 2026-10-28 message 15460: "if
-    /// sidebar is open, all the stuff should show"), unless Show Sidebar
-    /// Controls Only on Hover (`sidebar.controlsOnHover`) is on. With the
+    /// sidebar is open, all the stuff should show"), unless Minimal Mode or Show
+    /// Sidebar Controls Only on Hover is on (``SidebarSectionsPreferences/hidesControlsUntilHover``). With the
     /// sidebar hidden, `window.titlebarButtons` decides: hover (the default)
     /// hides them at rest; always shows them.
     func applyTitlebarButtonsMode() {
         let design = DesignSettings.shared
-        let hidesAtRest = sidebarHidden ? design.titlebarButtons == .hover : design.sidebarSections.controlsOnHover
+        let hidesAtRest = sidebarHidden ? design.titlebarButtons == .hover : design.sidebarSections.hidesControlsUntilHover
         if titlebarReveal.isEnabled != hidesAtRest { titlebarReveal.isEnabled = hidesAtRest }
     }
 

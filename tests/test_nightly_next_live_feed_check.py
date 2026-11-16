@@ -24,9 +24,10 @@ live = importlib.util.module_from_spec(spec)
 sys.modules["nightly_next_live_feed_check"] = live
 spec.loader.exec_module(live)
 
-RING_SPEC = importlib.util.spec_from_file_location("nightly_next_ring", ROOT / "scripts/ci/nightly_next_ring.py")
-ring = importlib.util.module_from_spec(RING_SPEC)
-RING_SPEC.loader.exec_module(ring)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import nightly_next_ring as ring  # noqa: E402
 
 UPDATE_RING = ROOT / "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift"
 FEED_RESOLVER = ROOT / "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateFeedResolver.swift"

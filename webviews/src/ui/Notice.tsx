@@ -17,6 +17,7 @@ import { Checkbox } from "@base-ui/react/checkbox";
 import { useId, type KeyboardEvent, type ReactNode } from "react";
 import { Button } from "./Button";
 import { cx } from "./cx";
+import { DismissButton } from "./DismissButton";
 import "./controls.css";
 import "./notice.css";
 
@@ -207,20 +208,7 @@ export function Notice({
         </div>
       )}
       {/* Last in the tab order: an answer or Retry comes before closing. */}
-      {onDismiss && (
-        <Button
-          variant="ghost"
-          size="sm"
-          icon
-          className="ui-notice-dismiss"
-          aria-label={dismissLabel}
-          onClick={onDismiss}
-        >
-          <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
-            <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-          </svg>
-        </Button>
-      )}
+      {onDismiss && <DismissButton className="ui-notice-dismiss" label={dismissLabel} onDismiss={onDismiss} />}
     </section>
   );
 }

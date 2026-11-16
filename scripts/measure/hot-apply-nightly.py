@@ -21,9 +21,19 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 ROOT = Path(__file__).resolve().parents[2]
 HOT = ROOT / "scripts/cmux-next/hot-apply.py"
+OTHER = "hotapply-other"  # the second session (sessions=1), as a Chief's beside the app's own
 
 
 def load(name: str, path: Path):
@@ -121,6 +131,10 @@ def main() -> int:
     parser.add_argument("--sha", required=True)
     parser.add_argument("--pid-file", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--prefetch", action="store_true", help="run `hot-apply.py prefetch SHA` before the apply")
+    parser.add_argument("--sessions", action="store_true",
+                        help="a second session's daemon from the copy's bin (as a Chief's) with a shell, and "
+                             "`apply --restart-sessions`: it must be handed over and back with its shell kept")
     args = parser.parse_args()
     app, out = Path(args.app), Path(args.out)
     cli = (app / hot.BIN / "cmux").resolve()
@@ -131,14 +145,14 @@ def main() -> int:
     # New Tab page, which is native, so a terminal tab is asked for in it (as live-mode-swift.py seeds).
     control = wait_until("the copy's control socket", time.monotonic() + 120, lambda: control_socket(app_pid))
     opened = bench.rpc_at(control, "action.run", {"action": "workspace.newAtBottom"}, timeout=30)
-    print(f"HAN workspace.newAtBottom answered {json.dumps(opened)[:400]}", file=sys.stderr, flush=True)
+    safe_print(f"HAN workspace.newAtBottom answered {json.dumps(opened)[:400]}", file=sys.stderr, flush=True)
     workspace = next((str(i) for i in (opened or {}).get("created") or [] if str(i).startswith("ws_")), None) \
         if isinstance(opened, dict) else None
     went = bench.rpc_at(control, "action.run", {"action": "goToWorkspace", "args": {"workspace": workspace}},
                         timeout=30) if workspace else {"error": "workspace.newAtBottom created no workspace"}
-    print(f"HAN goToWorkspace answered {json.dumps(went)[:400]}", file=sys.stderr, flush=True)
+    safe_print(f"HAN goToWorkspace answered {json.dumps(went)[:400]}", file=sys.stderr, flush=True)
     surface = bench.rpc_at(control, "action.run", {"action": "newSurface"}, timeout=30)
-    print(f"HAN newSurface answered {json.dumps(surface)[:400]}", file=sys.stderr, flush=True)
+    safe_print(f"HAN newSurface answered {json.dumps(surface)[:400]}", file=sys.stderr, flush=True)
     replies = (opened, went, surface)
     receipt["checks"]["opened_terminal"] = all(isinstance(r, dict) and "error" not in r for r in replies)
     receipt["opened_replies"] = {"workspace": opened, "went": went, "terminal": surface}
@@ -163,7 +177,39 @@ def main() -> int:
             and t["marker"] in s and shell_pid(s, "PID0") and s)
         t["shell_pid"] = shell_pid(screen, "PID0")
 
-    code, applied = run_hot("apply", args.sha, "--app", str(app), "--socket", sock, "--parts", "rust")
+    other = None
+    if args.sessions:
+        # Another session's owner from the same bin, as the app runs its Chief's: started by the copy's CLI.
+        ensured = subprocess.run([str(cli), "--session", OTHER, "--json", "server", "ensure"], capture_output=True,
+                                 text=True, timeout=60)
+        started = json.loads(ensured.stdout or "{}")
+        other = {"socket": started.get("socket"), "pid": started.get("pid")}
+        receipt["other_session"] = dict(other)
+        receipt["checks"]["other_session_started"] = bool(other["socket"] and other["pid"])
+        made = request(Path(other["socket"]), {"cmd": "run", "argv": ["/bin/sh"], "new_workspace": True})
+        other["terms"] = [{"terminal_id": made["terminal_id"], "surface": made["surface"],
+                           "marker": f"hot-apply-{os.getpid()}-other"}]
+        for t in other["terms"]:
+            request(Path(other["socket"]), {"cmd": "send", "surface": t["surface"],
+                                            "text": f"echo {t['marker']}; echo PID$((0))=$$\n"})
+            screen = wait_until("marker", time.monotonic() + 15, lambda t=t: (
+                s := request(Path(other["socket"]), {"cmd": "read-screen", "surface": t["surface"]}).get("text") or "")
+                and t["marker"] in s and shell_pid(s, "PID0") and s)
+            t["shell_pid"] = shell_pid(screen, "PID0")
+
+    def handed(done: dict | None) -> dict:
+        """The other session's row in a receipt's rust step: handed to a new owner, with its time."""
+        rows = [r for r in ((done or {}).get("steps", {}).get("rust", {}).get("sessions") or [])
+                if r.get("socket") == other["socket"]]
+        return rows[0] if rows else {}
+
+    if args.prefetch:
+        # As once CI publishes SHA: everything apply needs is fetched and checked first, so the apply only swaps.
+        code, fetched = run_hot("prefetch", args.sha, "--app", str(app))
+        receipt["prefetch"] = {"exit": code, "seconds": (fetched or {}).get("seconds"),
+                               "phases": (fetched or {}).get("phases")}
+    code, applied = run_hot("apply", args.sha, "--app", str(app), "--socket", sock, "--parts", "rust",
+                            *(["--restart-sessions"] if other else []))
     receipt["apply"] = applied
     rust = (applied or {}).get("steps", {}).get("rust", {})
     receipt["applied_version"] = version(cli)
@@ -172,6 +218,11 @@ def main() -> int:
     receipt["checks"]["bin_is_published_sha"] = sha256(cli) == rust.get("to") and rust.get("to") != before
     receipt["checks"]["new_daemon_owner"] = bool(rust.get("new_pid")) and rust.get("new_pid") != rust.get("old_pid")
     receipt["after_apply_shells"] = shells_survive(sock, terms, "applied")
+    if other:
+        row = handed(applied)
+        receipt["other_session_apply"] = row
+        receipt["checks"]["other_session_handed_over"] = bool(row.get("new_pid")) and row.get("new_pid") != other["pid"]
+        receipt["after_apply_other_shells"] = shells_survive(other["socket"], other["terms"], "applied")
 
     code, rolled = run_hot("rollback", "--app", str(app), "--socket", sock)
     receipt["rollback"] = rolled
@@ -181,8 +232,17 @@ def main() -> int:
     receipt["checks"]["bin_is_nightly_sha_again"] = sha256(cli) == before
     receipt["checks"]["rollback_new_daemon_owner"] = bool(back.get("new_pid")) and back.get("new_pid") != back.get("old_pid")
     receipt["after_rollback_shells"] = shells_survive(sock, terms, "rolledback")
+    if other:
+        row = handed(rolled)
+        receipt["other_session_rollback"] = row
+        receipt["checks"]["other_session_handed_back"] = bool(row.get("new_pid")) and \
+            row.get("new_pid") != (receipt["other_session_apply"] or {}).get("new_pid")
+        receipt["after_rollback_other_shells"] = shells_survive(other["socket"], other["terms"], "rolledback")
+        subprocess.run([str(cli), "--session", OTHER, "server", "stop", "--end-terminals"], capture_output=True,
+                       timeout=60)
 
-    for stage in ("after_apply_shells", "after_rollback_shells"):
+    for stage in ("after_apply_shells", "after_rollback_shells") + (
+            ("after_apply_other_shells", "after_rollback_other_shells") if other else ()):
         receipt["checks"][f"{stage}_kept"] = all(v["same_shell"] and v["marker_kept"] for v in receipt[stage].values())
     try:
         os.kill(app_pid, 0)
@@ -192,7 +252,7 @@ def main() -> int:
     receipt["ok"] = all(receipt["checks"].values())
     receipt["seconds"] = round(time.monotonic() - t0, 1)
     (out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
-    print("HAN RECEIPT " + json.dumps(receipt))
+    safe_print("HAN RECEIPT " + json.dumps(receipt))
     return 0 if receipt["ok"] else 1
 
 

@@ -25,6 +25,7 @@ import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
 import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 import { useAnchoredCollapse } from "../src/agent-session/acpmux/conversation/useAnchoredCollapse";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -109,6 +110,7 @@ afterEach(async () => {
   root = undefined;
   Object.assign(foldMotion, motion);
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

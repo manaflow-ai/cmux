@@ -1,5 +1,6 @@
 import CmuxMobileAgentChat
 import CmuxMobileModel
+import CmuxMobileTransport
 import Foundation
 import Testing
 @testable import CmuxMobileLive
@@ -258,5 +259,30 @@ import Testing
         for path in ["/Users/aziz/Projects/mario", "/tmp/x", "/Volumes/work", "/Users/Shared"] {
             #expect(!LiveWorkspaceCreationBackend.isHomeOrAbove(path), "\(path)")
         }
+    }
+}
+
+/// New Task's first message: its photos inline and its files as links to their uploaded copies,
+/// built by the chat's own prompt builder.
+@Suite struct TaskPromptBlockTests {
+    @Test func photosGoInlineAndFilesAsTheirUploadedCopies() {
+        let png = TaskImage(id: "a", data: Data([0x89, 0x50, 0x4E, 0x47] + Array(repeating: 0, count: 12)))
+        let file = TaskFile(id: "f", name: "trace.bin", data: Data(repeating: 0, count: 300 << 10))
+        let attachments = LiveWorkspaceCreationBackend.taskAttachments(AgentTask(prompt: "Match this", images: [png], files: [file]))
+        #expect(attachments.map(\.kind) == [.image, .file])
+        let blocks = AcpmuxSessionSource.promptBlocks(text: "Match this", attachments: attachments,
+                                                      uploaded: ["f": "/Users/me/p/.cmux/attachments/trace.bin"])
+        #expect(blocks.map { $0["type"]?.stringValue } == ["text", "image", "resource_link"])
+        #expect(blocks[2]["uri"]?.stringValue == "file:///Users/me/p/.cmux/attachments/trace.bin")
+    }
+}
+
+/// What a failed first send means (fourth verifier: a write failure or a cancel read as the
+/// agent's refusal): only acpmux's RPC error is the agent's answer.
+@MainActor @Suite struct TaskDeliveryFailureTests {
+    @Test func onlyTheAgentsAnswerIsARefusal() {
+        if case .notSent = LiveWorkspaceCreationBackend.deliveryFailure(LinkError(code: "offline", message: "x")) {} else { Issue.record("offline") }
+        if case .uncertain = LiveWorkspaceCreationBackend.deliveryFailure(LinkError(code: "timeout", message: "x")) {} else { Issue.record("timeout") }
+        if case .uncertain = LiveWorkspaceCreationBackend.deliveryFailure(CancellationError()) {} else { Issue.record("cancel") }
     }
 }

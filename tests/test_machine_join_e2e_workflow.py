@@ -25,6 +25,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/machine-join-e2e.yml"
 SCRIPT = ROOT / "scripts/cmux-next/machine-join-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
@@ -61,7 +62,7 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         job = load()["jobs"]["e2e"]
         self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next'")
         # An existing environment whose branch policy admits feat-cmux-next only.
-        self.assertEqual(job["environment"], {"name": "cmux-next-vm-image-dev", "deployment": "false"})
+        self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "cmux-next-vm-image-dev", "deployment": "false"})
         self.assertIn("refs/heads/feat-cmux-next", steps()[0]["run"])
         self.assertIn("exit 1", steps()[0]["run"])
 
@@ -83,7 +84,11 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_stack_secrets_reach_one_step_through_env(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 2)
-        holders = [s for s in steps() if re.search(r"\$\{\{\s*secrets\.", str(s))]
+        self.assertEqual(workflow_jobs.secret_names(load()), {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"})
+        for name, job in load()["jobs"].items():
+            outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == "e2e" else job
+            self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
+        holders = [s for s in steps() if workflow_jobs.secret_names(s)]
         self.assertEqual([s["name"] for s in holders], ["Mint, join, verify and revoke"])
         mint = holders[0]
         self.assertEqual(mint["env"]["CMUX_UITEST_STACK_EMAIL"], "${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}")
@@ -96,16 +101,17 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
             self.assertNotRegex(s.get("run", ""), r"set -[a-z]*x|set -o xtrace|bash -x")
 
     def test_development_origin_only(self) -> None:
-        job = load()["jobs"]["e2e"]
-        self.assertEqual(job["env"]["HUB_ORIGIN"], DEV)
+        document = load()
+        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"]["e2e"])["HUB_ORIGIN"], DEV)
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn(f'export const DEV_PLATFORM = "{DEV}"', script)
         self.assertIn("if (opts.origin !== DEV_PLATFORM)", script)
 
     def test_ephemeral_blacksmith_runner(self) -> None:
         job = load()["jobs"]["e2e"]
-        self.assertEqual(job["runs-on"], RUNS_ON)
-        self.assertNotIn("LINUX_RUNNER", job["runs-on"])
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertEqual(cells, [RUNS_ON])
+        self.assertNotIn("LINUX_RUNNER", "\n".join(cells))
         self.assertIn("timeout-minutes", job)
 
     def test_cleanup_and_evidence_run_always(self) -> None:

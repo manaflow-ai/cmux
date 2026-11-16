@@ -60,13 +60,16 @@ public struct HomeListActions {
         }
         // Delete Conversation from List: off this account's Home list until a newer message (the
         // row's Delete Conversation… asks first, then runs this). The page showing it moves to its neighbor.
+        // A person's delete runs at once and offers Undo (Lawrence 2026-11-09: fewer dialogs); automation's is quiet.
         registry.bindEffect("home.hideConversation", effect: { invocation in
             guard let id = conversation(invocation) else { return .done }
             let shownPage = page()
             let next = shownPage.flatMap { $0.shown == id ? $0.sidebar.model().neighbor(of: id, offset: 1) : nil }
-            guard source().hide(id) else { return .refused(notReady) }
+            let list = source()
+            guard list.hide(id) else { return .refused(notReady) }
             shownPage?.listPinsChanged()
             if let shownPage, shownPage.shown == id { shownPage.conversationLeft(id, next: next) }
+            if invocation.origin == .user { Self.offerUndo { list.unhide(id); page()?.listPinsChanged() } }
             return .done
         })
         registry.bindEffect("home.showHiddenConversations", effect: { _ in
@@ -76,22 +79,16 @@ public struct HomeListActions {
         })
     }
 
-    /// Delete Conversation…'s question (as Messages asks, the cmux dialog so the debug socket can answer it);
-    /// `delete` runs on Delete.
-    public static func confirmDelete(in window: NSWindow?, _ delete: @escaping @MainActor () -> Void) {
-        let spec = CmuxDialogSpec(title: HomeListStrings.deleteConversationTitle, lines: [HomeListStrings.deleteConversationMessage],
-                                  buttons: [.cancel(), CmuxDialogButton(id: "delete", title: HomeListStrings.deleteConversationConfirm, role: .destructive)],
-                                  identifier: "cmux.dialog.home.deleteConversation")
-        CmuxDialogCenter.shared.present(spec, in: window.map(CmuxDialogScope.window) ?? .app) { answer in
-            guard answer.button == "delete" else { return }
-            delete()
-        }
+    /// The deleted toast with Undo, in the key window (none with no window: Show Hidden Conversations still lists it).
+    private static func offerUndo(_ undo: @escaping @MainActor () -> Void) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: "home-conversation-deleted", message: HomeListStrings.conversationDeleted,
+                                                           action: .undo()), in: window)
+        handle.onAction = undo
     }
 }
 
-/// Delete Conversation…'s question (Resources/Home.xcstrings).
+/// Delete Conversation's toast (Resources/Home.xcstrings).
 nonisolated enum HomeListStrings {
-    static var deleteConversationTitle: String { String(localized: "handlers.misc.home.deleteConversationTitle", defaultValue: "Are you sure you want to delete this conversation?", table: "Home", bundle: .module) }
-    static var deleteConversationMessage: String { String(localized: "handlers.misc.home.deleteConversationMessage", defaultValue: "It leaves your Home list. A new message brings it back, and Show Hidden Conversations lists it again.", table: "Home", bundle: .module) }
-    static var deleteConversationConfirm: String { String(localized: "handlers.misc.home.deleteConversationConfirm", defaultValue: "Delete", table: "Home", bundle: .module) }
+    static var conversationDeleted: String { String(localized: "handlers.misc.home.conversationDeleted", defaultValue: "Conversation deleted", table: "Home", bundle: .module) }
 }

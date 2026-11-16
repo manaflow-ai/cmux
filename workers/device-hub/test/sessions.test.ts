@@ -142,4 +142,29 @@ describe("session flow", () => {
     await stranger.register();
     expect((await stranger.call("POST", `/v1/sessions/${sid}/end`, {})).status).toBe(404);
   });
+
+  it("re-admits only the original viewer with a short-lived same-scope ticket", async () => {
+    const { host, viewer } = await setup();
+    const { sid } = await approvedSession(host, viewer, "view");
+    const reattached = await viewer.call("POST", `/v1/sessions/${sid}/reattach`, {});
+    expect(reattached.status).toBe(200);
+    expect(reattached.json.session).toMatchObject({ id: sid, state: "approved", scope: "view", viewerId: viewer.id, hostId: host.id });
+    const payload = JSON.parse(atob(reattached.json.ticket.ticket.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    expect(payload).toMatchObject({ sid, role: "viewer", dev: viewer.id, peer: host.id, scope: "view", reattach: true });
+    expect(payload.exp - payload.iat).toBe(30);
+    const hostTicket = await host.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
+    const hostPayload = JSON.parse(atob(hostTicket.ticket.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    expect(hostPayload).toMatchObject({ sid, role: "host", dev: host.id, peer: viewer.id, scope: "view", reattach: true });
+    expect(hostPayload.exp - hostPayload.iat).toBe(30);
+  });
+
+  it("does not re-admit another device or an ended session", async () => {
+    const { host, viewer } = await setup();
+    const stranger = await Device.create(viewer.account, "Other", "ios");
+    await stranger.register();
+    const { sid } = await approvedSession(host, viewer, "view");
+    expect((await stranger.call("POST", `/v1/sessions/${sid}/reattach`, {})).json.error.code).toBe("session_not_active");
+    await viewer.call("POST", `/v1/sessions/${sid}/end`, { reason: "done" });
+    expect((await viewer.call("POST", `/v1/sessions/${sid}/reattach`, {})).json.error.code).toBe("session_not_active");
+  });
 });

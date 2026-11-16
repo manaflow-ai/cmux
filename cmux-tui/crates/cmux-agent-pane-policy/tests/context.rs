@@ -1,6 +1,6 @@
 //! Context reads and persistent edits through the full pane transport gate.
 use cmux_agent_pane_policy::gesture::PermissionOptions;
-use cmux_agent_pane_policy::{Checked, FrameState, PaneSessions, Refusal, check_frame};
+use cmux_agent_pane_policy::{Checked, FrameState, Gesture, PaneSessions, Refusal, check_frame};
 use serde_json::{Value, json};
 
 fn check(method: &str, params: Value, first: bool) -> Checked {
@@ -13,6 +13,7 @@ fn check(method: &str, params: Value, first: bool) -> Checked {
         mode_fields: None,
         // A Cloud chat's pane: the relayed wire this command serves.
         remote_wire: true,
+        gesture: Gesture::None,
         scope: &sessions,
         options: &options,
     };

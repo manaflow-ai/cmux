@@ -29,11 +29,18 @@ mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
+mod cua_recovery;
+mod customize_library_tool;
+mod customize_tools;
+mod device_tools;
 mod keybinding_tools;
+mod keys_tools;
 mod live_code_tools;
+mod live_file;
 mod messages;
 mod open_tool;
 mod placement;
+mod pptx_view;
 mod remote_tools;
 mod render_tool;
 mod schema;
@@ -41,6 +48,7 @@ mod settings_tools;
 mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
+mod tool_list;
 mod transport;
 mod upstream;
 mod upstream_listing;
@@ -218,6 +226,16 @@ pub(super) trait Backend {
         ))
     }
 
+    /// One `cmux customize WORDS…` verb, run by the CLI's own code
+    /// (`customize_tools`).
+    fn customize(&self, _words: &[String]) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "customize.unavailable",
+            "this server cannot reach the customization files",
+        ))
+    }
+
     /// Cloud chat repo actions run on the selected machine daemon.
     fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
         Err(CallFailure::local(
@@ -231,6 +249,11 @@ pub(super) trait Backend {
     /// setup card waits with the call, not on this server's thread
     /// (`computer_use_gate`). `None`: the call runs without the card.
     fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+        None
+    }
+    /// Daemon requests from another thread: `open {live}` reloads a changed file's
+    /// tab from its watch thread (`live_file`). `None`: no live files.
+    fn resource_sender(&self) -> Option<live_file::Sender> {
         None
     }
     /// The app's `system.identify` (`caller`, `beside`); `None` with no caller (placement.rs).
@@ -355,6 +378,15 @@ impl Backend for LiveBackend {
     }
 
     #[cfg(unix)]
+    fn customize(&self, words: &[String]) -> Result<Value, CallFailure> {
+        super::customize::run_json(words, "mcp").map_err(|error| CallFailure {
+            kind: FailureKind::Rejected,
+            error,
+            idempotency_key: None,
+        })
+    }
+
+    #[cfg(unix)]
     fn daemon(&self, mut request: Value) -> Result<Value, CallFailure> {
         if let Some(fields) = request.as_object_mut() {
             fields.insert("id".into(), json!(1));
@@ -381,6 +413,11 @@ impl Backend for LiveBackend {
         Some(std::sync::Arc::new(move |method: &str, params: Value, timeout: Duration| {
             transport::app_method(&global, method, params, timeout, None, false)
         }))
+    }
+
+    fn resource_sender(&self) -> Option<live_file::Sender> {
+        let global = self.global.clone();
+        Some(std::sync::Arc::new(move |plan| transport::resource(&global, plan, &[])))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
@@ -548,6 +585,11 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
         .into_iter()
         .map(|spec| upstream::Proxied::new(upstream::Upstream::new(spec)))
         .collect();
+    // An idle chat's other servers end (`upstream::IDLE_STOP`) while the harness keeps this one.
+    let idle = server.upstreams.iter().map(|p| std::sync::Arc::downgrade(&p.inner)).collect();
+    if let Err(error) = upstream::stop_idle(idle, upstream::IDLE_STOP) {
+        eprintln!("cmux mcp: idle servers keep running: no thread: {error}");
+    }
     server.run(io::stdin().lock(), &output)
 }
 
@@ -668,6 +710,10 @@ pub(super) struct Server<B> {
     /// The last text `terminal_input_write` typed into each terminal (by the session and
     /// terminal the call named), for [`Self::wait_past_typed`].
     typed: std::cell::RefCell<std::collections::HashMap<(Option<String>, String), String>>,
+    /// The files `open {live}` reloads on change, started with the first.
+    live_files: std::cell::RefCell<Option<live_file::Watches>>,
+    /// The decks `open` previews, served on loopback, started with the first.
+    decks: std::cell::RefCell<Option<pptx_view::Decks>>,
 }
 
 impl<B: Backend> Server<B> {
@@ -689,6 +735,8 @@ impl<B: Backend> Server<B> {
             call_deadline: None,
             call_meta: None,
             typed: std::cell::RefCell::default(),
+            live_files: std::cell::RefCell::default(),
+            decks: std::cell::RefCell::default(),
             notes: None,
             renders: std::collections::HashSet::new(),
         }
@@ -801,32 +849,7 @@ impl<B: Backend> Server<B> {
     /// [`Self::list`] from the actions and proxied tools as last read,
     /// asking nothing again.
     fn listed(&self) -> Vec<Value> {
-        let mut tools =
-            v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
-        tools
-            .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
-        tools.push(action_tools::window_list_tool());
-        tools.push(super::agents::snapshot_tool());
-        tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
-        tools.extend(agent_dispatch_tools::descriptors());
-        tools.push(workflow_tools::descriptor());
-        tools.extend(cloud_repo_tools::descriptors());
-        tools.extend(chat_tools::descriptors());
-        tools.extend(live_code_tools::descriptors());
-        tools.push(super::agents_doctor::mcp_tool());
-        tools.push(agent_wait_tool::descriptor());
-        tools.push(agent_events_tool::descriptor());
-        tools.extend(terminal_talk_tools::descriptors());
-        tools.push(render_tool::descriptor());
-        tools.push(open_tool::descriptor());
-        tools.extend(video_tools::descriptors());
-        tools.extend(remote_tools::TOOLS.iter().map(remote_tools::RemoteTool::descriptor_json));
-        tools
-            .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
-        tools.extend(automation_tools::descriptors());
-        tools.extend(
-            keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
-        );
+        let mut tools = tool_list::first_party();
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
         for proxied in &self.upstreams {
             let taken = tools
@@ -1065,6 +1088,9 @@ impl<B: Backend> Server<B> {
         if let Some(result) = self.call_video(name, &arguments) {
             return Ok(result);
         }
+        if keys_tools::owns(name) {
+            return Ok(self.call_keys(name, &arguments));
+        }
         if name == open_tool::NAME {
             if !self.actions_loaded {
                 self.refresh_actions();
@@ -1081,6 +1107,15 @@ impl<B: Backend> Server<B> {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = customize_library_tool::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = device_tools::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(tool) = remote_tools::find(name) {

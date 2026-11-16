@@ -6,6 +6,7 @@ relaunch deduplication and telemetry opt-out. Run on an isolated fleet GUI
 session with an unused tag; no fixture events are sent to PostHog Cloud.
 """
 import argparse
+import atexit
 import gzip
 import http.server
 import json
@@ -16,6 +17,7 @@ import queue
 import re
 import signal
 import select
+import shutil
 import time
 import subprocess
 import tempfile
@@ -33,8 +35,13 @@ def main():
     prefix = "com.cmuxterm.app.debug."
     assert bundle_id.startswith(prefix), "Refusing an untagged app"
     tag = bundle_id.removeprefix(prefix)
-    socket_path = Path(f"/tmp/cmux-debug-{tag}.sock")
-    assert not socket_path.exists(), "Tag already has a running instance"
+    # The tag's default socket (read only): a live one means the tag already runs.
+    assert not os.path.exists(f"/tmp/cmux-debug-{tag}.sock"), "Tag already has a running instance"
+    # This run's socket goes in a private folder (CMUX_SOCKET_PATH below), not a fixed name in the shared /tmp;
+    # under /tmp so the path stays inside the 104-byte Unix socket limit.
+    socket_dir = tempfile.mkdtemp(prefix="cmux-crash-e2e-sock-", dir="/tmp")
+    atexit.register(shutil.rmtree, socket_dir, True)
+    socket_path = Path(socket_dir) / f"cmux-debug-{tag}.sock"
     prior = subprocess.run(["defaults", "read", bundle_id], capture_output=True)
     assert prior.returncode != 0, "Use a fresh tag with no saved preferences"
     args.output.mkdir(parents=True, exist_ok=True)

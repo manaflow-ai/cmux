@@ -134,11 +134,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
 
     let target_workspace_index = target_location.0;
     changes.push(ResourceChange::UpsertWorkspace {
-        workspace: registry_workspace(
-            state,
-            target_workspace_index,
-            registry.session_id().as_str(),
-        ),
+        workspace: registry_workspace(state, target_workspace_index, &mux.session),
         position: target_workspace_index,
         active_screen: Some(target_screen_id.clone()),
     });
@@ -161,7 +157,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
                 .map(|screen| screen.public_id.clone())
         };
         changes.push(ResourceChange::UpsertWorkspace {
-            workspace: registry_workspace(state, source_location.0, registry.session_id().as_str()),
+            workspace: registry_workspace(state, source_location.0, &mux.session),
             position: source_location.0,
             active_screen,
         });

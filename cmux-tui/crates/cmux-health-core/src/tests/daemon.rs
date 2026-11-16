@@ -161,3 +161,28 @@ fn a_restore_with_its_data_size_reads_as_a_percent_and_without_counters_as_resto
     h.event(ID, "restoreProgress", 302_000, Some(60 * GB));
     assert_eq!(part(&h, ID).map(|p| p.detail), Some("Restoring workspaces, about 99%".into()));
 }
+
+/// 2026-11-13, after a self-update: the ensure's last stdout write (its JSON
+/// result) is seen on the progress watch's own queue, so its `restoreProgress`
+/// can reach the model after the `ready` that ensure returned. The owner is up
+/// and answering; a late line is no restore. Before, it read as a restore that
+/// stalled, and two minutes later "Session service isn't responding" stayed
+/// until the next app launch.
+#[test]
+fn a_progress_line_after_ready_is_no_restore() {
+    let mut h = daemon();
+    h.event(ID, "started", 0, None);
+    h.event(ID, "restoreProgress", 0, None);
+    h.event(ID, "ready", 900, None);
+    // The late line of the same ensure.
+    h.event(ID, "restoreProgress", 950, None);
+    assert_eq!(part(&h, ID), None, "a ready owner is not restoring");
+    assert!(run(&mut h, 600_000).is_empty());
+    assert_eq!(part(&h, ID), None, "no stall two minutes later");
+    assert_eq!(h.next_tick_ms(), None, "nothing armed for a ready owner");
+
+    // The next ensure's start makes its progress count again.
+    h.event(ID, "started", 700_000, None);
+    h.event(ID, "restoreProgress", 701_000, Some(GB));
+    assert_eq!(part(&h, ID).map(|p| p.state), Some(State::Slow));
+}

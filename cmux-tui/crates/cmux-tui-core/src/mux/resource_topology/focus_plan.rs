@@ -139,6 +139,8 @@ pub(super) fn focus_pane_plan(
         sync_layout_column_projection(&mut focused_layout);
     }
     focused_layout.active_pane = pane;
+    // `floating-panes-v1`: the focus brings a floating pane to the front, in the same commit.
+    focused_layout.raise_floating_pane(pane);
     let durable_screen = registry_screen_from_layout(
         state,
         workspace_index,
@@ -153,8 +155,7 @@ pub(super) fn focus_pane_plan(
         .find(|screen| screen.public_id == screen_id)
         .context("pane screen is absent from durable topology")? = durable_screen.clone();
     let deltas = focus_deltas(state, &topology, &after, previous, Some(workspace_id.clone()))?;
-    let workspace_record =
-        registry_workspace(state, workspace_index, registry.session_id().as_str());
+    let workspace_record = registry_workspace(state, workspace_index, &mux.session);
     let result = json!({"pane":pane_id,"screen":screen_id});
     let mux = Arc::clone(mux);
     Ok(ResourceMutationPlan::new(
@@ -196,6 +197,7 @@ pub(super) fn apply_focus_path(mux: &Mux, state: &mut State, pane: PaneId) {
         current.root.expand_stack_pane(pane);
     }
     current.active_pane = pane;
+    current.raise_floating_pane(pane);
     stamp_pane_focus(mux, state, pane);
 }
 

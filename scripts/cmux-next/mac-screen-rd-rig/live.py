@@ -195,8 +195,10 @@ if o.input:
         subprocess.run(["rsync", "-a", f"{o.viewer}:rd-hub-rig/frames-{o.tag}/", os.path.join(o.out, "frames")], check=False)
     subprocess.run(["scp", "-q", f"{o.host}:rd-hub-rig/probe-{o.tag}.jsonl", o.out], check=False)
 
-snap = rpc(o.viewer, "debug.window_snapshot", {"path": f"/tmp/rd-rig-{o.tag}-viewer.png"})
-subprocess.run(["scp", "-q", f"{o.viewer}:/tmp/rd-rig-{o.tag}-viewer.png", os.path.join(o.out, "viewer.png")], check=False)
+# The snapshot goes in the viewer's own ~/rd-hub-rig, never a guessable /tmp name another account there could plant.
+viewer_home = ssh(o.viewer, 'printf %s "$HOME"')
+snap = rpc(o.viewer, "debug.window_snapshot", {"path": f"{viewer_home}/rd-hub-rig/viewer-{o.tag}.png"})
+subprocess.run(["scp", "-q", f"{o.viewer}:rd-hub-rig/viewer-{o.tag}.png", os.path.join(o.out, "viewer.png")], check=False)
 log("viewer snapshot", "error" not in snap, reply=snap)
 if "--quit" in sys.argv[1:] or os.environ.get("RD_RIG_QUIT") == "1":
     for host in (o.viewer, o.host):

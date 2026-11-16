@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -42,6 +43,12 @@ SWIFT_SOCKET_TIMEOUT = re.compile(r"\bSO_(?:SNDTIMEO|RCVTIMEO)\b")
 RUST_DURATION = re.compile(rf"\bDuration::from_(secs|millis)\(\s*({NUM})\s*\)")
 RUST_CONST_NAME = re.compile(r"\b(?:const|static)\s+\w*(?:TIMEOUT|BUDGET|DEADLINE|WAIT)\w*\b", re.I)
 RUST_TIMEOUT_CALL = re.compile(r"(?:tokio::time::timeout|\.timeout\s*\(|\bwait_timeout\b)")
+# A `const`/`static` whose own name says it spaces tries (a backoff's first or largest step, a retry or
+# reconnect wait, a poll interval, a progress note) is no timeout, whatever TIMEOUT constant is declared or
+# called next to it; a name that also says TIMEOUT, BUDGET or DEADLINE is still judged as one.
+RUST_CONST_DECL = re.compile(r"\b(?:const|static)\s+(\w+)\s*:")
+RUST_GATE_NAME = re.compile(r"TIMEOUT|BUDGET|DEADLINE", re.I)
+RUST_PACE_NAME = re.compile(r"BACKOFF|RETRY|RECONNECT|RESTART|FIRST_WAIT|POLL|INTERVAL|NOTE", re.I)
 
 TS_HARD_TIMEOUT = re.compile(
     rf"\b(?:[A-Za-z_]*timeout(?:Ms|_ms)|[A-Za-z_]*deadline)\b\s*(?:\??\s*:\s*[^=,;]+)?(?:=|:)[^;\n]*?({NUM})\b",
@@ -146,8 +153,16 @@ def scan_source(text: str, rel: str) -> list[dict]:
         for match in RUST_DURATION.finditer(masked):
             index = bisect.bisect_right(line_starts, match.start()) - 1
             value = _value(match.group(2), match.group(1))
+            declared = RUST_CONST_DECL.search(lines[index]) if index < len(lines) else None
+            pace = (
+                declared is not None
+                and declared.start() < match.start()
+                and RUST_PACE_NAME.search(declared.group(1)) is not None
+                and RUST_GATE_NAME.search(declared.group(1)) is None
+            )
             context = "\n".join(lines[max(0, index - 3) : min(len(lines), index + 4)])
-            if value < FLOOR_MS and (RUST_CONST_NAME.search(context) or RUST_TIMEOUT_CALL.search(context)):
+            gate = not pace and bool(RUST_CONST_NAME.search(context) or RUST_TIMEOUT_CALL.search(context))
+            if value < FLOOR_MS and gate:
                 raw = raw_lines[index] if index < len(raw_lines) else ""
                 _hit(hits, "rust-duration", index + 1, raw, raw_lines)
     return hits
@@ -224,6 +239,22 @@ def problems(found: dict[str, int], allow: dict) -> list[str]:
         if not isinstance(entry, dict) or not str(entry.get("reason", "")).strip():
             errors.append(f"{key}: allowlist entry needs a non-empty reason")
     return errors
+
+
+GUARD_CHECK_RESULTS_ENV = "CMUX_GUARD_CHECK_RESULTS"
+
+
+def report_guard_checks(errors: list[str]) -> None:
+    """One red guard check per problem line, in the guard runner's "<passed 0|1><TAB><check>" format, so a base
+    red on this step excuses only the problems the base has (a count line changes when a change adds another
+    timeout to the same file). Without it, cmux#42296's new acpmux hub/shutdown.rs timeout landed as "red on the
+    base too" (cmuxterm-hq docs/handbook/base-red-excused-for-ever.md)."""
+    path = os.environ.get(GUARD_CHECK_RESULTS_ENV, "")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as handle:
+        for error in errors:
+            handle.write("0\t" + " ".join(error.split()) + "\n")
 
 
 def update(path: Path, found: dict[str, int], previous: dict) -> None:

@@ -19,10 +19,15 @@
 // before the first, within a pixel. (A toggle that starts open, the latest run, is shut first: a
 // close at the latest row pins the bottom and moves the rows above once, by design.)
 //
+// In the running-turn case the "Ran 2 commands" kind tests the `runs` arm of live-turn-work, not the
+// shipped `line` arm: that line is a finished run of a turn that still runs, which only `runs` draws
+// (support/liveTurnRuns.ts). The other kinds and cases take the shipped arms.
+//
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -202,7 +207,7 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
           });
         }),
     );
-  const open = async (browser: Browser, arms?: Record<string, string>) => {
+  const open = async (browser: Browser, arms?: Record<string, string>, liveRuns = false) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     // Tall enough that each kind, opened, stays in the view: a toggle pushed out of it needs a scroll,
     // and a round trip here is clicks with no scroll between.
@@ -213,6 +218,7 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
       await page.addInitScript((pinned) => {
         (window as unknown as { cmuxExperiments: Record<string, string> }).cmuxExperiments = pinned;
       }, arms);
+    if (liveRuns) await pinLiveTurnRuns(page);
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showRows" in window);
@@ -435,7 +441,7 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
         },
       ];
       for (const kind of liveCases) {
-        const page = await open(browsers[name]!);
+        const page = await open(browsers[name]!, undefined, kind.row === "run-b");
         await page.evaluate(() => (window as unknown as { __touchDock(queued: boolean): void }).__touchDock(false));
         let extra = 0;
         await page.evaluate(

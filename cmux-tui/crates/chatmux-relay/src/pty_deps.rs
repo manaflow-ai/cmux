@@ -11,7 +11,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::mem::{offset_of, size_of};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
@@ -96,13 +95,13 @@ fn session_socket_path(socket_dir: &Path, uid: u32, session: &str) -> Result<Pat
     }
     let leaf = format!("{session}.sock");
     let preferred = socket_dir.join(&leaf);
-    if unix_socket_path_fits(&preferred) {
+    if cmux_unix_socket::fits(&preferred) {
         return Ok(preferred);
     }
 
     let fallback_dir = Path::new("/tmp").join(format!("cmux-tui-{uid}"));
     let fallback = fallback_dir.join(&leaf);
-    if unix_socket_path_fits(&fallback) {
+    if cmux_unix_socket::fits(&fallback) {
         return Ok(fallback);
     }
 
@@ -113,7 +112,7 @@ fn session_socket_path(socket_dir: &Path, uid: u32, session: &str) -> Result<Pat
         .unwrap_or_else(|| Path::new("/tmp"));
     let hashed =
         preferred_base.join(format!("cmux-tui-hashed-{uid}")).join(format!("{digest}.sock"));
-    if unix_socket_path_fits(&hashed) {
+    if cmux_unix_socket::fits(&hashed) {
         return Ok(hashed);
     }
     Ok(Path::new("/tmp").join(format!("cmux-tui-hashed-{uid}")).join(format!("{digest}.sock")))
@@ -162,15 +161,6 @@ async fn prepare_private_directory(dir: &Path, uid: u32) -> Result<(), String> {
             .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
     }
     Ok(())
-}
-
-fn unix_socket_path_fits(path: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-
-    // Unix-domain socket paths include a trailing NUL in `sun_path`.
-    const SUN_PATH_CAPACITY: usize =
-        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
-    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
 }
 
 /// Buffers output until the manager subscribes, then drains one FIFO queue.

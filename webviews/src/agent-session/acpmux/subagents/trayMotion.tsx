@@ -10,16 +10,18 @@
 //   gone, so nothing waits on the motion and the stack under it moves once, continuously (Leo,
 //   2026-11-08: "the hat auto removing/auto hiding stuff that's super done is maybe a bit jarring?").
 //   A chat switch plays nothing.
-// - Its header's words tick (`Tick`): "2 running" turns to "3 running" with the old words fading out
-//   and the new fading in, never a positional jump.
+// - Its header's words tick (`Tick`): "Read a.ts" turns to "Grep b" with the old words rolling up
+//   and out as the new roll in, both opaque, so no frame is blank and none shows both at once.
 // Reduce Motion, the host's motion switch (`data-agent-motion="off"`, a 0 ms token) and a page that
 // is away apply every change at once, and no copy is made.
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Sign, signed } from "../../../ui/Typography";
 import { cssTimeMs } from "../conversation/fold";
 import { motionAllowed, sameWords } from "./trayMotionModel";
-/// Text that ticks when it changes: the old words leave up as the new ones rise in, in one cell, on
-/// the message tokens (subagents.css `.acpmux-tick`). The first text, and any change while motion
+/// Text that ticks when it changes: the old words roll up and out of one cell as the new roll up into
+/// it, both opaque, on the micro step (subagents.css `.acpmux-tick`), so every frame shows a whole
+/// line's worth of words and none shows two over each other (Leo, 2026-11-11, on the hat's status:
+/// "brief moments where it just looks like a blank tear"). The first text, and any change while motion
 /// may not run, just shows. The old words go on their `animationend`, or `animationcancel` when the
 /// host turns motion off midway; Reduce Motion's stylesheet cuts the exit to a frame.
 ///
@@ -31,10 +33,9 @@ import { motionAllowed, sameWords } from "./trayMotionModel";
 /// Its words changing still tick.
 ///
 /// `slide`: a change of words moves like a status line handing over (Leo, 2026-11-07, on the hat's
-/// line turning from thinking to a tool call to another: "That animation, I like that"): the old words
-/// slide up and out as the new slide up from below, on one baseline, and the cell's width eases from
-/// the old words' to the new ones' on the same clock, so what follows them glides instead of jumping.
-/// Without it a change fades in place.
+/// line turning from thinking to a tool call to another: "That animation, I like that"): the roll,
+/// and the cell's width eases from the old words' to the new ones' on the same clock, so what follows
+/// them glides instead of jumping. Without it the cell takes the new width at once.
 export function Tick({
   text,
   className,
@@ -103,7 +104,7 @@ export function Tick({
     const to = text ? Math.ceil(text) : incoming.scrollWidth;
     if (Math.abs(to - from) < 1) return undefined;
     const style = node.ownerDocument.defaultView?.getComputedStyle(node);
-    const duration = cssTimeMs(style?.getPropertyValue("--acpmux-tick-slide") ?? "") ?? 180;
+    const duration = cssTimeMs(style?.getPropertyValue("--acpmux-tick-slide") ?? "") ?? 120;
     if (duration <= 0) return undefined;
     const easing = style?.getPropertyValue("--agent-ease-out").trim() || "ease-out";
     const width = node.animate([{ width: `${from}px` }, { width: `${to}px` }], { duration, easing });

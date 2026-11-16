@@ -1,5 +1,5 @@
-import CmuxNextWakeups
 public import Foundation
+import os
 
 /// The carrier's link of a Cloud machine (design/cloud-carrier.md): one `cmux carrier serve` child for the
 /// session (``CloudCarrierServe``), whose private socket dials the machine's `mux` once per connection, the
@@ -20,7 +20,10 @@ public struct CloudCarrierResolver: CloudLinkResolver {
     }
 
     public func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
-        guard let serve else { throw CloudLinkError.helperNotRunning(reason: "no bundled cmux-tui") }
+        guard let serve else {
+            CloudCarrierServe.log.error("carrier link: no bundled cmux-tui, so no carrier for this machine")
+            throw CloudLinkError.helperNotRunning(reason: "no bundled cmux-tui")
+        }
         let socket = try await serve.socketPath()
         // The grant's answer on this child's latest connected line; the record's creator rule only before any.
         let answered = await serve.answer
@@ -44,233 +47,292 @@ public struct CloudCarrierResolver: CloudLinkResolver {
         await serve?.observeOwnership(update)
     }
 
-    /// Ends the session's `carrier serve` (machine removed, sign-out, quit).
+    /// Stops the session's `carrier serve` for good (machine removed, sign-out, quit): a later `open` fails closed.
     public func close(_ key: CloudLinkKey) async { await serve?.stop() }
+
+    /// Stops the session's `carrier serve` while the machine is paused; the next `open` (a resume) starts another.
+    public func park(_ key: CloudLinkKey) async { await serve?.park() }
 }
 
-/// One Cloud session's `cmux carrier serve --machine <vm_id> --socket <path>` (#37278): started on the first
-/// connect and kept for the session. It gets a fresh access token on stdin (`{"access_token":…}`) at each
-/// later connect and, since the app's auth has no refresh signal, a minute before the last token's `exp`
-/// while it runs (``refreshDelay(_:now:)``), so every new dial carries a live bearer. Closing stdin stops it
-/// (it removes its socket); another starts only once it exited, so two never claim the same socket. After
-/// its ready line its stderr names each refused connection's step, which ends the link with that step's
-/// wording, and each connection's `vmk`.
+/// One Cloud session's `cmux carrier serve --machine <vm_id> --socket <path>` (#37278). Its whole lifecycle
+/// (launch, token refresh, stop, park, the account fence) is one state machine in Rust: `cmux carrier
+/// supervise` (cmux-tui `carrier/supervise.rs`, `carrier/serve_machine.rs`), which runs the serve child. This
+/// actor is only the app's edge: it starts the supervisor at the first connect and sends it each connect, a
+/// park, a stop or the account's end as one JSON line; it answers the supervisor's token reads with the
+/// connector's environment (the signed-in account's fresh access token, or that the account ended); and it
+/// keeps the refusal and answer the supervisor last reported. ``stop()`` and an account end are terminal: a
+/// later connect fails as closed (a new session makes a new serve). A socket handed out after the connector's
+/// account ended goes to no one.
 public actor CloudCarrierServe {
-    /// `carrier serve` binds at once and dials only per connection, so its ready line comes fast.
-    static let readyDeadline: Duration = .seconds(15)
     private let connector: CloudCarrierDial.Connector
     private let socket: String
-    private let check: @Sendable (String) throws -> Void
-    private var child: ChildProcess?
-    private var ready = false
-    private var starting: Task<String, any Error>?
-    /// Bumped by ``stop()``: a connect or launch of an older generation resumes after teardown and must
-    /// not spawn a child or hand a token to one (it would carry the old account's access).
-    private var generation: UInt64 = 0
-    /// The last refused dial since the current connect.
-    private var refused: CloudLinkError?
+    /// How long one token read may take before it is answered as failed.
+    private let readDeadline: Duration
+    private var supervisor: ChildProcess?
+    private var waiters: [UInt64: CheckedContinuation<String, any Error>] = [:]
+    private var lastWaiter: UInt64 = 0
+    private var stopped = false
+    /// The supervisor's hold in its connector's ``CloudCarrierStreams``: an account end tells it at once.
+    private var held: Int?
+    /// Why the link ended since the current connect (the supervisor's last `state`), or that it is stopped.
+    private(set) var refusal: CloudLinkError? = CloudCarrierServe.exited
     /// The current child's latest connected answer: `owner` or `team` by its `vmk`, `unknown` for a line
     /// without one (never owner). Nil until that child answered once; a new child starts with none.
     private(set) var answer: CloudCallerOwnership?
     private var ownershipObserver: (@Sendable (CloudCallerOwnership) async -> Void)?
-    /// The last token the child got (environment or stdin).
-    private var sentToken: String?
-    /// The current child's hold in its connector's ``CloudCarrierStreams``: an account end stops it at once.
-    private var held: Int?
-    /// Writes the next token line while the child runs; cancelled when it exits.
-    private let refresher: DemandTimer
-    /// Whether the token refresh runs (it ends with the child).
-    private(set) var refreshing = false
-    private let nextRefresh: @Sendable (String) -> Duration
+    /// The last ownership hand-off: each waits for the one before, so answers arrive in order.
+    private var publishing: Task<Void, Never>?
+
+    private static let closed = CloudLinkError.disconnected(reason: "closed")
+    private static let exited = CloudLinkError.helperNotRunning(reason: "cmux carrier serve exited")
 
     /// The socket is the machine's `cmux-link-<12 hex>.sock` in this user's private temporary folder
-    /// (``CloudPaths``), which ``CloudLinkSocketPolicy`` checks once the child is ready.
+    /// (``CloudPaths``), which the supervisor checks once its child is ready.
     public init(connector: CloudCarrierDial.Connector, paths: CloudPaths) {
-        self.init(connector: connector, socket: paths.linkSocket(machineID: connector.dial.machine)) { try CloudLinkSocketPolicy.check($0) }
+        self.init(connector: connector, socket: paths.linkSocket(machineID: connector.dial.machine))
     }
 
-    /// `clock` paces the token refresh; tests pass a manual clock.
-    init(connector: CloudCarrierDial.Connector, socket: String, refreshDelay: @escaping @Sendable (String) -> Duration = { CloudCarrierServe.refreshDelay($0) },
-         clock: any Clock<Duration> = ContinuousClock(), check: @escaping @Sendable (String) throws -> Void) {
-        (self.connector, self.socket, self.check, nextRefresh) = (connector, socket, check, refreshDelay)
-        refresher = DemandTimer(owner: "CloudCarrierServe.tokenRefresh", clock: clock)
-    }
-
-    /// The tasks waiting for the current child's exit (the exit watcher, and a launch waiting to replace it).
-    var childExitWaiters: Int { child?.exitWaiterCount ?? 0 }
-
-    /// Why the link ended since the current connect: a refused dial's step, or the child no longer serving.
-    var refusal: CloudLinkError? {
-        if let refused { return refused }
-        guard starting == nil, !(ready && child?.isRunning == true) else { return nil }
-        return .helperNotRunning(reason: "cmux carrier serve exited")
+    /// `tokenReadDeadline`: tests shorten ``CloudCarrierServe/tokenReadDeadline``.
+    init(connector: CloudCarrierDial.Connector, socket: String, tokenReadDeadline: Duration = CloudCarrierServe.tokenReadDeadline) {
+        (self.connector, self.socket, self.readDeadline) = (connector, socket, tokenReadDeadline)
     }
 
     func observeOwnership(_ update: @escaping @Sendable (CloudCallerOwnership) async -> Void) { ownershipObserver = update }
 
-    /// When the next token line goes out after `token`: a minute before its `exp`, at least 15 s on; five
-    /// minutes on for a token that names no `exp`.
-    static func refreshDelay(_ token: String, now: Date = Date()) -> Duration {
-        guard let expiresAt = CloudAccessToken(token: token, team: "").expiresAt else { return .seconds(300) }
-        return .seconds(max(expiresAt.timeIntervalSince(now) - 60, 15))
-    }
-
-    /// The serving socket: a running child gets a fresh access token, else a new child starts (after the
-    /// last one exited). Throws ``CloudLinkError`` when it does not get ready. `keepingRefusal`: another
-    /// client asks (the Cloud app server), so the refusal the session's own connect reads stays.
+    /// The serving socket. Throws ``CloudLinkError`` when the serve does not get ready, and `closed` once stopped
+    /// or once the connector's account ended. `keepingRefusal`: another client asks (the Cloud app server), so
+    /// the refusal the session's own connect reads stays.
     public func socketPath(keepingRefusal: Bool = false) async throws -> String {
-        // An account end fenced this serve: its socket belongs to the old account.
-        guard !connector.isFenced else { throw Self.stopped }
-        if !keepingRefusal { refused = nil }
-        if let starting { return try await starting.value }
-        let mine = generation
-        if ready, let child, child.isRunning {
-            var token: String?
-            do { token = try await connector.environment()["CMUX_CLOUD_ACCESS_TOKEN"] } catch let error as CloudLinkError where error == CloudCarrierDial.Connector.fenced {
-                // Another account is signed in now: the old account's socket is handed to no one.
-                throw Self.stopped
-            } catch {}
-            guard mine == generation, !connector.isFenced else { throw Self.stopped }
-            if ready, child === self.child, child.isRunning {
-                // A token lookup that failed keeps the healthy child on its last token (as refreshToken does).
-                guard let token else { return socket }
-                if child.writeInput(line: CloudCarrierDial.tokenLine(token)) {
-                    sentToken = token
-                    return socket
-                }
+        guard !stopped, !connector.isFenced else { throw Self.closed }
+        lastWaiter &+= 1
+        let waiter = lastWaiter
+        return try await withCheckedThrowingContinuation { continuation in
+            waiters[waiter] = continuation
+            guard let supervisor = running() else { return }
+            if !supervisor.writeInput(line: #"{"connect":\#(waiter),"keep_refusal":\#(keepingRefusal)}"#) {
+                waiters.removeValue(forKey: waiter)?.resume(throwing: Self.exited)
             }
         }
-        // Another connect started a launch while this one awaited its token: join it, never a second child.
-        if let starting { return try await starting.value }
-        let task = Task { try await self.launch(generation: mine) }
-        starting = task
-        defer { if mine == generation { starting = nil } }
-        return try await task.value
     }
 
-    /// Closes the child's stdin: it removes its socket and exits. A connect or launch still in flight
-    /// (waiting for a token or the previous child's exit) is cancelled and spawns nothing.
+    /// Ends the serve for good: its child stops, and every connect waiting resumes closed.
     public func stop() {
-        generation &+= 1
-        starting?.cancel()
-        starting = nil
-        ready = false
-        child?.closeInput()
-        refresher.cancel()
-        refreshing = false
-        release()
+        stopped = true
+        refusal = Self.closed
+        supervisor?.writeInput(line: #"{"stop":true}"#)
+        supervisor?.closeInput()
     }
 
-    private func release() {
+    /// Ends the child while the machine is paused; the next connect starts a fresh one.
+    public func park() {
+        if supervisor?.writeInput(line: #"{"park":true}"#) == false {
+            Self.log.error("carrier supervise \(self.connector.dial.machine, privacy: .public): the park did not reach the supervisor")
+        }
+    }
+
+    /// The running supervisor, started when none runs; nil (each waiter resumed) when it cannot start.
+    private func running() -> ChildProcess? {
+        if let supervisor { return supervisor }
+        let process = ChildProcess(executable: connector.cli, arguments: connector.dial.superviseArguments(socket: socket))
+        do {
+            try process.startHoldingInput()
+        } catch {
+            Self.log.error("carrier supervise \(self.connector.dial.machine, privacy: .public): did not start: \(error.localizedDescription, privacy: .public)")
+            finish(Result.failure(CloudLinkError.helperNotRunning(reason: "cmux carrier supervise did not start: \(error.localizedDescription)")))
+            return nil
+        }
+        supervisor = process
+        // Its children carry this account's token: an account end (``CloudCarrierStreams/endAll()``) stops it at
+        // once; one that came first already did.
+        if let streams = connector.streams {
+            held = streams.hold(generation: connector.generation) { [weak self] in
+                process.writeInput(line: #"{"account_ended":true}"#)
+                process.closeInput()
+                // task-owner: one hop that tells the serve its account ended
+                Task { await self?.stop() }
+            }
+        }
+        // task-owner: ends with the supervisor's stderr and its exit
+        Task { [weak self, lines = process.stderrLines] in
+            for await line in lines { await self?.received(line, from: process) }
+            let status = await process.waitForExit()
+            await self?.exited(process, status: status)
+        }
+        return process
+    }
+
+    private func received(_ text: String, from process: ChildProcess) {
+        guard process === supervisor,
+              let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return }
+        if let step = object["log"] as? String {
+            // One link step, worded, bounded and stripped of credentials by the supervisor (`supervise_wire::log_line`).
+            Self.log.notice("carrier supervise \(self.connector.dial.machine, privacy: .public): \(String(step.prefix(500)), privacy: .public)")
+        } else if let read = object["read_token"] as? UInt64 {
+            readToken(read, for: process)
+        } else if let ids = object["resume"] as? [UInt64] {
+            var result: Result<String, CloudLinkError> = if let socket = object["socket"] as? String { .success(socket) } else {
+                .failure((object["error"] as? [String: Any]).flatMap(CloudLinkError.init(wire:)) ?? Self.exited)
+            }
+            // A ready line that came after an account end hands the old account's socket to no one.
+            if case .success = result, connector.isFenced { result = .failure(Self.closed) }
+            for id in ids { waiters.removeValue(forKey: id)?.resume(with: result.mapError { $0 as any Error }) }
+        } else if let state = object["state"] as? [String: Any] {
+            refusal = stopped ? Self.closed : (state["refusal"] as? [String: Any]).flatMap(CloudLinkError.init(wire:))
+            answer = (state["answer"] as? String).flatMap(CloudCallerOwnership.init(rawValue:))
+        } else if let word = object["publish"] as? String, let caller = CloudCallerOwnership(rawValue: word) {
+            answer = caller
+            let (previous, observer) = (publishing, ownershipObserver)
+            // task-owner: one observer call, after the one before it
+            publishing = Task {
+                await previous?.value
+                await observer?(caller)
+            }
+        }
+    }
+
+    /// The longest a token read takes before it is answered as failed: the supervisor waits for this answer
+    /// with its lease held, and every connect of the session joins that wait, so an answer that never comes
+    /// wedges the machine's link for good (2026-11-15).
+    static let tokenReadDeadline: Duration = .seconds(75)
+
+    /// Answers the supervisor's token read `read` with the connector's environment, always: within
+    /// ``tokenReadDeadline`` an access token, `fenced` or why there is none.
+    private func readToken(_ read: UInt64, for process: ChildProcess) {
+        let (connector, machine, deadline) = (connector, connector.dial.machine, readDeadline)
+        Self.log.notice("carrier supervise \(machine, privacy: .public): token read \(read) asked")
+        // task-owner: one token read, ended by its answer or its deadline; the supervisor drops an answer whose launch moved on
+        Task.detached(priority: .userInitiated) {
+            let started = ContinuousClock.now
+            let reply = await Self.tokenReply(read, connector: connector, deadline: deadline)
+            let line = Self.line(reply) ?? Self.line(["token": read, "error": CloudLinkError.helperNotRunning(reason: "the token answer did not encode").wire]) ?? ""
+            let wrote = process.writeInput(line: line, patience: .seconds(2))
+            let kind = reply["env"] != nil ? "env" : reply["fenced"] != nil ? "fenced" : "error"
+            let ms = Int(started.duration(to: .now) / .milliseconds(1))
+            if wrote {
+                Self.log.notice("carrier supervise \(machine, privacy: .public): token read \(read) answered \(kind, privacy: .public) after \(ms) ms")
+            } else {
+                Self.log.error("carrier supervise \(machine, privacy: .public): token read \(read) answer (\(kind, privacy: .public)) did not reach the supervisor after \(ms) ms")
+            }
+        }
+    }
+
+    /// The `token` line's object for read `read`: the environment, `fenced`, or the error; a read that outlives
+    /// `deadline` (an auth call that never returns) is answered as failed, and its late result is dropped.
+    static func tokenReply(_ read: UInt64, connector: CloudCarrierDial.Connector, deadline: Duration) async -> [String: Any] {
+        let outcome = await Self.race(deadline) { () async -> Result<[String: String], any Error> in
+            do { return .success(try await connector.environment()) } catch { return .failure(error) }
+        }
+        var reply: [String: Any] = ["token": read]
+        switch outcome {
+        case .success(let environment)?:
+            // A switch during the read hands the token to no one.
+            if connector.isFenced { reply["fenced"] = true } else { reply["env"] = environment }
+        case .failure(let error as CloudLinkError)? where error == CloudCarrierDial.Connector.fenced:
+            reply["fenced"] = true
+        case .failure(let error)?:
+            let failure = (error as? CloudLinkError) ?? .helperNotRunning(reason: "cmux carrier serve has no access token: \(error)")
+            reply["error"] = failure.wire
+        case nil:
+            reply["error"] = CloudLinkError.helperNotRunning(reason: "the access token read took longer than \(deadline)").wire
+        }
+        return reply
+    }
+
+    /// `operation`'s value, or nil once `limit` passed first. Never joins a late `operation` (one that ignores
+    /// its cancellation), unlike a task group, which waits for every child before it returns.
+    static func race<T: Sendable>(_ limit: Duration, _ operation: @escaping @Sendable () async -> T) async -> T? {
+        let (results, sink) = AsyncStream.makeStream(of: T?.self)
+        // task-owner: the operation; its late value goes to a finished stream
+        let work = Task { sink.yield(await operation()); sink.finish() }
+        // task-owner: the deadline; cancelled by the answer
+        let timer = Task {
+            // wakeup-allow: one-shot deadline of one token read
+            try? await Task.sleep(for: limit)
+            sink.yield(nil)
+            sink.finish()
+        }
+        var first: T?
+        for await value in results { first = value; break }
+        timer.cancel()
+        if first == nil { work.cancel() }
+        return first
+    }
+
+    /// The carrier link's steps, one line each. Notice and error only: release builds persist those, so
+    /// `log show --predicate 'subsystem == "com.cmuxterm.app.next" AND category == "cloud.carrier"'` reads a
+    /// nightly's link failure; an info or debug line is not kept (tests/test_cloud_carrier_os_log.py).
+    static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.carrier")
+
+    private func exited(_ process: ChildProcess, status: Int32) {
+        guard process === supervisor else { return }
+        supervisor = nil
         if let held { connector.streams?.release(held) }
         held = nil
-    }
-
-    private static let stopped = CloudLinkError.disconnected(reason: "closed")
-
-    private func noteRefused(_ error: CloudLinkError) { refused = error }
-
-    private func noteConnected(vmk: String?, from serving: ChildProcess) async {
-        guard serving === child else { return }
-        let caller = CloudCallerOwnership(vmk: vmk) ?? .unknown
-        answer = caller
-        await ownershipObserver?(caller)
-    }
-
-    private func childExited(_ exited: ChildProcess) {
-        guard exited === child else { return }
-        refresher.cancel()
-        refreshing = false
-        release()
-    }
-
-    /// The next token line, a minute before the last token expires; nothing once the child is gone.
-    private func scheduleRefresh(_ serving: ChildProcess) {
-        guard serving === child, serving.isRunning else { refreshing = false; return }
-        refreshing = true
-        refresher.schedule(after: nextRefresh(sentToken ?? "")) { [weak self] in await self?.refreshToken(serving) }
-    }
-
-    /// Hands the running child a fresh token (when the auth layer has a new one), then schedules the next.
-    private func refreshToken(_ serving: ChildProcess) async {
-        guard serving === child, serving.isRunning else { refreshing = false; return }
-        if let token = try? await connector.environment()["CMUX_CLOUD_ACCESS_TOKEN"], token != sentToken, serving === child,
-           serving.writeInput(line: CloudCarrierDial.tokenLine(token)) {
-            sentToken = token
-        }
-        scheduleRefresh(serving)
-    }
-
-    private func launch(generation mine: UInt64) async throws -> String {
-        if let previous = child { previous.closeInput(); _ = await previous.waitForExit() }
-        guard mine == generation else { throw Self.stopped }
-        ready = false
-        let fresh = try await connector.environment()
-        guard mine == generation, !Task.isCancelled else { throw Self.stopped }
-        let environment = ProcessInfo.processInfo.environment.merging(fresh) { $1 }
-        let child = ChildProcess(executable: connector.cli, arguments: connector.dial.serveArguments(socket: socket), environment: environment)
-        self.child = child
         answer = nil
-        sentToken = environment["CMUX_CLOUD_ACCESS_TOKEN"]
-        let (answers, answer) = AsyncStream.makeStream(of: CloudCarrierDial.ServeLine.self, bufferingPolicy: .bufferingNewest(1))
-        // One reader for all of stderr: the first answer, then one line per refused connection.
-        // task-owner: ends with the child's stderr
-        Task { [weak self, lines = child.stderrLines] in
-            var answered = false
-            for await text in lines {
-                guard let line = CloudCarrierDial.serveLine(text) else { continue }
-                if !answered { answered = true; answer.yield(line); answer.finish(); continue }
-                switch line {
-                case .refused(let code, let detail):
-                    if let refusal = CloudCarrierDial.serveRefusal(code: code, detail: detail) { await self?.noteRefused(refusal) }
-                case .connected(let vmk): await self?.noteConnected(vmk: vmk, from: child)
-                case .ready: break
-                }
-            }
-            answer.finish()
+        let ended = stopped ? Self.closed : Self.supervisorExited(status: status, stderr: process.stderrText)
+        if stopped {
+            Self.log.notice("carrier supervise \(self.connector.dial.machine, privacy: .public): exited with status \(status) after a stop")
+        } else {
+            Self.log.error("carrier supervise \(self.connector.dial.machine, privacy: .public): \(String(String(describing: ended).prefix(500)), privacy: .public)")
         }
-        do {
-            try child.startHoldingInput()
-        } catch {
-            // It never ran (ChildProcess recorded its exit): keep no child for the next launch to wait on.
-            if self.child === child { self.child = nil }
-            throw CloudLinkError.disconnected(reason: "cmux carrier serve did not start: \(error.localizedDescription)")
+        refusal = ended
+        finish(.failure(ended))
+    }
+
+    /// The supervisor itself exited: its status and its last stderr line that is not one of its JSON lines
+    /// (a usage refusal, a panic), so the link's end tells it apart from the serve child's exit.
+    static func supervisorExited(status: Int32, stderr: String) -> CloudLinkError {
+        let last = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            .last { !$0.isEmpty && !$0.hasPrefix("{") }
+        let reason = "cmux carrier supervise exited with status \(status)"
+        return .helperNotRunning(reason: last.map { "\(reason); its last stderr line: \($0.prefix(300))" } ?? reason)
+    }
+
+    private func finish(_ result: Result<String, CloudLinkError>) {
+        let waiting = waiters
+        waiters = [:]
+        for continuation in waiting.values { continuation.resume(with: result.mapError { $0 as any Error }) }
+    }
+
+    /// `object` as one JSON line; nil when it does not encode (never a `{}` the supervisor skips).
+    private static func line(_ object: [String: Any]) -> String? {
+        guard JSONSerialization.isValidJSONObject(object), let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
+extension CloudLinkError {
+    /// `carrier supervise`'s error object (`{"kind":…}`, cmux-tui `carrier/supervise_wire.rs`); nil for a kind it
+    /// does not name.
+    init?(wire object: [String: Any]) {
+        let text = { (key: String) in object[key] as? String ?? "" }
+        switch object["kind"] as? String {
+        case "disconnected": self = .disconnected(reason: text("reason"))
+        case "revoked": self = .revoked(reason: text("reason"))
+        case "helper_not_running": self = .helperNotRunning(reason: text("reason"))
+        case "unsafe_socket": self = .unsafeSocket(text("detail"))
+        case "open_directory": self = .openDirectory(path: text("path"), parent: object["parent"] as? Bool ?? false)
+        case "invalid_answer": self = .invalidAnswer(text("detail"))
+        case "not_up": self = .notUp(state: text("state"))
+        case "failed": self = .failed(code: text("code"), message: text("message"))
+        case "unsupported": self = .unsupported
+        default: return nil
         }
-        // It carries this account's token: an account end (``CloudCarrierStreams/endAll()``) closes it; one
-        // that came first closed it already, and its socket goes to no one.
-        release()
-        if let streams = connector.streams {
-            guard let id = streams.hold(generation: connector.generation, stop: { [child] in child.closeInput() }) else { throw Self.stopped }
-            held = id
+    }
+
+    /// This error as ``init(wire:)`` reads it.
+    var wire: [String: Any] {
+        switch self {
+        case .disconnected(let reason): ["kind": "disconnected", "reason": reason]
+        case .revoked(let reason): ["kind": "revoked", "reason": reason]
+        case .helperNotRunning(let reason): ["kind": "helper_not_running", "reason": reason]
+        case .unsafeSocket(let detail): ["kind": "unsafe_socket", "detail": detail]
+        case .openDirectory(let path, let parent): ["kind": "open_directory", "path": path, "parent": parent]
+        case .invalidAnswer(let detail): ["kind": "invalid_answer", "detail": detail]
+        case .notUp(let state): ["kind": "not_up", "state": state]
+        case .failed(let code, let message): ["kind": "failed", "code": code, "message": message]
+        case .unsupported: ["kind": "unsupported"]
         }
-        do {
-            let first = try await withDeadline(Self.readyDeadline, label: "cmux carrier serve") { () -> CloudCarrierDial.ServeLine? in
-                for await line in answers { return line }
-                return nil
-            }
-            switch first {
-            case .ready(let served)?:
-                guard served == socket else { throw CloudLinkError.invalidAnswer("served another socket") }
-                try check(served)
-            case .connected?:
-                throw CloudLinkError.invalidAnswer("no ready line")
-            case .refused(let code, let detail)?:
-                throw CloudCarrierDial.serveStartError(code: code, detail: detail, socket: socket)
-            case nil:
-                // Serve writes a line before every exit; none means it never ran.
-                throw CloudLinkError.helperNotRunning(reason: child.stderrText)
-            }
-        } catch {
-            child.closeInput()
-            throw mine == generation ? (error as? CloudLinkError) ?? CloudLinkError.helperNotRunning(reason: String(describing: error)) : Self.stopped
-        }
-        // Stopped while it got ready: stop() closed its stdin; it exits and is reaped (ChildProcess waits on it).
-        guard mine == generation, !connector.isFenced else { child.closeInput(); throw Self.stopped }
-        ready = true
-        scheduleRefresh(child)
-        // task-owner: ends when the child exits
-        Task { [weak self] in _ = await child.waitForExit(); await self?.childExited(child) }
-        return socket
     }
 }
 

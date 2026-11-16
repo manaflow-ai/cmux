@@ -44,6 +44,32 @@ class ScrollPlanTests(unittest.TestCase):
                         self.assertEqual(command[command.index("--target-hz") + 1], target)
 
 
+class BenchAppTests(unittest.TestCase):
+    def test_every_bench_measures_the_app_it_is_given(self):
+        """home-perf.py took no --app and looked for a reload.sh build, so on the fleet (split-spring.sh builds
+        into .build/DerivedData/cmux-measure) it exited in 0.2 s and every run's home rows were missing: an
+        incomplete gate (stable-next run 42930043303)."""
+        with tempfile.TemporaryDirectory() as out:
+            args = ["perf-budgets.py", "--tag", "test", "--app", "/fleet/cmux DEV test.app", "--out", out]
+            with patch.object(sys, "argv", args), patch.object(pb, "run_phase") as run, patch.object(pb, "finish"):
+                pb.main()
+        plan = run.call_args.args[2]
+        for name in pb.BENCHES:
+            command = plan[name][0]
+            with self.subTest(bench=name):
+                self.assertIn("--app", command)
+                self.assertEqual(command[command.index("--app") + 1], "/fleet/cmux DEV test.app")
+
+    def test_home_perf_takes_the_app_and_refuses_a_missing_one(self):
+        import subprocess
+        script = os.path.join(ROOT, "scripts/cmux-next/home-perf.py")
+        with tempfile.TemporaryDirectory() as out:
+            done = subprocess.run([sys.executable, script, "--tag", "t", "--out", os.path.join(out, "h.json"),
+                                   "--app", os.path.join(out, "none.app")], capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("no app at", done.stderr + done.stdout)
+
+
 class GateTests(unittest.TestCase):
     def test_regression_needs_ten_percent_and_the_floor(self):
         rows = [{"name": "a", "p95": 11.5, "floor": 1.0},   # +15 %, +1.5 ms: regressed
@@ -109,6 +135,40 @@ class MappingTests(unittest.TestCase):
         # An older build's report with another shape (or none) leaves the rows empty, never raises.
         self.assertEqual(pb.rows_panes(None), {})
         self.assertEqual(pb.rows_sidebar(None, 400)["sidebar.400.scroll.frame"], (None, None))
+
+    def test_typing_stages_become_rows_that_are_never_judged(self):
+        """CMUX-571 typing-latency: the chat composer's typing stages (key to page, key to edit and render done) are
+        stored beside to_frame and to_paint, with no budget, no regression check and no baseline entry."""
+        stat = lambda p50, p95: {"p50_ms": p50, "p95_ms": p95, "max_ms": p95 + 1}  # noqa: E731
+        rep = {"modes": {"chromium": {"summary": {"typing_to_frame": stat(10.5, 12.8), "typing_to_paint": stat(11, 13),
+                                                  "typing_to_listener": stat(1.2, 2.5), "typing_to_work": stat(3.1, 6.0)}},
+                         "own": {"summary": {"typing_to_frame": stat(13, 15),
+                                             "typing_to_listener": {"p50_ms": 0, "p95_ms": 0, "max_ms": 0}}}}}
+        rows = pb.rows_acp(rep)
+        self.assertEqual(rows["acp.chromium.typing.to_listener"], (1.2, 2.5))
+        self.assertEqual(rows["acp.chromium.typing.to_work"], (3.1, 6.0))
+        # A build without the stage marks: typingSummary's zeros (or no key) make no row, never a 0 ms one.
+        self.assertNotIn("acp.own.typing.to_listener", rows)
+        self.assertNotIn("acp.own.typing.to_work", rows)
+        self.assertEqual(rows["acp.own.typing.to_frame"], (13, 15))
+        self.assertTrue(pb.STAGE_ROW_RE.match("acp.chromium.typing.to_work@cmux20-bench"))
+        self.assertFalse(pb.STAGE_ROW_RE.match("acp.chromium.typing.to_frame"))
+        with tempfile.TemporaryDirectory() as out:
+            base = os.path.join(out, "base.json")
+            json.dump({"p95": {"acp.chromium.typing.to_frame": 12.8, "acp.chromium.typing.to_work": 1.0}}, open(base, "w"))
+            opts = type("Opts", (), {"out": out, "profile": False, "baseline": base, "json": os.path.join(out, "r.json"),
+                                     "tag": "t", "raw": "", "write_baseline": os.path.join(out, "new.json"), "gate": True})()
+            with self.assertRaises(SystemExit) as done:
+                pb.finish(opts, json.load(open(pb.BUDGETS_FILE)), ["acp"], {}, rows)
+            self.assertEqual(done.exception.code, 0, "a stage over its (stale) baseline value never fails the gate")
+            report = json.load(open(opts.json))
+            by_name = {r["name"]: r for r in report["rows"]}
+            self.assertIsNone(by_name["acp.chromium.typing.to_work"]["budget"])
+            self.assertEqual(by_name["acp.chromium.typing.to_frame"]["budget"], 8.33)
+            self.assertNotIn("acp.chromium.typing.to_work", report["over_budget"])
+            written = json.load(open(opts.write_baseline))["p95"]
+            self.assertIn("acp.chromium.typing.to_frame", written)
+            self.assertNotIn("acp.chromium.typing.to_work", written)
 
     def test_tab_churn_report_maps_to_budgeted_rows(self):
         """ask-8a0837950b: tab-churn-bench.py's summary becomes terminal_burst.* rows, each with a budget and an expected family."""

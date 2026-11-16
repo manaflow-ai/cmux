@@ -126,7 +126,7 @@ enum AgentSessionWorkspace {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
             } catch {
                 logger.error("agent.openSessionWorkspace failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
+                return ActionWorkFailure(log: "agent.openSessionWorkspace: \(error)")
             }
         }
     }
@@ -191,7 +191,7 @@ enum AgentSessionWorkspace {
             } catch let refusal as AgentTabRefusal {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
             } catch {
-                return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
+                return ActionWorkFailure(log: "agent.openSessionWorkspace: \(error)")
             }
         }
     }

@@ -10,6 +10,7 @@ import { useContext } from "react";
 
 import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
+import { ResumeControl, type ResumeActions } from "../subagents/ResumeControl";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -61,8 +62,11 @@ export function SubagentStatusList({
   onOpenSession,
   sessions = NO_SESSIONS,
   stack = NO_STACK,
+  resume,
 }: {
   agents: readonly Subagent[];
+  /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx), as its end line offers it.
+  resume?: ResumeActions;
   waiting: ReadonlySet<string>;
   /// The chat's sub-sessions, after its subagents (subagents/subsessions.ts `subsessionRows`).
   subsessions?: readonly SubsessionRow[];
@@ -140,6 +144,7 @@ export function SubagentStatusList({
                 }
                 tone={agentTone(agent.id)}
                 onOpen={onOpen ? () => onOpen(agent.id) : undefined}
+                after={resume && <ResumeControl agent={agent} actions={resume} />}
               />
             </li>
           );

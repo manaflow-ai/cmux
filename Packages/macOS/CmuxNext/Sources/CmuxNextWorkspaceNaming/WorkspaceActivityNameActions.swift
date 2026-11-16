@@ -82,7 +82,7 @@ public final class WorkspaceActivityNameActions {
             do {
                 reply = try await host.activityComplete(params, fallback: fallback)
             } catch {
-                return ActionWorkFailure(WorkspaceActivityName.Refusal.failed(error.localizedDescription).text)
+                return ActionWorkFailure(log: WorkspaceActivityName.Refusal.failed(String(describing: error)).text)
             }
             guard let name = WorkspaceActivityName.name(fromReply: reply) else {
                 return ActionWorkFailure(WorkspaceActivityName.Refusal.noName.text)
