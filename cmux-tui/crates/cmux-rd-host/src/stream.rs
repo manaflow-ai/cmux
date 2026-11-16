@@ -587,8 +587,13 @@ impl MediaSession {
         session: SessionId,
         viewer: &Principal,
     ) {
+        let departed_us = now_us();
         for datagram in &out.datagrams {
-            let _ = carrier.send_datagram(datagram);
+            if carrier.send_datagram(datagram).is_ok() {
+                // Every output path, including tail probes and repair output,
+                // must tell the controller when the carrier accepted it.
+                self.engine.datagram_sent(datagram, departed_us);
+            }
         }
         self.upstreams.deliver(&out.upstream);
         if out.release_all {
