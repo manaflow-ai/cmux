@@ -331,6 +331,8 @@ export type AppsPageVariant = VariantBase & {
     details: Record<string, AppDetail>;
     installed: Record<string, InstalledApp>;
     grants: Record<string, Grants>;
+    /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
+    examples?: boolean;
   };
 };
 

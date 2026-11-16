@@ -13,6 +13,8 @@ import {
   listedInStore,
   parseRoute,
   type CardStyle,
+  type DiscoverShelf,
+  type ExamplesStyle,
   type StoreLayout,
   type StoreTab,
 } from "./model";
@@ -41,10 +43,17 @@ export interface AppsSnapshot {
   layout: StoreLayout;
   /** The Discover card style (`card=`); `standard` unless a DEV route asks for another. */
   card: CardStyle;
+  /** Where Discover offers the Examples shelf (`examples=`); `chip` unless a DEV route asks. */
+  examplesStyle: ExamplesStyle;
+  /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
+  examplesOffered: boolean;
+  /** The shelf Discover shows; `store` whenever the owner does not offer Examples. */
+  shelf: DiscoverShelf;
   query: string;
   category?: string;
+  /** Every listing on every shelf (the `cmux ext dev` apps too, for Installed's icons). */
   catalog: CatalogApp[];
-  /** The catalog filtered by query and category. */
+  /** The catalog's listings on the shelf, filtered by query and category. */
   visible: CatalogApp[];
   categories: string[];
   installed: InstalledApp[];
@@ -108,6 +117,9 @@ export class AppsStore {
       tab: route.tab,
       layout: route.layout,
       card: route.card,
+      examplesStyle: route.examples,
+      examplesOffered: false,
+      shelf: route.shelf,
       query: "",
       catalog: [],
       visible: [],
@@ -243,10 +255,14 @@ export class AppsStore {
           failure: update.failure ?? app.failure,
         };
       });
+      const examplesOffered = catalog.examples === true;
+      const shelf: DiscoverShelf = examplesOffered ? this.snapshot.shelf : "store";
       this.set({
         catalog: listed,
-        visible: filterApps(listed, this.snapshot.query, this.snapshot.category),
-        categories: categories(listed),
+        examplesOffered,
+        shelf,
+        visible: filterApps(listed, this.snapshot.query, this.snapshot.category, shelf),
+        categories: categories(listed, shelf),
         installed: mergedInstalled,
         updates,
         updatesLoading: acceptUpdates ? false : this.snapshot.updatesLoading,
@@ -343,7 +359,7 @@ export class AppsStore {
   setQuery(query: string): void {
     this.set({
       query,
-      visible: filterApps(this.snapshot.catalog, query, this.snapshot.category),
+      visible: filterApps(this.snapshot.catalog, query, this.snapshot.category, this.snapshot.shelf),
     });
   }
 
@@ -351,7 +367,22 @@ export class AppsStore {
     const next = this.snapshot.category === category ? undefined : category;
     this.set({
       category: next,
-      visible: filterApps(this.snapshot.catalog, this.snapshot.query, next),
+      visible: filterApps(this.snapshot.catalog, this.snapshot.query, next, this.snapshot.shelf),
+    });
+  }
+
+  /** Shows `shelf` on Discover; Examples only while the owner offers it. A category resets. */
+  setShelf(shelf: DiscoverShelf): void {
+    const next: DiscoverShelf = this.snapshot.examplesOffered ? shelf : "store";
+    if (next === this.snapshot.shelf && this.snapshot.tab === "discover") return;
+    const { catalog, query } = this.snapshot;
+    this.set({
+      tab: "discover",
+      shelf: next,
+      category: undefined,
+      selection: this.snapshot.layout === "split" ? this.snapshot.selection : undefined,
+      visible: filterApps(catalog, query, undefined, next),
+      categories: categories(catalog, next),
     });
   }
 

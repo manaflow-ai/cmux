@@ -112,6 +112,11 @@
   color: var(--page-text);
 }
 
+/* The Examples toggle is a shelf, not a category: it sits at the row's far end. */
+.apps-chip-shelf {
+  margin-inline-start: auto;
+}
+
 .apps-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));

@@ -9,6 +9,7 @@ import {
   type AppDetail,
   type AppInstance,
   type AppIconRef,
+  type AppShelf,
   type AppSource,
   type AppTier,
   type AppVersion,
@@ -44,6 +45,8 @@ export interface WireListing {
   categories: string[];
   keywords?: string[];
   hide_only: boolean;
+  /** Absent from an owner older than shelves. */
+  shelf?: AppShelf;
   install: WireInstallState | null;
 }
 
@@ -63,6 +66,8 @@ export interface WireCatalogPage {
   listings: WireListing[];
   next_cursor: string | null;
   revision: number;
+  /** Whether the owner offers the Examples shelf; absent from an older owner. */
+  examples?: boolean;
 }
 
 export interface WireInstalledApp {
@@ -118,6 +123,7 @@ export function fromListing(listing: WireListing): CatalogApp {
     enabled: listing.install?.enabled,
     hidden: listing.install?.hidden,
     hide_only: listing.hide_only,
+    shelf: listing.shelf ?? "store",
   };
 }
 
@@ -200,14 +206,16 @@ export async function listCatalog(client: Pick<PageClient, "call">): Promise<Cat
   const apps: CatalogApp[] = [];
   let cursor: string | null = null;
   let revision = 0;
+  let examples = false;
   do {
     const params: Record<string, unknown> = cursor ? { limit: CATALOG_PAGE, cursor } : { limit: CATALOG_PAGE };
     const page: WireCatalogPage = await client.call<WireCatalogPage>(AppsOps.catalogList, params);
     apps.push(...page.listings.map(fromListing));
     revision = page.revision;
+    examples = page.examples === true;
     cursor = page.next_cursor;
   } while (cursor);
-  return { apps, revision };
+  return { apps, revision, examples };
 }
 
 export async function listInstalled(
