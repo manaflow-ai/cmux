@@ -325,6 +325,29 @@ fn add_json_prints_the_env_form_line_and_the_token_only_in_line_and_token() {
 }
 
 #[test]
+fn device_invite_uses_the_hub_join_script_and_pins_the_minter_channel() {
+    let (origin, requests) = fake(joining(vec![json!([])], far()));
+    let value = mint_invite(&platform(&origin), Some("build-box"), Some(300), "nightly-next")
+        .unwrap();
+    assert_eq!(
+        value["line"],
+        format!(
+            " curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN_CHANNEL=nightly-next CMUX_JOIN={TOKEN} sh"
+        )
+    );
+    assert_eq!(value["channel"], "nightly-next");
+    assert_eq!(value["scriptUrl"], format!("{origin}/v1/machines/join.sh"));
+    assert!(!value["line"].as_str().unwrap().contains("host join"));
+    assert!(!value["line"].as_str().unwrap().contains("install-static.sh"));
+    let request = requests.recv().unwrap();
+    let (_, body) = request.split_once("\r\n\r\n").unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(body).unwrap(),
+        json!({"label": "build-box", "ttlSeconds": 300})
+    );
+}
+
+#[test]
 fn add_human_prints_the_line_and_waits_on_a_terminal_until_it_joins() {
     let (origin, _requests) = fake(joining(
         vec![json!([entry("jt_other")]), json!({"credentials": [entry("jt_1")]})],

@@ -30,7 +30,8 @@ use network::{Choice, TailscaleNetwork, WeftNetwork};
 const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device list [--json] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
        cmux device add HOST --yes [--name NAME] [--json]
-       cmux device invite [--role client|read-only] [--ttl 15m] [--label TEXT] [--json]
+       cmux device invite [--role client|read-only] [--ttl 10m] [--label TEXT] [--platform URL]
+         [--cloud-token-file PATH | --cloud-token-stdin] [--json]
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
        cmux device network [--json]
@@ -580,44 +581,70 @@ fn add(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
 fn invite(args: &[String]) -> anyhow::Result<()> {
-    let flags = Flags::parse(args, &["role", "ttl", "label", "url"], &["json"])?;
+    let flags = Flags::parse(
+        args,
+        &["role", "ttl", "label", "platform", "cloud-token-file"],
+        &["json", "cloud-token-stdin"],
+    )?;
     let role = flags.value("role").unwrap_or("client");
     if !matches!(role, "client" | "read-only") {
         return Err(usage(
-            "--role must be client or read-only (a daemon-role invite: cmux host ticket new)",
+            "--role must be client or read-only",
         ));
     }
-    let mut cmd = vec!["acp", "host", "ticket", "new", "--role", role, "--json"];
-    for key in ["ttl", "label", "url"] {
-        if let Some(v) = flags.value(key) {
-            cmd.push(match key {
-                "ttl" => "--ttl",
-                "label" => "--label",
-                _ => "--url",
-            });
-            cmd.push(v);
-        }
-    }
-    let v = run_json(&cmd)?;
+    let auth = crate::cli::PlatformAuth {
+        platform: flags.value("platform").map(str::to_owned),
+        token_file: flags.value("cloud-token-file").map(PathBuf::from),
+        token_stdin: flags.has("cloud-token-stdin"),
+    };
+    let env = |key: &str| std::env::var(key).ok();
+    let credential = crate::cli::read_platform_credential(
+        &auth,
+        &env,
+        &mut std::io::stdin().lock(),
+    )
+    .map_err(usage)?
+    .ok_or_else(|| usage("sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN)"))?;
+    let origin = crate::cli::platform_origin(auth.platform.as_deref(), &env).map_err(usage)?;
+    let platform = crate::cli::Platform::new(origin, credential, std::time::Duration::from_secs(20))?;
+    let ttl = flags
+        .value("ttl")
+        .map(crate::cli::parse_ttl)
+        .transpose()
+        .map_err(anyhow::Error::from)?;
+    let mut v = crate::cli::mint_invite(
+        &platform,
+        flags.value("label"),
+        ttl,
+        crate::cli::invite_channel(),
+    )
+    .map_err(anyhow::Error::from)?;
+    v.set("role", json!(role));
     record(
         "device.invited",
-        json!({"invite": v["id"], "role": role, "label": v["label"], "expires_at": v["expires_at"]}),
+        json!({"invite": v["joinTokenId"], "role": role, "label": v["name"], "expires_at": v["expiresAt"]}),
     );
     if flags.has("json") {
         println!("{v}");
     } else {
         println!(
             "On the new computer, run:\n\n  {}\n",
-            v["install_command"].as_str().unwrap_or_default()
+            v["line"].as_str().unwrap_or_default()
         );
         println!(
-            "It works once, until {}. Cancel it: cmux device remove {}",
-            v["expires_at"].as_str().unwrap_or_default(),
-            v["id"].as_str().unwrap_or_default()
+            "It installs the {} channel for that computer and works once, until {}.",
+            v["channel"].as_str().unwrap_or_default(),
+            v["expiresAt"].as_str().unwrap_or_default(),
         );
     }
     Ok(())
+}
+
+#[cfg(not(unix))]
+fn invite(_args: &[String]) -> anyhow::Result<()> {
+    bail!("device invite is unavailable on this platform")
 }
 
 /// Runs one removal step; `stdin_line` (a credential) goes to its stdin, then it closes.

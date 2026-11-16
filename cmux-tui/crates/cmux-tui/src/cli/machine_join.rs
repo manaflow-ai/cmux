@@ -71,6 +71,16 @@ const REVOKE_BOUND: &str = "30 seconds";
 const DEFAULT_TTL_SECS: u64 = 600;
 /// The longest a pasted line lives (the platform's range).
 const MAX_TTL_SECS: u64 = 600;
+/// The channel whose signed manifest installs the daemon that minted a join line.
+/// Release and nightly builds may override this at compile time; development builds use
+/// the integration branch's channel.
+pub(crate) const DEFAULT_JOIN_CHANNEL: &str = "feat-cmux-next";
+
+/// The build pipeline can stamp the channel into the binary; source builds use the integration
+/// channel that `machine-join.sh` serves by default.
+pub(crate) fn invite_channel() -> &'static str {
+    option_env!("CMUX_TUI_CHANNEL").unwrap_or(DEFAULT_JOIN_CHANNEL)
+}
 /// A stick's line: its default life, the platform's longest (a longer one is a platform change).
 pub(super) const USB_TTL_SECS: u64 = MAX_TTL_SECS;
 
@@ -382,7 +392,7 @@ fn check_add(add: &AddArgs) -> Result<(), UsageError> {
 }
 
 /// `10m`, `600s` or `600`: whole seconds from one minute to ten minutes (the platform's range).
-fn parse_ttl(text: &str) -> Result<u64, UsageError> {
+pub(crate) fn parse_ttl(text: &str) -> Result<u64, UsageError> {
     let max = MAX_TTL_SECS;
     let error = || UsageError::new("--ttl takes 1m to 10m (for example 5m)");
     let (digits, scale) = if let Some(hours) = text.strip_suffix('h') {
@@ -874,6 +884,12 @@ pub(super) fn join_line(origin: &str, token: &str) -> String {
     format!(" curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN={token} sh")
 }
 
+/// The invite line names the channel explicitly so it cannot silently install a different
+/// build when the channel pointer moves between minting and redemption.
+pub(crate) fn invite_join_line(origin: &str, token: &str, channel: &str) -> String {
+    format!(" curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN_CHANNEL={channel} CMUX_JOIN={token} sh")
+}
+
 /// A minted join token, checked: the token is `cmj_` and shell-safe, and no
 /// field printed beside it holds it or the caller's credential.
 #[derive(Debug)]
@@ -956,6 +972,29 @@ pub(super) fn mint_for(platform: &Platform, add: &Add<'_>) -> Result<Minted, Fai
         e => e.failure("the join token"),
     })?;
     minted(&answer, &platform.credential)
+}
+
+/// Mint the hub join line used by `cmux device invite`. Keeping this beside `machine add` means
+/// both surfaces validate the token and send the same platform request.
+pub(crate) fn mint_invite(
+    platform: &Platform,
+    label: Option<&str>,
+    ttl: Option<u64>,
+    channel: &str,
+) -> Result<Value, Failure> {
+    let add = Add { name: label, ttl, wait: false, every: WAIT_EVERY, vault: false };
+    let minted = mint_for(platform, &add)?;
+    let line = invite_join_line(&platform.origin, &minted.token, channel);
+    Ok(json!({
+        "line": line,
+        "token": minted.token,
+        "joinTokenId": minted.join_token_id,
+        "expiresAt": minted.expires_at,
+        "teamId": minted.team_id,
+        "name": minted.label.clone().or_else(|| label.map(str::to_owned)),
+        "scriptUrl": format!("{}/v1/machines/join.sh", platform.origin),
+        "channel": channel,
+    }))
 }
 
 fn add_machine(
