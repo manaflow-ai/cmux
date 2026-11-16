@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43831882266",
+  "recorded_at": "2026-11-16T08:40:53Z",
+  "reason": "cmux-tui 66c8a8a8a4e9 changes the image's cmux-tui (pinned 2a9cba423c03)",
+  "dry_run": false,
+  "cmux_tui": "66c8a8a8a4e9f22128d3d3cc144f271d506bff90",
+  "fixes": [
+    {
+      "sha": "66c8a8a8a4e9f22128d3d3cc144f271d506bff90",
+      "mergedAt": "2026-11-16T00:21:02-08:00",
+      "subject": "cmux-rd linux-host: sign in through a browser link when no token file is given (#44289)"
+    },
+    {
+      "sha": "f993528505231290938d369503cf8a533b79f3e0",
+      "mergedAt": "2026-11-16T00:06:48-08:00",
+      "subject": "cmux-rd 0.2.4: a release that carries linux-host (#44283)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T08:40:53Z",
+    "snapshot_id": "sh-1815ef5037b14ec7ab415b0490d04c28",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43831882266): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7012a5b5bd3fa6c8e6e6bfcec68466bc8bd05213",
+    "image": "cloud-native-auto-66c8a8a8-43831882266-1",
+    "revision": "ci-43831882266-1",
+    "at": "2026-11-16T08:40:53Z"
+  },
+  "rolled_back": false
+}
