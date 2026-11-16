@@ -181,7 +181,20 @@ mod pure_table {
         let tap = hub.session_tap(&s);
         let mut context = Context { turn_open: true, ..Context::default() };
         let long = "long prompt ".repeat(300);
+        // The scrubber identifies the PNG mark without decoding the image payload.
+        use base64::Engine;
+        let mut png = vec![0_u8; 72];
+        png[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        png[37..41].copy_from_slice(b"tEXt");
+        let mark = record::model_copy::MARK;
+        png[41..41 + mark.len()].copy_from_slice(mark);
+        let model_copy = base64::engine::general_purpose::STANDARD.encode(png);
         let messages = vec![
+            (
+                Direction::In,
+                json!({"id":10,"method":"custom/request","params":{"image":model_copy}}),
+            ),
+            (Direction::Out, json!({"method":"custom/notification","params":{"image":model_copy}})),
             (
                 Direction::In,
                 json!({"method":"claude.control_response","params":{"response":{"request_id":"ctx-1"}}}),
