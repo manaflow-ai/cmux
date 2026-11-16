@@ -15,7 +15,8 @@
 //!
 //! Run by hand, as the other acpmux benches:
 //! `cargo test -p acpmux --release --test app_stream_bytes -- --ignored --nocapture`
-//! (`ACPMUX_BENCH_CHATS`, `ACPMUX_BENCH_SHOWN`, `ACPMUX_BENCH_TICKS`, `ACPMUX_BENCH_TICK_MS`).
+//! (`ACPMUX_BENCH_CHATS`, `ACPMUX_BENCH_SHOWN`, `ACPMUX_BENCH_TICKS`, `ACPMUX_BENCH_TICK_MS`;
+//! `ACPMUX_BENCH_QUIET=0` attaches as a pane before `quietHidden`, the before of the same build).
 //! It prints one `app-stream-bytes: {json}` line. The plain tests below hold the fix: a hidden
 //! pane hears no stream of its chat until it is shown, and then it is told to read again.
 #![cfg(unix)]
@@ -28,6 +29,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_BENCH_SHOWN",
     "ACPMUX_BENCH_TICKS",
     "ACPMUX_BENCH_TICK_MS",
+    "ACPMUX_BENCH_QUIET",
 ]);
 
 use futures_util::{SinkExt, StreamExt};
@@ -233,7 +235,7 @@ struct Pane {
 impl Pane {
     /// A chat pane as the app opens it: the LocalApp hello, the status read, the row watch, the
     /// plain attach of its chat (`attachParams.ts`), shown or not.
-    async fn open(d: &Daemon, session: &str, visible: bool) -> Self {
+    async fn open(d: &Daemon, session: &str, visible: bool, quiet: bool) -> Self {
         let mut req = d.ws.as_str().into_client_request().unwrap();
         let h = req.headers_mut();
         h.insert("authorization", format!("Bearer {}", d.listener_token).parse().unwrap());
@@ -305,7 +307,8 @@ impl Pane {
             .call(
                 "_acpmux/attach",
                 json!({"sessionId": session, "waitLogs": false, "limit": 400,
-                "maxBytes": 4 << 20, "kinds": kinds, "eventStream": true, "visible": visible}),
+                "maxBytes": 4 << 20, "kinds": kinds, "eventStream": true, "visible": visible,
+                "attending": true, "quietHidden": quiet}),
             )
             .await;
         assert!(attached.get("error").is_none(), "{attached}");
@@ -401,7 +404,7 @@ fn as_json(m: &BTreeMap<String, (u64, u64)>, seconds: f64) -> Value {
     )
 }
 
-async fn measure(chats: usize, shown: usize, ticks: usize, tick_ms: usize) -> Report {
+async fn measure(chats: usize, shown: usize, ticks: usize, tick_ms: usize, quiet: bool) -> Report {
     let d = Daemon::start("bench");
     let mut rpc = Rpc::connect(&d).await;
     let mut ids = Vec::new();
@@ -412,7 +415,7 @@ async fn measure(chats: usize, shown: usize, ticks: usize, tick_ms: usize) -> Re
     stream_all(&d, &ids, 1, 0).await;
     let mut panes = Vec::new();
     for (n, id) in ids.iter().enumerate() {
-        panes.push((n < shown, Pane::open(&d, id, n < shown).await));
+        panes.push((n < shown, Pane::open(&d, id, n < shown, quiet).await));
     }
     for (_, p) in &panes {
         p.counting(true);
@@ -445,10 +448,11 @@ async fn app_stream_bytes_bench() {
     let shown = env_usize("ACPMUX_BENCH_SHOWN", 2).min(chats);
     let ticks = env_usize("ACPMUX_BENCH_TICKS", 400);
     let tick_ms = env_usize("ACPMUX_BENCH_TICK_MS", 10);
-    let r = measure(chats, shown, ticks, tick_ms).await;
+    let quiet = env_usize("ACPMUX_BENCH_QUIET", 1) == 1;
+    let r = measure(chats, shown, ticks, tick_ms, quiet).await;
     let s = r.seconds;
     let out = json!({
-        "chats": chats, "shown": shown, "ticks": ticks, "tickMs": tick_ms,
+        "quietHidden": quiet, "chats": chats, "shown": shown, "ticks": ticks, "tickMs": tick_ms,
         "seconds": (s * 1000.0).round() / 1000.0,
         "totalBytesPerSec": ((total(&r.shown) + total(&r.hidden)) as f64 / s).round(),
         "shownBytesPerSec": (total(&r.shown) as f64 / s).round(),
@@ -458,4 +462,63 @@ async fn app_stream_bytes_bench() {
         "hiddenKinds": as_json(&r.hidden, s),
     });
     println!("app-stream-bytes: {out}");
+}
+
+/// One quiet hidden pane, one hidden pane of an older app (no `quietHidden`), one shown pane, each
+/// on its own chat, every agent started.
+async fn three_panes(d: &Daemon) -> (Vec<String>, Pane, Pane, Pane) {
+    let mut rpc = Rpc::connect(d).await;
+    let mut ids = Vec::new();
+    for n in 0..3 {
+        ids.push(new_chat(&mut rpc, d, n).await);
+    }
+    stream_all(d, &ids, 1, 0).await;
+    let quiet = Pane::open(d, &ids[0], false, true).await;
+    let older = Pane::open(d, &ids[1], false, false).await;
+    let shown = Pane::open(d, &ids[2], true, true).await;
+    (ids, quiet, older, shown)
+}
+
+/// Waits up to 2 s for `done`.
+async fn until(done: impl Fn() -> bool) {
+    for _ in 0..100 {
+        if done() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// A pane that draws nothing while hidden hears none of its chat's stream until it is shown, then
+/// one `_acpmux/lagged` naming the chat, and the stream again. A hidden pane that did not ask, and
+/// a shown one, hear every record as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hidden_quiet_pane_hears_no_stream_until_shown_then_one_lag() {
+    let d = Daemon::start("quiet");
+    let (ids, mut quiet, older, shown) = three_panes(&d).await;
+    stream_all(&d, &ids, 50, 0).await;
+    until(|| older.own_stream() >= 50 && shown.own_stream() >= 50).await;
+    let heard = (quiet.own_stream(), older.own_stream(), shown.own_stream());
+    assert_eq!(heard.0, 0, "the hidden quiet pane heard its chat's stream: {heard:?}");
+    assert!(heard.1 >= 50, "a hidden pane that did not ask hears the stream as before: {heard:?}");
+    assert!(heard.2 >= 50, "the shown pane hears every record: {heard:?}");
+    assert_eq!(quiet.lagged(), 0, "no lag notice while it stays hidden");
+    // Shown: one lag notice for what it missed, and the stream again.
+    quiet.view(true).await;
+    until(|| quiet.lagged() > 0).await;
+    assert_eq!(quiet.lagged(), 1, "one lag notice on show");
+    stream_all(&d, &ids[..1], 20, 0).await;
+    until(|| quiet.own_stream() >= 20).await;
+    assert!(quiet.own_stream() >= 20, "a shown pane hears the stream again");
+    // Hidden again: nothing more. Shown and hidden with nothing missed: no lag notice.
+    quiet.view(false).await;
+    let before = quiet.own_stream();
+    stream_all(&d, &ids[..1], 20, 0).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(quiet.own_stream(), before, "hidden again, no stream");
+    quiet.view(true).await;
+    quiet.view(false).await;
+    quiet.view(true).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(quiet.lagged(), 2, "one more lag for the second hide, none for an empty one");
 }
