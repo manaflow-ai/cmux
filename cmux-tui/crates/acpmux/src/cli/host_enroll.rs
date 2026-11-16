@@ -621,11 +621,6 @@ fn cmux_session_daemon(acp: bool, exe: Option<&str>, daemon_bin: &str) -> bool {
 }
 
 impl Probe {
-    /// The file `path` resolves to on the host, else `path` itself.
-    fn resolved<'a>(&'a self, path: &'a str) -> &'a str {
-        self.real.get(path).map(String::as_str).unwrap_or(path)
-    }
-
     fn in_use(&self) -> Option<InUse> {
         if let Some(run) = &self.running {
             let app_bin = self.bins.iter().any(|(path, _)| app_owned(path));
