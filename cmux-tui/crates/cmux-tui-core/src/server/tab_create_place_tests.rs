@@ -388,6 +388,25 @@ fn a_page_transaction_with_a_workspace_or_a_split_is_refused() {
     mux.shutdown();
 }
 
+/// `place` names a position in the strip of `pane`: each of the three
+/// requests refuses a `place` with no `pane`, before a tab is made.
+#[test]
+fn a_place_with_no_pane_is_refused() {
+    let (mux, pane, [a, b, c]) = strip("refused-no-pane");
+    let before = tab_counts(&mux);
+    for kind in KINDS {
+        let mut request = with(kind.request(pane), [("place", json!({"start": true}))]);
+        request.as_object_mut().expect("a request object").remove("pane");
+        let refused = run(&mux, request).map(|reply| reply.to_string());
+        let error = refused.expect_err("a refusal").to_string();
+        let named = error.contains("bad request") && error.contains("place needs pane");
+        assert!(named, "{kind:?}: {error}");
+    }
+    assert_eq!(tab_counts(&mux), before, "a refused request makes no tab and no pane");
+    assert_eq!(tabs(&mux, pane), [a, b, c]);
+    mux.shutdown();
+}
+
 /// A tab that names the creation before it lands right after that
 /// creation's tab, for each kind of both; a transaction that the connection
 /// never used gives the end.

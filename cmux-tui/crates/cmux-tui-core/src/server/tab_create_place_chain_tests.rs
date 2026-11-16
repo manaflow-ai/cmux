@@ -285,6 +285,26 @@ fn a_placed_page_commits_while_a_launch_is_held() {
     }
 }
 
+/// A page with no `place` and no `transaction` is as it was before
+/// `tab-create-place-v1`: it does not wait for a launch of its connection
+/// that is held, and its tab goes to the end of the strip. The tab of the
+/// terminal then takes the slot that its request took.
+#[test]
+fn a_page_with_no_place_commits_at_the_end_while_a_launch_is_held() {
+    for kind in PAGES {
+        let (mux, pane, [a, b, c]) = strip(&format!("chain-no-place-{kind:?}"));
+        let connection = HeldConnection::new(&mux, 1);
+        connection.send(1, terminal(pane, "t1", json!({"after": a})));
+        connection.send(2, kind.request(pane));
+        let second = connection.surface(2);
+        assert_eq!(tabs(&mux, pane), [a, b, c, second], "{kind:?}: the launch is held");
+        connection.release(0);
+        let [first] = connection.finish([1]);
+        assert_eq!(tabs(&mux, pane), [a, first, b, c, second], "{kind:?}");
+        mux.shutdown();
+    }
+}
+
 /// A terminal tab after `a` still launches. A page takes the slot after `a`,
 /// and a second page names the tab of the first page: it stays next to that
 /// tab, before the terminal's tab.
