@@ -27,13 +27,24 @@ marker app (`scripts/mac-marker`, build with `swiftc -O`) on a test Mac; `cmux-r
 from another Mac then measures latency (`--snapshot FILE.ppm` keeps the newest decoded frame).
 Build on a fleet Mac: `cargo build --release --no-default-features --features bench`.
 
+For transport, encoder and controller measurements without any grant, a bench build of
+`cmux-rd host` or `cmux-rd serve` takes `--source synthetic|synthetic-still|synthetic-tick
+[--synthetic-size WxH]` (default 1920x1080, fitted to `--max-width`): it streams a generated
+NV12 picture with the marker at 0,0 through the same VideoToolbox and send path, and a
+viewer's key press, click or scroll bumps the marker instead of reaching the Mac.
+`synthetic` moves bars every frame, `synthetic-still` sends a frame only when input bumps
+the marker, and `synthetic-tick` also counts every frame (the fps probe). The two-Mac
+harness runs it over ssh with no rig and no marker app:
+`scripts/screen-share-vs.py run --source synthetic --stacks cmux --via ssh --host A --viewer B
+--host-ip IP --bin cmux-rd` (key trials use `synthetic-still`, fps trials `synthetic-tick`).
+
 ## Linux desktop host (shared with cmux on a Mac)
 
 A Linux desktop joins the person's devices and shows up on the Mac's Screen Sharing page
 like a shared Mac. On the desktop, as the user who is signed in to its graphical session:
 
 ```
-cmux-rd linux-host enable [--allow-control]
+cmux-rd linux-host enable [--view-only]
 install -Dm644 systemd/cmux-screen-host.service ~/.config/systemd/user/cmux-screen-host.service
 systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host.service
 ```
@@ -45,11 +56,13 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   `~/.config/cmux/screen-host/` (0700; files 0600), registers it as a `linux` device, anchors
   it and turns sharing on. The anchor lets the host renew its own session with its device key
   for 30 days; after that, `share on` again (it signs in the same way).
-- Consent is the Mac's: a viewer the person allowed on the hub (View or Full Control) is
-  served; anyone else's request waits for the person. `cmux-rd linux-host requests` lists
-  them (also logged: `journalctl --user -u cmux-screen-host`), `approve SESSION [--always]
-  [--scope view|full]` or `deny SESSION` answers. The host never answers one by itself.
-  Control is off unless `enable --allow-control`; a View session applies no input.
+- Consent: this desktop joined your own account, so your devices view and control it with no
+  prompt here (the hub serves a device of the same account at once; `enable --view-only` keeps
+  control off). A viewer you set to Ask on the hub still asks: `cmux-rd linux-host requests` lists
+  those requests (also logged: `journalctl --user -u cmux-screen-host`), `approve SESSION [--always]
+  [--scope view|full]` or `deny SESSION` answers. The host never answers one by itself. A View
+  session applies no input. On Wayland, `enable` asks the ScreenCast portal for its grant once and
+  keeps the restore token, so later sessions start with no portal dialog.
 - The unit is a user unit: it must run in the seat0 session's user manager, with that
   session's D-Bus and `DISPLAY`/`XAUTHORITY`/`XDG_SESSION_TYPE` (see the unit file).
 - Capture: X11 sessions stream the X screen (`--display`, else `$DISPLAY`, else `:0`;
