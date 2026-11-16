@@ -164,6 +164,11 @@ pub struct Account {
     /// When the anchor (`POST /v1/auth/device/anchor`) ends, Unix ms.
     #[serde(default)]
     pub anchored_until: u64,
+    /// A joined machine (`enable --non-interactive`): the file of the credential the join keeps.
+    /// It renews by signing in with it (`POST /v1/auth/machine`), never by device key, so the
+    /// hub asks cmux-platform each hour and a machine that left cmux stops within the hour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_credential: Option<PathBuf>,
 }
 
 impl Account {
@@ -253,9 +258,14 @@ mod tests {
     #[test]
     fn readable_or_symlinked_files_are_refused() {
         let dir = temp_dir("perms");
-        Account { hub: "https://hub".into(), user_id: "p:u".into(), anchored_until: 0 }
-            .save(&dir)
-            .unwrap();
+        Account {
+            hub: "https://hub".into(),
+            user_id: "p:u".into(),
+            anchored_until: 0,
+            machine_credential: None,
+        }
+        .save(&dir)
+        .unwrap();
         let path = dir.join("account.json");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
         assert!(Account::load(&dir).is_err());

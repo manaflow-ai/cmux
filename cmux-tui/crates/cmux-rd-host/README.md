@@ -92,6 +92,8 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   still enabled, then installs, enables and starts the host unit, with lingering for a
   virtual display. A machine it cannot sign in (never joined, revoked, or its person never
   signed in to screen sharing) prints one `not_installed:` line. It never fails the join.
+  A joined machine is not anchored: it renews by signing in with its credential again, so
+  its host stops within the hour once the machine leaves cmux.
 - Viewers: cmux on a Mac (cmux.rd/1). The iPhone's WebRTC viewer is not served by this host
   yet; its session ends with that reason.
 - Relays the person added by hand are sealed to the device's agreement key and not opened

@@ -14,7 +14,9 @@
 //!       dialog, starts a virtual X display when there is no graphical session, installs the host
 //!       unit. It signs in only with the credential the join keeps (`machine-credential.json` in
 //!       the home its acpmux resolves, or `--machine-credential-file`) through the hub's
-//!       `POST /v1/auth/machine`, and prints one `not_installed:` line when it cannot.
+//!       `POST /v1/auth/machine`, and prints one `not_installed:` line when it cannot. Such a
+//!       host is never anchored: it renews by signing in with the credential again, so it stops
+//!       within the hour once the machine leaves cmux.
 //!   grant [--control]
 //!       Wayland: asks the xdg-desktop-portal once (its dialog, on this screen) for the screen
 //!       and, with `--control`, keyboard and pointer, and saves the restore token in
@@ -110,6 +112,10 @@ impl Fatal {
             "device_key_mismatch" => Some(Self::needs(
                 &format!("The hub no longer knows this desktop's key ({detail})"),
                 Self::ENABLE,
+            )),
+            hub::MACHINE_LEFT => Some(Self::needs(
+                &format!("cmux no longer accepts this machine's credential ({detail})"),
+                "acpmux host join, then cmux-rd linux-host enable --non-interactive",
             )),
             "not_anchored" => Some(Self::needs(
                 &format!("This desktop's 30-day sign-in ended ({detail})"),
@@ -321,7 +327,8 @@ fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
     let device = Device::load(&dir)?.ok_or("not enabled: run `cmux-rd linux-host enable` first")?;
     let account =
         Account::load(&dir)?.ok_or("not enabled: run `cmux-rd linux-host enable` first")?;
-    let hub = Hub::new(&account.hub, device, Some(account.user_id.clone()))?;
+    let hub = Hub::new(&account.hub, device, Some(account.user_id.clone()))?
+        .with_machine_credential(account.machine_credential.clone());
     Ok((dir, hub, account))
 }
 
@@ -383,16 +390,17 @@ fn set_up_for_join(args: &Args) -> Res<()> {
         println!("{}", setup::virtual_display_line(display));
     }
     // Signed in by an earlier `enable` and still anchored: the host renews by its device key.
-    // Otherwise the machine signs itself in with the credential the join keeps.
+    // Otherwise the machine signs itself in with the credential the join keeps, and renews by
+    // signing in with it again (never anchored: cmux-platform is asked each hour).
     let device = match (Account::load(&dir)?, Device::load(&dir)?) {
         (Some(account), Some(device)) if account.anchored_until > now_ms() => device,
         _ => {
             let path = match args.get("machine-credential-file") {
-                Some(path) => std::path::PathBuf::from(path),
+                Some(path) => std::path::absolute(path)?,
                 None => machine_credential::default_path().ok_or(NOT_JOINED)?,
             };
             let credential = machine_credential::read(&path)?.ok_or(NOT_JOINED)?;
-            register(args, &dir, |hub| hub.sign_in_with_machine(&credential))?
+            register(args, &dir, Some(&path), |hub| hub.sign_in_with_machine(&credential))?
         }
     };
     setup::install_host(virtual_display)?;
@@ -410,13 +418,15 @@ fn set_up_for_join(args: &Args) -> Res<()> {
 /// refuses the old one), anchors it and turns sharing on; the device.
 fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<Device> {
     let token = stack_token(args)?;
-    register(args, dir, |hub| hub.sign_in_with_stack(&token))
+    register(args, dir, None, |hub| hub.sign_in_with_stack(&token))
 }
 
-/// [`sign_in_and_register`] with `sign_in`, which signs the hub in and returns the account.
+/// [`sign_in_and_register`] with `sign_in`, which signs the hub in and returns the account. A
+/// joined machine (`machine`, its credential file) is not anchored: it renews with that file.
 fn register(
     args: &Args,
     dir: &std::path::Path,
+    machine: Option<&std::path::Path>,
     sign_in: impl Fn(&Hub) -> Res<String>,
 ) -> Res<Device> {
     let hub_url = match (args.get("hub"), Account::load(dir)?) {
@@ -442,9 +452,10 @@ fn register(
         hub.register()?;
         Ok((hub, user_id))
     })?;
-    let anchored_until = hub.anchor()?;
+    let anchored_until = if machine.is_some() { 0 } else { hub.anchor()? };
     hub.set_shared(true)?;
-    Account { hub: hub_url, user_id, anchored_until }.save(dir)?;
+    let machine_credential = machine.map(std::path::Path::to_path_buf);
+    Account { hub: hub_url, user_id, anchored_until, machine_credential }.save(dir)?;
     Ok(hub.device)
 }
 
@@ -570,9 +581,15 @@ fn with_fresh_identity<T>(
 
 fn share_on(args: &Args) -> Res<()> {
     let (dir, hub, mut account) = load()?;
-    // Turning sharing on needs the account itself (a host session may only turn it off).
-    hub.sign_in_with_stack(&stack_token(args)?)?;
-    account.anchored_until = hub.anchor()?;
+    // Turning sharing on needs the account itself (a host session may only turn it off). A
+    // joined machine signs in with its own credential, never a person's token.
+    if let Some(path) = &account.machine_credential {
+        let credential = machine_credential::read(path)?.ok_or(NOT_JOINED)?;
+        hub.sign_in_with_machine(&credential)?;
+    } else {
+        hub.sign_in_with_stack(&stack_token(args)?)?;
+        account.anchored_until = hub.anchor()?;
+    }
     hub.set_shared(true)?;
     account.save(&dir)?;
     println!("Sharing is on.");
@@ -652,6 +669,10 @@ fn status() -> Res<()> {
     };
     let shares = shares_line(&LocalConsent::load(&dir), host_applies_input());
     match Account::load(&dir)? {
+        Some(a) if a.machine_credential.is_some() => println!(
+            "{} ({}) on {}, a joined machine (signs in with its machine credential), {}",
+            device.name, device.id, a.hub, shares
+        ),
         Some(a) => println!(
             "{} ({}) on {}, anchored until {} (Unix ms), {}",
             device.name, device.id, a.hub, a.anchored_until, shares

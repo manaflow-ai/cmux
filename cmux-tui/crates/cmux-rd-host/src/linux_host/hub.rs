@@ -1,17 +1,22 @@
 //! The device hub client of the Linux screen host (docs/device-hub/PROTOCOL.md): device-signed
 //! requests, the account session (a Stack token exchanged once at `enable`, then device-key
-//! renewal of a host-scoped session), and the hub's two WebSockets.
+//! renewal of a host-scoped session; a joined machine signs in with its machine credential
+//! every time instead), and the hub's two WebSockets.
 
 use super::b64;
 use super::identity::{Device, Signer};
 use super::net::{self, Url, WebSocket};
 use crate::Res;
 use serde_json::{json, Value};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Renew the account session when less than this is left (ms).
 const RENEW_BEFORE_MS: u64 = 5 * 60 * 1000;
+
+/// The code of a joined machine's renewal that cmux-platform no longer accepts.
+pub const MACHINE_LEFT: &str = "machine_left";
 
 /// A refusal from the hub: `{error:{code, message}}`.
 #[derive(Debug, Clone, PartialEq)]
@@ -67,6 +72,8 @@ pub struct Hub {
     user_id: Mutex<Option<String>>,
     /// The account session and when it ends (ms).
     session: Mutex<Option<(String, u64)>>,
+    /// A joined machine's credential file: its session renews by signing in with it.
+    machine_credential: Option<PathBuf>,
 }
 
 impl Hub {
@@ -78,7 +85,14 @@ impl Hub {
             device,
             user_id: Mutex::new(user_id),
             session: Mutex::new(None),
+            machine_credential: None,
         })
+    }
+
+    /// This hub renewing as a joined machine, from the credential in `path`.
+    pub fn with_machine_credential(mut self, path: Option<PathBuf>) -> Self {
+        self.machine_credential = path;
+        self
     }
 
     pub fn user_id(&self) -> Option<String> {
@@ -153,8 +167,16 @@ impl Hub {
 
     /// `POST /v1/auth/machine`: the session of a machine the person joined to cmux, from the
     /// machine credential the join keeps. The hub asks cmux-platform whose it is and answers a
-    /// session for this device alone (it may register, anchor and share it). The account.
+    /// session for this device alone (it may register and share it, never anchor it). The account.
     pub fn sign_in_with_machine(&self, credential: &str) -> Res<String> {
+        let (session, user, expires) = self.machine_session(credential)?;
+        *self.user_id.lock().unwrap_or_else(|e| e.into_inner()) = Some(user.clone());
+        *self.session.lock().unwrap_or_else(|e| e.into_inner()) = Some((session, expires));
+        Ok(user)
+    }
+
+    /// `POST /v1/auth/machine`'s session, account and end (ms).
+    fn machine_session(&self, credential: &str) -> Res<(String, String, u64)> {
         let answer = self.send(
             "POST",
             "/v1/auth/machine",
@@ -166,14 +188,35 @@ impl Hub {
             answer["session"].as_str().ok_or("no session in the hub's answer")?.to_owned();
         let user = answer["userId"].as_str().ok_or("no userId in the hub's answer")?.to_owned();
         let expires = answer["expiresAt"].as_u64().unwrap_or(now_ms() + 30 * 60 * 1000);
-        *self.user_id.lock().unwrap_or_else(|e| e.into_inner()) = Some(user.clone());
-        *self.session.lock().unwrap_or_else(|e| e.into_inner()) = Some((session, expires));
-        Ok(user)
+        Ok((session, user, expires))
     }
 
-    /// `POST /v1/auth/device`: a host-scoped session from the device key alone (the anchor
-    /// that `enable` recorded lets this device renew for 30 days).
+    /// A joined machine's renewal: a new sign-in with the credential the join keeps, which the
+    /// hub checks with cmux-platform each time. A credential gone, revoked or refused is
+    /// `machine_left`: the machine left cmux, and retrying cannot help.
+    fn renew_as_machine(&self, path: &std::path::Path) -> Res<(String, u64)> {
+        let left = |message: String| HubError { status: 0, code: MACHINE_LEFT.into(), message };
+        let credential = match super::machine_credential::read(path) {
+            Ok(Some(credential)) => credential,
+            Ok(None) => return Err(left(format!("{} is gone", path.display())).into()),
+            Err(e) => return Err(left(e.to_string()).into()),
+        };
+        match self.machine_session(&credential) {
+            Ok((session, _, expires)) => Ok((session, expires)),
+            Err(e) => match e.downcast_ref::<HubError>() {
+                Some(h) if matches!(h.status, 401 | 403) => Err(left(h.to_string()).into()),
+                _ => Err(e),
+            },
+        }
+    }
+
+    /// The account session's renewal. A joined machine signs in again with its credential;
+    /// any other host uses `POST /v1/auth/device`: a host-scoped session from the device key
+    /// alone (the anchor that `enable` recorded lets this device renew for 30 days).
     fn renew(&self) -> Res<(String, u64)> {
+        if let Some(path) = &self.machine_credential {
+            return self.renew_as_machine(path);
+        }
         let user = self.user_id().ok_or("not enabled: run `cmux-rd linux-host enable` first")?;
         let answer =
             self.send("POST", "/v1/auth/device", Some(&json!({ "userId": user })), None, true)?;
@@ -293,6 +336,20 @@ pub fn verify(public_key: &str, message: &[u8], signature: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_joined_machine_renews_with_its_credential_and_stops_once_it_left() {
+        // No credential file: the machine left cmux. Its renewal never falls back to the
+        // device key; it fails with `machine_left`, which stops the host instead of retrying.
+        let gone = std::env::temp_dir()
+            .join(format!("cmux-rd-machine-left-{}", std::process::id()))
+            .join("machine-credential.json");
+        let hub = Hub::new("https://hub.example", Device::generate("t").unwrap(), Some("u".into()))
+            .unwrap()
+            .with_machine_credential(Some(gone));
+        let Err(e) = hub.session() else { panic!("a machine with no credential got a session") };
+        assert_eq!(e.downcast_ref::<HubError>().map(|h| h.code.as_str()), Some(MACHINE_LEFT));
+    }
 
     #[test]
     fn signing_string_matches_the_protocol() {
