@@ -6,7 +6,7 @@ use std::os::fd::{AsRawFd, RawFd};
 use x11rb::connection::Connection;
 use x11rb::protocol::damage::{ConnectionExt as _, ReportLevel};
 use x11rb::protocol::shm::ConnectionExt as _;
-use x11rb::protocol::xproto::{ImageFormat, Window};
+use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat, Window};
 use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
 
