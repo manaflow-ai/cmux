@@ -9,8 +9,8 @@
     {"title": "lead-a in Leads", "cmux": ["workspace", "group", "Leads", "add", "--workspace", "name:lead-a"], "wait": 1, "shot": false},
     {"title": "lead-b in Leads", "cmux": ["workspace", "group", "Leads", "add", "--workspace", "name:lead-b"], "wait": 1, "shot": false},
     {"title": "lead-b selected, inside Leads", "cmux": ["workspace", "name:lead-b", "focus"], "wait": 2},
-    {"title": "New Workspace: it goes into Leads, first, and is selected", "cmux": ["action", "run", "workspace.new"], "wait": 3},
-    {"title": "New Workspace again, from the new one: still in Leads", "cmux": ["action", "run", "workspace.new"], "wait": 3},
+    {"title": "New Workspace: it goes into Leads, first, and is selected", "cmux": ["action", "run", "newTab"], "wait": 3},
+    {"title": "New Workspace again, from the new one: still in Leads", "cmux": ["action", "run", "newTab"], "wait": 3},
     {"title": "A moment later: both still in Leads, none jumped above it", "wait": 3}
   ]
 }
