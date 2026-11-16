@@ -1,6 +1,7 @@
 public import CmuxNextActions
 public import CmuxNextCompat
 import CmuxNextAgentPane
+import CmuxNextDaemon
 public import Foundation
 import os
 
@@ -108,7 +109,10 @@ public nonisolated struct HomeBrainHost: Sendable {
          executable.path, "host", "--daemon-socket", daemonSocket, "--mux-home", muxHome.path]
     }
 
-    var childEnvironment: [String: String] {
+    var childEnvironment: [String: String] { childEnvironment(process: ProcessInfo.processInfo.environment) }
+
+    /// The host's environment with `process` as the app's own (tests pass theirs).
+    func childEnvironment(process: [String: String]) -> [String: String] {
         var variables: [String: String] = [
             "PATH": Self.searchPath(home: FileManager.default.homeDirectoryForCurrentUser),
             // Constant links to the app that last opened Home (ChiefAppLinks):
@@ -136,8 +140,10 @@ public nonisolated struct HomeBrainHost: Sendable {
         if usesAppAcpmux { variables["OPTCHAT_ACPMUX_SUPERVISED"] = "1" }
         // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
         // turns included, its own `cmux mcp serve` (one server per turn).
-        for key in ["USER", "TMPDIR", "MUX_HARNESS", "DO_NOT_TRACK"] {
-            if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
+        // CMUX_BUILD_SPACE: the build's cloud space (LaunchIdentity sets it in the app's own environment at launch),
+        // so the brain, its acpmux, subagents and their `cmux` calls reach this build's cloud data, never nightly's.
+        for key in ["USER", "TMPDIR", "MUX_HARNESS", "DO_NOT_TRACK", DaemonLauncher.buildSpaceKey] {
+            if let value = process[key] { variables[key] = value }
         }
         variables.merge(Self.analyticsEnvironment(bundle: .main)) { $1 }
         return variables

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextServer
 import Foundation
 import ServiceManagement
@@ -17,6 +18,10 @@ struct ServerLaunchAgent {
     enum Failure: Error, Equatable {
         /// The bundle has no agent plist (the server software is not in this build).
         case notInBuild
+        /// A dev build: the agent's `cmux host run` keeps one state for every build
+        /// (`~/Library/Application Support/cmux/server`) and calls the cloud with no build space, so a dev
+        /// build never registers it (AGENTS.md "Dev builds are separate").
+        case devBuild
         /// The opt-in switch is off: the server software is not ready yet.
         case notReady
         /// The user must allow the agent in System Settings > Login Items.
@@ -32,6 +37,8 @@ struct ServerLaunchAgent {
     }
 
     var isBundled: @MainActor () -> Bool
+    /// The app is a dev build (``BuildIdentity/needsBuildSpace``).
+    var isDevBuild: @MainActor () -> Bool = { false }
     var allowRegister: @MainActor () -> Bool
     var service: Service
 
@@ -42,6 +49,7 @@ struct ServerLaunchAgent {
     static func app() -> ServerLaunchAgent {
         ServerLaunchAgent(
             isBundled: { Self.isBundled },
+            isDevBuild: { BuildIdentity(bundle: .main).needsBuildSpace },
             allowRegister: { ServerTunables.agentAllowRegister.value },
             service: Service(status: { SMAppService.agent(plistName: plistName).status },
                              register: { try SMAppService.agent(plistName: plistName).register() },
@@ -52,6 +60,7 @@ struct ServerLaunchAgent {
     @MainActor
     func register() throws(Failure) {
         guard isBundled() else { throw .notInBuild }
+        guard !isDevBuild() else { throw .devBuild }
         guard allowRegister() else { throw .notReady }
         switch service.status() {
         case .enabled:

@@ -16255,6 +16255,137 @@
         }
       }
     },
+    "refusal.server.devBuild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A dev build does not keep a server running after it quits: the server's state is shared by every build."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يُبقي إصدار التطوير خادمًا قيد التشغيل بعد إغلاقه: حالة الخادم مشتركة بين جميع الإصدارات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razvojna verzija ne ostavlja server pokrenut nakon zatvaranja: stanje servera dijele sve verzije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En udviklingsbuild holder ikke en server kørende, efter den er lukket: serverens tilstand deles af alle builds."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Entwicklungs-Build lässt nach dem Beenden keinen Server weiterlaufen: Der Serverzustand wird von allen Builds geteilt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una compilación de desarrollo no mantiene un servidor en marcha al cerrarse: el estado del servidor lo comparten todas las compilaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une build de développement ne garde pas de serveur actif après sa fermeture : l'état du serveur est partagé par toutes les builds."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una build di sviluppo non mantiene un server attivo dopo la chiusura: lo stato del server è condiviso da tutte le build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開発ビルドは終了後にサーバーを動かし続けません。サーバーの状態はすべてのビルドで共有されるためです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែអភិវឌ្ឍន៍មិនរក្សាម៉ាស៊ីនមេឱ្យដំណើរការបន្ទាប់ពីបិទទេ៖ ស្ថានភាពម៉ាស៊ីនមេត្រូវបានចែករំលែកដោយកំណែទាំងអស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "개발 빌드는 종료 후 서버를 계속 실행하지 않습니다. 서버 상태는 모든 빌드가 공유하기 때문입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et utviklingsbygg holder ikke en server i gang etter at det er avsluttet: serverens tilstand deles av alle bygg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wersja deweloperska nie utrzymuje działającego serwera po zamknięciu: stan serwera jest wspólny dla wszystkich wersji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma build de desenvolvimento não mantém um servidor em execução depois de fechada: o estado do servidor é compartilhado por todas as builds."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сборка для разработки не оставляет сервер работать после выхода: состояние сервера общее для всех сборок."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์สำหรับพัฒนาจะไม่ให้เซิร์ฟเวอร์ทำงานต่อหลังปิด: สถานะของเซิร์ฟเวอร์ใช้ร่วมกันทุกบิลด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geliştirme derlemesi kapandıktan sonra sunucuyu çalışır durumda tutmaz: sunucunun durumu tüm derlemelerce paylaşılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Збірка для розробки не залишає сервер працювати після виходу: стан сервера спільний для всіх збірок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản dựng phát triển không giữ máy chủ chạy sau khi thoát: trạng thái máy chủ được dùng chung cho mọi bản dựng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "开发版本退出后不会让服务器继续运行：服务器状态由所有版本共享。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開發版本結束後不會讓伺服器繼續執行：伺服器狀態由所有版本共用。"
+          }
+        }
+      }
+    },
     "refusal.server.notInBuild": {
       "extractionState": "manual",
       "localizations": {

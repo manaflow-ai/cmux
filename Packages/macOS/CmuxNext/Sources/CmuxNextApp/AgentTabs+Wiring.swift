@@ -194,7 +194,10 @@ extension AgentTabStore {
         }, peerApprover: tabs.peerApprover)
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
         // A subagent tab made under another Chief home of this Mac attaches there (#25262).
-        tabs.chiefHomes = ChiefHomeDirectory(parents: ChiefHomeDirectory.homeParents(of: home), work: services.work,
+        // Only homes of this build's cloud space: a dev build its own, nightly never a dev build's.
+        let devBuild = services.cloud.configuration.buildSpace != .nightly
+        tabs.chiefHomes = ChiefHomeDirectory(parents: ChiefHomeDirectory.homeParents(of: home),
+                                             admits: ChiefHomeDirectory.admission(of: home, devBuild: devBuild), work: services.work,
                                              environment: { ChiefHomeAcpmux.environment(home: $0) }) { [daemons = services.acpmuxDaemons, peerApprover = tabs.peerApprover] in
             AcpmuxHost(daemons: daemons, environment: $0, startsDaemons: $1, peerApprover: peerApprover)
         }
