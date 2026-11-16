@@ -38,6 +38,7 @@ import { inlineText } from "./inlineText";
 import { keepShown, type HatAnswer, type HatQuestion, type HatTag } from "./hatModel";
 import { hatQuestionsLook } from "./hatQuestions.experiment";
 import "./hatQuestions.css";
+import { focusRoute } from "../../../ui/focusRoute";
 
 const TAG_KEY: Record<HatTag, StringKey> = {
   taste: "hat.tag.taste",
@@ -131,7 +132,7 @@ export function HatQuestions({
   // waits for one.
   const fieldRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (replying) fieldRef.current?.focus({ preventScroll: true });
+    if (replying) focusRoute(fieldRef.current, "system", "a question to reply to", { preventScroll: true });
   }, [replying]);
   // Whether the question runs past its two lines: only then is there a More to offer.
   const promptRef = useRef<HTMLSpanElement>(null);

@@ -187,8 +187,8 @@ test("a fold turned back midway settles only the newest motion", async () => {
   expect(list.dataset.folding).toBeUndefined();
 });
 
-// The hidden grip covers the right end of its head, where the count is: it must take no press there, or a
-// click on the count would start a reorder instead of folding the section. It takes the pointer only while
+// The hidden grip covers the leading edge of its head: it must take no press there, or a click at the
+// head's start would start a reorder instead of folding the section. It takes the pointer only while
 // it shows (gallery agent-pane.chat-inspector#heads-plain checks the same with the browser's hit-testing).
 test("the hidden section grip takes no press; it takes the pointer only while it shows", () => {
   const css = readFileSync(
