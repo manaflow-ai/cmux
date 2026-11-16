@@ -21,6 +21,7 @@
 //! record an open is refused at once, as before.
 
 use std::fs;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -44,6 +45,10 @@ const FREE_RELEASE: &str = "released";
 /// its process ends next, so a start right after a stop gets the session and
 /// is not refused.
 const KEPT_OWNER_WAIT: Duration = Duration::from_secs(3);
+/// The most bytes that an open reads of the record file. A record of this
+/// code is a few hundred bytes; the folder can hold a file with that name
+/// that this code did not write.
+const RECORD_READ_BOUND: u64 = 64 * 1024;
 
 /// The session locks of each owner of this process that keeps its session,
 /// with the session's folder. No product code takes an entry out.
@@ -103,19 +108,39 @@ pub(crate) fn write_record(session_dir: &Path, record: &ReleaseRecord<'_>) -> st
 }
 
 /// The record that the owner before left in `session_dir`, when there is
-/// one. A file that cannot be read, or that does not hold a record (its
-/// writer ended in the middle), gives a value that says so: it never stops
-/// a start.
+/// one. A file that cannot be read, that is not a plain file, that is longer
+/// than [`RECORD_READ_BOUND`], or that does not hold a record (its writer
+/// ended in the middle), gives a value that says so: it never stops a start.
 fn read_record(session_dir: &Path) -> Option<Value> {
-    match fs::read(session_dir.join(RELEASE_RECORD_FILE)) {
-        Ok(bytes) => Some(
+    let unreadable = |why: String| Some(json!({"unreadable": true, "error": why}));
+    let path = session_dir.join(RELEASE_RECORD_FILE);
+    // No open of a thing that is not a plain file: the open of a pipe waits
+    // for its writer.
+    let size = match fs::symlink_metadata(&path) {
+        Ok(found) if found.is_file() => found.len(),
+        Ok(_) => return unreadable("not a plain file".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(error) => return unreadable(error.to_string()),
+    };
+    if size > RECORD_READ_BOUND {
+        return unreadable(format!("{size} bytes, more than the bound of {RECORD_READ_BOUND}"));
+    }
+    // The read has the bound too: the file can grow after the size was read.
+    let mut bytes = Vec::new();
+    let read = fs::File::open(&path)
+        .and_then(|file| file.take(RECORD_READ_BOUND.saturating_add(1)).read_to_end(&mut bytes));
+    match read {
+        Ok(_) if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > RECORD_READ_BOUND => {
+            unreadable(format!("more than the bound of {RECORD_READ_BOUND} bytes"))
+        }
+        Ok(_) => Some(
             serde_json::from_slice::<Value>(&bytes)
                 .ok()
                 .filter(Value::is_object)
                 .unwrap_or_else(|| json!({"unreadable": true, "bytes": bytes.len()})),
         ),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => Some(json!({"unreadable": true, "error": error.to_string()})),
+        Err(error) => unreadable(error.to_string()),
     }
 }
 
