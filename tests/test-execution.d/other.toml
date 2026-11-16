@@ -232,6 +232,10 @@ path = "tests/test_generated_files_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_generated_merge.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_git_fetch_retry.py"
 lane = "linux-guard"
 
@@ -268,6 +272,11 @@ reason = "No new CI tests (Lawrence 2026-10-23). Checks that a shell guard's mes
 [[test]]
 path = "tests/test_guards_new_reds.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_hook_python.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/git-hooks/hook_python.sh, the hooks' per-host Python pick, and scans scripts/ and .github/ for per-host interpreter paths; run python3 tests/test_hook_python.py yourself after changing the hooks' interpreter handling (about a second, no build)."
 
 [[test]]
 path = "tests/test_hosted_queue_wait.py"
@@ -503,6 +512,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pairing_scheme_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_payload_advisories.py"
 lane = "linux-guard"
 
 [[test]]
