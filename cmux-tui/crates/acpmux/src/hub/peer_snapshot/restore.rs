@@ -496,8 +496,8 @@ impl Hub {
                     let page_end = page.iter().filter_map(seq_of).max().unwrap_or(after);
                     let mut params = json!({"sessionId": mux, "createdAt": created_at,
                                         "afterSeq": after, "records": page, "files": files});
-                    if paged {
-                        params["throughSeq"] = json!(through);
+                    if let (true, Some(p)) = (paged, params.as_object_mut()) {
+                        p.insert("throughSeq".into(), json!(through));
                     }
                     // On this link's epoch only (review of #37284 at 98b4575a, F1): a link
                     // replaced since the check never carries it to the next machine.
