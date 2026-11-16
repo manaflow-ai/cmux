@@ -44,8 +44,8 @@ import Testing
         calendar.timeZone = try #require(TimeZone(identifier: "Europe/London"))
         terminal.reload = {}
         terminal.notificationCenter = center
-        terminal.now = { Self.today }
-        terminal.calendar = { [calendar] in calendar }
+        terminal.backdropClock.now = { Self.today }
+        terminal.backdropClock.calendar = { [calendar] in calendar }
         terminal.follow(settings)
         return Harness(settings: settings, terminal: terminal, center: center, scope: scope, directory: directory, calendar: calendar)
     }
@@ -59,7 +59,7 @@ import Testing
         var shown: [BackdropSelection?] = []
         for step in 0..<steps {
             let now = Self.today.addingTimeInterval(Double(step) * seconds)
-            harness.terminal.now = { now }
+            harness.terminal.backdropClock.now = { now }
             harness.center.post(name: .NSSystemClockDidChange, object: nil)
             for _ in 0..<50 { await Task.yield() }
             shown.append(harness.scope.backdropSelection)
