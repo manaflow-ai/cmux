@@ -18,22 +18,26 @@ public nonisolated struct AppHostCapabilities: Sendable {
         self.handlers = byFamily
     }
 
-    private static func family(of op: String) -> String { String(op.prefix { $0 != "." }) }
+    /// The owned family of `op`: the longest one `op` starts with, up to a dot. A family can
+    /// have a dot itself (`browser.page` owns `browser.page.eval`), as the daemon's `family_of`.
+    private func family(of op: String) -> String? {
+        handlers.keys.filter { op.hasPrefix($0 + ".") }.max { $0.count < $1.count }
+    }
 
     /// The families with a handler (registered with `apps-provider-register`).
     public var families: Set<String> { Set(handlers.keys) }
 
     /// Whether a family owner exists; the owner still decides which ops it serves.
-    /// - Parameter op: A full operation name such as `agent_cli.list`.
-    /// - Returns: True when the prefix before the first dot has an owner.
-    public func handles(_ op: String) -> Bool { handlers[Self.family(of: op)] != nil }
+    /// - Parameter op: A full operation name such as `agent_cli.list` or `browser.page.eval`.
+    /// - Returns: True when an owned family is a prefix of `op` up to a dot.
+    public func handles(_ op: String) -> Bool { family(of: op) != nil }
 
     /// Dispatches an admitted request without altering its app, origin or params.
     /// - Parameter request: The request admitted by the caller's permission gate.
     /// - Returns: The owner's result, before the app ABI's `{value}` envelope.
     /// - Throws: `operation.unsupported` for an unowned family, or the owner's error.
     public func handle(_ request: AppHostCapabilityRequest) async throws(AppHostCapabilityError) -> AppJSON {
-        guard let handler = handlers[Self.family(of: request.op)] else { throw .unsupported(request.op) }
+        guard let family = family(of: request.op), let handler = handlers[family] else { throw .unsupported(request.op) }
         return try await handler.handle(request)
     }
 }
