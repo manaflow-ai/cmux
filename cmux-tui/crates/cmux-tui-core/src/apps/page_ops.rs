@@ -364,17 +364,22 @@ mod tests {
 
     #[test]
     fn set_persists_and_clear_removes() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = std::env::temp_dir().join(format!("cmux-site-styles-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
         let mut styles = PageStyles::default();
         let rules = Rules { hide: vec![".ad".into()], unstick: vec![] };
-        styles.set(Some(dir.path()), "local/x", "https://a.test".into(), rules.clone()).unwrap();
-        let loaded = PageStyles::load(Some(dir.path()));
+        styles.set(Some(dir.as_path()), "local/x", "https://a.test".into(), rules.clone()).unwrap();
+        let loaded = PageStyles::load(Some(dir.as_path()));
         assert_eq!(
             loaded.get("local/x", "https://a.test"),
             json!({ "origin": "https://a.test", "hide": [".ad"], "unstick": [] })
         );
-        styles.set(Some(dir.path()), "local/x", "https://a.test".into(), Rules::default()).unwrap();
-        assert!(PageStyles::load(Some(dir.path())).sites.is_empty());
+        styles
+            .set(Some(dir.as_path()), "local/x", "https://a.test".into(), Rules::default())
+            .unwrap();
+        assert!(PageStyles::load(Some(dir.as_path())).sites.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
