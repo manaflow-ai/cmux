@@ -59,6 +59,36 @@ describe.skipIf(!existsSync(happyDom))("reader page script", () => {
     await window.happyDOM.close()
   })
 
+  // A body split into blocks, an ad slot between them and the lead image in a block of its own
+  // (as large news sites draw a story), reads as one story with its image.
+  test("a story split into blocks reads whole", async () => {
+    const { Window } = await import(happyDom)
+    const window = new Window({ url: "https://news.example.com/2026/11/split" })
+    const para = (n: number) => `<p>Part ${n}: the council voted on Tuesday to keep the night buses running, and riders, drivers and shop owners all spoke at the meeting, which ran late into the evening.</p>`
+    const block = (from: number) => `<div class="wrapper"><div class="spacer"><div data-component="text-block"><div class="rich">${[0, 1, 2].map((i) => para(from + i)).join("")}</div></div></div></div>`
+    window.document.body.innerHTML = `
+      <div class="ad-slot"><a href="https://ads.example/x">Buy now</a></div>
+      <article><div class="stack">
+        <div class="wrapper"><header><h1>Night buses stay</h1></header></div>
+        <div class="wrapper"><figure><img src="/images/bus.jpg" alt="A night bus"></figure></div>
+        <div class="wrapper"><div data-component="byline">By Sam Lee</div></div>
+        ${block(1)}
+        <div class="wrapper"><div class="ad-slot"><a href="https://ads.example/y">Ad</a></div></div>
+        ${block(4)}
+        <div class="wrapper"><div class="ad-slot"><a href="https://ads.example/z">Ad</a></div></div>
+        ${block(7)}
+      </div></article>`
+    const on = new Function("document", "location", `return (${script})`)(window.document, window.location)
+    expect(on).toMatchObject({ reader: true, title: "Night buses stay" })
+    const shadow = window.document.getElementById("cmux-reader-mode")!.shadowRoot!
+    const body = shadow.querySelector(".body")!
+    for (const n of [1, 4, 7, 9]) expect(body.textContent).toContain(`Part ${n}:`)
+    expect(body.querySelector("img")!.getAttribute("src")).toBe("https://news.example.com/images/bus.jpg")
+    expect(shadow.querySelector(".meta")!.textContent).toStartWith("By Sam Lee")
+    for (const junk of ["Buy now", "Ad", "By Sam Lee"]) expect(body.textContent).not.toContain(junk)
+    await window.happyDOM.close()
+  })
+
   test("a page with little text is not an article", () => {
     const { Window } = require(happyDom)
     const window = new Window({ url: "https://example.com/" })

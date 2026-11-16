@@ -54,6 +54,29 @@
   best = best ?? document.querySelector("article, [itemprop=articleBody], main, [role=main]")
   if (!best) return { reader: false, reason: "no_article" }
 
+  // A body split into blocks (an ad slot every few paragraphs, the lead image in a block of its
+  // own) has its story a few levels up: take the ancestor that holds clearly more story text.
+  // Paragraphs under an aside, nav, footer, form or a junk-named block are not story text.
+  const junkUnder = (node, top) => {
+    for (let at = node; at && at !== top; at = at.parentElement) {
+      if (/^(ASIDE|NAV|FOOTER|FORM)$/.test(at.tagName) || NEGATIVE.test(names(at))) return true
+    }
+    return false
+  }
+  const storyText = (node) => {
+    let length = 0
+    for (const p of node.querySelectorAll("p, pre")) {
+      const size = text(p).length
+      if (size >= 25 && linkDensity(p) < 0.5 && !junkUnder(p, node)) length += size
+    }
+    return length
+  }
+  let story = storyText(best)
+  for (let up = best.parentElement, depth = 0; up && up !== document.body && up !== root && depth < 8; up = up.parentElement, depth++) {
+    const more = storyText(up)
+    if (more >= story * 1.25 && linkDensity(up) < 0.35) [best, story] = [up, more]
+  }
+
   // Sibling blocks that belong to the same story (bodies split across several columns).
   const parts = []
   const threshold = Math.max(10, bestScore * 0.2)
@@ -68,7 +91,8 @@
   // ---- Clean a copy: keep text, headings, lists, quotes, code, tables and images; nothing else.
   const absolute = (value) => { try { return new URL(value, document.baseURI).href } catch { return null } }
   const firstOfSet = (set) => (set || "").split(",").map((s) => s.trim().split(/\s+/)[0]).filter(Boolean).pop()
-  const DROP = "script, style, noscript, template, iframe, form, button, input, select, textarea, nav, aside, footer, dialog, svg, canvas, object, embed, video, audio, [hidden], [aria-hidden=true], [role=dialog], [role=navigation], [role=complementary]"
+  const DROP = "script, style, noscript, template, iframe, form, button, input, select, textarea, nav, aside, footer, dialog, svg, canvas, object, embed, video, audio, [hidden], [aria-hidden=true], [role=dialog], [role=navigation], [role=complementary], " +
+    ".byline, [data-component*=byline], [data-testid*=byline]" // the byline shows once, under the title
   const KEEP_ATTRS = { A: ["href", "title"], IMG: ["src", "alt", "title"], TD: ["colspan", "rowspan"], TH: ["colspan", "rowspan"], TIME: ["datetime"], OL: ["start"] }
   const clean = (source) => {
     const copy = source.cloneNode(true)
@@ -117,7 +141,8 @@
   const heading = document.querySelector("article h1, main h1, h1")
   const title = (heading && text(heading)) || meta("og:title", "twitter:title") || document.title
   const byline = meta("author", "article:author", "parsely-author") ||
-    text(document.querySelector("[rel=author], [itemprop=author], .byline, .author") || document.createElement("i")).slice(0, 120)
+    text(document.querySelector("[rel=author], [itemprop=author], .byline, .author, [data-component*=byline], [data-testid*=byline]") ||
+      document.createElement("i")).slice(0, 120)
   const site = meta("og:site_name", "application-name") || location.hostname.replace(/^www\./, "")
   const body = document.createElement("div")
   for (const part of parts) body.append(clean(part))
