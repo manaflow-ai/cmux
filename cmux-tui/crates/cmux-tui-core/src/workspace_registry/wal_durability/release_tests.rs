@@ -92,3 +92,35 @@ fn a_commit_after_the_release_is_refused_also_when_its_stderr_line_panics() {
          panicked: the late write: {late:?}; rows: {rows} (1 before the release)"
     );
 }
+
+/// After its owner's release the next owner has a database. The syncer
+/// has a connection of its own, with no commit hook: it does not
+/// checkpoint the database from then on.
+#[test]
+fn the_syncer_does_not_checkpoint_a_database_after_its_owners_release() {
+    let (dir, connection) = database("released-checkpoint");
+    let released = OwnerRelease::default();
+    let durability = WalDurability::attach_with_commit_delay(
+        &connection,
+        &dir.join("r.sqlite"),
+        None,
+        false,
+        None,
+        released.clone(),
+    );
+    // 8 MiB of commits: the WAL is past the checkpoint size.
+    let blob = vec![7u8; 64 * 1024];
+    for _ in 0..128 {
+        connection.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
+    }
+    released.set();
+    // A reply is out: the syncer looks at the WAL.
+    let checkpoints = durability.checkpoints_after_flush();
+    drop(connection);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        checkpoints, 0,
+        "the syncer checkpointed a database after the release of its owner: it wrote the \
+         file that the next owner has"
+    );
+}
