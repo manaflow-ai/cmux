@@ -737,12 +737,15 @@ pub struct FileGeneration {
     /// appends avoids treating growth of a short file as a rewrite of its head.
     pub head_len: u64,
     pub head: u64,
+    pub head_fixed: bool,
 }
 
 impl FileGeneration {
     fn stamp(self) -> u64 {
         let mut hash = 0xcbf2_9ce4_8422_2325u64;
-        for value in [self.dev, self.ino, self.head] {
+        let values =
+            if self.head_fixed { [self.dev, self.ino, self.head] } else { [self.dev, self.ino, 0] };
+        for value in values {
             for byte in value.to_le_bytes() {
                 hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
             }
@@ -769,8 +772,14 @@ pub struct FollowFileSource {
 
 impl FollowFileSource {
     pub fn open(path: &Path) -> io::Result<Self> {
-        let inner = FileSource::open(path)?;
-        let generation = file_generation(path, None)?;
+        let mut inner = FileSource::open(path)?;
+        let (path_identity, generation) = inner.generation_proof(None)?;
+        if path_identity != (generation.dev, generation.ino) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "transcript changed during generation read",
+            ));
+        }
         Ok(Self { inner, generation })
     }
 
@@ -785,24 +794,22 @@ impl FollowFileSource {
     /// Compare the path's bounded generation proof with the last one observed. Appends are
     /// accepted and advance the monotonic size; every other mutation is returned to the caller.
     pub fn check_generation(&mut self) -> io::Result<GenerationChange> {
-        let current = file_generation(
-            self.inner.file_path().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::Unsupported, "follow source has no path")
-            })?,
-            Some(self.generation.head_len),
-        )?;
         let previous = self.generation;
-        if current.dev != previous.dev || current.ino != previous.ino {
+        let (path_identity, current) = self.inner.generation_proof(Some(previous))?;
+        if path_identity != (previous.dev, previous.ino)
+            || current.dev != previous.dev
+            || current.ino != previous.ino
+        {
             return Ok(GenerationChange::Replaced);
         }
         if current.size < previous.size {
             return Ok(GenerationChange::Replaced);
         }
-        if current.head != previous.head {
+        if previous.head_fixed && current.head != previous.head {
             return Ok(GenerationChange::Rewritten);
         }
-        if current.size > previous.size {
-            self.generation.size = current.size;
+        if current.size > previous.size || current.head_fixed != previous.head_fixed {
+            self.generation = current;
             return Ok(GenerationChange::Appended { size: current.size });
         }
         Ok(GenerationChange::Unchanged)
@@ -819,7 +826,6 @@ impl FollowFileSource {
 
 impl RawSource for FollowFileSource {
     fn read_chunk(&mut self, place: u64) -> io::Result<Chunk> {
-        self.ensure_generation()?;
         let chunk = self.inner.read_chunk(place)?;
         self.ensure_generation()?;
         Ok(Chunk::with_stamp(
@@ -833,8 +839,9 @@ impl RawSource for FollowFileSource {
     }
 
     fn holds(&mut self, place: u64) -> io::Result<bool> {
+        let held = self.inner.holds(place)?;
         self.ensure_generation()?;
-        self.inner.holds(place)
+        Ok(held)
     }
 
     fn hint(&self) -> io::Result<u64> {
@@ -842,8 +849,8 @@ impl RawSource for FollowFileSource {
     }
 
     fn sync_through(&mut self, place: u64) -> io::Result<()> {
-        self.ensure_generation()?;
-        self.inner.sync_through(place)
+        self.inner.sync_through(place)?;
+        self.ensure_generation()
     }
 
     fn identity(&self) -> &[u8] {
@@ -859,35 +866,55 @@ impl RawSource for FollowFileSource {
     }
 
     fn read_at(&mut self, place: u64, offset: u64, max: usize) -> io::Result<Piece> {
-        self.ensure_generation()?;
         let piece = self.inner.read_at(place, offset, max)?;
         self.ensure_generation()?;
         Ok(piece)
     }
 }
 
-fn file_generation(path: &Path, fixed_head_len: Option<u64>) -> io::Result<FileGeneration> {
-    let file = File::open(path)?;
-    let before = file.metadata()?;
-    let head_len = fixed_head_len.unwrap_or_else(|| before.len().min(4096));
-    let mut head = Vec::new();
-    (&file).take(head_len).read_to_end(&mut head)?;
-    let after = file.metadata()?;
-    let (dev_before, ino_before) = file_identity(&before);
-    let (dev_after, ino_after) = file_identity(&after);
-    if dev_before != dev_after || ino_before != ino_after || before.len() != after.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::Interrupted,
-            "transcript changed during generation read",
-        ));
+impl FileSource {
+    /// Take one bounded proof from the path and the held descriptor. The path is only stat'ed;
+    /// all bytes come from the descriptor that the source already owns.
+    fn generation_proof(
+        &mut self,
+        previous: Option<FileGeneration>,
+    ) -> io::Result<((u64, u64), FileGeneration)> {
+        let path = std::fs::metadata(&self.path)?;
+        let held = self.file.metadata()?;
+        let (dev, ino) = file_identity(&held);
+        let size = held.len();
+        let (head_fixed, head_len, head) = if let Some(previous) = previous {
+            if previous.head_fixed {
+                let head_len = previous.head_len.min(size);
+                let mut bytes = vec![0; usize::try_from(head_len).map_err(io::Error::other)?];
+                self.read_exact_at(0, &mut bytes)?;
+                (true, head_len, fnv1a(&bytes))
+            } else {
+                self.read_head(size)?
+            }
+        } else {
+            self.read_head(size)?
+        };
+        Ok((file_identity(&path), FileGeneration { dev, ino, size, head_len, head, head_fixed }))
     }
-    Ok(FileGeneration {
-        dev: dev_after,
-        ino: ino_after,
-        size: after.len(),
-        head_len,
-        head: fnv1a(&head),
-    })
+
+    fn read_head(&mut self, size: u64) -> io::Result<(bool, u64, u64)> {
+        let count = size.min(4096);
+        let mut bytes = vec![0; usize::try_from(count).map_err(io::Error::other)?];
+        if !bytes.is_empty() {
+            self.read_exact_at(0, &mut bytes)?;
+        }
+        let fixed_len = bytes
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|at| at.saturating_add(1))
+            .or_else(|| (count == 4096).then_some(4096));
+        let Some(head_len) = fixed_len else {
+            return Ok((false, 0, 0));
+        };
+        let head_len = usize::try_from(head_len).map_err(io::Error::other)?;
+        Ok((true, head_len as u64, fnv1a(bytes.get(..head_len).unwrap_or_default())))
+    }
 }
 
 fn fnv1a(bytes: &[u8]) -> u64 {
@@ -908,61 +935,13 @@ fn file_identity(metadata: &std::fs::Metadata) -> (u64, u64) {
 }
 
 #[cfg(test)]
+#[path = "source_follow_gates.rs"]
+mod follow_gates;
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use acpmux_book::gate_rounds;
     use std::io::Write;
-    use std::time::Instant;
-
-    const FOLLOW_GATE_ROUNDS: usize = 5;
-
-    fn report_follow_gate(
-        name: &str,
-        small: &[Vec<u128>],
-        god: &[Vec<u128>],
-        unit: &str,
-    ) -> io::Result<()> {
-        gate_rounds::report(name, &[("small", small), ("god", god)]);
-        let small_p95 = gate_rounds::best_p95(small);
-        let god_p95 = gate_rounds::best_p95(god);
-        let small_all = gate_rounds::all_p95(small);
-        let god_all = gate_rounds::all_p95(god);
-        assert!(god_p95 <= small_p95.saturating_mul(12) / 10, "{name}: best p95 ratio");
-        assert!(god_all <= small_all.saturating_mul(2), "{name}: aggregate p95 ratio");
-        let line = format!(
-            "{{\"name\":\"{name}\",\"small_p95\":{small_p95},\"god_p95\":{god_p95},\"god_p95_all\":{god_all},\"unit\":\"{unit}\"}}"
-        );
-        println!("{line}");
-        if let Some(path) = std::env::var_os("V2_GATE_OUT") {
-            let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
-            writeln!(file, "{line}")?;
-        }
-        Ok(())
-    }
-
-    struct FollowFixture {
-        file: tempfile::NamedTempFile,
-        source: FollowFileSource,
-        cursor: u64,
-    }
-
-    fn fixture(rows: usize) -> io::Result<FollowFixture> {
-        let mut file = tempfile::NamedTempFile::new()?;
-        for row in 0..rows {
-            writeln!(file, "history-{row}")?;
-        }
-        file.flush()?;
-        let mut source = FollowFileSource::open(file.path())?;
-        let mut cursor = 0;
-        loop {
-            let chunk = source.read_chunk(cursor)?;
-            cursor = cursor.saturating_add(chunk.bytes().len() as u64);
-            if chunk.at_end {
-                break;
-            }
-        }
-        Ok(FollowFixture { file, source, cursor })
-    }
 
     // The leading decimal is the test source's seq, with arbitrary gaps.
     fn seq_places(line: &[u8], _: u64) -> io::Result<Range<u64>> {
@@ -1153,86 +1132,11 @@ mod tests {
 
         std::fs::write(&path, b"header\nbody\n")?;
         let mut source = FollowFileSource::open(&path)?;
-        let mut file = std::fs::OpenOptions::new().write(true).open(&path)?;
+        let mut file = OpenOptions::new().write(true).open(&path)?;
         file.write_all(b"changed")?;
         file.sync_all()?;
         assert_eq!(source.check_generation()?, GenerationChange::Rewritten);
         Ok(())
-    }
-
-    #[test]
-    #[ignore = "release gate: append after a caught-up transcript"]
-    fn v2_pr12_follow_append() -> io::Result<()> {
-        let mut fixtures = [fixture(40)?, fixture(2_000_000)?];
-        let mut rounds: [Vec<Vec<u128>>; 2] = [Vec::new(), Vec::new()];
-        for round in 0..FOLLOW_GATE_ROUNDS {
-            for (side, fixture) in fixtures.iter_mut().enumerate() {
-                writeln!(fixture.file, "append-{round}")?;
-                fixture.file.flush()?;
-                let start = Instant::now();
-                let chunk = fixture.source.read_chunk(fixture.cursor)?;
-                let elapsed = start.elapsed().as_nanos();
-                assert_eq!(chunk.bytes(), format!("append-{round}\n").as_bytes());
-                fixture.cursor = fixture.cursor.saturating_add(chunk.bytes().len() as u64);
-                assert!(chunk.at_end);
-                rounds[side].push(vec![elapsed]);
-            }
-        }
-        report_follow_gate("v2.pr12.follow_append", &rounds[0], &rounds[1], "ns")
-    }
-
-    #[test]
-    #[ignore = "release gate: chunked partial tail scans"]
-    fn v2_pr12_follow_scan_bytes() -> io::Result<()> {
-        let mut fixtures = [fixture(40)?, fixture(2_000_000)?];
-        let mut rounds: [Vec<Vec<u128>>; 2] = [Vec::new(), Vec::new()];
-        for _round in 0..FOLLOW_GATE_ROUNDS {
-            for (side, fixture) in fixtures.iter_mut().enumerate() {
-                let before = fixture.source.stats().scanned;
-                let before_oversized = fixture.source.stats().oversized_lines;
-                fixture.file.write_all(&vec![b'x'; CHUNK_BYTES * 3])?;
-                fixture.file.flush()?;
-                for _ in 0..3 {
-                    let chunk = fixture.source.read_chunk(fixture.cursor)?;
-                    assert!(chunk.bytes().is_empty() && !chunk.at_end);
-                }
-                fixture.file.write_all(b"\n")?;
-                fixture.file.flush()?;
-                let chunk = fixture.source.read_chunk(fixture.cursor)?;
-                assert_eq!(chunk.lines().count(), 1);
-                fixture.cursor = fixture.cursor.saturating_add(chunk.bytes().len() as u64);
-                let scanned = fixture.source.stats().scanned.saturating_sub(before);
-                assert!(scanned <= (CHUNK_BYTES * 3 + 1) as u64);
-                assert_eq!(fixture.source.stats().oversized_lines, before_oversized + 1);
-                rounds[side].push(vec![scanned as u128]);
-            }
-        }
-        report_follow_gate("v2.pr12.follow_scan_bytes", &rounds[0], &rounds[1], "bytes")
-    }
-
-    #[test]
-    #[ignore = "release gate: bounded read_at slices"]
-    fn v2_pr12_follow_read_at() -> io::Result<()> {
-        let mut fixtures = [fixture(40)?, fixture(2_000_000)?];
-        let mut places = [0u64; 2];
-        for (side, fixture) in fixtures.iter_mut().enumerate() {
-            places[side] = fixture.cursor;
-            fixture.file.write_all(&vec![b'y'; 8192])?;
-            fixture.file.write_all(b"\n")?;
-            fixture.file.flush()?;
-        }
-        let mut rounds: [Vec<Vec<u128>>; 2] = [Vec::new(), Vec::new()];
-        for _round in 0..FOLLOW_GATE_ROUNDS {
-            for (side, fixture) in fixtures.iter_mut().enumerate() {
-                let start = Instant::now();
-                let piece = fixture.source.read_at(places[side], 1024, 512)?;
-                let elapsed = start.elapsed().as_nanos();
-                assert_eq!(piece.bytes.len(), 512);
-                assert!(!piece.ends);
-                rounds[side].push(vec![elapsed]);
-            }
-        }
-        report_follow_gate("v2.pr12.follow_read_at", &rounds[0], &rounds[1], "ns")
     }
 
     #[test]
