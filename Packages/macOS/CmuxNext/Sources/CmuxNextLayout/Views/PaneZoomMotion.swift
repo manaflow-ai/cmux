@@ -2,8 +2,8 @@ import CmuxNextDesign
 import CoreGraphics
 
 /// Zoom and unzoom (Cmd-Shift-Enter). The pane that zooms is laid out live at its spring rect on
-/// every frame, its tab strip and content included, as a live window resize is (Lawrence
-/// 2026-10-18: "content must move while it animates"; the tab bar "needs to always be visible").
+/// every frame, its tab strip and content included, as a live window resize is (decided
+/// 2026-10-18: the content moves while the pane animates, and the tab bar is always visible).
 /// It is the topmost layer until it lands (`ScreenContentView.rank`, DESIGN Z2 and Z4) and covers
 /// the other panes: they stay still under it (`covered`) and are let go once it lands. An unzoom
 /// finds them there. The others are dimmed while it moves and only then (a zoom at rest draws no
