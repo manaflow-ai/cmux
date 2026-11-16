@@ -126,10 +126,12 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             const fill = async (length: number, samples?: Measurement[]) => {
               await editor.fill("m".repeat(length));
               for (let step = 0; step < 600; step++) {
+                // Instant growth still places the popup in ResizeObserver. Sample after paint,
+                // when that placement has run, rather than the unpainted state after fill().
+                await frame(page);
                 const current = await measure(page, layout.newTab);
                 samples?.push(current);
                 if (!current.moving) break;
-                await frame(page);
               }
               await frame(page);
               await frame(page);
@@ -188,9 +190,10 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
                 expect(Math.abs(current.top - before.top)).toBeLessThan(0.5);
                 expect(current.strip).toBe(before.strip);
                 expect(Math.abs(current.foot! - before.foot! - (current.height - before.height))).toBeLessThan(0.5);
-                expect(Math.abs(current.suggestions! - UI_ANCHOR_GAP)).toBeLessThanOrEqual(
-                  0.5 / current.devicePixelRatio + 1 / 64,
-                );
+                expect(
+                  Math.abs(current.suggestions! - UI_ANCHOR_GAP),
+                  JSON.stringify({ density, motion, current, previous }),
+                ).toBeLessThanOrEqual(0.5 / current.devicePixelRatio + 1 / 64);
                 expect(current.height).toBeGreaterThanOrEqual(before.height - 0.5);
                 expect(current.height).toBeLessThanOrEqual(after.height + 0.5);
                 expect((current.height - previous.height) * (shrinking ? -1 : 1)).toBeGreaterThanOrEqual(-0.5);
