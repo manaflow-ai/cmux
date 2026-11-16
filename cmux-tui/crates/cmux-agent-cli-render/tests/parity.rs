@@ -33,6 +33,10 @@ const CLAUDE: &str = "claude-code-2.1.310";
 /// A real Codex 0.164.0 session on the same script (two approvals). There is no Codex renderer,
 /// so it has no transcript: the hybrid over it sends the whole screen as deltas.
 const CODEX: &str = "codex-0.164.0";
+/// A real opencode 1.19.5 session on the same script (four approvals: edits and commands set
+/// to ask), recorded the same way. The model's and the account's names in it are replaced by
+/// placeholders of the same width.
+const OPENCODE: &str = "opencode-1.19.5";
 
 fn fixture(dir: &str, name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(dir).join(name)
@@ -665,7 +669,9 @@ fn stream_table(name: &str, session: &Session) -> (f64, f64) {
 
 #[test]
 fn the_daemons_stream_keeps_every_frame_at_parity_through_a_drop() {
-    for (name, dir) in [("Claude Code 2.1.310", CLAUDE), ("Codex 0.164.0", CODEX)] {
+    for (name, dir) in
+        [("Claude Code 2.1.310", CLAUDE), ("Codex 0.164.0", CODEX), ("opencode 1.19.5", OPENCODE)]
+    {
         let (rate, pty_rate) = stream_table(name, &load(dir));
         assert!(rate < pty_rate, "{name}: {rate:.0} B/s against the PTY's {pty_rate:.0}");
     }
