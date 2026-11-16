@@ -49,7 +49,6 @@ public struct TerminalScreen: View {
             }
             .sheet(isPresented: $model.showArtifacts) {
                 ArtifactsSheet(model: model)
-                    .cmuxMobileTransientSheet()
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }

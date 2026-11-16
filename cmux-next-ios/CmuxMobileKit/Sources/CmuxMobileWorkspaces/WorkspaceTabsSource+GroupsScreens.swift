@@ -193,7 +193,7 @@ struct PageToast: View {
                 .font(CmuxMobileTheme.standard.type.meta.weight(.semibold))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .cmuxMobileTransientGlass(in: .rect(cornerRadius: 20, style: .continuous))
+                .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
                 .accessibilityElement(children: .combine)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)

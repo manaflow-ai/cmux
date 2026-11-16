@@ -9,7 +9,6 @@ import SwiftUI
 /// the share used, a bar and the tokens used of the window.
 struct ContextUsageRing: View {
     let usage: ContextUsage
-    var material: CmuxMobileTransientMaterial? = .standard
     @State private var showsDetails = false
 
     var body: some View {
@@ -30,12 +29,10 @@ struct ContextUsageRing: View {
         }
         .buttonStyle(.cmuxPressFill)
         .accessibilityLabel("Context used")
-        .accessibilityIdentifier("contextUsage.open")
         .accessibilityValue(Text("\(usage.percent) percent, \(usage.tokensLabel)"))
         .popover(isPresented: $showsDetails) {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Context window").font(.caption).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("contextUsage.details")
                 Text("\(usage.percent)% used").font(.subheadline.weight(.medium)).padding(.top, 2)
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
@@ -53,7 +50,6 @@ struct ContextUsageRing: View {
             .padding(14)
             .frame(width: 240, alignment: .leading)
             .presentationCompactAdaptation(.popover)
-            .cmuxMobileTransientSheet(material: material)
         }
     }
 

@@ -37,7 +37,6 @@ struct PairCodeScannerSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button(invite == nil ? "Cancel" : "Done") { dismiss() } }
             }
         }
-        .cmuxMobileTransientSheet()
         .task {
             guard access == .notDetermined else { return }
             _ = await AVCaptureDevice.requestAccess(for: .video)
@@ -81,7 +80,7 @@ struct PairCodeScannerSheet: View {
             .font(theme.type.meta)
             .multilineTextAlignment(.center)
             .padding()
-            .cmuxMobileTransientGlass(in: .rect(cornerRadius: 12))
+            .background(.regularMaterial, in: .rect(cornerRadius: 12))
             .padding()
             .accessibilityIdentifier("settings.pairScanner.hint")
     }

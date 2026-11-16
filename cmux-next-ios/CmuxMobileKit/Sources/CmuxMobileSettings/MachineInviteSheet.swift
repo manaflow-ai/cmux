@@ -55,7 +55,6 @@ public struct MachineInviteSheet: View {
                 Text("Then confirm the new machine on your Mac when its four words match.")
             }
         }
-        .scrollContentBackground(.hidden)
         .navigationTitle("Pair Another Machine")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

@@ -1,5 +1,4 @@
 #if os(iOS)
-import CmuxMobileDesign
 import CmuxMobileModel
 import SwiftUI
 
@@ -9,7 +8,6 @@ import SwiftUI
 /// `WorkspaceScreen.body`, whose modifier chain is long enough for the type checker already.
 struct WorkspacePages: ViewModifier {
     let source: WorkspaceTabsSource
-    let material: CmuxMobileTransientMaterial?
 
     func body(content: Content) -> some View {
         content
@@ -23,7 +21,7 @@ struct WorkspacePages: ViewModifier {
             // content has disappeared: run from `onDismiss`, a row that opens another workspace's
             // page left the phone on this one (rig run, verify/parity/pq_palette.py searchtabs).
             .sheet(item: Binding(get: { source.palette }, set: { source.palette = $0 })) { scope in
-                CommandPaletteSheet(source: source, scope: scope, material: material)
+                CommandPaletteSheet(source: source, scope: scope)
                     .presentationDetents([.large])
                     .onDisappear { source.paletteDismissed() }
             }

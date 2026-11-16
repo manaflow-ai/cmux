@@ -1,7 +1,6 @@
 #if os(iOS)
 import CmuxConversationCore
 import CmuxConversationUI
-import CmuxMobileDesign
 import Observation
 import SwiftUI
 import UIKit
@@ -99,8 +98,7 @@ extension ChiefConversationContainer {
     func presentChatColors() {
         guard let key = chatColorsKey, presentedViewController == nil, conversation.presentedViewController == nil else { return }
         view.endEditing(true)
-        let sheet = UIHostingController(rootView: ChiefChatColorsSheet(key: key).cmuxMobileTransientSheet())
-        sheet.view.backgroundColor = .clear
+        let sheet = UIHostingController(rootView: ChiefChatColorsSheet(key: key))
         sheet.modalPresentationStyle = .pageSheet
         if let controller = sheet.sheetPresentationController {
             controller.detents = [.medium(), .large()]

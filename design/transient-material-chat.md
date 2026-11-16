@@ -1,10 +1,13 @@
-# Shared transient material: chat adoption draft
+# Shared transient material: chat adoption
 
-**HOLD LANDING ONLY.** Source preparation, review and draft PR publication are
-allowed. Do not merge this visual change until the chat visual landing hold is
-lifted. This is the companion to [One transient material](transient-material.md),
-which owns the references, common numeric contract and selected standard. It
-does not establish a new material or change the baseline non-chat PR's scope.
+Chat visuals do not hold this work (Leo, 2026-11-14: "dont ever stop work on
+f***ing customization / visuals of chat itself has zero f***ing bearing on
+open/draft pr creation abd code itself"). Web and Mac adopt the material here.
+iOS waits for Aziz's review (Leo, 2026-11-14: "we should hold off for ios changes
+merging automatically and let aziz know and just leave open"). This is the
+companion to [One transient material](transient-material.md), which owns the
+references, common numeric contract and selected standard. It does not
+establish a new material.
 
 Leo, 2026-11-11, on popovers: translucency is intended; the fix is one coherent
 material style, never opaque. The standard candidate retains the existing web
@@ -33,11 +36,11 @@ remain. Its equal-valued declarations are redundant for common components but
 also cover standalone `.page-menu` and legacy tooltip hooks. Removing them is a
 separate import/call-site audit, not necessary for adopting chat.
 
-## iOS adoption
+## iOS adoption (held for Aziz's review)
 
-The [iOS baseline inventory](../cmux-next-ios/design/transient-material.md)
-describes the shared adapter and platform ownership. This draft changes these
-previously held callers:
+None of this is on `feat-cmux-next` yet. The full iOS change, baseline adapter
+and chat callers together, is on branch `lane/transient-material-ios-held` and in
+#43019. These are the chat callers it changes:
 
 | Surface | Adoption |
 | --- | --- |
@@ -83,15 +86,16 @@ real compose-sheet gallery; do not count it as migrated or as system-owned.
   banner, sheet, palette and system-menu galleries are reused. The complete
   `TransientMaterialCaptureUITests` matrix is now 6 × 4 × 2 = 48 stills.
 
-After the parent publishes the draft, run on the fleet from its exact head:
+Run on the fleet from the exact head:
 
 ```sh
 cmux-ci test --setup webviews --timeout 1200 -- bash -euo pipefail -c 'bun run check && bun test test/glass-levels.test.ts test/dialog-sheet-surface.test.ts test/hover-cards-glass.test.ts test/tooltip-surface.test.ts src/agent-session/acpmux/ContextCard.test.tsx'
 ```
 
-Retain the existing `CmuxMobileWorkspacesTests/ToastRulesTests` and
-`CommandPaletteTests`. Compile the iOS app and run these UI targets through the
-fleet's supported iOS capture route, never on a personal Mac:
+For the held iOS branch: retain the existing
+`CmuxMobileWorkspacesTests/ToastRulesTests` and `CommandPaletteTests`. Compile
+the iOS app and run these UI targets through the fleet's supported iOS capture
+route, never on a personal Mac:
 
 ```text
 CmuxMobileAppUITests/TransientMaterialCaptureUITests/testLightMaterials
@@ -106,12 +110,4 @@ Message Chief and local/root toasts over chat. Verify unchanged dismissal,
 detents, focus, tap targets and background interaction. Run accessibility text
 size and Reduce Transparency cases. Accept only actually opened states, never
 `UISTATE-MISS` or `uimiss`. Attach exact build/head, before/after stills and gallery
-receipt to the draft PR; missing native captures remain unverified, not a pass.
-
-## Draft handoff
-
-Source diff review and `git diff --check` only in the implementation subtask.
-No test, build, capture, commit or push is performed by that subtask. Existing
-web source-contract assertions are updated to the new token names; runtime
-checks and visual verdict remain the owning lane's next action. The parent owns
-draft publication, review and eventual landing once the hold is lifted.
+receipt to the iOS PR; missing native captures remain unverified, not a pass.

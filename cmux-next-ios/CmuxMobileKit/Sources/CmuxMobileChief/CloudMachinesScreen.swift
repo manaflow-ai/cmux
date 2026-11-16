@@ -33,7 +33,7 @@ public struct CloudMachinesScreen: View {
             }
             .refreshable { await model.load() }
             .task { await model.load() }
-            .sheet(isPresented: $creating) { NewCloudMachineSheet(model: model).cmuxMobileTransientSheet() }
+            .sheet(isPresented: $creating) { NewCloudMachineSheet(model: model) }
             .modifier(CloudMachineAlerts(model: model, showsFailure: !model.showsDetail))
             .background(theme.colors.bgGrouped.color.ignoresSafeArea())
     }

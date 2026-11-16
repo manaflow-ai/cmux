@@ -281,7 +281,6 @@ public struct RootView: View {
             NavigationStack {
                 MachineInviteSheet(invite: invite) { machineInvite = nil }
             }
-            .cmuxMobileTransientSheet()
         }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
@@ -594,29 +593,25 @@ struct ShellView: View {
         #if DEBUG
         .modifier(BillingDemoSheet(billing: billing))
         #endif
-        .cmuxMobileToast($shell.toast, material: .standard)
+        .cmuxMobileToast($shell.toast)
         .modifier(LiveCallHost(shell: shell))
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }
         .sheet(item: $shell.cloudChats) { item in
             CloudChatsScreen(shell: shell, attention: item.attention)
-                .cmuxMobileTransientSheet()
         }
         .sheet(item: $shell.messagingChief) { subject in
             ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }
-                .cmuxMobileTransientSheet()
         }
         .sheet(item: $shell.messagingChiefText) { draft in
             ChiefMessageAboutSheet(subject: nil, initialText: draft.text, sending: shell.sendingToChief) { text in shell.sendToChief(text) }
-                .cmuxMobileTransientSheet()
         }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
         }
         .sheet(item: $shell.connectedDevices) { item in
             TerminalConnectedDevicesSheet(live: item.live, macID: item.macID, surface: item.surface, service: shell.sizingService)
-                .cmuxMobileTransientSheet()
                 .presentationDetents([.medium, .large])
         }
         .alert("Invite to \(shell.invitingTeam?.name ?? "team")", isPresented: Binding(

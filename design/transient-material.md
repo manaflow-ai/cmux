@@ -1,11 +1,11 @@
 # One transient material
 
 Leo, 2026-11-11: translucency is intended; use one coherent material style, never
-an opaque replacement. The scoped implementation adopts this across non-chat Mac
-and iOS surfaces. Chat-side adoption remains held; no shared default may change a
-chat consumer indirectly in that baseline. The separate
-[chat-adoption draft](transient-material-chat.md) prepares those shared/default
-changes; its hold is on landing, not source preparation or draft publication.
+an opaque replacement. Mac and web adopt it on non-chat and chat surfaces alike
+([chat adoption](transient-material-chat.md)). iOS adoption waits for Aziz's review
+(Leo, 2026-11-14: "we should hold off for ios changes merging automatically and let
+aziz know and just leave open"); it is on branch `lane/transient-material-ios-held`
+and in #43019.
 
 ## References and choice
 
@@ -89,26 +89,18 @@ window or native iOS presentation. The token never changes z-order or timing.
 The complete native renderer inventory remains
 `schemas/surface-materials/surface-materials.json`; the existing detector recognizes the same factory throughout adoption.
 The per-call-site iOS inventory and capture matrix are in
-`cmux-next-ios/design/transient-material.md`, including removed opaque sheet
-backdrops and explicitly scoped toast adapters.
+`cmux-next-ios/design/transient-material.md` on the held iOS branch, including
+removed opaque sheet backdrops and explicitly scoped toast adapters.
 
-## Held chat adoption, ready follow-up
+## Chat adoption
 
-The separate draft prepares this adoption now; landing waits for the chat visual
-hold to lift. Use the same token, without inventing another material. Move the
-standalone CSS rules into the shared `ui/glass/glass.css` and
-`popupSurface.css` ownership, then remove the explicit standalone imports. Adopt
-ContextUsageRing and its iOS `SessionMeterViews` popover. Keep the newly merged native-menu host intact; propagate explicit dialog material to chat-owned
-asks, and opt chat toast/banner callers into the iOS adapter. Keep contrast and
-Reduce Transparency behavior unchanged.
-
-Also held: Home messaging/Conversations sheets, updating notices and connection banners;
-mixed group/screen page toasts and group move sheets; recipient suggestions and native
-transcript agent cards; agent permissions and agent-share invite cards; Chief
-Pet/Quick Composer; mixed diff/editor/markdown/files/task/feed/message pages;
-unknown pushed iOS routes. These can display or cover chat. Conservative ownership
-is intentional, not an undocumented alternate material. Root-level factories and
-shared component defaults therefore remain legacy unless explicitly opted in.
+Chat uses the same token, without inventing another material: shared
+`ui/glass/glass.css` and `popupSurface.css` carry it to chat menus, cards,
+dialogs and sheets on web, and explicit dialog material reaches chat-owned asks on
+Mac ([transient-material-chat.md](transient-material-chat.md)). Contrast and
+Reduce Transparency behavior are unchanged. The iOS chat callers
+(ContextUsageRing's `SessionMeterViews` popover, chat toasts, banners and sheets)
+are held for Aziz's review with the rest of iOS.
 
 ## Gallery and verification
 

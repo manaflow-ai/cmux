@@ -1018,8 +1018,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     func presentArtifacts() {
         guard artifactsHost == nil, presentedViewController == nil else { return }
         let model = model
-        let host = UIHostingController(rootView: ArtifactsSheet(model: model).cmuxMobileTransientSheet().onDisappear { model.showArtifacts = false })
-        host.view.backgroundColor = .clear
+        let host = UIHostingController(rootView: ArtifactsSheet(model: model).onDisappear { model.showArtifacts = false })
         host.overrideUserInterfaceStyle = .unspecified
         if let sheet = host.sheetPresentationController {
             sheet.detents = [.medium(), .large()]

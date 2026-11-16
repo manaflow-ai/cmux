@@ -46,21 +46,6 @@ public struct RecoveryGalleryRoot: View {
     public var body: some View {
         Group {
             switch scene {
-            case "transient-toast", "transient-banner", "transient-sheet", "transient-palette", "transient-menu", "transient-context":
-                // A container identifier overrides these fixtures' leaf identifiers
-                // in SwiftUI's accessibility tree, hiding their capture controls.
-                TransientMaterialGallery(surface: scene)
-            default:
-                legacyScene.accessibilityIdentifier("recoveryGallery.\(scene)")
-            }
-        }
-        .ignoresSafeArea(edges: scene == "terminal" ? .all : [])
-        .preferredColorScheme(scheme)
-    }
-
-    private var legacyScene: some View {
-        Group {
-            switch scene {
             case "terminal":
                 TerminalConnectingView(topInset: 60)
                     .background(Color.black)
@@ -84,6 +69,9 @@ public struct RecoveryGalleryRoot: View {
                 states
             }
         }
+        .ignoresSafeArea(edges: scene == "terminal" ? .all : [])
+        .accessibilityIdentifier("recoveryGallery.\(scene)")
+        .preferredColorScheme(scheme)
     }
 
     private var states: some View {
@@ -193,13 +181,13 @@ public struct RecoveryGalleryRoot: View {
         List {
             ForEach(["cmux", "api", "web"], id: \.self) { Text($0) }
         }
-        .cmuxMobileBanner(.signedOut, material: .standard, retry: {})
+        .cmuxMobileBanner(.signedOut, retry: {})
     }
 
     private var cards: some View {
         VStack(spacing: 24) {
-            ConnectionBanner(.offline, material: .standard, retry: {})
-            ConnectionBanner(.signedOut, material: .standard, retry: {})
+            ConnectionBanner(.offline, retry: {})
+            ConnectionBanner(.signedOut, retry: {})
             FailureCard(title: "Couldn't load your teams", message: "Check your connection, then retry.") {}
                 .padding(.horizontal, 20)
             VStack(spacing: 10) {

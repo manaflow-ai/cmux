@@ -2383,7 +2383,7 @@ struct WorkspaceTabPage: View {
                         .disabled(!source.canEditTabs)
                     }
                     .padding(20)
-                    .cmuxMobileTransientGlass(in: .rect(cornerRadius: 16))
+                    .background(.regularMaterial, in: .rect(cornerRadius: 16))
                 }
             }
     }
