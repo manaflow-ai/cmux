@@ -62,6 +62,7 @@ import { withSkillWords } from "./conversation/withSkillWords";
 import { type QueuedEntry, shownText } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
+import { focusRoute } from "../../ui/focusRoute";
 /** A queue of more queued prompts than this folds; folded, it shows `FOLD_SHOWS` of them. */
 const FOLD_AT = 3;
 const FOLD_SHOWS = 2;
@@ -606,14 +607,14 @@ export function ComposerQueue({
   useLayoutEffect(() => {
     const id = refocus.current;
     const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;
-    if (row && document.activeElement !== row) row.focus();
+    if (row && document.activeElement !== row) focusRoute(row, "system", "the queue changed: its row");
     // Only while focus is still in the queue (or was dropped with the row that left).
     const next = focusNext.current;
     const into = next ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${next}"]`) : null;
     const active = document.activeElement;
     if (into && (!active || active === document.body || list.current?.contains(active))) {
       focusNext.current = undefined;
-      into.focus();
+      focusRoute(into, "system", "the queue changed: the composer");
     }
   });
   const act = (id: string, action: () => Promise<boolean>) => {
@@ -1215,7 +1216,7 @@ function QueuedEdit({
   // As tall as its lines by CSS (`field-sizing: content`, composerStates.css): no height write and scrollHeight read
   // (a forced layout) on each key.
   useEffect(() => {
-    input.current?.focus();
+    focusRoute(input.current, "system", "a queued row's editor");
     input.current?.select();
   }, []);
   return (

@@ -395,7 +395,24 @@ impl MediaEngine {
     pub fn update_frames_in_flight_from_rtt(&mut self, path_rtt_us: Option<u64>) {
         if let Some(rtt_us) = path_rtt_us.or_else(|| self.ack_rtt_us()) {
             self.set_frames_in_flight(frames_in_flight_for(rtt_us, self.cfg.max_fps).max(2));
+            // A measured LAN round trip starts the target high (until the first overuse).
+            self.cc.on_rtt(rtt_us);
         }
+    }
+
+    /// A paced datagram from `encoded` really left now: the controller times it from
+    /// here, so pacing is not read as path delay. Other datagrams need no call.
+    pub fn datagram_sent(&mut self, datagram: &[u8], now_us: u64) {
+        if let Ok((header, _)) = DatagramHeader::decode(datagram)
+            && matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
+        {
+            self.cc.on_departed(header.transport_seq, now_us);
+        }
+    }
+
+    /// The controller's target now (all display streams together).
+    pub fn target_bps(&self) -> u64 {
+        self.cc.target_bps()
     }
 
     /// Adds a lossless tile stream (rd change C3) for surface stream `of`:
@@ -579,9 +596,9 @@ impl MediaEngine {
             }
             Err(e) => return Err(e),
         };
-        for i in 0..packets.datagrams.len() {
+        for (i, d) in packets.datagrams.iter().enumerate() {
             let seq = packets.first_transport_seq.wrapping_add(i as u16);
-            self.cc.on_sent(seq, now_us);
+            self.cc.on_sent_bytes(seq, now_us, d.len());
             self.loss_meter.on_sent(seq);
         }
         state.history.insert(req.frame, packets.datagrams.clone());

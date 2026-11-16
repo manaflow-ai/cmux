@@ -33,7 +33,7 @@ import Testing
             StatusIndicatorAppearance.shared.refresh()
             try? FileManager.default.removeItem(at: directory)
         }
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         try await body(SettingsPageProvider(settings: settings), settings)

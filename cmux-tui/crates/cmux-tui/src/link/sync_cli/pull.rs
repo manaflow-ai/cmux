@@ -139,11 +139,9 @@ pub(super) fn pull_kept(
         bail!("{} is not a folder", local.display());
     }
     let git = GitDirs::of(&local)?;
-    let manifest_name = if git.is_some() { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
     let mut remote = Remote::connect(socket)?;
-    let manifest_path = format!("{remote_root}/{manifest_name}");
-    let record = remote.read(&manifest_path)?;
-    let manifest = base::trusted(&local, remote_root, record.as_deref())?;
+    let (manifest_path, manifest, plain_in_git) =
+        base::machine_record(&mut remote, &local, remote_root, git.is_some())?;
     let staging = Staging::make(git.as_ref().map_or(&local, |dirs| &dirs.own))?;
     let root = Dir::open(&local)?;
 
@@ -341,7 +339,7 @@ pub(super) fn pull_kept(
 
     let mut git_plan: Option<GitPlan> = None;
     let mut reasons = Vec::new();
-    if let Some(dirs) = &git {
+    if let Some(dirs) = git.as_ref().filter(|_| !plain_in_git) {
         let at = git_back::Where { folder: &local, common_dir: &dirs.common, staging: &staging.0 };
         match git_back::plan(&mut remote, remote_root, &at, &manifest, &hooks)? {
             Ok(plan) => git_plan = plan,
