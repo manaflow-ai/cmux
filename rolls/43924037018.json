@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43924037018",
+  "recorded_at": "2026-11-16T18:10:01Z",
+  "reason": "cmux-tui c2ccb8326c93 changes the image's cmux-tui (pinned b09de4cd99d6)",
+  "dry_run": false,
+  "cmux_tui": "c2ccb8326c93be65aac31d76c30a64951b658954",
+  "fixes": [
+    {
+      "sha": "66498401bd0f7603131648de501d5118346982c1",
+      "mergedAt": "2026-11-16T09:48:24-08:00",
+      "subject": "cmux-rd on GPU-less Linux: threads from the core count, a loud XShm fallback, and where OpenH264's 8 ms goes (#44552)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T18:10:01Z",
+    "snapshot_id": "sh-381a90330de14418b085d5a2027f000a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43924037018): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bfbe3dd45c7ea1b77b8d414915e14c802b075e77",
+    "image": "cloud-native-auto-c2ccb832-43924037018-1",
+    "revision": "ci-43924037018-1",
+    "at": "2026-11-16T18:10:01Z"
+  },
+  "rolled_back": false
+}
