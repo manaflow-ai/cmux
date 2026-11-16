@@ -48,7 +48,8 @@ pub(crate) const TRANSACTION_FIELD: &str = "tab_transaction";
 /// arrived (its connection, the slot of its creation, and the run of the
 /// daemon). It is not a part of the request, so a retry of the same request
 /// can carry another value: the creation fingerprint leaves it out
-/// (`semantic_creation_fields`).
+/// (`semantic_creation_fields`), and the effect of the creation reads it
+/// (`creation_effect_fields`).
 pub(crate) const ORIGIN_FIELD: &str = "tab_place_origin";
 
 /// The connection of a creation that no connection of this run asked for.

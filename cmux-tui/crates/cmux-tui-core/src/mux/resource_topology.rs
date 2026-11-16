@@ -28,6 +28,7 @@ mod effect_fields;
 #[cfg(unix)]
 pub(crate) use agent_cli_job::AgentCLIJobBusy;
 use effect_fields::created_identity_kind;
+use effect_fields::creation_effect_fields;
 use effect_fields::effect_cell_size;
 use effect_fields::effect_command;
 use effect_fields::effect_on_exit;

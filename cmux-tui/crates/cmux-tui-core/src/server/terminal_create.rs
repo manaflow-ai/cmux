@@ -193,7 +193,8 @@ impl ConnectionSurfaceScheduler {
         mut pending: PendingSurfaceRequest,
         writer: &MessageWriter,
     ) -> bool {
-        // On the thread that reads the connection, so in request order.
+        // On the dispatcher thread of the connection, which runs its requests
+        // in the order of their arrival: a page's request takes its slot there too.
         let hole = pending.request.cmd.admit_tab_place(mux, client);
         let prelaunch = PrelaunchRequest::of(&pending.request.cmd, frontend_shell(mux, client));
         let label = match (&pending.request.cmd, prelaunch.is_some()) {
