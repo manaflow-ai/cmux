@@ -2,10 +2,22 @@ import Foundation
 
 nonisolated extension PageInfoSite {
     /// Splits a site name for truncation: the head may be cut, the tail always shows. A host keeps
-    /// its registrable domain and port in the tail (the last two labels, or three when the
-    /// second-level label is a short public one such as `co.uk`), so a long host cannot hide the
-    /// real site behind a trusted-looking prefix; any other name keeps its last 16 characters.
-    static func splitName(_ name: String) -> (head: String, tail: String) {
+    /// its registrable domain and port in the tail, so a long host cannot hide the real site behind
+    /// a trusted-looking prefix; any other name keeps its last 16 characters.
+    ///
+    /// The registrable domain comes from the Public Suffix List, private section included, so
+    /// `paypal-login.evil.github.io` keeps `evil.github.io`. A host the list has no site for (a
+    /// public suffix itself, an IP address) is all tail. Without a list, or for a host the list
+    /// cannot read (non-ASCII), the tail is a guess: the last two labels, or three when the
+    /// second-level label is short (`co.uk`).
+    /// - Parameters:
+    ///   - name: a host with an optional port, or any other name (a path).
+    ///   - registrableDomain: a host's registrable domain, nil when it has none; nil when there is
+    ///     no list. The app's one list (``PublicSuffixList/shared``) by default.
+    static func splitName(
+        _ name: String,
+        registrableDomain: ((String) -> String?)? = PublicSuffixList.sharedRegistrableDomain
+    ) -> (head: String, tail: String) {
         var host = Substring(name)
         var port = ""
         if let colon = name.lastIndex(of: ":") {
@@ -22,7 +34,12 @@ nonisolated extension PageInfoSite {
             let tail = name.suffix(16)
             return (String(name.dropLast(tail.count)), String(tail))
         }
-        let keep = labels.count > 2 && labels[labels.count - 2].count <= 3 ? 3 : 2
+        let keep: Int
+        if let registrableDomain, host.allSatisfy(\.isASCII) {
+            keep = registrableDomain(String(host)).map { $0.split(separator: ".").count } ?? labels.count
+        } else {
+            keep = labels.count > 2 && labels[labels.count - 2].count <= 3 ? 3 : 2
+        }
         guard labels.count > keep else { return ("", name) }
         return (labels.dropLast(keep).joined(separator: ".") + ".", labels.suffix(keep).joined(separator: ".") + port)
     }

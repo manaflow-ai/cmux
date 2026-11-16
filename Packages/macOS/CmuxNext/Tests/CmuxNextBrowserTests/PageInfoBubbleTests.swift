@@ -209,6 +209,31 @@ struct PageInfoSiteNameTests {
         #expect(fitted("paypal-login.evil.github.io", 20) == "paypa…evil.github.io")
     }
 
+    /// A local name has no dot to cut at, or is a site of its own: it shows whole.
+    @Test(arguments: ["localhost", "localhost:3000", "app.localhost:5173", "[::1]:8080"])
+    func aLocalNameIsAllTail(name: String) {
+        let parts = PageInfoSite.splitName(name)
+        #expect(parts.head.isEmpty)
+        #expect(parts.tail == name)
+    }
+
+    /// The list reads punycode; a name it cannot read (Unicode) falls back to the guess.
+    @Test func anInternationalizedHostKeepsItsRegistrableDomain() {
+        let punycode = PageInfoSite.splitName("paypal.xn--bcher-kva.github.io")
+        #expect(punycode.tail == "xn--bcher-kva.github.io")
+        let unicode = PageInfoSite.splitName("login.bücher.example.de")
+        #expect(unicode.head == "login.bücher.")
+        #expect(unicode.tail == "example.de")
+    }
+
+    /// Without the list (a missing resource) the cut guesses as before.
+    @Test func withoutAListTheCutGuesses() {
+        let privateSuffix = PageInfoSite.splitName("paypal-login.evil.github.io", registrableDomain: nil)
+        #expect(privateSuffix.tail == "github.io")
+        let shortSecondLevel = PageInfoSite.splitName("login.bank.example.co.uk", registrableDomain: nil)
+        #expect(shortSecondLevel.tail == "example.co.uk")
+    }
+
     @Test func aPathKeepsItsEnd() {
         let path = "/Users/someone/Documents/reports/2026/summary.pdf"
         let parts = PageInfoSite.splitName(path)
