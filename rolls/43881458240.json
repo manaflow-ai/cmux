@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43881458240",
+  "recorded_at": "2026-11-16T14:11:21Z",
+  "reason": "cmux-tui cabff45de4ca changes the image's cmux-tui (pinned 1b350e70511e)",
+  "dry_run": false,
+  "cmux_tui": "cabff45de4ca86b4ea7dea544eb10706294b3fcf",
+  "fixes": [
+    {
+      "sha": "cabff45de4ca86b4ea7dea544eb10706294b3fcf",
+      "mergedAt": "2026-11-16T05:43:34-08:00",
+      "subject": "screen-share-vs.py: the budget table, before/after compare and motion quality (#44366)"
+    },
+    {
+      "sha": "9c7b5abf7ba2a8d41015b3239cb2eb3f502a71dd",
+      "mergedAt": "2026-11-16T05:40:52-08:00",
+      "subject": "cmux-rd: Wayland portal grant once at enable, restore token, RemoteDesktop control (#44523)"
+    },
+    {
+      "sha": "a688a1d37c8a2228b110a61bd4da69f63a98f8fd",
+      "mergedAt": "2026-11-16T05:29:45-08:00",
+      "subject": "acpmux: list order and v2 gate home review notes (#44233)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T14:11:21Z",
+    "snapshot_id": "sh-53a8dcddff31440ca732f3c0b396a0e7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43881458240): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "392397202af39a1b117783e62e03a1b817c22b29",
+    "image": "cloud-native-auto-cabff45d-43881458240-1",
+    "revision": "ci-43881458240-1",
+    "at": "2026-11-16T14:11:21Z"
+  },
+  "rolled_back": false
+}
