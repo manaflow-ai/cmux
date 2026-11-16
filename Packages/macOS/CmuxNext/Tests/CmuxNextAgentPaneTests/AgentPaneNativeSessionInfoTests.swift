@@ -808,7 +808,9 @@ struct AgentPaneNativeSessionInfoTests {
         // A drag that starts on the header's title, away from the grip, reorders too (Lucas,
         // 2026-11-10: "you don't necessarily need to hover on the 6 dot selector").
         sent.removeAll()
-        let title = NSPoint(x: changes.bounds.minX + 24, y: start.y)
+        // On the title's own text: the empty icon column left of it holds the grip.
+        let titleLabel = try #require(changes.subviews.compactMap { $0 as? ChromeLabel }.first { $0.stringValue == "Changes" })
+        let title = NSPoint(x: titleLabel.frame.minX + 6, y: start.y)
         #expect(!hit.contains(title))
         changes.mouseDown(with: try mouse(.leftMouseDown, title, in: changes))
         changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: title.x, y: title.y + (drop.y - title.y) / 2), in: changes))
