@@ -233,6 +233,10 @@ type LoginOptions = {
   sessionId: string | undefined;
   harness: string | undefined;
   supported: boolean;
+  /// A new chat with no session yet whose machine signs its agent in there anyway (the failed
+  /// start's card, hq#11225; ``AcpmuxDirectClient/supportsMachineLogin``): with no `sessionId`, each
+  /// step names no chat and runs on that machine itself. Retry then starts the chat signed in.
+  machineLogin?: boolean;
   gesture: (intent: Record<string, unknown>) => Promise<string | undefined>;
   openURL: (url: string) => void;
   /// The host's machine-bound open (``CloudSignIn/openOnMachine``); true when it opened.
@@ -269,11 +273,15 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
   const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } =
     options;
   const agent = loginAgent(agentKey(harness?.split("/").pop()));
-  if (!connected || !sessionId || !supported || !agent) return undefined;
+  // A new chat's sign-in on its machine has no chat to name, and no prompt of its own to send again.
+  const machine = !sessionId && options.machineLogin === true;
+  if (!connected || !(sessionId || machine) || !supported || !agent) return undefined;
+  // A chat's card works only while the pane shows its chat; a new chat's signs in on its machine.
+  const current = () => (sessionId ? isCurrent(sessionId) : true);
   const client = () => {
-    const current = currentClient();
-    if (!current || !isCurrent(sessionId)) throw new LoginStepError("failed");
-    return current;
+    const live = currentClient();
+    if (!live || !current()) throw new LoginStepError("failed");
+    return live;
   };
   const step = async <T>(run: () => Promise<T>): Promise<T> => {
     try {
@@ -343,8 +351,9 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
     resend: async (rowId, prompt, ticket, wanted = () => true) => {
       // Never a send without the person's click (the host would refuse it anyway).
       if (!ticket) return;
+      // A new chat's card resends nothing: its Retry starts the chat.
       const sender = currentClient();
-      if (!sender || !isCurrent(sessionId) || !wanted()) return;
+      if (!sessionId || !sender || !isCurrent(sessionId) || !wanted()) return;
       const draft = await sender.resendPrompt(rowId, prompt);
       if (!wanted() || !isCurrent(sessionId) || currentClient() !== sender) return;
       await sender.send(draft.input, draft.attachments, ticket.promptId, undefined, ticket.ticket);

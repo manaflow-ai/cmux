@@ -32,6 +32,26 @@ host-signed allow lists are later work.
   the same Stack user in two projects is two hub users. `session` is a
   JWT (ES256, `iss: device-hub`, `sub: userId`, 1 h). Send it as
   `Authorization: Bearer <session>` on every call.
+- **Machine sign-in**: a machine the person joined to cmux (`acpmux host
+  join`) keeps a cmux-platform machine credential, not their Stack token. It
+  signs in with `POST /v1/auth/machine {credential, deviceId}` → `{session, ownerKind: "user", machineId, teamId,
+  userId, scope: "machine", expiresAt}`. The hub asks cmux-platform (the origin
+  `MACHINE_ORIGINS` names for a Stack project) `GET
+  /v1/machines/credentials/self` with the credential as bearer, and trusts
+  only that answer: the credential's person (`userId`, cmux-platform's
+  `user_` + 20 hex of sha256 of `stack:<projectId>:<sub>`) and expiry.
+  Nothing the machine says about itself names the account. The hub records
+  that id beside `"<projectId>:<sub>"` at each `/v1/auth/stack`, so a person
+  who never signed in to the hub has no account to join a machine to (403
+  `account_not_on_hub`). The `machine` session is the one device's
+  `deviceId` (every call signed by it), ends with the credential (at most
+  1 h), carries no Stack token (no cmux relay), and may register that device
+  and turn its sharing on or off, besides what a host session may (403
+  `machine_scope` otherwise). It may not anchor the device, so the machine
+  renews only by signing in again, and cmux-platform is asked every time: a
+  revoked or expired credential is refused at once, and the last session
+  issued for it ends within 1 h. Without `MACHINE_ORIGINS` the route is 503
+  `machine_auth_unavailable`.
 - **Device key**: each device has two P-256 keys in its Secure Enclave
   (CryptoKit `SecureEnclave.P256.Signing` and `.KeyAgreement`). Public keys are
   sent as base64 of the X9.63 uncompressed point (65 bytes).
@@ -59,7 +79,7 @@ host-signed allow lists are later work.
 ## Records (User DO SQLite)
 
 ```
-devices(id TEXT PK, name, platform 'macos'|'ios', signing_key, agreement_key,
+devices(id TEXT PK, name, platform 'macos'|'ios'|'linux', signing_key, agreement_key,
         created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
         name_pinned INT 0/1, owner_kind, owner_id)
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,
@@ -103,6 +123,7 @@ end reason, the decision, or `old->new` for a permission change).
 |---|---|---|---|
 | `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
+| `POST /v1/auth/machine` | `{credential, deviceId}` | `{session, userId, scope, ownerKind, machineId, teamId, expiresAt}` | A joined machine's sign-in (Identity, Machine sign-in): cmux-platform names the person; the `machine` session sets up and serves only `deviceId`. 401 when cmux-platform does not accept the credential or it expired, 403 `machine_no_person` or `account_not_on_hub`, 503 `machine_auth_unavailable`. |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
 | `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |

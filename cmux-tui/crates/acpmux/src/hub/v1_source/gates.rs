@@ -6,8 +6,8 @@
 //! measure is bytes known allocated: the test allocator counts the actor thread's bytes from its
 //! first chunk (`peer_snapshot/disk_tests.rs`), and the peak is the most it held at once, over
 //! that start, in any stretch of [`STRETCH`] chunks (the same length at both sizes) or at the
-//! end. It counts what grows with the chat (a per-row map climbs every stretch) and nothing the
-//! allocator or the kernel keeps for it.
+//! end. It counts what the actor keeps as the chat grows (a map that kept one entry per row, say,
+//! would climb every stretch) and nothing the allocator or the kernel keeps for it.
 //!
 //! The probe prints, per stretch, what resident size did: the high-water rise over a baseline
 //! taken after `malloc_trim(0)` (the kernel's mark reset at each stretch's start), anonymous and
@@ -24,6 +24,12 @@ use serde::{Deserialize, Serialize};
 /// Chunks in one measured stretch: 2 MiB of log, all of the small chat.
 const STRETCH: u64 = 8;
 
+/// How far god's resident anonymous bytes may grow from the stretch a quarter of the way through
+/// to the last: three runs read 0, 0 and 0 KiB (stretches 157 to 624), and the same run with the
+/// test-only sync wait record kept whole read 524. 64 KiB is one early-stretch step of the
+/// allocator's (the probe saw 60) and an eighth of that leak.
+const GOD_ANON_ALLOWANCE_KIB: i64 = 64;
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct CatchUp {
     /// The probe: the largest rise of resident size over the baseline in any stretch, in KiB.
@@ -38,6 +44,9 @@ struct CatchUp {
     chunks: u64,
     rows: usize,
     equal: bool,
+    /// Resident anonymous KiB at the stretch a quarter of the way through, and at the last.
+    anon_quarter: (u64, u64),
+    anon_last: (u64, u64),
 }
 
 fn memory_kib(field: &str) -> u64 {
@@ -304,7 +313,7 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
         log.counters.heads.load(Ordering::SeqCst),
         log.counters.lists.load(Ordering::SeqCst)
     );
-    {
+    let (anon_quarter, anon_last) = {
         let b = at_baseline;
         eprintln!(
             "v2.pr03b.catchup_peak_rss stretches msgs={} baseline vmrss={baseline} anon={} file={} shmem={} heap={}",
@@ -330,7 +339,11 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
                 s.idx_rss
             );
         }
-    }
+        // Stretches end at n = 1.. (n = 0 is the first chunk's start).
+        let ended: Vec<&Stretch> = stretches.iter().filter(|s| s.n > 0).collect();
+        let at = |s: Option<&&Stretch>| s.map_or((0, 0), |s| (s.n, s.anon));
+        (at(ended.get(ended.len() / 4)), at(ended.last()))
+    };
     let rows = book_rows(&home.book());
     let equal = rows == translated(home.store.as_ref());
     CatchUp {
@@ -342,6 +355,8 @@ fn catch_up(shape: &crate::god_fixture::Shape) -> CatchUp {
         chunks: log.counters.chunks.load(Ordering::SeqCst),
         rows: rows.len(),
         equal,
+        anon_quarter,
+        anon_last,
     }
 }
 fn shape_from_env(case: &str) -> crate::god_fixture::Shape {
@@ -391,6 +406,14 @@ fn v2_pr03b_catchup_peak_rss() {
         "v2.pr03b.catchup_peak_rss small_kib={} god_kib={} ratio={ratio:.3}",
         small.held_kib, god.held_kib
     );
+    // God against itself, for what the thread count cannot see (other threads, mapped pages):
+    // its resident anonymous bytes at the last stretch against a quarter of the way through.
+    let ((quarter_n, quarter), (last_n, last)) = (god.anon_quarter, god.anon_last);
+    let growth = last as i64 - quarter as i64;
+    eprintln!(
+        "v2.pr03b.catchup_peak_rss god_anon quarter_n={quarter_n} quarter_kib={quarter} \
+         last_n={last_n} last_kib={last} growth_kib={growth}"
+    );
     if let Ok(path) = std::env::var("V2_GATE_OUT") {
         use std::io::Write;
         let mut output = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
@@ -406,5 +429,15 @@ fn v2_pr03b_catchup_peak_rss() {
         "god's actor held {} KiB at most against small's {} KiB",
         god.held_kib,
         small.held_kib
+    );
+    // With no stretch ended both are (0, 0), and a growth of 0 would pass.
+    assert!(
+        last_n > quarter_n,
+        "god's growth check needs two stretches ended: a quarter of the way at {quarter_n}, the last at {last_n}"
+    );
+    assert!(
+        growth <= GOD_ANON_ALLOWANCE_KIB,
+        "god's resident anonymous bytes grew {growth} KiB from stretch {quarter_n} to {last_n} \
+         (allowance {GOD_ANON_ALLOWANCE_KIB} KiB)"
     );
 }

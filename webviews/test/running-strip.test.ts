@@ -18,6 +18,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { openRunningTray } from "./support/openRunningTray";
+import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("running-strip.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -62,7 +63,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     await page.waitForSelector(".acpmux-running-tray");
     await openRunningTray(page);
     await page.mouse.move(0, 0);
-    await page.waitForSelector(".acpmux-running-tray .acpmux-agent-line");
+    await page.waitForSelector(RUNNING_TRAY_LINE);
     // The header's hover wash fades out (summary.css's background transition): wait for the pointer
     // to have left it and finish that fade, so the line is read at rest.
     await page.waitForFunction(() => !document.querySelector(".acpmux-running-tray__head:hover"));
@@ -307,27 +308,30 @@ await requireBrowserLane("running-strip.test.ts", async () => {
   test("a finished line's check sits in the Stop square's slot, after its time, never a Done on the left", async () => {
     const page = await rows();
     try {
-      const marks = await page.evaluate(() => {
-        const lines = [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")];
-        const done = lines.find((line) => line.dataset.status === "done")!;
-        const running = lines.find(
-          (line) => line.dataset.status === "running" && line.querySelector(".cv-subagent__stop"),
-        )!;
-        const check = done.querySelector<HTMLElement>("[data-done-check]");
-        const stop = running.querySelector<HTMLElement>(".cv-subagent__stop")!.getBoundingClientRect();
-        const time = done.querySelector<HTMLElement>(".acpmux-agent-line__time")!.getBoundingClientRect();
-        const box = check?.getBoundingClientRect();
-        const visibleWords = [...done.querySelectorAll<HTMLElement>(".acpmux-agent-line__meta *")]
-          .filter((node) => node.childElementCount === 0 && !node.closest(".acpmux-agent-line__sr"))
-          .map((node) => node.textContent?.trim())
-          .filter(Boolean);
-        return {
-          icon: Boolean(check?.querySelector('svg[data-icon="status.check"]')),
-          centreDelta: box ? Math.abs(box.left + box.width / 2 - (stop.left + stop.width / 2)) : Number.NaN,
-          afterTime: box ? box.left >= time.right : false,
-          visibleWords,
-        };
-      });
+      const marks = await page.evaluate(
+        ({ RUNNING_TRAY_LINE }) => {
+          const lines = [...document.querySelectorAll<HTMLElement>(RUNNING_TRAY_LINE)];
+          const done = lines.find((line) => line.dataset.status === "done")!;
+          const running = lines.find(
+            (line) => line.dataset.status === "running" && line.querySelector(".cv-subagent__stop"),
+          )!;
+          const check = done.querySelector<HTMLElement>("[data-done-check]");
+          const stop = running.querySelector<HTMLElement>(".cv-subagent__stop")!.getBoundingClientRect();
+          const time = done.querySelector<HTMLElement>(".acpmux-agent-line__time")!.getBoundingClientRect();
+          const box = check?.getBoundingClientRect();
+          const visibleWords = [...done.querySelectorAll<HTMLElement>(".acpmux-agent-line__meta *")]
+            .filter((node) => node.childElementCount === 0 && !node.closest(".acpmux-agent-line__sr"))
+            .map((node) => node.textContent?.trim())
+            .filter(Boolean);
+          return {
+            icon: Boolean(check?.querySelector('svg[data-icon="status.check"]')),
+            centreDelta: box ? Math.abs(box.left + box.width / 2 - (stop.left + stop.width / 2)) : Number.NaN,
+            afterTime: box ? box.left >= time.right : false,
+            visibleWords,
+          };
+        },
+        { RUNNING_TRAY_LINE },
+      );
       expect(marks.icon).toBe(true);
       expect(marks.centreDelta).toBeLessThan(1);
       expect(marks.afterTime).toBe(true);
@@ -340,32 +344,35 @@ await requireBrowserLane("running-strip.test.ts", async () => {
   test("a line's title runs up to its time, cut only where it truly overflows", async () => {
     const page = await rows();
     try {
-      const fit = await page.evaluate(() => {
-        const line = (name: string) =>
-          [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")].find(
-            (each) => each.querySelector(".acpmux-summary-agent__name")?.textContent === name,
-          )!;
-        const measure = (each: HTMLElement) => {
-          const text = each.querySelector<HTMLElement>(".acpmux-summary-text")!;
-          const time = each.querySelector<HTMLElement>(".acpmux-agent-line__time")!;
-          return {
-            gap: time.getBoundingClientRect().left - text.getBoundingClientRect().right,
-            cut: text.scrollWidth > text.clientWidth,
+      const fit = await page.evaluate(
+        ({ RUNNING_TRAY_LINE }) => {
+          const line = (name: string) =>
+            [...document.querySelectorAll<HTMLElement>(RUNNING_TRAY_LINE)].find(
+              (each) => each.querySelector(".acpmux-summary-agent__name")?.textContent === name,
+            )!;
+          const measure = (each: HTMLElement) => {
+            const text = each.querySelector<HTMLElement>(".acpmux-summary-text")!;
+            const time = each.querySelector<HTMLElement>(".acpmux-agent-line__time")!;
+            return {
+              gap: time.getBoundingClientRect().left - text.getBoundingClientRect().right,
+              cut: text.scrollWidth > text.clientWidth,
+            };
           };
-        };
-        const command = [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")].find(
-          (each) => each.querySelector(".acpmux-agent-line__latest-inline.is-code, .acpmux-agent-line__latest.is-code"),
-        )!;
-        return {
-          long: measure(
-            line(
-              "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
+          const command = [...document.querySelectorAll<HTMLElement>(RUNNING_TRAY_LINE)].find((each) =>
+            each.querySelector(".acpmux-agent-line__latest-inline.is-code, .acpmux-agent-line__latest.is-code"),
+          )!;
+          return {
+            long: measure(
+              line(
+                "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
+              ),
             ),
-          ),
-          command: measure(command),
-          latest: command.querySelector(".is-code")!.textContent,
-        };
-      });
+            command: measure(command),
+            latest: command.querySelector(".is-code")!.textContent,
+          };
+        },
+        { RUNNING_TRAY_LINE },
+      );
       // The title's box ends one column gap before the time, not a status column away.
       expect(fit.long.cut).toBe(true);
       expect(fit.long.gap).toBeLessThan(12);

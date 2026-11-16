@@ -8,7 +8,7 @@
 use crate::panic_free::JsonFields;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 
@@ -19,6 +19,9 @@ use serde_json::{Value, json};
 pub(super) mod agent_session_children;
 #[path = "agent_session_folders.rs"]
 mod agent_session_folders;
+#[cfg(all(test, unix))]
+#[path = "agent_session_kin_parity_tests.rs"]
+mod agent_session_kin_parity_tests;
 #[path = "agent_session_link.rs"]
 pub(super) mod agent_session_link;
 #[path = "agent_session_observe.rs"]
@@ -80,6 +83,12 @@ pub const AGENT_SESSION_SETTINGS_CAPABILITY: &str = "agent-session-settings-v1";
 /// teammate or link guest and never a read-only attachment. acpmux's refusal reason comes back
 /// in the answer (`refused.reason`), so the card can say why.
 pub const AGENT_SESSION_LOGIN_CAPABILITY: &str = "agent-session-login-v1";
+/// `agent-session-login` for an unbound agent tab of this store (a new chat whose start was refused
+/// because its agent is not signed in, hq#11225): the step runs on this machine's acpmux with no
+/// `sessionId`, so the sign-in is this machine's own. Gated as `agent-session-start` is: a trusted
+/// carrier, the same host check (`vm_kind: "owner"` on a Cloud VM), never a teammate or link guest.
+/// A daemon without it answers such a step `agent_session.not_attached`.
+pub const AGENT_SESSION_LOGIN_MACHINE_CAPABILITY: &str = "agent-session-login-machine-v1";
 /// Owner-only context inventory and cmux-added overrides on the attached session.
 pub const AGENT_SESSION_CONTEXT_CAPABILITY: &str = "agent-session-context-v1";
 /// `agent-session-btw`: the composer's `/btw <question>` on a Cloud chat, as acpmux's inline
@@ -303,6 +312,13 @@ struct Attachment {
     outbound: OutboundStream,
     /// Calls running on worker threads (at most [`MAX_CALLS`]).
     calls: AtomicUsize,
+    /// An unfiltered stream of a chat this machine's acpmux owns has a
+    /// contiguous sequence. Filtered streams, and a peer's chat (its link is
+    /// not sent every record: `MUX_UNSENT`), have holes and skip the check.
+    ordered_stream: bool,
+    /// The seq the next live record should have; 0 until the page's
+    /// `lastSeq` or the first live record seeds it.
+    next_stream_seq: AtomicU64,
     ended: AtomicBool,
     /// Permission ids acpmux announced on this attachment, oldest first.
     permissions: Mutex<VecDeque<String>>,
@@ -397,6 +413,26 @@ impl Attachment {
         } else {
             self.outbound.close();
         }
+    }
+
+    /// A newer live record arriving before an older one leaves the client with
+    /// no way to recover the gap from the stream. End the attachment so its
+    /// normal after-seq replay fetches the missing records. A record at or
+    /// below what the stream already covers (one written while the attach read
+    /// its page) is an overlap the client drops: it passes and moves nothing.
+    /// `deliver` runs one record at a time, so load-then-store does not race.
+    pub(super) fn accepts_stream_seq(&self, seq: u64) -> bool {
+        if !self.ordered_stream || seq == 0 {
+            return true;
+        }
+        let expected = self.next_stream_seq.load(Ordering::Relaxed);
+        if expected != 0 && seq > expected {
+            return false;
+        }
+        if expected == 0 || seq == expected {
+            self.next_stream_seq.store(seq.saturating_add(1), Ordering::Relaxed);
+        }
+        true
     }
 }
 
@@ -563,12 +599,16 @@ struct LoginParams {
     code: Option<String>,
     #[serde(default)]
     key: Option<String>,
+    /// The Cloud API's `vmKind` for the caller, as `agent-session-start` takes it: read only for a
+    /// tab with no session (`agent-session-login-machine-v1`), whose sign-in is gated as a start.
+    #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
+    vm_kind: Option<Option<String>>,
 }
 
 /// acpmux's params of one login step, each naming the attached `session` (acpmux runs the sign-in
-/// on the machine that chat lives on, and restarts its agent signed in); `None` for a step whose
-/// fields are missing or out of bounds.
-fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, Duration)> {
+/// on the machine that chat lives on, and restarts its agent signed in), or none for a new chat's
+/// sign-in on this machine; `None` for a step whose fields are missing or out of bounds.
+fn login_request(session: Option<&str>, params: LoginParams) -> Option<(String, Value, Duration)> {
     fn text(value: &Option<String>) -> Option<&str> {
         value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
     }
@@ -577,28 +617,24 @@ fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, D
         text(&params.agent)
             .filter(|a| matches!(*a, "claude" | "codex" | "gemini" | "grok" | "cursor"))
     };
-    let (body, timeout) = match params.op.as_str() {
-        "start" => (json!({"agent": agent()?, "sessionId": session}), CALL_TIMEOUT * 6),
+    let (mut body, timeout) = match params.op.as_str() {
+        "start" => (json!({"agent": agent()?}), CALL_TIMEOUT * 6),
         "finish" => {
             let login_id = text(&params.login_id)?;
             let body = match &params.code {
-                Some(_) => {
-                    json!({"loginId": login_id, "code": text(&params.code)?, "sessionId": session})
-                }
-                None => json!({"loginId": login_id, "sessionId": session}),
+                Some(_) => json!({"loginId": login_id, "code": text(&params.code)?}),
+                None => json!({"loginId": login_id}),
             };
             (body, LOGIN_FINISH_TIMEOUT)
         }
         // acpmux waits up to 60 s for a Codex key to save.
-        "api_key" => (
-            json!({"agent": agent()?, "key": text(&params.key)?, "sessionId": session}),
-            CALL_TIMEOUT * 15,
-        ),
-        "cancel" => {
-            (json!({"loginId": text(&params.login_id)?, "sessionId": session}), CALL_TIMEOUT)
-        }
+        "api_key" => (json!({"agent": agent()?, "key": text(&params.key)?}), CALL_TIMEOUT * 15),
+        "cancel" => (json!({"loginId": text(&params.login_id)?}), CALL_TIMEOUT),
         _ => return None,
     };
+    if let Some(session) = session {
+        body["sessionId"] = json!(session);
+    }
     Some((format!("_acpmux/agent_login/{}", params.op), body, timeout))
 }
 
@@ -607,8 +643,13 @@ fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, D
 /// method), so the card words why. The code and key are never logged.
 fn login(attachment: &Attachment, params: LoginParams) -> Result<Value, Refusal> {
     let (method, body, timeout) =
-        login_request(&attachment.session, params).ok_or(Refusal::BadRequest)?;
-    match attachment.link.call(&method, attachment.stamp(body), timeout) {
+        login_request(Some(&attachment.session), params).ok_or(Refusal::BadRequest)?;
+    login_answer(attachment.link.call(&method, attachment.stamp(body), timeout))
+}
+
+/// A login step's answer as the page reads it ([`login`]).
+fn login_answer(answer: Result<Value, LinkError>) -> Result<Value, Refusal> {
+    match answer {
         Ok(result) => Ok(result),
         Err(LinkError::Rpc(_, data)) => {
             let reason = data.get("reason").and_then(Value::as_str).unwrap_or("failed");
@@ -782,6 +823,15 @@ pub(crate) enum Refusal {
     ScopeNotGranted,
     /// A link guest whose share expired or was revoked, or who was removed.
     ShareEnded,
+    /// `agent-session-start`: the agent answered that it is not signed in on this machine
+    /// (acpmux `agent.sign_in_required`); `data` names the harness (hq#11225).
+    SignInRequired,
+    /// `agent-session-start`: the agent asked for is not in this machine's acpmux catalog (not
+    /// installed there); `data` names the harness (hq#11225).
+    HarnessMissing,
+    /// `agent-session-start`: the agent's model route cannot serve it on this machine (acpmux
+    /// `route.*`); `data` names the route's reason and the harness (hq#11225).
+    RouteUnavailable,
 }
 
 impl Refusal {
@@ -811,6 +861,9 @@ impl Refusal {
             Self::NotShared => "agent_session.not_shared",
             Self::ScopeNotGranted => "agent_session.scope_not_granted",
             Self::ShareEnded => "agent_session.share_ended",
+            Self::SignInRequired => "agent_session.sign_in_required",
+            Self::HarnessMissing => "agent_session.harness_missing",
+            Self::RouteUnavailable => "agent_session.route_unavailable",
         }
     }
 
@@ -850,6 +903,9 @@ impl Refusal {
             Self::NotShared => "the surface does not show the chat that was shared",
             Self::ScopeNotGranted => "a link guest only watches and writes to the shared chat",
             Self::ShareEnded => "the share ended, or the owner removed this guest",
+            Self::SignInRequired => "the agent is not signed in on this machine",
+            Self::HarnessMissing => "this agent is not installed on this machine",
+            Self::RouteUnavailable => "the agent's model route cannot serve it on this machine",
         }
     }
 
@@ -935,19 +991,76 @@ pub(super) fn try_handle(
         }
         command => {
             let surface = command_surface(&command);
-            match sessions.attachment(client, surface) {
+            match (sessions.attachment(client, surface), command) {
                 // A teammate's attachment is for the chat this request's share pins, only.
-                Some(attachment)
+                (Some(attachment), _)
                     if author.is_some()
                         && pinned.as_deref() != Some(attachment.record_session.as_str()) =>
                 {
                     refuse(writer, id, Refusal::NotShared)
                 }
-                Some(attachment) => run_on_worker(mux, attachment, id, command, writer),
-                None => refuse(writer, id, Refusal::NotAttached),
+                (Some(attachment), command) => run_on_worker(mux, attachment, id, command, writer),
+                // A new chat with no session yet signs its agent in on this machine (hq#11225).
+                (None, AgentSessionCommand::Login(params)) => {
+                    machine_login(mux, client, id, socket, author.is_some(), params, writer)
+                }
+                (None, _) => refuse(writer, id, Refusal::NotAttached),
             }
         }
     })
+}
+
+/// `agent-session-login` for a tab with no attachment (`agent-session-login-machine-v1`): an
+/// unbound agent tab of this store (a new chat whose start was refused because its agent is not
+/// signed in, hq#11225) runs the step on this machine's acpmux with no `sessionId`, so the sign-in
+/// is this machine's own and no chat restarts. Gated exactly as `agent-session-start`: a trusted
+/// carrier (never a teammate's or link guest's proxied link), the same host check
+/// ([`Mux::agent_host_gate`] on the caller's `vm_kind`) and the same unbound tab of this store. Any
+/// other tab (one with a session, another store's) still needs its attachment (`not_attached`).
+/// The step runs on a worker, never on the connection's reader. The code and key are never logged.
+fn machine_login(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    socket: PathBuf,
+    teammate: bool,
+    params: LoginParams,
+    writer: &MessageWriter,
+) -> bool {
+    if agent_session_start::startable(mux, params.surface).is_err() {
+        return refuse(writer, id, Refusal::NotAttached);
+    }
+    if teammate || !mux.agent_carrier_allowed(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    if let Err(refusal) = mux.agent_host_gate(client, agent_session_start::vm_word(&params.vm_kind))
+    {
+        return refuse(writer, id, refusal);
+    }
+    let Some((method, body, timeout)) = login_request(None, params) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    let worker_mux = mux.clone();
+    let worker_writer = writer.clone();
+    let worker_id = id.clone();
+    let spawned = std::thread::Builder::new()
+        .name("mux-agent-login".into())
+        .stack_size(THREAD_STACK_BYTES)
+        .spawn(move || {
+            let answer = agent_session_start::connect(&worker_mux, &socket).and_then(|link| {
+                let answer = login_answer(link.call(&method, body, timeout));
+                link.close();
+                answer
+            });
+            match answer {
+                Ok(data) => ok(&worker_writer, worker_id, data),
+                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+            };
+        });
+    if spawned.is_err() {
+        return refuse(writer, id, Refusal::Limit);
+    }
+    true
 }
 
 /// `agent-session-start` (agent_session_start.rs), with the attach verbs'

@@ -99,6 +99,9 @@ mod questions;
 mod queue_admission;
 #[path = "hub_integration/restart.rs"]
 mod restart;
+#[cfg(unix)]
+#[path = "hub_integration/resume_here_ask.rs"]
+mod resume_here_ask;
 #[path = "hub_integration/run_parent.rs"]
 mod run_parent;
 #[path = "hub_integration/secrets.rs"]

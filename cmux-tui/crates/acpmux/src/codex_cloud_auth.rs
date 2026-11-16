@@ -24,8 +24,18 @@
 //! [`apply`] then does what the launcher does for own: `-c model_provider="openai"` (only over a
 //! config cmux generated) and no model-plane `OPENAI_BASE_URL` / placeholder `OPENAI_API_KEY`, so
 //! nothing outranks the person's sign-in and it is never sent to CodeRouter. A signed-out Codex in
-//! own mode then fails at once with its own "sign in" error, which the chat shows as its Sign in
-//! card, instead of hanging.
+//! own mode then fails at once instead of hanging. Codex's own words for it are a bare
+//! "Missing environment variable: `OPENAI_API_KEY`.", so the turn says "Codex is not signed in on
+//! this machine" ([`explain_missing_key`]), typed `auth.signed_out`, which the chat shows as its
+//! Sign in card.
+//!
+//! [`apply_team`] does what a login shell gives the launcher for team mode: the placeholder
+//! `OPENAI_API_KEY` that the generated `cmux` provider reads (`env_key`), which the machine's edge
+//! swaps for the real credential. A chat the Mac starts on the machine is remote-origin
+//! (`agent/command.rs` clears its env and applies no login env), so without it every Codex with
+//! no sign-in of its own failed its first turn on "Missing environment variable:
+//! `OPENAI_API_KEY`." while Claude, whose team pair goes in the launch env
+//! (`claude_cloud_auth.rs`), replied (Leo's NIGHTLY, vm_e58be1e72a22727f29ef, 2026-11-15).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -233,6 +243,40 @@ pub fn apply(
     env.insert(crate::routes::UNSET_KEY.to_owned(), unset.join(","));
 }
 
+/// Team mode for one codex launch on an owner Cloud machine (module docs): the placeholder key the
+/// generated `cmux` provider reads, in the launch's own env, so it reaches codex whether or not a
+/// login env is applied (a remote-origin chat gets none). Only over a config cmux generated, with
+/// a team plane to send to, and never over a key the launch env already sets. True when it added
+/// the key. Call it only when [`own_reason`] answered team (None).
+pub fn apply_team(env: &mut BTreeMap<String, String>, inputs: &Inputs<'_>) -> bool {
+    if !inputs.owner_cloud_image() || !inputs.cmux_config() || inputs.team_origin().is_none() {
+        return false;
+    }
+    if env.get("OPENAI_API_KEY").is_some_and(|v| !v.is_empty()) {
+        return false;
+    }
+    env.insert("OPENAI_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned());
+    true
+}
+
+/// The start of [`explain_missing_key`]'s text, so a text it made is never explained twice.
+pub const NOT_SIGNED_IN: &str = "Codex is not signed in on this machine";
+
+/// The named failure for codex's bare "Missing environment variable: `OPENAI_API_KEY`." (module
+/// docs: own mode with no login fails at once with a sign-in error, never a bare missing env
+/// var). None for any other text, or one already explained. Codex's own words stay at the end,
+/// so the text is still typed `auth.signed_out` (`recovery::says_missing_openai_key`).
+pub fn explain_missing_key(message: &str) -> Option<String> {
+    if !crate::recovery::says_missing_openai_key(message) || message.starts_with(NOT_SIGNED_IN) {
+        return None;
+    }
+    Some(format!(
+        "{NOT_SIGNED_IN}: it has no ChatGPT sign-in here and no team model plane to use instead. \
+         Sign in to Codex, then send the message again. (Codex said: {})",
+        message.trim()
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,6 +429,66 @@ mod tests {
         assert_eq!(argv.len(), 4);
     }
 
+    /// Leo's NIGHTLY, 2026-11-15: an own-mode Codex with no login failed its first turn on a
+    /// bare "Missing environment variable: `OPENAI_API_KEY`." The turn now says Codex is not
+    /// signed in and is typed `auth.signed_out`, which the chat shows as Codex's Sign in card.
+    #[test]
+    fn a_missing_key_is_a_named_sign_in_failure() {
+        let bare = "Missing environment variable: `OPENAI_API_KEY`.";
+        let text = explain_missing_key(bare).unwrap();
+        assert!(text.starts_with(NOT_SIGNED_IN), "{text}");
+        assert!(text.contains("Sign in to Codex"), "{text}");
+        assert!(text.ends_with(&format!("(Codex said: {bare})")), "{text}");
+        // Explained once.
+        assert_eq!(explain_missing_key(&text), None);
+        // Any other failure stays as codex said it.
+        assert_eq!(explain_missing_key("Missing environment variable: `HOME`."), None);
+        assert_eq!(explain_missing_key("stream disconnected before completion"), None);
+        // Typed as a sign-in failure, bare or explained.
+        for message in [bare, text.as_str()] {
+            assert_eq!(crate::recovery::auth_kind(message), Some("auth.signed_out"), "{message}");
+            let mut e = crate::rpc::RpcError::new(-32603, message);
+            crate::recovery::annotate_as(&mut e, None, false);
+            assert_eq!(e.data.as_ref().unwrap()["errorKind"], "auth.signed_out");
+        }
+    }
+
+    /// Once Leo's Codex login is on the machine (the app's `auth.json` copy or the Mac broker's
+    /// access file), codex uses it: own mode for "login", the placeholder key and the plane's base
+    /// URL dropped, and the team placeholder never added (that is only for [`own_reason`]'s None).
+    #[tokio::test]
+    async fn a_login_on_the_machine_wins_over_the_team_plane() {
+        let m = machine(Some("owner"), true);
+        let plane = [
+            ("CMUX_CODEROUTER_URL", "https://coderouter.cmux.internal"),
+            ("OPENAI_BASE_URL", "https://coderouter.cmux.internal/v1"),
+            ("OPENAI_API_KEY", PLACEHOLDER_KEY),
+        ];
+        for broker in [true, false] {
+            if !broker {
+                std::fs::write(
+                    m.home.join(".codex/auth.json"),
+                    r#"{"tokens":{"access_token":"t"}}"#,
+                )
+                .unwrap();
+            }
+            // Even with a team plane that resolves.
+            assert_eq!(reason(&m, &vars(&plane), broker, true).await, Some("login"));
+            let var = vars(&plane);
+            let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker };
+            let mut argv = vec!["/opt/cmux/current/bin/codex".to_owned(), "app-server".to_owned()];
+            let mut env = BTreeMap::from([
+                ("OPENAI_API_KEY".to_owned(), PLACEHOLDER_KEY.to_owned()),
+                ("OPENAI_BASE_URL".to_owned(), "https://coderouter.cmux.internal/v1".to_owned()),
+            ]);
+            apply(&mut argv, &mut env, &var, inputs.cmux_config());
+            assert_eq!(argv[1..3], ["-c", "model_provider=\"openai\""]);
+            assert!(!env.contains_key("OPENAI_API_KEY"), "{env:?}");
+            assert!(!env.contains_key("OPENAI_BASE_URL"), "{env:?}");
+            assert_eq!(env[crate::routes::UNSET_KEY], "OPENAI_BASE_URL,OPENAI_API_KEY");
+        }
+    }
+
     #[test]
     fn a_persons_own_endpoint_and_config_stay() {
         let var = vars(&[
@@ -403,6 +507,31 @@ mod tests {
             vars(&[("OPENAI_BASE_URL", "https://edge/v1"), ("OPENAI_API_KEY", PLACEHOLDER_KEY)]);
         apply(&mut argv, &mut env, &var, true);
         assert_eq!(env[crate::routes::UNSET_KEY], "OPENAI_BASE_URL,OPENAI_API_KEY");
+    }
+
+    #[test]
+    fn team_mode_puts_the_placeholder_key_in_the_launch_env() {
+        let m = machine(Some("owner"), true);
+        let var = vars(TEAM);
+        let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+        let mut env = BTreeMap::new();
+        assert!(apply_team(&mut env, &inputs));
+        assert_eq!(env["OPENAI_API_KEY"], PLACEHOLDER_KEY);
+        // A key the launch env already sets stays.
+        let mut own = BTreeMap::from([("OPENAI_API_KEY".to_owned(), "sk-profile".to_owned())]);
+        assert!(!apply_team(&mut own, &inputs));
+        assert_eq!(own["OPENAI_API_KEY"], "sk-profile");
+        // No team plane: nothing to send to.
+        let none = vars(&[]);
+        let bare = Inputs { root: &m.root, home: &m.home, var: &none, broker: false };
+        assert!(!apply_team(&mut BTreeMap::new(), &bare));
+        // A config.toml the person wrote names its own provider and key.
+        std::fs::write(m.home.join(".codex/config.toml"), "model_provider = \"azure\"\n").unwrap();
+        assert!(!apply_team(&mut BTreeMap::new(), &inputs));
+        // Not an owner Cloud image.
+        let team = machine(Some("team"), true);
+        let shared = Inputs { root: &team.root, home: &team.home, var: &var, broker: false };
+        assert!(!apply_team(&mut BTreeMap::new(), &shared));
     }
 
     #[test]

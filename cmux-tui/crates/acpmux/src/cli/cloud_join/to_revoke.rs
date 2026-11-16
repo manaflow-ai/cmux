@@ -150,6 +150,27 @@ pub(super) fn any_queued(home: &Path) -> bool {
     })
 }
 
+/// Whether a queued entry is `record`'s own (its hub row, or its credential): a revoke still owed
+/// for this join, so the join is on its way out. An entry of an earlier join (a row a sign-out
+/// could not revoke, a proposal it set aside) is not: a sign-in since enrolled this one, and that
+/// revoke is asked again at each start and sign-in without stopping it. Read only: an entry that
+/// does not parse is not this record's (the next leave or sign-in drops it); one that cannot be
+/// opened now counts as this record's, so a reader never runs the tunnel on a guess.
+pub(super) fn names(home: &Path, record: &MachineCredential) -> bool {
+    let Ok(entries) = std::fs::read_dir(home.join(QUEUE)) else { return false };
+    entries.filter_map(Result::ok).map(|entry| entry.path()).filter(|path| entry_file(path)).any(
+        |path| {
+            let Ok(file) = crate::config::private_state_file(&path) else { return true };
+            serde_json::from_reader::<_, Row>(file).is_ok_and(|row| {
+                (!row.machine_id.is_empty() && row.machine_id == record.machine_id)
+                    || row.credential.as_deref().is_some_and(|credential| {
+                        !credential.is_empty() && credential == record.credential
+                    })
+            })
+        },
+    )
+}
+
 /// Marks that someone had revoked `record` at its hub before this box's sign-out.
 pub(super) fn mark_revoked(home: &Path, record: &MachineCredential) -> Result<()> {
     put(home, REVOKED, &hub_file(&record.hub_origin), &Row::of(record, false))

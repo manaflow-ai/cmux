@@ -5,18 +5,13 @@
 //! state transitions with deterministic assertions.
 
 use super::*;
+use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::Instant;
 
 const SUBMIT_ROUNDS: usize = 5;
 const SUBMIT_SAMPLES: usize = 200;
-
-fn p95(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    let rank = (values.len() * 95).div_ceil(100).saturating_sub(1);
-    values.get(rank).copied().unwrap_or(1)
-}
 
 fn gate(name: &str, small: u128, god: u128, god_all: u128, unit: &str) {
     let line = format!(
@@ -30,14 +25,14 @@ fn gate(name: &str, small: u128, god: u128, god_all: u128, unit: &str) {
     }
 }
 
-fn submit_samples(rows: usize) -> (u128, u128) {
+/// Each round's submit times.
+fn submit_samples(rows: usize) -> Vec<Vec<u128>> {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     writer.origin("peer", OriginState::Connected, 1).expect("initial origin");
     for n in 0..rows {
         writer.apply(row(format!("fixture-{n:05}"), n as u64 + 1)).expect("seed row");
     }
     let mut rounds = Vec::with_capacity(SUBMIT_ROUNDS);
-    let mut pooled = Vec::with_capacity(SUBMIT_ROUNDS * SUBMIT_SAMPLES);
     for round in 0..SUBMIT_ROUNDS {
         let mut samples = Vec::with_capacity(SUBMIT_SAMPLES);
         for sample in 0..SUBMIT_SAMPLES {
@@ -46,16 +41,13 @@ fn submit_samples(rows: usize) -> (u128, u128) {
             hub.submit(summary).expect("enqueue submit");
             let elapsed = started.elapsed().as_nanos().max(1);
             samples.push(elapsed);
-            pooled.push(elapsed);
             // Keep queue work outside the measured submit path. The same key is
             // reused so the fixture does not grow with the number of samples.
             writer.process_batch();
         }
-        rounds.push(p95(&mut samples));
+        rounds.push(samples);
     }
-    let best = rounds.into_iter().min().unwrap_or(1);
-    let all = p95(&mut pooled);
-    (best, all)
+    rounds
 }
 
 fn row(id: impl Into<String>, activity: u64) -> Summary {
@@ -136,8 +128,11 @@ fn pr05d_removed_origin_batch() {
 #[test]
 #[ignore = "release measurement; run with --ignored --release --nocapture"]
 fn pr05d_submit_time() {
-    let (small, _) = submit_samples(20);
-    let (god, god_all) = submit_samples(11_000);
+    let small_rounds = submit_samples(20);
+    let god_rounds = submit_samples(11_000);
+    gate_rounds::report("v2.pr05d.submit_time", &[("small", &small_rounds), ("god", &god_rounds)]);
+    let (small, god, god_all) =
+        (best_p95(&small_rounds), best_p95(&god_rounds), all_p95(&god_rounds));
     assert!(god * 10 <= small * 12, "submit p95 exceeded 1.2x: {small} -> {god} ns");
     assert!(god_all <= small * 2, "pooled submit p95 exceeded 2x: {small} -> {god_all} ns");
     gate("v2.pr05d.submit_time", small, god, god_all, "ns");

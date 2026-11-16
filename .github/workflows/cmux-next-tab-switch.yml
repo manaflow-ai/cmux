@@ -1,0 +1,201 @@
+name: cmux-next tab switch (advisory)
+
+# A pull request into feat-cmux-next that touches a tab, a pane or the chat pane (tab_switch_gate.py SCOPE) is
+# measured on a display Mac: scripts/measure/tab-switch.sh builds the head, switches tabs for 3 rounds idle, under
+# CPU load and with agents streaming, and writes .build/tab-switch/report.json (tab-switch/v1). The verdict job
+# judges every switch against the budgets (tab_switch_gate.py BUDGETS): the returning tab shows its last frame
+# within one display frame, 0 blank frames, 0 wrong frames, 0 px shift, the tab lands where it should and its
+# animation ends where it should. Leo, 2026-11-15: tab switching "should be instant even under load", and we should
+# have had CI for it long ago.
+#
+# Every pull request runs it (no paths): the verdict job's name is the one context a ruleset can require, and a
+# required check must report. Out of scope, it is green at once and takes no Mac. GATE_MODE below says whether a
+# budget miss fails the check (enforce) or only warns (report); a pull request flips it, not a setting.
+#
+# Advisory for now (coordinator, 2026-11-15): GATE_MODE is report and the workflow name ends "(advisory)", so
+# merge_hold's ADVISORY_WORKFLOW does not hold a pull request while the display run waits in the exclusive queue.
+# Once the remount fix's pull request passes it, a pull request sets GATE_MODE: enforce, drops the suffix, and the
+# ruleset adds the verdict job's context.
+#
+# The display run is an exclusive fleet measure step (one app alone on an idle display worker), submitted by the
+# build-fleet gateway runner's thin cmux-ci client, as cmux-next-perf-bench.yml and cmux-next-hot-verify.yml do. The
+# gateway admits this job only once glaeda's runner hook lists (cmux-next-tab-switch.yml, frames) in GATEWAY_JOBS.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-tab-switch-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # enforce: a budget miss or a missing report fails the check. report: it warns, and the check stays green.
+  GATE_MODE: report
+  LOADS: idle,cpu,agents
+  ROUNDS: "3"
+  # The one file the fleet step returns (cmux-ci run --artifact takes one): the harness packs
+  # .build/tab-switch/report.json and the contact sheets (.build/tab-switch/sheets/*.png) into it.
+  REPORT_PATH: .build/tab-switch/report.tgz
+  # tab-switch.sh exits 1 on a budget miss and 3 when it cannot measure (no Screen Recording grant, say): 3 is no
+  # report, never a pass, whatever file it left.
+  CANNOT_MEASURE_EXIT: "3"
+
+jobs:
+  scope:
+    name: tab switch scope
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      in_scope: ${{ steps.scope.outputs.in_scope }}
+      base_sha: ${{ steps.scope.outputs.base_sha }}
+    steps:
+      # A pull request checks out its merge commit; HEAD^1 is the base it merges into.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+      - name: Gate tests
+        run: python3 tests/test_cmux_next_tab_switch_gate.py
+      - name: Does this change touch a tab, a pane or the chat pane?
+        id: scope
+        run: |
+          set -euo pipefail
+          git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          # The feat-cmux-next commit this merges into: the fleet step runs the controller-listed tab-switch.sh at a
+          # protected-branch commit and builds the pull request head from it (build=<head>).
+          echo "base_sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
+          python3 scripts/cmux-next/tab_switch_gate.py scope --files-from "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
+
+  frames:
+    name: frames
+    needs: scope
+    if: >-
+      needs.scope.outputs.in_scope == 'true' && github.repository == 'manaflow-ai/cmux'
+      && github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
+      && vars.CI_EVAL_STEP_GATEWAY != ''
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    # The job holds one of the gateway runner's two tokens while it waits, so it waits at most an hour for an idle
+    # display worker (the exclusive queue's p95 is longer at peak) and an hour for the build and the measure; past
+    # that the verdict has no report, which only warns while GATE_MODE is report.
+    timeout-minutes: 130
+    permissions: {}
+    steps:
+      # No checkout: the gateway runner takes only thin cmux-ci clients. The display worker checks out the base
+      # commit (the harness) and builds the head.
+      - name: Measure tab switches on a display Mac
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ needs.scope.outputs.base_sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          mkdir -p "$RUNNER_TEMP/tab-switch"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Tab switch::$client is not installed on runner $RUNNER_NAME; nothing was measured."
+            exit 1
+          fi
+          log="$RUNNER_TEMP/tab-switch/step.log"
+          status=0
+          "$client" run --class exclusive --measurement --display \
+            --script scripts/measure/tab-switch.sh --ref "$BASE_SHA" --repo manaflow-ai/cmux \
+            --key "tab-switch-pr$PR-$HEAD_SHA-$GITHUB_RUN_ATTEMPT" \
+            --arg="build=$HEAD_SHA" --arg="rounds=$ROUNDS" --arg="load=$LOADS" \
+            --artifact "$REPORT_PATH" --timeout 3600 --queue-timeout 3600 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          out="$RUNNER_TEMP/tab-switch/$(basename "$REPORT_PATH")"
+          if [[ -n "$step" ]]; then
+            "$client" artifact "$step" "$out" || "$client" artifact --failed "$step" "$out" || true
+          fi
+          echo "fleet step ${step:-none} exited $status; report: $([[ -s "$out" ]] && echo returned || echo none)"
+          echo "$status" > "$RUNNER_TEMP/tab-switch/step-exit"
+          # The verdict job judges the report, whatever the step's own exit said.
+          exit 0
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tab-switch-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/tab-switch
+          retention-days: 3
+          if-no-files-found: ignore
+
+  verdict:
+    # The context a ruleset requires: keep this name.
+    name: tab switch (frames, under load)
+    needs: [scope, frames]
+    if: always()
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next/tab_switch_gate.py
+          sparse-checkout-cone-mode: false
+      - name: Download the report
+        if: needs.frames.result != 'skipped'
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: tab-switch-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/tab-switch
+      - name: Judge the budgets
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          IN_SCOPE: ${{ needs.scope.outputs.in_scope }}
+          FRAMES_RESULT: ${{ needs.frames.result }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          ARTIFACTS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
+        run: |
+          set -uo pipefail
+          title="Tab switch (frames, under load)"
+          miss() {  # a reason the check would fail
+            if [[ "$GATE_MODE" == enforce ]]; then
+              echo "::error title=$title::$1"; exit 1
+            fi
+            echo "::warning title=$title (report only)::$1"
+            printf '\nReport only (GATE_MODE=report): this would fail the check once it is enforced.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          if [[ "$SCOPE_RESULT" != success ]]; then
+            printf '### %s: no verdict\n\nThe scope job %s (its gate tests or the diff read).\n' "$title" "$SCOPE_RESULT" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=$title::the scope job $SCOPE_RESULT"; exit 1
+          fi
+          if [[ "$IN_SCOPE" != true ]]; then
+            printf '### %s: not measured\n\nThis change touches no tab, pane or chat-pane path (scripts/cmux-next/tab_switch_gate.py SCOPE).\n' "$title" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ "$DRAFT" == true ]]; then
+            printf '### %s: not measured yet\n\nA draft is measured once it is ready for review.\n' "$title" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          report="$RUNNER_TEMP/tab-switch/$(basename "$REPORT_PATH")"
+          step_exit="$(cat "$RUNNER_TEMP/tab-switch/step-exit" 2>/dev/null || echo none)"
+          if [[ "$step_exit" == "$CANNOT_MEASURE_EXIT" ]]; then
+            printf '### %s: no verdict\n\nThe harness could not measure on its worker (exit %s, for example no Screen Recording grant): see the frames job. No verdict is never a pass.\n' \
+              "$title" "$step_exit" >> "$GITHUB_STEP_SUMMARY"
+            miss "the harness could not measure (exit $step_exit)"
+          fi
+          if [[ "$FRAMES_RESULT" != success || ! -s "$report" ]]; then
+            printf '### %s: no verdict\n\nThe display run %s and returned no report (a fork, no gateway runner, or the fleet step failed: see the frames job). No verdict is never a pass.\n' \
+              "$title" "$FRAMES_RESULT" >> "$GITHUB_STEP_SUMMARY"
+            miss "no report from the display run (frames: $FRAMES_RESULT)"
+          fi
+          status=0
+          python3 scripts/cmux-next/tab_switch_gate.py evaluate "$report" --loads "$LOADS" \
+            --summary "$GITHUB_STEP_SUMMARY" --sheet "artifact tab-switch-${{ github.event.pull_request.number }}-${{ github.run_attempt }} ($ARTIFACTS_URL)" || status=$?
+          [[ "$status" == 0 ]] || miss "a switch missed its budget, or the report could not be judged (see the summary)"

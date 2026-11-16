@@ -15,6 +15,9 @@ mod directory;
 mod exit_state;
 mod frame_producer;
 mod geometry;
+pub(crate) mod history_window;
+use attach::window_replay_locked;
+use history_window::{HistoryWindow, WindowPlan};
 #[cfg(unix)]
 mod holder_spawn;
 mod host_launch;
@@ -298,6 +301,10 @@ pub struct AttachStream {
     /// Rows of history older than the replay's first row, left out by a
     /// tail replay (`replay_history_rows`); `None` for a whole replay.
     pub history_rows_omitted: Option<u64>,
+    /// Rows of history between a window replay's last row and the screen,
+    /// left out (`replay_history_start`); `None` when the replay reaches the
+    /// screen.
+    pub history_rows_skipped: Option<u64>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }
@@ -330,6 +337,10 @@ pub enum AttachFrame {
         kitty_state: KittyReplayState,
         colors: Box<TerminalColors>,
         pending_sequence: Arc<[u8]>,
+        /// The replay holds the viewer's history window
+        /// (`replay_history_rows`): the older rows it left out. `None`: the
+        /// whole history.
+        history_rows_omitted: Option<u64>,
     },
     ColorsChanged(Arc<TerminalColors>),
 }

@@ -1,0 +1,18 @@
+{
+  "name": "ide",
+  "description": "An editor's shape: vertical tabs beside the panes, every new terminal a split, links and files beside the code, projects grouped by folder, an Explorer section for the workspace you are in, and chats that show their tool output.",
+  "settings": {
+    "tabs.verticalTabs": true,
+    "layout.mainPane": "off",
+    "layout.newPanePlacement": "split",
+    "layout.linkPlacement": "split-right",
+    "layout.paneSeparation": "borders",
+    "sidebar.groupBy": "folder",
+    "sidebar.density": "compact",
+    "agentPane.display.transcriptView": "verbose",
+    "agentPane.display.minimap": "full",
+    "agentPane.display.sessionInfo.placement": "push",
+    "appearance.chromeStyle": "panes",
+    "appearance.density": "compact"
+  }
+}

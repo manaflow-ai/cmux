@@ -1,0 +1,146 @@
+{
+  "title": "Customization showcase: cockpit",
+  "customize": true,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Tour"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Tour workspace",
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "focus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Before: cmux as it ships",
+      "wait": 2
+    },
+    {
+      "title": "cockpit: its views",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\" && echo Ly8gQ29ja3BpdDogdGhlIE5ldyBUYWIgcGFnZSBiZWNvbWVzIG1pc3Npb24gY29udHJvbCwgYW5kIHRoZSBzaWRlYmFyIGdldHMgYSBOZWVkcyBZb3Ugc2VjdGlvbgovLyBvbiB0b3AuIEJvdGggcmVhZCB0aGUgc2FtZSBjaGF0IGxpc3Q6IG9uZSByZWFkIHBlciBjaGFuZ2UgKGFnZW50X2NoYXQuY2hhbmdlZCksIG5vIHBvbGxpbmcuCi8vIFdvcmtzcGFjZXMgYW5kIFBScyBjb21lIGZyb20gY211eC53YXRjaCwgd2hpY2ggdGhlIGRhZW1vbiBwdXNoZXMuCgpjb25zdCBbY2hhdHMsIHNldENoYXRzXSA9IHNpZ25hbChbXSkKY29uc3QgW25vdywgc2V0Tm93XSA9IHNpZ25hbChEYXRlLm5vdygpKQoKbGV0IHJlYWRpbmcgPSBmYWxzZQpsZXQgYWdhaW4gPSBmYWxzZQphc3luYyBmdW5jdGlvbiBsb2FkKCkgewogIGlmIChyZWFkaW5nKSByZXR1cm4gdm9pZCAoYWdhaW4gPSB0cnVlKQogIHJlYWRpbmcgPSB0cnVlCiAgdHJ5IHsKICAgIHNldENoYXRzKChhd2FpdCBjbXV4LmNhbGwoImFnZW50X2NoYXQubGlzdCIsIHt9KSkuY2hhdHMpCiAgfSBjYXRjaCAoZSkgewogICAgc2V0Q2hhdHMoW10pCiAgfSBmaW5hbGx5IHsKICAgIHJlYWRpbmcgPSBmYWxzZQogICAgaWYgKGFnYWluKSB7CiAgICAgIGFnYWluID0gZmFsc2UKICAgICAgbG9hZCgpCiAgICB9CiAgfQp9Cgpjb25zdCBtZXNzYWdlID0gKGUpID0+IChlIGluc3RhbmNlb2YgRXJyb3IgPyBlLm1lc3NhZ2UgOiBTdHJpbmcoZSkpCmNvbnN0IHJlZnVzZWQgPSAod2hhdCkgPT4gKGUpID0+IGNtdXgudG9hc3QoeyB0aXRsZTogYFR1cm4gb24gJHt3aGF0fSBmb3IgQ29ja3BpdGAsIG1lc3NhZ2U6IG1lc3NhZ2UoZSksIHRvbmU6ICJ3YXJuaW5nIiB9KQpjb25zdCBydW4gPSAoaWQsIGFyZ3MpID0+IGNtdXguYWN0aW9ucy5ydW4oaWQsIGFyZ3MpLmNhdGNoKHJlZnVzZWQoIlJ1biBhY3Rpb25zIikpCgpjb25zdCB3YWl0aW5nID0gKGMpID0+IGMuc3RhdGUgPT09ICJpbnB1dCIgfHwgYy5zdGF0ZSA9PT0gImZhaWxlZCIgfHwgYy5zdGF0ZSA9PT0gImxvc3QiIHx8IGMudW5yZWFkCmNvbnN0IHdoeSA9IChjKSA9PiAoYy5zdGF0ZSA9PT0gImlucHV0IiA/ICJhc2tzIHlvdSIgOiBjLnN0YXRlID09PSAiZmFpbGVkIiB8fCBjLnN0YXRlID09PSAibG9zdCIgPyAiZmFpbGVkIiA6ICJkb25lLCB1bnJlYWQiKQpjb25zdCB0b25lT2YgPSAoYykgPT4gKGMuc3RhdGUgPT09ICJpbnB1dCIgPyBjbXV4LnRoZW1lLndhcm5pbmcgOiBjLnN0YXRlID09PSAiZmFpbGVkIiB8fCBjLnN0YXRlID09PSAibG9zdCIgPyBjbXV4LnRoZW1lLmRhbmdlciA6IGNtdXgudGhlbWUuc3VjY2VzcykKY29uc3Qgc3ltYm9sT2YgPSAoYykgPT4gKGMuc3RhdGUgPT09ICJpbnB1dCIgPyAicXVlc3Rpb25tYXJrLmJ1YmJsZSIgOiBjLnN0YXRlID09PSAiZmFpbGVkIiB8fCBjLnN0YXRlID09PSAibG9zdCIgPyAiZXhjbGFtYXRpb25tYXJrLmNpcmNsZSIgOiAiY2hlY2ttYXJrLmNpcmNsZSIpCmNvbnN0IG5lZWRzWW91ID0gY29tcHV0ZWQoKCkgPT4gY2hhdHMoKS5maWx0ZXIod2FpdGluZykpCmNvbnN0IHdvcmtpbmcgPSBjb21wdXRlZCgoKSA9PiBjaGF0cygpLmZpbHRlcigoYykgPT4gYy5zdGF0ZSA9PT0gIndvcmtpbmciKSkKCmZ1bmN0aW9uIHNob3coY2hhdCkgewogIGlmIChjaGF0LndvcmtzcGFjZSkgY211eC53b3Jrc3BhY2UuZm9jdXMoeyB3b3Jrc3BhY2U6IGNoYXQud29ya3NwYWNlIH0pLmNhdGNoKHJlZnVzZWQoIkNoYW5nZSB3b3Jrc3BhY2VzIikpCiAgZWxzZSBydW4oImFnZW50Lm9wZW5TZXNzaW9uVGFiIiwgeyBzZXNzaW9uOiBjaGF0LmlkIH0pCn0KCmZ1bmN0aW9uIGNoYXRSb3coYykgewogIHJldHVybiBSb3coewogICAgdGl0bGU6ICgpID0+IGMoKS50aXRsZSwKICAgIHN1YnRpdGxlOiAoKSA9PiBgJHtjKCkucHJvamVjdCB8fCAiTm8gZm9sZGVyIn0gwrcgJHt3aHkoYygpKX1gLAogICAgc3ltYm9sOiAoKSA9PiBzeW1ib2xPZihjKCkpLAogICAgdGludDogKCkgPT4gdG9uZU9mKGMoKSkKICB9KS5vblRhcCgoKSA9PiBzaG93KGMoKSkpCn0KCmZ1bmN0aW9uIGZvbGxvdygpIHsKICBsb2FkKCkKICBjbXV4LmV2ZW50cy5vbigiYWdlbnRfY2hhdC5jaGFuZ2VkIiwgbG9hZCkKfQoKY29uc3QgdHdvID0gKG4pID0+IFN0cmluZyhuKS5wYWRTdGFydCgyLCAiMCIpCmNvbnN0IGNsb2NrID0gY29tcHV0ZWQoKCkgPT4gewogIGNvbnN0IGQgPSBuZXcgRGF0ZShub3coKSkKICByZXR1cm4gYCR7dHdvKGQuZ2V0SG91cnMoKSl9OiR7dHdvKGQuZ2V0TWludXRlcygpKX1gCn0pCgpmdW5jdGlvbiBzdGF0KGxhYmVsLCB2YWx1ZSwgdG9uZSkgewogIHJldHVybiBQYW5lbCh7IHN0eWxlOiAiY2FyZCIgfSwgW1RleHQodmFsdWUpLmZvbnQoInRpdGxlIikud2VpZ2h0KCJzZW1pYm9sZCIpLm1vbm9zcGFjZWQoKS5jb2xvcih0b25lKSwgVGV4dChsYWJlbCkuZm9udCgiY2FwdGlvbiIpLmNvbG9yKGNtdXgudGhlbWUudGV4dC5zZWNvbmRhcnkpXSkKfQoKZnVuY3Rpb24gcmVuZGVyQ29ja3BpdCgpIHsKICBmb2xsb3coKQogIGNtdXgudGltZXIuZXZlcnkoMTUwMDAsICgpID0+IHNldE5vdyhEYXRlLm5vdygpKSkKICBjb25zdCB3b3Jrc3BhY2VzID0gY211eC53YXRjaCgid29ya3NwYWNlLmxpc3QiKQogIGNvbnN0IHBycyA9IGNtdXgud2F0Y2goImdpdGh1Yi5wdWxscyIsIHsgcm9sZXM6IFsicmV2aWV3LXJlcXVlc3RlZCIsICJhdXRob3IiXSwgbGltaXQ6IDYgfSkKICByZXR1cm4gVlN0YWNrKHsgc3BhY2luZzogMTQgfSwgWwogICAgSFN0YWNrKHsgc3BhY2luZzogMTAgfSwgW1RleHQoIkNvY2twaXQiKS5mb250KCJsYXJnZVRpdGxlIikud2VpZ2h0KCJzZW1pYm9sZCIpLCBTcGFjZXIoKSwgVGV4dChjbG9jaykuZm9udCgidGl0bGUyIikubW9ub3NwYWNlZCgpLmNvbG9yKGNtdXgudGhlbWUudGV4dC5zZWNvbmRhcnkpXSksCiAgICBIU3RhY2soeyBzcGFjaW5nOiAxMCB9LCBbCiAgICAgIHN0YXQoIm5lZWQgeW91IiwgKCkgPT4gU3RyaW5nKG5lZWRzWW91KCkubGVuZ3RoKSwgKCkgPT4gKG5lZWRzWW91KCkubGVuZ3RoID8gY211eC50aGVtZS53YXJuaW5nIDogY211eC50aGVtZS50ZXh0LnNlY29uZGFyeSkpLAogICAgICBzdGF0KCJ3b3JraW5nIiwgKCkgPT4gU3RyaW5nKHdvcmtpbmcoKS5sZW5ndGgpLCBjbXV4LnRoZW1lLmFjY2VudCksCiAgICAgIHN0YXQoIndvcmtzcGFjZXMiLCAoKSA9PiBTdHJpbmcoKHdvcmtzcGFjZXMudmFsdWUoKSA/PyBbXSkubGVuZ3RoKSwgY211eC50aGVtZS50ZXh0LnByaW1hcnkpLAogICAgICBzdGF0KCJQUnMiLCAoKSA9PiBTdHJpbmcoKHBycy52YWx1ZSgpID8/IFtdKS5sZW5ndGgpLCBjbXV4LnRoZW1lLnN1Y2Nlc3MpLAogICAgICBTcGFjZXIoKQogICAgXSksCiAgICBIU3RhY2soeyBzcGFjaW5nOiA4IH0sIFsKICAgICAgQnV0dG9uKEhTdGFjayh7IHNwYWNpbmc6IDQgfSwgW0ljb24oImJ1YmJsZS5sZWZ0LmFuZC50ZXh0LmJ1YmJsZS5yaWdodCIpLCBUZXh0KCJOZXcgY2hhdCIpXSksICgpID0+IHJ1bigicGFsZXR0ZS5uZXdBZ2VudENoYXQiKSksCiAgICAgIEJ1dHRvbihIU3RhY2soeyBzcGFjaW5nOiA0IH0sIFtJY29uKCJ0ZXJtaW5hbCIpLCBUZXh0KCJUZXJtaW5hbCIpXSksICgpID0+IHJ1bigibmV3U3VyZmFjZSIpKSwKICAgICAgQnV0dG9uKEhTdGFjayh7IHNwYWNpbmc6IDQgfSwgW0ljb24oImdsb2JlIiksIFRleHQoIkJyb3dzZXIiKV0pLCAoKSA9PiBydW4oIm9wZW5Ccm93c2VyIikpLAogICAgICBTcGFjZXIoKQogICAgXSksCiAgICBIU3RhY2soeyBzcGFjaW5nOiAxMiB9LCBbCiAgICAgIFBhbmVsKHsgdGl0bGU6ICJOZWVkcyB5b3UiLCBzdHlsZTogImNhcmQiIH0sIFsKICAgICAgICBGb3JFYWNoKHsgaXRlbXM6IG5lZWRzWW91LCBrZXk6IChjKSA9PiBjLmlkIH0sIGNoYXRSb3cpLAogICAgICAgICgpID0+IChuZWVkc1lvdSgpLmxlbmd0aCA/IG51bGwgOiBFbXB0eVN0YXRlKHsgdGl0bGU6ICJOb3RoaW5nIHdhaXRzIG9uIHlvdSIsIHN5bWJvbDogImNoZWNrbWFyay5zZWFsIiB9KSkKICAgICAgXSksCiAgICAgIFBhbmVsKHsgdGl0bGU6ICJZb3VyIFBScyIsIHN0eWxlOiAiY2FyZCIgfSwgWwogICAgICAgIEZvckVhY2goeyBpdGVtczogKCkgPT4gcHJzLnZhbHVlKCkgPz8gW10sIGtleTogKHApID0+IHAuaWQgfSwgKHApID0+CiAgICAgICAgICBSb3coewogICAgICAgICAgICB0aXRsZTogKCkgPT4gcCgpLnRpdGxlLAogICAgICAgICAgICBzdWJ0aXRsZTogKCkgPT4gYCR7cCgpLnJlcG99IMK3IFBSICR7cCgpLm51bWJlcn0ke3AoKS5yb2xlcy5pbmNsdWRlcygicmV2aWV3LXJlcXVlc3RlZCIpID8gIiDCtyB5b3VyIHJldmlldyIgOiAiIn1gLAogICAgICAgICAgICBzeW1ib2w6ICgpID0+IChwKCkucm9sZXMuaW5jbHVkZXMoInJldmlldy1yZXF1ZXN0ZWQiKSA/ICJleWUiIDogImFycm93LnRyaWFuZ2xlLnB1bGwiKSwKICAgICAgICAgICAgdGludDogKCkgPT4gKHAoKS5yb2xlcy5pbmNsdWRlcygicmV2aWV3LXJlcXVlc3RlZCIpID8gY211eC50aGVtZS53YXJuaW5nIDogY211eC50aGVtZS5zdWNjZXNzKQogICAgICAgICAgfSkub25UYXAoKCkgPT4gcnVuKCJvcGVuQnJvd3NlciIsIHsgdXJsOiBwKCkudXJsIH0pKQogICAgICAgICksCiAgICAgICAgKCkgPT4gKHBycy5zdGF0dXMoKSA9PT0gImVycm9yIiA/IFRleHQoIkNvbm5lY3QgR2l0SHViIGluIFNldHRpbmdzID4gSW50ZWdyYXRpb25zIHRvIHNlZSB5b3VyIFBScy4iKS5mb250KCJjYXB0aW9uIikuY29sb3IoY211eC50aGVtZS50ZXh0LnNlY29uZGFyeSkgOiBudWxsKQogICAgICBdKQogICAgXSksCiAgICBQYW5lbCh7IHRpdGxlOiAiV29ya3NwYWNlcyIsIHN0eWxlOiAiY2FyZCIgfSwgWwogICAgICBGb3JFYWNoKHsgaXRlbXM6ICgpID0+IHdvcmtzcGFjZXMudmFsdWUoKSA/PyBbXSwga2V5OiAodykgPT4gdy5pZCB9LCAodykgPT4KICAgICAgICBSb3coeyB0aXRsZTogKCkgPT4gdygpLm5hbWUsIHN5bWJvbDogInJlY3RhbmdsZS5vbi5yZWN0YW5nbGUiLCBzZWxlY3RlZDogKCkgPT4gdygpLmZvY3VzZWQgfSkub25UYXAoKCkgPT4KICAgICAgICAgIGNtdXgud29ya3NwYWNlLmZvY3VzKHsgd29ya3NwYWNlOiB3KCkuaWQgfSkuY2F0Y2gocmVmdXNlZCgiQ2hhbmdlIHdvcmtzcGFjZXMiKSkKICAgICAgICApCiAgICAgICkKICAgIF0pCiAgXSkKfQoKZnVuY3Rpb24gcmVuZGVyTmVlZHNZb3UoKSB7CiAgZm9sbG93KCkKICByZXR1cm4gVlN0YWNrKHsgc3BhY2luZzogMSB9LCBbCiAgICBGb3JFYWNoKHsgaXRlbXM6IG5lZWRzWW91LCBrZXk6IChjKSA9PiBjLmlkIH0sIGNoYXRSb3cpLAogICAgKCkgPT4gKG5lZWRzWW91KCkubGVuZ3RoID8gbnVsbCA6IFRleHQoIk5vdGhpbmcgd2FpdHMgb24geW91IikuZm9udCgiY2FwdGlvbiIpLmNvbG9yKGNtdXgudGhlbWUudGV4dC5zZWNvbmRhcnkpLnBhZGRpbmdIb3Jpem9udGFsKDEwKSkKICBdKQp9CgpnbG9iYWxUaGlzLl9fY211eEFwcEV4cG9ydHMgPSB7IHJlbmRlckNvY2twaXQsIHJlbmRlck5lZWRzWW91IH0K | base64 -d > \"$D/main.js\" && echo ewogICIkc2NoZW1hIjogImh0dHBzOi8vY211eC5kZXYvc2NoZW1hcy9jbXV4LWFwcC8yLmpzb24iLAogICJtYW5pZmVzdFZlcnNpb24iOiAyLAogICJpZCI6ICJsb2NhbC9jdXN0b21pemUiLAogICJuYW1lIjogIkNvY2twaXQiLAogICJ2ZXJzaW9uIjogIjEuMC4wIiwKICAiZGVzY3JpcHRpb24iOiAiQSBOZXcgVGFiIHBhZ2UgdGhhdCBpcyBhIGNvY2twaXQgKHdoYXQgbmVlZHMgeW91LCB5b3VyIFBScywgeW91ciB3b3Jrc3BhY2VzKSBhbmQgYSBOZWVkcyBZb3Ugc2VjdGlvbiBvbiB0b3Agb2YgdGhlIHNpZGViYXIuIiwKICAiZW5naW5lcyI6IHsgImNtdXgiOiAiXjIuMCIgfSwKICAicnVudGltZSI6IHsgIm1haW4iOiAibWFpbi5qcyIgfSwKICAiaW1wbGVtZW50cyI6IHsKICAgICJjbXV4Lm5ld3RhYi8xIjogeyAiZXhwb3J0IjogInJlbmRlckNvY2twaXQiLCAidGl0bGUiOiAiQ29ja3BpdCIsICJzeW1ib2wiOiAiZ2F1Z2Uud2l0aC5kb3RzLm5lZWRsZS42N3BlcmNlbnQiIH0sCiAgICAiY211eC5zZWN0aW9uLzEiOiB7CiAgICAgICJleHBvcnQiOiAicmVuZGVyTmVlZHNZb3UiLAogICAgICAidGl0bGUiOiAiTmVlZHMgeW91IiwKICAgICAgInN5bWJvbCI6ICJiZWxsLmJhZGdlIiwKICAgICAgIm9wdGlvbnMiOiB7ICJkZWZhdWx0UmVnaW9uIjogInRvcCIsICJtYXhSb3dzIjogMTIgfQogICAgfQogIH0sCiAgInNjb3BlcyI6IHsKICAgICJhZ2VudF9jaGF0OnJlYWQiOiAiUmVhZCB5b3VyIGFnZW50IGNoYXRzLCB0byBsaXN0IHRoZSBvbmVzIHdhaXRpbmcgb24geW91LiIsCiAgICAid29ya3NwYWNlOnJlYWQiOiAiTGlzdCB5b3VyIHdvcmtzcGFjZXMuIiwKICAgICJ3b3Jrc3BhY2U6d3JpdGUiOiAiU2hvdyBhIHdvcmtzcGFjZSBvciBhIGNoYXQncyB3b3Jrc3BhY2Ugd2hlbiB5b3UgY2xpY2sgaXQuIiwKICAgICJhY3Rpb25zOnJ1biI6ICJPcGVuIGEgY2hhdCwgYSB0ZXJtaW5hbCwgYSBicm93c2VyIG9yIGEgUFIgZnJvbSB0aGUgcGFnZS4iLAogICAgImludGVncmF0aW9uOmdpdGh1YjpyZWFkIjogIlJlYWQgeW91ciBwdWxsIHJlcXVlc3RzIHdpdGggdGhlIGNvbm5lY3RlZCBHaXRIdWIgYWNjb3VudC4iCiAgfQp9Cg== | base64 -d > \"$D/cmux-app.json\" && echo saved cockpit\r"
+      ],
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "cockpit: tabs.newTabApp",
+      "cmux": [
+        "settings",
+        "set",
+        "tabs.newTabApp",
+        "local/customize"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "cockpit: sidebar.priorityView.enabled",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.priorityView.enabled",
+        "true"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "cockpit: sidebar.sessionTree",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.sessionTree",
+        "true"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "cockpit: sidebar.density",
+      "cmux": [
+        "settings",
+        "set",
+        "sidebar.density",
+        "expanded"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "cockpit: home.chiefDock.edge",
+      "cmux": [
+        "settings",
+        "set",
+        "home.chiefDock.edge",
+        "right"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "cockpit: agentPane.display.sessionInfo.placement",
+      "cmux": [
+        "settings",
+        "set",
+        "agentPane.display.sessionInfo.placement",
+        "push"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "cockpit: layout.mainPane",
+      "cmux": [
+        "settings",
+        "set",
+        "layout.mainPane",
+        "agent-chats"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "cockpit: Mission control: your own New Tab page (what needs you, your PRs, your workspaces), a Needs You section on top of the sidebar, the session tree, Priority View, and a docked Chief on the right.",
+      "wait": 3
+    },
+    {
+      "title": "cockpit: a New Tab is the setup's own page",
+      "cmux": [
+        "action",
+        "run",
+        "newTab.default"
+      ],
+      "wait": 3,
+      "optional": "a New Tab opens a terminal when tabs.newTabTemplate picks one"
+    }
+  ]
+}

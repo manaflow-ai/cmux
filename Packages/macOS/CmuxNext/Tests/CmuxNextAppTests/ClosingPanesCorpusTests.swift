@@ -3,7 +3,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// The rules of a springing close (`ClosingPanesRules`: which panes border a closing pane, the gaps it keeps, where each
+/// The rules of a springing close (`ClosingPanesRules`, Rust's `cmux_closing_panes_*`: which panes border a closing pane, the gaps it keeps, where each
 /// side shows per frame, the camera carries, the panes nothing moves over and a taken-back close's velocities) over
 /// seeded scripts of closes, against the answers recorded in
 /// `cmux-tui/crates/cmux-layout-reducer/tests/data/closing_panes_corpus.txt`. The Rust port (cmux-layout-reducer
@@ -12,7 +12,7 @@ import Testing
 /// after it (every side, travel and carry), so a difference anywhere in the state fails the line. Answers and state are
 /// written as IEEE-754 bit patterns, so the comparison is exact.
 ///
-/// `recordCorpus` writes the file (from the Swift rules) when `ClosingPanesCorpusTests.record` is true; it is false in a
+/// `recordCorpus` writes the file (now from the Rust rules; it was recorded from the former Swift ones) when `ClosingPanesCorpusTests.record` is true; it is false in a
 /// committed tree.
 struct ClosingPanesCorpusTests {
     nonisolated static let record = false
@@ -130,30 +130,11 @@ struct ClosingPanesCorpusTests {
         return inputs.joined(separator: " ") + " => " + answer + " " + state(rules)
     }
 
-    /// The whole state of `rules` as one string (every entry by pane, each side's neighbours, gap, place, travel start and
-    /// end, the carry and the row travel; the close order and the panes awaiting the cameras), hashed (FNV-1a, 64 bits).
-    /// `closing_panes_corpus` builds the same string.
+    /// The hash of the whole state of `rules` (every entry by pane, each side's neighbours, gap, place, travel start and
+    /// end, the carry and the row travel; the close order and the panes awaiting the cameras; FNV-1a, 64 bits), as Rust
+    /// computes it (`ClosingPanes::state_hash`, which builds the string the Swift rules' state hash did).
     static func state(_ rules: ClosingPanesRules) -> String {
-        func side(_ side: ClosingPanesRules.Side) -> String {
-            [side.neighbours.map(String.init).joined(separator: ","), hex(side.gap), hex(side.fixed), side.start.map(hex) ?? "-",
-             side.end.map(hex) ?? "-"].joined(separator: ";")
-        }
-        var text = ""
-        for pane in rules.entries.keys.sorted() {
-            guard let entry = rules.entries[pane] else { continue }
-            let carried = entry.carriedShown.map { hex($0.minX) + "," + hex($0.maxX) } ?? "-"
-            let travel = entry.rowTravel.map { hex($0.start) + "," + hex($0.target) } ?? "-"
-            text += ["\(pane)", side(entry.minX), side(entry.maxX), side(entry.minY), side(entry.maxY), flag(entry.scrolls),
-                     "\(entry.rowColumn)", carried, travel].joined(separator: "|") + "\n"
-        }
-        text += "order:" + rules.order.map(String.init).joined(separator: ",") + "\n"
-        text += "await:" + rules.awaiting.sorted().map(String.init).joined(separator: ",") + "\n"
-        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
-        for byte in text.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01B3
-        }
-        return String(hash, radix: 16)
+        String(rules.stateHash, radix: 16)
     }
 
     // MARK: Reading a line

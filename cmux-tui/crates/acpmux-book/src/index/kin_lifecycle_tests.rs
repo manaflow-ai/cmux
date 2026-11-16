@@ -208,7 +208,7 @@ fn assert_independent_kin_oracle(index: &SummaryIndex) {
                 ReadSide::After,
                 false,
                 expected.len() + 1,
-                snapshot::PAGE_BYTES,
+                PAGE_BYTES,
                 Some(&ListFilter::family(root.clone())),
             )
             .unwrap()
@@ -231,7 +231,7 @@ fn assert_independent_kin_oracle(index: &SummaryIndex) {
                 ReadSide::After,
                 false,
                 expected_forks.len() + 1,
-                snapshot::PAGE_BYTES,
+                PAGE_BYTES,
                 Some(&ListFilter::forks(root.clone())),
             )
             .unwrap()

@@ -436,10 +436,10 @@ fn resolve_list_scope(
 /// projection lock that every command of the session waits on, so a large
 /// session's commands slowed with its size (a classic migration of 512
 /// workspaces went O(n²)).
+/// The selector resolves as `terminal.wait_exit`'s does, so the get also reads
+/// an ended terminal with no tab, which `terminal.list` gives until a close.
 fn get_terminal(mux: &Mux, selectors: &ResourceSelectors) -> Result<Value, ResourceError> {
-    let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
-    let terminal_id =
-        path.terminal.ok_or_else(|| ResourceError::not_found("terminals", "<resolved>"))?;
+    let terminal_id = resolve_terminal_wait_exit_id(mux, selectors)?;
     // The snapshot publishes every terminal's pending directory before it
     // reads; this one's is enough. Outside the projection lock, as there:
     // publishing takes the state lock itself.

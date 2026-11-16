@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a'
+IR_SHA256 = 'cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea'
 
 
 @dataclass(frozen=True)
@@ -101,8 +101,12 @@ COMMANDS = {
             'cols': CommandFieldMetadata(None, 'attach-initial-size'),
             'expected_generation': CommandFieldMetadata(None, 'attach-identity-v1'),
             'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
+            'hybrid_frame': CommandFieldMetadata(None, 'agent-cli-hybrid-v1'),
+            'hybrid_stream': CommandFieldMetadata(None, 'agent-cli-hybrid-v1'),
             'mode': CommandFieldMetadata(7, None),
+            'output_coalesce_ms': CommandFieldMetadata(None, 'attach-output-coalesce-v1'),
             'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
+            'replay_history_start': CommandFieldMetadata(None, 'attach-replay-history-window-v1'),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
@@ -1509,6 +1513,20 @@ COMMANDS = {
             'by': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'client': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(12, 'shared-sizing-v1'),
+        },
+    ),
+    'device-setup': CommandMetadata(
+        'device-setup',
+        'local-admin',
+        12,
+        'device-setup-v1',
+        ('local-admin',),
+        None,
+        {
+            'allow_agents': CommandFieldMetadata(None, None),
+            'device': CommandFieldMetadata(None, None),
+            'dry_run': CommandFieldMetadata(None, None),
+            'verb': CommandFieldMetadata(None, None),
         },
     ),
     'export-layout': CommandMetadata(
@@ -3666,6 +3684,18 @@ COMMANDS = {
             'terminal_ids': CommandFieldMetadata(None, None),
         },
     ),
+    'terminal-command-context': CommandMetadata(
+        'terminal-command-context',
+        'control',
+        12,
+        'terminal-command-context-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'intent': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'terminal-events': CommandMetadata(
         'terminal-events',
         'control',
@@ -4072,6 +4102,8 @@ COMMANDS = {
 EVENTS = {
     'activity-changed': EventMetadata('activity-changed', 12, 'vm-activity-v1', ('control',), 'emitted'),
     'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
+    'agent-cli-frame': EventMetadata('agent-cli-frame', 12, 'agent-cli-hybrid-v1', ('attach-byte',), 'emitted'),
+    'agent-cli-lean': EventMetadata('agent-cli-lean', 12, 'agent-cli-hybrid-v2', ('attach-byte',), 'emitted'),
     'agent-inventory-changed': EventMetadata('agent-inventory-changed', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-inventory-watch-ended': EventMetadata('agent-inventory-watch-ended', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
@@ -4106,6 +4138,7 @@ EVENTS = {
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'device-setup-step': EventMetadata('device-setup-step', 12, None, ('control',), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'feed-reports-changed': EventMetadata('feed-reports-changed', 12, 'feed-client-v1', ('subscribe',), 'emitted'),
     'feed-view-changed': EventMetadata('feed-view-changed', 12, 'feed-client-v1', ('subscribe',), 'emitted'),
@@ -4132,6 +4165,7 @@ EVENTS = {
     'screen-added': EventMetadata('screen-added', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-changed': EventMetadata('screen-changed', 12, 'screen-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'screen-device-changed': EventMetadata('screen-device-changed', 12, 'screen-device-identity-v1', ('subscribe',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'selection-changed': EventMetadata('selection-changed', 12, 'tree-selection-deltas-v1', ('subscribe-deltas',), 'emitted'),

@@ -29,6 +29,8 @@ framework="$frameworks/Chromium Embedded Framework.framework"
 [[ -d "$framework" ]] || exit 0
 
 flags=(--force --sign "$identity")
+# Every signature goes through codesign-retry.sh: Apple's timestamp service fails for a moment now and then.
+sign_tool="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/codesign-retry.sh"
 if [[ "$identity" != "-" ]]; then
   flags+=(--options runtime)
   if [[ "${CMUX_TIMESTAMP:-}" == "none" ]]; then
@@ -51,19 +53,19 @@ cat > "$jit" <<'ENT'
 ENT
 
 for lib in "$framework/Versions/A/Libraries/"*.dylib; do
-  [[ -f "$lib" ]] && codesign "${flags[@]}" "$lib"
+  [[ -f "$lib" ]] && "$sign_tool" "${flags[@]}" "$lib"
 done
-codesign "${flags[@]}" "$framework"
+"$sign_tool" "${flags[@]}" "$framework"
 if [[ -f "$frameworks/libcmux_cef_shim.dylib" ]]; then
-  codesign "${flags[@]}" "$frameworks/libcmux_cef_shim.dylib"
+  "$sign_tool" "${flags[@]}" "$frameworks/libcmux_cef_shim.dylib"
 fi
 for helper in "$frameworks"/*" Helper.app" "$frameworks"/*" Helper ("*").app"; do
   [[ -d "$helper" ]] || continue
   case "$helper" in
     *" Helper.app"|*" Helper (GPU).app"|*" Helper (Renderer).app")
-      codesign "${flags[@]}" --entitlements "$jit" "$helper" ;;
+      "$sign_tool" "${flags[@]}" --entitlements "$jit" "$helper" ;;
     *)
-      codesign "${flags[@]}" "$helper" ;;
+      "$sign_tool" "${flags[@]}" "$helper" ;;
   esac
 done
 # The Chromium host app (embed-cef.sh, Debug builds): Chromium's browser
@@ -72,5 +74,5 @@ done
 # that miss from becoming the script's exit status (a bare `[[ ]] &&` as the
 # loop's last command made sign-cef.sh exit 1 and failed Embed CEF).
 for host_app in "$frameworks"/*" Chromium Host.app"; do
-  if [[ -d "$host_app" ]]; then codesign "${flags[@]}" "$host_app"; fi
+  if [[ -d "$host_app" ]]; then "$sign_tool" "${flags[@]}" "$host_app"; fi
 done

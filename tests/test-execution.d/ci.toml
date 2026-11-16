@@ -70,6 +70,10 @@ path = "tests/test_ci_classify_failures.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cloud_journey_prod_preclaim_login.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cloud_overflow_switch.py"
 lane = "linux-guard"
 
@@ -673,6 +677,11 @@ path = "tests/test_ci_swiftpm_build_metrics.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_swiftpm_prefetch_shared_cache.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_swiftpm_prefetch_shared_cache.py"
+
+[[test]]
 path = "tests/test_ci_take_canonical_root.py"
 lane = "linux-guard"
 
@@ -765,6 +774,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_run_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_tailnet_oidc_pr_gate.py"
 lane = "linux-guard"
 
 [[test]]

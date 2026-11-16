@@ -123,4 +123,33 @@ mod tests {
         assert!(kept[1].0 > body.len(), "an ordinary prompt is kept whole");
         assert!(kept[1].1);
     }
+
+    /// 2026-11-15, Leo's laptop: every Chief compactor node asked the title model for a title,
+    /// about 55 haiku calls a minute for sessions no one sees. A throwaway session asks none; an
+    /// ordinary one still does.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_throwaway_session_asks_for_no_title() {
+        use crate::config::{Config, StoreMode};
+        use crate::hub::{Hub, NewRequest};
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake",
+                         "titles": {"generate": false}});
+        let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+        cfg.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let mut asked = Vec::new();
+        for throwaway in [true, false] {
+            let req =
+                NewRequest { cwd: Some(std::env::temp_dir()), throwaway, ..NewRequest::default() };
+            let session = hub.new_session(req).await.unwrap();
+            {
+                let mut m = session.meta.lock().unwrap();
+                super::super::titles::set_fallback_title(&mut m, "Compaction: compress message 9");
+            }
+            hub.title_after_prompt(&session);
+            asked.push(session.meta.lock().unwrap().title_asking);
+        }
+        assert_eq!(asked, [false, true]);
+    }
 }

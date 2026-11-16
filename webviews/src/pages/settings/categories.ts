@@ -38,7 +38,9 @@ export const CATEGORY_CARDS = [
   "contextMenus",
   "personalization",
   "sharedLinks",
+  "customizeLibrary",
   "tailnet",
+  "keys",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */
