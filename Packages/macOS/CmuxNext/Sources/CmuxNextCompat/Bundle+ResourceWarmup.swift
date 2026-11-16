@@ -11,16 +11,13 @@ extension Bundle {
     /// cache (after an update) that held the main thread 2 s+ (Sentry MainThreadStall in
     /// `_CFBundleGetBundleVersionForURL` from `DaemonRecoveryStrings.retryNow` while the
     /// connecting screen built). NSBundle keeps one instance per path, so the later
-    /// `Bundle.module` read gets this one, adopted by ``AppLanguage`` so its strings switch with
-    /// `app.language`. Call once, early in launch.
+    /// `Bundle.module` read gets this one. Call once, early in launch.
     public static func warmResourceBundlesInBackground(in resources: URL? = Bundle.main.resourceURL) {
         let thread = Thread {
             guard let resources,
                   let names = try? FileManager.default.contentsOfDirectory(atPath: resources.path) else { return }
             let opened = names.filter { $0.hasSuffix(".bundle") }.sorted().compactMap { name -> Bundle? in
                 guard let bundle = Bundle(url: resources.appending(path: name, directoryHint: .isDirectory)) else { return nil }
-                // Its strings follow `app.language` live from here on (AppLanguage).
-                AppLanguage.shared.adopt(bundle)
                 // Loads the Localizable table of the preferred language (a file read per bundle).
                 _ = bundle.localizedString(forKey: "cmux.warmup", value: nil, table: nil)
                 return bundle

@@ -182,10 +182,7 @@ enum SidebarCardFeed {
             return SidebarNoticeCard(id: announcementPrefix + item.id, symbol: "megaphone", title: item.title, detail: item.detail,
                                      actions: actions, dismissLabel: UpdaterService.cardDismissLabel)
         }
-        // The tip again from the catalog: its title and benefit are read in the app's language now
-        // (`app.language` switches live), not the one the tip was picked in.
-        guard let picked = updater.tip else { return nil }
-        let tip = TipCatalog.all.first { $0.id == picked.id } ?? picked
+        guard let tip = updater.shownTip else { return nil }
         return SidebarNoticeCard(id: tipPrefix + tip.id, eyebrow: UpdaterService.tipEyebrow, title: tip.title, detail: tip.benefit,
                                  actions: [SidebarNoticeCard.Action(id: tryActionID, title: UpdaterService.announcementActionTitle)],
                                  shortcut: registry?.shortcutDisplay(for: ActionID(rawValue: tip.action)), dismissLabel: UpdaterService.tipMenuLabel,

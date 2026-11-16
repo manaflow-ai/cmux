@@ -1,5 +1,5 @@
 public import CmuxNextSettings
-import CmuxNextCompat
+public import CmuxNextCompat
 import CmuxNextDesign
 public import Foundation
 
@@ -21,13 +21,16 @@ public final class AppLanguageApplier {
 
     private let defaults: UserDefaults
     private let pages: @MainActor (String?) -> Void
+    /// cmux's own string bundles' language (the app's one ``AppLanguage``).
+    let language: AppLanguage
     private var observation: Task<Void, Never>?
 
     /// `defaults` is the app's own domain (`.standard`); `pages` hands a code to the pages (tests
-    /// record it).
-    public init(defaults: UserDefaults, pages: (@MainActor (String?) -> Void)? = nil) {
+    /// record it); `language` switches cmux's native text.
+    public init(defaults: UserDefaults, pages: (@MainActor (String?) -> Void)? = nil, language: AppLanguage = AppLanguage()) {
         self.defaults = defaults
         self.pages = pages ?? Self.pushToPages
+        self.language = language
     }
 
     /// Applies every loaded snapshot's `app.language` (Observation, once per change). The
@@ -35,6 +38,7 @@ public final class AppLanguageApplier {
     /// keeps no other reference.
     public func follow(_ settings: SettingsController) {
         observation?.cancel()
+        language.adoptResourceBundles()
         // task-owner: lives as long as the app's settings controller (app lifetime).
         observation = Task { [self] in
             await settings.waitForLoad(atLeast: 1)
@@ -44,6 +48,7 @@ public final class AppLanguageApplier {
 
     func apply(_ code: String?) {
         writeDefaults(code)
+        language.set(code)
         pages(code)
     }
 
@@ -59,9 +64,8 @@ public final class AppLanguageApplier {
         defaults.removeObject(forKey: Self.appliedKey)
     }
 
-    /// The code for cmux's native text, every later document, and now every live one.
+    /// The code for every later document, and now to every live one.
     private static func pushToPages(_ code: String?) {
-        AppLanguage.shared.set(code)
         guard DesignSettings.shared.appLanguage != code else { return }
         DesignSettings.shared.appLanguage = code
         for page in PageRegistry.pages() { page.applyLanguage() }

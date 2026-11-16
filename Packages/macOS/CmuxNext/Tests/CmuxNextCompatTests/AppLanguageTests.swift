@@ -7,8 +7,8 @@ import Testing
 /// `String(localized:bundle:)` in the chosen language at once, System gives the bundle's own answer
 /// again, and a lookup made in an observation scope runs again on a change (what re-renders a view).
 ///
-/// Each test adopts a copy of a bundle of its own in a temporary folder, never a bundle another test
-/// reads, and puts System back when it ends. Without the adoption (the bundle class override), every
+/// Each test has its own ``AppLanguage`` and adopts a copy of a bundle of its own in a temporary
+/// folder, never a bundle another test reads. Without the adoption (the bundle class override), every
 /// lookup stays in the launch language and these fail.
 @Suite(.serialized)
 struct AppLanguageTests {
@@ -55,54 +55,68 @@ struct AppLanguageTests {
     @Test func anAdoptedBundleAnswersInTheChosenLanguageAndSystemGivesItBack() throws {
         let scratch = try Scratch()
         let bundle = try scratch.bundle(Self.tables)
-        defer { AppLanguage.shared.set(nil) }
-        AppLanguage.shared.adopt(bundle)
+        let language = AppLanguage()
+        language.adopt(bundle)
         let system = String(localized: "greeting", defaultValue: "Hello", bundle: bundle)
 
-        AppLanguage.shared.set("ja")
+        language.set("ja")
         #expect(String(localized: "greeting", defaultValue: "Hello", bundle: bundle) == "こんにちは")
         #expect(bundle.preferredLocalizations == ["ja"])
-        AppLanguage.shared.set("de")
+        language.set("de")
         #expect(String(localized: "greeting", defaultValue: "Hello", bundle: bundle) == "Hallo")
         // A key the language lacks shows the text the code gives.
         #expect(String(localized: "only.english", defaultValue: "Only English", bundle: bundle) == "Only English")
-        AppLanguage.shared.set(nil)
+        language.set(nil)
         #expect(String(localized: "greeting", defaultValue: "Hello", bundle: bundle) == system)
     }
 
     @Test func aLanguageTheBundleDoesNotShipFallsBackToItsDevelopmentLanguage() throws {
         let scratch = try Scratch()
         let bundle = try scratch.bundle(Self.tables)
-        defer { AppLanguage.shared.set(nil) }
-        AppLanguage.shared.adopt(bundle)
-        AppLanguage.shared.set("ja")
-        AppLanguage.shared.set("ko")
+        let language = AppLanguage()
+        language.adopt(bundle)
+        language.set("ja")
+        language.set("ko")
         #expect(String(localized: "greeting", defaultValue: "Hello", bundle: bundle) != "こんにちは")
     }
 
     @Test func aBundleNotAdoptedKeepsItsLaunchLanguage() throws {
         let scratch = try Scratch()
         let bundle = try scratch.bundle(Self.tables)
-        defer { AppLanguage.shared.set(nil) }
+        let language = AppLanguage()
         let system = String(localized: "greeting", defaultValue: "Hello", bundle: bundle)
-        AppLanguage.shared.set("ja")
+        language.set("ja")
         #expect(String(localized: "greeting", defaultValue: "Hello", bundle: bundle) == system)
     }
 
     @Test func aLookupInAnObservationScopeRunsAgainOnAChange() throws {
         let scratch = try Scratch()
         let bundle = try scratch.bundle(Self.tables)
-        defer { AppLanguage.shared.set(nil) }
-        AppLanguage.shared.adopt(bundle)
+        let language = AppLanguage()
+        language.adopt(bundle)
         let changed = Flag()
         withObservationTracking {
             _ = String(localized: "greeting", defaultValue: "Hello", bundle: bundle)
         } onChange: {
             changed.value.withLock { $0 = true }
         }
-        AppLanguage.shared.set("ja")
+        language.set("ja")
         #expect(changed.value.withLock { $0 })
-        #expect(AppLanguage.shared.preferredLanguages == ["ja"])
+        #expect(language.code == "ja")
+    }
+
+    /// The app's path: every `*.bundle` of its resources folder is adopted, off the main thread.
+    @Test(.timeLimit(.minutes(1)))
+    func theResourcesFoldersBundlesAreAdopted() async throws {
+        let scratch = try Scratch()
+        let bundle = try scratch.bundle(Self.tables)
+        let language = AppLanguage()
+        language.set("ja")
+        language.adoptResourceBundles(in: scratch.root)
+        for _ in 0..<400 where String(localized: "greeting", defaultValue: "Hello", bundle: bundle) != "こんにちは" {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(String(localized: "greeting", defaultValue: "Hello", bundle: bundle) == "こんにちは")
     }
 
     /// A key of a real cmux string table (CmuxNextUpdater's sidebar "Did you know?" card heading).
@@ -112,13 +126,13 @@ struct AppLanguageTests {
         let japanese = try #require(bundle.url(forResource: "ja", withExtension: "lproj").flatMap(Bundle.init(url:)))
             .localizedString(forKey: "updater.tip.eyebrow", value: nil, table: nil)
         #expect(japanese != "Did you know?" && japanese != "updater.tip.eyebrow")
-        defer { AppLanguage.shared.set(nil) }
-        AppLanguage.shared.adopt(bundle)
+        let language = AppLanguage()
+        language.adopt(bundle)
         let system = String(localized: "updater.tip.eyebrow", defaultValue: "Did you know?", bundle: bundle)
 
-        AppLanguage.shared.set("ja")
+        language.set("ja")
         #expect(String(localized: "updater.tip.eyebrow", defaultValue: "Did you know?", bundle: bundle) == japanese)
-        AppLanguage.shared.set(nil)
+        language.set(nil)
         #expect(String(localized: "updater.tip.eyebrow", defaultValue: "Did you know?", bundle: bundle) == system)
     }
 }

@@ -1,4 +1,3 @@
-import CmuxNextCompat
 public import Foundation
 
 /// A manifest string: one value, or values by language code with a
@@ -19,15 +18,9 @@ public nonisolated struct AppLocalizedText: Sendable, Hashable, Codable {
 
     public var english: String { values["en"] ?? values.values.sorted().first ?? "" }
 
-    /// The value in the app's language (`app.language`, else the system's;
-    /// observed, so a view that shows it follows a change).
-    public func resolved() -> String {
-        resolved(preferredLanguages: AppLanguage.shared.preferredLanguages)
-    }
-
     /// The value for the first preferred language that has one (`ja`,
     /// `pt-BR` falls back to `pt`), else English.
-    public func resolved(preferredLanguages: [String]) -> String {
+    public func resolved(preferredLanguages: [String] = Locale.preferredLanguages) -> String {
         for language in preferredLanguages {
             if let value = values[language] { return value }
             let base = String(language.prefix { $0 != "-" })
