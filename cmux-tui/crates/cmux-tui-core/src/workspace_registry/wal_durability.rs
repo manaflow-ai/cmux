@@ -50,6 +50,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::fs::File;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -137,17 +138,30 @@ thread_local! {
 /// has the store from then on. A store that the owner opens after the
 /// release gets the same object, so its first commit fails too.
 #[derive(Clone, Default)]
-pub(crate) struct OwnerRelease(Arc<AtomicBool>);
+pub(crate) struct OwnerRelease {
+    released: Arc<AtomicBool>,
+    /// Test seam: what takes the line of a refused commit in place of
+    /// stderr.
+    #[cfg(test)]
+    line: Arc<Mutex<Option<Box<dyn std::io::Write + Send>>>>,
+}
 
 impl OwnerRelease {
     pub(crate) fn is_released(&self) -> bool {
-        self.0.load(Ordering::Acquire)
+        self.released.load(Ordering::Acquire)
     }
 
     /// Only [`super::RegistryConnection::mark_released`] calls this, with
     /// the connection lock held.
     pub(super) fn set(&self) {
-        self.0.store(true, Ordering::Release);
+        self.released.store(true, Ordering::Release);
+    }
+
+    /// Test seam: `line` takes the line of each refused commit of this
+    /// owner's stores, in place of stderr.
+    #[cfg(test)]
+    pub(crate) fn set_line_for_test(&self, line: Box<dyn std::io::Write + Send>) {
+        *self.line.lock().recover_poison() = Some(line);
     }
 
     /// The commit hook's part: true when the commit must fail. Says so on
@@ -157,16 +171,49 @@ impl OwnerRelease {
             return false;
         }
         if !SAID_REFUSED.with(|said| said.replace(true)) {
-            let thread = std::thread::current();
-            eprintln!(
-                "cmux-tui: thread {} tried to write {} after this daemon released its session; \
-                 each such write fails",
-                thread.name().unwrap_or("with no name"),
-                database_path.display()
-            );
+            // As `eprintln!` does: a line that cannot be written is a panic.
+            if let Err(error) = self.write_refused_line(database_path) {
+                panic!("failed printing to stderr: {error}");
+            }
         }
         true
     }
+
+    /// Writes the line of a thread's first refused commit to stderr.
+    #[cfg(not(test))]
+    fn write_refused_line(&self, database_path: &Path) -> std::io::Result<()> {
+        write_refused_line_to(std::io::stderr(), database_path)
+    }
+
+    /// Writes the line of a thread's first refused commit: to the writer
+    /// that a test gave, or to stderr.
+    #[cfg(test)]
+    fn write_refused_line(&self, database_path: &Path) -> std::io::Result<()> {
+        match self.line.lock().recover_poison().as_mut() {
+            Some(line) => write_refused_line_to(line, database_path),
+            None => write_refused_line_to(std::io::stderr(), database_path),
+        }
+    }
+}
+
+/// The one write of the line of a refused commit. The product gives it
+/// stderr; a test can give it another writer, and then runs this same write.
+fn write_refused_line_to(
+    mut line: impl std::io::Write,
+    database_path: &Path,
+) -> std::io::Result<()> {
+    writeln!(line, "{}", refused_line(database_path))
+}
+
+/// What a thread says at its first commit that is refused after the release.
+fn refused_line(database_path: &Path) -> String {
+    let thread = std::thread::current();
+    format!(
+        "cmux-tui: thread {} tried to write {} after this daemon released its session; each \
+         such write fails",
+        thread.name().unwrap_or("with no name"),
+        database_path.display()
+    )
 }
 
 /// A view of one database's syncer (see the module docs): its commit
@@ -560,10 +607,14 @@ fn drive_sync(file: &File, full: bool) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
+#[path = "wal_durability/release_tests.rs"]
+mod release_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    fn database(name: &str) -> (PathBuf, Connection) {
+    pub(super) fn database(name: &str) -> (PathBuf, Connection) {
         let dir =
             std::env::temp_dir().join(format!("wal-durability-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
