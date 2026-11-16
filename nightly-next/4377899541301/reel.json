@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "build": "4377899541301",
+  "notes": "notes/4377899541301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43510,
+      "title": "Agent chat: a keystroke no longer redraws the composer's + menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43964,
+      "title": "measure: update-click-ab, a real Sparkle update clicked 3 s after staging, base vs head on one Mac (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43959,
+      "title": "Agent CLI terminal: records plus screen deltas reach 100% of cells at 527 B/s (PTY 924) for Claude Code, 312 B/s (PTY 1,494) for Codex",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43941,
+      "title": "perf(launch): every build records its launch times; cmux app launch-times reads them (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43637,
+      "title": "Action catalog: Run a PR as This App… and Undo Last PR Run (FFI step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43929,
+      "title": "cmux repo mcp-lazy: a repo with project MCP servers starts Claude at its head",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34291,
+      "title": "fix(webviews): lint asserted style fallbacks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42578,
+      "title": "cmux NEXT: the browser toolbar's profile menu offers every palette profile action, with a menu/palette parity test",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44001,
+      "title": "refactor(acpmux): move cloud_join enroll tests to enroll_tests.rs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43955,
+      "title": "cmux-tui: screen detector does not read ended terminals it does not know",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43998,
+      "title": "measure: held-new-tab, a held Cmd-T with a Cmd-W now and then in a session of many workspaces",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44011,
+      "title": "CMUX-570: paired panic=unwind/abort size harness for the Rust helpers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43980,
+      "title": "ci(next): tab switch check (frames, under load), advisory",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43995,
+      "title": "measure: nightly-fresh-launch arms=adhoc signs as reload.sh does, no hardened runtime, and never fails the step (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44007,
+      "title": "fix(tab-switch): split the recorder's long mixed-type expressions so swiftc type-checks it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43970,
+      "title": "ffi-caller-ratchet: fetch the pinned source so a shallow base run judges with the pin",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43961,
+      "title": "acpmux-cgu-sweep.sh: print acpmux's front-end and codegen time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43952,
+      "title": "acpmux: the hub carrier's register asks show in the daemon log at info",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43960,
+      "title": "remote --via-machine: stop on the far side's refusal and say what to do; a transient failure says it is redialing",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
