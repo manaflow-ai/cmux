@@ -94,7 +94,7 @@ The hub stores `machineId` = lowercase hex SHA-256 of
 unrelated ids and no listing links accounts. A device lists `machineId` and `appId` (null when it
 never sent them). A registration without them (an older build) keeps what a newer one recorded.
 
-When a record registers with both, the hub removes that install's other records on the machine
+When a record registers with both on a full account session (never a host or machine session), the hub removes that install's other records on the machine
 (same `machineId`, `appId` and platform) that are offline: an install holds one identity at a
 time, so those are a renewal's leftovers and are never used again. The removal is `DELETE
 /v1/devices/:id` (sessions end with `device_removed:*`, permissions naming it go, audit

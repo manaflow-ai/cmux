@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { machineIdFor } from "../src/userDo";
-import { Device, signIn } from "./helpers";
+import { BASE, Device, signIn, worker } from "./helpers";
 
 const MAC_KEY = "a".repeat(64);
 const OTHER_MAC_KEY = "b".repeat(64);
@@ -81,6 +81,30 @@ describe("one record per machine (machineKey, appId)", () => {
     expect(devices.map((d) => d.id)).toEqual(expect.arrayContaining([a.id, b.id, legacy.id]));
     expect(devices.find((d) => d.id === a.id)!.machineId).not.toBe(devices.find((d) => d.id === b.id)!.machineId);
     expect(devices.find((d) => d.id === legacy.id)).toMatchObject({ machineId: null, appId: null });
+  });
+
+  it("a host session's registration retires nothing", async () => {
+    const account = await signIn();
+    const old = await Device.create(account, "Desk Mac");
+    const mac = await Device.create(account, "Desk Mac");
+    expect((await registerOn(old, MAC_KEY, NIGHTLY)).status).toBe(200);
+    // `mac` registers first without machine fields, then anchors and renews a host session.
+    expect((await registerOn(mac, undefined, undefined)).status).toBe(200);
+    expect((await mac.call("PUT", `/v1/devices/${mac.id}/mac-screen`, { shared: true })).status).toBe(200);
+    expect((await mac.call("POST", "/v1/auth/device/anchor", {})).status).toBe(200);
+    const body = JSON.stringify({ userId: account.userId });
+    const headers = { ...(await mac.headers("POST", "/v1/auth/device", body)), "content-type": "application/json" };
+    const renewed = await worker.fetch(`${BASE}/v1/auth/device`, { method: "POST", headers, body });
+    expect(renewed.status).toBe(200);
+    const host = ((await renewed.json()) as { session: string }).session;
+    const res = await mac.call(
+      "POST",
+      "/v1/devices",
+      { id: mac.id, name: mac.name, platform: mac.platform, signingKey: mac.signingKey, agreementKey: mac.agreementKey, machineKey: MAC_KEY, appId: NIGHTLY },
+      { session: host },
+    );
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    expect((await listed(mac)).map((d) => d.id)).toContain(old.id);
   });
 
   it("an older build's registration keeps the machine fields a newer one recorded", async () => {

@@ -388,7 +388,7 @@ export class UserDO extends DurableObject<Env> {
       if (request.method === "POST" && url.pathname === "/v1/devices") {
         // A host session updates its own registration, never makes a device.
         if (scope === "host" && !this.device(h.id)) throw new ApiError(403, "host_scope", "a host session cannot register a new device");
-        const registered = await this.register(request, url, body, h, now);
+        const registered = await this.register(request, url, body, h, now, scope);
         if (scope === "machine") this.dropMachineAnchor(h.id);
         return registered;
       }
@@ -425,7 +425,7 @@ export class UserDO extends DurableObject<Env> {
     throw badRequest("body must be a JSON object");
   }
 
-  private async register(request: Request, url: URL, raw: Uint8Array, h: { id: string; ts: string; sig: string }, now: number): Promise<Response> {
+  private async register(request: Request, url: URL, raw: Uint8Array, h: { id: string; ts: string; sig: string }, now: number, scope: CallContext["scope"]): Promise<Response> {
     const body = this.parse(raw);
     if (body.id !== h.id) throw badRequest("id must equal X-Device-Id");
     const name = str(body.name, "name", 100);
@@ -475,7 +475,8 @@ export class UserDO extends DurableObject<Env> {
       );
       this.audit("device_added", { deviceId: h.id, detail: `${h.id} ${name}` });
     }
-    if (machineId !== null && appId !== null) await this.retireReplaced(h.id, machineId, appId, body.platform as DevicePlatform);
+    // Only the app's own sign-in retires records: a host or machine session serves one device and removes none.
+    if (scope === "full" && machineId !== null && appId !== null) await this.retireReplaced(h.id, machineId, appId, body.platform as DevicePlatform);
     this.broadcast({ type: "devices.changed" });
     return json({ device: publicDevice(this.device(h.id)!, this.online(h.id)) });
   }
