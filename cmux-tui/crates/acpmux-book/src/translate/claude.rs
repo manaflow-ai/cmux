@@ -7,6 +7,11 @@ use crate::row::RowKind;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::borrow::Cow;
+
+const DROPPED_RECORD_KINDS: &[&str] = &["system"];
+const DROPPED_BLOCK_KINDS: &[&str] = &["redacted_thinking", "document"];
+const KNOWN_USER_BLOCK_KINDS: &[&str] = &["document", "image", "text", "tool_result"];
+
 #[derive(Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 struct Record<'a> {
@@ -28,6 +33,18 @@ struct Record<'a> {
     message: Option<Message<'a>>,
     #[serde(borrow)]
     origin: Origin<'a>,
+    #[serde(borrow)]
+    attachment: Option<Attachment<'a>>,
+}
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct Attachment<'a> {
+    #[serde(rename = "type", borrow)]
+    kind: Cow<'a, str>,
+    #[serde(borrow)]
+    command: Option<&'a RawValue>,
+    #[serde(borrow)]
+    command_mode: Cow<'a, str>,
 }
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -82,6 +99,21 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
     if rec.kind.is_empty() {
         return Err(Error::InvalidRecord("Claude type"));
     }
+    if let Some(pending) = state.claude_pending_end().map(str::to_owned) {
+        let message_id = rec
+            .message
+            .as_ref()
+            .map(|message| message.id.as_ref())
+            .filter(|id| !id.is_empty())
+            .or_else(|| (!rec.uuid.is_empty()).then_some(rec.uuid.as_ref()));
+        let carries_on = rec.kind == "assistant" && message_id == Some(pending.as_str());
+        if !carries_on {
+            state.clear_claude_pending_end();
+            end(state, "completed", out)?;
+        } else {
+            state.clear_claude_pending_end();
+        }
+    }
     if rec.is_sidechain || rec.is_meta || rec.is_compact_summary {
         return Ok(());
     }
@@ -92,6 +124,48 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
     if rec.kind == "result" {
         let failed = rec.is_error || rec.subtype.starts_with("error");
         return end(state, if failed { "failed" } else { "completed" }, out);
+    }
+    if rec.kind == "attachment" {
+        let Some(attachment) = rec.attachment else {
+            state.unknown_record();
+            return Ok(());
+        };
+        if attachment.kind != "queued_command" {
+            state.unknown_record();
+            return Ok(());
+        }
+        let Some(command) = attachment.command else {
+            state.unknown_record();
+            return Ok(());
+        };
+        match attachment.command_mode.as_ref() {
+            "prompt" | "task-notification" => {
+                state.prompt(
+                    super::PromptEvent {
+                        key: &rec.uuid,
+                        prompt_key: &rec.uuid,
+                        steer: attachment.command_mode == "prompt",
+                        notice: attachment.command_mode == "task-notification",
+                        body: Some(command),
+                        images: None,
+                        sender: super::user::Sender::default(),
+                        inline_parts: None,
+                        pasted: None,
+                        place: 0,
+                        span: 0,
+                    },
+                    out,
+                )?;
+            }
+            _ => state.unknown_record(),
+        }
+        return Ok(());
+    }
+    if !matches!(rec.kind.as_ref(), "assistant" | "user" | "result") {
+        if !DROPPED_RECORD_KINDS.contains(&rec.kind.as_ref()) {
+            state.unknown_record();
+        }
+        return Ok(());
     }
     let Some(message) = rec.message else { return Ok(()) };
     let Some(body) = message.content else { return Ok(()) };
@@ -104,6 +178,9 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
             if body.get().starts_with('[') {
                 input::each(body, |raw| {
                     let block: Block<'_> = input::value(raw)?;
+                    if !KNOWN_USER_BLOCK_KINDS.contains(&block.kind.as_ref()) {
+                        state.unknown_record();
+                    }
                     if block.kind == "tool_result" {
                         results = true;
                     }
@@ -159,13 +236,18 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
             }
         }
         "assistant" => {
+            // Some Claude transcript versions omit `message.id` on assistant records. Their
+            // record UUID still identifies the streamed message; using an empty key would merge
+            // unrelated replies across turns.
+            let message_id =
+                if message.id.is_empty() { rec.uuid.as_ref() } else { message.id.as_ref() };
             let usage: Usage<'_> = message
                 .usage
                 .and_then(|raw| serde_json::from_str(raw.get()).ok())
                 .unwrap_or_default();
             if let Some(output) = input::count(usage.output_tokens) {
                 state.claude_call(
-                    &message.id,
+                    message_id,
                     super::Tokens {
                         output,
                         input: input::count(usage.input_tokens).unwrap_or(0),
@@ -175,19 +257,21 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                     },
                 );
             }
+            let mut has_thinking = false;
             if body.get().starts_with('"') {
-                state.text(&input::text(body)?, &message.id, &message.id, false, out)?;
+                state.text(&input::text(body)?, message_id, message_id, false, out)?;
             } else {
                 input::each(body, |raw| {
                     let block: Block<'_> = input::value(raw)?;
                     match block.kind.as_ref() {
                         "text" | "thinking" => {
                             let thinking = block.kind == "thinking";
+                            has_thinking |= thinking;
                             if let Some(raw) = if thinking { block.thinking } else { block.text } {
                                 state.text(
                                     &input::text(raw)?,
-                                    &message.id,
-                                    &message.id,
+                                    message_id,
+                                    message_id,
                                     thinking,
                                     out,
                                 )?;
@@ -213,18 +297,75 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                             row.open = false;
                             out.row(&row);
                         }
-                        _ => {}
+                        kind if DROPPED_BLOCK_KINDS.contains(&kind) => {}
+                        _ => state.unknown_record(),
                     }
                     Ok(())
                 })?;
             }
             if matches!(message.stop_reason.as_deref(), Some("end_turn" | "stop_sequence")) {
-                end(state, "completed", out)?;
+                if has_thinking {
+                    state.set_claude_pending_end(message_id);
+                } else {
+                    end(state, "completed", out)?;
+                }
             }
         }
-        _ => {}
+        kind if DROPPED_RECORD_KINDS.contains(&kind) => {}
+        _ => state.unknown_record(),
     }
     Ok(())
+}
+
+/// Read the identity used to reconcile a followed prompt with a durable act. This deliberately
+/// does not return tool-result records: those are transcript effects, not user sends. The text is
+/// flattened from text/content blocks so matching has one representation for string and block
+/// prompts.
+pub(super) fn prompt_identity(bytes: &[u8]) -> Result<Option<super::PromptIdentity>, Error> {
+    let rec: Record<'_> = input::parse(bytes)?;
+    if rec.kind == "attachment"
+        && rec.attachment.as_ref().is_some_and(|attachment| {
+            attachment.kind == "queued_command" && attachment.command_mode == "prompt"
+        })
+    {
+        let Some(attachment) = rec.attachment else { return Ok(None) };
+        let Some(command) = attachment.command else { return Ok(None) };
+        let text = input::text(command)?.into_owned();
+        return Ok(Some(super::PromptIdentity { id: rec.uuid.into_owned(), text }));
+    }
+    if rec.kind != "user" || rec.is_sidechain || rec.is_meta || rec.is_compact_summary {
+        return Ok(None);
+    }
+    let Some(message) = rec.message else { return Ok(None) };
+    let Some(body) = message.content else { return Ok(None) };
+    if body.get() == "null" {
+        return Ok(None);
+    }
+    let mut has_tool_result = false;
+    if body.get().starts_with('[') {
+        input::each(body, |raw| {
+            let block: Block<'_> = input::value(raw)?;
+            has_tool_result |= block.kind == "tool_result";
+            Ok(())
+        })?;
+    }
+    if has_tool_result {
+        return Ok(None);
+    }
+    let mut text = String::new();
+    input::content(body, 0, &mut |part| {
+        text.push_str(part);
+        Ok(())
+    })?;
+    let start = text.trim_start();
+    if start.is_empty()
+        || ["<command-", "<local-command-", "<bash-", "[Request interrupted"]
+            .iter()
+            .any(|prefix| start.starts_with(prefix))
+    {
+        return Ok(None);
+    }
+    Ok(Some(super::PromptIdentity { id: rec.uuid.into_owned(), text }))
 }
 
 pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
@@ -233,6 +374,13 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
         return Err(Error::InvalidRecord("Claude type"));
     }
     super::bounded(&rec.uuid)?;
+    if let Some(attachment) = rec.attachment {
+        super::bounded(&attachment.kind)?;
+        super::bounded(&attachment.command_mode)?;
+        if let Some(command) = attachment.command {
+            let _ = input::text(command)?;
+        }
+    }
     if let Some(message) = rec.message {
         super::bounded(&message.id)?;
         if let Some(body) = message.content {

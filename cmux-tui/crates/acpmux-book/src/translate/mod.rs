@@ -51,6 +51,24 @@ pub enum Harness {
     Claude,
 }
 
+/// The stable identity a followed native transcript gives a prompt. The actor uses the text for
+/// bounded act/echo matching and keeps the native id for diagnostics and correlation. This is a
+/// parser result only: it does not reserve a row or mutate translator state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PromptIdentity {
+    pub id: String,
+    pub text: String,
+}
+
+/// Extract a followed transcript's prompt identity without translating it. A host stream has no
+/// native transcript identity, so callers must use its own protocol's prompt fields.
+pub fn prompt_identity(harness: Harness, bytes: &[u8]) -> Result<Option<PromptIdentity>, Error> {
+    match harness {
+        Harness::V1 => Ok(None),
+        Harness::Claude => claude::prompt_identity(bytes),
+    }
+}
+
 /// Relative to exactly the bytes supplied to `translate`, never a raw-file offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RawRange {
@@ -440,6 +458,8 @@ struct ClaudeTurn {
     /// The newest call's usage: each of its lines repeats it, the last one whole.
     call: Tokens,
     message: String,
+    /// A thinking record can carry an end reason before Claude emits its text continuation.
+    pending_end: Option<String>,
 }
 const MAX_UNKNOWN_KINDS: usize = 32;
 const UNKNOWN_OTHER: &str = "other";
@@ -953,6 +973,18 @@ impl State {
             self.claude.message = message.into();
         }
         self.claude.call = Tokens { calls: 1, ..call };
+    }
+    pub(super) fn claude_pending_end(&self) -> Option<&str> {
+        self.claude.pending_end.as_deref()
+    }
+    pub(super) fn set_claude_pending_end(&mut self, message: &str) {
+        self.claude.pending_end = Some(message.to_owned());
+    }
+    pub(super) fn clear_claude_pending_end(&mut self) {
+        self.claude.pending_end = None;
+    }
+    pub(super) fn unknown_record(&mut self) {
+        self.unknown_records = self.unknown_records.saturating_add(1);
     }
     /// The Claude turn's split so far: its calls added up, and the newest call's context.
     fn claude_tokens(&mut self) -> Tokens {
