@@ -29,6 +29,13 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var raw: [String] = []
         var rawBytes = 0
         var processing = false
+        /// The frames the running pass took from `raw` and has not queued yet: still counted against
+        /// the bounds, so frames that arrive during a pass cannot slip past them.
+        var passFrames = 0
+        var passBytes = 0
+        /// Every frame held for the page: unchecked, in the running pass, and queued.
+        var heldFrames: Int { raw.count + passFrames + inbox.count }
+        var heldBytes: Int { rawBytes + passBytes + inboxBytes }
         /// Stream notifications left out since the page fell a full queue behind
         /// (``AcpmuxPaneShedding``); nil while none is. `shedEnding`: its end is queued.
         var shed: Int?
@@ -64,20 +71,18 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         func full(_ limits: AgentPaneTransport.Limits, adding bytes: Int) -> Bool {
             let frames = hidden ? min(limits.hiddenQueuedFrames, limits.maximumQueuedFrames) : limits.maximumQueuedFrames
             let most = hidden ? min(limits.hiddenQueuedBytes, limits.maximumQueuedBytes) : limits.maximumQueuedBytes
-            return raw.count + inbox.count >= frames || rawBytes + inboxBytes + bytes > most
+            return heldFrames >= frames || heldBytes + bytes > most
         }
 
         /// Past the ceiling with `bytes` more: even a reply no longer queues.
         func pastCeiling(_ limits: AgentPaneTransport.Limits, adding bytes: Int) -> Bool {
-            raw.count + inbox.count >= limits.ceilingQueuedFrames
-                || rawBytes + inboxBytes + bytes > limits.ceilingQueuedBytes
+            heldFrames >= limits.ceilingQueuedFrames || heldBytes + bytes > limits.ceilingQueuedBytes
         }
 
         /// Caught up enough to end a shed episode: a quarter of the queue or less waits. A hidden
         /// pane is never caught up: its episode ends once it shows, so it reads what it missed once.
         func caughtUp(_ limits: AgentPaneTransport.Limits) -> Bool {
-            !hidden && raw.count + inbox.count <= limits.maximumQueuedFrames / 4
-                && rawBytes + inboxBytes <= limits.maximumQueuedBytes / 4
+            !hidden && heldFrames <= limits.maximumQueuedFrames / 4 && heldBytes <= limits.maximumQueuedBytes / 4
         }
     }
 
@@ -339,7 +344,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 case .drop:
                     continue
                 case .close:
-                    enqueue(page, awaited: awaited, answers: answers)
+                    enqueue(page, awaited: awaited, answers: answers, endsPass: true)
                     state.withLock { $0.processing = false }
                     return close(code: 1008, reason: "duplicate key", error: .duplicateKey)
                 case .page(let fresh, let object, let method):
@@ -381,7 +386,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     }
                 }
             }
-            enqueue(page, awaited: awaited, answers: answers)
+            enqueue(page, awaited: awaited, answers: answers, endsPass: true)
             if questionsChanged { notifyQuestionsChanged() }
             batch = takeRaw()
         }
@@ -459,6 +464,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private func takeRaw() -> [String] {
         state.withLock { state in
             let batch = state.raw
+            state.passFrames = batch.count
+            state.passBytes = state.rawBytes
             state.raw = []
             state.rawBytes = 0
             if batch.isEmpty { state.processing = false }
@@ -488,10 +495,19 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     /// Frames for the page, in order, with one wake for the pacer; `awaited` of them the page waits
     /// on, `answers` of those replies to its own requests.
-    private func enqueue(_ frames: [String], awaited: Int = 0, answers: Int = 0) {
-        guard !frames.isEmpty else { return }
+    /// `endsPass`: these are what the running pass kept of its batch; under the same lock its count
+    /// leaves the bounds as the frames enter the inbox.
+    private func enqueue(_ frames: [String], awaited: Int = 0, answers: Int = 0, endsPass: Bool = false) {
+        guard !frames.isEmpty else {
+            if endsPass { state.withLock { $0.passFrames = 0; $0.passBytes = 0 } }
+            return
+        }
         let bytes = frames.reduce(0) { $0 + $1.utf8.count }
         let (wake, queued, onQueued) = state.withLock { state -> (Bool, Int, (@Sendable (Int) -> Void)?) in
+            if endsPass {
+                state.passFrames = 0
+                state.passBytes = 0
+            }
             guard state.closed == nil else { return (false, 0, nil) }
             state.inbox.append(contentsOf: frames)
             state.inboxBytes += bytes
