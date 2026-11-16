@@ -82,6 +82,8 @@ impl HostProcess {
         on_message: impl Fn(FromHost) + Send + 'static,
         on_exit: impl FnOnce(Exit) + Send + 'static,
     ) -> std::io::Result<Self> {
+        #[cfg(test)]
+        test_seams::spawn_pause(name);
         let (ours, theirs) = UnixStream::pair()?;
         let fd = theirs.as_raw_fd();
         let mut command = Command::new(binary);
@@ -200,6 +202,32 @@ fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// A slow process start on demand: a loaded machine stretches fork, exec
+/// and the dynamic loader to seconds, which a test cannot rely on.
+#[cfg(test)]
+pub(super) mod test_seams {
+    use std::sync::{Mutex, PoisonError};
+    use std::time::Duration;
+
+    static PAUSES: Mutex<Vec<(String, Duration)>> = Mutex::new(Vec::new());
+
+    /// The next start of a host named `name` takes `pause` longer.
+    pub(in crate::apps) fn pause_next_spawn(name: &str, pause: Duration) {
+        PAUSES.lock().unwrap_or_else(PoisonError::into_inner).push((name.into(), pause));
+    }
+
+    pub(super) fn spawn_pause(name: &str) {
+        let pause = {
+            let mut pauses = PAUSES.lock().unwrap_or_else(PoisonError::into_inner);
+            let index = pauses.iter().position(|(n, _)| n == name);
+            index.map(|i| pauses.remove(i).1)
+        };
+        if let Some(pause) = pause {
+            std::thread::sleep(pause);
+        }
+    }
 }
 
 #[cfg(test)]
