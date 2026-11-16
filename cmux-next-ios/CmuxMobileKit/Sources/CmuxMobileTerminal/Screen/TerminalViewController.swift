@@ -748,6 +748,50 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         link.invalidate()
         returnProbe = nil
     }
+
+    /// Keyboard probe (TerminalProjectionUITests): every display frame of a
+    /// soft keyboard transition and half a second after it, whether the
+    /// terminal is narrower than the phone and whether the cursor's row moved
+    /// against the keyboard (down while it shows, up while it hides).
+    private var keyboardProbe: (link: CADisplayLink, showing: Bool, lastY: CGFloat?, until: CFTimeInterval)?
+
+    private func startKeyboardProbe(showing: Bool) {
+        keyboardProbe?.link.invalidate()
+        let link = CADisplayLink(target: self, selector: #selector(keyboardProbeTick(_:)))
+        link.add(to: .main, forMode: .common)
+        // The did-show or did-hide shortens this to half a second past it.
+        keyboardProbe = (link, showing, nil, CACurrentMediaTime() + 2)
+    }
+
+    private func settleKeyboardProbe() {
+        guard let probe = keyboardProbe else { return }
+        keyboardProbe?.until = min(probe.until, CACurrentMediaTime() + 0.5)
+    }
+
+    @objc private func keyboardProbeTick(_ link: CADisplayLink) {
+        guard var probe = keyboardProbe, probe.link === link else { return link.invalidate() }
+        if !model.isTUI {
+            let layout = hostLayout
+            if layout.columns < layout.phoneColumns {
+                model.narrowKeyboardFrames += 1
+                sizingLog.notice("keyboard probe: \(layout.columns, privacy: .public) columns, narrower than the phone's \(layout.phoneColumns, privacy: .public)")
+            }
+            if let cursor = surface.visibleCursorCell {
+                let y = surface.convert(cursor, to: view).minY
+                if let last = probe.lastY, (probe.showing ? y - last : last - y) > 1 {
+                    model.keyboardBounces += 1
+                    sizingLog.notice("keyboard probe: cursor row moved \(Int(y - last), privacy: .public) pt against the keyboard (showing \(probe.showing, privacy: .public))")
+                }
+                probe.lastY = y
+            }
+        }
+        if link.timestamp >= probe.until {
+            link.invalidate()
+            keyboardProbe = nil
+        } else {
+            keyboardProbe = probe
+        }
+    }
     #endif
 
     override func didMove(toParent parent: UIViewController?) {
@@ -3254,6 +3298,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     @objc private func keyboardWillShow(_ note: Notification) {
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd willShow t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
+        startKeyboardProbe(showing: true)
         #endif
         let notified = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
         // In this app's points (an iPhone app on an iPad gets the iPad's keyboard in iPad points).
@@ -3266,6 +3311,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     @objc private func keyboardWillHide(_ note: Notification) {
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd willHide t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
+        startKeyboardProbe(showing: false)
         #endif
         dock.keyboardWillHide()
         setKeyBar(visible: false, note: note)
@@ -3278,6 +3324,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A hide a newer show interrupted: the keyboard is on its way up, and
         // settling the stack now would lay it out against the hide.
         guard !isStale(note), !endsOnScreen(note, onScreen: true) else { return }
+        #if DEBUG
+        settleKeyboardProbe()
+        #endif
         dock.keyboardDidHide()
         keyboardDidChange()
     }
@@ -3285,6 +3334,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     @objc private func keyboardDidShow(_ note: Notification) {
         // A show a newer hide interrupted (the keyboard key pressed twice).
         guard !isStale(note), !endsOnScreen(note, onScreen: false) else { return }
+        #if DEBUG
+        settleKeyboardProbe()
+        #endif
         keyboardDidChange()
     }
 

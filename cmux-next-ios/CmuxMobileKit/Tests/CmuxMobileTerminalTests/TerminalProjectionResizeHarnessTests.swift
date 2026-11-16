@@ -57,8 +57,8 @@ import Testing
     }
 
     /// The lifecycle, as the page drives its session.
-    static func run() -> (steps: [Step], mac: MacPaneMockSession, bytes: Int) {
-        let mac = MacPaneMockSession(columns: 120, rows: 40)
+    static func run(columns: Int = 120, rows: Int = 40) -> (steps: [Step], mac: MacPaneMockSession, bytes: Int) {
+        let mac = MacPaneMockSession(columns: columns, rows: rows)
         let session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh")
         let page = Page()
         // The production delays (whatever the background grace is, or none).
@@ -146,6 +146,21 @@ import Testing
         #expect(resets["lock (10 min)"] == 0, "back from a long lock the page is already right")
         #expect(resets["keyboard toggle"] == 0)
         #expect(resets["another tab and back"] == 0)
+    }
+
+    /// Leo, 2026-11-15: "i dont see the point of a narrower-than-iphone
+    /// terminal". A Mac pane of 39x26, narrower than the phone: every grid the
+    /// page is told is the phone's own (54 columns, 116 in landscape), never
+    /// the pane's 39, and the Mac pane is never resized.
+    @Test func aMacPaneNarrowerThanThePhoneIsShownAtThePhonesWidth() {
+        let (steps, mac, bytes) = Self.run(columns: 39, rows: 26)
+        for step in steps { print("projection harness 39x26: \(step)") }
+        for step in steps {
+            #expect(step.macResizes == 0, "\(step)")
+            #expect(step.wideFrames == 0, "a grid other than the phone's: \(step)")
+        }
+        #expect(mac.ptyResizes == 0, "the Mac pane kept 39x26: \(mac.resizeLog)")
+        #expect(bytes > 0, "the page got the shell's text")
     }
 }
 

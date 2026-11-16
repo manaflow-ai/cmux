@@ -15,8 +15,12 @@ public struct TerminalDemoRoot: View {
     public init() {
         let session: any TerminalSession
         if TerminalDemoDriver.requestedPhases?.contains("projection") == true {
-            // A Mac pane of 120x40, through the session the app builds for a Mac terminal.
-            session = TerminalSessionChoice.session(live: MacPaneMockSession(), mockDataEnabled: false, macName: "Mac", programName: "zsh")
+            // A Mac pane of 120x40 (or `-CmuxMobileTerminalDemoMacGrid 39x26`, a
+            // pane narrower than the phone), through the session the app builds
+            // for a Mac terminal.
+            let grid = (UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoMacGrid") ?? "").split(separator: "x").compactMap { Int($0) }
+            let mac = grid.count == 2 ? MacPaneMockSession(columns: grid.first ?? 120, rows: grid.last ?? 40) : MacPaneMockSession()
+            session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh")
         } else {
             session = TerminalHostGridDemoSession.requestedSpec
                 .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession()
@@ -268,13 +272,16 @@ struct TerminalDemoDriver {
     private func projection() async {
         let mac = model.session.underlyingSession as? MacPaneMockSession
         func counters(_ stage: String) {
-            note("p.\(stage).mac\(mac?.ptyResizes ?? -1).wide\(model.wideGridsShown).rs\(model.mirrorResets).ret\(model.lastReturnMs)")
+            note("p.\(stage).mac\(mac?.ptyResizes ?? -1).wide\(model.wideGridsShown).rs\(model.mirrorResets).ret\(model.lastReturnMs)"
+                + ".nar\(model.narrowKeyboardFrames).kbb\(model.keyboardBounces)")
         }
         counters("attach")
         await wait(1)
         counters("kbstart")
         model.toggleKeyboard()
         await wait(1.6)
+        counters("kbup")
+        await wait(1)
         model.toggleKeyboard()
         await wait(1.6)
         counters("kb")

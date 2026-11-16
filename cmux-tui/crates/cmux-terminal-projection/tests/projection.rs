@@ -164,6 +164,26 @@ fn a_shell_session_reflows_at_the_phone_width() {
     assert_eq!(phone.resets, 1, "only the first paint resets");
 }
 
+/// Leo, 2026-11-15: "i dont see the point of a narrower-than-iphone
+/// terminal". A host pane of 39x26 (narrower than the phone): its soft-wrapped
+/// lines join again and fill the phone's 54 columns.
+#[test]
+fn a_host_narrower_than_the_phone_fills_the_phones_width() {
+    let mut host = Projection::new(39, 26, 10_000);
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.set_viewport(54, 38));
+    let long = "the agent wrote a sentence long enough to wrap twice on a 39 column pane and once on the phone";
+    feed(&mut host, &mut phone, format!("$ claude\r\n{long}\r\n$ ").as_bytes());
+    assert_same(&host, &phone, "narrow host");
+    let rows: Vec<String> =
+        phone.term.primary_rows().iter().map(|r| row_text(&phone.term, r)).collect();
+    let first = rows
+        .iter()
+        .find(|r| r.starts_with("the agent"))
+        .expect("the long line is on the phone's screen");
+    assert_eq!(first.trim_end(), &long[..54], "the line's first row fills the phone's 54 columns");
+}
+
 #[test]
 fn streaming_output_scrolls_into_the_phones_scrollback() {
     let mut host = Projection::new(120, 40, 10_000);
