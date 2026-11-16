@@ -193,6 +193,15 @@ impl Pacer {
         self.policy
     }
 
+    /// Updates the measured rate for a strict budget without disturbing queued
+    /// datagrams or the current credit. Balanced pacing ignores this setter.
+    pub fn set_rate_bps(&mut self, rate_bps: u64) {
+        if let PacerPolicy::Strict(mut config) = self.policy {
+            config.rate_bps = rate_bps;
+            self.policy = PacerPolicy::Strict(config);
+        }
+    }
+
     /// Queues one frame's media datagrams. In strict mode, `target_bps` and
     /// `frame_interval_us` are intentionally ignored: the measured strict
     /// rate is the one budget shared by media, FEC, repair, and probes.
