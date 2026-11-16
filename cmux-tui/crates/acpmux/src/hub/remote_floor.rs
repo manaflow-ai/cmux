@@ -87,6 +87,14 @@ pub(crate) struct FloorState {
     pub(super) unsandboxed: AtomicBool,
 }
 
+#[cfg(test)]
+impl Session {
+    /// Tests: `session`'s last turn was a Web turn, as a remote device's prompt leaves it.
+    pub(crate) fn mark_last_turn_web_for_tests(&self) {
+        self.floor.last_turn_web.store(true, Ordering::SeqCst);
+    }
+}
+
 impl Hub {
     /// Whether `session`'s current turn was started or steered by a remote
     /// device. A turn adopted after a restart keeps its recorded control.

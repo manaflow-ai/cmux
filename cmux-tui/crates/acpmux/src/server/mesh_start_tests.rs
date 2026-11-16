@@ -46,9 +46,17 @@ fn machine_b_with(
 
 /// Machine A: no harness of its own needed, no peer link, B listed by the hub's book.
 fn machine_a(mesh: Arc<dyn MeshHub>) -> Arc<Hub> {
+    machine_a_seeded(mesh, &[])
+}
+
+/// Machine A with the chats `seed` (stored records, no harness started) already there.
+fn machine_a_seeded(mesh: Arc<dyn MeshHub>, seed: &[Value]) -> Arc<Hub> {
     let mut config: Config = serde_json::from_value(json!({})).unwrap();
     config.store.mode = crate::config::StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    for meta in seed {
+        store.save(&serde_json::from_value(meta.clone()).unwrap()).unwrap();
+    }
     let a = Hub::new(config, store);
     let _ = a.mesh.set(mesh);
     a.set_mesh_book(std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]), vec![]);
@@ -626,6 +634,42 @@ async fn a_hub_start_that_crashes_before_its_harness_starts_restores_with_its_tr
     assert!(detail.contains("trust.untrusted"), "a relayed prompt passed the trust gate: {detail}");
     starting.abort();
     restored.shutdown_all().await;
+    b.shutdown_all().await;
+}
+
+/// Review P2-F1 of #38377 at 60d15eda: an agent on A whose last turn a remote device drove starts a
+/// chat through the hub from its own unix socket. Its start is a Web client's, but it would leave
+/// A with no Web mark and B would skip the folder-trust gate; so A refuses it, as it refuses that
+/// caller's mesh controls (`mesh.local_only`), and nothing starts on B.
+#[tokio::test]
+async fn a_hub_start_by_an_agent_a_remote_device_drives_is_refused() {
+    let (dir, root, cwd) = project();
+    let b = machine_b(&root);
+    // B gates a marked start's folder; this one has no Trust answer.
+    let gates = tempfile::tempdir().unwrap();
+    gate(&b, gates.path());
+    let agent_id = uuid::Uuid::now_v7().to_string();
+    let seed = json!({
+        "schema": crate::store::META_SCHEMA, "id": agent_id, "name": "agent", "harness": "fake",
+        "cwd": cwd, "status": "idle", "createdAt": 1, "updatedAt": 1
+    });
+    let a = machine_a_seeded(Arc::new(Loopback::new(&b, dir.path(), Some("person-1"))), &[seed]);
+    let agent = a.resolve(&agent_id).expect("the agent's chat on A");
+    agent.mark_last_turn_web_for_tests();
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(crate::server::serve_connection_with(a.clone(), in_rx, out_tx, Origin::Local));
+    let mut socket = Client(in_tx, out_rx, 0);
+    let hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "_meta": {"acpmux": {
+        "callerSession": {"sessionId": agent.id, "token": crate::hub::person::caller_token(&agent.id)}
+    }}});
+    let proven = socket.call("initialize", hello, &mut Vec::new()).await;
+    assert_eq!(proven["result"]["_meta"]["acpmux"]["callerSessionId"], json!(agent.id), "{proven}");
+    let refused =
+        socket.call("session/new", new_params(&cwd, "machine-b", "driven"), &mut Vec::new()).await;
+    assert!(b.resolve("driven").is_err(), "a remote-driven agent's start ran on B unmarked");
+    assert_eq!(refused["error"]["data"]["reason"], "mesh.local_only", "{refused}");
+    a.shutdown_all().await;
     b.shutdown_all().await;
 }
 
