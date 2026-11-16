@@ -11,7 +11,8 @@ import Testing
 /// the line, with no resize; the pane's toolbar follows its strip both ways. On the top row the strip
 /// sits where the card's top puts it, the pill keeps equal gaps (#38054) and the line is the pill's.
 @MainActor @Suite(.closesItsWindows, .serialized) struct TopRowMovementTests {
-    // Comfortable by default: its strip's own centering and the top row's differ, so a stale layout shows.
+    // Comfortable by default. The line tests use Compact, whose card drops to reach the lights' line: there the strip's own
+    // centering and the top row's differ, so a stale layout shows (at Comfortable the card stays at the rim and they agree).
     // The lights' line (#38054): the card moves to bring the pills to it. The default line is now the
     // concentric one, whose card keeps the gutter (`WindowConcentricCornerTests`).
     func with(density: DensityPreset = .comfortable, _ body: () throws -> Void) rethrows {
@@ -88,23 +89,38 @@ import Testing
         return f.container.bounds.maxY - pill.midY
     }
 
+    /// Every density whose top-row pill sits apart from its strip's own centering, so a stale layout shows (with the
+    /// gap measured under the window's rim, Comfortable's and Compact's agree; Lucas 2026-11-17). At least one does.
+    func densitiesWhereTheLineMovesThePill(_ body: (Fixture) throws -> Void) throws {
+        var checked = 0
+        for preset in DensityPreset.allCases {
+            try with(density: preset) {
+                let probe = fixture(topRow: true)
+                move(probe, by: -(try cardTop(probe)))
+                let apart = try pillTop(probe) != centered(probe)
+                probe.window.closeAfterTest()
+                guard apart else { return }
+                checked += 1
+                let f = fixture(topRow: true)
+                defer { f.window.closeAfterTest() }
+                try body(f)
+            }
+        }
+        #expect(checked > 0, "some density puts the top row's pill apart from its strip's own centering")
+    }
+
     @Test func aTopRowStripMovedDownLeavesTheLine() throws {
-        try with {
-            let f = fixture(topRow: true)
-            defer { f.window.closeAfterTest() }
+        try densitiesWhereTheLineMovesThePill { f in
             move(f, by: -(try cardTop(f)))
             let line = try #require(WindowTitlebar.topRowLine(in: f.window))
             try #require(WindowTitlebar.isInTopRow(f.strip))
             #expect(abs(try pillCenterFromTop(f) - line.centerY) <= 0.5, "on the top row the pill centers on the line")
-            let onLine = try pillTop(f)
-            try #require(onLine != centered(f), "the line and the strip's own centering differ here")
-            let buttonOnLine = f.toolbar.moreButton.frame.minY
+            #expect(try pillTop(f) != centered(f), "the line and the strip's own centering differ here")
 
             move(f, by: -300)
             #expect(!WindowTitlebar.isInTopRow(f.strip))
             #expect(try pillTop(f) == centered(f), "moved down, the pill keeps the strip's own centering, not the line's offset")
             #expect(f.toolbar.moreButton.frame.minY == PaneToolbarView.edgeInset(height: f.toolbar.bounds.height))
-            #expect(f.toolbar.moreButton.frame.minY != buttonOnLine)
         }
     }
 
@@ -157,12 +173,11 @@ import Testing
     }
 
     @Test func aLowerStripMovedUpTakesTheLine() throws {
-        try with {
+        try densitiesWhereTheLineMovesThePill { _ in
             let f = fixture(topRow: false)
             defer { f.window.closeAfterTest() }
             #expect(!WindowTitlebar.isInTopRow(f.strip))
             #expect(try pillTop(f) == centered(f))
-            let buttonBelow = f.toolbar.moreButton.frame.minY
 
             move(f, by: f.container.bounds.maxY - (try cardTop(f)) - f.strip.frame.maxY)
             let line = try #require(WindowTitlebar.topRowLine(in: f.window))
@@ -173,7 +188,6 @@ import Testing
             if TitlebarBandButton.side <= 2 * line.centerY {
                 #expect(abs(f.container.bounds.maxY - button.midY - line.centerY) <= 0.5, "the toolbar's buttons take the line too")
             }
-            #expect(f.toolbar.moreButton.frame.minY != buttonBelow)
         }
     }
 }

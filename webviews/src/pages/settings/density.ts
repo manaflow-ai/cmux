@@ -75,6 +75,10 @@ const REFERENCE_TOKENS: Record<string, number> = {
   omnibarPopupBottomPadding: 4,
 };
 
+/** Swift `DensityPreset.isOmnibarToken`: every `omnibar*` size and the toolbar glyphs beside the bar. */
+const omnibarTokens = (tokens: Record<string, number>) =>
+  Object.fromEntries(Object.entries(tokens).filter(([key]) => key.startsWith("omnibar") || key === "toolbarGlyphSize"));
+
 /** A built-in as Swift `DensityPreset.tokens` makes it: Default's level, spacing and body text times one factor,
  *  and the owner's row height exact (Lucas 2026-11-16: 24, 28, 30, 32 and 36 pt rows). */
 function preset(id: string, name: string, nameKey: string, factor: number, row: number): Density & { nameKey: string } {
@@ -90,6 +94,8 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
   tokens.sidebarRowHeight = row - half(2 * factor);
   tokens.browserRowHeight = row;
   tokens.tabStripHeight = row + 2 * half(3 * factor);
+  // Default's omnibar is Compact's (Swift `DensityPreset.omnibarScaleFactor`).
+  if (id === "cozy") Object.assign(tokens, omnibarTokens(preset("compact", "", "", 0.9, 28).tokens!));
   return {
     id,
     name,

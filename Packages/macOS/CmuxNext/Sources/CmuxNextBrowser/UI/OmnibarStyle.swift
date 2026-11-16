@@ -212,7 +212,8 @@ enum OmnibarStyle {
             if WindowTitlebar.isInTopRow(strip, in: window) {
                 let tab = min(chrome.tabHeight, stripHeight)
                 let row = PaneChromeMetrics(stripHeight: stripHeight, tabHeight: tab, panePadding: 0)
-                underPills = max(0, stripHeight - row.pillTop(stripTop: content.bounds.maxY - strip.maxY, scale: scale) - tab)
+                let stripTop = content.bounds.maxY - strip.maxY
+                underPills = max(0, stripHeight - row.pillTop(stripTop: stripTop, rim: WindowTitlebar.topRowRim(in: window), scale: scale) - tab)
             }
         }
         return underPills + toolbarPadding

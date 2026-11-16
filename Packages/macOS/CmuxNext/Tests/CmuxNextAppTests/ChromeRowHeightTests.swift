@@ -117,8 +117,8 @@ import Testing
         #expect(abs(back.width - omnibar) <= 0.5, "\(label), back button is square: \(back.width)")
         #expect(abs(bar.height - omnibar) <= 0.5, "\(label), omnibar \(bar.height)")
         #expect(abs(pill.height - row) <= 0.5, "\(label): the tab follows the visible row")
-        let expectedBar = (29 * CGFloat(preset.scaleFactor) * 2).rounded() / 2
-        #expect(abs(bar.height - expectedBar) <= 0.5, "\(label): the bar scales Default's 29 pt reference")
+        let expectedBar = (29 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2
+        #expect(abs(bar.height - expectedBar) <= 0.5, "\(label): the bar scales Default's 29 pt reference (Compact's at Default)")
     }
 
     @Test(arguments: DensityPreset.allCases)
@@ -154,7 +154,7 @@ import Testing
         // Compact's 14 pt reload ink calibrates the shared toolbar box (0.617 of its side); the back arrow's
         // keyline fills 0.6 of that box. Both scale from Default, independently of the small-icon fallback.
         let arrowWidth = arrowInk.upperBound - arrowInk.lowerBound
-        let box = ((14 / 0.9 / 0.617) * CGFloat(preset.scaleFactor) * 2).rounded() / 2
+        let box = ((14 / 0.9 / 0.617) * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2 // Default's toolbar row is Compact's
         let ink = box * DensityTokens.toolbarGlyphInkRatio
         #expect(abs(arrowWidth - ink) <= 1, "\(preset): back arrow ink \(arrowWidth) wide, want \(ink)")
     }

@@ -34,7 +34,7 @@ import Testing
             defer { window.close() }
             let chrome = chrome(in: window)
             let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
-            let row = (29 * CGFloat(preset.scaleFactor) * 2).rounded() / 2
+            let row = (29 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2 // Default's omnibar is Compact's
             #expect(reload.width == row && reload.height == row, "the reload button is \(reload.size), the bar \(row)")
             // The hover corner is the buttons' one corner, a tab's (`Metrics.buttonCornerRadius`), and the glyph's ink a
             // point under the small icon (Helium's 13 pt at Default; Lucas 2026-11-13).
@@ -57,7 +57,7 @@ import Testing
             let forward = chrome.forwardButton.convert(chrome.forwardButton.bounds, to: nil)
             let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
             #expect(!chrome.forwardButton.isHidden)
-            let gap = (3 * CGFloat(preset.scaleFactor) * 2).rounded() / 2
+            let gap = (3 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2
             #expect(OmnibarStyle.buttonSpacing == gap)
             #expect(abs(forward.minX - back.maxX - gap) <= 0.01, "back to forward \(forward.minX - back.maxX)")
             #expect(abs(reload.minX - forward.maxX - gap) <= 0.01, "forward to reload \(reload.minX - forward.maxX)")
@@ -75,7 +75,7 @@ import Testing
             #expect(OmnibarStyle.barHeight == (Metrics.densityToken("omnibarHeight") ?? Metrics.tabHeight))
             #expect(OmnibarStyle.chipButtonCornerRadius == (OmnibarStyle.chipSize * 8 / 28 * 2).rounded() / 2)
             #expect(OmnibarStyle.barMargin == 2 * OmnibarStyle.buttonSpacing)
-            #expect(OmnibarStyle.buttonSpacing == 3)
+            #expect(OmnibarStyle.buttonSpacing == 2.5, "Compact's 3 pt times 0.9: Default's omnibar is Compact's")
         }
     }
 

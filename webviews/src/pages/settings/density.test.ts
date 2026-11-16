@@ -126,7 +126,8 @@ test("duplicating and exporting a preset preserves the native chrome and compose
       expect(density.tokens?.composerZoom).toBe(factor);
       expect(density.tokens?.tabTitleSize).toBeCloseTo(14 * factor);
       expect(density.tokens?.sidebarTitleSize).toBeCloseTo(14 * factor);
-      expect(density.tokens?.omnibarHeight).toBe(Math.round(29 * factor * 2) / 2);
+      // Default's omnibar is Compact's.
+      expect(density.tokens?.omnibarHeight).toBe(Math.round(29 * (factor === 1 ? 0.9 : factor) * 2) / 2);
       expect(density.tokens?.sidebarRowHeight).toBe([22.5, 26, 28, 30, 33.5][index]);
       expect(resolve(density)).toEqual(resolve(base));
     }

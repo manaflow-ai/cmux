@@ -36,15 +36,20 @@ import Testing
 
     @Test(arguments: DensityPreset.allCases)
     func builtInsScaleDefaultsOmnibar(preset: DensityPreset) {
-        let reference = OmnibarMetrics(tokens: DensityPreset.cozy.tokens)
+        // Default's reference: the 29 pt bar and buttons, the 14 pt chip glyph, Helium's glyphs and 18 pt trailing icons.
+        // Each density scales it by its omnibar factor, Compact's at Default.
         let metrics = OmnibarMetrics(tokens: preset.tokens)
-        let t = CGFloat(preset.scaleFactor)
-        for (size, base) in [(metrics.barHeight, reference.barHeight),
-                             (metrics.buttonSize, reference.buttonSize), (metrics.iconPointSize, reference.iconPointSize),
-                             (metrics.toolbarIconSize, CGFloat(14 / 0.9 / 0.617)), (metrics.trailingIconSize, reference.trailingIconSize)] {
-            #expect(size == (base * t * 2).rounded() / 2)
+        let t = CGFloat(preset.omnibarScaleFactor)
+        for (size, base) in [(metrics.barHeight, 29), (metrics.buttonSize, 29), (metrics.iconPointSize, 14),
+                             (metrics.toolbarIconSize, CGFloat(14 / 0.9 / 0.617)), (metrics.trailingIconSize, 18)] as [(CGFloat, CGFloat)] {
+            #expect(size == (base * t * 2).rounded() / 2, "\(preset)")
         }
-        #expect(metrics.fontSize == reference.fontSize * t)
+        #expect(abs(metrics.fontSize - CGFloat((10 / 0.9 - 0.14) / 0.70459) * t) < 0.000_001)
+    }
+
+    /// Lucas 2026-11-17: Default's omnibar is Compact's, every size the bar draws.
+    @Test func defaultsOmnibarIsCompacts() {
+        #expect(OmnibarMetrics(tokens: DensityPreset.cozy.tokens) == OmnibarMetrics(tokens: DensityPreset.compact.tokens))
     }
 
     @Test func levelOneIsTheComfortableRow() {

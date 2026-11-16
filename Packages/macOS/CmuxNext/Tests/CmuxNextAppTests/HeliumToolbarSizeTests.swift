@@ -29,9 +29,9 @@ import Testing
         let icon = try #require(chrome.addressBar.chip.subviews.compactMap { $0 as? NSImageView }.first { !$0.isHidden })
         let search = try #require(try SidebarRowGlyphOpticalSizeTests.inkBox(icon))
         let font = try #require(chrome.addressBar.field.font)
-        let scale = CGFloat(preset.scaleFactor) / 0.9
+        let scale = CGFloat(preset.omnibarScaleFactor) / 0.9 // Default's toolbar row is Compact's
         let caps = font.capHeight + 0.14 // what the eye measures: smoothing lights the row above the capitals
-        let tolerance: CGFloat = preset == .compact ? 0.5 : 1
+        let tolerance: CGFloat = preset.omnibarScaleFactor == DensityPreset.compact.scaleFactor ? 0.5 : 1
         #expect(abs(reload.height - 14 * scale) <= tolerance, "\(preset): the reload glyph is \(reload.height) tall, want \(14 * scale)")
         #expect(abs(search.height - 12 * scale) <= tolerance, "\(preset): the search glyph is \(search.height) tall, want \(12 * scale)")
         #expect(abs(caps - 10 * scale) <= 0.25, "\(preset): the URL's capitals are \(caps) tall, want \(10 * scale)")

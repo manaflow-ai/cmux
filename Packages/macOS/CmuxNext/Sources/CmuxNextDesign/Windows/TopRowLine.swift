@@ -77,8 +77,8 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
     /// Spacious, whose pills center below the lights' line with the card at the window's top) gives
     /// way to the pills': the toolbar band, the sidebar's + and the pane's buttons stay on the tabs'
     /// line, and the traffic lights move onto it (``TrafficLightsLine``).
-    public func reached(by metrics: PaneChromeMetrics, cardTop: CGFloat, scale: CGFloat) -> TopRowLine {
-        TopRowLine(centerY: metrics.topRowPillCenter(cardTop: cardTop, scale: scale))
+    public func reached(by metrics: PaneChromeMetrics, cardTop: CGFloat, rim: CGFloat = 0, scale: CGFloat) -> TopRowLine {
+        TopRowLine(centerY: metrics.topRowPillCenter(cardTop: cardTop, rim: rim, scale: scale))
     }
 
     /// A control `side` tall centered on the line, its top from the window's top, on the pixel grid.
@@ -107,12 +107,13 @@ extension WindowTitlebar {
             return TopRowLine(centerY: stripTop + row.pillTop(scale: scale) + row.tabHeight / 2)
         }
         if look == .concentric {
-            // The card keeps its concentric gutter; the pills sit midway between the window's top edge and the strip's
-            // bottom (Lucas 2026-11-14: the top row's tabs had more room above than below), and the line is theirs.
-            return target.reached(by: row, cardTop: Metrics.windowEdgeInset(Metrics.mainPaneGutter, in: window), scale: scale)
+            // The card keeps its concentric gutter; the pills sit midway between the window's rim and the strip's
+            // bottom (Lucas 2026-11-14 and 2026-11-17: equal room above and below the top row's tabs), and the line is theirs.
+            return target.reached(by: row, cardTop: Metrics.windowEdgeInset(Metrics.mainPaneGutter, in: window),
+                                  rim: topRowRim(in: window), scale: scale)
         }
         let card = topRowCardTop(centeringPillOn: target.centerY, gutter: Metrics.mainPaneGutter, in: window, look: look)
-        return target.reached(by: row, cardTop: card, scale: scale)
+        return target.reached(by: row, cardTop: card, rim: topRowRim(in: window), scale: scale)
     }
 
     /// Whether the top row's strips center their pills between the window's top edge and the divider
@@ -156,9 +157,15 @@ extension WindowTitlebar {
         guard look != .off else {
             return Metrics.windowEdgeInset(min(gutter, PaneChromeMetrics.current.cardTopKeepingStripCentering(centeringPillOn: centerY, scale: scale)), in: window)
         }
-        let row = topRowMetrics(scale: scale), floor = Metrics.windowEdgeInset(0, in: window)
-        let card = max(min(gutter, row.cardTop(centeringPillOn: centerY, scale: scale)), floor)
-        return row.evenSplitCardTop(card, within: floor...max(gutter, floor), scale: scale)
+        let row = topRowMetrics(scale: scale), floor = topRowRim(in: window)
+        let card = max(min(gutter, row.cardTop(centeringPillOn: centerY, rim: floor, scale: scale)), floor)
+        return row.evenSplitCardTop(card, within: floor...max(gutter, floor), rim: floor, scale: scale)
+    }
+
+    /// The lit rim along `window`'s top edge (``PaneTabRowRim``), 0 for a fullscreen or borderless window:
+    /// the top row's gap above its pills starts under it (``PaneChromeMetrics/pillTop(stripTop:rim:scale:)``).
+    public static func topRowRim(in window: NSWindow) -> CGFloat {
+        Metrics.windowEdgeInset(0, in: window)
     }
 
     /// Lays out every view of `window` again: the sidebar (every window has one) calls it when Debug Settings picks

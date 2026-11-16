@@ -56,10 +56,22 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
         sizes["sidebarRowHeight"] = rowHeight - Double(DensityTokens.half(2 * t))
         sizes["browserRowHeight"] = rowHeight
         sizes["tabStripHeight"] = rowHeight + 2 * Double(DensityTokens.half(3 * t))
+        // Default's omnibar is Compact's (``omnibarScaleFactor``).
+        if self == .cozy {
+            for (key, value) in Self.compact.tokens.tokens where Self.isOmnibarToken(key) { sizes[key] = value }
+        }
         return DensityTokens(id: rawValue, name: name, level: (Self.referenceTokens.level + 3) * t - 3,
                              spacing: Self.referenceTokens.spacing * t,
                              fontSize: Self.referenceTokens.fontSize.map { $0 * t }, tokens: sizes)
     }
+
+    /// The factor the browser toolbar row (the omnibar and its toolbar glyphs) scales Default's reference by: Compact's
+    /// at Default (Lucas 2026-11-17: "the default omnibar should be the same as compact omnibar, we should match them
+    /// exactly"), each density's own elsewhere. The toolbar buttons follow the omnibar's height.
+    public var omnibarScaleFactor: Double { self == .cozy ? Self.compact.scaleFactor : scaleFactor }
+
+    /// The sizes ``omnibarScaleFactor`` scales: every `omnibar*` token and the toolbar glyphs beside the bar.
+    static func isOmnibarToken(_ key: String) -> Bool { key.hasPrefix("omnibar") || key == "toolbarGlyphSize" }
 
     // The unscaled reference also resolves sizes that use the legacy compact/comfortable pairs.
     static let referenceTokens = DensityTokens(id: cozy.rawValue, name: "Default", level: 0.5, fontSize: 14,

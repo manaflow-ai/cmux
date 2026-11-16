@@ -24,11 +24,11 @@ import Testing
     /// Every `omnibar*` size of Default is Compact's, and the bar, its text, icons and buttons resolve alike.
     @Test func defaultsOmnibarIsCompacts() {
         let cozy = DensityPreset.cozy.tokens, compact = DensityPreset.compact.tokens
-        let keys = compact.tokens.keys.filter { $0.hasPrefix("omnibar") }
+        let keys = compact.tokens.keys.filter { $0.hasPrefix("omnibar") } + ["toolbarGlyphSize"]
         #expect(keys.count > 10)
         for key in keys { #expect(cozy.tokens[key] == compact.tokens[key], "omnibar token \(key)") }
         #expect(cozy.fontToken("omnibarFontSize") == compact.fontToken("omnibarFontSize"))
-        #expect(cozy.toolbarButtonSize == compact.toolbarButtonSize)
+        #expect(cozy.toolbarButtonSize == compact.toolbarButtonSize && cozy.toolbarGlyphSize == compact.toolbarGlyphSize)
     }
 
     @Test func theInitialDensityIsCompact() {
@@ -53,8 +53,8 @@ import Testing
         let fonts = ["tabTitleSize", "sidebarTitleSize", "omnibarFontSize"]
         let exceptions = ratios + ["sidebarRowHeight", "browserRowHeight", "tabStripHeight"]
         // Default's omnibar is Compact's (`defaultsOmnibarIsCompacts`); everything else is Default's reference times t.
-        let omnibarT = preset == .cozy ? DensityPreset.compact.scaleFactor : t
-        func factor(_ key: String) -> Double { key.hasPrefix("omnibar") ? omnibarT : t }
+        let omnibarT = preset.omnibarScaleFactor
+        func factor(_ key: String) -> Double { DensityPreset.isOmnibarToken(key) ? omnibarT : t }
         for (key, unscaled) in DensityPreset.referenceTokens.tokens where !exceptions.contains(key) {
             let value = try #require(tokens.tokens[key])
             let expected = fonts.contains(key) ? unscaled * factor(key) : half(unscaled * factor(key))

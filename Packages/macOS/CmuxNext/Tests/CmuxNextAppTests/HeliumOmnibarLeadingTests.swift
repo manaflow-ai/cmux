@@ -7,7 +7,7 @@ import Testing
     @Test(arguments: DensityPreset.allCases)
     func everyDensityKeepsDefaultsColumn(preset: DensityPreset) {
         DensityTokens.$scoped.withValue(preset.tokens) {
-            let t = CGFloat(preset.scaleFactor)
+            let t = CGFloat(preset.omnibarScaleFactor) // Default's omnibar is Compact's
             func half(_ value: CGFloat) -> CGFloat { (value * 2).rounded() / 2 }
             let bar = half(29 * t), edge = half(2 * t)
             let chip = min(half(25 * t), bar - 2 * edge)

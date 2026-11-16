@@ -136,7 +136,7 @@ import Testing
         // The pills sit midway between the window's top edge and the strip's bottom (Lucas 2026-11-14: equal room above
         // and below the top row's tabs), and the controls center on them.
         let row = PaneChromeMetrics.current
-        #expect(line.centerY == row.topRowPillCenter(cardTop: side, scale: window.backingScaleFactor),
+        #expect(line.centerY == row.topRowPillCenter(cardTop: side, rim: WindowTitlebar.topRowRim(in: window), scale: window.backingScaleFactor),
                 "the controls center on the pills, evened between the window's top and the strip's bottom")
     }
 }

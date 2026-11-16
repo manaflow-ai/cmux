@@ -70,7 +70,9 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
         // The chip is the bar less 2 pt on each side. Its glyph draws at `iconRowSize`, about 1.2
         // times this point size (13 -> 16 at Standard), and keeps 2 pt inside the chip, so a short
         // bar shrinks it (a suggestion row centers the glyph on the chip's center).
-        iconPointSize = min(tokens.resolve(compact: 13, comfortable: 15), ((barHeight - 8) / 1.2).rounded(.down))
+        // Default's omnibar is Compact's (`DensityPreset.omnibarScaleFactor`), so its level-based sizes are Compact's too.
+        let levelTokens = tokens.isBuiltIn && tokens.id == DensityPreset.cozy.rawValue ? DensityPreset.compact.tokens : tokens
+        iconPointSize = min(levelTokens.resolve(compact: 13, comfortable: 15), ((barHeight - 8) / 1.2).rounded(.down))
         toolbarIconSize = min(glyphSide ?? tokens.toolbarGlyphSize, buttonSize)
         // A density's `omnibarTrailingIconSize` (Helium's `kLocationBarTrailingIconSize` 18, Chrome's 20).
         trailingIconSize = min(tokens.tokens["omnibarTrailingIconSize"].map { CGFloat($0) } ?? tokens.resolve(compact: 18, comfortable: 20), barHeight - 6)

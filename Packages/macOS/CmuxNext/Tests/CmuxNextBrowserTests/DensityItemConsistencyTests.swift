@@ -17,10 +17,10 @@ import Testing
 
     nonisolated static let expected: [DensityPreset: Expected] = Dictionary(uniqueKeysWithValues:
         zip(DensityPreset.allCases, [24.0, 28, 30, 32, 36]).map { preset, row in
-            let t = preset.scaleFactor
+            let t = preset.scaleFactor, o = preset.omnibarScaleFactor // Default's omnibar is Compact's
             func half(_ value: Double) -> Double { (value * 2).rounded() / 2 }
-            return (preset, Expected(omnibar: half(29 * t), tab: row, row: row,
-                                     omnibarRadius: half(8 * t), cardRadius: half(12 * t), tabRadius: half(9 * t), rowRadius: half(9 * t)))
+            return (preset, Expected(omnibar: half(29 * o), tab: row, row: row,
+                                     omnibarRadius: half(8 * o), cardRadius: half(12 * o), tabRadius: half(9 * t), rowRadius: half(9 * t)))
         })
 
     private func inDensity(_ preset: DensityPreset, _ body: () throws -> Void) rethrows {
