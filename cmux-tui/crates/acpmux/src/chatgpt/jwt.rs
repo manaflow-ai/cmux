@@ -124,8 +124,9 @@ pub(crate) fn verify(
     {
         return Err(Invalid::Algorithm);
     }
-    let message = &token.as_bytes()[..head.len() + 1 + body.len()];
-    verify_signature(alg, key, message, &b64(sig)?)?;
+    // The signed bytes: `head.body`, everything before the last `.` (three parts, checked above).
+    let (message, _) = token.rsplit_once('.').ok_or(Invalid::Malformed)?;
+    verify_signature(alg, key, message.as_bytes(), &b64(sig)?)?;
     let claims = json_part(body)?;
     if claims.get("iss").and_then(Value::as_str) != Some(issuer) {
         return Err(Invalid::Issuer);

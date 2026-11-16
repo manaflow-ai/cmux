@@ -397,9 +397,10 @@ fn last_json(text: &str) -> Option<Value> {
         return Some(value);
     }
     let starts = text.match_indices('\n').map(|(at, _)| at + 1).chain(std::iter::once(0));
-    let mut starts = starts.filter(|at| text[*at..].starts_with(['{', '['])).collect::<Vec<_>>();
+    let tail = |at: usize| text.get(at..).unwrap_or_default();
+    let mut starts = starts.filter(|at| tail(*at).starts_with(['{', '['])).collect::<Vec<_>>();
     starts.sort_unstable();
-    starts.iter().find_map(|at| serde_json::from_str::<Value>(text[*at..].trim()).ok()).or_else(
+    starts.iter().find_map(|at| serde_json::from_str::<Value>(tail(*at).trim()).ok()).or_else(
         || text.lines().rev().find_map(|line| serde_json::from_str::<Value>(line.trim()).ok()),
     )
 }

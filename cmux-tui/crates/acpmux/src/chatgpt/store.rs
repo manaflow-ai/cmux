@@ -81,12 +81,7 @@ impl Record {
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
     let parent = path.parent().ok_or_else(|| std::io::Error::other("no parent folder"))?;
-    std::fs::create_dir_all(parent)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
-    }
+    crate::home_fs::private_dir(parent)?;
     let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
     // NamedTempFile is created 0600 on Unix; the explicit call also covers Windows' access list.
     crate::router_socket::owner_only(tmp.path());
@@ -155,7 +150,7 @@ pub(crate) fn write(home: &Path, id: &str, record: &Record) -> std::io::Result<(
 }
 
 pub(crate) fn delete(home: &Path, id: &str) -> std::io::Result<()> {
-    match std::fs::remove_file(record_path(home, id)) {
+    match crate::home_fs::remove_file(record_path(home, id)) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
         _ => Ok(()),
     }

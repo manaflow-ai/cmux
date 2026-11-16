@@ -2409,6 +2409,9 @@ mod cancel_classes_tests;
 mod cancel_prompt_tests;
 mod client_request;
 mod clock_text;
+#[cfg(test)]
+#[path = "connection_token_tests.rs"]
+mod connection_token_tests;
 mod in_flight;
 pub(crate) use change_kind::session_change_kind;
 pub(crate) use clock_text::{civil_from_days, iso};

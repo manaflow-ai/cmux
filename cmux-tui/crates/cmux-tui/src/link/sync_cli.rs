@@ -464,9 +464,6 @@ pub(super) fn push_failure(error: &anyhow::Error) -> (String, String) {
     if let Some(too_big) = error.downcast_ref::<TooBig>() {
         return ("folder_too_big".to_string(), too_big.to_string());
     }
-    if let Some(large) = error.downcast_ref::<size_cap::TooLarge>() {
-        return (size_cap::CODE.to_string(), large.to_string());
-    }
     match remote::refusal_code(error) {
         Some("fs.no_space") => {
             ("disk_full".to_string(), "The Cloud machine's disk is full".to_string())

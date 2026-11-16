@@ -230,13 +230,12 @@ fn record_json(pid: u32, env: &dyn Fn(&str) -> Option<String>) -> Value {
 pub fn record_daemon_env(home: &Path) -> std::io::Result<()> {
     let body = record_json(std::process::id(), &|k| std::env::var(k).ok()).to_string();
     let tmp = home.join(format!("{ENV_FILE}.{}.tmp", std::process::id()));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let _ = std::fs::remove_file(&tmp);
-    std::io::Write::write_all(&mut options.open(&tmp)?, body.as_bytes())?;
-    std::fs::rename(&tmp, home.join(ENV_FILE))
+    let _ = crate::home_fs::remove_file(&tmp);
+    let mut file =
+        crate::home_fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
+    std::io::Write::write_all(&mut file, body.as_bytes())?;
+    drop(file);
+    crate::home_fs::rename(&tmp, home.join(ENV_FILE))
 }
 
 /// The lock holder's pid and its recorded env; `None` when no daemon holds the lock or its record
@@ -246,10 +245,11 @@ fn read_daemon_env(home: &Path) -> Option<(u32, BTreeMap<String, String>)> {
     let pid: u32 = text.lines().next()?.trim().parse().ok()?;
     let record: Value =
         serde_json::from_str(&std::fs::read_to_string(home.join(ENV_FILE)).ok()?).ok()?;
-    if record["pid"].as_u64() != Some(u64::from(pid)) {
+    if record.get("pid").and_then(Value::as_u64) != Some(u64::from(pid)) {
         return None;
     }
-    let env = record["env"]
+    let env = record
+        .get("env")?
         .as_object()?
         .iter()
         .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
@@ -277,20 +277,22 @@ pub fn run(json_out: bool) -> i32 {
         &home_dir(),
         managed,
     );
-    let ok = value["ok"] == true;
+    let ok = value.get("ok") == Some(&Value::Bool(true));
     if json_out {
         println!("{value}");
     } else {
         for name in ["claude", "codex"] {
-            let a = &value["agents"][name];
+            let field = |key: &str| value.pointer(&format!("/agents/{name}/{key}"));
+            let edge = field("edge_routed") == Some(&Value::Bool(true));
             println!(
                 "{name}: {} (key {}, {})",
-                a["base_url"].as_str().unwrap_or("no base URL"),
-                a["key"].as_str().unwrap_or("?"),
-                if a["edge_routed"] == true { "through the edge" } else { "not through the edge" }
+                field("base_url").and_then(Value::as_str).unwrap_or("no base URL"),
+                field("key").and_then(Value::as_str).unwrap_or("?"),
+                if edge { "through the edge" } else { "not through the edge" }
             );
         }
-        println!("login files: {}", value["login_files"].as_array().map_or(0, Vec::len));
+        let login_files = value.get("login_files").and_then(Value::as_array).map_or(0, Vec::len);
+        println!("login files: {login_files}");
         println!("{}", if ok { "ok" } else { "not ok" });
     }
     if ok { 0 } else { 1 }

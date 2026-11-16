@@ -249,16 +249,16 @@ fn set_codex_provider(argv: &mut Vec<String>, provider: &str, env_key: &str) {
     // Every earlier `-c model_provider=…` (or `--config`) pair goes: the last one would win anyway,
     // and the argv then says one provider.
     let mut i = 1;
-    while i < argv.len() {
-        let flag = argv[i] == "-c" || argv[i] == "--config";
+    while let Some(arg) = argv.get(i) {
+        let flag = arg == "-c" || arg == "--config";
+        let joined =
+            arg.starts_with("--config=model_provider=") || arg.starts_with("-cmodel_provider=");
         if flag && argv.get(i + 1).is_some_and(|v| v.starts_with("model_provider=")) {
-            argv.drain(i..i + 2);
-        } else if argv[i].starts_with("--config=model_provider=")
-            || argv[i].starts_with("-cmodel_provider=")
-        {
+            argv.drain(i..i.saturating_add(2));
+        } else if joined {
             argv.remove(i);
         } else {
-            i += 1;
+            i = i.saturating_add(1);
         }
     }
     for (offset, arg) in codex_provider_args(provider, env_key).into_iter().enumerate() {

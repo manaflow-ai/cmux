@@ -66,11 +66,12 @@ pub fn verdict(stdout: &str) -> Verdict {
         Reported::Other => return Verdict::Invalid,
         Reported::Report(report) => report,
     };
-    if report["ok"].as_bool() == Some(true) {
+    let flag = |pointer: &str| report.pointer(pointer).and_then(Value::as_bool);
+    if flag("/ok") == Some(true) {
         Verdict::Ready
-    } else if report["holds_credential"].as_bool() != Some(false) {
+    } else if flag("/holds_credential") != Some(false) {
         Verdict::HoldsCredential
-    } else if report["daemon"]["running"].as_bool() != Some(true) {
+    } else if flag("/daemon/running") != Some(true) {
         Verdict::NoDaemon
     } else {
         Verdict::NotEdge

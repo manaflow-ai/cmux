@@ -116,7 +116,8 @@ pub(super) fn route(
         matches!(plan.operation, WireOperation::Typed(ResourceOperation::WorkspaceList));
     match route_for(global)? {
         Route::Refused(error)
-            if lists_workspaces && error["code"].as_str() == Some("machine.unreachable") =>
+            if lists_workspaces
+                && error.get("code").and_then(Value::as_str) == Some("machine.unreachable") =>
         {
             None
         }

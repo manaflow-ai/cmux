@@ -576,10 +576,10 @@ async fn read_target(stream: &mut tokio::net::TcpStream) -> Option<String> {
     let mut chunk = [0u8; 1024];
     while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
         let n = stream.read(&mut chunk).await.ok()?;
-        if n == 0 || buf.len() + n > MAX_REQUEST {
+        let Some(read) = chunk.get(..n).filter(|_| n != 0 && buf.len() + n <= MAX_REQUEST) else {
             break;
-        }
-        buf.extend_from_slice(&chunk[..n]);
+        };
+        buf.extend_from_slice(read);
     }
     let text = std::str::from_utf8(&buf).ok()?;
     let mut line = text.lines().next()?.split(' ');

@@ -52,6 +52,15 @@ pub(super) const CONNECTIONS_NOTE: &str = "_acpmux_connections";
 /// The longest `chatgpt.wait` holds a request.
 const WAIT_LIMIT: Duration = Duration::from_secs(25);
 
+/// Whether `m` answers a connection's token (`_acpmux/connections/credential`,
+/// `_acpmux/connections/chatgpt.token`): read only on a connection that proved the person
+/// (`hub/person.rs`), the Mac app's person line. An agent runs as the user and reaches the same
+/// socket, with a proven caller session, a wrong token, or nothing at all, so anything short of
+/// the person proof is refused (`requests.rs`).
+pub(super) fn reads_token(m: &str) -> bool {
+    matches!(m, method::MUX_CONNECTIONS_CREDENTIAL | method::MUX_CONNECTIONS_CHATGPT_TOKEN)
+}
+
 /// Route writes that change the connection list (announced after they succeed).
 pub(super) fn changes_connections(m: &str) -> bool {
     matches!(

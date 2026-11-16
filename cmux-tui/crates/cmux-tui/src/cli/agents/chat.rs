@@ -841,8 +841,8 @@ pub(super) mod acp {
         socket: Option<&Path>,
     ) -> Result<Value, String> {
         let mut params = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
-        if let Some(cwd) = cwd {
-            params["cwd"] = json!(cwd);
+        if let (Some(cwd), Some(object)) = (cwd, params.as_object_mut()) {
+            object.insert("cwd".into(), json!(cwd));
         }
         block_on(async {
             client(socket).await?.request(acpmux::rpc::method::SESSION_NEW, params).await

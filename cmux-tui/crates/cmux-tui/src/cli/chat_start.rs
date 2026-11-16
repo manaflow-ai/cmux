@@ -1146,7 +1146,7 @@ pub(super) fn peer_words(
     words.extend(["agents", "chat", "new", "--peer"].map(str::to_owned));
     words.push(peer.to_owned());
     words.extend(new_args(start)?);
-    let checked: Vec<&str> = words[prefix.len() + 3..].iter().map(String::as_str).collect();
+    let checked: Vec<&str> = words.iter().skip(prefix.len() + 3).map(String::as_str).collect();
     super::agents::chat_control::parse_new(&checked)?;
     Ok(words)
 }

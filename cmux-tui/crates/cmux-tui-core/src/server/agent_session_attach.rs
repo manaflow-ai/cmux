@@ -1184,8 +1184,7 @@ fn credentials(
     let spawned =
         std::thread::Builder::new().name("mux-agent-credentials".into()).spawn(move || {
             let answer = agent_session_start::connect(&worker_mux, &socket).and_then(|link| {
-                let mut params = credential.wire();
-                params["sessionId"] = json!(session);
+                let params = json!({"sessionId": session, "env": credential.env});
                 // A restart waits for the agent's new process (spawn, initialize, resume).
                 let reply = link.call("agent/credentials.update", params, CREDENTIALS_TIMEOUT);
                 link.close();
