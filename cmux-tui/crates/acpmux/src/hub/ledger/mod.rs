@@ -30,7 +30,7 @@ pub use query::{LedgerQuery, LedgerReply, Rollup, Row};
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
