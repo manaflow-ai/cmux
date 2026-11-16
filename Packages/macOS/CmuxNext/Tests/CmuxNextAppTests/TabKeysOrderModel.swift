@@ -75,12 +75,13 @@ nonisolated struct TabKeysRandom: Sendable {
 
 /// A model of the session daemon for one pane, as the app's requests see it. A request runs when it arrives: a create
 /// puts the tab at the END of the pane and makes one `tab-added` with the request's transaction; `move-tab` moves it
-/// by the daemon's index rule and makes one `tab-changed` with the tab's new index; `close-surface` makes one
-/// `tab-closed`. The model keeps each event and each reply until the test hands it over: events in their sequence
-/// order, replies in ANY order.
+/// by the daemon's index rule and makes one `tree-changed` and then one `tab-changed` with the tab's new index;
+/// `close-surface` makes one `tab-closed` and then one `tree-changed`. A `tree-changed` carries no transaction: the
+/// app answers it with a read of the whole tree (``snapshot(of:)``). The model keeps each event and each reply until
+/// the test hands it over: events in their sequence order, replies in ANY order.
 ///
-/// Not modelled: the full tree refresh that the daemon also asks for after a move, selection events, and each
-/// request other than these (it is refused as not connected and its command is kept in ``refused``).
+/// Not modelled: selection events, the daemon's own selected tab (a tree gives the fixture's value), and each request
+/// other than these (it is refused as not connected and its command is kept in ``refused``).
 @MainActor final class TabKeysModelDaemon {
     nonisolated struct Refusal: Error { let reason: String }
 
@@ -197,6 +198,7 @@ nonisolated struct TabKeysRandom: Sendable {
         entities[surface] = nil
         closed.insert(surface)
         emit(.tabClosed(gone))
+        emit(.treeChanged(transaction: nil))
         return true
     }
 
@@ -210,6 +212,7 @@ nonisolated struct TabKeysRandom: Sendable {
         guard place != old else { return #"{"moved":false,"undoable":false}"# }
         tabs.remove(at: old)
         tabs.insert(move.surface, at: place)
+        emit(.treeChanged(transaction: nil))
         emit(.tabChanged(delta(move.surface, entity, index: place, transaction: move.transaction)))
         return #"{"moved":true,"undoable":false}"#
     }
@@ -238,6 +241,27 @@ nonisolated struct TabKeysRandom: Sendable {
         let batch = Array(events.prefix(count))
         events.removeFirst(batch.count)
         return batch
+    }
+
+    /// The whole tree as the daemon holds it now, and the newest event sequence it holds: `base` (the tree the
+    /// session started from) with this pane's tabs replaced. Nil: `base` has no such pane, or the model holds a tab with
+    /// no entity.
+    func snapshot(of base: DaemonTree) -> (tree: DaemonTree, barrier: UInt64)? {
+        var tree = base
+        for workspace in tree.workspaces.indices {
+            for screen in tree.workspaces[workspace].screens.indices {
+                for index in tree.workspaces[workspace].screens[screen].panes.indices
+                where tree.workspaces[workspace].screens[screen].panes[index].id == pane {
+                    let start = Dictionary(tree.workspaces[workspace].screens[screen].panes[index].tabs.map { ($0.surface, $0) },
+                                           uniquingKeysWith: { first, _ in first })
+                    let held = tabs.compactMap { entities[$0] ?? start[$0] }
+                    guard held.count == tabs.count else { return nil }
+                    tree.workspaces[workspace].screens[screen].panes[index].tabs = held
+                    return (tree: tree, barrier: emitted.withLock { $0 })
+                }
+            }
+        }
+        return nil
     }
 
     /// Gives the reply at `index` of the waiting replies back to the app; returns what it answers.
