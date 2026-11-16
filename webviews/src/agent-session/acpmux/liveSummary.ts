@@ -77,7 +77,23 @@ const none = (): undefined => undefined;
 /// useSessionInfo.tsx `useSameValue`). A summary the pane scoped to a subagent differs in more than
 /// usage, so it keeps its own numbers.
 export function useLiveSummary<T extends Summary | undefined>(summary: T): T {
-  const live = useSyncExternalStore(liveSummary.subscribe, liveSummary.get, none);
+  return liveOf(useSyncExternalStore(liveSummary.subscribe, liveSummary.get, none), summary);
+}
+
+function liveOf<T extends Summary | undefined>(live: typeof entry, summary: T): T {
   if (!live || summary === undefined) return summary;
   return live.drawn === summary || sameButUsage(live.drawn, summary) ? (live.now as T) : summary;
+}
+
+/// One plain value read from `summary` as it is now (useLiveSummary): its reader renders only when
+/// that value changes, not on every usage update (the model chip's context percent).
+export function useLiveSummaryValue<V extends string | number | boolean | undefined>(
+  summary: Summary | undefined,
+  select: (summary: Summary | undefined) => V,
+): V {
+  return useSyncExternalStore(
+    liveSummary.subscribe,
+    () => select(liveOf(entry, summary)),
+    () => select(summary),
+  );
 }
