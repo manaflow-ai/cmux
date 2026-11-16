@@ -59,7 +59,7 @@ export function useEndedReplyCheck({
       if (why) noteReplyUnpainted(why, Math.round(node?.getBoundingClientRect().height ?? 0));
     }, REPLY_SETTLE_MS);
     return () => window.clearTimeout(timer);
-  }, [rows, sessionId, working, loading, dockSpace, scroller, host]);
+  }, [rows, sessionId, working, loading, dockSpace, scroller, host, follow]);
 }
 
 /// Whether the reader follows the newest row now, read when the check runs.
