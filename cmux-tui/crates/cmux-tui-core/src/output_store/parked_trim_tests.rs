@@ -130,7 +130,8 @@ fn write_snapshot(directory: &Path, n: u8, days_ago: u64, replay: &[u8]) {
 
 /// The pass as the writer runs it, with a disk that is not low: over a scan of the snapshots of `parked`.
 fn pass_over(directory: &Path, parked: &HashSet<TerminalPublicId>) -> Pass {
-    let snapshots = super::super::snapshot::scan(directory, |terminal| parked.contains(terminal));
+    let (_, snapshots) =
+        super::super::snapshot::scan(directory, |terminal| parked.contains(terminal));
     run_with(directory, &snapshots, parked, NOW, u64::MAX, false)
 }
 
@@ -219,6 +220,33 @@ fn the_start_reads_each_snapshot_header_one_time() {
         );
         let _ = fs::remove_dir_all(&directory);
     }
+}
+
+/// The start's reads say how many entries the store's directory has (the scan's one list gives them: each file and
+/// folder, of each kind) and how many terminals are parked: the start log gets the 2 numbers, so a slow start says
+/// how much it had to go over. Counts only: no time is compared.
+#[test]
+fn the_start_counts_the_directory_entries_and_the_parked_terminals() {
+    let directory = directory("start-counts");
+    let replay = replay_with_lines(20);
+    for n in 0..5 {
+        write_snapshot(&directory, n, 0, &replay);
+    }
+    // 2 entries that are no snapshot file: the list gives them and the scan reads no header of them.
+    fs::write(directory.join("other.tail"), b"x").unwrap();
+    fs::create_dir(directory.join("folder")).unwrap();
+    // A parked terminal with no snapshot file is counted too: the count is of the terminals.
+    let parked: HashSet<_> = [id(0), id(1), id(9)].into();
+    let ((lists, headers), reads) = disk_reads_of(|| {
+        super::super::start::trim_parked_and_read_ends(&directory, &parked, NOW, u64::MAX, false)
+    });
+    assert_eq!((lists, headers), (1, 5), "the count of the entries is of the scan's one list");
+    assert_eq!(
+        (reads.scan.entries, reads.scan.headers, reads.parked),
+        (7, 5, 3),
+        "(entries of the directory, headers read, parked terminals)"
+    );
+    let _ = fs::remove_dir_all(&directory);
 }
 
 /// The trim runs before the stream ends are known. A snapshot that the pass removes gives no stream end (the

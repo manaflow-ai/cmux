@@ -165,6 +165,11 @@ const MUX_BUILD_PARTS: [&str; 6] = [
     "mux.build.output_store.stream_ends",
 ];
 
+/// The counts that the start of the output store writes between its parts:
+/// an entry with a count and no time.
+const OUTPUT_STORE_COUNTS: [&str; 2] =
+    ["mux.build.output_store.directory_entries", "mux.build.output_store.parked_terminals"];
+
 /// A start names each part of `mux.build` one time, before the entry of the
 /// step itself, so a slow `mux.build` names its part. Names and counts only:
 /// no time is compared.
@@ -196,6 +201,37 @@ fn a_start_names_each_part_of_the_mux_build_step_one_time() {
         .find(|step| step["step"] == "mux.build.output_store.parked_trim")
         .unwrap();
     assert!(trim["rows"].as_u64().is_some(), "the parked trim entry has no count: {trim}");
+}
+
+/// The 2 counts of the output store's start: how many entries its directory
+/// has and how many terminals are parked. Each is an entry with a count and
+/// no time, one time in a start, next to the 4 timed parts of the store's
+/// start, so a slow part says how much it had to go over.
+#[test]
+fn a_start_counts_the_parked_terminals_and_the_entries_of_the_output_store() {
+    let dir = state_dir("counts");
+    let session = "startup-counts";
+
+    let owner = Owner::start(&dir.0, session);
+    let pid = owner.pid();
+    let lines = timing_lines(&dir.0, session, 1);
+    owner.stop();
+    let line = lines.last().unwrap();
+    assert_eq!(line["pid"].as_u64(), Some(u64::from(pid)), "{line}");
+    let steps = line["steps"].as_array().expect("steps is an array");
+    let named =
+        |wanted: &str| steps.iter().filter(|step| step["step"] == wanted).collect::<Vec<_>>();
+
+    for part in MUX_BUILD_PARTS {
+        assert_eq!(named(part).len(), 1, "{part} is in the start {} time(s)", named(part).len());
+    }
+    for count in OUTPUT_STORE_COUNTS {
+        let entries = named(count);
+        assert_eq!(entries.len(), 1, "{count} is in the start {} time(s): {line}", entries.len());
+        let entry = entries[0];
+        assert!(entry["rows"].as_u64().is_some(), "{count} has no count: {entry}");
+        assert_eq!(entry["ms"].as_f64(), Some(0.0), "{count} is a count, it has no time: {entry}");
+    }
 }
 
 #[test]

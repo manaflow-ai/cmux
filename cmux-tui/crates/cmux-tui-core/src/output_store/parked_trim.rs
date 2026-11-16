@@ -172,7 +172,8 @@ pub(super) fn run(
     min_free: u64,
 ) -> usize {
     // The writer's pass reads the headers of the parked snapshots only.
-    let snapshots = super::snapshot::scan(directory, |terminal_id| parked.contains(terminal_id));
+    let (_, snapshots) =
+        super::snapshot::scan(directory, |terminal_id| parked.contains(terminal_id));
     let low = low_disk(directory, min_free);
     run_with(directory, &snapshots, parked, now_ms, max_total_bytes, low).rewrites
 }

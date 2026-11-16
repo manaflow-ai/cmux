@@ -30,6 +30,12 @@ impl OutputStore {
     /// the count of its rewrites, and the stream ends (from the scanned
     /// headers, the tails and the segments). A part that did not run (memory
     /// mode has no parked trim) has 0.
+    ///
+    /// `parts` also gets 2 counts with no time, each before the entry that
+    /// grows with it: the entries of the store's directory that the scan's
+    /// list gave (`directory_entries`) and the terminals that the parked trim
+    /// went over (`parked_terminals`). A slow start then says how much its
+    /// slow part had to go over.
     pub(crate) fn start(&self, mux: &Arc<Mux>, parts: &mut StartupTimings) -> anyhow::Result<()> {
         let Some(directory) = self.directory.as_deref() else { return Ok(()) };
         let policy = PersistencePolicy::current(mux);
@@ -49,19 +55,22 @@ impl OutputStore {
             prune_at_start(mux, self, policy)
         };
         let (scan, trim) = (reads.scan, reads.trim);
+        let count = |of: usize| u64::try_from(of).unwrap_or(u64::MAX);
         parts.record(
             "mux.build.output_store.prune",
             pruning.elapsed().saturating_sub(scan.took + trim.took + reads.ends_took),
         );
+        parts.record_count("mux.build.output_store.directory_entries", count(scan.entries));
         parts.record_rows(
             "mux.build.output_store.snapshot_scan".to_owned(),
             scan.took,
-            u64::try_from(scan.headers).unwrap_or(u64::MAX),
+            count(scan.headers),
         );
+        parts.record_count("mux.build.output_store.parked_terminals", count(reads.parked));
         parts.record_rows(
             "mux.build.output_store.parked_trim".to_owned(),
             trim.took,
-            u64::try_from(trim.rewrites).unwrap_or(u64::MAX),
+            count(trim.rewrites),
         );
         let scanning = Instant::now();
         let mut resume = reads.stream_ends;
@@ -89,6 +98,8 @@ impl OutputStore {
 pub(super) struct ScanLap {
     pub(super) took: Duration,
     pub(super) headers: usize,
+    /// The entries of the store's directory that the scan's list gave: each file and folder, of each kind.
+    pub(super) entries: usize,
 }
 
 /// The parked trim of the start's prune ([`prune_at_start`]): how long it took
@@ -105,6 +116,8 @@ pub(super) struct ParkedTrimLap {
 pub(super) struct StartReads {
     pub(super) scan: ScanLap,
     pub(super) trim: ParkedTrimLap,
+    /// The parked terminals that the trim went over (with a snapshot file or not); 0 when no trim ran.
+    pub(super) parked: usize,
     /// How long it took to make the stream ends from the scanned headers.
     pub(super) ends_took: Duration,
     /// The stream end each snapshot recorded, by terminal: (generation, end).
@@ -114,8 +127,8 @@ pub(super) struct StartReads {
 /// One list of the directory and one read of each snapshot header.
 fn scan_all(directory: &Path) -> (ScanLap, Vec<snapshot::Scanned>) {
     let scanning = Instant::now();
-    let snapshots = snapshot::scan(directory, |_| true);
-    (ScanLap { took: scanning.elapsed(), headers: snapshots.len() }, snapshots)
+    let (entries, snapshots) = snapshot::scan(directory, |_| true);
+    (ScanLap { took: scanning.elapsed(), headers: snapshots.len(), entries }, snapshots)
 }
 
 /// The stream end that each of `snapshots` recorded, without the terminals of `removed`: a snapshot that the
@@ -154,7 +167,7 @@ pub(super) fn trim_parked_and_read_ends(
     let trim = ParkedTrimLap { took: trimming.elapsed(), rewrites: pass.rewrites };
     let reading = Instant::now();
     let stream_ends = stream_ends_of(&snapshots, &pass.removed);
-    StartReads { scan, trim, ends_took: reading.elapsed(), stream_ends }
+    StartReads { scan, trim, parked: parked.len(), ends_took: reading.elapsed(), stream_ends }
 }
 
 /// The start's prune: [`snapshot::remove_unowned`], then the parked trim and where each snapshot's stream ends.

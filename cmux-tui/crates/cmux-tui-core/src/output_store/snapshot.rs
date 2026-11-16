@@ -817,11 +817,16 @@ impl Scanned {
 }
 
 /// One list of the directory and one read of the header of each snapshot file whose terminal is `wanted`. A
-/// file with no readable header is not in it.
-pub(super) fn scan(directory: &Path, wanted: impl Fn(&TerminalPublicId) -> bool) -> Vec<Scanned> {
-    let Ok(entries) = list(directory) else { return Vec::new() };
-    entries
+/// file with no readable header is not in it. The count: the entries of the directory that the list gave.
+pub(super) fn scan(
+    directory: &Path,
+    wanted: impl Fn(&TerminalPublicId) -> bool,
+) -> (usize, Vec<Scanned>) {
+    let Ok(entries) = list(directory) else { return (0, Vec::new()) };
+    let mut listed = 0_usize;
+    let scanned = entries
         .flatten()
+        .inspect(|_| listed += 1)
         .filter_map(|entry| {
             let path = entry.path();
             (path.extension()? == SUFFIX).then_some(())?;
@@ -830,7 +835,8 @@ pub(super) fn scan(directory: &Path, wanted: impl Fn(&TerminalPublicId) -> bool)
             let header = read_header(&path)?;
             Some(Scanned { terminal_id, header, entry })
         })
-        .collect()
+        .collect();
+    (listed, scanned)
 }
 
 /// The terminal's last snapshot, the generation it belongs to and the stream
