@@ -44,6 +44,7 @@ use cmux_tui_util::debug_spans;
 pub mod blob_fetch;
 mod browser_profile_ops;
 mod browser_site_engines;
+pub mod device_setup;
 pub mod diagnostics;
 mod event_bus;
 pub mod feed_client;

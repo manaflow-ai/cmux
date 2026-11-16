@@ -342,7 +342,7 @@ impl State {
                 let (events, generation) = (events.clone(), self.orphan.generation);
                 // task-owner: one census, bounded by its own budget (`hub/idle_census.rs`).
                 tokio::spawn(async move {
-                    let clear = crate::hub::host_census(pid, exit, given).await;
+                    let clear = crate::sidecar_census::host_census(pid, exit, given).await;
                     let _ = events.send(Event::Orphan(generation, Some(clear))).await;
                 });
             }

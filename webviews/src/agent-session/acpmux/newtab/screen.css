@@ -114,7 +114,7 @@
    is independent of the mode's font. With no prompt glyph the text starts one lead gap after +
    (Leo 2026-10-31: "composer still looks like shit with the + spacing indent to the text"), and
    shell mode's `!` stands in that gap, right before the command, so entering it moves no text. The
-   row without the split (Codex's look) has no + and no gap before the field, so it keeps the reserved
+   row without chips has no + and no gap before the field, so it keeps the reserved
    column for `!` there too: `!pwd` never draws `!` over the `p`. */
 .nt-field-slot[data-glyph-column] .nt-field,
 .nt-input:not([data-split]) .nt-field-slot .nt-field {
@@ -177,7 +177,6 @@
    no fill, a small gap, the card's rim whole (Lucas #21133, Lawrence's pick 2026-10-16). The
    variants keep the filled strip above as their base. */
 :root:not([data-top-strip]) .nt-screen .nt-composer {
-  /* Read by the Codex tray's mask too (composerStates.css). */
   --nt-composer-gap: calc(6px * var(--nt-density));
   gap: var(--nt-composer-gap);
 }
@@ -437,8 +436,8 @@
     min(1, var(--cmux-density-text-scale, 0))
   );
   /* New Tab's box corner keeps Nightly's roundness at every density and font size: Nightly's share of its one-line
-     box at Default, 20 px on Claude's 50.75 px box (its 22.75 px line and 14 px over and under) and 22 px on Codex's
-     48 px box (below), times the box's own one-line height here (Lucas 2026-11-14: "currently nightly has 20px
+     box at Default, 20 px on Claude's 50.75 px box (its 22.75 px line and 14 px over and under), times the box's
+     own one-line height here (Lucas 2026-11-14: "currently nightly has 20px
      border radius on default. we want to proportionally match that"). Under half the height, so never a pill. */
   --nt-box-height: calc(var(--text-content--line-height) + 2 * var(--nt-input-pad-block));
   --nt-box-round: calc(20 / 50.75);
@@ -507,10 +506,6 @@
    Compact). A fixed 1 pt tuned at Default overshot at Compact. */
 .nt-above .acpmux-location-button {
   --acpmux-location-mark-drop: 0.08;
-}
-/* Codex's tray centers its chips by flex alone (Lucas 2026-11-14: "the codex minimal looks good with the tray"). */
-.nt-composer[data-composer-look="codex"] .nt-above .acpmux-location-button {
-  --acpmux-location-mark-drop: 0;
 }
 .nt-above .acpmux-location-button > .acpmux-project-badge:first-child {
   translate: 0 calc(var(--text-control, 13px) * var(--acpmux-location-mark-drop));
@@ -874,8 +869,8 @@
    dots (a widget, off by default, App.tsx) sit absolutely at the page's foot, 2 px up and 24 px
    tall: with them on, the page keeps their room under the row (less the row's 4 px margin). */
 .nt-screen[data-layout="stage"]:has(.nt-foot) { --nt-stage-foot: 0px; }
-/* The template dots sit in the page's dots row (PageDots.tsx) beside the look dots, which keep no band. */
-.acpmux-main:has(> .nt-page-dots > .nt-style:not(.nt-look-dots)) .nt-screen[data-layout="stage"]:has(.nt-foot) {
+/* The optional template switch keeps room under the stage footer. */
+.acpmux-main:has(> .nt-style) .nt-screen[data-layout="stage"]:has(.nt-foot) {
   --nt-stage-foot: 22px;
 }
 .nt-screen[data-layout="stage"] .nt-stage {
