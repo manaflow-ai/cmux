@@ -1921,7 +1921,6 @@
       }
     }
   }
-  // generated/signals.json
   var signals_default = {
     version: 1,
     signals: {
