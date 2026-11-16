@@ -46,7 +46,7 @@ pub const MESH_MTU: u16 = 1280;
 const KEEPALIVE_SECONDS: u16 = 25;
 
 pub struct JoinOptions {
-    /// Coordinator base URL, e.g. `https://cmux-weft-coord-staging.fly.dev`.
+    /// Coordinator base URL, e.g. `https://weft.example`.
     pub coord: String,
     pub tailnet: String,
     pub auth_key: String,
