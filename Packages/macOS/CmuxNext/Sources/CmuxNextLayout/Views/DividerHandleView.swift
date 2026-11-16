@@ -211,6 +211,8 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
     /// rect did. It needs no tracking area of its own for that.
     override func cursorUpdate(with event: NSEvent) {
         guard cursorRectInBounds.contains(convert(event.locationInWindow, from: nil)) else { return super.cursorUpdate(with: event) }
+        // An overlay that takes the mouse here (a toast over the divider) is on top: no resize cursor on it.
+        if let window, WindowOverlayHost.overlayTakesMouse(in: window, atWindowPoint: event.locationInWindow) { return }
         resizeCursor.set()
         (superview as? ScreenContentView)?.dividerPointer.handleDidShow(resizeCursor)
     }
