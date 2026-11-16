@@ -788,7 +788,7 @@ fn own_tree_a_written_file_is_flushed_before_it_takes_its_name() {
     let flushes = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
 
     let (seen, name) = (flushes.clone(), named.clone());
-    let written = super::own_folder::flushes::in_place_of(
+    let written = own_folder::flushes::in_place_of(
         move |partial: &File| {
             let length = partial.metadata().map(|partial| partial.len()).ok();
             seen.borrow_mut().push((length, fs::read_to_string(&name).ok()));
@@ -814,9 +814,8 @@ fn own_tree_a_file_that_is_not_flushed_does_not_take_its_name() {
     fs::write(&named, "the old bytes").unwrap();
     let folder = OwnFolder::open(&top.join("git-folder"));
 
-    let written = super::own_folder::flushes::in_place_of(no_flush, || {
-        folder.write("list.json", b"each new byte")
-    });
+    let written =
+        own_folder::flushes::in_place_of(no_flush, || folder.write("list.json", b"each new byte"));
     let after = fs::read_to_string(&named).ok();
 
     fs::remove_dir_all(top).unwrap();
@@ -832,7 +831,7 @@ fn own_tree_a_ports_list_that_is_not_flushed_gives_no_block() {
     let top = folder_with_a_git_folder();
     let (common, root) = (top.join("git-folder"), top.join("root"));
 
-    let allocated = super::own_folder::flushes::in_place_of(no_flush, || {
+    let allocated = own_folder::flushes::in_place_of(no_flush, || {
         ports::allocate_within(&common, &root, Duration::ZERO)
     });
     let listed = ports::lookup(&common, &root);
