@@ -137,10 +137,10 @@ impl Hub {
                 None => rows.push(ToolRow { can_toggle: toggles, ..row }),
             }
         }
-        if rows == m.tools.rows {
+        if rows == *m.tools.rows {
             return;
         }
-        m.tools.rows = rows;
+        m.tools.rows = rows.into();
         drop(m);
         self.append(session, "mux", "tools", json!({"reported": true}));
         self.save_meta(session);
