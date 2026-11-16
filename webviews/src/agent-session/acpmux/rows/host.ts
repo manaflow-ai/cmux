@@ -31,21 +31,33 @@ export function chatRowsNamer(): () => string {
   return () => `${prefix}.${++next}`;
 }
 
-/// A host with no such operation (the browser dev slot, the mock) is `off`, as a host that has it
-/// and says so.
+/// A host that says it has no such operation is `off` for the document (decision 277b): the page
+/// host's `cmux.protocol.unknown_op`, or the old bridge's `unsupported` (the five operations live
+/// in the page host's `cmux.agent.` namespace only).
 export const CHAT_ROWS_OFF = "chat.rows.off";
+/// The page's own code for an open the host did not answer within `OPEN_ANSWER_MS`: that chat
+/// falls to v1 this once; the next open of it asks again.
+export const CHAT_ROWS_LATE = "chat.rows.late";
+/// The page's own code for an open refused with no code (a lost link, decision 277c): that chat
+/// falls to v1 this once; the next open of it asks again.
+export const CHAT_ROWS_LOST = "chat.rows.lost";
+/// The longest a switch waits on the host's answer to an open (decision 276 e). `postNative` has
+/// no deadline of its own, so this is the one timer.
+export const OPEN_ANSWER_MS = 250;
 
 function refusalCode(error: unknown): string {
   const known = error as { code?: unknown; details?: { protocol?: unknown } } | null;
-  if (known?.details?.protocol === "cmux.protocol.unknown_op") return CHAT_ROWS_OFF;
+  if (known?.details?.protocol === "cmux.protocol.unknown_op" || known?.code === "unsupported") return CHAT_ROWS_OFF;
   if (typeof known?.code === "string" && known.code) return known.code;
-  return CHAT_ROWS_OFF;
+  return CHAT_ROWS_LOST;
 }
 
 export class ChatRowsHost {
   readonly store: ChatRowStore;
   private post: ChatRowsPost;
   private name: () => string;
+  /// `OPEN_ANSWER_MS`, set lower by a test.
+  answerMs = OPEN_ANSWER_MS;
 
   constructor(post: ChatRowsPost, store: ChatRowStore = new ChatRowStore(), name: () => string = chatRowsNamer()) {
     this.post = post;
@@ -55,6 +67,8 @@ export class ChatRowsHost {
 
   /// Opens a chat's rows under a sid the page names. The store holds the sid before the post, so a
   /// window that comes before the answer is kept; a refusal lets it go and the chat falls to v1.
+  /// An answer later than `answerMs` is a fall too (`CHAT_ROWS_LATE`): the sid is closed, so the
+  /// store drops what comes for it after.
   async open(chat: string, anchor: ChatAnchor = "end", window?: number): Promise<ChatRowsOpen> {
     const sid = this.name();
     const params: Record<string, unknown> = { sid, chat };
@@ -62,11 +76,21 @@ export class ChatRowsHost {
     if (window !== undefined) params.window = window;
     this.store.open(sid, anchor);
     let reply: unknown;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<typeof CHAT_ROWS_LATE>((resolve) => {
+      timer = setTimeout(() => resolve(CHAT_ROWS_LATE), this.answerMs);
+    });
     try {
-      reply = await this.post("chat.rows.open", params);
+      reply = await Promise.race([this.post("chat.rows.open", params), late]);
     } catch (error) {
       this.store.close(sid);
       return { fallen: refusalCode(error) };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (reply === CHAT_ROWS_LATE) {
+      this.close(sid);
+      return { fallen: CHAT_ROWS_LATE };
     }
     // The answer names the same sid; any other answer is a host that does not have the operation.
     if ((reply as { sid?: unknown } | null)?.sid !== sid) {
@@ -81,10 +105,15 @@ export class ChatRowsHost {
     void this.post("chat.rows.close", { sid }).catch(() => {});
   }
 
-  /// Asks for the page before or after the store's edge (or a fold's rows). False when nothing is
-  /// held to page from or a page is out: one page a sub at a time.
-  page(sid: string, side: "before" | "after", options: { fold?: number; maxBytes?: number } = {}): boolean {
-    const rowId = this.store.edge(sid, side);
+  /// Asks for the page before or after a row: `from`, or the edge of the stretch that holds the
+  /// anchor (a gap's row, `gapBefore`, pages before from itself). Or a fold's rows. False when
+  /// nothing is held to page from or a page is out: one page a sub at a time.
+  page(
+    sid: string,
+    side: "before" | "after",
+    options: { from?: number; fold?: number; maxBytes?: number } = {},
+  ): boolean {
+    const rowId = options.from ?? this.store.edge(sid, side);
     if (rowId === null || this.store.pageOut(sid)) return false;
     this.store.pageAsked(sid, side, rowId, options.fold);
     const params: Record<string, unknown> = { sid, [side]: rowId };

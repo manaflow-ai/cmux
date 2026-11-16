@@ -7693,7 +7693,8 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   max-width: calc(100% - var(--cv-chevron-glyph, 12px) - var(--ds-space-4, 16px));
 }
 /* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
-   Claude's and ChatGPT's, placed where no transcript text is under it. It shows on the selection's end with no fade-in and goes when the
+   Claude's and ChatGPT's, placed where no transcript text is under it, the selection's own included
+   (above or below the selection, selectionReplyPlace). It shows on the selection's end with no fade-in and goes when the
    selection does. `icon` draws the glyph alone.
    Its label reads over anything under it (Leo 2026-11-07: "this reply, it has too little opacity
    here"): the chip is glass with a veil of the theme's solid surface (--glass-surface) at
@@ -8000,6 +8001,36 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--cv-text-muted);
+}
+
+/* Every time and duration label in the chat is one line: a reply's or a prompt's time, a Worked for
+   or a command's time, a subagent's or a background task's (Leo, 2026-11-14: "these times are still
+   bad and going to next lines!", of a sent video's "0:01" broken into "0:0" over "1"; the video
+   lengths themselves are composer/videoLengthFit.ts's, #41494). Each is a short run of tabular
+   digits that never breaks; test/time-labels-one-line.test.ts finds every such class in the chat's
+   CSS and fails on one no rule keeps on one line. */
+.cv-turn-time,
+.cv-user__time,
+.cv-time-hover,
+.cv-worked__time,
+.cv-worked__label-time,
+.cv-command__time,
+.cv-activity__time,
+.cv-waterfall__time,
+.cv-agentmsg__time,
+.cv-subagent__time,
+.cv-subagents__time,
+.cv-subagent-done__time,
+.cv-shimmer__lit-time,
+.acpmux-running-tray__time,
+.acpmux-agent-line__time,
+.acpmux-done-mark__time,
+.acpmux-bg__time,
+.acpmux-bg-card__time,
+.acpmux-agents-list__time,
+.acpmux-queued-video-time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* A prompt's pending note starts where its bubble's text starts (Leo, 2026-11-14: "this is

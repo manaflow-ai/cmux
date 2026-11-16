@@ -543,3 +543,33 @@ impl Mux {
         crate::AgentStatus::from_state(record.state, unseen)
     }
 }
+
+impl Mux {
+    /// The adapter (`claude`, `codex`, ...) of the agent `terminal` runs now, from its live
+    /// agent record: `None` when no agent reported, its report named no adapter, or it ended.
+    pub(crate) fn running_agent_adapter(&self, terminal: &TerminalPublicId) -> Option<String> {
+        let records = self.agent_records.lock().unwrap_or_else(PoisonError::into_inner);
+        records
+            .get(terminal)
+            .filter(|record| record.state != AgentState::Done)
+            .and_then(|record| record.agent.clone())
+    }
+
+    /// Test only: `terminal` runs the agent `adapter`, as its hook would report.
+    #[cfg(test)]
+    pub(crate) fn note_running_agent_for_test(&self, terminal: &TerminalPublicId, adapter: &str) {
+        let now = now_ms();
+        self.agent_records.lock().unwrap_or_else(PoisonError::into_inner).insert(
+            terminal.clone(),
+            TerminalAgentRecord {
+                state: AgentState::Working,
+                source: AgentSource::Hook,
+                session: None,
+                agent: Some(adapter.to_owned()),
+                agent_session_id: None,
+                updated_at_ms: now,
+                since_ms: now,
+            },
+        );
+    }
+}

@@ -42,7 +42,8 @@ jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 50
+    # The gate step alone may take 60 minutes, beside Rust setup and the report.
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
@@ -127,7 +128,9 @@ jobs:
       - name: Run v2 gate measures
         if: steps.done.outputs.cache-hit != 'true'
         continue-on-error: true
-        timeout-minutes: 20
+        # The whole gate script took 1,805 s at a cold native build (cmux-ci run 43709036687:
+        # cmux-tui-core-lib 954 s, row 7c) on an 8-CPU runner; this job runs on 4.
+        timeout-minutes: 60
         working-directory: cmux-tui
         run: |
           set -o pipefail
@@ -141,9 +144,18 @@ jobs:
         working-directory: cmux-tui
         run: |
           set -o pipefail
-          mkdir -p "$RUNNER_TEMP/quality"
+          out="$RUNNER_TEMP/quality"
+          mkdir -p "$out"
+          # hq#11702: the report names a home that wrote nothing, with its error line. The exit is pre-written as -1
+          # so a home this step's timeout kills reads as unfinished; stderr goes to a file as it is written.
+          echo -1 > "$out/v2-home.exit"
           # The gate runner above appends one JSONL line per marked row.
-          cargo bench -q -p acpmux --bench v2 -- --measures "$V2_GATE_OUT" --output "$RUNNER_TEMP/quality/v2-god-small.json"
+          code=0
+          cargo bench -q -p acpmux --bench v2 -- --measures "$V2_GATE_OUT" --output "$out/v2-god-small.json" \
+            2> "$out/v2-home.stderr" || code=$?
+          echo "$code" > "$out/v2-home.exit"
+          cat "$out/v2-home.stderr" >&2
+          exit "$code"
 
       # The degenerate lab's newest god-vs-small rows (cmux-next-degenerate-lab.yml, artifact degenerate-lab-god-small).
       # None yet, or no token: the report says "no input given" for god-vs-small.
@@ -193,20 +205,20 @@ jobs:
             --ci-branches "feat-cmux-next,main" --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" --speed "${journey[@]}" \
             --json "$out/quality-metrics-full.json" --public-json "$out/quality-metrics.json" \
             --md "$out/quality-report.md" --public-md "$out/quality-summary.md")
-          # God-vs-small rows from the v2 bench and the degenerate lab, merged into one input.
+          # God-vs-small rows and errors from the v2 bench and the degenerate lab, merged into one input.
           god_inputs=()
           [[ -f "$out/v2-god-small.json" ]] && god_inputs+=("$out/v2-god-small.json")
           [[ -f "$RUNNER_TEMP/god-small/god-small.json" ]] && god_inputs+=("$RUNNER_TEMP/god-small/god-small.json")
           if (( ${#god_inputs[@]} )); then
-            python3 -I -c 'import json, sys
-          rows = []
-          for path in sys.argv[2:]:
-              data = json.load(open(path))
-              rows += data["rows"] if isinstance(data, dict) else data
-          json.dump({"rows": rows}, open(sys.argv[1], "w"))' "$out/god-small.json" "${god_inputs[@]}"
+            python3 -I scripts/cmux-next/quality-report.py merge-god-small --out "$out/god-small.json" "${god_inputs[@]}"
             report_args+=(--god-small "$out/god-small.json")
           else
             echo "no god-small input (v2 bench or degenerate lab); report records no input given" >&2
+          fi
+          # The v2 gate home's exit and error line (hq#11702): when it wrote nothing, the report's first line says so.
+          if [[ -f "$out/v2-home.exit" ]]; then
+            report_args+=(--v2-home-exit "$(cat "$out/v2-home.exit")" --v2-home-stderr "$out/v2-home.stderr" \
+              --v2-home-output "$out/v2-god-small.json")
           fi
           python3 -I scripts/cmux-next/quality-report.py "${report_args[@]}"
           cat "$out/quality-summary.md" >> "$GITHUB_STEP_SUMMARY"

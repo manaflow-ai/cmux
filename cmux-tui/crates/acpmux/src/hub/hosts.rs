@@ -198,6 +198,11 @@ impl Hub {
         if !still_asked {
             return false;
         }
+        // The agent holder (`agent_host/custody.rs`): a dead host whose harness runs is replaced.
+        #[cfg(unix)]
+        if child.recover_host().await {
+            return child.is_alive().await;
+        }
         let dead = agent_host::wait_dead_async(
             agent_host::hosts_dir(),
             record.session_id.clone(),
@@ -245,6 +250,12 @@ impl Hub {
             current.as_ref().filter(|c| c.host_record().is_some() && !c.is_broken())
             && let Some(record) = child.host_record()
         {
+            // The agent holder (`agent_host/custody.rs`): a dead host whose harness runs is
+            // replaced, and the agent is reached through the replacement.
+            #[cfg(unix)]
+            if child.recover_host().await && child.is_alive().await {
+                return Some(child.clone());
+            }
             let dead = agent_host::wait_dead_async(
                 agent_host::hosts_dir(),
                 record.session_id.clone(),
@@ -794,6 +805,8 @@ impl Hub {
         }
         self.restart_unproven(session, proven);
         self.save_meta(session);
+        // Adopted and recovered: a prompt to this chat waits for no other host (`wait_adopted`).
+        self.chat_adopted(&session.id);
         Ok(())
     }
 
@@ -893,6 +906,7 @@ impl Hub {
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
                         accepted: true,
+                        device: None,
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);
@@ -1521,7 +1535,17 @@ impl Hub {
             cwd_pin: crate::cwd_pin::CwdPin::current(),
             orphan_exit: None,
             prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
+            holder: None,
         };
+        // The agent holder (`agent_host/custody.rs`): a harness that speaks ACP itself keeps its
+        // turn through a host crash. A translated one still has its translator in the host.
+        #[cfg(unix)]
+        if crate::agent_host::custody::holder_on()
+            && spec.translator.is_none()
+            && !spec.codex_bridge
+        {
+            spec.holder = Some(crate::agent_host::HolderSpec::default());
+        }
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::agent::Launch::new(&spec.program, &spec.args, &spec.env, &spec.cwd);

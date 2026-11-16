@@ -466,6 +466,8 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
+        // A pointer over a group header may open its editor next: its page is made now, not at launch.
+        if case .group? = key { groupEditor.prepareSurface() }
         scrollHoverGeneration &+= 1
         guard hoverFollowsScroll else {
             scrollHoverForward.cancel()

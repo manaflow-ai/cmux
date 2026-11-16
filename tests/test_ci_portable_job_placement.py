@@ -687,7 +687,9 @@ class Wiring(unittest.TestCase):
                 with self.subTest(job=f"{workflow}#{name}"):
                     job = workflow_jobs[name]
                     self.assertIn(name, listed)
-                    self.assertEqual(job["needs"], ["portable-placement"])
+                    # tooling-tests also needs hot-route: a hot-only pull request skips the mini leg
+                    # (tests/test_cmux_next_route.py HotAwareWorkflows).
+                    self.assertEqual([need for need in job["needs"] if need != "hot-route"], ["portable-placement"])
                     self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
                     for runs_on in routes(job, name):
                         linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")

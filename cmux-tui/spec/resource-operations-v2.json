@@ -3196,7 +3196,8 @@
       "kind": "enum",
       "values": [
         "unix",
-        "websocket"
+        "websocket",
+        "remote"
       ]
     },
     "ClientTerminalSize": {
@@ -5418,12 +5419,26 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "snapshot": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "recovery": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
         }
       },
       "extra": false,
       "constraints": [
-        "Offsets are terminal.output stream byte offsets. next_offset is always a valid resume cursor: a follow-up read with after set to it returns only output strictly after this window.",
-        "complete is false when this window was truncated by max_bytes or by exit-snapshot coverage; the caller resumes with next_offset."
+        "Offsets are terminal.output stream byte offsets. Numeric reads resume at next_offset. Opt-in recovery readers also echo recovery after applying the result. A snapshot:true result replaces held text and may reset next_offset below the requested cursor after daemon adoption.",
+        "complete is false when this window was truncated by max_bytes, retention, exit-snapshot coverage, or a known reconnect gap without recovery opt-in."
       ]
     },
     "TerminalStateResult": {
@@ -8072,12 +8087,13 @@
             "kind": "enum",
             "values": [
               "set",
+              "set_exact",
               "set_unset",
               "reset",
               "reset_unchanged"
             ]
           },
-          "description": "set and reset are settings.set and settings.reset; set_unset sets only while the file has no value at the path (JSON null is a value); reset_unchanged resets only while the file still holds value there (1 and 1.0 are one value)."
+          "description": "set and reset are settings.set and settings.reset; set_exact is set without its default removal (a schema row set to its default keeps the key); set_unset sets only while the file has no value at the path (JSON null is a value); reset_unchanged resets only while the file still holds value there (1 and 1.0 are one value)."
         },
         "key": {
           "required": false,
@@ -8105,7 +8121,7 @@
             "kind": "ref",
             "name": "JsonValue"
           },
-          "description": "The value to set (set, set_unset) or the value expected (reset_unchanged); reset takes none."
+          "description": "The value to set (set, set_exact, set_unset) or the value expected (reset_unchanged); reset takes none."
         }
       },
       "extra": false
@@ -10704,6 +10720,15 @@
             "min_length": 1
           },
           "description": "For example origin/main."
+        },
+        "github_repo": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "With github: true, the owner/name of the upstream's remote (else origin) when its URL is on github.com, for example manaflow-ai/cmux. Absent otherwise."
         },
         "base": {
           "required": false,
@@ -16345,6 +16370,31 @@
               "name": "string"
             },
             "description": "privacy, network or destructive; absent for a path that is not a setting."
+          }
+        },
+        "extra": false
+      }
+    },
+    "settings.file_mismatch": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "file": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The settings file the request named."
+          },
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The settings file this daemon's owner reads and writes (settings.snapshot path)."
           }
         },
         "extra": false
@@ -28278,6 +28328,14 @@
               "min_length": 1
             },
             "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "github": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Also read github_repo, the GitHub owner/name of the upstream's remote (else origin). One more git run, so it is off unless asked."
           }
         },
         "extra": false
@@ -35255,6 +35313,15 @@
             },
             "description": "The edits, applied in order to the file text and published once."
           },
+          "file": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The settings file the caller means. When its standardized path is not the owner's file (settings.snapshot path), the op is settings.file_mismatch and writes nothing."
+          },
           "if_revision": {
             "required": false,
             "type": {
@@ -35304,6 +35371,7 @@
         "selector.invalid",
         "selector.not_found",
         "settings.agent_refused",
+        "settings.file_mismatch",
         "settings.invalid",
         "settings.managed",
         "settings.removed",
@@ -39882,6 +39950,14 @@
             },
             "default": 262144,
             "description": "Bound on raw stream bytes rendered into one window. A window never splits a journal record, so the first record of a window is always included whole even when it alone exceeds this bound."
+          },
+          "recovery": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "Opt in to reconnect recovery with an empty string initially, then echo the returned token after applying the read. An unknown token returns one retained screen snapshot; matching tokens resume raw output at next_offset. Tokens are per terminal and become invalid on adoption, reconnect, generation change or history clear."
           }
         },
         "extra": false
@@ -39904,7 +39980,8 @@
         "Works on live terminals and on exited ones, including exited terminals whose views were detached: the selector resolves the durable exit receipt exactly like terminal.wait_exit.",
         "start_offset may exceed the requested cursor when earlier bytes are no longer retained, and a cursor that lands mid-record starts the window at that record's boundary (start_offset below the cursor).",
         "A cursor before the terminal's exit-snapshot coverage returns the snapshot's screen projection instead of raw records: start_offset is 0 and next_offset is the snapshot coverage end.",
-        "A window rendered from mid-stream records may carry escape-state artifacts at its leading edge; a snapshot window cannot."
+        "A window rendered from mid-stream records may carry escape-state artifacts at its leading edge; a snapshot window cannot.",
+        "Recovery snapshots cover retained screen and scrollback, not byte-exact historical output beyond terminal retention. The immutable cut is shared by retries and independent readers; its plain text is bounded by max_bytes and 4 MiB. Capture or budget failure returns operation.failed; it never falls back to a complete raw read."
       ]
     },
     "terminal.process.get": {

@@ -46,6 +46,8 @@
 //! Exit codes: [`host_loop::exit`].
 
 #[cfg(feature = "engine")]
+pub mod entry;
+#[cfg(feature = "engine")]
 pub mod host_loop;
 pub mod protocol;
 #[cfg(feature = "engine")]

@@ -1638,3 +1638,7 @@ fn the_next_sub_on_a_sid_replaces_the_actors_entry_for_it() {
 #[cfg(target_os = "linux")]
 #[path = "gates_tests.rs"]
 mod gates;
+
+/// The parity corpus: the change strings a page gets for each raw log (decision 233).
+#[path = "parity_tests.rs"]
+mod parity;

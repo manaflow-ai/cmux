@@ -82,6 +82,7 @@ impl Peer {
             native_history: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
             features: StdMutex::new(Vec::new()),
+            mirror: dialer::MirrorLink::default(),
             session_resume_link: AtomicU64::new(0),
             session_messages: AtomicBool::new(false),
             person_stop: AtomicBool::new(false),
@@ -89,7 +90,9 @@ impl Peer {
             presented: StdMutex::new(None),
             read_tokens: tokens::TokenCache::default(),
             linked_once: AtomicBool::new(false),
+            whole_list: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
+            login_refused: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
@@ -103,6 +106,7 @@ impl Peer {
             retry_immediately: AtomicBool::new(false),
             stop_signal: Notify::new(),
             stop_changed: tokio::sync::watch::channel(false).0,
+            network: StdMutex::new(network::changes()),
             wanted: Default::default(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
@@ -222,7 +226,7 @@ impl Peer {
     }
 
     /// What its last handshake would have said of attachments: a test's peer that never ran.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn seed_send_attach(&self, takes: bool) {
         let mut features = self.features.lock_or_recover();
         features.retain(|f| f != crate::attach::FEATURE);
@@ -402,6 +406,9 @@ impl Peer {
     pub(super) fn note_ssh_failure(&self, reason: Option<&str>) {
         if reason == Some(ssh_errors::BANNER_TIMEOUT) {
             self.slow_banner.store(true, Ordering::SeqCst);
+        }
+        if ssh_errors::login_refused(reason) {
+            self.login_refused.store(true, Ordering::SeqCst);
         }
     }
 
@@ -687,23 +694,26 @@ impl Peer {
     /// A connection to the peer ended: what the peer kept for it is gone.
     pub(crate) fn link_ended(&self) {
         self.features.lock_or_recover().clear();
+        // The epoch moves first: the mirror that ends with its inbox sees the link gone, and
+        // leaves the origin to the next link (`peer_dialer.rs`).
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
+        self.end_mirror();
         self.github_revoked.notify_waiters();
     }
 
-    /// The hub applied a `Connected` notice of this peer: the rows are now those its link listed
-    /// at that handshake. A notice no link queued (a test's) stands for the live link.
+    /// The hub applied a `Listed` notice of this peer: the rows are now those its link listed
+    /// last. A notice no link queued (a test's) stands for the live link.
     pub(crate) fn note_rows_applied(&self) {
         let link = self.listed_links.lock_or_recover().pop_front();
         let link = link.unwrap_or_else(|| self.link_epoch());
         self.rows_link.store(link + 1, Ordering::SeqCst);
     }
 
-    /// The link is ready and the hub applied the session list it sent at its own handshake, so
+    /// The link is ready and the hub applied the session list this link read (`Listed`), so
     /// its notices keep the rows current. A link that dropped and came back reads false until
     /// the new link's list is applied: until then the rows are the link before's.
     pub fn rows_current(&self) -> bool {
-        self.ready() && self.rows_link.load(Ordering::SeqCst) == self.link_epoch() + 1
+        self.ready() && self.rows_listed()
     }
 
     /// The WebSocket is open and the handshake has not finished.
@@ -976,17 +986,6 @@ impl Peer {
         epoch: Option<u64>,
     ) -> Result<Value, RpcError> {
         self.send_request(m, params, epoch, ListKey::None).await
-    }
-
-    /// [`Self::link_request_on`] for the handshake's watch list on link `link`, its
-    /// `_acpmux/watch` or a page after it: the reader takes the reply's rows (`watch_key`).
-    pub(super) async fn watch_request_on(
-        &self,
-        m: &str,
-        params: Value,
-        link: u64,
-    ) -> Result<Value, RpcError> {
-        self.send_request(m, params, Some(link), ListKey::Watch).await
     }
 
     pub(super) async fn send_request(

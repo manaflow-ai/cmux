@@ -262,7 +262,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                             Text("Other Chiefs")
                         }
                         .font(.footnote.weight(.semibold))
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.cmuxPressFillTinted)
                         .disabled(sources.isChanging)
                     }
                 }
@@ -366,7 +366,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                         .font(.footnote.weight(.semibold))
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.cmuxPressFillTinted)
                 .padding(.vertical, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
@@ -564,7 +564,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 ChiefAvatar(text: chief.avatar, size: size)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
         .listRowBackground(theme.colors.bg.color)
         // Trailing only, as every Home row (the drawer keeps the rightward swipe).
@@ -782,7 +782,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             }
         }
         .font(.footnote.weight(.semibold))
-        .buttonStyle(.borderless)
+        .buttonStyle(.cmuxPressFillTinted)
         .disabled(sources.isChanging)
         if sources.isChanging {
             CmuxSpinner().controlSize(.small)
@@ -833,7 +833,7 @@ struct HomeListRow: View, Equatable {
                 ChiefAvatar(text: model.avatar, size: size)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .contextMenu {
             HomeRowMenu(id: model.id, isMacChief: model.isMacChief, isPinned: model.isPinned, isUnread: model.isUnread, feed: feed,
                         delete: delete)
@@ -968,7 +968,7 @@ struct HomeTile: View, Identifiable {
                 .padding(.bottom, 10)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .contextMenu { if let menu { menu } }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)

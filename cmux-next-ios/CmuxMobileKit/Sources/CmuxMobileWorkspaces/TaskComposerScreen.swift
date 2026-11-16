@@ -250,7 +250,7 @@ struct TaskComposerScreen: View {
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(sent != nil)
         .accessibilityLabel("Task Options")
         .accessibilityValue([mac.map { sameNames.displayName($0) }, folder.map(NewWorkspaceButton.folderName)]
@@ -501,7 +501,7 @@ struct TaskComposerScreen: View {
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(!enabled)
         .accessibilityLabel(count > 1 ? "Start \(count)" : "Start")
         .accessibilityHint(blocker?.message ?? (count > 1 ? "Starts the task on \(count) agents, one workspace each" : ""))
@@ -714,7 +714,7 @@ struct TaskFileChip: View {
                     .frame(width: 44, height: 44, alignment: .topTrailing)
                     .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .offset(x: 6, y: -6)
             .accessibilityLabel("Remove \(file.name)")
         }
@@ -850,7 +850,7 @@ struct TaskImageThumb: View {
                     .frame(width: 44, height: 44, alignment: .topTrailing)
                     .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .offset(x: 6, y: -6)
             .accessibilityLabel("Remove photo")
         }

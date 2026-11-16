@@ -321,8 +321,11 @@ struct CloudCreationFlow {
     /// The ``bootstrap`` hook's work on `machine`: starts the requested bootstrap and, in the creation's own
     /// task (``CloudMachineCreation/awaitBootstrapCompletion(_:attempt:wait:)``), waits for its end without holding
     /// up the open; then applies the requested machine config. The first workspace still opens at the
-    /// machine's default folder: a caller that wants the clone opens its own at the completion's `repoPath`.
-    static func startBootstrap(_ creation: CloudMachineCreation, on machine: CloudMachineBootstrap.Machine) async {
+    /// machine's default folder: a caller that wants the clone opens its own at the completion's `repoPath`. Nothing goes
+    /// out before `running` returns: a create answers while the machine binds, whose routes refuse it until it runs.
+    static func startBootstrap(_ creation: CloudMachineCreation, on machine: CloudMachineBootstrap.Machine, running: @MainActor () async -> Void) async {
+        await running()
+        guard !Task.isCancelled, !creation.isTornDown else { return }
         if let script = creation.request.script, needsScript(creation) {
             let attempt = creation.beginBootstrapAttempt()
             let outcome = await script.start(name: creation.request.name, on: machine)
@@ -372,22 +375,14 @@ struct CloudCreationFlow {
         // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
         creation.task = Task { @MainActor in
             do {
-                let session: CloudMachineSession
-                if let existing = creation.session {
-                    session = existing
-                    if Self.needsBootstrap(creation) {
-                        await bootstrap(creation, session)
-                        try Task.checkCancellation()
-                    }
-                } else {
-                    session = try await create(creation)
+                let existing = creation.session, session: CloudMachineSession
+                if let existing { session = existing } else { session = try await create(creation) }
+                try Task.checkCancellation()
+                // Attached first: a create answers once attached (30 s); the bootstrap waits up to 180 s for the machine to run.
+                if existing == nil { creation.attach(session) }
+                if Self.needsBootstrap(creation) {
+                    await bootstrap(creation, session)
                     try Task.checkCancellation()
-                    // Before attach: a caller waiting for the machine reads the bootstrap's outcome with it.
-                    if Self.needsBootstrap(creation) {
-                        await bootstrap(creation, session)
-                        try Task.checkCancellation()
-                    }
-                    creation.attach(session)
                 }
                 guard await Self.ready(creation) else { return }
                 creation.markReady()

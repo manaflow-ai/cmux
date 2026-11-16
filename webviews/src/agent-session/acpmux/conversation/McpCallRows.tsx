@@ -3,6 +3,7 @@
 // fields and its response (ToolDetail.tsx), or to its request and response pretty-printed
 // (mcpCalls.ts). A call with nothing to open beyond its line (a description and a lifecycle
 // note) is inert. Opening and closing play the transcript's fold (fold.ts).
+import { useToolRowCount } from "./toolRowCount";
 import { useFindReveal } from "./chatFind";
 import { memo, type ReactNode, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
@@ -118,6 +119,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
 
 export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
   const t = useT();
+  useToolRowCount(item.tool?.id, item.tool?.kind);
   const names = useContext(McpNamesContext);
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);

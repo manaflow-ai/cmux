@@ -14,5 +14,9 @@ workspace = true
 cmux-app-manifest.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+cmux-customize.workspace = true
+
 [build-dependencies]
+cmux-customize.workspace = true
 serde_json.workspace = true

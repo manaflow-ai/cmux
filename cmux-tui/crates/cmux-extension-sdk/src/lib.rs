@@ -19,6 +19,20 @@ mod api {
 }
 
 pub use api::{API_VERSION, EVENTS, RUNTIME_VERSION, SIGNALS};
+
+/// Everything a person or an agent can customize, as Rust tables written at build time from
+/// the one source `cmux customize schema` prints (`cmux_customize::schema`): every setting
+/// ([`customize::SETTINGS`], one constant per key in [`customize::keys`], so a key that does
+/// not exist does not compile), what a theme file holds and the theme tokens, the view slots
+/// and the extension points. [`customize::TYPESCRIPT`] is the TypeScript package's
+/// `cmux-extension-sdk/customize`, written from the same schema.
+pub mod customize {
+    include!(concat!(env!("OUT_DIR"), "/customize.rs"));
+
+    /// The TypeScript types of the same schema (`typescript/src/generated/customize.ts`).
+    pub const TYPESCRIPT: &str = include_str!(concat!(env!("OUT_DIR"), "/customize.ts"));
+}
+
 pub use cmux_app_manifest::{Issue, PackageReport, Severity, is_valid};
 
 use serde_json::{Map, Value, json};
@@ -162,6 +176,12 @@ impl Manifest {
     /// A pane (`cmux.pane/1`) drawn by the script's `export`.
     pub fn pane(self, export: &str, title: &str, symbol: &str) -> Self {
         self.implement("cmux.pane/1", export, title, symbol, None)
+    }
+
+    /// A whole New Tab page (`cmux.newtab/1`) drawn by the script's `export`. It shows only once
+    /// the person names the extension in `tabs.newTabApp`; otherwise cmux draws its own page.
+    pub fn new_tab(self, export: &str, title: &str, symbol: &str) -> Self {
+        self.implement("cmux.newtab/1", export, title, symbol, None)
     }
 
     /// Appends `entry` to the list `list` in the options of the data-only place `interface`

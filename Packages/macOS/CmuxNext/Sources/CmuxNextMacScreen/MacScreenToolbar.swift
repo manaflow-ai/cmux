@@ -130,7 +130,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
             access.ink = viewOnly ? \.attention : \.secondary
         }
         hintSlot = model.capturesKeyboard && live
-        controlsShown = session != nil && model.showsStreamControls
+        controlsShown = model.showsSessionControls
         access.isHidden = !controlsShown
         access.isEnabled = controlsShown
         fullScreen.isHidden = !controlsShown
@@ -140,7 +140,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         displayButton.retitle(String(format: L.t("macScreen.toolbar.displayShort", "Display %d"), model.currentDisplay + 1))
         displayButton.isHidden = !controlsShown || displayCount <= 1
         quality.isHidden = !controlsShown
-        let canSend = live && !viewOnly
+        let canSend = model.canSendKeys
         sendKeys.isHidden = !controlsShown
         sendKeys.isEnabled = canSend
         sendKeys.ink = canSend ? \.secondary : \.tertiary
@@ -243,7 +243,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         }
         let keys = NSMenuItem(title: L.t("macScreen.toolbar.sendKeys", "Send Keys"), action: nil, keyEquivalent: "")
         keys.submenu = sendKeysMenu()
-        keys.isEnabled = model.isLive && !model.viewOnly
+        keys.isEnabled = model.canSendKeys
         menu.addItem(keys)
         let refresh = NSMenuItem.macScreen(L.t("macScreen.toolbar.refresh", "Refresh Screen")) { [weak self] in self?.actions.refresh() }
         refresh.isEnabled = model.isLive

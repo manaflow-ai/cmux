@@ -24,9 +24,11 @@
 //! A machine without `fs-symlink-v1` gets none, each named as skipped.
 //!
 //! Small files are written several at once, each on a connection of its
-//! own ([`CONNECTIONS`], `CMUX_SYNC_PUSH_CONNECTIONS`); a file over
-//! [`ALONE_BYTES`] is written after them, alone. The first failed write
-//! stops new ones; those under way finish and are recorded.
+//! own ([`CONNECTIONS`], `CMUX_SYNC_PUSH_CONNECTIONS`), each sending a few
+//! of them before reading their answers ([`small_writes`]), so a folder of
+//! many small files costs a round trip of the link per batch, not per file;
+//! a file over [`ALONE_BYTES`] is written after them, alone. The first
+//! failed write stops new ones; those under way finish and are recorded.
 //!
 //! The manifest is also saved as a push goes (every [`SAVE_EVERY_FILES`]
 //! files or [`SAVE_EVERY_BYTES`] written), so a push cut off partway is
@@ -61,8 +63,11 @@ mod pull;
 mod relay;
 /// `cmux link sync relay`'s copy (`cmux link agent move --sync relay`).
 pub(super) use relay::relay;
+mod fresh;
 mod remote;
 mod seed_pull;
+mod small_writes;
+mod timings;
 
 /// `cmux link seed pull`'s engine ([`super::seed_cli`] is its CLI).
 pub(super) use seed_pull::{
@@ -319,12 +324,19 @@ fn write_parallel_heard(
                 let mut remote: Option<Remote> = None;
                 let mut seen = BTreeMap::new();
                 while !stop.load(Ordering::Relaxed) {
-                    let Some(job) = queue.lock().ok().and_then(|mut jobs| jobs.next()) else {
+                    let batch = queue
+                        .lock()
+                        .map(|mut jobs| small_writes::take(&mut jobs))
+                        .unwrap_or_default();
+                    if batch.is_empty() {
                         break;
-                    };
-                    let written = write_on(&mut remote, &mut seen, socket, remote_root, &job);
-                    if sent.send((job, written)).is_err() {
-                        break;
+                    }
+                    for landed in
+                        small_writes::write(&mut remote, &mut seen, socket, remote_root, batch)
+                    {
+                        if sent.send(landed).is_err() {
+                            return;
+                        }
                     }
                 }
             });
@@ -421,9 +433,6 @@ pub(super) fn progress_printer() -> impl FnMut(Progress) {
 /// A failed push's error code and message: the machine's full disk is
 /// `disk_full` in plain words, a refusal of the machine its own code.
 pub(super) fn push_failure(error: &anyhow::Error) -> (String, String) {
-    if let Some(large) = error.downcast_ref::<size_cap::TooLarge>() {
-        return (size_cap::CODE.to_string(), large.to_string());
-    }
     match remote::refusal_code(error) {
         Some("fs.no_space") => {
             ("disk_full".to_string(), "The Cloud machine's disk is full".to_string())
@@ -1013,12 +1022,12 @@ fn push_inner(
     head_links: Option<&dyn Fn(&str) -> bool>,
     mut progress: Option<&mut dyn FnMut(Progress)>,
 ) -> anyhow::Result<Summary> {
+    let mut stages = timings::Stages::new();
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     let rules = if files_only { local::Rules::Share } else { local::Rules::Copy };
     // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
-    let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local))
-        .then(|| size_cap::Cap::of(&local));
+    let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local)).then(size_cap::Cap::new);
     let mut set = local::collect(&local, rules, cap)?;
     let before = set.files.len();
     let in_git = set.git;
@@ -1058,6 +1067,7 @@ fn push_inner(
         packs::pack_loose(&mut set.files, &dirs.common, &base::packs_dir(&local, remote_root)?)?;
     }
     set.skips.unnamed(set.skipped);
+    stages.mark("list");
     let (skipped_files, skipped_counts) = set.skips.json();
     let mut summary =
         Summary { skipped: set.skips.total(), skipped_files, skipped_counts, ..Summary::default() };
@@ -1072,7 +1082,7 @@ fn push_inner(
     // What a pull compares the machine's branch and staged changes with.
     let git = if git_record { Some(git_back::base_of(&local)?) } else { None };
     let mut remote = Remote::connect_negotiated(socket)?;
-    remote.mkdir_all(remote_root)?;
+    let mut fresh = fresh::Fresh::make_root(&mut remote, remote_root)?;
     // A store fetch of an earlier push may still be running there: it stops
     // before this push deletes or writes anything.
     let served = store::fetch_served(socket);
@@ -1168,7 +1178,7 @@ fn push_inner(
     for (relative, file) in &set.files {
         let target = format!("{remote_root}/{relative}");
         let (parent, _) = remote::split(&target)?;
-        let sha256 = hash(file)?;
+        let sha256 = stages.hashing(|| hash(file))?;
         let bytes = size(file)?;
         if let Some(pushed) = previous.files.get(relative)
             && pushed.sha256 == sha256
@@ -1180,7 +1190,9 @@ fn push_inner(
         }
         // A symlink of the machine's on the way to it: the write would
         // land wherever that link points, so this Mac's file stays.
-        if through_link(&mut remote, remote_root, parent, &mut folder_links)? {
+        // Below a folder this push made, nothing is the machine's ([`fresh`]).
+        let ours = fresh.covers(parent);
+        if !ours && through_link(&mut remote, remote_root, parent, &mut folder_links)? {
             set.skips.note(relative, skips::Why::SymlinkTaken);
             tally.step(bytes);
             continue;
@@ -1189,10 +1201,13 @@ fn push_inner(
         // way (one fs.list a folder, not one fs.stat a file): a symlink put
         // there since is refused by the machine itself. Otherwise the
         // connection that writes asks right before its write.
-        let found =
-            if remote.no_follow() { Some(listings.kind(&mut remote, &target)?) } else { None };
+        let found = match (remote.no_follow(), ours) {
+            (false, _) => None,
+            (true, true) => Some(None),
+            (true, false) => Some(listings.kind(&mut remote, &target)?),
+        };
         if made.insert(parent.to_string()) {
-            remote.mkdir_all(parent)?;
+            fresh.make(&mut remote, parent)?;
         }
         let job =
             Job { relative: relative.clone(), target, file: file.clone(), sha256, bytes, found };
@@ -1204,6 +1219,9 @@ fn push_inner(
             small.push(job);
         }
     }
+    // The new folders, several to a round trip, before anything is written in them.
+    fresh.flush(&mut remote)?;
+    stages.mark("prepare");
     // Through the store, the machine fetches first; what it did not write
     // goes over the link below, like every other write.
     let fetched = if via_store {
@@ -1236,11 +1254,13 @@ fn push_inner(
     write_parallel(socket, remote_root, small, connections(), &mut |job, written| {
         landed(job, written, &mut remote)
     })?;
+    stages.mark("small");
     let mut seen = BTreeMap::new();
     for job in alone {
         let written = write_checked(&mut remote, &mut seen, remote_root, &job);
         landed(job, written, &mut remote)?;
     }
+    stages.mark("large");
     let store_part = match fetched {
         Some((part, written)) => Some(finish_deferred(
             &mut remote,
@@ -1318,6 +1338,8 @@ fn push_inner(
     if head_links.is_none() {
         snapshot_push(&local, remote_root, &next, &set.files, git_record);
     }
+    stages.mark("finish");
+    stages.print();
     Ok(summary)
 }
 

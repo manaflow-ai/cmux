@@ -370,6 +370,12 @@ enum AgentPaneContextMenu {
         if target?.markdown != nil, let time = target?.replyTime {
             let item = NSMenuItem(title: time, action: nil, keyEquivalent: "")
             item.isEnabled = false
+            // A disabled item draws gray; the time reads in the items' own label color (Leo, 2026-11-15:
+            // "why on the ellipsis is the time gray? why not just have it be white like the rest").
+            item.attributedTitle = NSAttributedString(string: time, attributes: [
+                .font: NSFont.menuFont(ofSize: 0),
+                .foregroundColor: NSColor.labelColor,
+            ])
             header = [item]
         } else {
             header = []

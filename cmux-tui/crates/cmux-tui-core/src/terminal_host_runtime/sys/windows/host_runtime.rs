@@ -111,6 +111,12 @@ pub(crate) fn pty_poll_handle(_master: &dyn MasterPty) -> anyhow::Result<PtyPoll
     Ok(PtyPollHandle)
 }
 
+/// A ConPTY pipe read already returns up to the whole buffer, so the reader
+/// never needs a second read for one frame.
+pub(crate) fn pty_readable_now(_pty: PtyPollHandle) -> bool {
+    false
+}
+
 /// Ok(true): read the PTY (the read blocks until bytes or end-of-file).
 /// Ok(false) once a forced drain's window has passed.
 pub(crate) fn wait_for_pty_readable_or_forced_drain(

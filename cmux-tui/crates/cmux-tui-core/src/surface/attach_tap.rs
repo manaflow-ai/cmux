@@ -294,6 +294,9 @@ impl AttachLifecycle {
 pub(super) struct AttachTap {
     pub(super) state: Arc<AttachTapState>,
     pub(super) lifecycle: AttachLifecycle,
+    /// The history a byte viewer asked for (`replay_history_rows`): a resize or
+    /// resync replays it that window, not the whole history. `None`: all of it.
+    pub(super) history: Option<HistoryWindow>,
 }
 
 pub(super) struct AttachTapState {
@@ -525,7 +528,7 @@ impl AttachTap {
             ready: Condvar::new(),
         });
         (
-            Self { state: state.clone(), lifecycle: lifecycle.clone() },
+            Self { state: state.clone(), lifecycle: lifecycle.clone(), history: None },
             AttachFrameReceiver { state, lifecycle },
         )
     }

@@ -46,6 +46,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// The trust of `cwd` on the other machine (acpmux's `acp.trust.get` reply), or with `level`
     /// the person's answer recorded there (`acp.trust.set`).
     public typealias Trust = @Sendable (_ cwd: String, _ level: String?, _ homeChosen: Bool) async throws -> Data
+    /// One step of a new chat's agent sign-in on its machine before the chat has a session (the
+    /// daemon's `agent-session-login` on the tab's unbound surface, `agent-session-login-machine-v1`,
+    /// hq#11225): acpmux's answer, or `{refused: {reason}}`. `fields` are the daemon's (`agent`,
+    /// `login_id`, `code`, `key`); the code and key are never logged.
+    public typealias MachineLogin = @Sendable (_ op: String, _ fields: [String: String]) async throws -> Data
     /// The relay's mark on a Trust answer for a home folder the person chose there.
     public static let homeChosenParam = "cmuxHomeChosen"
     /// Whether the chat's machine is the person's own Cloud VM now: the link's Cloud API owner
@@ -96,6 +101,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// read): its `initialize` names `agent_login` before the first send made a session, so the
     /// first failed turn already offers Sign in. A wire with a session asks its client instead.
     private let servesLogin: Bool
+    /// A new chat's sign-in on its machine while it has no session (a start refused because its
+    /// agent is not signed in there): its `initialize` names `agent_login_machine`, and a login step
+    /// that names no session goes here. Nil for a machine whose daemon cannot.
+    private let machineLogin: MachineLogin?
     /// A new chat's machine opens side chats (`agent-session-side-v1`, the host's own daemon read).
     private let servesSide: Bool
     private let cloudRepositoryRequest: CloudRepository?
@@ -112,6 +121,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 cloudRepositoryStart: CloudRepositoryStart? = nil) {
         start = nil
         servesLogin = false
+        machineLogin = nil
         servesSide = false
         self.host = host
         self.linksAlias = linksAlias
@@ -125,9 +135,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
     public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
                 ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
-                cloudRepositoryStart: CloudRepositoryStart? = nil, servesLogin: Bool = false, servesSide: Bool = false) {
+                cloudRepositoryStart: CloudRepositoryStart? = nil, servesLogin: Bool = false, servesSide: Bool = false,
+                machineLogin: MachineLogin? = nil) {
         self.start = start
         self.servesLogin = servesLogin
+        self.machineLogin = machineLogin
         self.servesSide = servesSide
         self.host = host
         self.linksAlias = linksAlias
@@ -161,8 +173,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             let client = state.withLock { $0.client }
             // A new chat has no client yet: its machine's daemon read stands in (``servesLogin``).
             guard ownerCloud != nil || client != nil else {
-                return reply(id, Self.initialized(extensions: extensions, ownerCloud: false, login: servesLogin, side: servesSide))
+                return reply(id, Self.initialized(extensions: extensions, ownerCloud: false, login: servesLogin, side: servesSide,
+                                                  machineLogin: machineLogin != nil))
             }
+            // `agent_login_machine`: a chat with no session yet signs its agent in on its machine.
+            let sessionless = client == nil && machineLogin != nil
             // task-owner: one owner-answer and sign-in read per initialize; its reply ends it
             Task { [weak self, ownerCloud, servesLogin, servesSide] in
                 let owned = await ownerCloud?() ?? false
@@ -172,7 +187,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 // `side_chat`: that machine opens the chat's side chats (New side chat, `/side`).
                 var side = servesSide
                 if let client { side = await client.servesSide() }
-                self?.reply(id, Self.initialized(extensions: extensions, ownerCloud: owned, login: login, side: side))
+                self?.reply(id, Self.initialized(extensions: extensions, ownerCloud: owned, login: login, side: side,
+                                                 machineLogin: sessionless))
             }
         case "_acpmux/status":
             reply(id, ["peers": [Any]()])
@@ -292,12 +308,26 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // A Cloud chat's own sign-in on its machine (the failed turn's card): the host already
             // checked the person's click for a start or a key. The daemon pins the chat's session.
             guard !isReadOnly else { return refuseReadOnly(id, method) }
-            guard let (op, fields) = Self.login(method, params, names: names) else { return refuse(id, method) }
-            guard let client = state.withLock({ $0.client }) else { return refuse(id, method) }
+            let client = state.withLock { $0.client }
+            // A new chat with no session yet (its start refused because its agent is not signed in
+            // there, hq#11225): a step that names no chat signs the agent in on its machine itself.
+            let sessionless = client == nil && params["sessionId"] == nil ? machineLogin : nil
+            let parsed = sessionless == nil
+                ? Self.login(method, params, names: names)
+                : Self.login(method, params, names: { $0 == nil })
+            guard let (op, fields) = parsed else { return refuse(id, method) }
+            let step: @Sendable () async throws -> Data
+            if let client {
+                step = { try await client.login(op, fields) }
+            } else if let sessionless {
+                step = { try await sessionless(op, fields) }
+            } else {
+                return refuse(id, method)
+            }
             // task-owner: one sign-in step per frame; its reply ends it
             Task { [weak self] in
                 do {
-                    let answer = try await client.login(op, fields)
+                    let answer = try await step()
                     let object = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any]
                     guard let refused = object?["refused"] as? [String: Any] else {
                         self?.emit(id.map { #"{"jsonrpc":"2.0","id":\#($0),"result":"# + String(decoding: answer, as: UTF8.self) + "}" })
@@ -537,8 +567,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 let refused = error as? AgentSessionRemoteError
                 // An untrusted folder is the page's folder trust question (`trust.pending` and the
                 // folder, as acpmux's own gate names it), answered here when the wire can.
+                // A refusal's typed facts (an agent not signed in: its `reason` and `errorKind`) go
+                // along, so the page names the cause and offers its sign-in (hq#11225).
                 let question: [String: Any] = refused?.code == "agent_session.untrusted_folder" && self?.trust != nil
-                    ? ["reason": "trust.pending", "cwd": refused?.folder ?? cwd ?? ""] : [:]
+                    ? ["reason": "trust.pending", "cwd": refused?.folder ?? cwd ?? ""] : refused?.facts ?? [:]
                 self?.fail(id, code: refused?.code ?? Self.unsupported, message: refused?.message ?? String(describing: error), data: question)
             }
         }
@@ -741,14 +773,18 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     }
 
     /// The `initialize` answer: always `origin: "remote"`; `ownerCloud` only on the person's own Cloud VM;
-    /// the `agent_login` feature where that machine's daemon relays the chat's own sign-in.
-    static func initialized(extensions: [String], ownerCloud: Bool, login: Bool = false, side: Bool = false) -> [String: Any] {
+    /// the `agent_login` feature where that machine's daemon relays the chat's own sign-in, and
+    /// `agent_login_machine` where a chat with no session yet signs its agent in on its machine.
+    static func initialized(extensions: [String], ownerCloud: Bool, login: Bool = false, side: Bool = false,
+                            machineLogin: Bool = false) -> [String: Any] {
         var acpmux: [String: Any] = ["origin": "remote", "extensions": extensions]
         if ownerCloud { acpmux["ownerCloud"] = true }
         // A feature, not `capabilities`: a remote chat names no acpmux capability list, and the page
         // reads an absent list as "try the method" (turnRetry.ts).
         // `btw_inline`: the page asks `/btw` here, inline (`_acpmux/btw`), not through the host.
-        acpmux["features"] = (login ? ["agent_login"] : []) + ["btw_inline"] + (side ? ["side_chat"] : [])
+        var features: [String] = (login ? ["agent_login"] : []) + ["btw_inline"] + (side ? ["side_chat"] : [])
+        if machineLogin { features.append("agent_login_machine") }
+        acpmux["features"] = features
         return ["protocolVersion": 1, "agentCapabilities": [String: Any](), "_meta": ["acpmux": acpmux]]
     }
 
@@ -784,10 +820,14 @@ public nonisolated struct AgentSessionRemoteError: Error, Sendable, Equatable {
     public var message: String
     /// The folder a refused start named (`agent_session.untrusted_folder`).
     public var folder: String?
+    /// A refused start's typed facts for the page's `data` (`agent_session.sign_in_required`'s
+    /// `reason` and `errorKind`, hq#11225), never words.
+    public var facts: [String: String]
 
-    public init(code: String, message: String, folder: String? = nil) {
+    public init(code: String, message: String, folder: String? = nil, facts: [String: String] = [:]) {
         self.code = code
         self.message = message
         self.folder = folder
+        self.facts = facts
     }
 }

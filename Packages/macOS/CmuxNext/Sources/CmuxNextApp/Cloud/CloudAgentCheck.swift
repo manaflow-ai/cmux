@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import Foundation
@@ -28,18 +29,17 @@ import os
     /// The probe's reply as the rule reads it.
     nonisolated struct Probe: Codable, Equatable { var status: Int; var headers: [String: String] }
     nonisolated struct Request: Encodable { var harness: String?; var model: String?; var probe: Probe?; var now: Int64 }
-    nonisolated struct Refusal: Decodable, Equatable { var code: String; var message: String }
+    nonisolated struct Refusal: Decodable, Equatable, Sendable { var code: String; var message: String; var untilAt: String?; var failure: ActionWorkFailure { ActionWorkFailure(code: code, reason: message, details: untilAt.map { ["until_at": $0] } ?? [:]) } } // the control socket's answer: its code and reset, so a caller (the CLI's JSON error) reads no words
     nonisolated struct Answer: Decodable, Equatable { var refusal: Refusal?; var freshUntil: Int64 }
 
     /// Why a new machine is not made.
     nonisolated enum Refused: Equatable, Sendable {
         /// The harness login rules refuse a start that may show no prompt.
         case login(CloudHarnessLoginDecision.Reason)
-        /// The person's Claude limit for this model is used up: the refusal's words.
-        case limit(String)
-
+        /// The person's Claude limit for this model is used up: the rule's refusal.
+        case limit(Refusal)
         /// ``limit(_:)``'s words; nil for a login refusal.
-        var limitWords: String? { if case .limit(let words) = self { words } else { nil } }
+        var limitWords: String? { if case .limit(let refusal) = self { refusal.message } else { nil } }
         /// ``login(_:)``'s reason; nil for a used-up limit.
         var loginReason: CloudHarnessLoginDecision.Reason? { if case .login(let reason) = self { reason } else { nil } }
     }
@@ -81,10 +81,10 @@ import os
         return await limitRefusal(harness: harness, model: model, userID: userID, token: token).map(Refused.limit)
     }
 
-    /// The refusal's words when `token`'s Claude limit for `model` is used up; nil otherwise or when unknown.
-    func limitRefusal(harness: String?, model named: String?, userID: String, token: Data) async -> String? {
+    /// The refusal when `token`'s Claude limit for `model` is used up; nil otherwise or when unknown.
+    func limitRefusal(harness: String?, model named: String?, userID: String, token: Data) async -> Refusal? {
         let model = Self.modelID(named), key = userID + "\n" + model
-        if let kept = kept[key], kept.freshUntil > now() { return kept.refusal?.message }
+        if let kept = kept[key], kept.freshUntil > now() { return kept.refusal }
         let task = asking[key] ?? Task { [self] in
             guard let probe = await probe(token, model: model) else { return nil }
             return Self.answer(harness: harness, model: model, probe: probe, now: now())
@@ -95,7 +95,7 @@ import os
         guard let answer else { return nil }
         kept[key] = answer
         if let refusal = answer.refusal { Self.logger.info("cloud start: refused before the lease: \(refusal.code, privacy: .public)") }
-        return answer.refusal?.message
+        return answer.refusal
     }
 
     /// The Claude id a start of `model` runs: no `[1m]`, an alias as its family's id, none as the default, another name as is.

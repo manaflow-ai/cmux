@@ -1,0 +1,125 @@
+ci-step glaeda mirror: fetched d05b31cfcd8e22fe198e4720d290194f24130501 on top of /Users/Shared/cmux-build-fleet/git/cmux.git in 0.9s
+bun 1.4.4 first on PATH (/Users/Shared/cmux-build-fleet/tools/bun-1.4.4, as webviews/package.json pins)
+ci-step cmux50-after-d05b31cf: scripts/measure/perf-10x-idle.sh is the reviewed version at the tip of feat-cmux-next (blob d80895694093)
+ci-step cmux50-after-d05b31cf: GUI measurement in cmux's console session (launchctl asuser 501)
+ci-step cmux50-after-d05b31cf: scripts/measure/perf-10x-idle.sh agents=20 chat_renderer_crash=1 at d05b31cfcd8e22fe198e4720d290194f24130501 nofile=61440
+PERF-IDLE-MACHINE host=cmux19 sha=d05b31cfcd8e22fe198e4720d290194f24130501 cores=12 ram_gb=16 macos=27.0 load="3.80 4.92 5.67"
+Submodule 'ghostty' (https://github.com/manaflow-ai/ghostty.git) registered for path 'ghostty'
+Cloning into '/Library/Application Support/cmux-build-worker/work/steps/bc28792ae29ddcda18a10829/src/ghostty'...
+From https://github.com/manaflow-ai/ghostty
+ * branch            cb1ef7091cdef0b581ee2cbd83742b653253523e -> FETCH_HEAD
+PERF-IDLE-LOAD daemon 16.88 19.46 13.85
+PERF-IDLE daemon N=1 role=daemon n=1 cpu_pct=0.025 wakeups_per_s=0.1 rss_each_mb=99.7 footprint_each_mb=55.36 threads=52
+PERF-IDLE daemon N=1 role=hosts n=2 cpu_pct=0.0 wakeups_per_s=0.0 rss_each_mb=2.99 footprint_each_mb=1.36 threads=12
+PERF-IDLE daemon N=1 role=shells n=2 cpu_pct=0.0 wakeups_per_s=0.0 rss_each_mb=6.09 footprint_each_mb=4.23 threads=5
+PERF-IDLE-STOP daemon /Library/Application Support/cmux-build-worker/work/steps/bc28792ae29ddcda18a10829/src/.build/perf-idle/daemon-1.json None teardown={"ok": true, "error": null, "data": {"accepted": true, "ended_terminals": 1, "generation": "3c0f5edb-7e4c-439a-af5f-e9fac071627e", "pid": 26440, "session_dir": "/private/tmp/pidl.0klxZj/cxs-p_nhof35/state/scale26431-0d49770f383d1e3b"}, "seconds": 0.26, "leftover_hosts": 0}
+PERF-IDLE daemon N=10 role=daemon n=1 cpu_pct=0.012 wakeups_per_s=0.1 rss_each_mb=102.12 footprint_each_mb=57.89 threads=70
+PERF-IDLE daemon N=10 role=hosts n=11 cpu_pct=0.0 wakeups_per_s=0.0 rss_each_mb=3.73 footprint_each_mb=1.6 threads=102
+PERF-IDLE daemon N=10 role=shells n=11 cpu_pct=0.0 wakeups_per_s=0.0 rss_each_mb=4.05 footprint_each_mb=2.69 threads=14
+PERF-IDLE-STOP daemon /Library/Application Support/cmux-build-worker/work/steps/bc28792ae29ddcda18a10829/src/.build/perf-idle/daemon-10.json None teardown={"ok": true, "error": null, "data": {"accepted": true, "ended_terminals": 10, "generation": "b612d641-bd8a-406d-9a0d-7ab173f8e920", "pid": 27215, "session_dir": "/private/tmp/pidl.0klxZj/cxs-cwdyg4nn/state/scale27206-bd60d808c227339a"}, "seconds": 0.3, "leftover_hosts": 0}
+PERF-IDLE daemon N=50 role=daemon n=1 cpu_pct=0.012 wakeups_per_s=0.1 rss_each_mb=112.73 footprint_each_mb=68.25 threads=150
+PERF-IDLE daemon N=50 role=hosts n=51 cpu_pct=0.0 wakeups_per_s=0.0 rss_each_mb=3.85 footprint_each_mb=1.64 threads=502
+PERF-IDLE daemon N=50 role=shells n=51 cpu_pct=0.0 wakeups_per_s=0.0 rss_each_mb=3.68 footprint_each_mb=2.41 threads=54
+PERF-IDLE-STOP daemon /Library/Application Support/cmux-build-worker/work/steps/bc28792ae29ddcda18a10829/src/.build/perf-idle/daemon-50.json None teardown={"ok": true, "error": null, "data": {"accepted": true, "ended_terminals": 50, "generation": "293c8095-262d-4147-b83b-6e455418760e", "pid": 28344, "session_dir": "/private/tmp/pidl.0klxZj/cxs-s1audid5/state/scale28334-5651f09a86462507"}, "seconds": 0.9, "leftover_hosts": 0}
+PERF-IDLE-LOAD app 4.01 10.49 11.21
+PERF-IDLE app idle-launch workspaces=1 kind=cef-renderer n=5 cpu_pct=2.791 wakeups_per_s=2.88 rss_mb=823.3 footprint_mb=298.5
+PERF-IDLE app idle-launch workspaces=1 kind=app n=1 cpu_pct=0.394 wakeups_per_s=3.33 rss_mb=702.7 footprint_mb=273.5
+PERF-IDLE app idle-launch workspaces=1 kind=tui-daemon n=4 cpu_pct=0.038 wakeups_per_s=0.15 rss_mb=200.7 footprint_mb=101.9
+PERF-IDLE app idle-launch workspaces=1 kind=acpmux-daemon n=2 cpu_pct=0.014 wakeups_per_s=0.33 rss_mb=130.1 footprint_mb=66.7
+PERF-IDLE app idle-launch workspaces=1 kind=tui-daemon-chief n=1 cpu_pct=0.007 wakeups_per_s=0.05 rss_mb=97.6 footprint_mb=52.4
+PERF-IDLE app idle-launch workspaces=1 kind=cef-gpu n=1 cpu_pct=0.014 wakeups_per_s=0.93 rss_mb=111.5 footprint_mb=50.4
+PERF-IDLE app idle-launch workspaces=1 kind=webkit-webcontent n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=121.1 footprint_mb=46.7
+PERF-IDLE app idle-launch workspaces=1 kind=cef-utility n=2 cpu_pct=0.056 wakeups_per_s=1.02 rss_mb=163.1 footprint_mb=45.0
+PERF-IDLE app idle-launch workspaces=1 kind=acpmux-router n=2 cpu_pct=0.0 wakeups_per_s=0.02 rss_mb=37.7 footprint_mb=18.4
+PERF-IDLE app idle-launch workspaces=1 kind=optchat-chief n=2 cpu_pct=0.005 wakeups_per_s=2.42 rss_mb=31.6 footprint_mb=16.6
+PERF-IDLE app idle-launch workspaces=1 kind=cmux-agent-screen-detection n=2 cpu_pct=0.067 wakeups_per_s=0.03 rss_mb=20.0 footprint_mb=13.5
+PERF-IDLE app idle-launch workspaces=1 kind=webkit-gpu n=1 cpu_pct=0.001 wakeups_per_s=0.33 rss_mb=36.3 footprint_mb=12.8
+PERF-IDLE app idle-launch workspaces=1 kind=acpmux-__agent-host n=2 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=30.2 footprint_mb=12.6
+PERF-IDLE app idle-launch workspaces=1 kind=acpmux-tools-mcp n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=16.9 footprint_mb=7.9
+PERF-IDLE app idle-launch workspaces=1 kind=webkit-networking n=1 cpu_pct=0.0 wakeups_per_s=0.02 rss_mb=14.2 footprint_mb=4.3
+PERF-IDLE app idle-launch workspaces=1 kind=cmux-browser-host n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=5.2 footprint_mb=3.6
+PERF-IDLE app idle-1 workspaces=1 kind=cef-renderer n=5 cpu_pct=0.059 wakeups_per_s=1.28 rss_mb=825.0 footprint_mb=299.5
+PERF-IDLE app idle-1 workspaces=1 kind=app n=1 cpu_pct=0.105 wakeups_per_s=3.17 rss_mb=704.2 footprint_mb=274.2
+PERF-IDLE app idle-1 workspaces=1 kind=tui-daemon n=4 cpu_pct=0.023 wakeups_per_s=0.24 rss_mb=200.7 footprint_mb=92.6
+PERF-IDLE app idle-1 workspaces=1 kind=acpmux-daemon n=2 cpu_pct=0.006 wakeups_per_s=0.43 rss_mb=130.1 footprint_mb=63.6
+PERF-IDLE app idle-1 workspaces=1 kind=cef-gpu n=1 cpu_pct=0.011 wakeups_per_s=1.02 rss_mb=111.6 footprint_mb=50.4
+PERF-IDLE app idle-1 workspaces=1 kind=webkit-webcontent n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=121.1 footprint_mb=46.7
+PERF-IDLE app idle-1 workspaces=1 kind=cef-utility n=2 cpu_pct=0.02 wakeups_per_s=1.05 rss_mb=163.1 footprint_mb=45.0
+PERF-IDLE app idle-1 workspaces=1 kind=tui-daemon-chief n=1 cpu_pct=0.002 wakeups_per_s=0.07 rss_mb=97.6 footprint_mb=43.6
+PERF-IDLE app idle-1 workspaces=1 kind=acpmux-router n=2 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=37.7 footprint_mb=17.3
+PERF-IDLE app idle-1 workspaces=1 kind=optchat-chief n=2 cpu_pct=0.005 wakeups_per_s=3.02 rss_mb=31.6 footprint_mb=13.0
+PERF-IDLE app idle-1 workspaces=1 kind=webkit-gpu n=1 cpu_pct=0.001 wakeups_per_s=0.5 rss_mb=35.4 footprint_mb=12.8
+PERF-IDLE app idle-1 workspaces=1 kind=acpmux-__agent-host n=2 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=30.2 footprint_mb=12.7
+PERF-IDLE app idle-1 workspaces=1 kind=cmux-agent-screen-detection n=2 cpu_pct=0.067 wakeups_per_s=0.03 rss_mb=20.0 footprint_mb=11.8
+PERF-IDLE app idle-1 workspaces=1 kind=acpmux-tools-mcp n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=16.9 footprint_mb=7.9
+PERF-IDLE app idle-1 workspaces=1 kind=webkit-networking n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=14.2 footprint_mb=4.3
+PERF-IDLE app idle-1 workspaces=1 kind=cmux-browser-host n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=5.2 footprint_mb=2.2
+PERF-IDLE app idle-10 workspaces=10 kind=app n=1 cpu_pct=0.162 wakeups_per_s=3.05 rss_mb=763.0 footprint_mb=346.2
+PERF-IDLE app idle-10 workspaces=10 kind=cef-renderer n=5 cpu_pct=0.053 wakeups_per_s=1.39 rss_mb=757.0 footprint_mb=330.9
+PERF-IDLE app idle-10 workspaces=10 kind=tui-daemon n=4 cpu_pct=0.048 wakeups_per_s=0.25 rss_mb=199.3 footprint_mb=100.5
+PERF-IDLE app idle-10 workspaces=10 kind=cef-gpu n=1 cpu_pct=0.029 wakeups_per_s=0.95 rss_mb=106.0 footprint_mb=66.2
+PERF-IDLE app idle-10 workspaces=10 kind=acpmux-daemon n=2 cpu_pct=0.006 wakeups_per_s=0.37 rss_mb=118.2 footprint_mb=63.8
+PERF-IDLE app idle-10 workspaces=10 kind=webkit-webcontent n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=39.7 footprint_mb=47.7
+PERF-IDLE app idle-10 workspaces=10 kind=cef-utility n=2 cpu_pct=0.017 wakeups_per_s=1.01 rss_mb=148.9 footprint_mb=45.3
+PERF-IDLE app idle-10 workspaces=10 kind=tui-daemon-chief n=1 cpu_pct=0.001 wakeups_per_s=0.03 rss_mb=96.8 footprint_mb=43.7
+PERF-IDLE app idle-10 workspaces=10 kind=acpmux-router n=2 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=37.7 footprint_mb=17.3
+PERF-IDLE app idle-10 workspaces=10 kind=webkit-gpu n=1 cpu_pct=0.001 wakeups_per_s=0.47 rss_mb=28.3 footprint_mb=13.3
+PERF-IDLE app idle-10 workspaces=10 kind=acpmux-__agent-host n=2 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=20.6 footprint_mb=12.6
+PERF-IDLE app idle-10 workspaces=10 kind=cmux-agent-screen-detection n=2 cpu_pct=0.094 wakeups_per_s=0.05 rss_mb=20.8 footprint_mb=11.9
+PERF-IDLE app idle-10 workspaces=10 kind=optchat-chief n=2 cpu_pct=0.005 wakeups_per_s=2.88 rss_mb=24.2 footprint_mb=11.3
+PERF-IDLE app idle-10 workspaces=10 kind=acpmux-tools-mcp n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=10.2 footprint_mb=7.8
+PERF-IDLE app idle-10 workspaces=10 kind=webkit-networking n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=14.1 footprint_mb=4.3
+PERF-IDLE app idle-10 workspaces=10 kind=cmux-browser-host n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=5.2 footprint_mb=2.2
+PERF-IDLE app idle-50 workspaces=50 kind=app n=1 cpu_pct=0.199 wakeups_per_s=4.95 rss_mb=824.2 footprint_mb=403.6
+PERF-IDLE app idle-50 workspaces=50 kind=cef-renderer n=5 cpu_pct=0.03 wakeups_per_s=1.27 rss_mb=784.8 footprint_mb=357.6
+PERF-IDLE app idle-50 workspaces=50 kind=tui-daemon n=4 cpu_pct=0.101 wakeups_per_s=0.33 rss_mb=219.1 footprint_mb=120.5
+PERF-IDLE app idle-50 workspaces=50 kind=acpmux-daemon n=2 cpu_pct=0.004 wakeups_per_s=0.5 rss_mb=118.2 footprint_mb=63.8
+PERF-IDLE app idle-50 workspaces=50 kind=cef-gpu n=1 cpu_pct=0.01 wakeups_per_s=1.45 rss_mb=106.2 footprint_mb=63.4
+PERF-IDLE app idle-50 workspaces=50 kind=webkit-webcontent n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=39.7 footprint_mb=47.7
+PERF-IDLE app idle-50 workspaces=50 kind=cef-utility n=2 cpu_pct=0.009 wakeups_per_s=1.34 rss_mb=148.9 footprint_mb=45.3
+PERF-IDLE app idle-50 workspaces=50 kind=tui-daemon-chief n=1 cpu_pct=0.001 wakeups_per_s=0.08 rss_mb=96.8 footprint_mb=43.7
+PERF-IDLE app idle-50 workspaces=50 kind=acpmux-router n=2 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=37.7 footprint_mb=17.3
+PERF-IDLE app idle-50 workspaces=50 kind=cmux-agent-screen-detection n=2 cpu_pct=0.141 wakeups_per_s=0.05 rss_mb=23.4 footprint_mb=14.4
+PERF-IDLE app idle-50 workspaces=50 kind=webkit-gpu n=1 cpu_pct=0.001 wakeups_per_s=0.65 rss_mb=28.3 footprint_mb=13.1
+PERF-IDLE app idle-50 workspaces=50 kind=acpmux-__agent-host n=2 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=20.6 footprint_mb=12.6
+PERF-IDLE app idle-50 workspaces=50 kind=optchat-chief n=2 cpu_pct=0.004 wakeups_per_s=4.1 rss_mb=24.2 footprint_mb=11.3
+PERF-IDLE app idle-50 workspaces=50 kind=acpmux-tools-mcp n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=10.2 footprint_mb=7.8
+PERF-IDLE app idle-50 workspaces=50 kind=webkit-networking n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=14.1 footprint_mb=4.3
+PERF-IDLE app idle-50 workspaces=50 kind=cmux-browser-host n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=5.2 footprint_mb=2.2
+PERF-IDLE-LOAD agents 1.52 4.93 8.38
+PERF-IDLE app-agents idle-launch agents=1 kind=cef-renderer n=5 cpu_pct=0.36 wakeups_per_s=4.18 rss_mb=808.8 footprint_mb=292.9
+PERF-IDLE app-agents idle-launch agents=1 kind=app n=1 cpu_pct=0.238 wakeups_per_s=4.67 rss_mb=705.8 footprint_mb=258.4
+PERF-IDLE app-agents idle-launch agents=1 kind=tui-daemon n=4 cpu_pct=0.058 wakeups_per_s=0.28 rss_mb=201.1 footprint_mb=96.9
+PERF-IDLE app-agents idle-launch agents=1 kind=acpmux-daemon n=2 cpu_pct=0.022 wakeups_per_s=0.53 rss_mb=130.7 footprint_mb=67.2
+PERF-IDLE app-agents idle-launch agents=1 kind=tui-daemon-chief n=1 cpu_pct=0.017 wakeups_per_s=0.1 rss_mb=97.5 footprint_mb=54.1
+PERF-IDLE app-agents idle-launch agents=1 kind=cef-gpu n=1 cpu_pct=0.015 wakeups_per_s=1.42 rss_mb=120.4 footprint_mb=48.7
+PERF-IDLE app-agents idle-launch agents=1 kind=webkit-webcontent n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=115.9 footprint_mb=46.6
+PERF-IDLE app-agents idle-launch agents=1 kind=cef-utility n=2 cpu_pct=0.045 wakeups_per_s=1.4 rss_mb=162.6 footprint_mb=44.8
+PERF-IDLE app-agents idle-launch agents=1 kind=acpmux-router n=2 cpu_pct=0.0 wakeups_per_s=0.03 rss_mb=37.8 footprint_mb=18.4
+PERF-IDLE app-agents idle-launch agents=1 kind=optchat-chief n=2 cpu_pct=0.004 wakeups_per_s=4.27 rss_mb=31.7 footprint_mb=16.7
+PERF-IDLE app-agents idle-launch agents=1 kind=cmux-agent-screen-detection n=2 cpu_pct=0.112 wakeups_per_s=0.05 rss_mb=21.0 footprint_mb=13.1
+PERF-IDLE app-agents idle-launch agents=1 kind=webkit-gpu n=1 cpu_pct=0.001 wakeups_per_s=0.58 rss_mb=33.6 footprint_mb=13.0
+PERF-IDLE app-agents idle-launch agents=1 kind=acpmux-__agent-host n=2 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=30.1 footprint_mb=12.7
+PERF-IDLE app-agents idle-launch agents=1 kind=webkit-networking n=1 cpu_pct=0.0 wakeups_per_s=0.03 rss_mb=11.2 footprint_mb=4.3
+PERF-IDLE app-agents idle-launch agents=1 kind=cmux-browser-host n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=5.5 footprint_mb=3.9
+PERF-IDLE app-agents idle-20 agents=20 kind=cef-renderer n=7 cpu_pct=5.705 wakeups_per_s=14.18 rss_mb=2371.8 footprint_mb=1480.1
+PERF-IDLE app-agents idle-20 agents=20 kind=app n=1 cpu_pct=0.579 wakeups_per_s=8.25 rss_mb=841.1 footprint_mb=414.6
+PERF-IDLE app-agents idle-20 agents=20 kind=cef-gpu n=1 cpu_pct=1.304 wakeups_per_s=106.8 rss_mb=132.1 footprint_mb=385.4
+PERF-IDLE app-agents idle-20 agents=20 kind=acpmux-__agent-host n=22 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=291.6 footprint_mb=140.8
+PERF-IDLE app-agents idle-20 agents=20 kind=tui-daemon n=4 cpu_pct=0.059 wakeups_per_s=0.31 rss_mb=194.8 footprint_mb=96.3
+PERF-IDLE app-agents idle-20 agents=20 kind=acpmux-daemon n=2 cpu_pct=0.051 wakeups_per_s=0.72 rss_mb=145.6 footprint_mb=92.7
+PERF-IDLE app-agents idle-20 agents=20 kind=cef-utility n=2 cpu_pct=0.042 wakeups_per_s=1.32 rss_mb=161.2 footprint_mb=51.0
+PERF-IDLE app-agents idle-20 agents=20 kind=webkit-webcontent n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=91.7 footprint_mb=48.1
+PERF-IDLE app-agents idle-20 agents=20 kind=tui-daemon-chief n=1 cpu_pct=0.002 wakeups_per_s=0.08 rss_mb=70.5 footprint_mb=44.3
+PERF-IDLE app-agents idle-20 agents=20 kind=acpmux-router n=2 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=32.2 footprint_mb=17.3
+PERF-IDLE app-agents idle-20 agents=20 kind=webkit-gpu n=1 cpu_pct=0.001 wakeups_per_s=0.57 rss_mb=26.2 footprint_mb=13.9
+PERF-IDLE app-agents idle-20 agents=20 kind=cmux-agent-screen-detection n=2 cpu_pct=0.111 wakeups_per_s=0.05 rss_mb=18.9 footprint_mb=12.7
+PERF-IDLE app-agents idle-20 agents=20 kind=optchat-chief n=2 cpu_pct=0.005 wakeups_per_s=3.73 rss_mb=28.7 footprint_mb=9.8
+PERF-IDLE app-agents idle-20 agents=20 kind=webkit-networking n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=10.3 footprint_mb=4.5
+PERF-IDLE app-agents idle-20 agents=20 kind=cmux-browser-host n=1 cpu_pct=0.0 wakeups_per_s=0.0 rss_mb=4.0 footprint_mb=2.3
+CHAT-RENDERERS idle-20 agents=20 {"chat_pages": 22, "chat_renderers": 1, "chat_renderer_pids": [37445], "pages_per_renderer": [8]}
+CHAT-RENDERERS-CRASH {"pages": 22, "renderers": 1, "victim_pid": 37445, "victim_pages": 8, "unmapped_pages": 14, "reloaded": 8, "kept": 14, "reloaded_outside_victim": [], "pages_after": 22, "cap": 8, "pass": true}
+PERF-ATTR app idle-launch window_s=150.2
+PERF-ATTR app idle-launch thread app:22080 tid=77248910 name='ThreadPoolForegroundWorker' cpu_ms_per_s=1.823
+PERF-ATTR app idle-launch thread app:22080 tid=77248905 name='ThreadPoolForegroundWorker' cpu_ms_per_s=1.578
+ci-step cmux50-after-d05b31cf exited 0

@@ -452,6 +452,7 @@ impl Hub {
                 restored: false,
                 resume: false,
                 steer,
+                steer_on_start: false,
                 held: stop_held,
                 awaiting_owner: false,
                 revision: 0,
