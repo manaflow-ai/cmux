@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import os
 
 /// The sidebar's rows and selection passes, each observed and also run on
 /// demand. The window swaps a workspace's content in on a switch's own turn
@@ -44,6 +45,9 @@ public final class SidebarSameTurn {
         /// Whether a value changed since the last run (asked once: the next answer is false).
         func take() -> Bool { stale.exchange(false, ordering: .acquiringAndReleasing) }
 
+        /// Whether the pass has a run to make: it never ran, or a value changed after its last run. Asking keeps it.
+        var waits: Bool { stale.load(ordering: .acquiring) }
+
         func finish() { wake.finish() }
     }
 
@@ -85,6 +89,44 @@ public final class SidebarSameTurn {
     public func syncNow(rows: Bool) {
         for pass in passes where rows || !pass.listsRows { pass.run() }
         view.renderNow()
+    }
+
+    /// Runs, in this turn, each pass that has a run to make (it never ran, or a value changed after its last run),
+    /// and draws the sidebar if one ran. Called before a window is ordered in (2026-11-16): a pass's first run is
+    /// its task's, one hop after the turn that registers it, and a window is ordered in at the end of the turn that
+    /// makes it, so its first frame had the rows of the seed with no spaces (the space bar hidden, the list in its
+    /// room), no row decoration and no page face. A pass that ran in this turn (`syncNow`) has nothing to run here,
+    /// and the task of a pass that runs here finds nothing changed: no pass runs a second time. Returns the number
+    /// of passes that ran.
+    @discardableResult
+    public func runPending() -> Int {
+        var ran = 0
+        for (pass, change) in zip(passes, changes) where change.waits {
+            pass.run()
+            ran += 1
+        }
+        if ran > 0 { view.renderNow() }
+        return ran
+    }
+
+    private static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
+
+    /// The newest `completeFirstFrame`: the passes that ran, the rows of the list after them, and the main-actor
+    /// time of those passes. The sidebar's own measure of the work in front of a window's order-in.
+    public private(set) var firstFrame: (passes: Int, rows: Int, duration: Duration)?
+
+    /// A window's first frame (2026-11-16): the window manager calls this before it orders the window in. It runs
+    /// each pass that has a run to make (`runPending`), then `sections`' check of each band item's value. The
+    /// passes are measured, because their time is in front of the order-in (the rows pass walks each row of the
+    /// window's space): one signpost interval (`firstFramePasses`, category "stalls") and `firstFrame`.
+    public func completeFirstFrame(sections: SidebarSectionsPass?) {
+        let started = ContinuousClock.now
+        let interval = Self.signposter.beginInterval("firstFramePasses")
+        let passes = runPending()
+        Self.signposter.endInterval("firstFramePasses", interval)
+        let rows = view.model.sections.reduce(0) { $0 + $1.workspaces.count }
+        firstFrame = (passes, rows, ContinuousClock.now - started)
+        sections?.completeFirstFrame()
     }
 
     /// Whether the sidebar still lists another space than `space`, the window's: the space changed in this
