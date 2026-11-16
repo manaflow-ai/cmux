@@ -76,7 +76,12 @@ pub fn panic_log_path() -> std::path::PathBuf {
 /// The default state directory, with no ACPMUX_HOME and no override: the
 /// person's own daemon home (a hand, which runs its own daemon, protects it).
 pub fn default_home() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
+    default_home_in(&dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+}
+
+/// [`default_home`] for the OS account whose home folder is `account_home`.
+pub fn default_home_in(account_home: &Path) -> PathBuf {
+    account_home.join(".acpmux")
 }
 
 /// Whether a command may start a daemon in `home`, given this process's `ACPMUX_HOME` and

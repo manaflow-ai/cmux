@@ -1,6 +1,7 @@
 public import CmuxNextActions
 import CmuxNextDaemonService
 import CmuxNextDevices
+public import CmuxNextPalette
 import Foundation
 
 /// AppKit bindings shared by menus, the palette and CLI. The app supplies only tab placement
@@ -23,7 +24,9 @@ public struct MacScreenActions {
         self.refusal = refusal
     }
 
-    public func bind(into registry: ActionRegistry) {
+    /// - Parameter paletteRows: Adds a root palette provider: one "Screen Sharing: <device>" row per device.
+    public func bind(into registry: ActionRegistry, paletteRows: ((AsyncPaletteProvider) -> Void)? = nil) {
+        paletteRows?(pages.paletteProvider(registry: registry))
         registry.bindEffect("macScreen.open", effect: { invocation in
             if let target = invocation.target, target.kind != .pane && target.kind != .tab { return .refused(Self.noPane) }
             do { try open({ try Self.record(invocation, pages: pages) }, invocation, Self.isPerson(invocation)) }
@@ -47,7 +50,7 @@ public struct MacScreenActions {
     }
 
     static func record(_ invocation: ActionInvocation, pages: MacScreenPages) throws -> MacScreenRecord {
-        try record(invocation, pages: pages, devices: pages.hub.map { MacScreenHomeSnapshot.listed($0.otherDevices) } ?? [])
+        try record(invocation, pages: pages, devices: pages.viewableDevices)
     }
 
     /// `device` is the hub's device id or, from the CLI and agents, a device name (the Mac's Computer Name) among

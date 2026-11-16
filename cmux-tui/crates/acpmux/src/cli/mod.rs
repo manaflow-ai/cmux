@@ -15,6 +15,7 @@ pub mod codex_auth_broker;
 pub mod command;
 pub mod command_host;
 pub mod command_new;
+pub(crate) mod consent_admin;
 pub mod daemon_service;
 pub mod desktop;
 pub mod detach;

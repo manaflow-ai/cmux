@@ -13,6 +13,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("subagent-tray-row.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -49,7 +50,7 @@ await requireBrowserLane("subagent-tray-row.test.ts", async () => {
           // One item heads the hat folded (Leo, 2026-11-07): its header expands it to show the line.
           const head = page.locator(".acpmux-running-tray__head");
           if ((await head.getAttribute("aria-expanded")) === "false") await head.click();
-          await page.locator(".acpmux-running-tray .acpmux-agent-line").first().waitFor();
+          await page.locator(RUNNING_TRAY_LINE).first().waitFor();
           const row = await page.evaluate(() => {
             for (const animation of document.getAnimations()) {
               if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
