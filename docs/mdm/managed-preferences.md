@@ -14,6 +14,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 
 | Key | Type | Default | Allowed values | Description |
 | --- | --- | --- | --- | --- |
+| `app.language` | string | `"system"` | `system`, `en`, `ar`, `bs`, `da`, `de`, `es`, `fr`, `it`, `nb`, `pl`, `pt-BR`, `tr`, `vi`, `ru`, `uk`, `th`, `km`, `ja`, `ko`, `zh-Hans`, `zh-Hant` | Language. The language of cmux's menus, pages and messages. |
 | `history.terminalCommands` | boolean | `false` |  | Record Terminal Commands. Lists finished shell commands in History. Command lines can contain secrets. |
 | `navigation.historyScope` | string | `"workspace"` | `workspace`, `window`, `surface` | Back and Forward. What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history. |
 | `navigation.history.scope` | string | `"workspaces"` | `workspaces`, `everything` | Back and Forward Steps. Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace. |
