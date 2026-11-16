@@ -276,18 +276,14 @@ impl SortedSnapshot {
         header.extend_from_slice(&(json.len() as u32).to_le_bytes());
         header.extend_from_slice(&json);
         header.resize(HEADER_BYTES - 4, 0);
-        header.extend_from_slice(&crc32fast::hash(&header).to_le_bytes());
+        let head_crc = crc32fast::hash(&header);
+        header.extend_from_slice(&head_crc.to_le_bytes());
         writer.seek(SeekFrom::Start(0))?;
         writer.write_all(&header)?;
         writer.flush()?;
         writer.get_ref().sync_all()?;
         stats.stream_ns = started.elapsed().as_nanos();
         if let (Some(table), Some(table_path)) = (table, table_path) {
-            let head_crc = u32::from_le_bytes(
-                header[HEADER_BYTES - 4..]
-                    .try_into()
-                    .map_err(|_| codec::invalid("snapshot head crc"))?,
-            );
             let binding = kin_table::Binding { head_crc, seq, count, data_end: origins_offset };
             match kin_table::finish_table(table, table_path, binding) {
                 Ok((closure_ns, pages_ns)) => {
