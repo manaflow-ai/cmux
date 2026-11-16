@@ -40,16 +40,9 @@ extension AgentPaneView {
         // reader left the chat: the page awaited `chat.scrollAnchor.get` (the same 250 ms race)
         // before its switch on every sidebar open.
         let json = Self.adoptEventDetail(session: session, revealTurn: revealTurn, tail: AgentPaneTailCache.shared.tail(for: session),
-                                         place: Self.adoptedPlace(session: session, tab: tab))
+                                         place: AgentPaneScrollAnchors.adoptedPlace(session: session, tab: tab))
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-session-adopt', {detail: \(json)}))")
         return true
-    }
-
-    /// Where the reader left chat `session` in tab `tab`, for its adopt event: `.some(nil)` when the
-    /// store keeps no place (the chat opens at its latest message), nil when there is no store (a test
-    /// host, the gallery: the page asks, and is answered nothing). One lookup in the store's bounded list.
-    static func adoptedPlace(session: String, tab: String?) -> AgentPaneScrollAnchor?? {
-        AgentPaneScrollAnchors.shared.map { $0.anchor(for: session, tab: tab) }
     }
 
     /// The adopt event's detail as JSON text (newtab/adoption.ts `sessionAdoption` reads it): the chat,

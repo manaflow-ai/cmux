@@ -3,6 +3,7 @@ import CmuxNextTabs
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextPages
 import Foundation
 
 /// Opening agent chat tabs on the workspace store with zero wait, and letting their view state
@@ -253,11 +254,7 @@ extension AgentTabStore {
     func adoptSpare(_ spare: AgentPaneView, key: String, session: String, revealTurn: String?) -> Bool { adoptSpare(spare, key: tabKey(key), session: session, revealTurn: revealTurn) }
 
     func adoptSpare(_ spare: AgentPaneView, key: AgentTabKey, session: String, revealTurn: String?) -> Bool {
-        let moved: @MainActor () -> Void = { [weak spare] in
-            // A Chromium page's window follows its view only when told (CEFHostView.pagesNeedUpdate).
-            guard let window = spare?.window else { return }
-            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
-        }
+        let moved: @MainActor () -> Void = { [weak spare] in spare?.tellWindowItsPagesMoved() }
         guard spare.adoptSession(session, tab: key.key, revealTurn: revealTurn, moved: moved) else {
             AgentPaneSpareOutcome.refused.trace(note: spare.model.spareRefusal)
             if let revealTurn { pendingTurns[key] = revealTurn }
