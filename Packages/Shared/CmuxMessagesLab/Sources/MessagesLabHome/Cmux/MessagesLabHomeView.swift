@@ -24,6 +24,8 @@ public final class MessagesLabHomeView: NSView {
     private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).
     private var appliedPalette = -1
+    /// The strings bundle this view's text was last drawn with (useStrings).
+    private var appliedStrings = ObjectIdentifier(MessagesLabLocalization.bundle)
 
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
@@ -277,6 +279,26 @@ public final class MessagesLabHomeView: NSView {
     /// A host that picks the language itself hands ``useStrings(_:)`` that bundle's `.lproj`
     /// (CmuxNext: `Bundle.inAppLanguage`, the `app.language` setting).
     public static var packageStrings: Bundle { .module }
+
+    /// Every MessagesLab string (the composer's placeholder, receipts, day separators, menus, Home's
+    /// own rows) from `bundle` from now on, and this view's drawn text again in it: a host's language
+    /// switch, live. The strings bundle is one for the process; each view redraws once per bundle.
+    public func useStrings(_ bundle: Bundle) {
+        let id = ObjectIdentifier(bundle)
+        guard id != appliedStrings else { return }
+        appliedStrings = id
+        if MessagesLabLocalization.bundle !== bundle {
+            MessagesLabLocalization.bundle = bundle
+            RowBitmaps.shared.removeAll()  // row bitmaps hold the old language's words (receipts, separators)
+        }
+        guard let demo = controller.demo else { return }
+        demo.scope {
+            demo.compose.stringsChanged()
+            demo.chrome.setNeedsDisplay()
+            demo.chrome.subviews.forEach { $0.setNeedsDisplay() }
+            demo.refreshVisibleCells()
+        }
+    }
 
     /// The composer's placeholder, as its field's accessibility label (drawn and labelled together; tests).
     var composerPlaceholder: String? { controller.demo?.compose.textView.view.accessibilityLabel() }
