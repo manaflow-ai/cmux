@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43975704672",
+  "recorded_at": "2026-11-16T23:17:59Z",
+  "reason": "cmux-tui a5eb28648274 changes the image's cmux-tui (pinned 653eedcec4f7)",
+  "dry_run": false,
+  "cmux_tui": "a5eb2864827400a31b3bc576418472fbf1ec333a",
+  "fixes": [
+    {
+      "sha": "f6beddbfe2ca2f0eca4ba063c7886b57d2637937",
+      "mergedAt": "2026-11-16T13:26:18-08:00",
+      "subject": "feat(cmux-tui): a create request puts its tab at its place (tab-create-place-v1) (#44620)"
+    },
+    {
+      "sha": "f54d1b9619d25741e0e41bbf8698ca27ea337c12",
+      "mergedAt": "2026-11-16T12:43:06-08:00",
+      "subject": "acpmux: finish page driver bounds (#44736)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T23:17:59Z",
+    "snapshot_id": "sh-74930ff869e84230ac1525531d707dae",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43975704672): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "60f6fbd6f5415c52fc818c15b7f5690603507a10",
+    "image": "cloud-native-auto-a5eb2864-43975704672-1",
+    "revision": "ci-43975704672-1",
+    "at": "2026-11-16T23:17:59Z"
+  },
+  "rolled_back": false
+}
