@@ -855,6 +855,9 @@ impl Supervisor {
                 return;
             }
             widget.retry = None;
+            // Its first batch replaces the stale tree the page kept (and any ops held for it).
+            mount.reset = true;
+            mount.budget.clear_pending();
             let (host, export, ctx) =
                 (mount.host.clone(), mount.export.clone(), mount.context.clone());
             let wire = key.wire();
