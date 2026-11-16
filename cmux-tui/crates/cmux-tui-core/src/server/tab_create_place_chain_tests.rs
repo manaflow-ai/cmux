@@ -295,7 +295,10 @@ fn a_placed_page_commits_while_a_launch_is_held() {
 /// A page with no `place` and no `transaction` is as it was before
 /// `tab-create-place-v1`: it does not wait for a launch of its connection
 /// that is held, and its tab goes to the end of the strip. The tab of the
-/// terminal then takes the slot that its request took.
+/// terminal then takes the slot that its request took. The page's creation
+/// took no slot, so the record of the active tab does not have it: the
+/// terminal's tab takes the active tab from the page when it comes, as a
+/// late terminal tab did before `tab-create-place-v1`.
 #[test]
 fn a_page_with_no_place_commits_at_the_end_while_a_launch_is_held() {
     for kind in PAGES {
@@ -305,11 +308,110 @@ fn a_page_with_no_place_commits_at_the_end_while_a_launch_is_held() {
         connection.send(2, kind.request(pane));
         let second = connection.surface(2);
         assert_eq!(tabs(&mux, pane), [a, b, c, second], "{kind:?}: the launch is held");
+        assert_eq!(active_tab(&mux, pane), 3, "{kind:?}: the page is the active tab");
         connection.release(0);
         let [first] = connection.finish([1]);
         assert_eq!(tabs(&mux, pane), [a, first, b, c, second], "{kind:?}");
+        assert_eq!(active_tab(&mux, pane), 1, "{kind:?}: the terminal's tab is the active tab");
         mux.shutdown();
     }
+}
+
+/// This test pins the older `after` field of `new-frontend-browser-tab`
+/// with no `place`: its order is NOT that of the requests applied one by
+/// one. A terminal tab with a `transaction` and no `place` still launches,
+/// and its slot is at the end of the strip, right of `c`. The page lands
+/// right after `c`, where `after` says, and the slot stays right of the tab
+/// on its left. So the terminal's tab lands between `c` and the page, and it
+/// takes the active tab: the page's creation took no slot. One by one, the
+/// strip is `[a, b, c, page, terminal]` and the page stays active. A client
+/// that wants that order sends `place` (the second test below).
+#[test]
+fn pin_of_the_older_after_field_a_late_terminal_tab_takes_the_active_tab_of_the_page() {
+    let (mux, pane, [a, b, c]) = strip("chain-older-after");
+    let connection = HeldConnection::new(&mux, 1);
+    connection.send(1, with(Kind::Terminal.request(pane), [("transaction", json!("t1"))]));
+    connection.send(2, with(Kind::Browser.request(pane), [("after", json!(c))]));
+    let page = connection.surface(2);
+    assert_eq!(tabs(&mux, pane), [a, b, c, page], "the launch is held");
+    assert_eq!(active_tab(&mux, pane), 3, "the page is the active tab");
+    connection.release(0);
+    let [first] = connection.finish([1]);
+    assert_eq!(tabs(&mux, pane), [a, b, c, first, page]);
+    assert_eq!(active_tab(&mux, pane), 3, "the terminal's tab is the active tab");
+    mux.shutdown();
+}
+
+/// This test pins the older `after` field with a `transaction` and no
+/// `place`: the page lands where `after` says, as in the test above, and a
+/// later page that names its creation lands right after it. The terminal's
+/// tab then lands between `c` and the two pages, where one by one gives
+/// `[a, b, c, page, next, terminal]`. The two pages took a slot, so the last
+/// of them stays the active tab.
+#[test]
+fn pin_of_the_older_after_field_with_a_name_two_pages_land_right_of_a_slot_that_launches() {
+    let (mux, pane, [a, b, c]) = strip("chain-older-after-named");
+    let connection = HeldConnection::new(&mux, 1);
+    connection.send(1, with(Kind::Terminal.request(pane), [("transaction", json!("t1"))]));
+    let named = [("after", json!(c)), ("transaction", json!("p1"))];
+    connection.send(2, with(Kind::Browser.request(pane), named));
+    let page = connection.surface(2);
+    let names = [("place", json!({"after_creation": "p1"}))];
+    connection.send(3, with(Kind::Browser.request(pane), names));
+    let next = connection.surface(3);
+    assert_eq!(tabs(&mux, pane), [a, b, c, page, next], "the launch is held");
+    assert_eq!(active_tab(&mux, pane), 4, "the last page is the active tab");
+    connection.release(0);
+    let [first] = connection.finish([1]);
+    assert_eq!(tabs(&mux, pane), [a, b, c, first, page, next]);
+    assert_eq!(active_tab(&mux, pane), 5, "the last page stays the active tab");
+    mux.shutdown();
+}
+
+/// The state of the two tests above with `place: {after}` in place of the
+/// older `after` field: the page takes the slot right after `c`, left of the
+/// slot of the terminal tab that still launches. The strip and the active
+/// tab are those of the two requests applied one by one.
+#[test]
+fn a_page_placed_after_the_last_tab_lands_left_of_a_slot_that_still_launches() {
+    for kind in PAGES {
+        let (mux, pane, [a, b, c]) = strip(&format!("chain-place-after-last-{kind:?}"));
+        let connection = HeldConnection::new(&mux, 1);
+        connection.send(1, with(Kind::Terminal.request(pane), [("transaction", json!("t1"))]));
+        connection.send(2, with(kind.request(pane), [("place", json!({"after": c}))]));
+        let page = connection.surface(2);
+        assert_eq!(tabs(&mux, pane), [a, b, c, page], "{kind:?}: the launch is held");
+        assert_eq!(active_tab(&mux, pane), 3, "{kind:?}: the page is the active tab");
+        connection.release(0);
+        let [first] = connection.finish([1]);
+        assert_eq!(tabs(&mux, pane), [a, b, c, page, first], "{kind:?}");
+        assert_eq!(active_tab(&mux, pane), 3, "{kind:?}: the page stays the active tab");
+        mux.shutdown();
+    }
+}
+
+/// A `new-tab` with a `transaction` and no `pane`, on a connection: the
+/// request is refused when its creation commits, after the launch step of
+/// its terminal. The reply names the cause, and the strip is the same
+/// before and after. This test reads the reply and the strip; it does not
+/// read that the launched terminal host has ended.
+#[test]
+fn a_new_tab_with_a_transaction_and_no_pane_is_refused_after_its_launch_step() {
+    let (mux, pane, [a, b, c]) = strip("chain-refused-no-pane");
+    let connection = HeldConnection::new(&mux, 1);
+    let mut request = with(Kind::Terminal.request(pane), [("transaction", json!("t1"))]);
+    request.as_object_mut().expect("a request object").remove("pane");
+    connection.send(1, request);
+    connection.launching(0);
+    assert_eq!(tabs(&mux, pane), [a, b, c], "the launch is held");
+    connection.release(0);
+    let reply = connection.reply(1);
+    assert_eq!(reply["ok"], json!(false), "{reply}");
+    assert!(reply.to_string().contains("transaction needs pane"), "{reply}");
+    connection.scheduler.finish_and_wait();
+    assert_eq!(tabs(&mux, pane), [a, b, c]);
+    assert_eq!(active_tab(&mux, pane), 0, "`a` stays the active tab");
+    mux.shutdown();
 }
 
 /// A terminal tab after `a` still launches. A page takes the slot after `a`,

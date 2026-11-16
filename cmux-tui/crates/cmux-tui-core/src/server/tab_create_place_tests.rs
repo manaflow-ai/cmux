@@ -211,6 +211,40 @@ fn a_background_tab_placed_before_the_active_tab_keeps_it_active() {
     mux.shutdown();
 }
 
+/// The product state of this test is a restored pane with no tab: a restore
+/// accepts such a pane. A background page that goes into it is its only
+/// tab, and the active index of the pane stays 0, the index of that tab.
+/// The index does not move right of a tab that is not there. The state is
+/// made by hand, not by a restore: the test takes the 3 tabs out of the
+/// strip (their surfaces stay in the session until the shutdown) and makes
+/// the page by the function that the create of a page calls.
+#[test]
+fn a_background_page_in_a_pane_with_no_tab_leaves_the_active_index_at_0() {
+    let (mux, pane, _) = strip("empty-pane");
+    {
+        let mut state = mux.state.lock().unwrap();
+        let emptied = state.panes.get_mut(&pane).expect("the pane of the strip");
+        emptied.tabs.clear();
+        emptied.active_tab = 0;
+    }
+    let placement = crate::mux::FrontendTabPlacement { activate: false, ..Default::default() };
+    let identity = crate::resource::TabResourceIdentity::browser().unwrap();
+    let page = mux
+        .new_browser_tab_reserved(
+            "about:blank#empty-pane".to_string(),
+            Some(pane),
+            None,
+            identity,
+            None,
+            placement,
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(tabs(&mux, pane), [page.id]);
+    assert_eq!(active_tab(&mux, pane), 0, "the active index names the only tab");
+    mux.shutdown();
+}
+
 /// No place puts a tab among the pinned tabs: a place there gives the first
 /// slot after them.
 #[test]
