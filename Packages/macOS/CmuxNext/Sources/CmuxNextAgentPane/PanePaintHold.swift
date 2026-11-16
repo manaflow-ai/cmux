@@ -38,6 +38,9 @@ public final class PanePaintHold {
     private var place: KeptPlace?
     /// Work that waits for the kept view to stop showing (``afterHold(of:_:)``); it outlives a hand-off to the next hold.
     private var afterEnd: [() -> Void] = []
+    /// When the view kept now began to be kept. A hold handed off to the next swap (``handOff(remove:)``) keeps it, so
+    /// swaps in a row (fifty quick Cmd-Ns) keep one view on screen for ``limit`` in all, not ``limit`` past the last.
+    private var keptSince: ContinuousClock.Instant?
 
     private struct KeptPlace {
         weak var view: NSView?
@@ -84,9 +87,12 @@ public final class PanePaintHold {
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.holdBegin, view: incoming)
         #endif
+        let now = ContinuousClock.now
+        let since = keptSince ?? now
+        keptSince = since
         gated.whenFirstPainted { [weak self] in self?.end(token) }
         // A later hold replaces this deadline; the token keeps it to its own hold.
-        deadline.schedule(after: Self.limit) { @MainActor [weak self] in
+        deadline.schedule(after: max(.zero, Self.limit - (now - since))) { @MainActor [weak self] in
             self?.end(token)
         }
     }
@@ -127,6 +133,7 @@ public final class PanePaintHold {
     public func end(_ token: UInt64? = nil) {
         guard holding, token == nil || self.token == token else { return }
         holding = false
+        keptSince = nil
         deadline.cancel()
         let release = release
         let ended = ended
@@ -308,14 +315,20 @@ public struct WorkspaceFirstFrame {
     }
 
     /// Runs `body` once every unpainted page painted and every drawn one drew at the size it shows at.
+    ///
+    /// Lays `root` out now only for chats that drew before: they note their new size as they lay out. Pages that never
+    /// painted paint after the window's own layout pass, so a workspace replaced before that pass (the next of fifty
+    /// quick Cmd-Ns hands its hold off) is never laid out, and a burst of presses costs what one does (cmux#44329).
     public func whenReady(_ body: @escaping () -> Void) {
         var left = 2
         let one = {
             left -= 1
             if left == 0 { body() }
         }
+        let drawn = DrawnPages(in: root)
         UnpaintedPages(in: root).whenPainted(one)
-        DrawnPages(in: root).whenRedrawn(one)
+        drawn.whenRedrawn(one)
+        if drawn.pages.isEmpty { root.needsLayout = true } else { root.layoutSubtreeIfNeeded() }
     }
 }
 

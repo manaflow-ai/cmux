@@ -12,9 +12,8 @@ extension WorkspaceContentView: PaneFirstPaintGated {
     }
 
     func whenFirstPainted(_ body: @escaping () -> Void) {
-        WorkspaceFirstFrame(of: self).whenReady { [weak self] in
+        WorkspaceFirstFrame(of: self).whenReady { [weak self] in // lays out, now or in the window's pass
             if let window = self?.window as? ShellWindow { window.afterLayoutPass(body) } else { body() }
         }
-        layoutSubtreeIfNeeded()
     }
 }
