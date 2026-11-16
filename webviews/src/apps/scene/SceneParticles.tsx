@@ -13,16 +13,22 @@ function canvasColors(canvas: HTMLCanvasElement, value: unknown): string[] | nul
   if (!Array.isArray(value)) return null;
   const view = canvas.ownerDocument.defaultView;
   if (!view) return null;
-  const saved = canvas.style.color;
-  const out: string[] = [];
-  for (const item of value.slice(0, 16)) {
-    const color = sceneColor(item);
-    if (!color) continue;
-    canvas.style.color = color;
-    out.push(view.getComputedStyle(canvas).color || color);
-  }
-  canvas.style.color = saved;
-  return out.length ? out : null;
+  const colors = value
+    .slice(0, 16)
+    .map((item) => sceneColor(item))
+    .filter((c): c is string => !!c);
+  if (!colors.length) return null;
+  // Write every probe first, then read them all: one style pass, not one per color. The probes sit
+  // inside the canvas (fallback content), so they inherit its tokens and are never drawn.
+  const probes = colors.map((color) => {
+    const probe = canvas.ownerDocument.createElement("span");
+    probe.style.color = color;
+    return probe;
+  });
+  canvas.append(...probes);
+  const out = probes.map((probe, i) => view.getComputedStyle(probe).color || colors[i]!);
+  for (const probe of probes) probe.remove();
+  return out;
 }
 
 /**
@@ -83,7 +89,7 @@ export function SceneParticles({ node }: { node: SceneNode }) {
     };
     const start = () => {
       if (frame || !allowed()) return;
-      context ??= canvas.getContext("2d");
+      if (!context) context = canvas.getContext("2d");
       if (!context) return;
       if (!warmed) {
         warmed = true;

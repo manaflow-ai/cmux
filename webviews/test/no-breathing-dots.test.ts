@@ -19,6 +19,18 @@ type Loop = { file: string; keyframes: string; selector: string; props: string[]
  *  `goneWith`: the open change that removes or adds the entry, so it may match nothing. */
 const ALLOWED: { file: string; keyframes: string; selector: string; why: string; goneWith?: string }[] = [
   {
+    file: "apps/scene/scene.css",
+    keyframes: "cmux-app-scene-pulse",
+    selector: '.cmux-app-scene-node[data-loop="pulse"]',
+    why: "an extension app's own pulse loop (.loop) on a node it draws (the app scene motion contract), not a cmux status dot; Reduce Motion and the app's motion switch stop it",
+  },
+  {
+    file: "apps/scene/scene.css",
+    keyframes: "cmux-app-scene-breathe",
+    selector: '.cmux-app-scene-node[data-loop="breathe"]',
+    why: "an extension app's own breathe loop (.loop) on a node it draws (the app scene motion contract), not a cmux status dot; Reduce Motion and the app's motion switch stop it",
+  },
+  {
     file: "agent-session/acpmux/markdownField.css",
     keyframes: "acpmux-md-caret-blink",
     selector: ".acpmux-md-caret",

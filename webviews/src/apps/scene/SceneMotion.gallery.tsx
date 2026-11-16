@@ -113,13 +113,11 @@ function springs(): Fixture {
     tick: (store, step) => {
       const on = step % 2 === 1;
       store.apply([
-        ...nodes
-          .slice(0, SPRINGS.length)
-          .map((node): SceneOp => ({
-            op: "update",
-            id: node,
-            props: { offset: { x: on ? 24 : -24, y: 0 }, scale: on ? 1.25 : 1 },
-          })),
+        ...nodes.slice(0, SPRINGS.length).map((node): SceneOp => ({
+          op: "update",
+          id: node,
+          props: { offset: { x: on ? 24 : -24, y: 0 }, scale: on ? 1.25 : 1 },
+        })),
         {
           op: "update",
           id: glow,
@@ -265,9 +263,12 @@ function SceneMotion({ look = "loops" }: { look?: Look }) {
   useEffect(() => {
     const { tick, every, store } = fixture;
     if (!tick) return;
-    let step = 0;
-    tick(store, ++step);
-    const timer = window.setInterval(() => tick(store, ++step), every ?? 1000);
+    const count = { step: 1 };
+    tick(store, count.step);
+    const timer = window.setInterval(() => {
+      count.step += 1;
+      tick(store, count.step);
+    }, every ?? 1000);
     return () => window.clearInterval(timer);
   }, [fixture]);
   return (

@@ -28,6 +28,8 @@ const SHAPES = new Set([
   // App scene ABI drawing primitives, not agent-pane controls. Badge labels still use small-radius rects.
   ".cmux-app-scene-circle",
   ".cmux-app-scene-capsule",
+  // An app scene ProgressView drawn as a track and a fill (a progress bar), so its fill can animate.
+  ".cmux-app-scene-progress-track",
   ".acpmux-switch",
   ".acpmux-quick-fast-toggle",
   // The model menu's columns (QuickModelColumns.tsx): the Fast switch's track, and the account

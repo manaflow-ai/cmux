@@ -249,6 +249,10 @@ const entranceCalls = (source: string) => source.match(/\bdata-enter\b["']?\s*[=
 /// webviews/src fails until it is listed here, so a popup cannot fade in from script, however its
 /// keyframes are built.
 const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
+  "src/apps/scene/useSceneMotion.ts": {
+    count: 3,
+    what: "an extension app's scene nodes: a prop change springs to its new value, and a node enters and leaves with the transition the app declared; app content, never a cmux menu",
+  },
   "src/agent-session/acpmux/VirtualTranscript.tsx": {
     count: 5,
     what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943); the rows ride the composer field's growth spring",

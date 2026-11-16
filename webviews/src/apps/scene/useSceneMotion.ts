@@ -167,14 +167,16 @@ export function useSceneMotion(
     transition: Animation | null;
     props: SceneProps | null;
   } | null>(null);
-  state.current ??= {
-    track: new MotionTrack(),
-    partTrack: new MotionTrack(),
-    entered: false,
-    exiting: false,
-    transition: null,
-    props: null,
-  };
+  if (state.current === null) {
+    state.current = {
+      track: new MotionTrack(),
+      partTrack: new MotionTrack(),
+      entered: false,
+      exiting: false,
+      transition: null,
+      props: null,
+    };
+  }
 
   useLayoutEffect(() => {
     const s = state.current!;
