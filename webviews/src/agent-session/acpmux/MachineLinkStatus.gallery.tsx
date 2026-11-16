@@ -16,8 +16,12 @@
 // only when there is something to read) and the right sidebar's machine rows (design/machines-section.md:
 // a connected machine needs no word; a spinner while connecting; the word once the link is down).
 import { componentEntry } from "../../gallery/format";
+import { setComposerSettings } from "./composerSettings";
 import type { PeerLink } from "./peerLink";
 import { MachineLinkStatus, type MachineLinkLook } from "./MachineLinkStatus";
+
+// The gallery intentionally exercises the elapsed reconnect status, which is an opt-in app setting.
+setComposerSettings({ showPeerReconnectStatus: true });
 
 type Props = {
   link: PeerLink | null;

@@ -156,6 +156,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     const hash = new URLSearchParams({ endpoint, token: "t", session: chat, must: "" });
     if (machine) hash.set("machine", machine);
     await page.goto(`http://127.0.0.1:${port}/#${hash.toString()}`);
+    await page.evaluate(() => (window as any).cmuxAcpmuxComposer?.({ showPeerReconnectStatus: true }));
     return page;
   }
   const state = (page: Page) => page.evaluate(() => (window as any).cmuxAcpmuxDebug.chatState() as Record<string, any>);
@@ -333,6 +334,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await page.goto(
       `http://127.0.0.1:${port}/#${new URLSearchParams({ endpoint, token: "t", session: "chat-on-box", must: "" })}`,
     );
+    await page.evaluate(() => (window as any).cmuxAcpmuxComposer?.({ showPeerReconnectStatus: true }));
     await page.getByText("Kept chat-on-box", { exact: true }).waitFor({ timeout: 25_000 });
     const line = page.locator('.acpmux-unavailable-line[data-unavailable="offline"]');
     await line.waitFor({ timeout: 25_000 });

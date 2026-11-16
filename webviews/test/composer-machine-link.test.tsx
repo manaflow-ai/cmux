@@ -19,6 +19,7 @@ import { chat, summary, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { PeerLink } from "../src/agent-session/acpmux/peerLink";
 import { LINK_DOWN_SAID_MS, setLinkDownSaidMs } from "../src/agent-session/acpmux/afterDelay";
+import { setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -69,6 +70,7 @@ beforeAll(() => {
     Event: window.Event,
   });
   host = window.document.getElementById("root")!;
+  setComposerSettings({ showPeerReconnectStatus: true });
   // These tests read each state as it is said; the bound has tests of its own below.
   setLinkDownSaidMs(0);
 });
@@ -82,6 +84,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
+  setComposerSettings({ showPeerReconnectStatus: false });
   setLinkDownSaidMs(LINK_DOWN_SAID_MS);
   await teardownDom(saved, { window: dom.window, scope });
 });
