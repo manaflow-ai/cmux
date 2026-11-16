@@ -462,6 +462,12 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
             adopted?(link)
         }
 
+        // The lines also go in an attachment: the simulator run keeps attachments, not stdout.
+        var report: [String] = []
+        func emit(_ line: String) {
+            print(line)
+            report.append(line)
+        }
         var reattach = 0
         for rttMillis in [80] {
             mac.oneWay = .milliseconds(rttMillis / 2)
@@ -503,20 +509,21 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
             }
             for step in Self.steps {
                 guard let samples = values[step], !samples.isEmpty else {
-                    print(#"CHAIN_STEP {"rtt_ms":\#(rttMillis),"step":"\#(step)","n":0}"#)
+                    emit(#"CHAIN_STEP {"rtt_ms":\#(rttMillis),"step":"\#(step)","n":0}"#)
                     continue
                 }
-                print(#"CHAIN_STEP {"rtt_ms":\#(rttMillis),"step":"\#(step)","n":\#(samples.count),"p50":\#(Self.fmt(Self.percentile(samples, 0.5))),"p95":\#(Self.fmt(Self.percentile(samples, 0.95)))}"#)
+                emit(#"CHAIN_STEP {"rtt_ms":\#(rttMillis),"step":"\#(step)","n":\#(samples.count),"p50":\#(Self.fmt(Self.percentile(samples, 0.5))),"p95":\#(Self.fmt(Self.percentile(samples, 0.95)))}"#)
             }
             // The longest the main actor kept the 1 ms poll waiting during a run.
-            print(#"CHAIN_STEP {"rtt_ms":\#(rttMillis),"step":"main_actor_max_gap","n":\#(mainGaps.count),"p50":\#(Self.fmt(Self.percentile(mainGaps, 0.5))),"p95":\#(Self.fmt(Self.percentile(mainGaps, 0.95)))}"#)
+            emit(#"CHAIN_STEP {"rtt_ms":\#(rttMillis),"step":"main_actor_max_gap","n":\#(mainGaps.count),"p50":\#(Self.fmt(Self.percentile(mainGaps, 0.5))),"p95":\#(Self.fmt(Self.percentile(mainGaps, 0.95)))}"#)
             let attach = Self.percentile(values["attach_in"] ?? [0], 0.5)
             let liveApplied = Self.percentile(values["live_applied"] ?? [0], 0.5)
             let resume = Self.percentile(values["resume"] ?? [0], 0.5)
             let serial = Int((attach / Double(rttMillis)).rounded())
-            print(#"CHAIN_RTTS {"rtt_ms":\#(rttMillis),"serial_round_trips":\#(serial),"attach_in_p50":\#(Self.fmt(attach)),"live_applied_p50":\#(Self.fmt(liveApplied)),"resume_p50":\#(Self.fmt(resume))}"#)
+            emit(#"CHAIN_RTTS {"rtt_ms":\#(rttMillis),"serial_round_trips":\#(serial),"attach_in_p50":\#(Self.fmt(attach)),"live_applied_p50":\#(Self.fmt(liveApplied)),"resume_p50":\#(Self.fmt(resume))}"#)
             // Pairing's two round trips, then the attach: `initialize` and the first page of
             // chats ride behind `auth`, not after it (ask-48f698fc26; five before).
+            Attachment.record(report.joined(separator: "\n"), named: "reconnect-chain.txt")
             #expect(serial <= 3, "the chat's attach came back \(serial) round trips after the link")
         }
         // One attach per run (and the first open's): no retry hid in the numbers.
