@@ -809,3 +809,106 @@ async fn linux_unavailable_bwrap_refuses_the_spawn_with_its_reason() {
 #[cfg(target_os = "linux")]
 #[path = "support/remote_sandbox_linux_stack.rs"]
 mod linux_stack;
+
+/// An owner peer's explicit approve-all start is the same trusted full-access
+/// choice as a VM-boundary lease, even when the request has no client-supplied
+/// `vmBoundary` marker. This is the remote product path: the receiver must use
+/// its real host profile, so a missing bwrap probe cannot reject the chat.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn owner_peer_approve_all_without_a_boundary_marker_uses_the_host_profile() {
+    let d = dir("peer-approve-all-host-profile");
+    let hub = hub_with(&d, None);
+    hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
+    let mut peer = Client::new(&hub, Origin::Peer);
+    let r = peer.call("session/new", vm_boundary_new(&d, None, Some("approve-all"))).await;
+    let id = r["result"]["sessionId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("approve-all start was refused: {r}"))
+        .to_owned();
+    let prompt = peer
+        .call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "argv"}]}),
+        )
+        .await;
+    assert!(prompt["error"].is_null(), "host profile still entered the sandbox: {prompt}");
+    let events = peer.call("_acpmux/events", json!({"sessionId": id, "limit": 1000})).await;
+    let marked = events["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["kind"] == "remote_sandbox" && e["msg"]["vmBoundary"] == true);
+    assert!(marked, "approve-all host profile was not recorded: {events}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A host-profile start must retain the concrete capabilities that made the
+/// remote chat useful: repository metadata, its HOME state, and a Unix socket.
+/// The fixture process probes each capability before delegating to fake Claude;
+/// the sandboxed path fails before the probe can run.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn owner_peer_approve_all_retains_repository_home_and_socket_capabilities() {
+    use tokio::net::{TcpListener, UnixListener};
+
+    let d = dir("peer-approve-all-capabilities");
+    std::fs::create_dir_all(d.join("home")).unwrap();
+    let socket_path = d.join("probe.sock");
+    let listener = UnixListener::bind(&socket_path).unwrap();
+    let tcp = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let tcp_port = tcp.local_addr().unwrap().port();
+    let output = d.join("work/probe.json");
+    let hub = hub_with(&d, None);
+    {
+        let mut config = hub.config.write().await;
+        let profile = config.harnesses.get_mut("fakeclaude").unwrap();
+        profile.argv = vec![
+            "python3".into(),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/remote_host_probe.py").into(),
+            FAKE_CLAUDE.into(),
+        ];
+        profile.env.insert("HOME".into(), d.join("home").to_string_lossy().into_owned());
+        profile.env.insert(
+            "ACPMUX_REMOTE_PROBE_SOCKET".into(),
+            socket_path.to_string_lossy().into_owned(),
+        );
+        profile
+            .env
+            .insert("ACPMUX_REMOTE_PROBE_OUTPUT".into(), output.to_string_lossy().into_owned());
+        profile.env.insert("ACPMUX_REMOTE_PROBE_TCP".into(), tcp_port.to_string());
+    }
+    hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
+    let mut peer = Client::new(&hub, Origin::Peer);
+    let r = peer.call("session/new", vm_boundary_new(&d, None, Some("approve-all"))).await;
+    let id = r["result"]["sessionId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("approve-all capability start was refused: {r}"))
+        .to_owned();
+    let prompt = peer
+        .call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "argv"}]}),
+        )
+        .await;
+    assert!(prompt["error"].is_null(), "host capability probe entered the sandbox: {prompt}");
+    tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
+        .await
+        .expect("socket probe timed out")
+        .expect("socket probe failed");
+    tokio::time::timeout(std::time::Duration::from_secs(5), tcp.accept())
+        .await
+        .expect("network probe timed out")
+        .expect("network probe failed");
+    let probe: Value = serde_json::from_str(
+        &tokio::fs::read_to_string(&output).await.expect("host probe did not write output"),
+    )
+    .unwrap();
+    assert_eq!(probe["git"], true, "repository metadata was not writable: {probe}");
+    assert_eq!(probe["home"], true, "HOME state was not writable: {probe}");
+    assert_eq!(probe["socket"], true, "Unix socket was not reachable: {probe}");
+    assert_eq!(probe["network"], true, "network was not reachable: {probe}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&d);
+}

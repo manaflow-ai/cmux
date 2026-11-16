@@ -15,6 +15,13 @@
 //!   this caller's own fleet registry marks `agent_vm: true` (`agent_vm.rs`):
 //!   a dedicated agent VM of the person's own fleet.
 //!
+//! An authenticated owner's peer start that explicitly carries `approve-all` also selects
+//! this host profile, without requiring a fleet registry entry. `asked` is the single decision
+//! consumed by folder selection, saved session metadata, and sandbox launch. Mesh controls
+//! carry owner authority only after their server-side sameUser grant matches; other controls
+//! are stamped `via: device`. Asking starts retain the scratch sandbox unless the caller
+//! separately selected the existing dedicated-VM boundary.
+//!
 //! At the boundary a Claude Code chat runs without bwrap (`remote_sandbox.rs`)
 //! and a Codex bridge chat with approve-all settles in `agent-full-access`
 //! instead of `ask` (`policy_mode.rs` `bridge_settle_modes`).
@@ -49,15 +56,28 @@ pub const FIELD: &str = "vmBoundary";
 /// a peer forwarding one). The daemon it reaches holds it as not the owner's.
 pub const VIA_DEVICE: &str = "device";
 
-/// Whether a `session/new` asks for the VM boundary: `_meta.acpmux.vmBoundary`
-/// is exactly `true`, the connection presented this launch's peer token
+/// Whether a `session/new` selects the host profile: it explicitly names approve-all or
+/// `_meta.acpmux.vmBoundary` is exactly `true`, the connection presented this launch's peer token
 /// (`server/peer_auth.rs`), and the peer asks for itself ([`owner`]), not for a
 /// Web client (`via: web`) or a paired machine (`via: device`) of its own. From
 /// anything else it means nothing.
 pub fn asked(auth: crate::server::ConnAuth, control: Control, params: &Value) -> bool {
     auth.peer_daemon()
         && owner(auth, control, params)
-        && params.pointer("/_meta/acpmux/vmBoundary") == Some(&Value::Bool(true))
+        && (params.pointer("/_meta/acpmux/vmBoundary") == Some(&Value::Bool(true))
+            || named_approve_all(params))
+}
+
+/// Whether a forwarded start explicitly carries the full-access policy. The policy is accepted
+/// from the same two request locations as the start gate (`_meta.acpmux.policy` first, then the
+/// top-level compatibility field); an unknown or non-string value never opts into the boundary.
+fn named_approve_all(params: &Value) -> bool {
+    params
+        .pointer("/_meta/acpmux/policy")
+        .and_then(Value::as_str)
+        .or_else(|| params.get("policy").and_then(Value::as_str))
+        .and_then(|policy| policy.parse::<crate::config::PermissionPolicy>().ok())
+        == Some(crate::config::PermissionPolicy::ApproveAll)
 }
 
 /// Whether a request is the person's own for the VM boundary: its connection
@@ -254,5 +274,39 @@ mod tests {
             !vm_boundary_peer_approves(true, false, true, false),
             "never while MDM forces full access off"
         );
+    }
+
+    #[test]
+    fn an_owner_peer_full_access_policy_takes_the_boundary() {
+        for params in [
+            json!({"policy": "approve-all"}),
+            json!({"_meta": {"acpmux": {"policy": "approve-all"}}}),
+            json!({"policy": "yolo"}),
+        ] {
+            assert!(asked(ConnAuth::PeerToken, Control::Peer, &params), "{params}");
+        }
+        for params in [
+            json!({"policy": "ask"}),
+            json!({"_meta": {"acpmux": {"policy": "workspace-write"}}}),
+            json!({"policy": 42}),
+            json!({"policy": "approve-all", "_meta": {"acpmux": {"policy": "ask"}}}),
+        ] {
+            assert!(!asked(ConnAuth::PeerToken, Control::Peer, &params), "{params}");
+        }
+    }
+
+    #[test]
+    fn full_access_policy_cannot_be_forged_by_web_or_device_requests() {
+        let policy = json!({"_meta": {"acpmux": {"policy": "approve-all"}}});
+        for auth in
+            [ConnAuth::ListenerToken, ConnAuth::Device, ConnAuth::ReadOnlyDevice, ConnAuth::None]
+        {
+            for control in [Control::Web, Control::Local, Control::Peer] {
+                assert!(!asked(auth, control, &policy), "{auth:?} {control:?}");
+            }
+        }
+        let via_device = json!({"_meta": {"acpmux": {"policy": "approve-all", "via": "device"}}});
+        assert!(!asked(ConnAuth::PeerToken, Control::Peer, &via_device));
+        assert!(!asked(ConnAuth::PeerToken, Control::Web, &policy));
     }
 }

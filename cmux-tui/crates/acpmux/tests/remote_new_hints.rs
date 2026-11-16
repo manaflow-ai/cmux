@@ -465,4 +465,47 @@ async fn a_remote_start_keeps_its_report_to_watch_on_the_starters_daemon() {
     assert_eq!(watches[0]["until"], json!(["closed", "blocked"]));
     assert_eq!(watches[0]["sessions"], json!([format!("b/{child}")]));
     assert_eq!(watches[0]["active"], true, "a newborn idle chat has not reported a turn");
+    let mut app = C::open(&a, Origin::LocalApp);
+    let app_child = app
+        .call(
+            method::SESSION_NEW,
+            new(
+                json!({"peer": "b", "harness": "fake", "name": "app-child", "reportTo": "starter"}),
+                Some(&root),
+            ),
+        )
+        .await;
+    assert!(app_child["result"]["sessionId"].is_string(), "{app_child}");
+    let watches = ca.call(method::MUX_WATCH_LS, json!({})).await;
+    assert_eq!(watches["result"]["watches"].as_array().unwrap().len(), 2);
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn an_owner_approve_all_start_without_cwd_uses_a_durable_host_folder() {
+    let root = scratch("full-access-folder");
+    let (a, b) = pair("full-access-folder", true, &root).await;
+    let name = format!("full-access-folder-{}", uuid::Uuid::now_v7());
+    let mut caller = C::open(&a, Origin::Local);
+    let created = caller
+        .call(
+            method::SESSION_NEW,
+            new(
+                json!({
+                    "peer": "b", "harness": "fake", "name": name, "policy": "approve-all"
+                }),
+                None,
+            ),
+        )
+        .await;
+    let cwd = cwd_of(&b, &created);
+    let home = std::fs::canonicalize(dirs::home_dir().unwrap()).unwrap();
+    assert_eq!(cwd, home.join("chats").join(&name));
+    assert!(
+        b.resolve(created["result"]["sessionId"].as_str().unwrap()).unwrap().meta().vm_boundary
+    );
+    b.shutdown_all().await;
+    a.shutdown_all().await;
+    std::fs::remove_dir_all(&cwd).unwrap();
+    std::fs::remove_dir_all(&root).unwrap();
 }

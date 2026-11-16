@@ -42,7 +42,7 @@ pub(super) fn remote_report_target(
     params: &Value,
 ) -> Result<Option<String>, RpcError> {
     // A forwarded caller cannot borrow this daemon's sender authority.
-    if conn.origin != super::Origin::Local {
+    if !matches!(conn.origin, super::Origin::Local | super::Origin::LocalApp) {
         return Ok(None);
     }
     let explicit = super::mux_meta(params)

@@ -623,6 +623,11 @@ impl ControlHook for MeshControlHook {
             {
                 return Some(Ack::refused("mesh.control_not_allowed"));
             }
+            // Only a matching same-person grant supplies owner authority to the local RPC.
+            // An explicit team/daemon control grant is not a grant of host-user execution.
+            let same_person = self.allowed.iter().any(|entry| {
+                entry.same_user && entry.allows(&message.from, own_user.as_deref(), op)
+            });
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
@@ -663,7 +668,7 @@ impl ControlHook for MeshControlHook {
                             return;
                         }
                         let outcome = tokio::select! {
-                            ack = run_control(&hub, &message) => ack,
+                            ack = run_control(&hub, &message, same_person) => ack,
                             () = &mut shutdown => None,
                         };
                         if let Some(ack) = outcome {
@@ -699,7 +704,7 @@ async fn wait_control_result(
     .flatten()
 }
 
-async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
+async fn run_control(hub: &Arc<Hub>, message: &InMessage, same_person: bool) -> Option<Ack> {
     let Some(op) = message.op.as_deref() else {
         return Some(Ack::refused("control message has no operation"));
     };
@@ -743,6 +748,16 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
             Err(why) => return Some(Ack::refused(why)),
         };
         params["sessionId"] = serde_json::Value::String(session.id.clone());
+    }
+    if !same_person {
+        // This is server-derived provenance. Ignore any owner/boundary claim in the body.
+        crate::hub::merge_mux_meta(
+            &mut params,
+            serde_json::json!({
+                "via": crate::hub::vm_boundary::VIA_DEVICE,
+                crate::hub::vm_boundary::FIELD: false,
+            }),
+        );
     }
     let session_id = params.get("sessionId").cloned();
     let (tx, mut rx) = relay_connection(hub);

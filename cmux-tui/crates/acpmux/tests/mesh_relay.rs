@@ -1354,3 +1354,41 @@ async fn a_send_right_after_a_start_through_the_hub_reaches_the_new_session() {
     relay.stop().await;
     b.shutdown_all().await;
 }
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn only_a_same_person_mesh_start_gets_the_full_access_host_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "webRoots": [dir.path()], "defaultHarness": "fake", "webAskingModes": {"fake": ["normal", "strict"]},
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    for (name, same_person, policy, forged_boundary) in [
+        ("own-full", true, "approve-all", false),
+        ("own-asking", true, "ask", false),
+        ("team-forged", false, "approve-all", true),
+    ] {
+        let grant: MeshControlFrom = serde_json::from_value(if same_person {
+            json!({"sameUser": true})
+        } else {
+            json!({"daemonId": "inst_a", "ops": ["start"]})
+        })
+        .unwrap();
+        let hook = MeshControlHook::new(vec![grant], Some(dir.path().join(format!("{name}.json"))))
+            .with_own_user(Arc::new(|| Some("person-1".into())));
+        let mut request = message(name, "", Kind::Control);
+        request.from.user = Some(if same_person { "person-1" } else { "person-2" }.into());
+        request.body = json!({"version": 1, "params": {"cwd": dir.path(), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": name, "policy": policy,
+                "vmBoundary": forged_boundary, "via": "peer"}}}})
+        .to_string();
+        let ack = hook.control(&hub, &request).await.unwrap();
+        assert_eq!(ack.state, AckState::Delivered, "{name}: {ack:?}");
+        let session = hub.resolve(ack.detail.as_deref().unwrap()).unwrap();
+        assert_eq!(session.meta().vm_boundary, same_person && policy == "approve-all", "{name}");
+    }
+    hub.shutdown_all().await;
+}
