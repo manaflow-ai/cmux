@@ -99,4 +99,52 @@ import Testing
         #expect(await person.trustGrantor("mac-0011223344556677", trusted: false) == nil)
         #expect(opened.flatMap(\.trusts) == ["mac-0011223344556677 true", "mac-0011223344556677 false"])
     }
+
+    /// The skip decision for Mac Screen's approval panel: acpmux answers `_acpmux/consent_screen_auto` over the
+    /// person's line, with the surface the request's scope names; only `allowed: true` skips the panel.
+    @MainActor final class AutoLine: JoinConsentLine {
+        let isPerson: Bool
+        let supportsConsent = true
+        var answer: Result<[String: Any], RemoteControlCallError>
+        var asked: [[String: Any]] = []
+        init(person: Bool, answer: Result<[String: Any], RemoteControlCallError>) {
+            isPerson = person
+            self.answer = answer
+        }
+        func read() async -> JoinConsentRecord? { nil }
+        func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord? { nil }
+        func call(_ method: String, _ params: [String: Any]) async -> Result<[String: Any], RemoteControlCallError> {
+            guard method == "_acpmux/consent_screen_auto" else { return .failure(RemoteControlCallError("unknown")) }
+            asked.append(params)
+            return answer
+        }
+        func close() {}
+    }
+
+    @Test func screenAutoAllowsOnlyOnAcpmuxsYesOverThePersonsLine() async {
+        var lines: [AutoLine] = []
+        var person = true
+        var answer: Result<[String: Any], RemoteControlCallError> = .success(["allowed": true])
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: { nil }, openLine: {
+                let line = AutoLine(person: person, answer: answer)
+                lines.append(line)
+                return line
+            }, enabled: { true }, askShown: { true }, markAskShown: {}))
+        #expect(await model.screenAuto(control: true, viewerId: "d-phone", viewerName: "Phone"))
+        #expect(lines.last?.asked.first?["surface"] as? String == "control" && lines.last?.asked.first?["viewerId"] as? String == "d-phone")
+        #expect(lines.last?.asked.first?["hubUser"] == nil, "the hub's user id is another id space")
+        #expect(await model.screenAuto(control: false, viewerId: "d-phone", viewerName: "Phone"))
+        #expect(lines.last?.asked.first?["surface"] as? String == "screen")
+        answer = .success(["allowed": false])
+        #expect(await !model.screenAuto(control: true, viewerId: "d-phone", viewerName: "Phone"))
+        answer = .success([:])
+        #expect(await !model.screenAuto(control: true, viewerId: "d-phone", viewerName: "Phone"))
+        answer = .failure(RemoteControlCallError("no daemon"))
+        #expect(await !model.screenAuto(control: true, viewerId: "d-phone", viewerName: "Phone"))
+        answer = .success(["allowed": true])
+        person = false
+        #expect(await !model.screenAuto(control: true, viewerId: "d-phone", viewerName: "Phone"))
+        #expect(lines.last?.asked.isEmpty == true, "nothing goes out over a line that is not the person's")
+    }
 }
