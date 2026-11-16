@@ -1582,6 +1582,12 @@ pub(crate) use durability::{RecordClass, record_class, streamed};
 mod journal_store;
 #[cfg(test)]
 pub(crate) use journal_store::open_with_journal;
+
+/// Tests: the store at `home` checkpoints every `ms` milliseconds instead of every 30 s.
+#[cfg(test)]
+pub(crate) fn checkpoint_every_for_tests(home: &Path, ms: u64) {
+    journal_store::checkpointer_seams(home, |seams| seams.every_ms = ms);
+}
 mod log_sync;
 pub mod open_logs;
 #[cfg(test)]

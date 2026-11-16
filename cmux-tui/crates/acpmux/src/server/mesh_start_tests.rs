@@ -17,16 +17,30 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 /// Machine B: takes a peer's start in `root` with an asking mode, as a hub start runs there.
 fn machine_b(root: &std::path::Path) -> Arc<Hub> {
+    machine_b_with(root, None, &["python3", FAKE])
+}
+
+/// Machine B with its chats in a store on disk at `store` (None: in memory), its `fake` harness
+/// run as `argv`.
+fn machine_b_with(
+    root: &std::path::Path,
+    store: Option<&std::path::Path>,
+    argv: &[&str],
+) -> Arc<Hub> {
     let mut config: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"argv": argv}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all"
     }))
     .unwrap();
-    config.store.mode = crate::config::StoreMode::Memory;
+    config.store.mode = match store {
+        Some(_) => crate::config::StoreMode::Local,
+        None => crate::config::StoreMode::Memory,
+    };
     config.web_roots = vec![root.to_string_lossy().into_owned()];
     config.web_asking_modes.insert("fake".into(), vec!["normal".into(), "strict".into()]);
-    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let at = store.unwrap_or(std::path::Path::new("/nonexistent"));
+    let store = crate::store::open(&config.store, at).unwrap();
     Hub::new(config, store)
 }
 
@@ -498,6 +512,120 @@ async fn a_start_whose_trust_mark_cannot_be_saved_is_refused_and_leaves_no_chat(
         .await;
     assert_eq!(refused["error"]["data"]["reason"], "mesh.start_unsaved", "{refused}");
     assert!(b.resolve("unsaved").is_err(), "the chat whose mark was not saved is still there");
+    b.shutdown_all().await;
+}
+
+/// A message the hub leases to B from machine A's person.
+fn from_a(kind: crate::mesh::Kind, op: Option<&str>, to: Target, body: String) -> InMessage {
+    InMessage {
+        message_id: format!("msg_{}", uuid::Uuid::now_v7().simple()),
+        kind,
+        op: op.map(str::to_owned),
+        mode: Default::default(),
+        to,
+        from: Sender {
+            daemon_id: Some("inst_a".into()),
+            user: Some("person-1".into()),
+            ..Sender::default()
+        },
+        body,
+        attempt: 1,
+        start_work: None,
+        state: Some("queued".into()),
+        subject: None,
+    }
+}
+
+/// A store folder must be the user's alone (`config::validate_private_state_ancestors`); a temp
+/// folder follows the caller's umask, group-writable under a lane VM's 002.
+fn owner_only(dir: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+/// A temp folder a store may live under.
+fn private_dir() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    owner_only(dir.path());
+    dir
+}
+
+/// Copies the store folder `from` to `to` as it is on disk now: what a crash leaves.
+fn crash_image(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    owner_only(to);
+    for entry in std::fs::read_dir(from).unwrap().flatten() {
+        let (path, kind) = (entry.path(), entry.file_type().unwrap());
+        let target = to.join(entry.file_name());
+        if kind.is_dir() {
+            crash_image(&path, &target);
+        } else if kind.is_file() {
+            // A file removed under the copy is one the crash did not leave.
+            let _ = std::fs::copy(&path, &target);
+        }
+    }
+}
+
+/// Review F1 of #38377: B crashes while a hub start's harness is still starting, after the chat
+/// was published and saved and before `session/new` returned. The chat it restores keeps the
+/// start's trust mark, so once the person answers Don't trust a prompt the hub relays to it is
+/// refused (`trust.untrusted`) rather than passing the folder-trust gate.
+#[tokio::test]
+async fn a_hub_start_that_crashes_before_its_harness_starts_restores_with_its_trust_mark() {
+    let (dir, root, cwd) = project();
+    let disk = private_dir();
+    // Its record reaches `session.json` within a tenth of a second, not the daemon's 30 s.
+    crate::store::checkpoint_every_for_tests(disk.path(), 100);
+    // Its harness never answers `initialize`: the start stays inside `session/new`.
+    let b = machine_b_with(&root, Some(disk.path()), &["sleep", "120"]);
+    let gates = tempfile::tempdir().unwrap();
+    let paths = gate(&b, gates.path());
+    crate::trust::set(&paths, cwd.to_str().unwrap(), "trusted").unwrap();
+    let hook = Arc::new(Loopback::new(&b, dir.path(), Some("person-1")).hook);
+    let body = json!({"version": 2, "params": {"cwd": cwd, "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "fake", "name": "crashed", "via": "app"}}}});
+    let start =
+        from_a(crate::mesh::Kind::Control, Some("start"), Target::default(), body.to_string());
+    let starting = tokio::spawn({
+        let (b, hook) = (b.clone(), hook.clone());
+        async move { super::super::deliver(&b, &start, &*hook, Some("inst_b")).await }
+    });
+    // The crash: the store as it is once the chat's `session.json` is written (its journal record
+    // names the folder it was made in, so only the checkpointed file survives a copy), the start
+    // still running.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    let id = loop {
+        assert!(tokio::time::Instant::now() < deadline, "the started chat never reached the disk");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let Ok(id) = b.resolve("crashed").map(|s| s.id.clone()) else { continue };
+        if disk.path().join("sessions").join(&id).join("session.json").exists() {
+            break id;
+        }
+    };
+    let image = private_dir();
+    let copy = image.path().join("store");
+    crash_image(disk.path(), &copy);
+    assert!(!starting.is_finished(), "the start ended before the crash");
+    let restored = machine_b_with(&root, Some(&copy), &["python3", FAKE]);
+    restored.load_store_async().await;
+    let chat = restored.resolve(&id).expect("the crashed start's chat was not restored");
+    assert_eq!(
+        restored.hub_via(&chat).as_deref(),
+        Some("app"),
+        "the chat restored from a crash during its start lost the start's trust mark"
+    );
+    let paths = gate(&restored, gates.path());
+    crate::trust::set(&paths, cwd.to_str().unwrap(), "untrusted").unwrap();
+    let to = Target { session_id: Some(id.clone()), ..Target::default() };
+    let prompt = from_a(crate::mesh::Kind::Prompt, None, to, "after the crash".into());
+    let restored_hook = Loopback::new(&restored, dir.path(), Some("person-1")).hook;
+    let ack = super::super::deliver(&restored, &prompt, &restored_hook, Some("inst_b"))
+        .await
+        .expect("the relayed prompt is answered");
+    let detail = ack.detail.unwrap_or_default();
+    assert!(detail.contains("trust.untrusted"), "a relayed prompt passed the trust gate: {detail}");
+    starting.abort();
+    restored.shutdown_all().await;
     b.shutdown_all().await;
 }
 
