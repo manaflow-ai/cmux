@@ -663,11 +663,11 @@
           },
           "help": {
             "key": "settings.sidebar.minimal.help",
-            "text": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
+            "text": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change."
           },
           "summary": {
             "key": "settings.sidebar.minimal.summary",
-            "text": "Buttons show on hover; rows show icon, name and unread mark"
+            "text": "Buttons show only on hover"
           },
           "kind": "toggle",
           "default": false,

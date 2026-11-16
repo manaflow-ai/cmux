@@ -51,8 +51,9 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
-  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -77,6 +78,7 @@ import {
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
   type JoinConsentSurface,
+  type KeysState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -812,6 +814,21 @@ export class SettingsStore {
   async shares(): Promise<SharesState | null> {
     const reply = await this.request("cmux.settings.shares.list", {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Personalization > Customization Library: one `cmux customize library` verb. Answers the
+   * library after it (null when the host has no CLI or did not answer) and the CLI's refusal in its
+   * own words (a toggle while a preview is open), else null. */
+  async customizeLibrary(run: LibraryRun): Promise<{ library: LibraryListing | null; refusal: string | null }> {
+    const reply = await this.request("cmux.settings.customize.library", run);
+    // A read the host could not run (no CLI in this build) draws the card's own Unavailable line.
+    if (!reply.ok)
+      return { library: null, refusal: run.verb === "list" ? null : userMessage(reply.error, SETTINGS_SENTENCES) };
+    const answer = reply.value ?? {};
+    const refusal = answer.library
+      ? null
+      : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
+    return { library: answer.library ?? null, refusal };
   }
 
   /** Settings > Keys: this Mac's keys and the requests waiting for the person; null when the host

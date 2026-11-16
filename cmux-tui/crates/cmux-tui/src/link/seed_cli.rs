@@ -263,7 +263,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 64;
     };
-    // A copy past the size limits goes only when asked ([`sync_cli::size_cap`]).
+    // A copy past the size limits goes whole only when asked; else as a first pass ([`sync_cli::size_cap`]).
     if allow_large
         && let Command::Push { local, .. } = &command
         && let Err(error) = sync_cli::size_cap::allow(local)
