@@ -2,6 +2,7 @@
 // turn's end when its group row did, and every other row keeps its view rows' objects.
 import { expect, test } from "bun:test";
 import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
+import { translate } from "../i18n";
 import { ChatAdapter } from "./adapter";
 import { ChatRowsHost, type ChatRowsPost } from "./host";
 import { ChatRowStore } from "./store";
@@ -18,30 +19,33 @@ const row = (id: number, extra: Partial<ChatRow> = {}): ChatRow => ({
   ...extra,
 });
 
-/// A chat opened on `rows`, with a way to send it an op.
-async function chat(rows: ChatRow[]) {
+/// A chat opened on `rows` (and `refused`, held as holes), with a way to send it an op or a window.
+async function chat(rows: ChatRow[], refused?: number[]) {
   const store = new ChatRowStore();
   const post: ChatRowsPost = async (method, params) => (method === "chat.rows.open" ? { sid: params.sid } : {});
   const host = new ChatRowsHost(post, store, () => "c");
   await host.open("chat-1");
   const feed = chatRowsFeed(host, post);
   const send = (change: unknown) => feed([JSON.stringify(change)]);
-  send({
-    kind: "chatWindow",
-    replaces: true,
-    window: {
-      sid: "c",
-      cursor: 10,
-      edition: 1,
-      rows,
-      hasBefore: false,
-      hasAfter: false,
-      queue: { entries: [], count: 0 },
-    },
-  });
+  const window = (rows: ChatRow[], refused?: number[]) =>
+    send({
+      kind: "chatWindow",
+      replaces: true,
+      window: {
+        sid: "c",
+        cursor: 10,
+        edition: 1,
+        rows,
+        hasBefore: false,
+        hasAfter: false,
+        queue: { entries: [], count: 0 },
+        ...(refused ? { refused } : {}),
+      },
+    });
+  window(rows, refused);
   const op = (body: Record<string, unknown>) =>
     send({ kind: "chatOp", sid: "c", replay: false, op: { seq: 11, ...body } });
-  return { snapshot: () => store.snapshot("c")!, op };
+  return { snapshot: () => store.snapshot("c")!, op, window };
 }
 
 test("a new snapshot adapts only the rows that changed", async () => {
@@ -111,4 +115,33 @@ test("the page of turns' heads older than the first row held are the earlier pro
   // No heads, or none older than what is held: none.
   expect(adapter.adapt({ ...snapshot(), heads: null }).earlierPrompts).toBeUndefined();
   expect(adapter.adapt(snapshot()).earlierPrompts).toBeUndefined();
+});
+
+test("a refused row is one line under the id its row will have", async () => {
+  const { snapshot } = await chat([row(1), row(3)], [2]);
+  const adapter = new ChatAdapter({ sessionId: "s1" });
+  const rows = adapter.adapt(snapshot()).rows;
+  expect(rows.map((view) => view.id)).toEqual(["row-1", "row-2", "row-3"]);
+  const line = rows[1]!;
+  expect(line.kind).toBe("notice");
+  expect(line.text).toBe(translate("transcript.rowRefused"));
+  expect(line.text).not.toBe("transcript.rowRefused");
+  // In time order with its neighbours (the view finds a change by `at`).
+  expect(line.at).toBe(rows[0]!.at);
+  // An unchanged hole keeps its line's object.
+  expect(adapter.adapt(snapshot()).rows[1]).toBe(line);
+});
+
+test("a later window that holds a refused row draws the row in the line's place, as a new version", async () => {
+  const { snapshot, window } = await chat([row(1), row(3)], [2]);
+  const adapter = new ChatAdapter({ sessionId: "s1" });
+  const line = adapter.adapt(snapshot()).rows[1]!;
+  window([row(1), row(2), row(3)]);
+  const rows = adapter.adapt(snapshot()).rows;
+  expect(rows.map((view) => view.id)).toEqual(["row-1", "row-2", "row-3"]);
+  const filled = rows[1]!;
+  expect(filled.id).toBe(line.id);
+  expect(filled.kind).toBe("assistant");
+  expect(filled.text).toBe("r2");
+  expect(filled.version).not.toBe(line.version);
 });
