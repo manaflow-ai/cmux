@@ -35,7 +35,7 @@ import bench_launch as bl  # noqa: E402
 MACHINES = {
     "cosmic-gray": {"aliases": ["mbp"], "roles": ["mac-build", "leo-mac", "codex-lanes"]},
     "air-blue": {"aliases": ["macbook-air"], "roles": ["attended", "leo-mac"]},
-    "big-red": {"roles": ["leo-apps"]},
+    "apps-mini": {"roles": ["leo-apps"]},
     "desk-mini": {"hostnames": ["Desk-Mini"], "roles": ["interactive"]},
     "aws-m4pro-1": {"roles": ["aws-mac"]},
     "cmux16": {"roles": ["session-host", "mac-build"]},
@@ -45,7 +45,7 @@ MACHINES = {
 class PersonMac(unittest.TestCase):
     def test_a_person_role_by_key_alias_or_hostname_is_refused(self):
         for names, key in ((["cosmic-gray"], "cosmic-gray"), (["mbp"], "cosmic-gray"),
-                           (["macbook-air", "air-blue"], "air-blue"), (["big-red"], "big-red"),
+                           (["macbook-air", "air-blue"], "air-blue"), (["apps-mini"], "apps-mini"),
                            (["desk-mini"], "desk-mini")):
             problem = bl.person_mac_problem(names, MACHINES)
             self.assertIsNotNone(problem, names)
