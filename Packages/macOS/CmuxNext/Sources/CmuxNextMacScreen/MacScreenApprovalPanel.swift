@@ -70,9 +70,10 @@ public final class MacScreenApprovalPrompt {
         present(next != nil)
     }
 
-    /// One of the prompt's buttons.
-    public func answer(_ choice: MacScreenApprovalChoice) {
-        guard let request = current, let hub = hub(), !answering else { return }
+    /// One of the prompt's buttons, for the request it was drawn for: a click that lands after the
+    /// next request took its place answers nothing (`requestID` names the request on the button).
+    public func answer(_ choice: MacScreenApprovalChoice, for requestID: String? = nil) {
+        guard let request = current, requestID == nil || requestID == request.id, let hub = hub(), !answering else { return }
         answering = true
         let (decision, scope, thenPermission) = choice.answer(requested: request.scope)
         // task-owner: one decision for the request on screen; the next request shows when it settles
@@ -232,6 +233,8 @@ final class MacScreenApprovalView: MacScreenThemedView {
     }
 
     private func render() {
+        // Details is about one request: the next one opens closed.
+        if let drawn = shown?.request?.id, drawn != prompt.current?.id { detailsOpen = false }
         let next = withObservationTracking {
             Shown(request: prompt.current, error: prompt.error, answering: prompt.answering, detailsOpen: detailsOpen)
         } onChange: { [weak self] in
@@ -268,8 +271,8 @@ final class MacScreenApprovalView: MacScreenThemedView {
                                       id: "macScreen.approval.details") { [weak self] in self?.toggleDetails() }
         details.setAccessibilityExpanded(shown.detailsOpen)
         buttons.append(details)
-        let notNow = answer(.deny, title: MacScreenApprovalWords.notNow, role: .plain, id: "macScreen.approval.deny")
-        let allow = answer(words.allowChoice, title: MacScreenApprovalWords.allow, role: .primary, id: "macScreen.approval.allow")
+        let notNow = answer(.deny, request, title: MacScreenApprovalWords.notNow, role: .plain, id: "macScreen.approval.deny")
+        let allow = answer(words.allowChoice, request, title: MacScreenApprovalWords.allow, role: .primary, id: "macScreen.approval.allow")
         MacScreenStack.addFullWidth(MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY,
                                                         [details, MacScreenSpacer(min: 8), notNow, allow]), to: stack)
 
@@ -291,7 +294,7 @@ final class MacScreenApprovalView: MacScreenThemedView {
                     MacScreenText(MacScreenApprovalWords.deviceKey, font: MacScreenType.caption, ink: \.tertiary), code,
                 ]))
             }
-            lines.append(answer(.once, title: MacScreenApprovalWords.onlyThisTime, role: .quiet, compact: true, id: "macScreen.approval.once"))
+            lines.append(answer(.once, request, title: MacScreenApprovalWords.onlyThisTime, role: .quiet, compact: true, id: "macScreen.approval.once"))
             lines[0].widthAnchor.constraint(equalToConstant: Self.width - 2 * Self.inset).isActive = true
             let column = MacScreenStack.make(.vertical, spacing: 6, alignment: .leading, lines)
             MacScreenStack.addFullWidth(column, to: stack)
@@ -299,9 +302,12 @@ final class MacScreenApprovalView: MacScreenThemedView {
         paint(stack)
     }
 
-    private func answer(_ choice: MacScreenApprovalChoice, title: String, role: MacScreenButton.Role, compact: Bool = false,
-                        id: String) -> MacScreenButton {
-        let button = MacScreenButton(title, role: role, compact: compact, id: id) { [weak self] in self?.prompt.answer(choice) }
+    private func answer(_ choice: MacScreenApprovalChoice, _ request: SessionRequest, title: String, role: MacScreenButton.Role,
+                        compact: Bool = false, id: String) -> MacScreenButton {
+        let requestID = request.id
+        let button = MacScreenButton(title, role: role, compact: compact, id: id) { [weak self] in
+            self?.prompt.answer(choice, for: requestID)
+        }
         buttons.append(button)
         return button
     }

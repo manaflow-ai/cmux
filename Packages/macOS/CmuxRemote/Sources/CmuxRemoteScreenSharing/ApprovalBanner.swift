@@ -53,8 +53,10 @@ final class ApprovalBanner {
         changed()
     }
 
-    func answer(_ choice: ApprovalChoice) {
-        guard let request = current, !answering else { return }
+    /// Answers the request a button was drawn for: a click that lands after the next request took
+    /// its place answers nothing.
+    func answer(_ choice: ApprovalChoice, for requestID: String? = nil) {
+        guard let request = current, requestID == nil || requestID == request.id, !answering else { return }
         answering = true
         render()
         Task { [weak self] in
@@ -96,7 +98,7 @@ final class ApprovalBanner {
         let panel = self.panel ?? Self.makePanel()
         self.panel = panel
         let content = ApprovalView(request: request, error: error, enabled: !answering, detailsOpen: detailsOpen,
-                                   toggleDetails: { [weak self] in self?.toggleDetails() }) { [weak self] in self?.answer($0) }
+                                   toggleDetails: { [weak self] in self?.toggleDetails() }) { [weak self, id = request.id] in self?.answer($0, for: id) }
         panel.contentView = content
         let size = content.fittingSize
         let area = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? CGRect(x: 0, y: 0, width: 800, height: 600)

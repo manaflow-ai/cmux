@@ -6,7 +6,7 @@ import { Device, approvedSession, signIn } from "./helpers";
  * tagged build runs (its own bundle id, so its own Keychain items) or when its identity renews
  * (the hub refused the old one), and the host's Always for that Mac used to stop applying: the
  * approval panel asked again for a Mac it had been told to always allow. The app sends a
- * `machine` at registration (a hash of the Mac's hardware UUID, the same for every build); the
+ * `machine` at registration (a keyed hash of the Mac's hardware UUID, the same for every build); the
  * hub reads a permission across every live device of the same machine, the newest answer first.
  */
 const MAC_A = "a".repeat(64);
@@ -109,6 +109,21 @@ describe("an Always answer covers the same Mac", () => {
     expect((await host.call("DELETE", `/v1/devices/${viewer.id}`)).status).toBe(200);
     const sameMac = await device(account, "Desk Mac", MAC_A);
     expect((await ask(sameMac, host, "full")).json.session.state).toBe("pending");
+  });
+
+  it("a lowered answer stays lowered when the identity it was given to is removed", async () => {
+    // Review of #44039: Always for V1, None for its sibling V2, then V2 removed must not revive V1's Always.
+    const { account, host, viewer } = await pair();
+    await alwaysAllow(host, viewer, "full");
+    const sibling = await device(account, "Desk Mac", MAC_A);
+    expect((await host.call("PUT", `/v1/permissions/${host.id}/${sibling.id}`, { scope: "none" })).status).toBe(200);
+    expect((await host.call("DELETE", `/v1/devices/${sibling.id}`)).status).toBe(200);
+    expect((await ask(viewer, host, "full")).json.error.code).toBe("permission_none");
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "view" });
+    // With every identity that held the answer removed, the Mac is back to Ask: it fails closed.
+    const third = await device(account, "Desk Mac", MAC_A);
+    expect((await host.call("DELETE", `/v1/devices/${viewer.id}`)).status).toBe(200);
+    expect((await ask(third, host, "view")).json.session.state).toBe("pending");
   });
 
   it("refuses a machine that is not 64 lowercase hex digits", async () => {

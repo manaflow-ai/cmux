@@ -769,22 +769,30 @@ export class UserDO extends DurableObject<Env> {
     // even when two answers land in the same millisecond.
     const newest = (this.sql.exec("SELECT MAX(updated_at) AS t FROM permissions").toArray()[0]?.t as number | null) ?? 0;
     const at = Math.max(now, newest + 1);
-    this.sql.exec(
-      "INSERT INTO permissions(host_id, viewer_id, scope, updated_at, owner_kind, owner_id) VALUES (?, ?, ?, ?, 'user', ?) ON CONFLICT(host_id, viewer_id) DO UPDATE SET scope = excluded.scope, updated_at = excluded.updated_at",
-      hostId,
-      viewerId,
-      scope,
-      at,
-      this.ownerId,
-    );
+    // The answer is about the two Macs: it is written for every pair of their live devices, so no
+    // pair keeps an older answer that a device removal could bring back (a None given to one id,
+    // then that id removed, must not revive an earlier Always given to its sibling).
     const hosts = this.sameMachine(hostId);
+    const viewers = this.sameMachine(viewerId);
+    for (const h of hosts) {
+      for (const v of viewers) {
+        if (h === v) continue;
+        this.sql.exec(
+          "INSERT INTO permissions(host_id, viewer_id, scope, updated_at, owner_kind, owner_id) VALUES (?, ?, ?, ?, 'user', ?) ON CONFLICT(host_id, viewer_id) DO UPDATE SET scope = excluded.scope, updated_at = excluded.updated_at",
+          h,
+          v,
+          scope,
+          at,
+          this.ownerId,
+        );
+      }
+    }
     if (before !== scope) {
       this.audit("permission_changed", { hostId, viewerId, scope, detail: `${before}->${scope}` });
       // Lowering ends the sessions it no longer allows, between any devices of the two Macs:
       // none ends every session (pending requests too), view ends full ones, ask ends view and
       // full ones. A pending request above the new permission stays: it already waits for the host.
       if (scope === "none" || rank(scope) < rank(before)) {
-        const viewers = this.sameMachine(viewerId);
         const open = this.sql
           .exec(
             `SELECT * FROM sessions WHERE state != 'ended' AND host_id IN (${hosts.map(() => "?").join(",")}) AND viewer_id IN (${viewers.map(() => "?").join(",")})`,
