@@ -589,7 +589,7 @@ function LayoutEditor({
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLElement>, from: Place) => {
-    if (disabled || event.button !== 0 || (event.target as Element).closest("button")) return;
+    if (disabled || event.button !== 0) return;
     drag.current = {
       pointerId: event.pointerId,
       from,
@@ -662,26 +662,20 @@ function LayoutEditor({
   };
   function focusChip(at: Place) {
     root.current
-      ?.querySelector<HTMLElement>(`[data-layout-line="${at.line}"] [data-chip][data-index="${at.index}"]`)
+      ?.querySelector<HTMLElement>(
+        `[data-layout-line="${at.line}"] [data-chip][data-index="${at.index}"] .row-layout-chip-grab`,
+      )
       ?.focus();
   }
 
   const slotTitle = (slot: Slot) => tokenTitle(slot);
   return (
-    <div
-      ref={root}
-      className="row-layout-editor"
-      data-reordering={dragging ? "" : undefined}
-      role="group"
-      aria-label={label}
-    >
+    <div ref={root} className="row-layout-editor" data-layout-label={label} data-reordering={dragging ? "" : undefined}>
       <span id={hintId} className="visually-hidden">
         {t("settingsPage.rowLayout.chipHint")}
       </span>
-      <div className="row-layout-marks" role="group" aria-label={t("settingsPage.rowLayout.marks")}>
-        <span className="row-layout-line-label" aria-hidden="true">
-          {t("settingsPage.rowLayout.marks")}
-        </span>
+      <div className="row-layout-marks">
+        <span className="row-layout-line-label">{t("settingsPage.rowLayout.marks")}</span>
         <div className="row-layout-chips">
           {SLOTS.map((slot) => (
             <button
@@ -710,42 +704,42 @@ function LayoutEditor({
           data-drop={drop?.line === l ? "" : undefined}
         >
           <span className="row-layout-line-label">{t("settingsPage.rowLayout.line", String(l + 1))}</span>
-          <div className="row-layout-chips" role="list" aria-label={t("settingsPage.rowLayout.line", String(l + 1))}>
+          <ul className="row-layout-chips" aria-label={t("settingsPage.rowLayout.line", String(l + 1))}>
             {l === 0 && (
-              <span
-                className="row-layout-chip"
-                role="listitem"
-                data-pinned=""
-                title={t("settingsPage.rowLayout.namePinned")}
-              >
+              <li className="row-layout-chip" data-pinned="">
                 <Icon name="lock" className="row-layout-pin" />
-                {tokenTitle("name")}
-              </span>
+                <span className="row-layout-chip-name">{tokenTitle("name")}</span>
+                <span className="visually-hidden">{t("settingsPage.rowLayout.namePinned")}</span>
+              </li>
             )}
             {line.map((token, i) => {
               const at = { line: l, index: i };
               const lifted = dragging?.from.line === l && dragging.from.index === i;
               return (
-                <span
+                <li
                   key={token}
                   className="row-layout-chip"
-                  role="listitem"
-                  tabIndex={disabled ? -1 : 0}
                   data-chip={token}
                   data-index={i}
                   data-problem={flagged.has(token) ? "" : undefined}
                   data-dragging={lifted ? "" : undefined}
-                  aria-label={t("settingsPage.rowLayout.chip", tokenTitle(token), String(l + 1), String(i + 1))}
-                  aria-describedby={hintId}
-                  aria-disabled={disabled || undefined}
                   style={lifted ? { transform: `translate(${dragging.dx}px, ${dragging.dy}px)` } : undefined}
-                  onPointerDown={(event) => onPointerDown(event, at)}
-                  onPointerMove={onPointerMove}
-                  onPointerUp={() => endDrag(true)}
-                  onPointerCancel={() => endDrag(false)}
-                  onKeyDown={(event) => onChipKey(event, at)}
                 >
-                  {tokenTitle(token)}
+                  {/* The chip's grab handle and keyboard stop: drag it, or Option and an arrow key. */}
+                  <button
+                    type="button"
+                    className="row-layout-chip-grab"
+                    aria-label={t("settingsPage.rowLayout.chip", tokenTitle(token), String(l + 1), String(i + 1))}
+                    aria-describedby={hintId}
+                    disabled={disabled}
+                    onPointerDown={(event) => onPointerDown(event, at)}
+                    onPointerMove={onPointerMove}
+                    onPointerUp={() => endDrag(true)}
+                    onPointerCancel={() => endDrag(false)}
+                    onKeyDown={(event) => onChipKey(event, at)}
+                  >
+                    {tokenTitle(token)}
+                  </button>
                   <Button
                     icon
                     size="sm"
@@ -758,16 +752,18 @@ function LayoutEditor({
                   >
                     <Icon name="xmark" />
                   </Button>
-                </span>
+                </li>
               );
             })}
-            <AddItemMenu
-              label={t("settingsPage.rowLayout.addItemTo", String(l + 1))}
-              options={options}
-              disabled={disabled || lineFull(layout, l) || options.length === 0}
-              onPick={(token) => change(addToken(layout, l, token))}
-            />
-          </div>
+            <li className="row-layout-add-item">
+              <AddItemMenu
+                label={t("settingsPage.rowLayout.addItemTo", String(l + 1))}
+                options={options}
+                disabled={disabled || lineFull(layout, l) || options.length === 0}
+                onPick={(token) => change(addToken(layout, l, token))}
+              />
+            </li>
+          </ul>
           {l > 0 && (
             <Button
               icon
