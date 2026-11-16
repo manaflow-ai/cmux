@@ -8,6 +8,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { TRANSCRIPT_LIVE_STEP_GAP, TRANSCRIPT_LIVE_STEP_HEIGHT } from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -100,6 +101,7 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                 if (!previous) throw new Error("The live state has no preceding activity row");
                 return {
                   gap: live.getBoundingClientRect().top - previous.getBoundingClientRect().bottom,
+                  height: live.getBoundingClientRect().height,
                   // Read a resolved token rather than parsing a calc() or var() expression.
                   scale: Number.parseFloat(
                     getComputedStyle(document.documentElement).getPropertyValue("--cmux-interface-scale"),
@@ -111,9 +113,11 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
               console.log(
                 `transcript-live-gap ${phase} ${variant} ${label} ${density} ${interfaceScale}: ${JSON.stringify(measured)}`,
               );
-              if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1")
-                // The Codex transcript's run gap is 16px at scale 1 (transcriptGrid.ts TRANSCRIPT_RUN_GAP).
-                expect(measured.gap).toBeCloseTo(16 * interfaceScale, 1);
+              if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
+                // The live line's gap and box in a run come from one place (transcriptGrid.ts TRANSCRIPT_LIVE_STEP_BOX).
+                expect(measured.gap).toBeCloseTo(TRANSCRIPT_LIVE_STEP_GAP * interfaceScale, 1);
+                expect(measured.height).toBeCloseTo(TRANSCRIPT_LIVE_STEP_HEIGHT * interfaceScale, 1);
+              }
               expect(measured.wholeTurnFolds).toBe(0);
               if (process.env.FAST_CHECKS_OUT) {
                 await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });

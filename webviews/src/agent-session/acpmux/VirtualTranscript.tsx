@@ -1,4 +1,4 @@
-import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
+import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
 import React, {
   useCallback,
   useDeferredValue,
@@ -225,6 +225,10 @@ import {
   FOLLOW_BOTTOM_DEADBAND_PX,
   SCROLL_ANCHOR_SETTLE_MS,
 } from "./virtualTranscriptModel";
+
+/// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
+/// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
+const LIVE_STEP_VARS = transcriptLiveVars();
 
 /// How soon after the box's last width a new one counts as the same live resize (a drag's frames come
 /// every 8 to 17 ms; a window's or a strip's one-off change never has a second within it), and how
@@ -6839,6 +6843,8 @@ function TranscriptView({
                 : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
               ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
               ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
+              // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
+              ...LIVE_STEP_VARS,
             } as React.CSSProperties
           }
         >
