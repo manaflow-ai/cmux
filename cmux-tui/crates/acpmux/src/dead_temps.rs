@@ -35,8 +35,20 @@ pub(crate) fn hold(tmp: &Path) -> MutexGuard<'static, ()> {
     static LOCKS: [Mutex<()>; NAME_LOCKS] = [const { Mutex::new(()) }; NAME_LOCKS];
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     tmp.hash(&mut hasher);
-    let index = (hasher.finish() % NAME_LOCKS as u64) as usize;
-    LOCKS[index].lock().unwrap_or_else(PoisonError::into_inner)
+    let index = hasher
+        .finish()
+        .checked_rem(NAME_LOCKS as u64)
+        .and_then(|i| usize::try_from(i).ok())
+        .unwrap_or(0);
+    // `index` is below NAME_LOCKS, so `get` always finds one; the first stands in otherwise.
+    let lock = LOCKS.get(index).or(LOCKS.first());
+    match lock {
+        Some(lock) => lock.lock().unwrap_or_else(PoisonError::into_inner),
+        None => {
+            static ONE: Mutex<()> = Mutex::new(());
+            ONE.lock().unwrap_or_else(PoisonError::into_inner)
+        }
+    }
 }
 
 /// The names read in a folder per sweep: the cost of a write stays the same however full its
