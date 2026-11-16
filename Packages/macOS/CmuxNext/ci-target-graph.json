@@ -153,6 +153,17 @@
         "CmuxAgentBrands"
       ]
     },
+    "CmuxNextAgentList": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentList",
+      "targets": [
+        "CCmuxAppFFI",
+        "CmuxNextAgentActivity",
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
     "CmuxNextAgentPane": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane",
@@ -205,7 +216,8 @@
         "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
         "cmux-tui/spec/",
         "schemas/agent-bridge/contract.json",
-        "scripts/cmux-next/pin-cmux-tui.sh"
+        "scripts/cmux-next/pin-cmux-tui.sh",
+        "webviews/src/agent-session/acpmux/flickerLog.ts"
       ]
     },
     "CmuxNextAgentPermissions": {
@@ -534,6 +546,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApps",
       "targets": [
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesign",
@@ -555,12 +568,17 @@
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesign",
+        "CmuxNextPages",
+        "CmuxNextPagesTestSupport",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": [
         "CmuxHomeRender"
       ],
-      "reads": []
+      "reads": [
+        "web/"
+      ]
     },
     "CmuxNextBookmarks": {
       "kind": "regular",
@@ -1058,6 +1076,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests",
       "targets": [
+        "CmuxNextAgentList",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextTestSupport",
@@ -1401,7 +1420,8 @@
         "CmuxNextHome",
         "CmuxNextHomeModel",
         "CmuxNextIcons",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWindowRules"
       ],
       "packages": [
         "CmuxAgentQuestion",
@@ -1592,6 +1612,7 @@
       "targets": [
         "CCmuxAppFFI",
         "CmuxNextActions",
+        "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
         "CmuxNextControl",
@@ -1599,6 +1620,7 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextDevices",
+        "CmuxNextPalette",
         "CmuxNextRemoteView",
         "CmuxNextSettings",
         "CmuxNextWakeups"
@@ -1613,6 +1635,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextControl",
+        "CmuxNextDevices",
         "CmuxNextMacScreen",
         "CmuxNextRemoteView",
         "CmuxNextSettings"

@@ -57,7 +57,7 @@ mod ports {
     use std::path::Path;
     use std::time::Duration;
 
-    use super::super::{OwnFolder, TooLarge, ports};
+    use super::super::{OwnFolder, ports};
 
     pub(super) fn lookup(common_dir: &Path, root: &Path) -> Option<u16> {
         ports::lookup(&OwnFolder::open(common_dir), root)
@@ -67,7 +67,7 @@ mod ports {
         common_dir: &Path,
         root: &Path,
         wait: Duration,
-    ) -> Result<Option<u16>, TooLarge> {
+    ) -> Result<Option<u16>, ports::NoList> {
         ports::allocate_within(&OwnFolder::open(common_dir), root, wait)
     }
 
@@ -659,6 +659,114 @@ fn own_tree_a_git_folder_that_is_not_open_gives_no_block_of_ports() {
 
     fs::remove_dir_all(top).unwrap();
     assert!(matches!(port, Ok(None)), "a block from a list that was not read: {port:?}");
+}
+
+/// A ports file whose bytes are not a list of ports is not a list with no worktree: an empty
+/// file, a list that is cut short, and a JSON value of a different form. The worktree gets no
+/// block, and the file keeps its bytes.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_ports_file_that_is_not_a_list_gives_no_block_and_stays() {
+    let top = folder_with_a_git_folder();
+    let (common, root) = (top.join("git-folder"), top.join("root"));
+    let ports_file = common.join("cmux-worktree-ports.json");
+    let mut found = Vec::new();
+    for text in ["", "{\"/a/worktree\": 40", "[40000]"] {
+        fs::write(&ports_file, text).unwrap();
+        let refused = ports::allocate_within(&common, &root, Duration::ZERO).is_err();
+        found.push((refused, fs::read_to_string(&ports_file).unwrap_or_default() == text));
+    }
+
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!(found, [(true, true); 3], "for each text: no block, and the same bytes");
+}
+
+/// A thing at the name of the ports file that is not read as a file is not a list with no
+/// worktree: a folder at the name, and a link at the name (a link is not followed). The
+/// worktree gets no block, and the thing at the name stays.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_ports_file_that_is_not_read_gives_no_block_and_stays() {
+    let top = folder_with_a_git_folder();
+    let (common, root) = (top.join("git-folder"), top.join("root"));
+    let ports_file = common.join("cmux-worktree-ports.json");
+    let kind = |path: &Path| fs::symlink_metadata(path).map(|thing| thing.file_type()).ok();
+
+    fs::create_dir(&ports_file).unwrap();
+    let with_a_folder = ports::allocate_within(&common, &root, Duration::ZERO).is_err();
+    let folder_stays = kind(&ports_file).is_some_and(|kind| kind.is_dir());
+    fs::remove_dir(&ports_file).unwrap();
+    fs::write(top.join("elsewhere/file"), "{}").unwrap();
+    std::os::unix::fs::symlink(top.join("elsewhere/file"), &ports_file).unwrap();
+    let with_a_link = ports::allocate_within(&common, &root, Duration::ZERO).is_err();
+    let link_stays = kind(&ports_file).is_some_and(|kind| kind.is_symlink());
+
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!((with_a_folder, folder_stays), (true, true), "a folder at the name");
+    assert_eq!((with_a_link, link_stays), (true, true), "a link at the name");
+}
+
+/// A ports file that is not a list of ports: the setup does not start, its log says why, and
+/// the file stays.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_setup_does_not_start_with_a_ports_file_that_is_not_a_list() {
+    let top = folder_with_a_git_folder();
+    let git_dir = top.join("git-folder");
+    let ports_file = git_dir.join("cmux-worktree-ports.json");
+    let ports = "{\"/a/worktree\": 40";
+    fs::write(&ports_file, ports).unwrap();
+    let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
+
+    let reply = start(place_in(&top), recipe);
+
+    assert_eq!(reply, json!({"state": "failed", "port": null}));
+    assert_eq!(read_status(&git_dir).map(|status| status.state), Some("failed".to_string()));
+    let log = fs::read_to_string(git_dir.join(LOG_FILE)).unwrap_or_default();
+    assert!(log.contains("is not a list of ports"), "{log}");
+    assert_eq!(fs::read_to_string(&ports_file).unwrap(), ports, "the ports file changed");
+    assert!(!top.join("root/started").exists(), "the setup ran");
+    fs::remove_dir_all(top).unwrap();
+}
+
+/// A list of ports that is not written gives the worktree no block: no later allocation of
+/// the repository knows a block that no list has. The `.partial` file of the write is not made
+/// here, because a folder has its name. No ports file is made, and the folder stays.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_ports_file_that_is_not_written_gives_no_block() {
+    let top = folder_with_a_git_folder();
+    let (common, root) = (top.join("git-folder"), top.join("root"));
+    let partial = common.join("cmux-worktree-ports.json.partial");
+    fs::create_dir(&partial).unwrap();
+
+    let allocated = ports::allocate_within(&common, &root, Duration::ZERO);
+    let listed = ports::lookup(&common, &root);
+    let made = common.join("cmux-worktree-ports.json").exists();
+    let folder_stays = partial.is_dir();
+
+    fs::remove_dir_all(top).unwrap();
+    assert!(allocated.is_err(), "a block that no list has: {allocated:?}");
+    assert_eq!((listed, made, folder_stays), (None, false, true));
+}
+
+/// A list of ports that is not written: the setup does not start, and its log says why.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_setup_does_not_start_with_a_ports_file_that_is_not_written() {
+    let top = folder_with_a_git_folder();
+    let git_dir = top.join("git-folder");
+    fs::create_dir(git_dir.join("cmux-worktree-ports.json.partial")).unwrap();
+    let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
+
+    let reply = start(place_in(&top), recipe);
+
+    assert_eq!(reply, json!({"state": "failed", "port": null}));
+    assert_eq!(read_status(&git_dir).map(|status| status.state), Some("failed".to_string()));
+    let log = fs::read_to_string(git_dir.join(LOG_FILE)).unwrap_or_default();
+    assert!(log.contains("is not written"), "{log}");
+    assert!(!top.join("root/started").exists(), "the setup ran");
+    fs::remove_dir_all(top).unwrap();
 }
 
 /// The read of a worktree's port opens no port lock: no lock file is there after it.
