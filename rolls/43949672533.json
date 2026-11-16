@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43949672533",
+  "recorded_at": "2026-11-16T20:57:45Z",
+  "reason": "image inputs changed in 1be04554e13b475a2c8bba31088697123f2f7f15..1e3ef227b6d42873c6bd2d579c64f4f581d77c4c",
+  "dry_run": false,
+  "cmux_tui": "c2ccb8326c93be65aac31d76c30a64951b658954",
+  "fixes": [
+    {
+      "sha": "1e3ef227b6d42873c6bd2d579c64f4f581d77c4c",
+      "mergedAt": "2026-11-16T12:25:36-08:00",
+      "subject": "cloud image: fetch Ubuntu pins by content, not from a live apt index (#44713)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T20:57:45Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
