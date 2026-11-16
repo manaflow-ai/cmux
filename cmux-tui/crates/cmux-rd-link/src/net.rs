@@ -167,6 +167,7 @@ enum Command {
     StunLater(Later<SocketAddr>),
     TurnLater(Later<TurnServer>),
     Control(Vec<u8>),
+    Datagram(Vec<u8>),
     NetworkChange,
     Close,
 }
@@ -182,7 +183,7 @@ struct MediaFrame {
 /// new droppable frame replaces the waiting frame, so media never waits behind
 /// an unbounded burst while control traffic continues to use the lossless
 /// command channel.
-const MAX_MEDIA_FRAMES: usize = 2;
+const MAX_WAITING_MEDIA_FRAMES: usize = 1;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NetStats {
@@ -228,7 +229,7 @@ impl MediaQueue {
                 if let Some(old) = self.frames.remove(index) {
                     self.record_drop(old, DropReason::Replaced);
                 }
-            } else if self.frames.len() >= MAX_MEDIA_FRAMES {
+            } else if self.frames.len() >= MAX_WAITING_MEDIA_FRAMES {
                 // Protected frames are never evicted. The newest droppable
                 // frame is rejected until one of them leaves the queue.
                 self.record_drop(datagrams, DropReason::RejectedProtected);
@@ -564,7 +565,7 @@ impl Net {
 
     /// One rd datagram, sealed and sent on the current path (best effort).
     pub fn send_datagram(&self, datagram: Vec<u8>) {
-        self.send_datagram_frame(vec![datagram], false);
+        self.command(Command::Datagram(datagram));
     }
 
     /// Queues one complete encoded frame. If a frame is already pending, it
@@ -879,6 +880,11 @@ impl Driver {
     }
 
     fn deadline_ms(&self, now: u64) -> i32 {
+        if self.endpoint.link().is_established()
+            && self.media_queue.lock().is_ok_and(|queue| !queue.frames.is_empty())
+        {
+            return 0;
+        }
         let stun = self.stun.iter().filter(|q| !q.done).map(|q| q.next_us).min();
         let later =
             (self.stun_later.is_some() || self.turn_later.is_some()).then_some(now + LATER_POLL_US);
@@ -927,7 +933,6 @@ impl Driver {
             self.later_tick();
             self.stun_tick(now);
             self.turn_tick(now);
-            self.drain_media(now)?;
             self.flush(now)?;
             let mut fds = [
                 libc::pollfd { fd: self.socket.as_raw_fd(), events: libc::POLLIN, revents: 0 },
@@ -942,7 +947,6 @@ impl Driver {
                 > 0
             {}
             let now = now_us(self.start);
-            self.drain_media(now)?;
             while let Ok(command) = self.commands.try_recv() {
                 match command {
                     Command::RemoteCandidate(c) => self.on_remote_candidate(c, now),
@@ -951,6 +955,14 @@ impl Driver {
                     }
                     Command::TurnLater(later) => self.turn_later = Some(later),
                     Command::Control(r) => self.endpoint.send_control(r, now)?,
+                    Command::Datagram(datagram) => {
+                        // Input, cursor and repair traffic never replaces queued video.
+                        if self.endpoint.link().is_established() {
+                            for transmit in self.endpoint.send_datagram(&datagram)? {
+                                self.send(transmit.route, &transmit.packet, now);
+                            }
+                        }
+                    }
                     Command::NetworkChange => {
                         self.endpoint.set_local_networks(cmux_transport::local_networks());
                         self.endpoint.on_network_change();
@@ -1012,6 +1024,8 @@ impl Driver {
                     Err(_) => break,
                 }
             }
+            self.flush(now)?;
+            self.drain_media(now)?;
         }
     }
 }
@@ -1104,8 +1118,8 @@ mod tests {
     #[test]
     fn protected_frames_survive_a_new_protected_frame() {
         let mut queue = MediaQueue::default();
-        queue.push(MediaFrame { datagrams: vec![b"key".to_vec()], droppable: false });
         queue.push(MediaFrame { datagrams: vec![b"delta".to_vec()], droppable: true });
+        queue.push(MediaFrame { datagrams: vec![b"key".to_vec()], droppable: false });
         queue.push(MediaFrame { datagrams: vec![b"recovery".to_vec()], droppable: false });
 
         assert_eq!(queue.stats().dropped_datagrams, 1);

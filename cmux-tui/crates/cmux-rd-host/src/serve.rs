@@ -275,13 +275,12 @@ fn default_start_kbps(
 }
 
 /// Whether a session with the setup line's `scope` (`view` or `control`) starts view only
-/// when its capture does or does not apply input: one that applies none (the Wayland portal
-/// without a RemoteDesktop grant) is view only, so the viewer is told view, not a control
-/// session whose input is dropped.
-fn view_only_for(scope: &str, applies_input: bool) -> Res<bool> {
+/// with `capture`: a capture that applies no input (the Wayland portal) is view only, so the
+/// viewer is told view, not a control session whose input is dropped.
+fn view_only_for(scope: &str, capture: CaptureBackend) -> Res<bool> {
     match scope {
         "view" => Ok(true),
-        "control" => Ok(!applies_input),
+        "control" => Ok(!capture.applies_input()),
         other => Err(format!("scope {other}: use view or control").into()),
     }
 }
@@ -312,13 +311,13 @@ pub fn run(opts: &Opts) -> Res<()> {
         })
     }));
     let capture = CaptureBackend::from_env(setup.capture.as_deref().or(opts.get("capture")))?;
-    let view_only = view_only_for(&setup.scope, capture.applies_input())?;
+    let view_only = view_only_for(&setup.scope, capture)?;
     let display = session_display(opts, &setup);
     // The displays first, so the viewer can offer a display picker; then the session key.
     #[cfg(target_os = "linux")]
     say(linux_displays(capture, &display));
     #[cfg(target_os = "macos")]
-    match crate::desktop::displays() {
+    match crate::mac::capture::displays() {
         Ok((sizes, current)) => {
             say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
         }
@@ -537,18 +536,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn portal_sessions_control_only_with_a_remote_desktop_grant() {
-        // Without the grant the portal drops input: a control session there would not be one.
-        let x11 = CaptureBackend::X11.applies_input_with(false);
-        assert!(view_only_for("view", x11).unwrap());
-        assert!(!view_only_for("control", x11).unwrap());
-        let portal = CaptureBackend::Portal.applies_input_with(false);
-        assert!(view_only_for("view", portal).unwrap());
-        assert!(view_only_for("control", portal).unwrap());
-        let granted = CaptureBackend::Portal.applies_input_with(true);
-        assert!(view_only_for("view", granted).unwrap());
-        assert!(!view_only_for("control", granted).unwrap());
-        assert!(view_only_for("full", x11).is_err());
+    fn serve_preserves_frame_boundaries_before_the_link_connects() {
+        let local = KeyPair::generate().unwrap();
+        let peer = KeyPair::generate().unwrap();
+        let net = Net::start(NetConfig {
+            role: Role::Responder,
+            session: b"serve-queue-test".to_vec(),
+            local,
+            expected_remote: peer.public,
+            stun: Vec::new(),
+            bind: "127.0.0.1:0".parse().unwrap(),
+            turn: Vec::new(),
+            relay_only: false,
+        })
+        .unwrap();
+        let mut carrier = ServeCarrier {
+            link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
+            app: AppLines { buf: Vec::new() },
+        };
+        carrier.send_datagram_frame(vec![vec![1], vec![2]], true).unwrap();
+        carrier.send_datagram_frame(vec![vec![3]], true).unwrap();
+        let stats = carrier.media_queue_stats().unwrap();
+        assert_eq!(stats.queue_frames, 1);
+        assert_eq!(stats.queue_datagrams, 1);
+        assert_eq!(stats.dropped_replaced_frames, 1);
+        assert_eq!(stats.dropped_replaced_datagrams, 2);
+    }
+
+    #[test]
+    fn portal_sessions_are_view_only_whatever_the_scope() {
+        // The portal backend drops input: a control session there would not be one.
+        assert!(view_only_for("view", CaptureBackend::X11).unwrap());
+        assert!(!view_only_for("control", CaptureBackend::X11).unwrap());
+        assert!(view_only_for("view", CaptureBackend::Portal).unwrap());
+        assert!(view_only_for("control", CaptureBackend::Portal).unwrap());
+        assert!(view_only_for("full", CaptureBackend::X11).is_err());
     }
 
     #[test]

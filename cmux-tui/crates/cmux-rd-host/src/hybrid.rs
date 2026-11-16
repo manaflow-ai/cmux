@@ -346,24 +346,7 @@ mod with_link {
         }
 
         fn media_queue_stats(&self) -> Option<MediaQueueStats> {
-            self.net.as_ref().filter(|_| self.up).and_then(|net| {
-                let stats = net.stats();
-                Some(MediaQueueStats {
-                    queue_frames: stats.queue_frames,
-                    queue_datagrams: stats.queue_datagrams,
-                    dropped_frames: stats.dropped_frames,
-                    dropped_datagrams: stats.dropped_datagrams,
-                    dropped_replaced_frames: stats.dropped_replaced_frames,
-                    dropped_replaced_datagrams: stats.dropped_replaced_datagrams,
-                    dropped_evicted_for_protected_frames: stats
-                        .dropped_evicted_for_protected_frames,
-                    dropped_evicted_for_protected_datagrams: stats
-                        .dropped_evicted_for_protected_datagrams,
-                    dropped_rejected_protected_frames: stats.dropped_rejected_protected_frames,
-                    dropped_rejected_protected_datagrams: stats
-                        .dropped_rejected_protected_datagrams,
-                })
-            })
+            self.net.as_ref().filter(|_| self.up).map(|net| net.stats().into())
         }
 
         fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {

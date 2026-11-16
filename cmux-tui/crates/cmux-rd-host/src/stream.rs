@@ -18,7 +18,7 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
-use cmux_rd_proto::{flags, DatagramHeader, DatagramKind};
+use cmux_rd_proto::{flags, DatagramHeader, DatagramKind, Feedback};
 use std::collections::VecDeque;
 
 #[derive(Clone)]
@@ -74,6 +74,7 @@ pub struct MediaSession {
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     stats_frames_sent: u64,
+    queue_recovery: QueueRecovery,
     encode_ms: VecDeque<f64>,
     next_stats_ns: u64,
     stats_every_ns: u64,
@@ -171,6 +172,62 @@ fn wants_cursor(negotiated_caps: &[String]) -> bool {
         && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::CURSOR)
 }
 
+/// Queue replacement is local loss. Remember the last real viewer ACK and
+/// feed a recovery request through the same engine path as receiver feedback.
+#[derive(Default)]
+struct QueueRecovery {
+    acked_frame: u32,
+    dropped_frames: u64,
+}
+
+impl QueueRecovery {
+    fn observe(&mut self, datagram: &[u8]) {
+        if let Ok((header, payload)) = DatagramHeader::decode(datagram) {
+            if header.stream == 0 && header.kind == DatagramKind::Feedback {
+                if let Ok(feedback) = Feedback::decode(payload) {
+                    self.acked_frame = self.acked_frame.max(feedback.acked_frame);
+                }
+            }
+        }
+    }
+
+    fn on_drops(&mut self, dropped_frames: u64) -> Option<Vec<u8>> {
+        let changed = dropped_frames > self.dropped_frames;
+        self.dropped_frames = dropped_frames;
+        if !changed {
+            return None;
+        }
+        let mut datagram = DatagramHeader {
+            flags: 0,
+            kind: DatagramKind::Feedback,
+            stream: 0,
+            frame: 0,
+            index: 0,
+            count: 0,
+            fec_count: 0,
+            transport_seq: 0,
+        }
+        .encode()
+        .to_vec();
+        datagram.extend(
+            Feedback { acked_frame: self.acked_frame, need_recovery: true, ..Feedback::default() }
+                .encode(),
+        );
+        Some(datagram)
+    }
+}
+
+/// Original parity belongs to its frame: when an obsolete delta is replaced,
+/// its parity is obsolete too. Repair/NACK sends take the protected single
+/// datagram path instead. Unknown or non-video payloads remain protected.
+fn encoded_frame_droppable(datagrams: &[Vec<u8>]) -> bool {
+    datagrams.iter().all(|datagram| {
+        let Ok((header, _)) = DatagramHeader::decode(datagram) else { return false };
+        matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
+            && header.flags & (flags::KEYFRAME | flags::RECOVERY | flags::TILE) == 0
+    })
+}
+
 fn now_us() -> u64 {
     now_ns() / 1000
 }
@@ -243,6 +300,7 @@ impl MediaSession {
             engine,
             upstreams: Upstreams::new(sink, negotiated_caps),
             stats_frames_sent: 0,
+            queue_recovery: QueueRecovery::default(),
             encode_ms: VecDeque::new(),
             next_stats_ns: now_ns(),
             stats_every_ns: cfg.stats_every_ms * 1_000_000,
@@ -347,6 +405,12 @@ impl MediaSession {
             // A frame the encode thread finished: packetize and send it.
             if let Err(e) = self.send_encoded(carrier) {
                 return format!("encode/send failed: {e}");
+            }
+            if let Some(queue) = carrier.media_queue_stats() {
+                if let Some(feedback) = self.queue_recovery.on_drops(queue.dropped_frames) {
+                    let out = self.engine.on_datagram(&feedback, false, now_us());
+                    self.apply(carrier, out, table, session, viewer);
+                }
             }
             // Damage from the desktop.
             damage.clear();
@@ -466,11 +530,7 @@ impl MediaSession {
             // Too large to send (about 4.6 MB): the engine dropped it and asks for a keyframe.
             self.encoder.halve_bitrate();
         }
-        let droppable = out.datagrams.iter().all(|datagram| {
-            let Ok((header, _)) = DatagramHeader::decode(datagram) else { return true };
-            header.kind != DatagramKind::Fec
-                && header.flags & (flags::KEYFRAME | flags::RECOVERY | flags::TILE) == 0
-        });
+        let droppable = encoded_frame_droppable(&out.datagrams);
         carrier.send_datagram_frame(out.datagrams, droppable)?;
         if let (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) =
             (self.timing.as_mut(), logged)
@@ -518,6 +578,7 @@ impl MediaSession {
         if let Some(timing) = self.timing.as_mut() {
             timing.recv_us = Some(now);
         }
+        self.queue_recovery.observe(datagram);
         let out = self.engine.on_datagram(datagram, may_inject, now);
         self.apply(carrier, out, table, session, viewer);
         if let Some(timing) = self.timing.as_mut() {
@@ -603,7 +664,68 @@ impl MediaSession {
 
 #[cfg(test)]
 mod tests {
-    use super::viewer_silent_too_long;
+    use super::*;
+
+    #[test]
+    fn local_queue_loss_requests_recovery_without_inventing_an_ack() {
+        let mut recovery = QueueRecovery::default();
+        assert!(recovery.on_drops(0).is_none());
+        let mut engine = MediaEngine::new(EngineConfig::default(), 0);
+        let first = engine.start(0).unwrap();
+        engine
+            .encoded(
+                &first,
+                Some(Encoded { access_unit: vec![1, 2, 3], idr: true, t_capture_us: 0 }),
+                1,
+            )
+            .unwrap();
+        let notification = recovery.on_drops(1).unwrap();
+        let (_, payload) = DatagramHeader::decode(&notification).unwrap();
+        let feedback = Feedback::decode(payload).unwrap();
+        assert_eq!(feedback.acked_frame, 0);
+        assert!(feedback.need_recovery);
+        assert!(feedback.arrivals.is_empty());
+        let out = engine.on_datagram(&notification, false, 300_000);
+        assert!(out.encode.unwrap().force_idr, "a dropped reference must force recovery");
+        assert!(recovery.on_drops(1).is_none(), "one notification per local drop");
+
+        let mut real_ack = notification[..cmux_rd_proto::HEADER_LEN].to_vec();
+        real_ack.extend(Feedback { acked_frame: 1, ..Feedback::default() }.encode());
+        recovery.observe(&real_ack);
+        let next = recovery.on_drops(2).unwrap();
+        let (_, payload) = DatagramHeader::decode(&next).unwrap();
+        assert_eq!(Feedback::decode(payload).unwrap().acked_frame, 1);
+    }
+
+    #[test]
+    fn original_delta_parity_does_not_disable_frame_replacement() {
+        let shard = |kind, flags| {
+            DatagramHeader {
+                kind,
+                flags,
+                stream: 1,
+                frame: 1,
+                index: if kind == DatagramKind::Fec { 1 } else { 0 },
+                count: 1,
+                fec_count: 1,
+                transport_seq: 0,
+            }
+            .encode()
+            .to_vec()
+        };
+        assert!(encoded_frame_droppable(&[
+            shard(DatagramKind::Video, 0),
+            shard(DatagramKind::Fec, 0),
+        ]));
+        for flag in [flags::KEYFRAME, flags::RECOVERY, flags::TILE] {
+            assert!(!encoded_frame_droppable(&[
+                shard(DatagramKind::Video, flag),
+                shard(DatagramKind::Fec, flag),
+            ]));
+        }
+        assert!(!encoded_frame_droppable(&[shard(DatagramKind::Input, 0)]));
+        assert!(!encoded_frame_droppable(&[vec![0]]));
+    }
 
     #[test]
     fn viewer_silence_allows_the_ninety_second_reattach_window() {
