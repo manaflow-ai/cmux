@@ -88,7 +88,16 @@ import Testing
         /// time, so the count of frames has a bound and no clock is read. A task that queues one more in its frame
         /// (the next page of a row) keeps the queue asking: the frames go on until the row's end.
         func runQueued() async throws {
-            try await asks.next()
+            try await queued()
+            try fireQueued()
+        }
+
+        /// The refiller queued a task for a frame: waits for the queue's ask for frames and fires none, so the test
+        /// can change something between the ask and the task's frame.
+        func queued() async throws { try await asks.next() }
+
+        /// Fires frames until the queue asks for no more.
+        func fireQueued() throws {
             var fired = 0
             while !asks.stopped, fired < 60 {
                 frame()
@@ -300,6 +309,35 @@ import Testing
         try await rig.runQueued()
         #expect(rig.seen.made == 1, "a chat that left the screen kept the pool empty")
         #expect(!rig.refills.isOpening)
+    }
+
+    /// A chat loads for longer than the shown-chats deadline: the make is asked again, and its task waits for a
+    /// frame. The page draws before that frame. The task that waits makes nothing (its make would land in the
+    /// frames that follow that chat's paint): the paint starts the settle, and one make follows it.
+    @Test func aPaintBeforeTheDeadlinesFrameLeavesTheMakeToTheSettle() async throws {
+        let rig = Rig()
+        rig.refills.afterPaint { $0() }
+        rig.seen.loading = [{ [seen = rig.seen] in seen.drew = $0 }]
+        try await rig.advance(by: AgentPaneSpareRefiller.settle)
+        try await rig.runQueued()
+        #expect(rig.seen.made == 0 && rig.refills.counts.heldForOpen == 1, "\(rig.refills.counts), made \(rig.seen.made)")
+
+        // The deadline ends: the make is asked again and its task waits for a frame.
+        try await rig.advance(by: AgentPaneShownChatsWait.deadline)
+        try await rig.queued()
+        // The chat draws before that frame comes.
+        rig.seen.loading = []
+        let paint = try #require(rig.seen.drew, "the held make did not ask the page for its paint")
+        paint()
+        try rig.fireQueued()
+        #expect(rig.seen.made == 0, "a page was made in the frame after the chat's paint, before the settle")
+        #expect(rig.refills.isOpening, "the refill ended without a page")
+
+        try await rig.advance(by: AgentPaneSpareRefiller.settle)
+        try await rig.runQueued()
+        #expect(rig.seen.made == 1, "\(rig.seen.made) pages were asked for after the chat's paint and the settle")
+        #expect(rig.refills.counts.makes == 1, "one handout ran \(rig.refills.counts.makes) makes")
+        #expect(rig.clock.sleeperCount == 0, "a timer runs after the make")
     }
 
     /// A second chat took a page while the first chat's refill waited: one page follows, after the second chat's
