@@ -42,20 +42,23 @@ export function CustomizeLibraryCard({ reveal = false }: { reveal?: boolean }) {
   // read still on its way (a revisit past the section's fresh time reads again in the background)
   // saw the library before this change: it is dropped before the change runs and again before the
   // change's answer draws, so a late, older listing never draws over the change.
-  const run = async (change: LibraryRun) => {
+  // (cancelQueries never rejects.)
+  const run = (change: LibraryRun) => {
     setBusy(true);
     setRefusal(null);
-    try {
-      await queryClient.cancelQueries({ queryKey: LIBRARY_KEY });
-      const answer = await store.customizeLibrary(change);
-      await queryClient.cancelQueries({ queryKey: LIBRARY_KEY });
-      if (answer.library)
-        queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, { library: answer.library, refusal: null });
-      setRefusal(answer.refusal);
-    } finally {
-      setBusy(false);
-      setRemoving(null);
-    }
+    return queryClient
+      .cancelQueries({ queryKey: LIBRARY_KEY })
+      .then(() => store.customizeLibrary(change))
+      .then(async (answer) => {
+        await queryClient.cancelQueries({ queryKey: LIBRARY_KEY });
+        if (answer.library)
+          queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, { library: answer.library, refusal: null });
+        setRefusal(answer.refusal);
+      })
+      .finally(() => {
+        setBusy(false);
+        setRemoving(null);
+      });
   };
   // Opt-in (Leo, 2026-11-15: "these are opt-in settings"): nothing draws until the person has
   // applied something. An empty library, or a host with no CLI, shows no card; a CLI that answers
