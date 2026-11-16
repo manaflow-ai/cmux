@@ -84,13 +84,9 @@ pub(super) fn run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
             .into_iter()
             .map(|spec| upstream::Proxied::new(upstream::Upstream::new(spec)))
             .collect();
-        let mut journal = Journal::open_handoff(
-            std::path::Path::new(directory),
-            source,
-            FRESH_CALL_LIMIT,
-            Duration::from_secs(60),
-        )
-        .map_err(|error| error.to_string())?;
+        let mut journal =
+            Journal::open_handoff(std::path::Path::new(directory), source, FRESH_CALL_LIMIT)
+                .map_err(|error| error.to_string())?;
         proof.request(&server.backend, "check")?;
         let mut pending = BTreeMap::new();
         let mut tools = None;
@@ -219,6 +215,11 @@ fn handle<B: Backend>(
             };
             let id = journal.last_id().ok_or("journal omitted reserved identity")?.to_owned();
             match activity {
+                Activity::Replay(Err(error)) if explicit_refusal(&error) => {
+                    // A deterministic refusal is safe to replay immediately.
+                    // Keep uncertain transport failures pending for `wait`.
+                    return Ok(error);
+                }
                 Activity::Replay(result) => {
                     pending.insert(id.clone(), Some(result));
                 }
@@ -230,6 +231,11 @@ fn handle<B: Backend>(
                     params.set("options", json!(options));
                     let answer = internal(server, params, false, images);
                     if field(&answer, "ok").as_bool() != Some(true) {
+                        if explicit_refusal(&answer) {
+                            journal
+                                .complete(&id, Err(answer.clone()))
+                                .map_err(|error| error.to_string())?;
+                        }
                         return Ok(answer);
                     }
                     pending.insert(id.clone(), None);
@@ -322,6 +328,10 @@ fn transport_id(id: &str) -> String {
 
 fn refused(code: &str, message: &str) -> Value {
     json!({"ok":false,"message":message,"error":{"code":code,"message":message}})
+}
+
+fn explicit_refusal(value: &Value) -> bool {
+    value.get("ok") == Some(&Value::Bool(false))
 }
 
 #[cfg(test)]
