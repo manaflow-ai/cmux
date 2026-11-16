@@ -320,6 +320,14 @@ cmux-ci test --setup netem --timeout 7200 --artifact DIR -- 'set -e; d=$(mktemp 
 DRIVER_SHA is any commit with this script; each `--commit` is the cmux revision measured. A
 prebuilt binary runs with `--bin LABEL=PATH` instead of `--commit`.
 
+Hosts encode with Cisco's OpenH264 binary, the one shipped hosts load: the measured binary's own
+`cmux-rd openh264-install` fetches it and checks its pinned SHA-256. `--openh264 PATH` uses a copy
+you already have. `--openh264 source` keeps OpenH264 compiled from source by the `bench` feature.
+That build has no assembly and encodes about 3x slower (`cmux-rd encode-selftest` at 1080p on the
+pool: a typed glyph costs 15 to 20 ms from source and 6 ms with Cisco's binary). The tables mark
+its rows "source-built, about 3x slower". They mark rows from before this flag the same way,
+because those were all source-built, including #44486's 14.9 and 9.8 ms encode rows.
+
 The build controller's Linux pool has `sch_netem` too and runs it from this repository directly
 (the script exits 3 before measuring when `modprobe sch_netem` fails):
 
