@@ -1,11 +1,9 @@
 import { expect, test } from "bun:test";
+import { BridgeSocket, receiveTransportEvent } from "./bridgeSocket";
 
 // The host's push carries a seq; the page acks it once the frames ran, and the host waits on that ack
 // before the next push (AgentPaneTransport.acked). Without the ack the host pushed on the next turn,
 // whatever the page still had to do, so a slow page queued pushes behind a key.
-const g = globalThis as { window?: unknown };
-g.window ??= globalThis;
-const { BridgeSocket, receiveTransportEvent } = await import("./bridgeSocket");
 
 type Call = { method: string; params?: Record<string, unknown> };
 

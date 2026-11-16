@@ -125,6 +125,7 @@ function recoverClosedQuestionKeyRefusal(event: TransportEvent): void {
 }
 
 function install(): void {
+  if (typeof window === "undefined") return;
   const w = window as { cmuxAcpmuxTransport?: { receive(event: TransportEvent): void } };
   if (w.cmuxAcpmuxTransport) return;
   w.cmuxAcpmuxTransport = { receive: receiveTransportEvent };
