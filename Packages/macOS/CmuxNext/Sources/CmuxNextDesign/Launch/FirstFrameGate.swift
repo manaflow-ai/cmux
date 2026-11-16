@@ -25,6 +25,23 @@ public final class FirstFrameGate {
         if isOpen { work() } else { waiters.append(work) }
     }
 
+    /// Runs `steps` in order after the gate opens, one per run-loop pass, each
+    /// after that pass's frame commit (`AfterFrameCommit`): none runs inside the
+    /// first frame's commit, and input and display get a pass between two steps.
+    /// `stop` is read before each step (an app that is terminating).
+    public func afterOpen(stop: @escaping @MainActor () -> Bool = { false }, _ steps: [@MainActor () -> Void]) {
+        whenOpen { Self.runOnePerPass(steps[...], stop: stop) }
+    }
+
+    private static func runOnePerPass(_ steps: ArraySlice<@MainActor () -> Void>, stop: @escaping @MainActor () -> Bool) {
+        guard let step = steps.first else { return }
+        AfterFrameCommit().run {
+            if stop() { return }
+            step()
+            runOnePerPass(steps.dropFirst(), stop: stop)
+        }
+    }
+
     /// Opens the gate (first call only) and runs the waiting work.
     public func open() {
         guard !isOpen else { return }
