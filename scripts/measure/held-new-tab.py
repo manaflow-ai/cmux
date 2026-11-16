@@ -19,10 +19,29 @@ next ones each --repeat-ms (default: this host's own key repeat settings). `mixe
 new key-down of T starts its repeats again after the first delay (`mixed_repeat_rule` in the report).
 
 KEY SOURCE. The first act is the check if a process of this step may post a key at the HID tap (`HID grant:
-yes|no`; the check never asks, so no dialog). The keys come from `debug.key {"sequence"}` (`app-queue`): the app
-builds each key as a real CGEvent with its intended press time and posts it to its own event queue, so it takes
-`nextEvent`, the monitors, `sendEvent`, the key router and the action. NOT in the measure: the HID tap and the
-window server's delivery.
+yes|no`; the check never asks, so no dialog). The keys come from `debug.key` (`app-queue`), in one of 2 launch
+forms (--launch-form; `launch_form` and `key_source` in the report say which one the rows used):
+
+  activate  the app is launched as a person's app (no CMUX_NEXT_NO_ACTIVATE: it takes the keyboard). A row is ONE
+            `debug.key {"sequence"}` in the shell window as the key window: the app builds each key as a real
+            CGEvent with its intended press time and posts it to its own event queue, so it takes `nextEvent`, the
+            monitors, `sendEvent`, the key router and the action. A repeat has the repeat flag.
+  one-key   the launcher's own launch (the app does not activate and has no key window). Each key-down of a row is
+            ONE `debug.key {"key"}` call at its time by this script's clock, with that time as the event's time.
+            The app sends it to its window directly: the app's event queue, the key-up and the repeat flag are
+            NOT in the rows, so the key router's repeat path is not measured. Each call has a thread of its own:
+            a call that waits for the app's main thread does not hold back the next key.
+  auto      (default) `activate`; when its preflight fails, ONE new launch in the `one-key` form.
+
+NOT in the measure in each form: the HID tap and the window server's delivery.
+
+PREFLIGHT. Directly after each launch and before the session is made, one of each act kind of a take runs in a
+workspace of its own and is read back, in PREFLIGHT_S seconds at most: `frames` (1 s of `debug.frames` gives a
+frame), `record` (with --film: 1 s of `debug.window_record` gives a frame), `new-tab` (one Cmd-T in the launch's
+key form: the pane has one more tab), `close-tab` (one Cmd-W: one less). Each prints `PREFLIGHT <name> ok: ...`;
+the first that fails prints `PREFLIGHT <name> FAILED: <the app's words>`, `debug.focus` and the window's frame, and
+ends that launch. With no other launch form left the run ends at once with exit 1: a fault of the key path costs
+minutes, not the time of the session's maker.
 
 Each take follows the rule for hosts that restart bluetoothd about each 10 s: it starts 0.8 s after a new
 bluetoothd pid (or after 12 s without one), `debug.frames` covers at most 8 s, and a take with a bluetoothd start
@@ -52,10 +71,12 @@ shown tab (the input journal); that the tab's own view had its content in that f
 
 --film DIR adds one `mixed` take under `debug.window_record` (it slows the app: not for a table).
 
-Prints one `HELD-NEW-TAB {json}` line and writes report.json to --out. Exit 1 when a row did not measure what it
-names, 3 when it cannot run as asked. Run on a fleet GUI host (held-new-tab.sh), never on a Mac that someone works on.
+Prints one `HELD-NEW-TAB {json}` line and writes report.json to --out. Exit 0 when each row measured what it
+names; 2 when a row did not and each round still has a valid row; 1 when the preflight failed or a round has no
+valid row (the run ends after that round); 3 when it cannot run as asked. Run on a fleet GUI host
+(held-new-tab.sh), never on a Mac that someone works on.
 """
-import argparse, ctypes, importlib.util, json, os, re, socket, subprocess, sys, time, traceback
+import argparse, ctypes, importlib.util, json, os, re, socket, subprocess, sys, threading, time, traceback
 from pathlib import Path
 
 NEXT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cmux-next")
@@ -83,6 +104,13 @@ JOURNAL = 4096  # the ring of the app's input journal: a take with more records 
 FRAMES_S = 8.0  # with the 0.8 s lead, a take stays under the 9 s between 2 bluetoothd starts
 APPSERVICES = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
 LOG_PREDICATE = 'process == "launchd" AND eventMessage CONTAINS "Successfully spawned bluetoothd"'
+LAUNCH_FORMS = {"auto": ["activate", "one-key"], "activate": ["activate"], "one-key": ["one-key"]}
+ONE_KEY = "one key for each call, no repeat flag, the script's clock"
+KEY_SOURCES = {"activate": "debug.key posts real key events to the app's own queue, in the shell window as the key window, a repeat "
+                           "with the repeat flag; not the HID tap, not the window server",
+               "one-key": ONE_KEY + ": each key-down is one debug.key call with its intended time, sent to the window directly; "
+                          "not the app's event queue, no key-up, so the key router's repeat path is not in the rows"}
+PREFLIGHT_S = 120
 
 
 def hid_grant():
@@ -95,11 +123,50 @@ def hid_grant():
         return None
 
 
-def post_keys(source, rpc, steps, pane):
-    """The ONE key source of a take: `debug.key`'s reply ({base_s, duration_ms}) or {error}."""
+def post_keys(source, rpc, steps, pane, form):
+    """The ONE key source of a take, in the launch's key form: {base_s, duration_ms} or {error}. `activate`:
+    `debug.key`'s reply to the sequence, which the app plays by its own clock in the shell window as the key window.
+    `one-key`: each key-down of T or W in `steps` is ONE `debug.key` call at its time by this script's clock, with
+    that time as the event's time (`base_s` and the event times are on the clock of an event's time); each call has
+    a thread of its own (`calls`; `replies` gets what the app said to each), so the call returns at once as the
+    sequence's does. See `refused`."""
     if source != "app-queue":
         return {"error": f"the key source {source} is not in this script"}
-    return rpc("debug.key", {"sequence": steps, "key_window": "shell", "pane": pane}) or {}
+    if form == "activate":
+        return rpc("debug.key", {"sequence": steps, "key_window": "shell", "pane": pane}) or {}
+    letters, downs, at = {BENCH.KEY[name]: name for name in "tw"}, [], 0.0
+    for step in steps:
+        at += step.get("after_ms") or 0
+        if step["down"] and step["key_code"] in letters:
+            downs.append((at, letters[step["key_code"]]))
+    uptime = lambda: time.clock_gettime(time.CLOCK_UPTIME_RAW)
+    base, replies = uptime() + 0.05, [None] * len(downs)
+
+    def press(index, offset, letter):
+        time.sleep(max(0.0, base + offset / 1000 - uptime()))  # test script: the key's own time, not a settle
+        replies[index] = rpc("debug.key", {"key": letter, "modifiers": ["command"], "timestamp": base + offset / 1000})
+
+    calls = [threading.Thread(target=press, args=(index, *down), daemon=True) for index, down in enumerate(downs)]
+    for call in calls:
+        call.start()
+    return {"base_s": base, "duration_ms": at + 50, "calls": calls, "replies": replies}
+
+
+def refused(sent, bound, ran=False):
+    """Why the app did not take a key of `sent` (`post_keys` in the `one-key` form), or None; `bound` s at most for
+    the calls to end. `ran`: a key whose action the app did not run is a fault too (the preflight's one key); in a
+    row the accounting counts it as a key without effect. None for a sequence: the app plays it."""
+    end = time.monotonic() + bound
+    for call in sent.get("calls") or []:
+        call.join(max(0.0, end - time.monotonic()))
+    for index, reply in enumerate(list(sent.get("replies") or [])):
+        if not isinstance(reply, dict):
+            return f"key {index}: " + (f"no reply in {bound:.0f} s" if reply is None else f"debug.key: {reply}")
+        # `refused_action`: the app took the key for that action and the action did not run.
+        why = reply.get("error") or (ran and reply.get("refused_action") and f"the app did not run {reply['refused_action']}")
+        if why:
+            return f"key {index}: {why}"
+    return None
 
 
 def mixed(hold_ms, every_ms, delay_ms, interval_ms):
@@ -255,7 +322,8 @@ def take(opts):
     rpc = STRESS.socket_rpc(opts.socket)
     builder = STRESS.Stress(rpc, log=lambda line: None)
     builder.measured = opts.workspace
-    record = {"scenario": opts.row, "errors": [], "invalid": [], "unit": "tabs", "key_window": "shell"}
+    record = {"scenario": opts.row, "errors": [], "invalid": [], "unit": "tabs",
+              "key_window": "shell" if opts.launch_form == "activate" else "none"}
     tabs = lambda: builder.tabs(opts.workspace, opts.pane)
     count = lambda: {"tabs": len(tabs()), "panes": len(builder.panes(builder.workspace(opts.workspace)))}
     try:
@@ -287,7 +355,7 @@ def take(opts):
         steps, offsets = BENCH.sequence(letters, 0, (delay, interval))
     if opts.film:
         rpc("debug.window_record", {"dir": opts.film, "seconds": min(12.0, opts.hold_ms / 1000 + 2)})
-    sent = post_keys(opts.keys, rpc, steps, opts.pane)
+    sent = post_keys(opts.keys, rpc, steps, opts.pane, opts.launch_form)
     if sent.get("error") or "base_s" not in sent:
         record["errors"].append(f"keys: {sent}")
     duration, began = float(sent.get("duration_ms") or 0) / 1000, time.monotonic()
@@ -304,6 +372,9 @@ def take(opts):
     if not (in_take or STRESS.wait(done, opts.deadline, step=0.1)):
         record["invalid"].append(f"the app never said the burst was done within {opts.deadline:.0f} s more")
     settled_ms = round((time.monotonic() - began) * 1000)
+    why = refused(sent, opts.deadline)
+    if why:
+        record["errors"].append(f"keys: {why}")
     trace = rpc("debug.burst", {"action": "stop"}) or {}
     journal = [] if seen is None else [e for e in (rpc("debug.journal", {"last": JOURNAL}) or {}).get("entries") or [] if (e.get("seq") or 0) > seen]
     shows = sum(e.startswith("show pane=") for e in re.findall(r'"event":\s*"([^"]*)"', json.dumps(journal)))
@@ -322,7 +393,8 @@ def take(opts):
                    "frames": {k: frames.get(k) for k in BENCH.FRAME_FIELDS}, "settled_ms": settled_ms,
                    "tabs_after": [t.get("id") for p in builder.panes(builder.workspace(opts.workspace)) for t in p.get("tabs") or []],
                    "order": order, "shows": shows_of(journal, opts.pane),
-                   "take": {"tabs_by_kind_after": kinds, "settled_inside_the_frames": bool(in_take),
+                   "take": {"tabs_by_kind_after": kinds, "settled_inside_the_frames": bool(in_take), "key_form": opts.launch_form,
+                            "actions_not_run_by_reply": sum(1 for r in sent.get("replies") or [] if isinstance(r, dict) and r.get("refused_action")),
                             "tab_shows": shows if journal else None, "tab_shows_whole": bool(journal) and journal[0].get("seq") == seen + 1,
                             "tab_shows_ring": JOURNAL,
                             "bluetoothd": {"new_pid_before": fresh, "pid_changed": moved, "log_starts": starts},
@@ -330,6 +402,10 @@ def take(opts):
     with open(os.path.join(opts.out, "scenario.json"), "w") as f:
         json.dump(record, f, indent=1)
     return 0
+
+
+def valid(row):
+    return not (row.get("errors") or row.get("invalid"))
 
 
 def daemon(path, message, timeout=60.0):
@@ -425,7 +501,121 @@ def slow_records(roots, start, end):
     return out
 
 
-def run(opts, app, signposts, report):
+class PreflightFailed(RuntimeError):
+    pass
+
+
+def place(app):
+    """The `activate` form: the app reads no window placement at its launch, so the window gets the launcher's frame
+    (its x, y from the top left of the main screen's visible frame) here. Returns the frame, or why not."""
+    first = app.rpc("debug.window_frame", {"screen": 0})
+    visible = first.get("visible_frame") if isinstance(first, dict) else None
+    if not visible:
+        return f"not placed: {str(first)[:160]}"
+    width, height = min(app.window[2], visible[2]), min(app.window[3], visible[3])
+    x, y = min(app.window[0], visible[2] - width), min(app.window[1], visible[3] - height)
+    reply = app.rpc("debug.window_frame", {"frame": [visible[0] + x, visible[1] + visible[3] - y - height, width, height]})
+    return reply.get("frame") if isinstance(reply, dict) and reply.get("frame") else f"not placed: {str(reply)[:160]}"
+
+
+def preflight(app, st, out, film, form, display):
+    """One of each act kind of a take, in a workspace of its own, each read back: `frames`, `record` (with a film),
+    `new-tab`, `close-tab`, the keys in the launch's key form. Prints the state of the launch, then
+    `PREFLIGHT <name> ok: <what was read>` for each, then returns the display link's reply; the first that fails
+    prints the app's words, `debug.focus` and the window's frame, and raises. PREFLIGHT_S at most."""
+    rpc, began, name, passed = app.rpc, time.monotonic(), "launch", []
+
+    def wait(test, bound, step):
+        return STRESS.wait(test, max(0.2, min(bound, began + PREFLIGHT_S - time.monotonic())), step=step)
+
+    def fail(said):
+        late = f" (the preflight's {PREFLIGHT_S} s are over)" if time.monotonic() - began > PREFLIGHT_S else ""
+        print(f"PREFLIGHT {name} FAILED: {str(said)[:400]}{late}", flush=True)
+        print("PREFLIGHT focus: " + json.dumps(rpc("debug.focus"))[:2000], flush=True)
+        print("PREFLIGHT window: " + json.dumps(rpc("debug.window_frame", {}))[:600], flush=True)
+        raise PreflightFailed(f"{name}: {str(said)[:300]}")
+
+    def ok(said):
+        passed.append(name)
+        print(f"PREFLIGHT {name} ok: {said}", flush=True)
+
+    focus = rpc("debug.focus")
+    focus = focus if isinstance(focus, dict) else {}
+    print(f"PREFLIGHT launch: activate={'yes' if form == 'activate' else 'no'} app_active={str(bool(focus.get('app_active'))).lower()} "
+          f"key_window={focus.get('key_window') or 'none'} display={display}", flush=True)
+    name = "frames"
+    rpc("debug.frames", {"action": "start"})
+    time.sleep(1.0)  # test script: 1 s of the app's display link, the rate that the display has for this app
+    link = rpc("debug.frames", {"action": "stop"})
+    link = link if isinstance(link, dict) else {}
+    if not link.get("frames"):
+        fail(f"the display link gave no frame in 1 s: {link}")
+    ok(f"frames {link.get('frames')}, p50 {link.get('p50_ms')} ms")
+    workspace = st.new_workspace()
+    if workspace:
+        st.show(workspace)
+    pane = workspace and wait(lambda: (st.panes(st.workspace(workspace)) or [{}])[0].get("id"), 20, 0.05)
+    name = "record"
+    if not pane:
+        fail(f"no new workspace with a pane (workspace {workspace})")
+    st.focus_pane(pane)
+    if film:
+        folder = os.path.join(out, "preflight-film")
+
+        def filmed():
+            try:
+                with open(os.path.join(folder, "frames.json")) as f:
+                    return len(json.load(f).get("times") or [])
+            except (OSError, ValueError):
+                return 0
+
+        started = rpc("debug.window_record", {"dir": folder, "seconds": 1})
+        if not isinstance(started, dict) or started.get("error"):
+            fail(f"debug.window_record: {started}")
+        if not wait(filmed, 10, 0.2):
+            fail("debug.window_record gave no frames.json with a frame in 10 s")
+        ok(f"frames {filmed()}")
+    tabs = lambda: len(st.tabs(workspace, pane))
+    for name, letter, change in (("new-tab", "t", 1), ("close-tab", "w", -1)):
+        before = tabs()
+        sent = post_keys("app-queue", rpc, BENCH.sequence([letter], 0)[0], pane, form)
+        why = sent.get("error") or ("base_s" not in sent and f"debug.key gave no start time: {sent}") or refused(sent, 10, ran=True)
+        if why:
+            fail(why)
+        if not wait(lambda: tabs() == before + change, 10, 0.05):
+            fail(f"tabs {before} -> {tabs()} in 10 s, not {before + change}")
+        ok(f"tabs {before} -> {tabs()}")
+    st.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
+    st.made.clear()
+    wait(lambda: not st.workspace(workspace), 10, 0.1)  # the session's count starts without it; a late close is no fault
+    name = "time"
+    if time.monotonic() - began > PREFLIGHT_S:
+        fail(f"each check passed, in {time.monotonic() - began:.0f} s")
+    print(f"PREFLIGHT passed: {', '.join(passed)} in {time.monotonic() - began:.0f} s", flush=True)
+    return link
+
+
+def launch(opts, form):
+    """One launch of the app in the key form `form` and its preflight: (the app, what the report says of it).
+    Raises PreflightFailed (the app is stopped then) or the launcher's LaunchError."""
+    app = bench_launch.BenchApp(os.path.abspath(opts.app), out=opts.out,
+                                env={**LAUNCH_ENV, **({"CMUX_NEXT_NO_ACTIVATE": None} if form == "activate" else {})})
+    app.launch()
+    try:
+        window = place(app) if form == "activate" else "the launcher's"
+        link = preflight(app, STRESS.Stress(app.rpc, log=lambda line: None), opts.out, opts.film, form, opts.display)
+    except PreflightFailed:
+        app.stop()
+        raise
+    except Exception as error:  # noqa: BLE001  a fault of a preflight call is a failed preflight too
+        print(f"PREFLIGHT tool FAILED: {error!r}", flush=True)
+        app.stop()
+        raise PreflightFailed(f"tool: {error!r}") from error
+    return app, {"form": form, "window": window, "display": opts.display, "no_activate": app.launched_env.get("CMUX_NEXT_NO_ACTIVATE") == "1",
+                 "display_link": {k: link.get(k) for k in ("frames", "p50_ms", "refresh_ms")}}
+
+
+def run(opts, app, signposts, report, form):
     builder = STRESS.Stress(app.rpc)
     path, roots = daemon_of(app)
     if not path:
@@ -460,6 +650,7 @@ def run(opts, app, signposts, report):
         command = [sys.executable, os.path.join(NEXT, "perf-signposts.py"), "--pid", str(app.process.pid), "--category", "action",
                    "--save", ndjson, "--allow-loss", "--json", "--", sys.executable, os.path.abspath(__file__), "--row", name,
                    "--socket", app.socket, "--workspace", workspace, "--pane", pane, "--out", out, "--keys", opts.keys,
+                   "--launch-form", form,
                    "--keep", str(len(state[pane])), "--hold-ms", str(opts.hold_ms), "--every-ms", str(opts.every_ms),
                    "--repeat-delay-ms", str(opts.repeat_delay_ms), "--repeat-ms", str(opts.repeat_ms), "--deadline", str(opts.deadline)]
         done = subprocess.run(command + (["--film", os.path.join(opts.film, "frames")] if index == "film" else []),
@@ -494,6 +685,9 @@ def run(opts, app, signposts, report):
         report["rows"].append(row)
         report["failures"] += [f"{index} {name}: {why}" for why in (row.get("errors") or []) + (row.get("invalid") or [])]
         print(f"HELD-NEW-TAB-ROW {index} {name}: " + json.dumps({k: v for k, v in row.items() if k != "press_fates"}), flush=True)
+        if name == ROWS[-1] and not any(valid(r) for r in report["rows"] if r.get("round") == index):
+            report["failures"].append(f"round {index} has no valid row: the run ends here")
+            return
 
 
 def main():
@@ -513,6 +707,10 @@ def main():
     parser.add_argument("--deadline", type=float, default=60.0, help="seconds after a take's frames for the app to say it is done")
     parser.add_argument("--seed-deadline", type=float, default=900.0, help="seconds for the session's maker")
     parser.add_argument("--film", help="a folder for one more `mixed` take under debug.window_record")
+    parser.add_argument("--launch-form", default="auto", choices=tuple(LAUNCH_FORMS),
+                        help="activate: launch without CMUX_NEXT_NO_ACTIVATE (the app takes the keyboard, as a person's does), the keys as "
+                             "sequences in the key window; one-key: the launcher's launch, each key-down one call; auto: activate, then one-key")
+    parser.add_argument("--display", default="real", help="what the entry script says of the display, for the preflight's first line")
     for internal in ("--row", "--socket", "--workspace", "--pane"):
         parser.add_argument(internal, help=argparse.SUPPRESS)
     parser.add_argument("--keep", type=int, default=0, help=argparse.SUPPRESS)
@@ -526,31 +724,45 @@ def main():
         return 3
     os.makedirs(opts.out, exist_ok=True)
     report = {"host": BENCH.load("action_signposts_bench", "action-signposts-bench.py").host_facts(), "hid_grant": grant,
-              "key_source": f"{opts.keys}: debug.key posts real key events to the app's own queue; not the HID tap, not the window server",
               "hold_ms": opts.hold_ms, "every_ms": opts.every_ms, "mixed_repeat_rule": REPEAT_RULE, "session_limit": SEED_LIMIT,
               "rows": [], "failures": []}
     # No osascript in a step: the launcher leaves the sound as it is and its read of the mute state is a no-op.
     os.environ.update({"BENCH_LAUNCH_AUDIO": "keep", "BENCH_LAUNCH_OSASCRIPT": "/usr/bin/true"})
-    app = bench_launch.BenchApp(os.path.abspath(opts.app), out=opts.out, env=LAUNCH_ENV)
-    try:
-        app.launch()
-    except bench_launch.LaunchError as error:  # the launcher printed its BENCH-LAUNCH line
-        print(f"held-new-tab: NOT RUN: the app did not launch: {error.reason}", flush=True)
-        return 3
-    report["launch"] = {"ready_s": app.ready_seconds, "limits": app.limits, "executable": os.path.basename(app.binary),
-                        "agent_page_mock": "CMUX_NEXT_AGENT_PANE_MOCK" in app.launched_env,
-                        "env": {k: v for k, v in sorted(app.launched_env.items()) if k.startswith(("CMUX_", "ACPMUX_"))}}
-    try:
-        run(opts, app, BENCH.load("perf_signposts", "perf-signposts.py"), report)
-    except Exception as error:  # noqa: BLE001  the rows so far still go into the report
-        traceback.print_exc()
-        report["failures"].append(f"the tool stopped: {error!r}")
-    finally:
-        app.stop()
+    forms, app = list(LAUNCH_FORMS[opts.launch_form]), None
+    while app is None:
+        try:
+            app, facts = launch(opts, forms[0])
+        except (PreflightFailed, bench_launch.LaunchError) as error:  # each printed its own lines
+            why = getattr(error, "reason", None) or str(error)
+            if len(forms) > 1:
+                # This launch again in the next form.
+                print(f"PREFLIGHT next form: {forms[1]} (the {forms[0]} form failed: {why})", flush=True)
+                forms.pop(0)
+            elif isinstance(error, PreflightFailed):  # no session, no row, no other launch
+                report.update({"launch_form": forms[0], "preflight_failed": why})
+                report["failures"].append(f"the preflight failed (launch form {forms[0]}): {why}")
+                break
+            else:
+                print(f"held-new-tab: NOT RUN: the app did not launch: {why}", flush=True)
+                return 3
+    if app:
+        report.update({"launch_form": forms[0], "key_source": f"{opts.keys}: {KEY_SOURCES[forms[0]]}"})
+        report["launch"] = {"ready_s": app.ready_seconds, "limits": app.limits, "executable": os.path.basename(app.binary),
+                            "agent_page_mock": "CMUX_NEXT_AGENT_PANE_MOCK" in app.launched_env, **facts,
+                            "env": {k: v for k, v in sorted(app.launched_env.items()) if k.startswith(("CMUX_", "ACPMUX_"))}}
+        try:
+            run(opts, app, BENCH.load("perf_signposts", "perf-signposts.py"), report, forms[0])
+        except Exception as error:  # noqa: BLE001  the rows so far still go into the report
+            traceback.print_exc()
+            report["failures"].append(f"the tool stopped: {error!r}")
+        finally:
+            app.stop()
     with open(os.path.join(opts.out, "report.json"), "w") as f:
         json.dump(report, f, indent=1)
     print("HELD-NEW-TAB " + json.dumps(report), flush=True)
-    return 1 if report["failures"] else 0
+    # A round with no valid row (and so a run with none) and a failed preflight are a failed step in each case.
+    empty = [index for index in range(opts.rounds) if not any(valid(row) for row in report["rows"] if row.get("round") == index)]
+    return 0 if not report["failures"] else 1 if empty else 2
 
 
 if __name__ == "__main__":

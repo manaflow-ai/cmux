@@ -1,5 +1,6 @@
 //! Attach replay and live-stream delivery, shared by every native attach caller.
 use super::agent_session_link::list_gate::SessionListFilter;
+use super::agent_session_link::list_source;
 use super::*;
 use crate::panic_free::JsonFields;
 use cmux_json::JsonSet as _;
@@ -93,14 +94,42 @@ pub(super) fn connect_and_attach(
         watch.set("_meta", meta.clone());
         own.set("_meta", meta.clone());
     }
-    let local = SessionListFilter { local_only: true, ..SessionListFilter::default() };
-    let own = local.gate(own, link.capabilities(meta.as_ref(), CALL_TIMEOUT));
-    let watched = if own.served() {
-        watch.set("limit", json!(1));
-        link.call("_acpmux/watch", watch, CALL_TIMEOUT)
-            .and_then(|_| link.call_whole_list("_acpmux/sessions", own.params, CALL_TIMEOUT))
+    let capabilities = link.capabilities(meta.as_ref(), CALL_TIMEOUT);
+    // On the v2 list (row 7c) the one-row watch is the switch, and the descendants come by
+    // `page` with `family`, its hot part only (`agent_session_children::kin_ids`, the cap of
+    // 256 kept; decision 301): no row but theirs is read. The list is opened first, so a daemon
+    // without it gets v1's requests and no more; the watch goes on before the kin are read, so
+    // a child started meanwhile is followed.
+    let source = if capabilities.iter().any(|c| c == list_source::INFO_ROWS) {
+        agent_session_children::kin_source(&socket, &link)
     } else {
-        link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT).map(|list| own.narrow(list))
+        Ok(None)
+    };
+    let kin = source.and_then(|source| {
+        let Some(mut source) = source else { return Ok(None) };
+        let mut switch = watch.clone();
+        switch.set("limit", json!(1));
+        link.call("_acpmux/watch", switch, CALL_TIMEOUT)?;
+        agent_session_children::kin_ids(&mut source, &resolved, false).map(Some)
+    });
+    let watched = match kin {
+        Ok(Some(ids)) => Ok(ids),
+        Err(error) => Err(error),
+        // No v2 list: v1's list of this machine's sessions, walked here (a named fallback).
+        Ok(None) => {
+            let local = SessionListFilter { local_only: true, ..SessionListFilter::default() };
+            let own = local.gate(own, capabilities);
+            let list = if own.served() {
+                watch.set("limit", json!(1));
+                link.call("_acpmux/watch", watch, CALL_TIMEOUT).and_then(|_| {
+                    link.call_whole_list("_acpmux/sessions", own.params, CALL_TIMEOUT)
+                })
+            } else {
+                link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT)
+                    .map(|list| own.narrow(list))
+            };
+            list.map(|list| agent_session_children::descendant_ids(&resolved, &list))
+        }
     };
     // A list read whole from bad pages would follow only some of the session's descendants,
     // and lose the changes of the rest; the client attaches again instead.
@@ -136,8 +165,7 @@ pub(super) fn connect_and_attach(
     if attachment.author.is_none()
         && let Ok(watched) = &watched
     {
-        attachment
-            .follow_children(&agent_session_children::descendant_ids(&attachment.session, watched));
+        attachment.follow_children(watched);
     }
     for pending in page.pointer("/session/pending").and_then(Value::as_array).into_iter().flatten()
     {
