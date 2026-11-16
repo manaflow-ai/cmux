@@ -63,6 +63,25 @@ cmux_fleet_signin_simctl launch UDID-1 dev.cmux.mobile.tag || echo "no session a
   assert.doesNotMatch(r.stdout + r.stderr, new RegExp(TOKEN));
 });
 
+test("loading the session writes no temp file (no here-string or here-document holds the token)", () => {
+  // macOS /bin/bash 3.2 backs a here-string with a file in $TMPDIR: an unwritable $TMPDIR makes one fail.
+  const f = fixture();
+  const tmp = path.join(f.dir, "tmp");
+  fs.mkdirSync(tmp, { mode: 0o500 });
+  const r = run(`cmux_fleet_signin_load || { echo "refused: $CMUX_FLEET_SIGNIN_ERROR"; exit 7; }
+echo "account=$CMUX_FLEET_SIGNIN_EMAIL project=$CMUX_FLEET_SIGNIN_PROJECT"
+cmux_fleet_signin_simctl launch UDID-1 dev.cmux.mobile.tag`, { ...f, env: { TMPDIR: tmp } });
+  fs.chmodSync(tmp, 0o700);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /account=agent@example\.com project=454ecd03-1db2-4050-845e-4ce5b0cd9895/);
+  assert.match(fs.readFileSync(path.join(f.dir, "launches"), "utf8"), /token reached the launch/);
+  assert.deepEqual(fs.readdirSync(tmp), []);
+  // bash backs a here-string or here-document with a temp file (unlinked at once, so no run can see it,
+  // and an unwritable $TMPDIR only moves it to /tmp): the library must use neither.
+  const code = fs.readFileSync(library, "utf8").split("\n").filter((line) => !line.trimStart().startsWith("#")).join("\n");
+  assert.doesNotMatch(code, /<<[<-]?/, "a here-string or here-document would put the session in a temp file");
+});
+
 test("a step sent without --sign-in, or a file anyone else can read, is refused without its value", () => {
   for (const [what, opts, reason] of [
     ["no file named", { file: undefined }, /cmux-ci run --sign-in agent/],
