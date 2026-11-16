@@ -2,7 +2,7 @@
 import Testing
 
 /// https://github.com/manaflow-ai/cmux/issues/25776: Cmd-Shift-N opened a window whose sidebar listed every group
-/// of the other windows, each empty ("No workspaces · drag one here"). As in cmux classic, a group belongs to the
+/// of the other windows, each empty ("No workspaces"). As in cmux classic, a group belongs to the
 /// window that lists its workspaces: a new window shows only its own. A group with no open workspace anywhere (an
 /// empty group, a saved group whose members closed) belongs to no window and still lists everywhere.
 @MainActor @Suite struct SidebarNewWindowGroupsTests {

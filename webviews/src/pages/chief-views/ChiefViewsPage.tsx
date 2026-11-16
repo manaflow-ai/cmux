@@ -152,7 +152,6 @@ function Gallery({
     <section id="cv-gallery" className="cv-gallery" aria-label={t("chiefViews.gallery.title")}>
       <div className="cv-gallery-head">
         <h2 className="cv-gallery-title">{t("chiefViews.gallery.title")}</h2>
-        <p className="cv-description">{t("chiefViews.gallery.subtitle")}</p>
       </div>
       <ul className="cv-cards-grid">
         {CHIEF_VIEWS.map((view) => (

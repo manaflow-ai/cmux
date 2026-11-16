@@ -9,10 +9,10 @@ public nonisolated enum HomeStrings {
     static var chiefWelcomeHello: String {
         String(localized: "home.chief.welcomeHello", defaultValue: "Welcome to cmux! 👋 I'm Chief.", table: "Home", bundle: .module)
     }
-    /// Chief's second message on a fresh install: what it can do (``ChiefWelcome``).
+    /// Chief's second message on a fresh install, over its shortcuts (``ChiefWelcome``).
     static var chiefWelcomeAbout: String {
         String(localized: "home.chief.welcomeAbout",
-               defaultValue: "I can make new workspaces, start agents for you, and set up or customize cmux however you like.\nJust tell me what you want done.",
+               defaultValue: "Just tell me what you want done.",
                table: "Home", bundle: .module)
     }
     /// Chief's third message on a fresh install: the background offer, with the picker's `link`.
@@ -39,7 +39,7 @@ public nonisolated enum HomeStrings {
     }
     /// The Chief conversation's system notice while the compactor cannot build summaries (cx-oqnw3).
     static var chiefMemoryPaused: String {
-        String(localized: "home.chief.memoryPaused", defaultValue: "Chief memory summaries are paused. The Chief still answers.",
+        String(localized: "home.chief.memoryPaused", defaultValue: "Chief memory summaries are paused.",
                table: "Home", bundle: .module)
     }
     /// The Chief conversation's notice while the person's last message has waited two
@@ -56,7 +56,7 @@ public nonisolated enum HomeStrings {
     }
     /// The Chief conversation's notice while a turn's session is slow to start on a loaded machine.
     static func chiefStillStarting(seconds: Int) -> String {
-        String(format: String(localized: "home.chief.stillStarting", defaultValue: "The machine is busy. The Chief is still starting (%lld s).",
+        String(format: String(localized: "home.chief.stillStarting", defaultValue: "The Chief is still starting (%lld s).",
                               table: "Home", bundle: .module), seconds)
     }
     public static var archiveDefaultChief: String {
@@ -81,7 +81,7 @@ public nonisolated enum HomeStrings {
     }
     public static var deleteChiefBody: String {
         String(localized: "home.chief.delete.body",
-               defaultValue: "The Chief stops and is removed for good, and its conversation leaves the list. You can’t undo this. Archive Chief hides a Chief instead.",
+               defaultValue: "The Chief stops and is removed for good, and its conversation leaves the list. You can’t undo this.",
                table: "Home", bundle: .module)
     }
     public static var deleteChiefButton: String {
@@ -90,7 +90,7 @@ public nonisolated enum HomeStrings {
     /// The welcome's call-out of Go to Workspace; the argument is its shortcut (`⌘P`).
     static func chiefWelcomeGoTo(_ keys: String) -> String {
         String(format: String(localized: "home.chief.welcome.goTo",
-                              defaultValue: "**Press `%@` to go anywhere.** It jumps to any open workspace, tab or agent, so it's the first shortcut to learn.",
+                              defaultValue: "**Press `%@` to go anywhere.**",
                               table: "Home", bundle: .module), keys)
     }
     /// A chord in the welcome's shortcut list, as Markdown: `` `⌘J` then `S` ``.
@@ -108,21 +108,5 @@ public nonisolated enum HomeStrings {
     /// The heading over the welcome's other shortcuts.
     static var chiefWelcomeShortcuts: String {
         String(localized: "home.chief.welcome.shortcuts", defaultValue: "More shortcuts:", table: "Home", bundle: .module)
-    }
-    /// The heading over the welcome's example requests.
-    static var chiefWelcomeExamplesHeader: String {
-        String(localized: "home.chief.welcome.examplesHeader", defaultValue: "Things you can ask me:", table: "Home", bundle: .module)
-    }
-    /// The welcome's example requests, one Markdown list item per line.
-    static var chiefWelcomeExamples: String {
-        String(localized: "home.chief.welcome.examples",
-               defaultValue: "- Start a Claude Code agent to fix the failing tests in my repo\n- What are my agents working on right now?\n- Open localhost:3000 in a browser and tell me what's broken\n- Run three Codex agents on these issues, each in its own workspace",
-               table: "Home", bundle: .module)
-    }
-    /// The welcome's last line: what the Chief answers.
-    static var chiefWelcomeAsk: String {
-        String(localized: "home.chief.welcome.ask",
-               defaultValue: "Ask me anything about cmux: how a feature works, managing your coding agents, or your browsers. Type below to start.",
-               table: "Home", bundle: .module)
     }
 }

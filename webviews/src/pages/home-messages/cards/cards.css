@@ -424,11 +424,6 @@
   line-height: var(--text-title--line-height);
   font-weight: 600;
 }
-.hm-first-run__hero-body {
-  margin-top: 4px;
-  color: var(--cmux-text-secondary);
-  font-size: var(--text-detail);
-}
 .hm-first-run__starters {
   display: flex;
   flex-wrap: wrap;

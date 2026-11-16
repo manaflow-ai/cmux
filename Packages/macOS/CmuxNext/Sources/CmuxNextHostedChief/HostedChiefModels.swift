@@ -122,7 +122,7 @@ extension HomeCloudChiefs {
 
     public static var brainFailed: String {
         String(localized: "home.chief.hostedBrainFailed",
-               defaultValue: "Your cloud Chief could not be turned on, so it does not answer yet. cmux tries again at the next launch.",
+               defaultValue: "Your cloud Chief could not be turned on, so it does not answer yet.",
                table: "HostedChief", bundle: .module)
     }
 
@@ -133,7 +133,7 @@ extension HomeCloudChiefs {
 
     public static var copyFailed: String {
         String(localized: "home.chief.hostedCopyFailed",
-               defaultValue: "Your Chief's history could not be copied to the cloud yet. cmux tries again at the next launch.",
+               defaultValue: "Your Chief's history could not be copied to the cloud yet.",
                table: "HostedChief", bundle: .module)
     }
 }

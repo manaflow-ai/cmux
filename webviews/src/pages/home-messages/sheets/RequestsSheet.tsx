@@ -58,7 +58,6 @@ export function RequestsSheet({ strings, requests, actions, onFinish }: Requests
       onSubmit={() => sheet.finish(null)}
       onCancel={() => sheet.finish(null)}
     >
-      <p className="hm-sheet-caption">{t("home.requests.body")}</p>
       <div className="hm-requests" data-testid="cmux.home.requests.list">
         {shown.length === 0 && <p className="hm-sheet-empty">{t("home.requests.none")}</p>}
         {shown.map((request) => {

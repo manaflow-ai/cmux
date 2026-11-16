@@ -11206,127 +11206,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief memory summaries are paused. The Chief still answers."
+            "value": "Chief memory summaries are paused."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ملخصات ذاكرة Chief متوقفة مؤقتًا. لا يزال Chief يجيب."
+            "value": "ملخصات ذاكرة Chief متوقفة مؤقتًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sažeci memorije za Chief su pauzirani. Chief i dalje odgovara."
+            "value": "Sažeci memorije za Chief su pauzirani."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiefs hukommelsesresuméer er sat på pause. Chief svarer stadig."
+            "value": "Chiefs hukommelsesresuméer er sat på pause."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Gedächtniszusammenfassungen des Chiefs sind pausiert. Der Chief antwortet weiterhin."
+            "value": "Die Gedächtniszusammenfassungen des Chiefs sind pausiert."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los resúmenes de memoria de Chief están en pausa. Chief sigue respondiendo."
+            "value": "Los resúmenes de memoria de Chief están en pausa."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les résumés de mémoire de Chief sont en pause. Chief répond toujours."
+            "value": "Les résumés de mémoire de Chief sont en pause."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "I riepiloghi della memoria di Chief sono in pausa. Chief risponde comunque."
+            "value": "I riepiloghi della memoria di Chief sono in pausa."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief のメモリ要約は一時停止中です。Chief は引き続き応答します。"
+            "value": "Chief のメモリ要約は一時停止中です。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការសង្ខេបការចងចាំរបស់ Chief ត្រូវបានផ្អាក។ Chief នៅតែឆ្លើយតប។"
+            "value": "ការសង្ខេបការចងចាំរបស់ Chief ត្រូវបានផ្អាក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 메모리 요약이 일시 중지되었습니다. Chief는 계속 응답합니다."
+            "value": "Chief 메모리 요약이 일시 중지되었습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiefs minnesammendrag er satt på pause. Chief svarer fortsatt."
+            "value": "Chiefs minnesammendrag er satt på pause."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Podsumowania pamięci Chief są wstrzymane. Chief nadal odpowiada."
+            "value": "Podsumowania pamięci Chief są wstrzymane."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Os resumos de memória do Chief estão pausados. O Chief continua respondendo."
+            "value": "Os resumos de memória do Chief estão pausados."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сводки памяти Chief приостановлены. Chief по-прежнему отвечает."
+            "value": "Сводки памяти Chief приостановлены."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การสรุปหน่วยความจำของ Chief หยุดชั่วคราว Chief ยังคงตอบอยู่"
+            "value": "การสรุปหน่วยความจำของ Chief หยุดชั่วคราว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief bellek özetleri duraklatıldı. Chief yanıt vermeye devam ediyor."
+            "value": "Chief bellek özetleri duraklatıldı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Підсумки пам'яті Chief призупинено. Chief і далі відповідає."
+            "value": "Підсумки пам'яті Chief призупинено."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tóm tắt bộ nhớ của Chief đang tạm dừng. Chief vẫn trả lời."
+            "value": "Tóm tắt bộ nhớ của Chief đang tạm dừng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 的记忆摘要已暂停。Chief 仍会回复。"
+            "value": "Chief 的记忆摘要已暂停。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 的記憶摘要已暫停。Chief 仍會回覆。"
+            "value": "Chief 的記憶摘要已暫停。"
           }
         }
       }
@@ -17913,127 +17913,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يتوقف Chief ويُزال نهائيًا، وتختفي محادثته من القائمة. لا يمكن التراجع عن ذلك. أرشفة Chief تخفيه بدلًا من ذلك."
+            "value": "يتوقف Chief ويُزال نهائيًا، وتختفي محادثته من القائمة. لا يمكن التراجع عن ذلك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief se zaustavlja i trajno uklanja, a njegov razgovor nestaje s liste. Ovo se ne može poništiti. Arhiviranje Chiefa ga umjesto toga samo sakriva."
+            "value": "Chief se zaustavlja i trajno uklanja, a njegov razgovor nestaje s liste. Ovo se ne može poništiti."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief stopper og fjernes for altid, og samtalen forsvinder fra listen. Det kan ikke fortrydes. Arkivér Chief skjuler i stedet en Chief."
+            "value": "Chief stopper og fjernes for altid, og samtalen forsvinder fra listen. Det kan ikke fortrydes."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Chief wird angehalten und endgültig entfernt, und seine Unterhaltung verschwindet aus der Liste. Das lässt sich nicht rückgängig machen. „Chief archivieren“ blendet einen Chief stattdessen nur aus."
+            "value": "Der Chief wird angehalten und endgültig entfernt, und seine Unterhaltung verschwindet aus der Liste. Das lässt sich nicht rückgängig machen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Chief stops and is removed for good, and its conversation leaves the list. You can’t undo this. Archive Chief hides a Chief instead."
+            "value": "The Chief stops and is removed for good, and its conversation leaves the list. You can’t undo this."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El Chief se detiene y se elimina para siempre, y su conversación sale de la lista. No se puede deshacer. Archivar Chief solo lo oculta."
+            "value": "El Chief se detiene y se elimina para siempre, y su conversación sale de la lista. No se puede deshacer."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le Chief s’arrête et est supprimé définitivement, et sa conversation quitte la liste. Cette action est irréversible. « Archiver le Chief » le masque simplement."
+            "value": "Le Chief s’arrête et est supprimé définitivement, et sa conversation quitte la liste. Cette action est irréversible."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il Chief si ferma e viene rimosso per sempre, e la sua conversazione esce dall’elenco. Non è possibile annullare. Archivia Chief invece lo nasconde."
+            "value": "Il Chief si ferma e viene rimosso per sempre, e la sua conversazione esce dall’elenco. Non è possibile annullare."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiefは停止して完全に削除され、会話はリストから消えます。この操作は取り消せません。非表示にするだけなら「Chiefをアーカイブ」を使います。"
+            "value": "Chiefは停止して完全に削除され、会話はリストから消えます。この操作は取り消せません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief ឈប់ ហើយត្រូវបានលុបជាអចិន្ត្រៃយ៍ ហើយការសន្ទនារបស់វាចេញពីបញ្ជី។ អ្នកមិនអាចមិនធ្វើវិញបានទេ។ ការទុក Chief ក្នុងបណ្ណសារ គ្រាន់តែលាក់វាជំនួសវិញ។"
+            "value": "Chief ឈប់ ហើយត្រូវបានលុបជាអចិន្ត្រៃយ៍ ហើយការសន្ទនារបស់វាចេញពីបញ្ជី។ អ្នកមិនអាចមិនធ្វើវិញបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief가 중지되고 영구적으로 제거되며, 대화도 목록에서 사라집니다. 이 작업은 되돌릴 수 없습니다. Chief 보관은 Chief를 숨기기만 합니다."
+            "value": "Chief가 중지되고 영구적으로 제거되며, 대화도 목록에서 사라집니다. 이 작업은 되돌릴 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief stopper og fjernes for godt, og samtalen forsvinner fra listen. Dette kan ikke angres. Arkiver Chief skjuler i stedet en Chief."
+            "value": "Chief stopper og fjernes for godt, og samtalen forsvinner fra listen. Dette kan ikke angres."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief zatrzymuje się i zostaje trwale usunięty, a jego rozmowa znika z listy. Tego nie można cofnąć. Archiwizacja Chiefa tylko go ukrywa."
+            "value": "Chief zatrzymuje się i zostaje trwale usunięty, a jego rozmowa znika z listy. Tego nie można cofnąć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O Chief para e é removido para sempre, e a conversa sai da lista. Não é possível desfazer. Arquivar Chief apenas o oculta."
+            "value": "O Chief para e é removido para sempre, e a conversa sai da lista. Não é possível desfazer."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief остановится и будет удалён навсегда, а его разговор исчезнет из списка. Это нельзя отменить. Архивирование Chief только скрывает его."
+            "value": "Chief остановится и будет удалён навсегда, а его разговор исчезнет из списка. Это нельзя отменить."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief จะหยุดและถูกลบถาวร และบทสนทนาจะหายไปจากรายการ เลิกทำไม่ได้ การเก็บ Chief ถาวรจะซ่อน Chief แทน"
+            "value": "Chief จะหยุดและถูกลบถาวร และบทสนทนาจะหายไปจากรายการ เลิกทำไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief durur ve kalıcı olarak kaldırılır; konuşması listeden çıkar. Bu geri alınamaz. Chief’i Arşivle bunun yerine yalnızca gizler."
+            "value": "Chief durur ve kalıcı olarak kaldırılır; konuşması listeden çıkar. Bu geri alınamaz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief зупиниться й буде видалений назавжди, а його розмова зникне зі списку. Це не можна скасувати. Архівування Chief лише приховує його."
+            "value": "Chief зупиниться й буде видалений назавжди, а його розмова зникне зі списку. Це не можна скасувати."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief dừng lại và bị xóa vĩnh viễn, cuộc trò chuyện của nó rời khỏi danh sách. Không thể hoàn tác. Lưu trữ Chief chỉ ẩn Chief."
+            "value": "Chief dừng lại và bị xóa vĩnh viễn, cuộc trò chuyện của nó rời khỏi danh sách. Không thể hoàn tác."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief 会停止并被永久移除,其对话也会从列表中消失。此操作无法撤销。归档 Chief 只会隐藏它。"
+            "value": "Chief 会停止并被永久移除,其对话也会从列表中消失。此操作无法撤销。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief 會停止並被永久移除,其對話也會從列表中消失。此動作無法復原。封存 Chief 只會隱藏它。"
+            "value": "Chief 會停止並被永久移除,其對話也會從列表中消失。此動作無法復原。"
           }
         }
       }
@@ -18441,127 +18441,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Press `%@` to go anywhere.** It jumps to any open workspace, tab or agent, so it's the first shortcut to learn."
+            "value": "**Press `%@` to go anywhere.**"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "**اضغط `%@` للانتقال إلى أي مكان.** ينقلك إلى أي مساحة عمل أو علامة تبويب أو وكيل مفتوح، لذا فهو أول اختصار عليك تعلّمه."
+            "value": "**اضغط `%@` للانتقال إلى أي مكان.**"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Pritisnite `%@` da odete bilo gdje.** Skače na bilo koji otvoreni radni prostor, karticu ili agenta, pa je to prva prečica koju treba naučiti."
+            "value": "**Pritisnite `%@` da odete bilo gdje.**"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Tryk på `%@` for at gå hvor som helst.** Den hopper til ethvert åbent arbejdsområde, fane eller agent, så det er den første genvej, du skal lære."
+            "value": "**Tryk på `%@` for at gå hvor som helst.**"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Drücke `%@`, um überallhin zu springen.** So erreichst du jeden offenen Workspace, Tab oder Agenten – das ist der erste Kurzbefehl, den du lernen solltest."
+            "value": "**Drücke `%@`, um überallhin zu springen.**"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Pulsa `%@` para ir a cualquier sitio.** Salta a cualquier espacio de trabajo, pestaña o agente abierto, así que es el primer atajo que conviene aprender."
+            "value": "**Pulsa `%@` para ir a cualquier sitio.**"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Appuyez sur `%@` pour aller n'importe où.** Ce raccourci ouvre n'importe quel espace de travail, onglet ou agent ouvert : c'est le premier à retenir."
+            "value": "**Appuyez sur `%@` pour aller n'importe où.**"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Premi `%@` per andare ovunque.** Passa a qualsiasi spazio di lavoro, scheda o agente aperto, quindi è la prima scorciatoia da imparare."
+            "value": "**Premi `%@` per andare ovunque.**"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "**`%@` を押せばどこへでも移動できます。** 開いているワークスペース、タブ、エージェントにすぐ移動できるので、最初に覚えるべきショートカットです。"
+            "value": "**`%@` を押せばどこへでも移動できます。**"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "**ចុច `%@` ដើម្បីទៅកន្លែងណាក៏បាន។** វាលោតទៅកន្លែងធ្វើការ ផ្ទាំង ឬភ្នាក់ងារដែលបើកណាមួយ ដូច្នេះវាជាផ្លូវកាត់ដំបូងដែលត្រូវរៀន។"
+            "value": "**ចុច `%@` ដើម្បីទៅកន្លែងណាក៏បាន។**"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "**`%@`를 눌러 어디로든 이동하세요.** 열려 있는 워크스페이스, 탭, 에이전트로 바로 이동하므로 가장 먼저 익힐 단축키입니다."
+            "value": "**`%@`를 눌러 어디로든 이동하세요.**"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Trykk `%@` for å gå hvor som helst.** Den hopper til ethvert åpent arbeidsområde, fane eller agent, så det er den første snarveien du bør lære."
+            "value": "**Trykk `%@` for å gå hvor som helst.**"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Naciśnij `%@`, aby przejść gdziekolwiek.** Przenosi do dowolnej otwartej przestrzeni roboczej, karty lub agenta, więc to pierwszy skrót, którego warto się nauczyć."
+            "value": "**Naciśnij `%@`, aby przejść gdziekolwiek.**"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Pressione `%@` para ir a qualquer lugar.** Ele leva a qualquer espaço de trabalho, aba ou agente aberto, então é o primeiro atalho para aprender."
+            "value": "**Pressione `%@` para ir a qualquer lugar.**"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Нажмите `%@`, чтобы перейти куда угодно.** Это открывает любое рабочее пространство, вкладку или агента, поэтому это первое сочетание клавиш, которое стоит запомнить."
+            "value": "**Нажмите `%@`, чтобы перейти куда угодно.**"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "**กด `%@` เพื่อไปที่ใดก็ได้** ใช้ข้ามไปยังเวิร์กสเปซ แท็บ หรือเอเจนต์ที่เปิดอยู่ จึงเป็นคีย์ลัดแรกที่ควรเรียนรู้"
+            "value": "**กด `%@` เพื่อไปที่ใดก็ได้**"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Her yere gitmek için `%@` tuşuna basın.** Açık olan herhangi bir çalışma alanına, sekmeye veya ajana atlar; öğrenilecek ilk kısayol budur."
+            "value": "**Her yere gitmek için `%@` tuşuna basın.**"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Натисніть `%@`, щоб перейти куди завгодно.** Це відкриває будь-який робочий простір, вкладку чи агента, тож це перше сполучення клавіш, яке варто запам'ятати."
+            "value": "**Натисніть `%@`, щоб перейти куди завгодно.**"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Nhấn `%@` để đi đến bất cứ đâu.** Phím này chuyển đến mọi không gian làm việc, tab hoặc tác tử đang mở, nên đây là phím tắt đầu tiên cần học."
+            "value": "**Nhấn `%@` để đi đến bất cứ đâu.**"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "**按 `%@` 即可前往任何地方。** 它能跳转到任何已打开的工作区、标签页或代理，是最先该学会的快捷键。"
+            "value": "**按 `%@` 即可前往任何地方。**"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "**按 `%@` 即可前往任何地方。** 它能跳到任何已開啟的工作區、分頁或代理，是最先該學會的快速鍵。"
+            "value": "**按 `%@` 即可前往任何地方。**"
           }
         }
       }
@@ -18962,270 +18962,6 @@
         }
       }
     },
-    "home.chief.welcome.examplesHeader": {
-      "comment": "Chief's welcome message: heading over example requests the user can send the Chief.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Things you can ask me:"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أمور يمكنك أن تطلبها مني:"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Šta me možete pitati:"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ting, du kan bede mig om:"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Was du mich fragen kannst:"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cosas que puedes pedirme:"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ce que vous pouvez me demander :"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cose che puoi chiedermi:"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "たとえばこんなことを頼めます："
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អ្វីដែលអ្នកអាចសួរខ្ញុំ៖"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이런 걸 요청할 수 있어요:"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ting du kan spørre meg om:"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O co możesz mnie poprosić:"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Coisas que você pode me pedir:"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "О чём можно меня попросить:"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สิ่งที่คุณขอให้ฉันทำได้:"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Benden isteyebilecekleriniz:"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Про що можна мене попросити:"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Những điều bạn có thể nhờ tôi:"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你可以这样问我："
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你可以這樣問我："
-          }
-        }
-      }
-    },
-    "home.chief.welcome.examples": {
-      "comment": "Chief's welcome message: four example requests, one Markdown list item per line. Keep the line breaks, the '- ' marks and the names Claude Code, Codex and localhost:3000.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Start a Claude Code agent to fix the failing tests in my repo\n- What are my agents working on right now?\n- Open localhost:3000 in a browser and tell me what's broken\n- Run three Codex agents on these issues, each in its own workspace"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- شغّل وكيل Claude Code لإصلاح الاختبارات الفاشلة في مستودعي\n- على ماذا يعمل وكلائي الآن؟\n- افتح localhost:3000 في متصفح وأخبرني بما هو معطّل\n- شغّل ثلاثة وكلاء Codex على هذه المشكلات، كل منهم في مساحة عمل خاصة به"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Pokreni Claude Code agenta da popravi neuspjele testove u mom repozitoriju\n- Na čemu moji agenti trenutno rade?\n- Otvori localhost:3000 u pregledniku i reci mi šta ne radi\n- Pokreni tri Codex agenta na ovim problemima, svakog u svom radnom prostoru"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Start en Claude Code-agent, der retter de fejlende tests i mit repo\n- Hvad arbejder mine agenter på lige nu?\n- Åbn localhost:3000 i en browser, og fortæl mig, hvad der er galt\n- Kør tre Codex-agenter på disse issues, hver i sit eget arbejdsområde"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Starte einen Claude Code-Agenten, der die fehlschlagenden Tests in meinem Repo behebt\n- Woran arbeiten meine Agenten gerade?\n- Öffne localhost:3000 in einem Browser und sag mir, was kaputt ist\n- Setze drei Codex-Agenten auf diese Issues an, jeden in seinem eigenen Workspace"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Inicia un agente de Claude Code para arreglar las pruebas que fallan en mi repo\n- ¿En qué están trabajando mis agentes ahora mismo?\n- Abre localhost:3000 en un navegador y dime qué está roto\n- Ejecuta tres agentes de Codex con estas incidencias, cada uno en su propio espacio de trabajo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Lance un agent Claude Code pour corriger les tests qui échouent dans mon dépôt\n- Sur quoi travaillent mes agents en ce moment ?\n- Ouvre localhost:3000 dans un navigateur et dis-moi ce qui ne va pas\n- Lance trois agents Codex sur ces tickets, chacun dans son propre espace de travail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Avvia un agente Claude Code per correggere i test che falliscono nel mio repo\n- Su cosa stanno lavorando i miei agenti adesso?\n- Apri localhost:3000 in un browser e dimmi cosa non funziona\n- Esegui tre agenti Codex su queste issue, ognuno nel proprio spazio di lavoro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Claude Code エージェントを起動して、リポジトリの失敗しているテストを直して\n- いまエージェントたちは何をしている？\n- localhost:3000 をブラウザで開いて、どこが壊れているか教えて\n- この Issue に Codex エージェントを 3 つ、それぞれ別のワークスペースで走らせて"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- ចាប់ផ្ដើមភ្នាក់ងារ Claude Code ដើម្បីជួសជុលតេស្តដែលបរាជ័យក្នុង repo របស់ខ្ញុំ\n- តើភ្នាក់ងាររបស់ខ្ញុំកំពុងធ្វើអ្វីឥឡូវនេះ?\n- បើក localhost:3000 ក្នុងកម្មវិធីរុករក ហើយប្រាប់ខ្ញុំថាអ្វីខូច\n- ដំណើរការភ្នាក់ងារ Codex បីលើបញ្ហាទាំងនេះ ម្នាក់ៗក្នុងកន្លែងធ្វើការរបស់ខ្លួន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Claude Code 에이전트를 시작해서 내 저장소의 실패하는 테스트를 고쳐 줘\n- 지금 내 에이전트들은 무슨 작업을 하고 있어?\n- 브라우저에서 localhost:3000을 열고 무엇이 망가졌는지 알려 줘\n- 이 이슈들에 Codex 에이전트 세 개를 각자 별도 워크스페이스에서 실행해 줘"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Start en Claude Code-agent som fikser testene som feiler i repoet mitt\n- Hva jobber agentene mine med akkurat nå?\n- Åpne localhost:3000 i en nettleser og fortell meg hva som er galt\n- Kjør tre Codex-agenter på disse sakene, hver i sitt eget arbeidsområde"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Uruchom agenta Claude Code, który naprawi nieprzechodzące testy w moim repozytorium\n- Nad czym teraz pracują moi agenci?\n- Otwórz localhost:3000 w przeglądarce i powiedz mi, co nie działa\n- Uruchom trzech agentów Codex do tych zgłoszeń, każdego w osobnej przestrzeni roboczej"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Inicie um agente do Claude Code para corrigir os testes que estão falhando no meu repositório\n- No que meus agentes estão trabalhando agora?\n- Abra localhost:3000 em um navegador e me diga o que está quebrado\n- Rode três agentes do Codex nessas issues, cada um em seu próprio espaço de trabalho"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Запусти агента Claude Code, чтобы починить падающие тесты в моём репозитории\n- Над чем сейчас работают мои агенты?\n- Открой localhost:3000 в браузере и скажи, что сломано\n- Запусти трёх агентов Codex по этим задачам, каждого в своём рабочем пространстве"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- เริ่มเอเจนต์ Claude Code เพื่อแก้เทสต์ที่ล้มเหลวใน repo ของฉัน\n- ตอนนี้เอเจนต์ของฉันกำลังทำอะไรอยู่?\n- เปิด localhost:3000 ในเบราว์เซอร์แล้วบอกฉันว่าอะไรเสีย\n- รันเอเจนต์ Codex สามตัวกับ issue เหล่านี้ แต่ละตัวในเวิร์กสเปซของตัวเอง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Depomdaki başarısız testleri düzeltmesi için bir Claude Code ajanı başlat\n- Ajanlarım şu anda ne üzerinde çalışıyor?\n- localhost:3000'i bir tarayıcıda aç ve neyin bozuk olduğunu söyle\n- Bu sorunlar için her biri kendi çalışma alanında üç Codex ajanı çalıştır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Запусти агента Claude Code, щоб виправити тести, що падають, у моєму репозиторії\n- Над чим зараз працюють мої агенти?\n- Відкрий localhost:3000 у браузері й скажи, що зламано\n- Запусти трьох агентів Codex на ці задачі, кожного у власному робочому просторі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- Khởi động một tác tử Claude Code để sửa các bài kiểm thử đang lỗi trong repo của tôi\n- Các tác tử của tôi đang làm gì lúc này?\n- Mở localhost:3000 trong trình duyệt và cho tôi biết cái gì bị hỏng\n- Chạy ba tác tử Codex cho các issue này, mỗi tác tử trong không gian làm việc riêng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- 启动一个 Claude Code 代理，修复我仓库里失败的测试\n- 我的代理们现在在做什么？\n- 在浏览器中打开 localhost:3000，告诉我哪里坏了\n- 针对这些 issue 运行三个 Codex 代理，每个都在自己的工作区里"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "- 啟動一個 Claude Code 代理，修好我儲存庫裡失敗的測試\n- 我的代理們現在在做什麼？\n- 在瀏覽器中開啟 localhost:3000，告訴我哪裡壞了\n- 針對這些 issue 執行三個 Codex 代理，每個都在自己的工作區裡"
-          }
-        }
-      }
-    },
     "home.chief.stillStarting": {
       "comment": "Home system notice in the Chief conversation while a Chief turn's session has taken long to start because the machine is loaded. The number is seconds waited so far.",
       "extractionState": "manual",
@@ -19233,259 +18969,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The machine is busy. The Chief is still starting (%lld s)."
+            "value": "The Chief is still starting (%lld s)."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الجهاز مشغول. لا يزال Chief قيد البدء (%lld ث)."
+            "value": "لا يزال Chief قيد البدء (%lld ث)."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Računar je zauzet. Chief se još pokreće (%lld s)."
+            "value": "Chief se još pokreće (%lld s)."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maskinen er optaget. Chief starter stadig (%lld s)."
+            "value": "Chief starter stadig (%lld s)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Computer ist ausgelastet. Der Chief startet noch (%lld s)."
+            "value": "Der Chief startet noch (%lld s)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El equipo está ocupado. Chief aún se está iniciando (%lld s)."
+            "value": "Chief aún se está iniciando (%lld s)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La machine est occupée. Chief est encore en cours de démarrage (%lld s)."
+            "value": "Chief est encore en cours de démarrage (%lld s)."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il computer è occupato. Chief si sta ancora avviando (%lld s)."
+            "value": "Chief si sta ancora avviando (%lld s)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "マシンがビジー状態です。Chief はまだ起動中です（%lld 秒）。"
+            "value": "Chief はまだ起動中です（%lld 秒）。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីនកំពុងរវល់។ Chief នៅតែកំពុងចាប់ផ្តើម (%lld វិនាទី)។"
+            "value": "Chief នៅតែកំពុងចាប់ផ្តើម (%lld វិនាទី)។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "컴퓨터가 사용 중입니다. Chief가 아직 시작하는 중입니다(%lld초)."
+            "value": "Chief가 아직 시작하는 중입니다(%lld초)."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maskinen er opptatt. Chief starter fortsatt (%lld s)."
+            "value": "Chief starter fortsatt (%lld s)."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Komputer jest zajęty. Chief nadal się uruchamia (%lld s)."
+            "value": "Chief nadal się uruchamia (%lld s)."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A máquina está ocupada. O Chief ainda está iniciando (%lld s)."
+            "value": "O Chief ainda está iniciando (%lld s)."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Компьютер занят. Chief всё ещё запускается (%lld с)."
+            "value": "Chief всё ещё запускается (%lld с)."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เครื่องไม่ว่าง Chief ยังคงเริ่มทำงานอยู่ (%lld วินาที)"
+            "value": "Chief ยังคงเริ่มทำงานอยู่ (%lld วินาที)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Makine meşgul. Chief hâlâ başlatılıyor (%lld sn)."
+            "value": "Chief hâlâ başlatılıyor (%lld sn)."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Комп'ютер зайнятий. Chief усе ще запускається (%lld с)."
+            "value": "Chief усе ще запускається (%lld с)."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy đang bận. Chief vẫn đang khởi động (%lld giây)."
+            "value": "Chief vẫn đang khởi động (%lld giây)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "机器正忙。Chief 仍在启动（%lld 秒）。"
+            "value": "Chief 仍在启动（%lld 秒）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "機器忙碌中。Chief 仍在啟動（%lld 秒）。"
-          }
-        }
-      }
-    },
-    "home.chief.welcome.ask": {
-      "comment": "Chief's welcome message: its last line, what the user can ask the Chief about.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask me anything about cmux: how a feature works, managing your coding agents, or your browsers. Type below to start."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اسألني أي شيء عن cmux: كيف تعمل ميزة ما، أو إدارة وكلاء البرمجة لديك، أو متصفحاتك. اكتب أدناه للبدء."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pitajte me bilo šta o cmux-u: kako radi neka funkcija, upravljanje vašim agentima za kodiranje ili vašim preglednicima. Pišite ispod da počnete."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spørg mig om alt i cmux: hvordan en funktion virker, styring af dine kodeagenter eller dine browsere. Skriv nedenfor for at starte."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Frag mich alles zu cmux: wie eine Funktion arbeitet, wie du deine Coding-Agenten verwaltest oder deine Browser. Schreib unten, um loszulegen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pregúntame cualquier cosa sobre cmux: cómo funciona una función, cómo gestionar tus agentes de programación o tus navegadores. Escribe abajo para empezar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Posez-moi n'importe quelle question sur cmux : le fonctionnement d'une fonctionnalité, la gestion de vos agents de code ou de vos navigateurs. Écrivez ci-dessous pour commencer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chiedimi qualsiasi cosa su cmux: come funziona una funzione, come gestire i tuoi agenti di programmazione o i tuoi browser. Scrivi qui sotto per iniziare."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux のことなら何でも聞いてください。機能の使い方、コーディングエージェントの管理、ブラウザのことまで。下に入力して始めましょう。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សួរខ្ញុំអ្វីក៏បានអំពី cmux៖ របៀបដែលមុខងារមួយដំណើរការ ការគ្រប់គ្រងភ្នាក់ងារសរសេរកូដរបស់អ្នក ឬកម្មវិធីរុករករបស់អ្នក។ វាយខាងក្រោមដើម្បីចាប់ផ្ដើម។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux에 관한 건 무엇이든 물어보세요. 기능 사용법, 코딩 에이전트 관리, 브라우저까지요. 아래에 입력해 시작하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spør meg om hva som helst i cmux: hvordan en funksjon virker, styring av kodeagentene dine eller nettleserne dine. Skriv nedenfor for å begynne."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pytaj mnie o wszystko w cmux: jak działa dana funkcja, jak zarządzać agentami programistycznymi albo przeglądarkami. Napisz poniżej, aby zacząć."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pergunte qualquer coisa sobre o cmux: como um recurso funciona, como gerenciar seus agentes de código ou seus navegadores. Digite abaixo para começar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спрашивайте меня о чём угодно в cmux: как работает функция, как управлять агентами для кода или браузерами. Напишите ниже, чтобы начать."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ถามฉันได้ทุกเรื่องเกี่ยวกับ cmux ไม่ว่าจะเป็นวิธีใช้ฟีเจอร์ การจัดการเอเจนต์เขียนโค้ด หรือเบราว์เซอร์ของคุณ พิมพ์ด้านล่างเพื่อเริ่มต้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux hakkında bana her şeyi sorabilirsiniz: bir özelliğin nasıl çalıştığını, kodlama ajanlarınızı veya tarayıcılarınızı yönetmeyi. Başlamak için aşağıya yazın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Питайте мене про будь-що в cmux: як працює функція, як керувати агентами для коду або браузерами. Напишіть нижче, щоб почати."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hãy hỏi tôi bất cứ điều gì về cmux: một tính năng hoạt động thế nào, quản lý các tác tử lập trình hay trình duyệt của bạn. Nhập bên dưới để bắt đầu."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关于 cmux 的任何问题都可以问我：某个功能怎么用、如何管理你的编程代理，或你的浏览器。在下方输入即可开始。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關於 cmux 的任何問題都可以問我：某個功能怎麼用、如何管理你的程式代理，或你的瀏覽器。在下方輸入即可開始。"
+            "value": "Chief 仍在啟動（%lld 秒）。"
           }
         }
       }
@@ -20025,127 +19629,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "يمكنني إنشاء مساحات عمل جديدة، وتشغيل الوكلاء لك، وإعداد cmux أو تخصيصه كما تحب.\nأخبرني فقط بما تريد إنجازه."
+            "value" : "أخبرني فقط بما تريد إنجازه."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mogu napraviti nove radne prostore, pokrenuti agente za vas i podesiti ili prilagoditi cmux kako želite.\nSamo mi recite šta želite uraditi."
+            "value" : "Samo mi recite šta želite uraditi."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Jeg kan oprette nye arbejdsområder, starte agenter for dig og sætte cmux op eller tilpasse det, som du vil.\nSig bare, hvad du vil have gjort."
+            "value" : "Sig bare, hvad du vil have gjort."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ich kann neue Arbeitsbereiche anlegen, Agenten für dich starten und cmux ganz nach deinem Geschmack einrichten und anpassen.\nSag mir einfach, was erledigt werden soll."
+            "value" : "Sag mir einfach, was erledigt werden soll."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I can make new workspaces, start agents for you, and set up or customize cmux however you like.\nJust tell me what you want done."
+            "value" : "Just tell me what you want done."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Puedo crear espacios de trabajo, iniciar agentes por ti y configurar o personalizar cmux a tu gusto.\nSolo dime qué quieres hacer."
+            "value" : "Solo dime qué quieres hacer."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Je peux créer des espaces de travail, lancer des agents pour vous et configurer ou personnaliser cmux comme vous le souhaitez.\nDites-moi simplement ce que vous voulez faire."
+            "value" : "Dites-moi simplement ce que vous voulez faire."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Posso creare nuovi spazi di lavoro, avviare agenti per te e configurare o personalizzare cmux come preferisci.\nDimmi solo cosa vuoi fare."
+            "value" : "Dimmi solo cosa vuoi fare."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "新しいワークスペースを作ったり、エージェントを起動したり、cmux を好きなように設定・カスタマイズしたりできます。\nやりたいことを気軽に話しかけてください。"
+            "value" : "やりたいことを気軽に話しかけてください。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ខ្ញុំអាចបង្កើតកន្លែងធ្វើការថ្មី ចាប់ផ្តើមភ្នាក់ងារឱ្យអ្នក និងរៀបចំ ឬប្ដូរ cmux តាមចិត្តអ្នក។\nគ្រាន់តែប្រាប់ខ្ញុំពីអ្វីដែលអ្នកចង់ធ្វើ។"
+            "value" : "គ្រាន់តែប្រាប់ខ្ញុំពីអ្វីដែលអ្នកចង់ធ្វើ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "새 워크스페이스를 만들고, 에이전트를 시작하고, cmux를 원하는 대로 설정하거나 꾸며 드릴 수 있어요.\n하고 싶은 일을 말씀만 해 주세요."
+            "value" : "하고 싶은 일을 말씀만 해 주세요."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Jeg kan lage nye arbeidsområder, starte agenter for deg og sette opp eller tilpasse cmux slik du vil.\nBare si hva du vil ha gjort."
+            "value" : "Bare si hva du vil ha gjort."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mogę tworzyć nowe obszary robocze, uruchamiać dla Ciebie agentów oraz konfigurować i dostosowywać cmux tak, jak lubisz.\nPo prostu powiedz, co chcesz zrobić."
+            "value" : "Po prostu powiedz, co chcesz zrobić."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Posso criar novos espaços de trabalho, iniciar agentes para você e configurar ou personalizar o cmux do seu jeito.\nÉ só me dizer o que você quer fazer."
+            "value" : "É só me dizer o que você quer fazer."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Я могу создавать новые рабочие пространства, запускать агентов и настраивать cmux так, как вам нравится.\nПросто скажите, что нужно сделать."
+            "value" : "Просто скажите, что нужно сделать."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ฉันสร้างเวิร์กสเปซใหม่ เริ่มเอเจนต์ให้คุณ และตั้งค่าหรือปรับแต่ง cmux ได้ตามที่คุณชอบ\nแค่บอกฉันว่าคุณอยากทำอะไร"
+            "value" : "แค่บอกฉันว่าคุณอยากทำอะไร"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Yeni çalışma alanları oluşturabilir, sizin için ajanlar başlatabilir ve cmux'u istediğiniz gibi ayarlayıp özelleştirebilirim.\nNe yapmak istediğinizi söylemeniz yeterli."
+            "value" : "Ne yapmak istediğinizi söylemeniz yeterli."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Я можу створювати нові робочі простори, запускати агентів і налаштовувати cmux так, як вам подобається.\nПросто скажіть, що потрібно зробити."
+            "value" : "Просто скажіть, що потрібно зробити."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mình có thể tạo không gian làm việc mới, khởi chạy agent cho bạn và thiết lập hoặc tùy biến cmux theo ý bạn.\nCứ nói mình biết bạn muốn làm gì."
+            "value" : "Cứ nói mình biết bạn muốn làm gì."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "我可以新建工作区、为你启动智能体，还能按你的喜好设置和自定义 cmux。\n告诉我你想做什么就好。"
+            "value" : "告诉我你想做什么就好。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "我可以建立新的工作區、幫你啟動代理，還能依你的喜好設定和自訂 cmux。\n告訴我你想做什麼就好。"
+            "value" : "告訴我你想做什麼就好。"
           }
         }
       }

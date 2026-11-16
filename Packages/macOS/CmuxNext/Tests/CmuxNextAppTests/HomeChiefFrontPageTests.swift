@@ -5,17 +5,15 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// The empty Chief conversation's front page (Leo 2026-10-19: the Chief setup screen should say
-/// what is there now): the Chief's face and what the Chief does over the rows, and a Show / Hide
-/// Chief Pet row.
+/// The empty Chief conversation's front page: the Chief's face and title over the rows (no
+/// explainer paragraph, quiet UI 2026-11-16), and a Show / Hide Chief Pet row.
 @MainActor @Suite(.serialized) struct HomeChiefFrontPageTests {
-    @Test func theHeroSaysWhatTheChiefDoesAboveTheRows() {
+    @Test func theHeroShowsTheChiefAboveTheRows() {
         let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
         panel.hero.setAvatar(picture: nil, text: nil, name: "Chief")
         panel.layoutSubtreeIfNeeded()
         #expect(!panel.hero.isHidden)
         #expect(panel.hero.frame.height > HomeFirstRunHero.pictureSide)
-        #expect(panel.hero.body.stringValue.contains("agents"))
         // Top to bottom: the hero, Start an agent, Open a terminal, then the pet row.
         let order = [panel.hero, panel.agent, panel.terminal, panel.pet].map { panel.convert($0.bounds, from: $0).minY }
         #expect(order == order.sorted())

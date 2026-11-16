@@ -138,127 +138,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا توجد علامات تبويب مخبأة. انقر بزر الماوس الأيمن على علامة تبويب في المتصفح أو على مساحة عمل واختر «حفظ وإغلاق» للاحتفاظ بها هنا."
+            "value": "لا توجد علامات تبويب مخبأة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nema spremljenih kartica. Desnom tipkom kliknite karticu preglednika ili radni prostor i odaberite Spremi i zatvori da ih čuvate ovdje."
+            "value": "Nema spremljenih kartica."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen gemte faner. Højreklik på en browserfane eller et arbejdsområde, og vælg Gem og luk for at beholde det her."
+            "value": "Ingen gemte faner."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine zurückgelegten Tabs. Klicke mit der rechten Maustaste auf einen Browser-Tab oder einen Arbeitsbereich und wähle „Speichern und schließen“, um ihn hier aufzubewahren."
+            "value": "Keine zurückgelegten Tabs."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No stashed tabs. Right-click a browser tab or a workspace and choose Save and Close to keep it here."
+            "value": "No stashed tabs."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay pestañas guardadas. Haz clic derecho en una pestaña del navegador o en un espacio de trabajo y elige Guardar y cerrar para conservarlo aquí."
+            "value": "No hay pestañas guardadas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun onglet mis de côté. Faites un clic droit sur un onglet du navigateur ou un espace de travail et choisissez Enregistrer et fermer pour le garder ici."
+            "value": "Aucun onglet mis de côté."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessuna scheda messa da parte. Fai clic destro su una scheda del browser o su un’area di lavoro e scegli Salva e chiudi per conservarla qui."
+            "value": "Nessuna scheda messa da parte."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保留中のタブはありません。ブラウザのタブやワークスペースを右クリックして「保存して閉じる」を選ぶと、ここに保管されます。"
+            "value": "保留中のタブはありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនមានផ្ទាំងដែលបានទុកទេ។ ចុចស្ដាំលើផ្ទាំងកម្មវិធីរុករក ឬកន្លែងធ្វើការ ហើយជ្រើសរើស «រក្សាទុក ហើយបិទ» ដើម្បីរក្សាវានៅទីនេះ។"
+            "value": "មិនមានផ្ទាំងដែលបានទុកទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "보관한 탭이 없습니다. 브라우저 탭이나 작업 공간을 오른쪽 클릭하고 저장 후 닫기를 선택하면 여기에 보관됩니다."
+            "value": "보관한 탭이 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen lagrede faner. Høyreklikk på en nettleserfane eller et arbeidsområde og velg Lagre og lukk for å beholde det her."
+            "value": "Ingen lagrede faner."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brak odłożonych kart. Kliknij prawym przyciskiem kartę przeglądarki lub przestrzeń roboczą i wybierz Zapisz i zamknij, aby zachować ją tutaj."
+            "value": "Brak odłożonych kart."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhuma aba guardada. Clique com o botão direito em uma aba do navegador ou em uma área de trabalho e escolha Salvar e fechar para mantê-la aqui."
+            "value": "Nenhuma aba guardada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нет отложенных вкладок. Щёлкните правой кнопкой вкладку браузера или рабочее пространство и выберите «Сохранить и закрыть», чтобы сохранить его здесь."
+            "value": "Нет отложенных вкладок."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ไม่มีแท็บที่เก็บไว้ คลิกขวาที่แท็บเบราว์เซอร์หรือเวิร์กสเปซแล้วเลือก บันทึกและปิด เพื่อเก็บไว้ที่นี่"
+            "state": "needs_review",
+            "value": "ไม่มีแท็บที่เก็บไว้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saklanan sekme yok. Burada tutmak için bir tarayıcı sekmesine veya çalışma alanına sağ tıklayıp Kaydet ve Kapat’ı seçin."
+            "value": "Saklanan sekme yok."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Немає відкладених вкладок. Клацніть правою кнопкою вкладку браузера або робочу область і виберіть «Зберегти й закрити», щоб зберегти її тут."
+            "value": "Немає відкладених вкладок."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không có tab nào đã cất. Nhấp chuột phải vào một tab trình duyệt hoặc không gian làm việc và chọn Lưu và đóng để giữ nó ở đây."
+            "value": "Không có tab nào đã cất."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有已收起的标签页。右键点按浏览器标签页或工作区并选择“保存并关闭”即可保存在这里。"
+            "value": "没有已收起的标签页。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有已收起的分頁。在瀏覽器分頁或工作區上按右鍵並選擇「儲存並關閉」即可保存在這裡。"
+            "value": "沒有已收起的分頁。"
           }
         }
       }

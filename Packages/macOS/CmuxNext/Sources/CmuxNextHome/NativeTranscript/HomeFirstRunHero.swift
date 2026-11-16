@@ -3,10 +3,8 @@ import CmuxNextDesign
 import CmuxNextHomeModel
 import MessagesLabHome
 
-/// The top of the empty Chief conversation (`HomeFirstRunView`): the Chief's face, large, over two
-/// lines that say what the Chief does today: it takes what you want done, does quick things
-/// itself, hands longer work to agents in workspaces of their own, and reports back here. Leo
-/// 2026-10-19: the old screen did not say what was there. The face is the header's (the
+/// The top of the empty Chief conversation (`HomeFirstRunView`): the Chief's face, large, over its
+/// title, with no explainer under it (quiet UI, 2026-11-16). The face is the header's (the
 /// profile's picture or text, else the name's iMessage-style monogram, `MonogramAvatar`), set by the host.
 final class HomeFirstRunHero: NSView {
     /// The profile's picture, drawn as the layer's contents.
@@ -14,7 +12,6 @@ final class HomeFirstRunHero: NSView {
     /// The text face when there is no picture: the profile's emoji (letters draw as the monogram).
     let glyph = ChromeLabel(labelWithString: "")
     let title = ChromeLabel(labelWithString: HomeStrings.firstRunHeroTitle)
-    let body = ChromeLabel(wrappingLabelWithString: HomeStrings.firstRunHeroBody)
     private var scale: CGFloat = 1
     /// The monogram drawn as the picture when there is no picture and no emoji; nil otherwise.
     private(set) var monogram: MonogramAvatar?
@@ -22,7 +19,6 @@ final class HomeFirstRunHero: NSView {
     static let pictureSide: CGFloat = 72
     static let glyphSize: CGFloat = 56
     static let titleGap: CGFloat = 6
-    static let bodyGap: CGFloat = 4
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -37,11 +33,7 @@ final class HomeFirstRunHero: NSView {
         title.alignment = .center
         title.lineBreakMode = .byTruncatingTail
         title.setAccessibilityRole(.staticText)
-        body.font = .systemFont(ofSize: TypeScale.Base.detail)
-        body.alignment = .center
-        body.maximumNumberOfLines = 0
-        body.setAccessibilityRole(.staticText)
-        for view in [picture, glyph, title, body] { addSubview(view) }
+        for view in [picture, glyph, title] { addSubview(view) }
         setAccessibilityElement(false)
     }
 
@@ -80,7 +72,6 @@ final class HomeFirstRunHero: NSView {
         // The face is a picture-sized emoji, not body text: it scales with the picture.
         glyph.font = .systemFont(ofSize: Self.glyphSize * scale)
         title.font = .systemFont(ofSize: TypeScale.Base.title * scale, weight: TypeScale.emphasis)
-        body.font = .systemFont(ofSize: TypeScale.Base.detail * scale)
         invalidateIntrinsicContentSize()
         needsLayout = true
     }
@@ -88,15 +79,13 @@ final class HomeFirstRunHero: NSView {
     func applyColors(primary: NSColor, secondary: NSColor) { // theme-scoped
         glyph.textColor = primary
         title.textColor = primary
-        body.textColor = secondary
     }
 
-    /// The hero's height in a column `width` wide: the face, the title and the wrapped body.
+    /// The hero's height in a column `width` wide: the face and the title.
     func height(for width: CGFloat) -> CGFloat {
         let side = Self.pictureSide * scale
         let titleHeight = ceil(title.size(forWidth: width).height)
-        let bodyHeight = ceil(body.size(forWidth: width).height)
-        return side + Self.titleGap * scale + titleHeight + Self.bodyGap * scale + bodyHeight
+        return side + Self.titleGap * scale + titleHeight
     }
 
     override func layout() {
@@ -109,8 +98,5 @@ final class HomeFirstRunHero: NSView {
         let glyphHeight = ceil(glyph.intrinsicContentSize.height)
         glyph.frame = CGRect(x: 0, y: face.midY - glyphHeight / 2, width: width, height: glyphHeight)
         let titleHeight = ceil(title.size(forWidth: width).height)
-        title.frame = CGRect(x: 0, y: face.maxY + Self.titleGap * scale, width: width, height: titleHeight)
-        let bodyHeight = ceil(body.size(forWidth: width).height)
-        body.frame = CGRect(x: 0, y: title.frame.maxY + Self.bodyGap * scale, width: width, height: bodyHeight)
-    }
+        title.frame = CGRect(x: 0, y: face.maxY + Self.titleGap * scale, width: width, height: titleHeight)    }
 }

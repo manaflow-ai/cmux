@@ -853,7 +853,6 @@ function EmptyState({
   return (
     <div className="lg-empty">
       <h1 className="lg-empty-title">{t(noConversations ? "empty.title" : "empty.pick.title")}</h1>
-      <p className="lg-empty-body">{t(noConversations ? "empty.body" : "empty.pick.body")}</p>
       <div className="lg-empty-actions">
         {noConversations && canCreate && (
           <button type="button" className="lg-button primary" onClick={onCreate}>

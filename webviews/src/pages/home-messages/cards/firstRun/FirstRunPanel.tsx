@@ -93,8 +93,7 @@ export function FirstRunPanel(props: FirstRunPanelProps) {
         )}
         <div ref={fit.parts.hero} className="hm-first-run__hero" data-fit={fit.shown.hero ? undefined : "out"}>
           <Face face={props.face} />
-          <span className="hm-first-run__hero-title">{t("home.firstRun.hero.title")}</span>
-          <span className="hm-first-run__hero-body">{t("home.firstRun.hero.body")}</span>
+          <span className="hm-first-run__hero-title">{t("home.firstRun.hero.title")}</span>{" "}
         </div>
         {starters.length > 0 && (
           <div

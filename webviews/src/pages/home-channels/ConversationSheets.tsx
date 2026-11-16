@@ -109,7 +109,6 @@ export function InviteSheet({
   return (
     <FormDialog
       title={format("sheet.invite.title", name)}
-      lead={t("sheet.invite.lead")}
       onClose={() => sheets.close()}
       onSubmit={submit}
       busy={busy}

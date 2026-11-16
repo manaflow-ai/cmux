@@ -16,7 +16,6 @@ export function ReportsView({ store, snap, strings }: FeedProps) {
       <div className="feed-reports-column">
         <div className="feed-reports-header">
           <span className="feed-reports-title">{t("reports.title")}</span>
-          <span className="feed-reports-subtitle">{t("reports.subtitle")}</span>
         </div>
         {!snap.reportsLoaded ? (
           <div className="feed-reports-list" />
@@ -24,7 +23,6 @@ export function ReportsView({ store, snap, strings }: FeedProps) {
           <div className="feed-reports-empty">
             <FeedIcon name="inbox.empty" size={20} />
             <span className="feed-reports-empty-title">{t("reports.empty")}</span>
-            <span className="feed-reports-empty-hint">{t("reports.emptyHint")}</span>
           </div>
         ) : (
           <div className="feed-reports-list">

@@ -230,10 +230,8 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
     }
   };
   const shownPicture = image === null ? undefined : (image?.url ?? picture);
-  const lead =
-    !chief && readOnly
-      ? `${t("sheet.newChief.lead")} ${t("chief.appOnly")}`
-      : t(chief ? "sheet.editChief.lead" : "sheet.newChief.lead");
+  // Only the read-only New Chief page says where to do it (quiet UI, 2026-11-16).
+  const lead = !chief && readOnly ? t("chief.appOnly") : undefined;
   return (
     <section className="chief-editor" aria-labelledby={titleId} data-chief-page={chief ? "edit" : "new"}>
       <form className="ce-form" onSubmit={(event) => void submit(event)} aria-busy={busy || undefined}>
@@ -263,7 +261,7 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
             <h1 id={titleId} className="ce-title">
               {chief ? format("sheet.editChief.title", chief.name) : t("sheet.newChief.title")}
             </h1>
-            <p className="ce-lead">{lead}</p>
+            {lead && <p className="ce-lead">{lead}</p>}
           </div>
         </header>
         <div className="ce-body">

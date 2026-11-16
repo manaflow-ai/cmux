@@ -19,7 +19,7 @@ enum HomeConversationStrings {
     /// Group info's Invite by Email… after a `not_reachable` refusal.
     static var inviteByEmail: String { String(localized: "home.groupInfo.inviteByEmail", defaultValue: "Invite by Email…", bundle: .module) }
     static var empty: String {
-        String(localized: "home.list.empty", defaultValue: "No conversations yet. Start one with New Message.", bundle: .module)
+        String(localized: "home.list.empty", defaultValue: "No conversations yet.", bundle: .module)
     }
 
     static func header(_ kind: HomeConversationSectionKind) -> String {
@@ -98,11 +98,6 @@ enum HomeConversationStrings {
         String(format: String(localized: "home.requests.bar", defaultValue: "Message Requests (%lld)", bundle: .module), count)
     }
     static var requestsTitle: String { String(localized: "home.requests.title", defaultValue: "Message Requests", bundle: .module) }
-    static var requestsBody: String {
-        String(localized: "home.requests.body",
-               defaultValue: "People you have not talked to yet. They do not get notified, and they do not know if you read their message.",
-               bundle: .module)
-    }
     static var requestsNone: String { String(localized: "home.requests.none", defaultValue: "No message requests.", bundle: .module) }
     static var requestsDone: String { String(localized: "home.requests.done", defaultValue: "Done", bundle: .module) }
     static var requestAccept: String { String(localized: "home.requests.accept", defaultValue: "Accept", bundle: .module) }
@@ -173,11 +168,6 @@ enum HomeConversationStrings {
     // MARK: Invite
 
     static var inviteTitle: String { String(localized: "home.invite.title", defaultValue: "Invite to cmux-next", bundle: .module) }
-    static var inviteBody: String {
-        String(localized: "home.invite.body",
-               defaultValue: "They get an email with a link to join. You can message them here as soon as they accept.",
-               bundle: .module)
-    }
     static var inviteEmail: String { String(localized: "home.invite.email", defaultValue: "Email address", bundle: .module) }
     static var inviteSend: String { String(localized: "home.invite.send", defaultValue: "Send Invite", bundle: .module) }
     static var invitePending: String { String(localized: "home.invite.pending", defaultValue: "Pending invites", bundle: .module) }
@@ -224,10 +214,6 @@ enum HomeConversationStrings {
     // MARK: New Chief
 
     static var chiefTitle: String { String(localized: "home.chief.new.title", defaultValue: "New Chief", bundle: .module) }
-    static var chiefBody: String {
-        String(localized: "home.chief.new.body",
-               defaultValue: "A Chief is an agent with its own conversation and memory. Chiefs are optional.", bundle: .module)
-    }
     static var chiefName: String { String(localized: "home.chief.new.name", defaultValue: "Name", bundle: .module) }
     static var chiefCreate: String { String(localized: "home.chief.new.create", defaultValue: "Create", bundle: .module) }
     static var chiefBackend: String { String(localized: "home.chief.new.backend", defaultValue: "Backend", bundle: .module) }

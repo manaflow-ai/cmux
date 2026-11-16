@@ -22,10 +22,6 @@ public final class HomeInviteSheet: HomeSheetController, NSTextFieldDelegate {
     }
 
     override func addContent(to stack: NSStackView) {
-        let body = ThemedLabel(wrappingLabelWithString: HomeConversationStrings.inviteBody)
-        body.font = Typography.body
-        body.preferredMaxLayoutWidth = 420 - 2 * Metrics.space6
-        stack.addArrangedSubview(body)
         email.delegate = self
         stack.addArrangedSubview(Self.boxed(email))
         pendingTitle.font = Typography.header
