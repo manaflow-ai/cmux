@@ -25,6 +25,14 @@ public struct PendingTabSelect: Sendable {
         return nil
     }
 
+    /// As ``take(shown:record:)``. `selected`: the tab that the pane selects; `listed`: whether the pane's strip lists a
+    /// tab now; `fate`: what became of a creation's stand-in tab, by the store's record of the creation
+    /// (``StandInFate``). Not read yet.
+    @MainActor public mutating func take(shown: [TabModel], record: [TabModel], selected: String?, listed: (String) -> Bool,
+                                         fate: (String) -> StandInFate) -> String? {
+        take(shown: shown, record: record)
+    }
+
     /// The tab this waits to select that `tabs` (the pane's records) list already, the surface's first: the pane's current tab
     /// for a new tab's slot before the strip's apply takes it (Ctrl-` then Cmd-T; a reopened tab, F1 on #37799).
     @MainActor public func listed(in tabs: [TabModel]) -> String? {
