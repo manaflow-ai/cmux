@@ -56,6 +56,12 @@ nonisolated extension AcpmuxPaneMethods {
 
                     ]),
                 ]),
+                // Its load row (cmux-tui acpmux placement.rs `load_row`): the numbers and placement's
+                // verdict every machine list draws (webviews ui/machineLoad.ts), live chats a count only.
+                "load": .object([
+                    "verdict": .string, "words": .string, "room": .number, "coresBusy": .number,
+                    "cores": .number, "ramFreeBytes": .number, "live": .number, "offlineMs": .number,
+                ]),
             ])),
         ]),
         // Reconnect returns the same safe peer state needed by the offline copy's banner. The
