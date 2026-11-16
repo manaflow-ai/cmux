@@ -247,6 +247,9 @@ extension BrowserVerificationAutofillSetting {
     /// `browser.verificationAutofill.enabled`: Off by default: it reads mail the person opted into.
     public nonisolated static let enabledPath = ["browser", "verificationAutofill", "enabled"]
     public nonisolated static let enabledDefault = false
+    /// `browser.verificationAutofill.accounts`: Per-account opt-in: mail of any other address is never read for codes.
+    public nonisolated static let accountsPath = ["browser", "verificationAutofill", "accounts"]
+    public nonisolated static let accountsDefault: [String] = []
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
