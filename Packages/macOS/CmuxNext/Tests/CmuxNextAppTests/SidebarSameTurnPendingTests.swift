@@ -5,7 +5,8 @@ import Testing
 
 /// `SidebarSameTurn.runPending` runs, in the caller's turn, each pass that has a run to make: a pass that never
 /// ran, and a pass whose value changed after its last run. A pass with nothing changed does not run, so the call
-/// costs no second run. The window manager calls it before a window is ordered in.
+/// costs no second run; a value that changes after the call is a new change, and the pass's task runs the pass for
+/// it. The window manager calls it before a window is ordered in, but not for a window that the launch restores.
 ///
 /// A test that does not suspend runs no pass's task: each run that it counts is a call's own. The two last tests
 /// suspend, to count what a pass's task runs after the call.
@@ -86,7 +87,30 @@ import Testing
         passes.completeFirstFrame(sections: nil)
         #expect(runs.computes == 1)
         #expect(passes.firstFrame?.passes == 1)
+        #expect(passes.firstFrame?.rowsPasses == 1, "the sample does not tell that the pass that ran lists rows")
         #expect(passes.firstFrame?.rows == 0, "the model of this test has no row")
+    }
+
+    /// The sample tells a pass that lists no rows from the rows pass.
+    @Test func theSampleCountsNoRowsPassForAPassThatListsNoRows() {
+        let model = SidebarModel(), runs = Runs()
+        let passes = make(model, runs, listsRows: false)
+        defer { passes.cancel() }
+        passes.completeFirstFrame(sections: nil)
+        #expect(passes.firstFrame?.passes == 1)
+        #expect(passes.firstFrame?.rowsPasses == 0)
+    }
+
+    /// The call for a window whose passes stay with their tasks: it runs no pass and keeps no sample, and the pass
+    /// still has its run to make.
+    @Test func theFirstFrameCallThatRunsNoPassLeavesThePassToItsTask() {
+        let model = SidebarModel(), runs = Runs()
+        let passes = make(model, runs)
+        defer { passes.cancel() }
+        passes.completeFirstFrame(sections: nil, runsPasses: false)
+        #expect(runs.computes == 0, "the call ran a pass")
+        #expect(passes.firstFrame == nil, "the call kept a sample of passes that it did not run")
+        #expect(passes.runPending() == 1, "the pass has no run to make after the call")
     }
 
     /// The pass's task runs after the call: it finds nothing changed and computes nothing.

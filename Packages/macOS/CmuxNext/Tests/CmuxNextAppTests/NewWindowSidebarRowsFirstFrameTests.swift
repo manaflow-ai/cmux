@@ -52,8 +52,7 @@ import Testing
         }
         let listed = SidebarSpaceBar.profiles(services.machines.local, window: id, windows: services.windows)
         try #require(listed.map(\.id.rawValue) == spaces, "the fixture is wrong: the rows pass would not list the two spaces")
-        let controller = services.windows.makeController(for: WindowRegistry.Window(id: id))
-        services.windows.present(controller)
+        let controller = services.windows.makeController(for: WindowRegistry.Window(id: id)) // it presents a window with no workspace of its own at once
         return Made(services: services, controller: controller)
     }
 

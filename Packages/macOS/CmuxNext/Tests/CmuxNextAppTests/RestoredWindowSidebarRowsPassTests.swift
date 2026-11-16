@@ -13,8 +13,10 @@ import Testing
 /// The restore makes each saved window and then writes `registry.isLaunching = false`, in one turn. The rows pass
 /// reads that value. A rows pass that runs while the window is made (in front of its order-in) reads `true` and its
 /// registration is on that value: the write of `false` marks the pass, and the pass's task runs it a second time,
-/// which is a second walk of each row and a second fill of the rows feed for each restored window. A window that is
-/// not the launch's reads `false` while it is made and no write follows: its pass runs one time.
+/// which is a second walk of each row and a second fill of the rows feed for each restored window. So the window
+/// manager's `present` runs no pass for such a window (2026-11-16): its passes run in their tasks only. A
+/// window that is not the launch's reads `false` while it is made and no write follows: its pass runs one time,
+/// in front of its order-in.
 ///
 /// The count is the process counter `rebuilds` (`SidebarView.perfCounters`): one for each fill of a sidebar's rows
 /// feed, and the rows pass is the one caller of that fill. Each test sets the counter to zero in its own body, after
@@ -69,6 +71,42 @@ import Testing
         let woken = Self.bridgeWakes(wakes)
         #expect(woken.isEmpty, "the end of the launch woke a pass that ran while the window was made: \(woken)")
         await Self.drain()
+        let runs = Self.rowsPassRuns
+        #expect(runs == 1, "the rows pass of a window that the launch restores ran \(runs) times")
+    }
+
+    /// What `present` leaves to the passes' tasks for a window that the launch restores, and what it keeps. The
+    /// window here has no saved sidebar. At its order-in no rows pass ran and the sidebar has no first-frame sample,
+    /// so the model has no spaces: the limit of the rule, the space bar comes one hop after the first frame, as
+    /// before the passes ran in front of an order-in. The band items have their values: that check runs for each
+    /// window. After the launch's end the pass's task writes the spaces, in one run.
+    @Test func aWindowThatTheLaunchRestoresKeepsItsPassesForTheirTasks() async throws {
+        let services = try NewWindowSidebarRowsFirstFrameTests.app()
+        let windows = services.windows, id = "restored-no-saved-sidebar"
+        try #require(services.sidebarSnapshots.launchDocument.snapshot(for: id, fallback: true) == nil, "the fixture is wrong: the window has a saved sidebar")
+        windows.previousLaunch = PreviousLaunch(windowIDs: [id], restoredAtMs: 0)
+        windows.registry.isLaunching = true
+        try #require(windows.restoresSession(id), "the fixture is wrong: the window is not one that the launch restores")
+        _ = SidebarView.perfCounters(reset: true)
+        let controller = windows.makeController(for: WindowRegistry.Window(id: id))
+        defer {
+            controller.teardown()
+            controller.window?.close()
+            withExtendedLifetime(services) {} // the window does not keep the app
+        }
+        let model = controller.sidebar.model
+        try #require(model.layout.item(NewWindowSidebarFirstFrameTests.home.id) != nil, "the fixture is wrong: the window's band does not list the item that the fixture set")
+        // The values are emptied after the window is made, so only this call of `present` can write them again.
+        model.itemInfo = [:]
+        windows.present(controller)
+        #expect(SidebarFirstFrame(model).isComplete, "present left band items of a restored window with no info: \(SidebarFirstFrame(model).faults.map(\.id.rawValue))")
+        let atOrderIn = Self.rowsPassRuns
+        #expect(atOrderIn == 0, "the rows pass of a window that the launch restores ran \(atOrderIn) times in front of the order-in")
+        #expect(controller.sidebar.sameTurn.firstFrame == nil, "a window that the launch restores has a first-frame sample: a pass ran in front of its order-in")
+        #expect(model.profiles.isEmpty, "a restored window with no saved sidebar has its spaces at the order-in: the limit that the texts name is gone")
+        windows.registry.isLaunching = false
+        await Self.drain()
+        #expect(model.profiles.map(\.id.rawValue) == NewWindowSidebarRowsFirstFrameTests.spaces, "the pass's task did not write the spaces of a restored window after the launch's end")
         let runs = Self.rowsPassRuns
         #expect(runs == 1, "the rows pass of a window that the launch restores ran \(runs) times")
     }
