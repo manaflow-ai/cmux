@@ -151,6 +151,14 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.preload(layout: layout)
     }
 
+    /// Starts mapping the shim and the framework of `layout` now, from any thread, on a background task, for a
+    /// caller that knows a Chromium page will ask soon (a restored Chromium chat). No Chromium code runs and
+    /// nothing touches the loader on the calling thread; the first start or preload of the same layout takes this
+    /// load (`CEFRuntime.beginEarlyLoad`). Idempotent.
+    public nonisolated static func beginEarlyLoad(_ layout: CEFRuntimeLayout) {
+        CEFRuntime.beginEarlyLoad(layout)
+    }
+
     /// Runs `CefInitialize` before any Chromium tab needs it, when a caller
     /// predicts one (`reason`: `restoredTab`, `newTabMenu`, `palette`). The
     /// framework load stays off the main thread; `CefInitialize` (about

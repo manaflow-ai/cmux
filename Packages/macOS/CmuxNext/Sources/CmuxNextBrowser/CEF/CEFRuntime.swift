@@ -187,7 +187,43 @@ final class CEFRuntime {
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
 
-    private init() {}
+    /// Maps the shim and the framework (``loadLibrary(_:signatureChecker:)``). Called only from the detached
+    /// load task of ``start(layout:environment:trigger:)`` and ``preload(layout:)``, never on the main thread:
+    /// the map holds dyld's loader lock, and a main-thread `dlopen` or `dladdr` meanwhile waits on it.
+    /// Tests inject a spy (which thread maps, and when).
+    typealias LibraryLoader = @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError>
+    private let libraryLoader: LibraryLoader
+    /// A load begun before any page asked (``beginEarlyLoad(_:)``); the first start or preload of its layout takes it.
+    nonisolated let earlyLoad: CEFEarlyLoad
+
+    /// The shared runtime's early load (``beginEarlyLoad(_:)``), reachable from any thread.
+    private nonisolated static let sharedEarlyLoad = CEFEarlyLoad(loader: { CEFRuntime.loadLibrary($0) })
+
+    private init() {
+        libraryLoader = { CEFRuntime.loadLibrary($0) }
+        earlyLoad = Self.sharedEarlyLoad
+    }
+
+    /// An idle runtime whose framework load is `libraryLoader`, for its own loads and its early load (tests).
+    init(libraryLoader: @escaping LibraryLoader) {
+        self.libraryLoader = libraryLoader
+        earlyLoad = CEFEarlyLoad(loader: libraryLoader)
+    }
+
+    /// Starts mapping the shim and the framework of `layout` for the process's runtime now, from any thread, on a
+    /// background task; `CefInitialize` still waits for a page (or the warm start) on the main thread. Idempotent: a
+    /// second call returns the first call's task. The runtime's first `start` or `preload` of the same layout takes
+    /// this task and loads nothing again; for another layout it loads its own.
+    @discardableResult
+    nonisolated static func beginEarlyLoad(_ layout: CEFRuntimeLayout) -> CEFEarlyLoad.LoadTask {
+        sharedEarlyLoad.begin(layout)
+    }
+
+    /// The load to await for `candidate`: the early load of that layout when one began, else a new load at `priority`.
+    private func newLoadTask(_ candidate: CEFRuntimeLayout?, priority: TaskPriority) -> CEFEarlyLoad.LoadTask {
+        if let early = earlyLoad.task(for: candidate) { return early }
+        return Task.detached(priority: priority) { [libraryLoader] in libraryLoader(candidate) }
+    }
 
     /// Takes the engine's stores and sign-in tabs (the process has one Chromium, so the App's one
     /// engine hands them over before its first start or tab). Idempotent for the same stores.
@@ -209,6 +245,8 @@ final class CEFRuntime {
     init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
         self.shim = shim
         self.storage = storage
+        libraryLoader = { _ in .failure(.notEmbedded) }
+        earlyLoad = CEFEarlyLoad(loader: { _ in .failure(.notEmbedded) })
         state = .ready
     }
 
@@ -271,7 +309,7 @@ final class CEFRuntime {
             task = loadTask
         } else {
             state = .loading
-            task = Task.detached(priority: .userInitiated) { CEFRuntime.loadLibrary(candidate) }
+            task = newLoadTask(candidate, priority: .userInitiated)
             loadTask = task
         }
         // A utility-priority preload may still be running; the await below
@@ -290,7 +328,7 @@ final class CEFRuntime {
         guard state == .idle, loadTask == nil else { return }
         state = .loading
         preloaded = true
-        let task = Task.detached(priority: .utility) { CEFRuntime.loadLibrary(candidate) }
+        let task = newLoadTask(candidate, priority: .utility)
         loadTask = task
         Task { [weak self] in
             _ = await task.value
