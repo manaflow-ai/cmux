@@ -10,6 +10,15 @@ import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownF
 import { UI_ANCHOR_GAP } from "../src/ui/anchor";
 
 await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
+  type ComposerPaint = {
+    glyphTop: number;
+    scrollTop: number;
+    editorScrollTop: number;
+    height: number;
+    suggestions?: number;
+    devicePixelRatio: number;
+  };
+
   if (!(await probeEngineOrSkip("composer wrap", "chromium", chromium))) return;
   setDefaultTimeout(180_000);
   const { createServer } = await import("vite");
@@ -39,58 +48,71 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
   const measure = (page: Page, newTab: boolean) =>
     page.evaluate(
       ({ newTab, gap }) => {
-        const box = document.querySelector(newTab ? ".nt-box" : ".acpmux-composer-box")!;
-        const bounds = box.getBoundingClientRect();
-        const paragraph = box.querySelector(".ProseMirror > p")!;
-        const text = paragraph.getBoundingClientRect();
-        const field = box.querySelector<MarkdownFieldElement>(".acpmux-md-field")!;
-        // Read the first glyph without moving the typing caret or changing scroll state.
-        const first = document.createRange();
-        first.setStart(paragraph.firstChild!, 0);
-        first.setEnd(paragraph.firstChild!, 1);
-        const glyph = first.getBoundingClientRect();
-        const line = Number.parseFloat(getComputedStyle(paragraph).lineHeight);
-        const strip = document.querySelector(newTab ? ".nt-above" : ".acpmux-composer-strip");
-        const suggestions = document.querySelector(".nt-popover");
-        const anchor = box.querySelector(".nt-input[data-split]") ? box.closest(".nt-composer")! : box;
-        let anchorBottom = anchor.getBoundingClientRect().bottom;
-        if (anchor !== box) {
-          const labels = anchor.querySelectorAll(
-            ".nt-foot .acpmux-mode-text, .nt-foot .acpmux-model-name, .nt-foot .acpmux-model-short",
-          );
-          for (const label of labels) {
-            const rect = label.getBoundingClientRect();
-            if (rect.height === 0 || getComputedStyle(label).visibility !== "visible") continue;
-            anchorBottom = rect.top + rect.bottom - bounds.bottom - gap;
-            break;
+        const read = () => {
+          const box = document.querySelector(newTab ? ".nt-box" : ".acpmux-composer-box")!;
+          const bounds = box.getBoundingClientRect();
+          const paragraph = box.querySelector(".ProseMirror > p")!;
+          const text = paragraph.getBoundingClientRect();
+          const field = box.querySelector<MarkdownFieldElement>(".acpmux-md-field")!;
+          // Read the first glyph without moving the typing caret or changing scroll state.
+          const first = document.createRange();
+          first.setStart(paragraph.firstChild!, 0);
+          first.setEnd(paragraph.firstChild!, 1);
+          const glyph = first.getBoundingClientRect();
+          const line = Number.parseFloat(getComputedStyle(paragraph).lineHeight);
+          const strip = document.querySelector(newTab ? ".nt-above" : ".acpmux-composer-strip");
+          const suggestions = document.querySelector(".nt-popover");
+          const anchor = box.querySelector(".nt-input[data-split]") ? box.closest(".nt-composer")! : box;
+          let anchorBottom = anchor.getBoundingClientRect().bottom;
+          if (anchor !== box) {
+            const labels = anchor.querySelectorAll(
+              ".nt-foot .acpmux-mode-text, .nt-foot .acpmux-model-name, .nt-foot .acpmux-model-short",
+            );
+            for (const label of labels) {
+              const rect = label.getBoundingClientRect();
+              if (rect.height === 0 || getComputedStyle(label).visibility !== "visible") continue;
+              anchorBottom = rect.top + rect.bottom - bounds.bottom - gap;
+              break;
+            }
           }
-        }
-        return {
-          width: text.width,
-          lines: Math.round((paragraph as HTMLElement).offsetHeight / line),
-          line,
-          top: bounds.top,
-          height: bounds.height,
-          firstLineTop: text.top - bounds.top,
-          glyphTop: glyph.top - bounds.top,
-          scrollTop: field.scrollTop,
-          editorScrollTop: box.querySelector<HTMLElement>(".ProseMirror")!.scrollTop,
-          moving: field.getAnimations().length > 0,
-          strip: strip?.getBoundingClientRect().top,
-          foot: document.querySelector(".nt-foot")?.getBoundingClientRect().top,
-          suggestions: suggestions ? suggestions.getBoundingClientRect().top - anchorBottom : undefined,
-          devicePixelRatio: window.devicePixelRatio,
-          controls: [
-            ...box.querySelectorAll(
-              ".acpmux-newtab-plus button, .acpmux-composer-plus button, .acpmux-mic, .acpmux-send",
-            ),
-          ]
-            .filter((control) => control.getBoundingClientRect().width > 0)
-            .map((control) => {
-              const rect = control.getBoundingClientRect();
-              return { left: rect.left - bounds.left, top: rect.top - bounds.top, bottom: bounds.bottom - rect.bottom };
-            }),
+          return {
+            width: text.width,
+            lines: Math.round((paragraph as HTMLElement).offsetHeight / line),
+            line,
+            top: bounds.top,
+            height: bounds.height,
+            firstLineTop: text.top - bounds.top,
+            glyphTop: glyph.top - bounds.top,
+            scrollTop: field.scrollTop,
+            editorScrollTop: box.querySelector<HTMLElement>(".ProseMirror")!.scrollTop,
+            moving: field.getAnimations().length > 0,
+            strip: strip?.getBoundingClientRect().top,
+            foot: document.querySelector(".nt-foot")?.getBoundingClientRect().top,
+            suggestions: suggestions ? suggestions.getBoundingClientRect().top - anchorBottom : undefined,
+            devicePixelRatio: window.devicePixelRatio,
+            controls: [
+              ...box.querySelectorAll(
+                ".acpmux-newtab-plus button, .acpmux-composer-plus button, .acpmux-mic, .acpmux-send",
+              ),
+            ]
+              .filter((control) => control.getBoundingClientRect().width > 0)
+              .map((control) => {
+                const rect = control.getBoundingClientRect();
+                return {
+                  left: rect.left - bounds.left,
+                  top: rect.top - bounds.top,
+                  bottom: bounds.bottom - rect.bottom,
+                };
+              }),
+          };
         };
+        Object.assign(window, { cmuxReadComposerGeometry: read });
+        return new Promise<ReturnType<typeof read>>((resolve) => {
+          window.cmuxAfterPaint(() => {
+            resolve(read());
+            return false;
+          });
+        });
       },
       { newTab, gap: UI_ANCHOR_GAP },
     );
@@ -139,9 +161,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             const fill = async (length: number, samples?: Measurement[]) => {
               await editor.fill("m".repeat(length));
               for (let step = 0; step < 600; step++) {
-                // Instant growth still places the popup in ResizeObserver. Sample after paint,
-                // when that placement has run, rather than the unpainted state after fill().
-                await frame(page);
+                // Geometry is read within the after-paint callback, not in a later browser RPC.
                 const current = await measure(page, layout.newTab);
                 samples?.push(current);
                 if (!current.moving) break;
@@ -230,25 +250,15 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
             for (const wrap of [true, false, true, false]) {
               const previous = await measure(page, layout.newTab);
               await editor.press("Control+End");
-              await page.evaluate((newTab) => {
-                const samples: { first: number; scroll: number; editorScroll: number; height: number }[] = [];
-                const box = document.querySelector(newTab ? ".nt-box" : ".acpmux-composer-box")!;
-                const field = box.querySelector<HTMLElement>(".acpmux-md-field")!;
-                const editor = box.querySelector<HTMLElement>(".ProseMirror")!;
+              await page.evaluate(() => {
+                const samples: ComposerPaint[] = [];
+                const read = (window as unknown as { cmuxReadComposerGeometry: () => ComposerPaint })
+                  .cmuxReadComposerGeometry;
                 const stop = window.cmuxAfterPaint(() => {
-                  const paragraph = editor.querySelector("p")!;
-                  const first = document.createRange();
-                  first.setStart(paragraph.firstChild!, 0);
-                  first.setEnd(paragraph.firstChild!, 1);
-                  samples.push({
-                    first: first.getBoundingClientRect().top - box.getBoundingClientRect().top,
-                    scroll: field.scrollTop,
-                    editorScroll: editor.scrollTop,
-                    height: box.getBoundingClientRect().height,
-                  });
+                  samples.push(read());
                 });
                 Object.assign(window, { composerWrapFrames: { samples, stop } });
-              }, layout.newTab);
+              });
               if (wrap) await page.keyboard.type("m");
               else await page.keyboard.press("Backspace");
               let last = previous;
@@ -263,7 +273,7 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
                 const recording = (
                   window as unknown as {
                     composerWrapFrames: {
-                      samples: { first: number; scroll: number; editorScroll: number; height: number }[];
+                      samples: ComposerPaint[];
                       stop(): void;
                     };
                   }
@@ -273,9 +283,13 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
               });
               expect(painted.length).toBeGreaterThan(0);
               for (const sample of painted) {
-                expect(sample.scroll).toBe(0);
-                expect(sample.editorScroll).toBe(0);
-                expect(Math.abs(sample.first - before.glyphTop)).toBeLessThan(0.5);
+                expect(sample.scrollTop).toBe(0);
+                expect(sample.editorScrollTop).toBe(0);
+                expect(Math.abs(sample.glyphTop - before.glyphTop)).toBeLessThan(0.5);
+                if (layout.newTab)
+                  expect(Math.abs(sample.suggestions! - UI_ANCHOR_GAP), JSON.stringify(sample)).toBeLessThanOrEqual(
+                    0.5 / sample.devicePixelRatio + 1 / 64,
+                  );
               }
               if (motion === "full" && after.height - before.height > 1)
                 expect(

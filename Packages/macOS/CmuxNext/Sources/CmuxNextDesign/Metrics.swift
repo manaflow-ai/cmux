@@ -229,7 +229,7 @@ public struct Metrics {
     /// Compact tabs `chrome.compactTabContentLeadingInset`), else ``tabIconEvenLeadingInset``.
     public static var tabContentLeadingInset: CGFloat {
         let set = (compactTabs ? ChromeTunables.compactTabContentLeadingInset : ChromeTunables.tabContentLeadingInset).override
-        // A density's `tabIconLeading` (Helium's favicon 6 pt into the tab, Chrome's 8).
+        // Custom densities can set the inset; presets derive it from the live pill and icon sizes.
         return set.map(scale) ?? densityToken("tabIconLeading") ?? tabIconEvenLeadingInset
     }
     /// The tab icon's inset that leaves its glyph as far from the pill's leading edge as from the

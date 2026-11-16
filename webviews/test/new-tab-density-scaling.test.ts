@@ -163,6 +163,7 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
           column: string;
           screenWidth: number;
           screenPadding: string;
+          widthCandidates: { width: string; accepted: boolean; computed: string; drawn: number }[];
         };
       }[] = [];
       for (const scale of [0.8, 1, 1.2]) {
@@ -189,6 +190,32 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
             const send = composer.querySelector<HTMLElement>(".acpmux-send .acpmux-icon")!;
             const screen = composer.closest<HTMLElement>(".nt-screen")!;
             const composerStyle = getComputedStyle(composer);
+            const layout = {
+              composerZoom: composerStyle.zoom,
+              composerWidth: composerStyle.width,
+              column:
+                composerStyle.getPropertyValue("--cmux-composer-column") ||
+                composerStyle.getPropertyValue("--cv-column"),
+              screenWidth: screen.getBoundingClientRect().width,
+              screenPadding: getComputedStyle(screen).paddingInline,
+            };
+            const savedStyle = composer.getAttribute("style");
+            const widthCandidates = [
+              "800px",
+              "calc(100cqw / var(--cmux-composer-zoom, 1))",
+              "calc(100% / var(--cmux-composer-zoom, 1))",
+            ].map((width) => {
+              composer.style.width = width;
+              composer.style.maxWidth = "none";
+              return {
+                width,
+                accepted: CSS.supports("width", width),
+                computed: getComputedStyle(composer).width,
+                drawn: composer.getBoundingClientRect().width,
+              };
+            });
+            if (savedStyle === null) composer.removeAttribute("style");
+            else composer.setAttribute("style", savedStyle);
             return {
               scale,
               boxWidth: box.width,
@@ -202,13 +229,8 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
               send: send.getBoundingClientRect().width,
               stroke: parseFloat(getComputedStyle(send).strokeWidth),
               layout: {
-                composerZoom: composerStyle.zoom,
-                composerWidth: composerStyle.width,
-                column:
-                  composerStyle.getPropertyValue("--cmux-composer-column") ||
-                  composerStyle.getPropertyValue("--cv-column"),
-                screenWidth: screen.getBoundingClientRect().width,
-                screenPadding: getComputedStyle(screen).paddingInline,
+                ...layout,
+                widthCandidates,
               },
             };
           }, scale),

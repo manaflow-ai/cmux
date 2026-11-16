@@ -97,14 +97,17 @@ import Testing
 
     /// Runs `body` with the sidebar at `c` and `sidebar.pinnedRowLeading` at its default.
     static func at(_ c: Case, preset: DensityPreset = .compact, _ body: () throws -> Void) throws {
-        Motion.reduceMotionOverride = true
-        defer { Motion.reduceMotionOverride = nil }
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarPinnedRowLeading.tunable.key, nil)
-        try #require(SidebarPinnedRowLeading.tunable.value == .ownIcon, "the default look is ownIcon")
-        try DensityTokens.$scoped.withValue(preset.tokens) {
-            try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize, body)
+        // Release closed views between synchronous cases before the next motion notification.
+        try autoreleasepool {
+            Motion.reduceMotionOverride = true
+            defer { Motion.reduceMotionOverride = nil }
+            TunableStore.shared.activate(file: nil)
+            TunableStore.shared.register(SidebarTunables.all)
+            TunableStore.shared.set(SidebarPinnedRowLeading.tunable.key, nil)
+            try #require(SidebarPinnedRowLeading.tunable.value == .ownIcon, "the default look is ownIcon")
+            try DensityTokens.$scoped.withValue(preset.tokens) {
+                try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize, body)
+            }
         }
     }
 

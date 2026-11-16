@@ -192,7 +192,7 @@ enum SidebarStyle {
     static var favoriteGlyphSize: CGFloat { railGlyphSize + SidebarRowTokens.current.extraHeight }
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
-    static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
+    static var searchHeight: CGFloat { SidebarRowTokens.current.band.rowHeight }
     /// The profile control's circle at compact density (the icon box, 16 pt). The avatar lives in
     /// the row-height square, so its click target scales with the display density. #23757 grew it
     /// to the square but a hairline (22 pt); Lawrence 2026-10-21 reverted that: "bottom footer

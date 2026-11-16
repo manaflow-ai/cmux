@@ -114,10 +114,13 @@ import Testing
         }
     }
 
-    /// Chrome's favicon to title gap (6 pt at the standard density).
-    @Test func theIconToTitleGapIsChromeLike() {
-        let cell = Self.cell(.browserWithFavicon)
-        let gap = cell.titleLayer.frame.minX - Self.iconFrame(cell).maxX
-        #expect(gap == (Metrics.compactTabs ? Metrics.space2 : Metrics.space3), "gap \(gap)")
+    /// Every density scales Default's 7 pt favicon-to-title gap on the half-point grid.
+    @Test(arguments: DensityPreset.allCases) func theIconToTitleGapIsChromeLike(preset: DensityPreset) {
+        DensityTokens.$scoped.withValue(preset.tokens) {
+            let cell = Self.cell(.browserWithFavicon)
+            let gap = cell.titleLayer.frame.minX - Self.iconFrame(cell).maxX
+            let expected = (7 * CGFloat(preset.scaleFactor) * 2).rounded() / 2
+            #expect(gap == expected, "\(preset): gap \(gap), expected \(expected)")
+        }
     }
 }

@@ -117,6 +117,34 @@ struct CustomDensitySettingTests {
             #expect(Metrics.tabHeight == 38)
             #expect(Metrics.chromeTabCornerRadius == 3)
             #expect(Metrics.tabIconSize == 20)
+            #expect(Metrics.tabContentLeadingInset == 10.5)
+        }
+    }
+
+    @MainActor @Test func presetCopiesAndEditedRowsKeepTheLiveIconInset() {
+        for preset in DensityPreset.allCases {
+            let copy = CustomDensitiesSetting.duplicate(preset.tokens, name: "My density", existing: [])
+            let original = DensityTokens.$scoped.withValue(preset.tokens) { Metrics.tabContentLeadingInset }
+            let copied = DensityTokens.$scoped.withValue(copy) { Metrics.tabContentLeadingInset }
+            #expect(copied == original, "\(preset): duplicating a preset preserves its icon inset")
+        }
+        var edited = CustomDensitiesSetting.duplicate(DensityPreset.compact.tokens, name: "My density", existing: [])
+        edited.tokens["tabHeight"] = 40
+        edited.tokens["tabIconSize"] = 20
+        DensityTokens.$scoped.withValue(edited) {
+            #expect(Metrics.tabContentLeadingInset == 11.5)
+        }
+        edited.tokens["tabIconLeading"] = 13
+        DensityTokens.$scoped.withValue(edited) {
+            #expect(Metrics.tabContentLeadingInset == 13, "a custom explicit inset keeps its value")
+            let store = TunableStore.shared
+            let tunable = ChromeTunables.tabContentLeadingInset
+            store.activate(file: nil)
+            store.register([tunable.descriptor])
+            let previous = store.override(tunable.key)
+            defer { store.set(tunable.key, previous) }
+            store.set(tunable.key, .number(5))
+            #expect(Metrics.tabContentLeadingInset == 5, "the Chrome override wins over a custom inset")
         }
     }
 }

@@ -71,7 +71,7 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
         "tabTitleSize": 14, "sidebarTitleSize": 14, "chatEditorMin": 35,
         "sidebarRowInset": 6, "sidebarContentInset": 7, "sidebarLineBoxBaseline": 1,
         "sidebarIconColumn": 16.5, "sidebarIconGap": 7,
-        "tabIconLeading": 7, "tabIconSize": 16.5, "tabIconTitleGap": 7, "tabGap": 3, "tabMaxWidth": 201,
+        "tabIconSize": 16.5, "tabIconTitleGap": 7, "tabGap": 3, "tabMaxWidth": 201,
         "rowCornerRadius": 9, "tabCornerRadius": 9,
         "omnibarCornerRadius": 8, "omnibarPopupCornerRadius": 12, "omnibarPopupRowCornerRadius": 8,
         // Helium's toolbar at Compact (its reference, Lucas 2026-11-16): the reload glyph draws 14 px tall, the omnibar's
