@@ -162,6 +162,60 @@
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "工具登录"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "工具登入"}}
       }
+    },
+    "argument.cloudStartSession.mode": {
+      "comment": "Argument title: the permission mode the Cloud machine's new agent session starts in (bypassPermissions, ...).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Permission Mode"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "وضع الأذونات"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Način dozvola"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tilladelsestilstand"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Berechtigungsmodus"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Modo de permisos"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Mode d'autorisation"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Modalità autorizzazioni"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "権限モード"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "របៀបសិទ្ធិ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "권한 모드"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tillatelsesmodus"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Tryb uprawnień"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Modo de permissões"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Режим разрешений"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โหมดสิทธิ์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "İzin modu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Режим дозволів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chế độ quyền"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "权限模式"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "權限模式"}}
+      }
+    },
+    "argument.cloudStartSession.team": {
+      "comment": "Argument title: the team (or personal account) the Cloud session starts under.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Team"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الفريق"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Tim"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Team"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Team"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Equipo"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Équipe"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Team"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チーム"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ក្រុម"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "팀"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Team"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zespół"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Equipe"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Команда"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ทีม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ekip"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Команда"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Nhóm"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "团队"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "團隊"}}
+      }
     }
   },
   "version": "1.0"
