@@ -234,6 +234,18 @@ fn place_created_rows(
     }
     let slot = match placement {
         NewWorkspacePlacement::Bottom => None,
+        // A person's new workspace made while they are in a group stays in that
+        // group, first in it (the app's `top` slot, Lawrence 2026-10-28), never
+        // loose above every group (Leo 2026-11-16: "I make a new space. Getting
+        // sent out of the group that I'm"). An agent's or script's create still
+        // goes first in the section.
+        NewWorkspacePlacement::Top if !by_creator => {
+            match current_group_top_slot(transaction, &local, &placed, created.current.as_deref())?
+            {
+                Some(slot) => Some(slot),
+                None => Some(top_slot(transaction, &local, &placed)?),
+            }
+        }
         NewWorkspacePlacement::Top => Some(top_slot(transaction, &local, &placed)?),
         NewWorkspacePlacement::AfterCurrent if by_creator => {
             let below = match created.creator.as_deref() {
@@ -330,6 +342,27 @@ fn top_slot(
     // rows were appended last, so none of them is before it).
     let index = super::personal::row_index(transaction, local, &home)?.map_or(0, |home| home + 1);
     Ok((index, None))
+}
+
+/// `top` with the current workspace in a group: the group's first row slot,
+/// in that group. None when the current workspace is loose, has no row, is
+/// the home workspace, or the new workspace shows in another room than the
+/// group (the rules of [`after_row_slot`]).
+fn current_group_top_slot(
+    transaction: &Transaction<'_>,
+    local: &str,
+    placed: &[String],
+    current: Option<&str>,
+) -> anyhow::Result<Option<(usize, Option<String>)>> {
+    let Some(current) = current else { return Ok(None) };
+    let Some((_, Some(group))) = after_row_slot(transaction, local, placed, current, false)? else {
+        return Ok(None);
+    };
+    let first = read_workspaces(transaction)?
+        .into_iter()
+        .filter(|row| !(row.session_id == local && placed.contains(&row.workspace_key)))
+        .position(|row| row.group.as_deref() == Some(group.as_str()));
+    Ok(first.map(|index| (index, Some(group))))
 }
 
 /// `afterCurrent`: right after the current workspace's row, in its group.
