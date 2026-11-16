@@ -11,11 +11,10 @@ import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-const LONG =
-  "i have been trying to make new workspaces spawn at the top, but it always lands at the bottom of the list, " +
-  "below every pinned row, and then i have to drag it up again every single time i open one";
-
 await requireBrowserLane("new-tab-row-truncation.test.ts", async () => {
+  const LONG =
+    "i have been trying to make new workspaces spawn at the top, but it always lands at the bottom of the list, " +
+    "below every pinned row, and then i have to drag it up again every single time i open one";
   setDefaultTimeout(120_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
