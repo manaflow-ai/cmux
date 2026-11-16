@@ -74,6 +74,15 @@ public enum StandInFate: Equatable, Sendable {
         return pane.tabs.first { $0.surface == surface }
     }
 
+    /// What became of stand-in tab `id`, which `pane` no longer lists (``StandInFate``): the tab of `pane` that the daemon named
+    /// for its creation and the person did not close (``became(standIn:tab:in:)``), else whether its creation is still under way.
+    /// A stand-in that the person closed, one whose creation was refused or failed (its intent left the log with no tab), and
+    /// one whose tab is in no record of `pane` (closed, hidden, or moved away) ended.
+    public func fate(ofStandIn id: String, in pane: PaneModel) -> StandInFate {
+        if let tab = replacement(ofStandIn: id, in: pane), became(standIn: id, tab: tab.id, in: pane) { return .became(tab.id) }
+        return isUnderway(standIn: id) ? .underway : .ended
+    }
+
     /// Whether stand-in tab `id` stands for a creation still under way: neither closed by the person (cancelled) nor answered
     /// (a confirmed reply or echo named its tab). A new tab placed right after it keeps it as its anchor while it is out of the
     /// records (`NewTabSuccession`). Any creation's stand-in: a new tab's, a new workspace's first tab, a conversation split's

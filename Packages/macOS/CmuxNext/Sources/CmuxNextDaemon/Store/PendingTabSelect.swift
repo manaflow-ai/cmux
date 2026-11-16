@@ -25,12 +25,18 @@ public struct PendingTabSelect: Sendable {
         return nil
     }
 
-    /// As ``take(shown:record:)``. `selected`: the tab that the pane selects; `listed`: whether the pane's strip lists a
-    /// tab now; `fate`: what became of a creation's stand-in tab, by the store's record of the creation
-    /// (``StandInFate``). Not read yet.
+    /// As ``take(shown:record:)``, and with nothing of its own to take: the tab that the pane's selected tab became,
+    /// when that tab (`selected`) is a creation's stand-in that the pane's strip no longer lists and the store's
+    /// record of the creation names a tab that the strip lists (`listed`: whether the strip lists a tab now; `fate`:
+    /// ``DaemonCreations/fate(ofStandIn:in:)``). Two or more stand-ins that get their tabs in one apply have no pair
+    /// in the strip: the pane then selects and shows the tab of the selected one in that apply, as a tab it created.
+    /// What waits here stays as it was then.
     @MainActor public mutating func take(shown: [TabModel], record: [TabModel], selected: String?, listed: (String) -> Bool,
                                          fate: (String) -> StandInFate) -> String? {
-        take(shown: shown, record: record)
+        if let made = take(shown: shown, record: record) { return made }
+        guard let selected, ProvisionalTab.isProvisional(selected), !listed(selected), case .became(let tab) = fate(selected),
+              listed(tab) else { return nil }
+        return tab
     }
 
     /// The tab this waits to select that `tabs` (the pane's records) list already, the surface's first: the pane's current tab
