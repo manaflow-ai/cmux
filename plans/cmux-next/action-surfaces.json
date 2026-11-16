@@ -19612,6 +19612,99 @@
     },
     {
       "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "terminal fix-last-command",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "terminal.fixLastCommand",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.terminal",
+        "order" : 105,
+        "title" : "Terminal",
+        "title_key" : "category.terminal",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Fix Last Command with Agent",
+      "title_key" : "action.terminal.fixLastCommand",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "terminal send-last-output-to-chat",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "terminal.sendLastOutputToChat",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.terminal",
+        "order" : 105,
+        "title" : "Terminal",
+        "title_key" : "category.terminal",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Send Last Output to Chat",
+      "title_key" : "action.terminal.sendLastOutputToChat",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "liveInput",
+      "cli_name" : "terminal send-selection-to-chat",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "terminal.sendSelectionToChat",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.terminal",
+        "order" : 105,
+        "title" : "Terminal",
+        "title_key" : "category.terminal",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Send Selection to Chat",
+      "title_key" : "action.terminal.sendSelectionToChat",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
         {
           "kind" : "string",
           "name" : "app",
@@ -48145,7 +48238,7 @@
       "id" : "machine.joined.check",
       "main_menu" : null,
       "mcp" : "guiOnly",
-      "palette" : "guiOnly",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.remote",
         "order" : 111,
@@ -48176,7 +48269,7 @@
       "id" : "machine.joined.rotate",
       "main_menu" : null,
       "mcp" : "guiOnly",
-      "palette" : "guiOnly",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.remote",
         "order" : 111,
@@ -48207,7 +48300,7 @@
       "id" : "machine.joined.revoke",
       "main_menu" : null,
       "mcp" : "guiOnly",
-      "palette" : "guiOnly",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.remote",
         "order" : 111,
@@ -60075,9 +60168,48 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "home.sendSelectionToChief",
+          "id" : "terminal.sendSelectionToChat",
           "kind" : "action",
           "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "terminalFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "terminal.sendLastOutputToChat",
+          "kind" : "action",
+          "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "terminalFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "terminal.fixLastCommand",
+          "kind" : "action",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "terminalFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "home.sendSelectionToChief",
+          "kind" : "action",
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -60090,7 +60222,7 @@
           "enabled_when" : "can_perform",
           "id" : "home.sendSelectionTo",
           "kind" : "action",
-          "order" : 6,
+          "order" : 9,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -60101,13 +60233,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 7
+          "order" : 10
         },
         {
           "enabled_when" : "can_perform",
           "id" : "palette.forkAgentConversation",
           "kind" : "action",
-          "order" : 8,
+          "order" : 11,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -60118,7 +60250,7 @@
         },
         {
           "kind" : "separator",
-          "order" : 9
+          "order" : 12
         },
         {
           "children" : [
@@ -60263,7 +60395,7 @@
           ],
           "id" : "palette.forkAgentConversationTo",
           "kind" : "submenu",
-          "order" : 10,
+          "order" : 13,
           "title_from" : "action",
           "visible_when" : {
             "debug_only" : false,
@@ -60330,14 +60462,14 @@
           ],
           "folder" : "split",
           "kind" : "folder",
-          "order" : 11,
+          "order" : 14,
           "title" : "Split",
           "title_key" : "menu.folder.split",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 12
+          "order" : 15
         },
         {
           "children" : [
@@ -60383,20 +60515,20 @@
           ],
           "folder" : "options",
           "kind" : "folder",
-          "order" : 13,
+          "order" : 16,
           "title" : "Options",
           "title_key" : "menu.folder.options",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 14
+          "order" : 17
         },
         {
           "enabled_when" : "can_perform",
           "id" : "toggleSplitZoom",
           "kind" : "action",
-          "order" : 15,
+          "order" : 18,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -60407,7 +60539,7 @@
         },
         {
           "kind" : "separator",
-          "order" : 16
+          "order" : 19
         },
         {
           "children" : [
@@ -60474,7 +60606,7 @@
           ],
           "folder" : "tools",
           "kind" : "folder",
-          "order" : 17,
+          "order" : 20,
           "title" : "Tools",
           "title_key" : "menu.folder.tools",
           "title_table" : "Localizable"
