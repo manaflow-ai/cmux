@@ -22,8 +22,14 @@ pub fn gather(now_ms: u64) -> Facts {
     // An unreadable device file is an identity to set up again, not "never enabled".
     let enabled = matches!(device, Some(Ok(Some(_)) | Err(_)));
     let backend = super::host_capture(identity::runtime_dir().ok().as_deref());
-    let idle =
-        Capture { backend, usable: false, size: None, portal_granted: false, readback: None };
+    let idle = Capture {
+        backend,
+        usable: false,
+        size: None,
+        portal_granted: false,
+        portal_control: false,
+        readback: None,
+    };
     let Some(dir) = dir.filter(|_| enabled) else {
         return Facts { enabled, setup_ok: false, consent: None, capture: idle };
     };
@@ -53,6 +59,7 @@ fn probe_capture(backend: CaptureBackend) -> Capture {
                 usable: !local || probe.is_some(),
                 size: probe.map(|(size, _)| size),
                 portal_granted: false,
+                portal_control: false,
                 readback: probe.map(|(_, readback)| readback),
             }
         }
@@ -62,6 +69,7 @@ fn probe_capture(backend: CaptureBackend) -> Capture {
             size: None,
             portal_granted: portal_token_saved(),
             readback: None,
+            portal_control: crate::capture_backend::portal_control_granted(),
         },
     }
 }
@@ -89,11 +97,11 @@ fn session_bus() -> bool {
             .is_some_and(|dir| std::path::Path::new(&dir).join("bus").exists())
 }
 
-/// Whether the portal restore token `serve` saves exists, so Start shows no dialog.
+/// Whether a portal restore token (the grant `enable` makes, refreshed by every share) is
+/// saved, so Start shows no dialog.
 #[cfg(feature = "portal")]
 fn portal_token_saved() -> bool {
-    use crate::portal::RestoreTokenStore;
-    RestoreTokenStore::default_path().map(RestoreTokenStore::new).and_then(|s| s.load()).is_some()
+    crate::portal::any_grant_saved()
 }
 
 #[cfg(not(feature = "portal"))]
@@ -126,12 +134,14 @@ pub struct Capture {
     pub portal_granted: bool,
     /// X11: how a capture reads pixels back here, when the display answered.
     pub readback: Option<Readback>,
+    /// The saved grant is RemoteDesktop's, so portal sessions apply a viewer's input.
+    pub portal_control: bool,
 }
 
 /// The `cmux.screen-share.status/1` document for `facts`, `version` being this binary's.
 pub fn status_json(facts: &Facts, version: &str) -> Value {
     let capture = &facts.capture;
-    let applies_input = capture.backend.applies_input();
+    let applies_input = capture.backend.applies_input_with(capture.portal_control);
     let consent = facts.consent.filter(|_| facts.enabled);
     let shares = match consent {
         Some(c) if c.full && applies_input => "view_and_control",
@@ -194,6 +204,7 @@ mod tests {
             usable: true,
             size,
             portal_granted: false,
+            portal_control: false,
             readback: Some(Readback::Shm),
         }
     }
@@ -307,19 +318,27 @@ mod tests {
             size: None,
             portal_granted: false,
             readback: None,
+            portal_control: false,
         };
         let v = status_json(&ready(FULL, portal.clone()), "v");
         assert_eq!(v["capture_backend"], "portal");
         assert_eq!(v["state"], "needs_grant");
         assert_eq!(missing(&v), ["portal_grant"]);
-        // The portal applies no input: control allowed is still view only.
+        // Without a RemoteDesktop grant the portal applies no input: control allowed is still
+        // view only.
         assert_eq!(v["control"], false);
         assert_eq!(v["shares"], "view");
-        let v = status_json(&ready(FULL, Capture { portal_granted: true, ..portal }), "v");
+        let screen_cast = Capture { portal_granted: true, ..portal.clone() };
+        let v = status_json(&ready(FULL, screen_cast), "v");
         assert_eq!(v["state"], "granted");
         assert!(missing(&v).is_empty());
         assert_eq!(v["shares"], "view");
         assert_eq!(v["control"], false);
+        // The RemoteDesktop grant: the portal controls too.
+        let remote = Capture { portal_granted: true, portal_control: true, ..portal };
+        let v = status_json(&ready(FULL, remote), "v");
+        assert_eq!(v["shares"], "view_and_control");
+        assert_eq!(v["control"], true);
     }
 
     #[test]
@@ -342,6 +361,7 @@ mod tests {
                 size: None,
                 portal_granted: false,
                 readback: None,
+                portal_control: false,
             },
         };
         let v = status_json(&facts, "v");
@@ -362,6 +382,7 @@ mod tests {
                                     usable,
                                     size: None,
                                     portal_granted,
+                                    portal_control: false,
                                     readback: None,
                                 };
                                 let facts = Facts { enabled, setup_ok, consent, capture };
