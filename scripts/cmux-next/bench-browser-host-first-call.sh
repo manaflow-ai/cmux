@@ -40,9 +40,11 @@ round() {  # mode n
   sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null 2>&1
   [ "$mode" = cua ] && { cua_start; sleep 5; }
   [ "$mode" = both ] && cua_start
+  t0=$(date +%s%N)
   setsid "$host" serve --socket "$sock" >"$work/host-$n.log" 2>&1 < /dev/null &
   local hpid=$!
-  t0=$(date +%s%N)
+  # eval starts a host of its own when no socket answers yet; wait for this host's socket (the clock runs).
+  for _ in $(seq 200); do [ -S "$sock" ] && break; sleep 0.05; done
   out=$(timeout 120 "$host" eval --socket "$sock" --session probe --timeout-ms 60000 'await page.goto("http://127.0.0.1:18080/"); console.log(await page.title())' 2>&1)
   rc=$?
   t1=$(date +%s%N)
