@@ -198,6 +198,7 @@ fn replace_host(
         kitty_graphics_limits: mux.kitty_image_limits_for_reconnect(surface).ok()?,
         seed: &seed,
         host_binary: None,
+        fence_wait: Default::default(),
     };
     // The owner's OSC 7501 records, so a daemon that later adopts the
     // replacement keeps them (cx-6so.36.10).

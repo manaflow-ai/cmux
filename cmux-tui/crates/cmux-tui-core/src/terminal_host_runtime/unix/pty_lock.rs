@@ -13,7 +13,61 @@
 //! live host loses its fence), and an acquirer that finds its locked file
 //! unlinked or replaced retries on the new file.
 
+use std::sync::{Mutex, PoisonError, mpsc};
+
 use super::*;
+
+/// The owner's handle on the wait of a replacement host for the PTY fence of
+/// the dead host (decision of 2026-11-16).
+///
+/// A host that a signal ended lets go of its liveness lease a moment before
+/// its fence: the kernel closes the 2 files one after the other. An owner
+/// that reads the host as dead in that moment and starts the replacement at
+/// once loses the shell, because the one try of the replacement for the
+/// fence fails. So the owner waits for the fence before it starts the
+/// replacement. The wait has no bound by time: it ends when the kernel lets
+/// go of the fence, or when [`PtyFenceWait::cancel`] says that the terminal
+/// closes or its owner shuts down. A terminal has one reader thread, so one
+/// handle has one wait at a time.
+#[derive(Clone, Default)]
+pub struct PtyFenceWait {
+    state: Arc<Mutex<FenceWaitState>>,
+}
+
+#[derive(Default)]
+struct FenceWaitState {
+    cancelled: bool,
+    /// The wait that is in progress.
+    waiter: Option<mpsc::Sender<FenceEvent>>,
+    /// Runs when a wait finds the fence held, before it blocks.
+    held: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+enum FenceEvent {
+    Released(std_io::Result<()>),
+    Cancelled,
+}
+
+impl PtyFenceWait {
+    /// A handle whose wait runs `held` when it finds the fence held, before
+    /// it blocks. A test acts at that exact point; the product gives no
+    /// observer ([`Default`]).
+    pub fn observed(held: impl Fn() + Send + Sync + 'static) -> Self {
+        let state = FenceWaitState { held: Some(Arc::new(held)), ..FenceWaitState::default() };
+        Self { state: Arc::new(Mutex::new(state)) }
+    }
+
+    /// End the wait that is in progress and each later one: no replacement
+    /// host starts through this handle again. The lock is a leaf (its holder
+    /// waits for no other lock).
+    pub fn cancel(&self) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.cancelled = true;
+        if let Some(waiter) = &state.waiter {
+            let _ = waiter.send(FenceEvent::Cancelled);
+        }
+    }
+}
 
 /// The lock file of `terminal_id`/`incarnation` beside `record_path` (any
 /// file in the host record directory).
