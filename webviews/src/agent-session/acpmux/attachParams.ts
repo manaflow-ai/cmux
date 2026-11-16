@@ -30,7 +30,7 @@ export const SUBSESSION_KIND = "subsession";
 /// The attach of a chat drawn by v1: its newest page, then its records live.
 export function plainAttach(
   sessionId: string,
-  options: { settled: boolean; visible: boolean; local: boolean; maxBytes: number },
+  options: { settled: boolean; visible: boolean; attending: boolean; local: boolean; maxBytes: number },
 ): AttachParams {
   return {
     sessionId,
@@ -59,7 +59,13 @@ export function plainAttach(
       ...(options.local ? [...QUEUE_KINDS, ...ELEVATION_KINDS, ...PRESET_APPROVAL_KINDS] : []),
     ],
     eventStream: true,
+    // On screen (`visible`) apart from the reader's hand on it (`attending`, attention.ts): acpmux keeps
+    // unread by both, and leaves the agent's stream out while the page is not on screen at all
+    // (`quietHidden`, CMUX-571); the view that shows it again sends one `_acpmux/lagged`, and the page
+    // reads what it missed from its cursor (direct.ts `resyncAfterLag`).
     visible: options.visible,
+    attending: options.attending,
+    quietHidden: true,
   };
 }
 

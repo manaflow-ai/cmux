@@ -3660,7 +3660,7 @@ export class AcpmuxDirectClient {
   private turnRepairNext?: TurnRepair;
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
-  private shownToAcpmux?: { sessionId: string; visible: boolean };
+  private shownToAcpmux?: { sessionId: string; visible: boolean; attending: boolean };
   private viewSync: Promise<void> = Promise.resolve();
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
@@ -5522,7 +5522,7 @@ export class AcpmuxDirectClient {
     }
     this.emit("resyncing");
     void this.permissions.refresh().catch(() => {});
-    this.readMissedAfterLag(sessionId, this.selectionGeneration, this.lastSeq, 0);
+    this.readMissedAfterLag(sessionId, this.selectionGeneration, lagCursor(params, this.lastSeq), 0);
   }
 
   /// Reads the events a lag dropped, again after a failed read: a daemon too busy to answer
@@ -6147,7 +6147,7 @@ export class AcpmuxDirectClient {
   /// away stay unread.
   private syncView(): void {
     const generation = this.selectionGeneration;
-    const visible = readerHere();
+    const { visible, attending } = readerLook();
     this.viewSync = this.viewSync.then(async () => {
       await this.attaching;
       const sessionId = this.selectedSessionId;
@@ -6158,11 +6158,11 @@ export class AcpmuxDirectClient {
         this.shownToAcpmux?.sessionId !== sessionId
       )
         return;
-      if (this.shownToAcpmux.visible === visible) return;
-      await this.typed("_acpmux/view", { sessionId, visible }).then(
+      if (this.shownToAcpmux.visible === visible && this.shownToAcpmux.attending === attending) return;
+      await this.typed("_acpmux/view", { sessionId, visible, attending }).then(
         () => {
           if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-            this.shownToAcpmux = { sessionId, visible };
+            this.shownToAcpmux = { sessionId, visible, attending };
         },
         () => undefined,
       );
@@ -7079,12 +7079,14 @@ export class AcpmuxDirectClient {
   /// `reads`, the reads the chat draws with (`startAttachReads`) in the same round trip. A chat whose
   /// rows come from the store asks the hold, which reads no page (`hold` on what it returns).
   private sendAttach(sessionId: string, generation: number, reads: boolean): SentAttach {
-    const visible = readerHere();
-    const hold = this.chatRows.holds(sessionId) ? holdAttach(sessionId, visible) : undefined;
+    const { visible, attending } = readerLook();
+    const held = this.chatRows.holds(sessionId) ? holdAttach(sessionId, visible) : undefined;
+    const hold = held && { ...held, attending };
     const ask = (settled: boolean) =>
       this.typed(
         "_acpmux/attach",
-        hold ?? plainAttach(sessionId, { settled, visible, local: this.localOrigin, maxBytes: OPEN_PAGE_BYTES }),
+        hold ??
+          plainAttach(sessionId, { settled, visible, attending, local: this.localOrigin, maxBytes: OPEN_PAGE_BYTES }),
       );
     // acpmux answers a settled view it cannot read with a plain page; one that fails the attach over
     // it instead (its error names `settled`) is asked once more without it, so the chat still opens.
@@ -7104,7 +7106,7 @@ export class AcpmuxDirectClient {
       () => {
         settled();
         if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-          this.shownToAcpmux = { sessionId, visible };
+          this.shownToAcpmux = { sessionId, visible, attending };
       },
       () => settled(),
     );
@@ -16423,6 +16425,27 @@ function pageShown(): boolean {
 /// What acpmux hears as `visible`, so a turn that ends while they are away is unread.
 function readerHere(): boolean {
   return pageShown() && (pageAttention()?.present() ?? true);
+}
+
+/// Where a lag's read of what acpmux left out starts: the page's cursor, or the notice's `afterSeq`
+/// when that is older. A chat hidden with `quietHidden` hears no `session/update` while hidden but
+/// still hears its turn ends and status, which move the cursor past the chunks it never got; the
+/// show's `_acpmux/lagged {reason: "hidden", afterSeq}` names where the first one left out was
+/// (acpmux server/view.rs), so the read gets every chunk back in order (`fetchMissedEvents` merges
+/// by seq, so records the page already has are not drawn twice).
+export function lagCursor(params: unknown, lastSeq: number): number {
+  const afterSeq = (params as { afterSeq?: unknown } | null | undefined)?.afterSeq;
+  return typeof afterSeq === "number" && Number.isFinite(afterSeq) && afterSeq >= 0
+    ? Math.min(lastSeq, afterSeq)
+    : lastSeq;
+}
+
+/// What acpmux hears of the reader on a plain attach and on `_acpmux/view`: whether the page is on
+/// screen at all (`visible`) and whether their hand was on it lately (`attending`). Unread follows
+/// both (acpmux hub/seen.rs: a shown chat whose reader is away stays unread), and the agent's stream
+/// is left out only while the page is not on screen (`quietHidden`, attachParams.ts).
+function readerLook(): { visible: boolean; attending: boolean } {
+  return { visible: pageShown(), attending: pageAttention()?.present() ?? true };
 }
 
 /// JSON-RPC's method-not-found code: a daemon that predates the method.

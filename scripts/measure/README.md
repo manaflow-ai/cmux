@@ -24,6 +24,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | footprint | read-only probes (`ps`, rusage, `vmmap`) of a running app; `perf-bench.sh` cmux-budget on the fleet | Footprint per process kind. |
 | xbench | `perf-bench.sh` (`scripts/perf-bench/xbench.py`); `--import` reads `results.json` and `scripts/perf-bench/baseline/*.json` | Against other browsers, and the resource budget rows. |
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
+| app-stream-bytes | `app-stream-bytes.sh` (`cmux-tui/crates/acpmux/tests/app_stream_bytes.rs`) | Bytes a second acpmux sends the app's chat panes while chats stream, by kind, shown and hidden panes apart, and its CPU. |
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
 
 
@@ -68,6 +69,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `settings-section-switch.sh` | Settings section switch latency in headless WebKit and Chromium. | - | 2026-11-11 | active |
 | `perf-10x-lifecycle.sh` | Tab, pane, split and workspace create and close latency. | perf-10x | 2026-11-07 | active |
 | `perf-10x-daemon.sh` | Request latency of a headless cmux-tui (raw, 10 clients, CLI). | perf-10x | 2026-10-18 | active |
+| `app-stream-bytes.sh` | Bytes a second acpmux sends the app's chat panes by kind, and its CPU (bench app-stream-bytes). | CMUX-571 | 2026-11-16 | active |
 | `perf-10x-settings.sh` | Settings page render cost over the mock provider in bun and jsdom. | perf-10x | 2026-11-11 | active |
 | `terminal-cmd-click.sh` | Cmd-click in a terminal: no main-thread stall over 50 ms (live check). | cx-7xss | 2026-10-24 | active |
 | `terminal-throughput.sh` | 200 MB burst through a NEXT terminal and through a standalone terminal. | CMUX-571 | 2026-11-13 | active |

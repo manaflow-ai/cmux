@@ -5,12 +5,12 @@
 // before any change, and its first window replaces it in one step. With the chat list still out, the
 // open asks the switch and draws from its attach alone (decision 289). The recording's rows are of kind
 // `assistant`, which the adapter draws nothing of; here they are read as `text` rows.
-import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test, beforeEach } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
 import { HOLD_KINDS } from "./rows/holdKinds";
-import { listenForChatRows, resetChatRowsReceiver } from "./rows/receiver";
+import { resetChatRowsReceiver, listenForChatRows } from "./rows/receiver";
 import type { Lanes } from "./schedule";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -131,6 +131,7 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
       eventStream: true,
       kinds: [...HOLD_KINDS],
       visible: expect.any(Boolean),
+      attending: expect.any(Boolean),
     });
 
     // The store's window is the snapshot's rows.
@@ -266,6 +267,7 @@ test("with the list still out, a host that opens: the hold's reply gives the row
       eventStream: true,
       kinds: [...HOLD_KINDS],
       visible: expect.any(Boolean),
+      attending: expect.any(Boolean),
     });
     (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
       batch: 1,
