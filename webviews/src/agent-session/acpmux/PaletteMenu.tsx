@@ -13,6 +13,7 @@ import { useT } from "./i18n";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { useScrollEdges } from "./summary/scrollEdges";
 import { type PaletteSection, filterPaletteSections } from "./paletteMenuModel";
+import { focusRoute } from "../../ui/focusRoute";
 type Props = {
   label: string;
   className?: string;
@@ -144,14 +145,15 @@ export function PaletteMenu({
       if (command === "list.leave") {
         const list = menu.current?.ownerDocument.getElementById(menuId);
         if (!inField || !list) return false;
-        list.focus({ preventScroll: true });
+        focusRoute(list, "person", "key style list key", { preventScroll: true });
         return;
       }
       if (inField) return false;
       if (command === "list.first" || command === "list.last") {
         if (rows.length) setActive(command === "list.first" ? 0 : rows.length - 1);
       } else if (command === "list.open") void pick(selected);
-      else if (command === "list.search") search.current?.focus({ preventScroll: true });
+      else if (command === "list.search")
+        focusRoute(search.current, "person", "key style list key", { preventScroll: true });
       else return false;
     },
   });

@@ -14,6 +14,7 @@ import { useUiDirection } from "./UiProvider";
 import { VirtualList } from "./VirtualList";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
+import { focusRoute } from "./focusRoute";
 
 export interface DrillSection<T> {
   id: string;
@@ -101,7 +102,7 @@ export function DrillList<T>(props: DrillListProps<T>) {
   const levelEmpty = (sections.at(-1)?.items.length ?? 0) === 0;
   const optionId = (index: number) => `${id}-option-${index}`;
   const field = useRef<HTMLInputElement | null>(null);
-  const autoFocus = props.autoFocus !== false;
+  const autoFocus = props.autoFocus !== false; // focus-route: reads the prop; focusOnMount moves the keyboard
   const attachField = useCallback(
     (element: HTMLInputElement | null) => {
       field.current = element;
@@ -137,13 +138,13 @@ export function DrillList<T>(props: DrillListProps<T>) {
       case "list.back":
         return props.onUp();
       case "list.search":
-        return field.current?.focus({ preventScroll: true });
+        return void focusRoute(field.current, "person", "key style list key", { preventScroll: true });
       case "list.leave": {
         // The field gives the keyboard to its list; the list does what the field's Esc does.
         if (!inField) return props.onCancel();
         const list = field.current?.ownerDocument.getElementById(listId);
         if (!list) return false;
-        list.focus({ preventScroll: true });
+        focusRoute(list, "person", "key style list key", { preventScroll: true });
         return;
       }
     }

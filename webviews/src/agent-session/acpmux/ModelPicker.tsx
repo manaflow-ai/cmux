@@ -60,6 +60,7 @@ import { ScrollArea } from "../../ui/ScrollArea";
 import { quantizePickerRail } from "./pickerRailGeometry";
 import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
 import { pickerHeightBounds } from "./modelPickerLayout";
+import { focusRoute } from "../../ui/focusRoute";
 type ModelChoice = {
   id: string;
   name: string;
@@ -1181,7 +1182,7 @@ export function ModelPicker(props: ModelPickerProps) {
       if (command === "list.next" || command === "list.previous") return move(command === "list.next" ? 1 : -1);
       const list = modelsListElement();
       if (command !== "list.leave" || !list || rowCount === 0) return false;
-      list.focus({ preventScroll: true });
+      focusRoute(list, "person", "key style list key", { preventScroll: true });
     },
   });
   const listStyleKeys = useListKeys({
@@ -1192,7 +1193,8 @@ export function ModelPicker(props: ModelPickerProps) {
         if (rowCount) setActive(command === "list.first" ? 0 : rowCount - 1);
         return;
       }
-      if (command === "list.search") return search.current?.focus({ preventScroll: true });
+      if (command === "list.search")
+        return void focusRoute(search.current, "person", "key style list key", { preventScroll: true });
       const keys: Partial<Record<ListCommand, string>> = {
         "list.open": "Enter",
         "list.back": "ArrowLeft",

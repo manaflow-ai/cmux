@@ -12,6 +12,7 @@ import { useT } from "./i18n";
 import { FileSearchLoading } from "./FileSearchLoading";
 import { useScrollEdges } from "../../ui/scrollEdges";
 import { useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
+import { focusRoute } from "../../ui/focusRoute";
 
 /// How long typing settles before the palette asks again.
 const SEARCH_DEBOUNCE_MS = 80;
@@ -116,14 +117,14 @@ export function FileSearch({
       if (command === "list.leave") {
         const list = root.current?.ownerDocument.getElementById(listId);
         if (!inField || !list || count === 0) return false;
-        list.focus({ preventScroll: true });
+        focusRoute(list, "person", "key style list key", { preventScroll: true });
         return;
       }
       if (inField) return false;
       if (command === "list.first" || command === "list.last")
         setActive(command === "list.first" ? 0 : Math.max(0, count - 1));
       else if (command === "list.open") pick(results[selected]);
-      else if (command === "list.search") field.current?.focus();
+      else if (command === "list.search") focusRoute(field.current, "person", "key style list key");
       else return false;
     },
   });

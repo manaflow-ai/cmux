@@ -14,6 +14,7 @@ import {
   type ListOutcome,
 } from "../../ui/keyStyle";
 import { LIST_KEYS_PENDING_MS, MODIFIER_KEYS } from "../../ui/useListKeys";
+import { focusRoute } from "../../ui/focusRoute";
 export type KeyboardActions = {
   back(): void;
   forward(): void;
@@ -64,7 +65,7 @@ function stopRows(root: ParentNode): HTMLElement[] {
 /** The first row takes the keyboard (Down in the search field); false when there is none. */
 export function focusFirstRow(doc: Document): boolean {
   const row = stopRows(doc)[0];
-  row?.focus();
+  focusRoute(row, "person", "Down from the search field");
   return row !== undefined;
 }
 
@@ -146,12 +147,12 @@ function openRow(row: Element, actions: KeyboardActions): void {
 function runRowCommand(command: ListCommand, row: HTMLElement, rows: HTMLElement[], actions: KeyboardActions): boolean {
   const doc = row.ownerDocument;
   const at = rows.indexOf(row);
-  if (command === "list.next") rows[Math.min(at + 1, rows.length - 1)]?.focus();
+  if (command === "list.next") focusRoute(rows[Math.min(at + 1, rows.length - 1)], "person", "key style list key");
   else if (command === "list.previous") {
     if (at - 1 < 0) focusSearch(doc);
-    else rows[at - 1]?.focus();
-  } else if (command === "list.first") rows[0]?.focus();
-  else if (command === "list.last") rows.at(-1)?.focus();
+    else focusRoute(rows[at - 1], "person", "key style list key");
+  } else if (command === "list.first") focusRoute(rows[0], "person", "key style list key");
+  else if (command === "list.last") focusRoute(rows.at(-1), "person", "key style list key");
   else if (command === "list.open") openRow(row, actions);
   else if (command === "list.search") focusSearch(doc);
   else return false;

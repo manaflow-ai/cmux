@@ -28,6 +28,7 @@ import {
 } from "./model";
 import type { HistoryStore } from "./store";
 import { HISTORY_RANGES, type HistoryEntry } from "./types";
+import { focusRoute } from "../../ui/focusRoute";
 
 type OpenMenu = { session: number; x: number; y: number; items: PageMenuItem[]; returnFocus: HTMLElement | null };
 
@@ -84,14 +85,15 @@ export function HistoryPage({
       else if (command === "list.previous") move(-1);
       else if (command === "list.leave") {
         if (!inSearch) return false;
-        doc.getElementById("history-list")?.focus();
+        focusRoute(doc.getElementById("history-list"), "person", "key style list key");
       } else if (inSearch) return false;
       else if (command === "list.first") move(-flat.length);
       else if (command === "list.last") move(flat.length);
       else if (command === "list.pageDown") move(10);
       else if (command === "list.pageUp") move(-10);
       else if (command === "list.open") open(returnTarget(flat, snap.selection));
-      else if (command === "list.search") doc.querySelector<HTMLInputElement>(".history-search")?.focus();
+      else if (command === "list.search")
+        focusRoute(doc.querySelector<HTMLInputElement>(".history-search"), "person", "key style list key");
       else return false;
     },
   });

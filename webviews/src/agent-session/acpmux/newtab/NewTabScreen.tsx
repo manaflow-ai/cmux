@@ -153,6 +153,7 @@ import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
+import { focusRoute } from "../../../ui/focusRoute";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -1681,7 +1682,7 @@ export function NewTabScreen(props: Props) {
   const fieldKeys = useListKeys({
     onCommand: (command) => {
       if (command !== "list.leave" || !rows.length || !list.current) return false;
-      list.current.focus({ preventScroll: true });
+      focusRoute(list.current, "person", "key style list key", { preventScroll: true });
     },
   });
   const rowKeys = useListKeys({
@@ -1699,11 +1700,11 @@ export function NewTabScreen(props: Props) {
         case "list.open":
           return void submit();
         case "list.search":
-          return field.current?.focus();
+          return void focusRoute(field.current, "person", "key style list key");
         case "list.leave":
           // The field's first Escape: the suggestions close, the prompt has the keyboard again.
           setDismissed(text);
-          return field.current?.focus();
+          return void focusRoute(field.current, "person", "key style list key");
         default:
           return false;
       }

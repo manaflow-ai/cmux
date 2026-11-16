@@ -260,7 +260,7 @@ webviews/src/pages/shared/searchField.ts	1
 webviews/src/pages/stash/store.ts	1
 webviews/src/pages/tasks/TasksPage.tsx	2
 webviews/src/ui/ContextMenu.tsx	3
-webviews/src/ui/DrillList.tsx	2
+webviews/src/ui/DrillList.tsx	1
 webviews/src/ui/Listbox.tsx	3
 webviews/src/ui/Menu.tsx	1
 webviews/src/ui/Tree.tsx	3

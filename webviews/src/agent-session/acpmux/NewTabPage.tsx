@@ -47,6 +47,7 @@ import {
   cycleKind,
   recentSessions,
 } from "./newTabModel";
+import { focusRoute } from "../../ui/focusRoute";
 
 function escapedLiteral(value: string): string {
   return value.replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n");
@@ -511,7 +512,7 @@ export function NewTabPage({
     }
     if (inField) {
       if (command !== "list.leave" || !list.current) return false;
-      list.current.focus({ preventScroll: true });
+      focusRoute(list.current, "person", "key style list key", { preventScroll: true });
       return;
     }
     if (command === "list.first" || command === "list.last")
@@ -519,7 +520,7 @@ export function NewTabPage({
     else if (command === "list.open") {
       const row = rows[selected];
       if (row) activate(row);
-    } else if (command === "list.search") field.current?.focus();
+    } else if (command === "list.search") focusRoute(field.current, "person", "key style list key");
     else return false;
   };
   const fieldKeys = useListKeys({ onCommand: (command) => runListCommand(command, true) });

@@ -58,6 +58,7 @@ import {
   type QuickModel,
 } from "./quickModelMenuModel";
 import "./quickModelColumns.css";
+import { focusRoute } from "../../ui/focusRoute";
 
 type Column = 0 | 1 | 2;
 
@@ -1058,7 +1059,7 @@ function Columns({
         return columnKeys(asPlainKey(event, command === "list.next" ? "ArrowDown" : "ArrowUp"));
       if (command !== "list.leave" || !modelsList.current) return false;
       setCol(1);
-      modelsList.current.focus({ preventScroll: true });
+      focusRoute(modelsList.current, "person", "key style list key", { preventScroll: true });
     },
   });
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -1076,7 +1077,8 @@ function Columns({
       if (rows.length) setModelHl(command === "list.first" ? 0 : rows.length - 1);
       return;
     }
-    if (command === "list.search") return field.current?.focus({ preventScroll: true });
+    if (command === "list.search")
+      return void focusRoute(field.current, "person", "key style list key", { preventScroll: true });
     const plain = key[command];
     if (!plain) return false;
     columnKeys(asPlainKey(event, plain));
