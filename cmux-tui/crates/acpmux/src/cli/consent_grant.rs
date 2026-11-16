@@ -637,7 +637,6 @@ fn read_policy(root: &Path) -> Option<(Grant, u64)> {
 
 /// The account policy kept here for `account`, whole, as a peer verifies it.
 pub(crate) fn policy_grant(root: &Path, account: Option<&str>) -> Option<Value> {
-    return None; // red stub
     let kept: Value = read_json_opt(&root.join(POLICY))?;
     let grant = kept.get("grant")?;
     let parsed = parse(grant).ok()?;
@@ -660,7 +659,6 @@ pub(crate) fn recompute(
     consent: &mut super::cloud_join::Consent,
     account: Option<&str>,
 ) {
-    return; // red stub
     let mine = |grant_account: &str| account.is_none_or(|account| account == grant_account);
     let records: MachineGrants = read_json(&root.join(MACHINE_GRANTS));
     let policy = read_policy(root).filter(|(grant, _)| mine(&grant.account));
@@ -750,7 +748,6 @@ pub(crate) fn pin_enrolled(
     account: &str,
     now: u64,
 ) -> Result<bool, TrustError> {
-    return Err(TrustError::Store); // red stub
     if key.len() != 65 || key.first() != Some(&4) {
         return Err(TrustError::Invalid("the key is not a P-256 point".into()));
     }
@@ -795,7 +792,6 @@ pub(crate) fn pin_enrolled(
 /// (`own`) signed, for every machine (`*`). Anything else is refused before it is applied or
 /// handed to a peer.
 pub fn own_account_grant(value: &Value, own: Option<&OwnGrantor>) -> Result<Grant, Refusal> {
-    return parse(value); // red stub
     let grant = parse(value)?;
     if !grant.account_wide() {
         return Err(Refusal::new(MALFORMED, "the grant is not for every machine (`*`)"));
