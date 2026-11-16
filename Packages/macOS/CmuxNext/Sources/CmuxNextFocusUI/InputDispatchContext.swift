@@ -84,7 +84,10 @@ public final class InputDispatchContext {
     /// - Throws: What `body` throws.
     public func dispatching<T>(_ event: NSEvent, _ body: () throws -> T) rethrows -> T {
         let isScroll = event.type == .scrollWheel
-        if isScroll { scrollFrames.begin(phase: scrollFramePhase(of: event), eventTimestamp: event.timestamp) }
+        if isScroll {
+            scrollFrames.begin(phase: scrollFramePhase(of: event), eventTimestamp: event.timestamp)
+            lastScroll = uptime()
+        }
         stack.append(Dispatch(event: event, isScroll: isScroll))
         defer {
             let dispatch = stack.removeLast()
