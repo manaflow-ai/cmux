@@ -33,11 +33,11 @@ public nonisolated enum MacScreenSharingLook: String, Sendable, CaseIterable, Ha
 /// Every look has one action, Connect (Full Control), and a menu for View Only and the rest; a device
 /// that can't connect says why in a line that wraps, with no disabled buttons.
 public nonisolated enum MacScreenDevicesLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// Connect, then a More (…) menu, at the row's trailing edge (Tailscale's machine list).
+    /// Connect, then a More (…) menu, at the row's trailing edge.
     case connect
-    /// Connect with its menu's chevron beside it, one split control (Apple Screen Sharing's toolbar).
+    /// Connect with its menu's chevron beside it, one split control.
     case split
-    /// Online devices first with Connect, offline ones under their own header without actions (Parsec).
+    /// Online devices first with Connect, offline ones under their own header without actions.
     case grouped
 
     public var tunableTitle: String {
