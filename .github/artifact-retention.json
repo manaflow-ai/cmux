@@ -1,0 +1,9 @@
+{
+ "comment": "The one source for how long an Actions artifact is kept. Every literal `retention-days: N` in .github/workflows and .github/actions names its class on the same line (`# retention-class: report`), and its N is written from here by `python3 scripts/ci/artifact_retention.py --fix`. To change a policy, edit a number here and run --fix; never hand-edit a retention-days value. tests/test_ci_upload_artifact_retention.py refuses a literal with no class or a value that is not its class's, and reads its 3-day (report) and 7-day (publish) bounds from here.",
+ "classes": {
+  "handoff": {"days": 1, "use": "a same-run handoff: a later job of this run downloads it"},
+  "rerun": {"days": 2, "use": "a handoff a re-run attempt of the run may still download"},
+  "report": {"days": 3, "use": "a small receipt, report or log a person or a later run reads; the most an upload may keep without an allowlist entry"},
+  "publish": {"days": 7, "use": "an allowlisted handoff a later run, an approval or a publish reads; the most any upload may keep"}
+ }
+}
