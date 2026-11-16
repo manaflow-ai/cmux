@@ -97,6 +97,8 @@ extension SidebarListViewComponents {
                 guard let self else { return false }
                 return SidebarFoldAction(list: self).toggle(key)
             }
+        case (.listHeader, let view as ListHeaderRowView):
+            view.screenButton.onPress = { [weak self] in self?.model.send(.shareScreen(.local)) }
         case let (.section(sectionID), view as SectionHeaderRowView):
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true
