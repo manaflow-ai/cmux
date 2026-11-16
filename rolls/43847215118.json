@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43847215118",
+  "recorded_at": "2026-11-16T10:20:41Z",
+  "reason": "cmux-tui e889395afd3b changes the image's cmux-tui (pinned 37b8e7f72d5f)",
+  "dry_run": false,
+  "cmux_tui": "e889395afd3b07587ca20ab7b62405f4c42e8b4e",
+  "fixes": [
+    {
+      "sha": "e889395afd3b07587ca20ab7b62405f4c42e8b4e",
+      "mergedAt": "2026-11-16T01:57:14-08:00",
+      "subject": "cmux ext dev: build a fresh folder before checking the main script it writes (#44375)"
+    },
+    {
+      "sha": "adfc2550b196a1e7ea2de7e55922339cfc77450e",
+      "mergedAt": "2026-11-16T01:33:37-08:00",
+      "subject": "Keycap Playground: eight dialog keycap styles on real dialog buttons, light and dark"
+    },
+    {
+      "sha": "929d4f645dbea77cf08b514200ecd42725315fa5",
+      "mergedAt": "2026-11-16T09:30:35Z",
+      "subject": "Mac screen sharing: send frames when they are ready, not when the frame-rate cap's jitter allows (#44313)"
+    },
+    {
+      "sha": "34f6a64c2e513a7be0a328c7ed6845e3dca3fddd",
+      "mergedAt": "2026-11-16T09:29:10Z",
+      "subject": "cmux device list/show: a device with no address is still found by name (#44382)"
+    },
+    {
+      "sha": "04780ddf3448df6702d64c170b84a25e3c38c586",
+      "mergedAt": "2026-11-16T09:27:19Z",
+      "subject": "Sidebar: a new workspace made in a group stays in that group (#44267)"
+    },
+    {
+      "sha": "6720aa127e5124e9f5b98f5bccc42eb4668175ea",
+      "mergedAt": "2026-11-16T09:25:58Z",
+      "subject": "Cloud create: check-create reads the backend's client-config only for a field that needs a capability (#44317)"
+    },
+    {
+      "sha": "5006f3c7d0463f91d14c656815b759e43c8b2a2e",
+      "mergedAt": "2026-11-16T09:25:17Z",
+      "subject": "acpmux: a request on a silent link checks it in 2 s, and a network loss does not grow the silence budget (#44319)"
+    },
+    {
+      "sha": "a08a919afae803a17e3057d3aa5430f88c7865fb",
+      "mergedAt": "2026-11-16T01:09:36-08:00",
+      "subject": "cmux-tui: lean agent CLI frames (agent-cli-hybrid-v2), fewer bytes than the PTY on the viewer's link (#44245)"
+    },
+    {
+      "sha": "f41fedd239968a3b081871f135f8f5d82f884142",
+      "mergedAt": "2026-11-16T01:09:24-08:00",
+      "subject": "cmux-tui: carrier drill names the step it stopped in; bounded step is a timeout only at the deadline (#44260)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T10:20:41Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
