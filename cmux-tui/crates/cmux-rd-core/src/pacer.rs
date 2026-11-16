@@ -55,7 +55,16 @@ pub struct Pacer {
     start_rate_bytes_per_us: f64,
     /// `PACING_FACTOR` times the last target.
     floor_bytes_per_us: f64,
+    /// The stream's frame interval, from the last frame pushed.
+    interval_us: u64,
 }
+
+/// Nothing waits in the pacer longer than this share of a frame interval: when the
+/// queue (repairs, a keyframe, frames behind them) holds more than the pacing rate
+/// drains in that time, the rate rises to drain it. Without it a target cut by loss
+/// (not congestion) holds a recovery keyframe and its repairs past the viewer's
+/// deadline, which asks for another keyframe.
+pub const DRAIN_SHARE: f64 = 1.0;
 
 impl Pacer {
     pub fn new() -> Self {
@@ -69,9 +78,10 @@ impl Pacer {
         &mut self,
         datagrams: Vec<Vec<u8>>,
         target_bps: u64,
-        _frame_interval_us: u64,
+        frame_interval_us: u64,
         now_us: u64,
     ) {
+        self.interval_us = frame_interval_us;
         self.wake(now_us);
         for d in datagrams {
             self.queued_bytes += d.len();
@@ -128,7 +138,9 @@ impl Pacer {
     /// `PACING_FACTOR` times the target, whatever is queued (a start keyframe
     /// still queued keeps its own bound).
     fn set_rate(&mut self, target_bps: u64) {
-        let floor = target_bps as f64 * PACING_FACTOR / 8.0 / 1e6;
+        let pace = target_bps as f64 * PACING_FACTOR / 8.0 / 1e6;
+        let window_us = (self.interval_us as f64 * DRAIN_SHARE).max(1_000.0);
+        let floor = pace.max(self.queued_bytes as f64 / window_us);
         self.floor_bytes_per_us = floor;
         self.rate_bytes_per_us =
             if self.start_datagrams > 0 { floor.max(self.start_rate_bytes_per_us) } else { floor };
