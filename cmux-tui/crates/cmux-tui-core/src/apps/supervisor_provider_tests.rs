@@ -354,12 +354,13 @@ fn the_page_provider_hears_installed_apps_site_rules_and_their_removal() {
         (first[0]["app"].clone(), first[0]["css"].clone()),
         (json!("cmux/demo"), json!(".ad{display:none!important}\n"))
     );
-    // Uninstalled: its rules go, and the provider removes them from open tabs.
-    f.set("uninstall-demo", "cmux/demo", Origin::User, |o| o.installed = Some(false)).unwrap();
+    // Turned off: its rules stop applying, and the provider removes them from open tabs.
+    f.set("off-demo", "cmux/demo", Origin::User, |o| o.enabled = Some(false)).unwrap();
     let after = styles(&rx);
     assert_eq!(
         (after[0]["origin"].clone(), after[0]["css"].clone()),
         (json!("https://a.test"), json!(""))
     );
-    assert!(f.supervisor.inner.lock().unwrap().page_styles.sites.is_empty());
+    // Turning it off keeps the saved rules; only uninstall clears them (Effect::ClearStorage).
+    assert!(!f.supervisor.inner.lock().unwrap().page_styles.sites.is_empty());
 }
