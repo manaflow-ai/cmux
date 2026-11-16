@@ -16,6 +16,7 @@ mod removal;
 pub(crate) mod removed;
 #[cfg(test)]
 mod tests;
+mod this_mac;
 
 use std::io::{BufRead as _, IsTerminal as _, Write as _};
 use std::path::PathBuf;
@@ -690,8 +691,39 @@ fn hub_join(host: &str, flags: &Flags, access: zeroize::Zeroizing<String>) -> an
         .enable_all()
         .build()
         .context("cannot start the join")?;
+    #[cfg(unix)]
+    let mac_access = zeroize::Zeroizing::new(access.as_str().to_owned());
     let outcome = runtime.block_on(ssh_join::join_as(&request, access, &mut emit));
     let name = outcome.machine.as_ref().map_or(host, |m| m.name.as_str());
+    // This Mac on the hub mesh too, as the same person: the far machine's join grants the
+    // person's own machines, and a grant reaches only a machine on the mesh (this_mac.rs).
+    #[cfg(unix)]
+    let this_mac = match (&outcome.machine, request.hub.as_deref()) {
+        (Some(machine), Some(origin)) => {
+            let mut acp = |words: &[&str], stdin: Option<&str>| {
+                crate::cli::acp_json(words, stdin, std::time::Duration::from_secs(60))
+            };
+            if json_out {
+                println!(
+                    "{}",
+                    json!({"event": "progress", "step": "this_mac", "state": "running"})
+                );
+            } else {
+                println!(
+                    "  {:<8} {:>3} s  putting this Mac on the mesh",
+                    "this-mac", outcome.seconds
+                );
+            }
+            let _ = std::io::stdout().flush();
+            let done = this_mac::ensure(origin, &mac_access, &mut acp);
+            let listed = !matches!(done, this_mac::ThisMac::Blocked { .. })
+                && this_mac::listed(&machine.name, this_mac::LISTED_WITHIN, &mut acp);
+            Some((done, listed))
+        }
+        _ => None,
+    };
+    #[cfg(not(unix))]
+    let this_mac: Option<(this_mac::ThisMac, bool)> = None;
     record(
         if outcome.ok { "device.added" } else { "device.add_failed" },
         json!({
@@ -705,17 +737,34 @@ fn hub_join(host: &str, flags: &Flags, access: zeroize::Zeroizing<String>) -> an
     if json_out {
         let mut line = outcome.to_value();
         line.set("event", json!("done"));
+        if let Some((done, listed)) = &this_mac {
+            let mut mac = json!({"state": done.as_str(), "listed": listed});
+            if let this_mac::ThisMac::Blocked { message, next } = done {
+                mac.set("message", json!(message));
+                mac.set("next", json!(next));
+            }
+            line.set("thisMac", mac);
+        }
         println!("{line}");
     }
     match (&outcome.machine, &outcome.failure) {
         (Some(machine), _) => {
             if !json_out {
-                println!(
-                    "Added {} in {} s. It runs your agents now: cmux chat --on {} --prompt '…'",
-                    machine.name,
-                    outcome.seconds,
-                    shell_word(&machine.name)
-                );
+                let chat = format!("cmux chat --on {} --prompt '…'", shell_word(&machine.name));
+                match &this_mac {
+                    Some((this_mac::ThisMac::Blocked { message, next }, _)) => println!(
+                        "Added {} in {} s, but this Mac cannot start chats there yet: {message}\nnext: {next}",
+                        machine.name, outcome.seconds
+                    ),
+                    Some((_, false)) => println!(
+                        "Added {} in {} s. The hub has not listed it to this Mac yet; in a few seconds: {chat}",
+                        machine.name, outcome.seconds
+                    ),
+                    _ => println!(
+                        "Added {} in {} s. It runs your agents now: {chat}",
+                        machine.name, outcome.seconds
+                    ),
+                }
             }
             Ok(())
         }

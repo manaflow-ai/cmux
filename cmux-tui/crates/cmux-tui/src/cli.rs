@@ -150,6 +150,18 @@ pub(crate) use auth_token::app_token;
 pub(crate) fn app_access_token() -> Result<String, String> {
     chat_start::joined::app_token(&GlobalArgs::default())
 }
+
+/// `cmux acp WORDS` (this binary's acpmux, with no cmux credential in its environment) with
+/// `stdin`, for at most `limit`: its JSON answer, or the failure (`cmux device add` joins the
+/// Mac that ran it with `acp host enroll-self`).
+#[cfg(unix)]
+pub(crate) fn acp_json(
+    words: &[&str],
+    stdin: Option<&str>,
+    limit: std::time::Duration,
+) -> Result<serde_json::Value, serde_json::Value> {
+    chat_start::joined::acp_json(words, stdin, limit)
+}
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]

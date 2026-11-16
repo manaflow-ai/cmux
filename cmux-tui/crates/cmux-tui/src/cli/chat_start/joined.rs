@@ -801,7 +801,11 @@ pub(in crate::cli) fn fail(global: &GlobalArgs, error: Value) -> i32 {
 
 /// `cmux acp WORDS` (this binary's acpmux) for at most `limit`: its stdout's last JSON line, or
 /// the failure.
-fn acp_json(words: &[&str], stdin: Option<&str>, limit: Duration) -> Result<Value, Value> {
+pub(in crate::cli) fn acp_json(
+    words: &[&str],
+    stdin: Option<&str>,
+    limit: Duration,
+) -> Result<Value, Value> {
     let exe = std::env::current_exe()
         .map_err(|e| error("acpmux.unreachable", &format!("cannot find cmux: {e}"), true))?;
     let mut command = Command::new(exe);

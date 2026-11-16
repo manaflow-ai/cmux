@@ -466,6 +466,13 @@ pub(crate) fn hub_origin(value: &str) -> Result<String> {
     origin(Some(value.to_owned()))
 }
 
+/// The person a cmux access token acts for (its `sub` claim, unverified: the hub checks the
+/// token itself), as a safe id, for `host enroll-self --user-id` (`cmux device add` joins the Mac
+/// that ran it as that person). None for a token that is no JWT or names no one.
+pub fn access_token_user(token: &str) -> Option<String> {
+    sent_credential::user(token).and_then(|user| safe_id(&user))
+}
+
 /// `value`, else `CMUX_PLATFORM_ORIGIN`, else production, checked as `host join` checks it.
 pub(crate) fn hub_origin_or_default(value: Option<String>) -> Result<String> {
     origin(value)
