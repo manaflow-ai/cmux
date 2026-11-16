@@ -34,6 +34,10 @@ require_chromium="$(measure_chromium_required "$@")"
 ask_engine="$(measure_engine_asked "$@")"
 tag="chatopen"
 out="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$out"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 reload_config=(--config bench) reload_args=() bench_args=() app="" skip_build=0
 for arg in "$@"; do
   case "$arg" in
@@ -101,5 +105,5 @@ else
 fi
 mkdir -p artifacts
 # A fleet step has no LaunchServices session: the bench launches the app binary directly.
-CMUX_BENCH_LAUNCH=direct exec python3 scripts/cmux-next/chat-open-bench.py --app "$app" \
+CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/chat-open-bench.py --app "$app" \
   --json artifacts/chat-open.json --md artifacts/chat-open.md "$@"

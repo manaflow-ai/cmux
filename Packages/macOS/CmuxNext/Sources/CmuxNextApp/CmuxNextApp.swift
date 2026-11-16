@@ -1,10 +1,12 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextMallocZone
+import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
@@ -16,10 +18,9 @@ public struct CmuxNextApp {
     public static let shared = Self()
     public func main() {
         if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld
+        if StagedUpdatePrewarm.isChromiumPrewarm(CommandLine.arguments) { _ = cmux_early_malloc_zone_registration(); exit(CEFStagedPrewarm().run(application: CmuxApplication.shared).rawValue) }
         announceBenchHooksBuild()
-        // Before anything reads NSScroller.preferredScrollerStyle (AppKit reads it once): every
-        // scroll view is an overlay one, also with a mouse attached or "Always" (ScrollerStylePin).
-        ScrollerStylePin().apply(to: .standard)
+        ScrollerStylePin().apply(to: .standard); FontSmoothingSetting.applyBeforeLaunch() // defaults AppKit reads once as it starts: overlay scrollers, any mouse or setting; appearance.fontSmoothing
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chromium's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped
@@ -49,8 +50,7 @@ public struct CmuxNextApp {
         DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
         environment.marksRun = true
-        // A relaunch into an update nobody clicked comes back behind the user's app; read (and
-        // cleared) before anything can activate the app. An agent launch never activates anyway.
+        // An unclicked update relaunch comes back behind the user's app: read (and cleared) before any activation; agent launches never activate.
         if !environment.noActivate {
             environment.relaunchBehind = UpdateRelaunchFocus.consume(
                 build: UpdateBuildIdentity.main().build,
@@ -80,7 +80,7 @@ public struct CmuxNextApp {
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
-        let delegate = AppDelegate(environment: environment, daemonPrestart: nil,
+        let delegate = AppDelegate(environment: environment,
                                    launchReads: (work, launchImages, relaunchWake), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
         app.delegate = delegate
         app.setActivationPolicy(.regular)

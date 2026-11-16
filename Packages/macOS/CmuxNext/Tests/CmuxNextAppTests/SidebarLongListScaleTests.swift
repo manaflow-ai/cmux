@@ -11,7 +11,7 @@ import Testing
 /// docs/patterns/unvirtualized-long-lists.md): the same scroll over 50, 500 and 2,000 workspaces holds the same views
 /// and does the same work per frame. A list that makes a view per item, or a scroll that visits every item, grows
 /// with the count and fails here by name. Prints one `SIDEBAR-LONG-LIST` line per size, the before/after numbers.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(4)))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(4)), .closesItsWindows)
 struct SidebarLongListScaleTests {
     static let sizes = [50, 500, 2_000]
 

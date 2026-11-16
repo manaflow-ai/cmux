@@ -95,8 +95,29 @@ public final class DeviceHub {
 
     public var identity: DeviceIdentity { client.identity }
     public var thisDevice: HubDevice? { devices.first { $0.id == identity.id } }
-    /// The user's other devices.
-    public var otherDevices: [HubDevice] { devices.filter { $0.id != identity.id } }
+    /// The user's other devices, one per physical device (``DeviceList``): this Mac's other builds and
+    /// a Mac's stale records are not listed again (Leo, 2026-11-16: the same Mac listed two and three times).
+    public var otherDevices: [HubDevice] {
+        let byID = Dictionary(devices.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return deviceList.others.compactMap { byID[$0.id] }
+    }
+
+    /// Every hub record of the device `id` lists as (``otherDevices``), `id` first; just `id` when unknown.
+    public func recordIDs(of id: String) -> [String] {
+        deviceList.others.first { $0.ids.contains(id) }?.ids ?? [id]
+    }
+
+    /// ``DeviceList`` of ``devices``, asked of Rust again only when the records or this identity change.
+    var deviceList: DeviceList {
+        let key = DeviceListKey(thisID: identity.id, name: deviceName, devices: devices)
+        if let cached = deviceListCache, cached.key == key { return cached.list }
+        let list = DeviceList.make(thisID: identity.id, thisName: deviceName, platform: platform, devices: devices)
+        deviceListCache = (key, list)
+        return list
+    }
+
+    struct DeviceListKey: Equatable { var thisID: String, name: String, devices: [HubDevice] }
+    @ObservationIgnored private var deviceListCache: (key: DeviceListKey, list: DeviceList)?
 
     /// What `viewer` may do on `host`'s screen; `full` when no permission is stored (the hub's default
     /// for the account's own devices, PROTOCOL.md).
