@@ -13,7 +13,18 @@
 //                                           changed for it, p50 / p95
 //   tool_call_burst.<pace>.task_ms_per_call main-thread task ms per tool call (start, updates and end)
 //   tool_call_burst.<pace>.cls              layout-shift sum while the burst plays
+// Under load (CMUX-571: Leo's NIGHTLY on a loaded Mac drew 4 fps, and a record waited p50 1,021 ms, p95 1,837 ms from
+// its arrival to its first paint while applying it took 2.6 ms at most), `--cpu N` slows the page's CPU N times (CDP
+// Emulation.setCPUThrottlingRate) once the chat is open, and `--hog N` runs N busy processes on the host for the
+// burst. Each round also prints, beside the rows above (printed only, no rows):
+//   capture p50/p95   the page's own `cmux app chat perf` capture (chatPerfCapture.ts, the NIGHTLY's numbers) over
+//                     the burst: a record's arrival to the first frame painted after it
+//   commit p50/p95    a record's arrival to the DOM change after it (ms)
+//   missed            records whose DOM change came only after a frame that began after they arrived: a frame
+//                     that could have shown the record and did not
+// A DOM change made in a frame callback, or in the microtasks right after one, is painted by that frame.
 //   bun bench/tool-call-burst.bench.ts [--turns 200] [--calls 50] [--paces fast:15,agent:60] [--rounds 3]
+//     [--cpu 1] [--hog 0]
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -38,6 +49,10 @@ const PACES = (flag("--paces") ?? "fast:15,agent:60").split(",").map((pair) => {
   return { name: name!, gap: Number(gap) };
 });
 const PROFILE = process.env.PROFILE === "1";
+/// The page's CPU slowed this many times for the burst (1: as it is).
+const CPU = Number(flag("--cpu") ?? 1);
+/// Busy processes on the host while the burst plays (0: none).
+const HOG = Number(flag("--hog") ?? 0);
 const webviews = path.resolve(import.meta.dir, "..");
 const sessionId = "tool-burst";
 
@@ -210,6 +225,8 @@ function instrument() {
     __shifts: { at: number; value: number }[];
     __arrivals: number[];
     __mutations: number[];
+    /// Per DOM change: the frame (its rAF timestamp) whose callbacks made it, or -1 when a task made it.
+    __mutationFrames: number[];
     __watch: () => void;
   };
   if (w.__frames) return;
@@ -218,6 +235,25 @@ function instrument() {
   w.__shifts = [];
   w.__arrivals = [];
   w.__mutations = [];
+  w.__mutationFrames = [];
+  // A DOM change in a frame callback, or in the microtasks right after it (a store's sync render), is drawn by
+  // that frame: every frame callback is wrapped to take the observer's records before the frame renders.
+  let observer: MutationObserver | undefined;
+  const note = (frameAt: number) => {
+    if (!observer || observer.takeRecords().length === 0) return;
+    w.__mutations.push(performance.now());
+    w.__mutationFrames.push(frameAt);
+  };
+  const realFrame = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (callback: FrameRequestCallback) =>
+    realFrame((at) => {
+      try {
+        callback(at);
+      } finally {
+        note(at);
+        queueMicrotask(() => note(at));
+      }
+    });
   const frame = (at: number) => {
     w.__frames.push(at);
     requestAnimationFrame(frame);
@@ -252,7 +288,12 @@ function instrument() {
   (window as unknown as { WebSocket: typeof WebSocket }).WebSocket = Watched;
   w.__watch = () => {
     const root = document.querySelector(".acpmux-scroll") ?? document.body;
-    new MutationObserver(() => w.__mutations.push(performance.now())).observe(root, {
+    observer = new MutationObserver((records) => {
+      if (records.length === 0) return;
+      w.__mutations.push(performance.now());
+      w.__mutationFrames.push(-1);
+    });
+    observer.observe(root, {
       childList: true,
       subtree: true,
       characterData: true,
@@ -281,8 +322,17 @@ type Round = {
   paintP95: number;
   taskMsPerCall: number;
   cls: number;
+  commitP50: number;
+  commitP95: number;
+  missed: number;
+  records: number;
+  captureP50: number | null;
+  captureP95: number | null;
+  captureCount: number | null;
   selfMs?: [string, number][];
 };
+
+type Capture = { records?: { all?: { count?: number; to_paint?: { p50?: number; p95?: number } } } } | null;
 
 type CpuProfile = {
   nodes: {
@@ -337,75 +387,124 @@ async function round(browser: Browser, url: string, gap: number): Promise<Round>
     if (!play.socket) throw new Error("the pane never attached");
     await page.waitForTimeout(1500);
     await page.evaluate(() => (window as unknown as { __watch: () => void }).__watch());
-    const since = await page.evaluate(() => performance.now());
-    const taskBefore = await metric(cdp, "TaskDuration");
-    if (PROFILE) await cdp.send("Profiler.start");
+    if (CPU > 1) await cdp.send("Emulation.setCPUThrottlingRate", { rate: CPU });
     // The burst: each record on its own wall-clock timer.
     const schedule: { at: number; step: Step }[] = [];
     for (let index = 0; index < CALLS; index += 1)
       for (const { after, step } of call(index, gap)) schedule.push({ at: index * gap + after, step });
     schedule.sort((a, b) => a.at - b.at);
-    const t0 = performance.now();
-    for (const { at, step } of schedule) {
-      const wait = t0 + at - performance.now();
-      if (wait > 0) await Bun.sleep(wait);
-      const record = toRecord(sessionId, play.served + 1, Date.now(), step);
-      play.events.push(record);
-      play.served += 1;
-      emit(record);
+    // Busy processes for the burst, each stopped by its own handle.
+    const hogs = Array.from({ length: HOG }, () =>
+      Bun.spawn([process.execPath, "-e", "for (;;) {}"], { stdout: "ignore", stderr: "ignore" }),
+    );
+    let capture: Promise<Capture> = Promise.resolve(null);
+    try {
+      const since = await page.evaluate(() => performance.now());
+      const taskBefore = await metric(cdp, "TaskDuration");
+      if (PROFILE) await cdp.send("Profiler.start");
+      // The page's own capture over the whole burst and the second after it (seconds, at most 60).
+      const seconds = Math.min(60, Math.ceil(((schedule.at(-1)?.at ?? 0) + 1000) / 1000));
+      capture = page.evaluate(
+        (window_) =>
+          (
+            window as unknown as {
+              cmuxAcpmuxBridge?: { perfCapture?(o: { seconds: number }): Promise<Record<string, unknown>> };
+            }
+          ).cmuxAcpmuxBridge?.perfCapture?.({ seconds: window_ }) ?? null,
+        seconds,
+      ) as Promise<Capture>;
+      const t0 = performance.now();
+      for (const { at, step } of schedule) {
+        const wait = t0 + at - performance.now();
+        if (wait > 0) await Bun.sleep(wait);
+        const record = toRecord(sessionId, play.served + 1, Date.now(), step);
+        play.events.push(record);
+        play.served += 1;
+        emit(record);
+      }
+      await page.waitForTimeout(1000);
+      return await measured(page, cdp, since, taskBefore, await capture);
+    } finally {
+      for (const hog of hogs) hog.kill();
     }
-    await page.waitForTimeout(1000);
-    const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
-    const taskMs = ((await metric(cdp, "TaskDuration")) - taskBefore) * 1000;
-    const until = await page.evaluate(() => performance.now());
-    const data = await page.evaluate(() => {
-      const w = window as unknown as {
-        __frames: number[];
-        __long: { at: number; ms: number }[];
-        __shifts: { at: number; value: number }[];
-        __arrivals: number[];
-        __mutations: number[];
-      };
-      return {
-        frames: w.__frames,
-        long: w.__long,
-        shifts: w.__shifts,
-        arrivals: w.__arrivals,
-        mutations: w.__mutations,
-      };
-    });
-    const arrivals = data.arrivals.filter((at) => at >= since);
-    const lastArrival = arrivals.at(-1) ?? until;
-    const frames = data.frames.filter((at) => at >= since && at <= lastArrival + 200);
-    const gaps = frames.slice(1).map((at, index) => at - frames[index]!);
-    // A record's arrival to the first frame that begins after the first DOM change at or after the arrival.
-    const paints: number[] = [];
-    let m = 0;
-    let f = 0;
-    for (const arrival of arrivals) {
-      while (m < data.mutations.length && data.mutations[m]! < arrival) m++;
-      const changed = data.mutations[m];
-      if (changed === undefined) continue;
-      while (f < data.frames.length && data.frames[f]! <= changed) f++;
-      const painted = data.frames[f];
-      if (painted !== undefined) paints.push(painted - arrival);
-    }
-    const long = data.long.filter((task) => task.at >= since && task.at <= lastArrival + 200);
-    return {
-      frameP50: r1(percentile(gaps, 0.5)),
-      frameP95: r1(percentile(gaps, 0.95)),
-      frameMax: r1(Math.max(0, ...gaps)),
-      longTasks: long.length,
-      longestTask: Math.round(Math.max(0, ...long.map((task) => task.ms))),
-      paintP50: r1(percentile(paints, 0.5)),
-      paintP95: r1(percentile(paints, 0.95)),
-      taskMsPerCall: r1(taskMs / CALLS),
-      cls: Math.round(data.shifts.filter((s) => s.at >= since).reduce((sum, s) => sum + s.value, 0) * 1e4) / 1e4,
-      ...(profiled ? { selfMs: selfTimes(profiled) } : {}),
-    };
   } finally {
     await page.close();
   }
+}
+
+async function measured(
+  page: Page,
+  cdp: CDPSession,
+  since: number,
+  taskBefore: number,
+  capture: Capture,
+): Promise<Round> {
+  const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
+  const taskMs = ((await metric(cdp, "TaskDuration")) - taskBefore) * 1000;
+  const until = await page.evaluate(() => performance.now());
+  const data = await page.evaluate(() => {
+    const w = window as unknown as {
+      __frames: number[];
+      __long: { at: number; ms: number }[];
+      __shifts: { at: number; value: number }[];
+      __arrivals: number[];
+      __mutations: number[];
+      __mutationFrames: number[];
+    };
+    return {
+      frames: w.__frames,
+      long: w.__long,
+      shifts: w.__shifts,
+      arrivals: w.__arrivals,
+      mutations: w.__mutations,
+      mutationFrames: w.__mutationFrames,
+    };
+  });
+  const arrivals = data.arrivals.filter((at) => at >= since);
+  const lastArrival = arrivals.at(-1) ?? until;
+  const frames = data.frames.filter((at) => at >= since && at <= lastArrival + 200);
+  const gaps = frames.slice(1).map((at, index) => at - frames[index]!);
+  // A record's arrival to the frame that draws the first DOM change at or after the arrival: the frame whose
+  // callbacks made the change, else the first frame that begins after it.
+  const paints: number[] = [];
+  const commits: number[] = [];
+  let missed = 0;
+  let m = 0;
+  let f = 0;
+  for (const arrival of arrivals) {
+    while (m < data.mutations.length && data.mutations[m]! < arrival) m++;
+    const changed = data.mutations[m];
+    if (changed === undefined) continue;
+    commits.push(changed - arrival);
+    const inFrame = data.mutationFrames[m] ?? -1;
+    while (f < data.frames.length && data.frames[f]! <= changed) f++;
+    const painted = inFrame >= 0 ? inFrame : data.frames[f];
+    if (painted === undefined) continue;
+    paints.push(painted - arrival);
+    // A frame began after the record came and before the frame that draws it: one the record waited past.
+    if (data.frames.some((at) => at > arrival && at < painted)) missed += 1;
+  }
+  const long = data.long.filter((task) => task.at >= since && task.at <= lastArrival + 200);
+  const all = capture?.records?.all;
+  return {
+    frameP50: r1(percentile(gaps, 0.5)),
+    frameP95: r1(percentile(gaps, 0.95)),
+    frameMax: r1(Math.max(0, ...gaps)),
+    longTasks: long.length,
+    longestTask: Math.round(Math.max(0, ...long.map((task) => task.ms))),
+    paintP50: r1(percentile(paints, 0.5)),
+    paintP95: r1(percentile(paints, 0.95)),
+    taskMsPerCall: r1(taskMs / CALLS),
+    cls: Math.round(data.shifts.filter((s) => s.at >= since).reduce((sum, s) => sum + s.value, 0) * 1e4) / 1e4,
+    commitP50: r1(percentile(commits, 0.5)),
+    commitP95: r1(percentile(commits, 0.95)),
+    missed,
+    records: paints.length,
+    captureP50: all?.to_paint?.p50 ?? null,
+    captureP95: all?.to_paint?.p95 ?? null,
+    captureCount: all?.count ?? null,
+    ...(profiled ? { selfMs: selfTimes(profiled) } : {}),
+  };
 }
 
 if (import.meta.main) {
@@ -461,12 +560,23 @@ if (import.meta.main) {
             .map(
               (r) =>
                 `[frame p50 ${r.frameP50} p95 ${r.frameP95} max ${r.frameMax} | long ${r.longTasks} (${r.longestTask} ms) | ` +
-                `paint p50 ${r.paintP50} p95 ${r.paintP95} | ${r.taskMsPerCall} ms/call | cls ${r.cls}]`,
+                `paint p50 ${r.paintP50} p95 ${r.paintP95} | commit p50 ${r.commitP50} p95 ${r.commitP95} | ` +
+                `missed ${r.missed}/${r.records} | capture p50 ${r.captureP50} p95 ${r.captureP95} (${r.captureCount}) | ` +
+                `${r.taskMsPerCall} ms/call | cls ${r.cls}]`,
             )
             .join(" "),
       );
+      console.log(
+        `tool-call-burst: ${pace.name} cpu ${CPU}x hog ${HOG} median of ${ROUNDS}: frame p50 ${med((r) => r.frameP50)} ` +
+          `p95 ${med((r) => r.frameP95)} | paint p50 ${med((r) => r.paintP50)} p95 ${med((r) => r.paintP95)} | ` +
+          `commit p50 ${med((r) => r.commitP50)} p95 ${med((r) => r.commitP95)} | ` +
+          `missed ${med((r) => r.missed / Math.max(1, r.records)).toFixed(2)} | ` +
+          `capture p50 ${med((r) => r.captureP50 ?? NaN)} p95 ${med((r) => r.captureP95 ?? NaN)}`,
+      );
       for (const r of rounds.filter((r) => r.selfMs).slice(0, 1))
         for (const [fn, ms] of r.selfMs!) console.log(`    ${ms.toFixed(1)} ms  ${fn}`);
+      // A loaded run is a diagnosis, printed above; its rows would read as the idle runner's.
+      if (CPU > 1 || HOG > 0) continue;
       const name = `tool_call_burst.${pace.name}`;
       perfRow({ name: `${name}.frame_gap_ms`, p50: med((r) => r.frameP50), p95: med((r) => r.frameP95), target: 33.4 });
       perfRow({
