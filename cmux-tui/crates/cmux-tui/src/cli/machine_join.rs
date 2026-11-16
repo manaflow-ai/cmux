@@ -1018,7 +1018,7 @@ pub(crate) fn mint_invite(
         "joinTokenId": minted.join_token_id,
         "expiresAt": minted.expires_at,
         "teamId": minted.team_id,
-        "name": minted.label.clone().or_else(|| label.map(str::to_owned)),
+        "name": minted.label.or_else(|| label.map(str::to_owned)),
         "scriptUrl": format!("{}/v1/machines/join.sh", platform.origin),
         "channel": channel,
     });
