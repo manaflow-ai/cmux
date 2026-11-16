@@ -516,7 +516,7 @@ export function preclaimClaimRecord(input: {
   };
 }
 
-/** A git commit (7 to 40 hex). Staging's API answers `version: "0.1.0"` (its wrangler API_VERSION): a version, not a deploy. */
+/** A git commit (7 to 40 hex). Staging's API answers `version: "0.1.0"` (its deploy config API_VERSION): a version, not a deploy. */
 const DEPLOY_COMMIT = /^[0-9a-f]{7,40}$/i;
 
 /** Keep health evidence useful without copying response bodies or account identifiers into the run output. */

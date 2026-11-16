@@ -2315,7 +2315,7 @@ describe("claudeTranscriptModelsProgram", () => {
   });
 
   test("preclaim health names a deploy commit only: staging's fixed API version and a refused read say why", () => {
-    // Staging's cmux-api answers {ok, environment, version: "0.1.0"} (wrangler API_VERSION): a version, never a deploy.
+    // Staging's cmux-api answers {ok, environment, version: "0.1.0"} (its deploy config API_VERSION): a version, never a deploy.
     expect(preclaimHealthSnapshot({ status: 200, body: { ok: true, environment: "staging", version: "0.1.0" } })).toEqual({ http_status: 200, outcome: "ok", commit: null, commit_unavailable: "/v1/health names 0.1.0, not a deploy commit" });
     expect(preclaimHealthSnapshot({ status: 503, body: { commit: "c684eb73" } })).toEqual({ http_status: 503, outcome: "error", commit: null, commit_unavailable: "/v1/health answered HTTP 503" });
     expect(preclaimHealthSnapshot({ status: 200, body: { ok: true } }).commit_unavailable).toBe("/v1/health names no deploy commit");
