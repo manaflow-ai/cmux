@@ -51,6 +51,11 @@ set -euo pipefail
 
 # Defaults come from the registry's mac-build role. There is deliberately no hard-coded fallback: Leo, 2026-11-16,
 # "cmux16 is not a fleet builder right now it runs MY stuff".
+# Empty mac-build is intentional when only personal Macs remain. Verification then belongs on managed CI.
+ci_next() {
+    echo "next: cmux-ci test -- python3 scripts/cmux-next/prepush-gate.py" >&2
+    echo "push-from-host: if a remaining gate requires macOS, use a cmux-ci exclusive step or lease an authorized fleet Mac with: cmux-ci lease take HOST --for 1h --reason 'macOS push gate' (release after)." >&2
+}
 REGISTRY="${CMUX_FLEET_REGISTRY:-$HOME/Projects/leo-workspace/machines/fleet-registry.json}"
 DEFAULT_HOSTS=()
 HOSTS=()
@@ -95,6 +100,7 @@ except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
     raise SystemExit(2)
 PYREG
 )"; then
+    ci_next
     exit 2
 fi
 while IFS= read -r candidate; do
@@ -107,6 +113,7 @@ if (( ${#HOSTS[@]} == 0 )); then
         HOSTS=("${DEFAULT_HOSTS[@]}")
     else
         echo "push-from-host: no eligible mac-build hosts in $REGISTRY; nothing was sent." >&2
+        ci_next
         exit 2
     fi
 fi
@@ -175,7 +182,8 @@ for spec in "${HOSTS[@]}"; do
 done
 if [[ -z "$HOST" ]]; then
     if (( ${#TRIED[@]} == 0 )); then
-        echo "push-from-host: every host is reserved or its reservation can't be read (${RESERVED[*]}); nothing was sent. Name a free one with --host HOST[:REPO]." >&2
+        echo "push-from-host: no candidate is eligible and unreserved (${RESERVED[*]}); nothing was sent." >&2
+        ci_next
     else
         # Not ${RESERVED[*]} on an empty array: macOS's bash 3.2 calls that unbound under set -u.
         SKIPPED=""

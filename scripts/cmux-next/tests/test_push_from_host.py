@@ -290,7 +290,7 @@ git config core.hooksPath "$common/cmux-git-hooks"
         done = self.push("topic", hosts=("perf-mini", "user@other-mini"))
 
         self.assertEqual(done.returncode, 2, done.stderr)
-        self.assertIn("every host is reserved", done.stderr)
+        self.assertIn("no candidate is eligible and unreserved", done.stderr)
         self.assertIn("perf-mini user@other-mini", done.stderr)
         self.assertEqual(self.remote_head("topic"), "")
         self.assertFalse((self.host_home / "hook.log").exists())
@@ -303,7 +303,7 @@ git config core.hooksPath "$common/cmux-git-hooks"
 
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn("skipping fake-host: its reservation can't be read (exit 2)", done.stderr)
-        self.assertIn("every host is reserved", done.stderr)
+        self.assertIn("no candidate is eligible and unreserved", done.stderr)
 
     def test_a_mac_without_the_reader_warns_and_pushes(self):
         self.env["CMUX_FLEET_RESERVATIONS"] = str(self.root / "missing" / "fleet_reservations.py")
@@ -366,6 +366,16 @@ git config core.hooksPath "$common/cmux-git-hooks"
                 done = self.push("--which-host", "topic")
                 self.assertEqual(done.returncode, 2, done.stderr)
                 self.assertFalse((self.root / "ssh.log").exists())
+
+    def test_empty_default_role_directs_gates_to_managed_ci(self):
+        Path(self.env["CMUX_FLEET_REGISTRY"]).write_text(json.dumps({"machines": {
+            "personal-mini": {"roles": ["mac-build"], "personal": True}}}))
+        self.env.pop("CMUX_PUSH_HOST", None)
+        done = self.push("--which-host", "topic", hosts=())
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("next: cmux-ci test -- python3 scripts/cmux-next/prepush-gate.py", done.stderr)
+        self.assertIn("cmux-ci lease take HOST --for 1h", done.stderr)
+        self.assertFalse((self.root / "ssh.log").exists())
 
     def test_user_at_host_preserves_registry_identity(self):
         done = self.push("--which-host", "topic", hosts=("user@fake-host:fun/cmux",))
