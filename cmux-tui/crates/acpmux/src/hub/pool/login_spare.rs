@@ -18,7 +18,9 @@
 //! Code's `settings.json`, read once at daemon start too. A settings change after the install
 //! (the model stub's endpoint, a person's edit) is part of the key, so the spare is wanted again
 //! under it: the old one is discarded and a matching one starts. Linux only (Cloud machines);
-//! elsewhere only the start reads them. Started once, at daemon start, when the switch is on then.
+//! elsewhere only the start reads them. The switch is read at daemon start and at each config
+//! reload (`acpmux daemon reload`), which also starts the spare again after the reload drops the
+//! pool; the watch starts the first time it is on.
 
 use super::*;
 use std::path::Path;
@@ -48,15 +50,20 @@ pub(super) fn installed(home: &Path) -> bool {
     own && login
 }
 
+/// The daemon's one watch of the marks, started the first time the switch is read on.
+#[cfg(target_os = "linux")]
+static WATCHING: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
 impl Hub {
-    /// Daemon start (`restore_spares`): read the marks once, and follow them.
-    pub(super) async fn login_spare_start(self: &Arc<Self>) {
+    /// Daemon start (`restore_spares`) and each config reload (which drops every pooled agent):
+    /// read the marks, and follow them from the first time the switch is on.
+    pub(crate) async fn login_spare_start(self: &Arc<Self>) {
         if !self.config.read().await.pool.login_spare_enabled() {
             return;
         }
         let Some(home) = dirs::home_dir() else { return };
         #[cfg(target_os = "linux")]
-        watch(Arc::downgrade(self), home.clone());
+        WATCHING.get_or_init(|| watch(Arc::downgrade(self), home.clone()));
         self.login_spare_check(home).await;
     }
 

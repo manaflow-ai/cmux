@@ -35,7 +35,7 @@ pub struct PoolConfig {
     /// Staging only, off by default: on a Cloud machine, a login install that names a cmux account
     /// (`~/.config/cmux/agent-auth/claude.login`, the warm's copy ahead of a chat) starts a Claude
     /// spare in the home folder (`hub/pool/spare.rs`). Also on with `ACPMUX_LOGIN_SPARE=1` in the
-    /// daemon's environment. Needs spares on.
+    /// daemon's environment. Needs spares on. Read at daemon start and at each config reload.
     pub login_spare: bool,
 }
 

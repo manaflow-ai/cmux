@@ -76,6 +76,14 @@ impl Daemon {
         self
     }
 
+    /// Writes `pool.loginSpare` into config.json (a reload reads it).
+    fn set_login_spare(&self, on: bool) {
+        let path = self.scratch.join("config.json");
+        let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        config["pool"]["loginSpare"] = json!(on);
+        std::fs::write(path, config.to_string()).unwrap();
+    }
+
     /// The daemon's and the agents' HOME: the Cloud machine's home folder.
     fn home(&self) -> PathBuf {
         daemon_env::home(&self.scratch)
@@ -297,6 +305,40 @@ async fn with_the_login_spare_off_a_login_install_starts_no_agent() {
     let status = rpc.call("_acpmux/status", json!({})).await;
     assert_eq!(status["pool"]["entries"], json!([]), "{status}");
     assert!(daemon.stdin_kinds().is_empty(), "no agent started");
+}
+
+/// The switch is read again by `_acpmux/reload_config` (`acpmux daemon reload`): turned on with a
+/// login already installed, the spare starts with no daemon restart.
+#[tokio::test(flavor = "multi_thread")]
+async fn turning_the_login_spare_on_by_a_reload_starts_it_for_the_installed_login() {
+    let daemon = Daemon::start("on-reload", false);
+    let mut rpc = daemon.rpc().await;
+    daemon.install_login("user_a", "d1");
+    daemon.set_login_spare(true);
+    let reloaded = rpc.call("_acpmux/reload_config", json!({})).await;
+    assert_eq!(reloaded["reloaded"], true, "{reloaded}");
+    wait_claude_spare(&daemon, &mut rpc).await;
+}
+
+/// A reload drops every pooled agent started under the old catalog; the login spare starts again
+/// under the new one, so it is not lost until the next login install.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reload_starts_the_login_spare_again() {
+    let (daemon, mut rpc, first) = with_spare("reload").await;
+    let reloaded = rpc.call("_acpmux/reload_config", json!({})).await;
+    assert_eq!(reloaded["reloaded"], true, "{reloaded}");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let again = loop {
+        let record = wait_claude_spare(&daemon, &mut rpc).await;
+        if record["harness_pid"] != first["harness_pid"] {
+            break record;
+        }
+        assert!(Instant::now() < deadline, "no new login spare after a reload");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let session = chat(&mut rpc, &daemon.home(), json!({})).await;
+    assert!(daemon.taken(&session), "the chat took the spare started after the reload");
+    assert_eq!(daemon.harness_pid(&session), again["harness_pid"]);
 }
 
 /// A daemon with a ready login spare, its pool record, and a connection.
