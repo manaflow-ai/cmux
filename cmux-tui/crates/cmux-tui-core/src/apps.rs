@@ -64,9 +64,9 @@ mod openers;
 mod page_bridge;
 // `page.*` ops: per-site styles kept here, page reads through the Mac app.
 #[cfg(unix)]
-mod page_ops;
-#[cfg(unix)]
 mod page_keys;
+#[cfg(unix)]
+mod page_ops;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]

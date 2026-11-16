@@ -367,7 +367,7 @@ impl super::supervisor::Supervisor {
         let fail =
             |e: PageError| json!({ "code": e.code, "message": e.message, "retryable": false });
         let value = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let current = inner
                 .hosts
                 .get(key)

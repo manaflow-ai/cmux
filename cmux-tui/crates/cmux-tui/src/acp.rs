@@ -223,45 +223,51 @@ fn ask_agent(
     if let Some(model) = &request.model {
         command.arg(format!("--model={model}"));
     }
-    let mut child = command
+    command
         .args(["--prompt-file", "-"])
         .stdin(cmux_process::Stdio::piped())
         .stdout(cmux_process::Stdio::piped())
-        .stderr(cmux_process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("acpmux exec: {e}"))?;
-    // Every pipe on its own thread, so neither a long reply nor a child that
-    // never reads its prompt can hold this one past the deadline.
-    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
-        std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            if let Some(mut pipe) = pipe {
-                let _ = (&mut pipe).take(ASK_PIPE_BYTES).read_to_end(&mut bytes);
-                let _ = std::io::copy(&mut pipe, &mut std::io::sink());
-            }
-            String::from_utf8_lossy(&bytes).into_owned()
-        })
-    };
-    let stdout = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
-    let stderr = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
-    if let Some(mut stdin) = child.stdin.take() {
-        let prompt = request.prompt.clone();
-        // Closing stdin ends the prompt; a killed child ends the write.
-        std::thread::spawn(move || {
-            let _ = stdin.write_all(prompt.as_bytes());
-        });
-    }
-    // acpmux cancels the turn at its own --timeout; a little more for its exit.
-    let status = match child.wait_timeout(request.timeout + std::time::Duration::from_secs(10)) {
-        Ok(Some(status)) => status,
-        _ => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("the agent did not answer in time".into());
+        .stderr(cmux_process::Stdio::piped());
+    // The owned `cmux_process::Child`: dropped while it runs, it ends its group.
+    let mut child =
+        cmux_process::Command::spawn(&mut command).map_err(|e| format!("acpmux exec: {e}"))?;
+    let (stdout, stderr, stdin) = (child.stdout.take(), child.stderr.take(), child.stdin.take());
+    let prompt = request.prompt.as_bytes();
+    let deadline = request.timeout + std::time::Duration::from_secs(10);
+    // Every pipe on a thread of this scope, so neither a long reply nor a
+    // child that never reads its prompt holds the ask past the deadline; the
+    // scope joins them all (a killed child closes the pipes they wait on).
+    let (status, out, err) = std::thread::scope(|scope| {
+        let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+            scope.spawn(move || {
+                let mut bytes = Vec::new();
+                if let Some(mut pipe) = pipe {
+                    let _ = pipe.by_ref().take(ASK_PIPE_BYTES).read_to_end(&mut bytes);
+                    let _ = std::io::copy(&mut pipe, &mut std::io::sink());
+                }
+                String::from_utf8_lossy(&bytes).into_owned()
+            })
+        };
+        let out = drain(stdout.map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+        let err = drain(stderr.map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+        if let Some(mut stdin) = stdin {
+            // Closing stdin ends the prompt; a killed child ends the write.
+            scope.spawn(move || {
+                let _ = stdin.write_all(prompt);
+            });
         }
-    };
-    let out = stdout.join().unwrap_or_default();
-    let err = stderr.join().unwrap_or_default();
+        // acpmux cancels the turn at its own --timeout; a little more for its exit.
+        let status = match child.wait_timeout(deadline) {
+            Ok(Some(status)) => Some(status),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                None
+            }
+        };
+        (status, out.join().unwrap_or_default(), err.join().unwrap_or_default())
+    });
+    let Some(status) = status else { return Err("the agent did not answer in time".into()) };
     if status.success() {
         Ok(out.trim().to_string())
     } else {
