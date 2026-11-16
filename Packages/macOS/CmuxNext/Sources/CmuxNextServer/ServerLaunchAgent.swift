@@ -1,7 +1,6 @@
 import CmuxNextCompat
-import CmuxNextServer
-import Foundation
-import ServiceManagement
+public import Foundation
+public import ServiceManagement
 
 /// Keeps the Mac's server running when the app quits (plans/cmux-next/server.md 4.3):
 /// a launchd agent registered with `SMAppService.agent` from the plist the app
@@ -12,10 +11,10 @@ import ServiceManagement
 /// `server.agent.allowRegister` (off by default) until the bundled CLI ships
 /// `cmux host run`. `ServerStopServing` unregisters it, switch or not.
 /// This is the only place that registers the agent.
-struct ServerLaunchAgent {
-    static let plistName = "com.cmux.server.plist"
+public struct ServerLaunchAgent {
+    public static let plistName = "com.cmux.server.plist"
 
-    enum Failure: Error, Equatable {
+    public enum Failure: Error, Equatable {
         /// The bundle has no agent plist (the server software is not in this build).
         case notInBuild
         /// A dev build: the agent's `cmux host run` keeps one state for every build
@@ -30,10 +29,17 @@ struct ServerLaunchAgent {
     }
 
     /// The `SMAppService` calls, as a seam.
-    struct Service {
+    public struct Service {
         var status: @MainActor () -> SMAppService.Status
         var register: @MainActor () throws -> Void
         var openLoginItems: @MainActor () -> Void
+
+        public init(status: @escaping @MainActor () -> SMAppService.Status, register: @escaping @MainActor () throws -> Void,
+                    openLoginItems: @escaping @MainActor () -> Void) {
+            self.status = status
+            self.register = register
+            self.openLoginItems = openLoginItems
+        }
     }
 
     var isBundled: @MainActor () -> Bool
@@ -42,11 +48,19 @@ struct ServerLaunchAgent {
     var allowRegister: @MainActor () -> Bool
     var service: Service
 
-    static var isBundled: Bool {
+    public init(isBundled: @escaping @MainActor () -> Bool, isDevBuild: @escaping @MainActor () -> Bool = { false },
+                allowRegister: @escaping @MainActor () -> Bool, service: Service) {
+        self.isBundled = isBundled
+        self.isDevBuild = isDevBuild
+        self.allowRegister = allowRegister
+        self.service = service
+    }
+
+    public static var isBundled: Bool {
         FileManager.default.fileExists(atPath: Bundle.main.bundleURL.appending(path: "Contents/Library/LaunchAgents/\(plistName)").path)
     }
 
-    static func app() -> ServerLaunchAgent {
+    public static func app() -> ServerLaunchAgent {
         ServerLaunchAgent(
             isBundled: { Self.isBundled },
             isDevBuild: { BuildIdentity(bundle: .main).needsBuildSpace },
@@ -58,7 +72,7 @@ struct ServerLaunchAgent {
 
     /// Registers the agent. Idempotent: an enabled agent stays enabled.
     @MainActor
-    func register() throws(Failure) {
+    public func register() throws(Failure) {
         guard isBundled() else { throw .notInBuild }
         guard !isDevBuild() else { throw .devBuild }
         guard allowRegister() else { throw .notReady }

@@ -2,6 +2,7 @@ import CmuxNextCompat
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextHomeEngine
+import CmuxNextServer
 import Foundation
 import Testing
 
