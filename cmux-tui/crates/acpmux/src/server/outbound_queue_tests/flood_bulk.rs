@@ -15,7 +15,7 @@ const REPLAYS: usize = 4;
 const LINES_PER_REPLAY: usize = 1_500;
 /// The cheap reads asked under the flood: identify, the session list and host health.
 const READS: usize = 3;
-/// The link's bandwidth, as the test's reader takes lines: 8 MiB/s, so the 4 replays
+/// The link's bandwidth that times each answer: 8 MiB/s, so the 4 replays
 /// (about 12 MiB) take over a second to read.
 const BYTES_PER_MS: usize = 8 << 10;
 
@@ -59,7 +59,8 @@ async fn flood_bulk_cheap_reads_answer_while_four_replays_hold_the_link() {
     let hub = hub();
     let (tx, incoming) = mpsc::channel(64);
     let (output, mut rx) = mpsc::channel::<String>(4096);
-    tokio::spawn(serve_connection_with(hub.clone(), incoming, output, Origin::Local));
+    let scope = cmux_scope::Scope::new("flood-bulk-test");
+    scope.spawn(serve_connection_with(hub.clone(), incoming, output, Origin::Local));
     let name = format!("flood-bulk-{}", std::process::id());
     tx.send(
         Message::request(
@@ -83,65 +84,57 @@ async fn flood_bulk_cheap_reads_answer_while_four_replays_hold_the_link() {
         }
     }
 
-    // The reader: a link of fixed bandwidth, noting when each answer arrives and checking that
-    // every replayed line still comes, in order per chat.
-    let started = tokio::time::Instant::now();
-    let (answers_tx, mut answers) = mpsc::unbounded_channel::<(Value, Duration)>();
-    let reader = tokio::spawn(async move {
-        let mut owed = 0usize;
-        let mut next_seq = [0u64; REPLAYS];
-        let (mut replayed, mut answered) = (0usize, 0usize);
-        while replayed < REPLAYS * LINES_PER_REPLAY || answered < READS {
-            let line = tokio::time::timeout(Duration::from_secs(60), rx.recv())
-                .await
-                .expect("the replays keep coming")
-                .expect("the connection stays open");
-            owed += line.len();
-            if owed >= BYTES_PER_MS * 4 {
-                tokio::time::sleep(Duration::from_millis((owed / BYTES_PER_MS) as u64)).await;
-                owed = 0;
-            }
-            let value: Value = serde_json::from_str(&line).unwrap();
-            if value.get("method").is_none() {
-                answered += 1;
-                let _ = answers_tx.send((value, started.elapsed()));
-                continue;
-            }
-            let session = value["params"]["sessionId"].as_str().unwrap_or("");
-            let Some(n) = session.strip_prefix("replay-").and_then(|n| n.parse::<usize>().ok())
-            else {
-                continue;
-            };
-            assert_eq!(value["params"]["seq"], next_seq[n], "replay {n} in order, none dropped");
-            next_seq[n] += 1;
-            replayed += 1;
-        }
-    });
-
+    // The reads, asked under the flood; the reader starts once their answers are queued, so where
+    // each lands in the stream is the queue's doing, not the runner's load.
     let reads: [(i64, &str, Value); READS] = [
         (2, method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": name}})),
         (3, method::SESSION_LIST, json!({})),
         (4, "_acpmux/host_health", json!({})),
     ];
+    let queued = conn.out.gauge().lines;
     for (id, m, params) in &reads {
         tx.send(Message::request(*id, m, params.clone()).to_line()).await.unwrap();
     }
-    let mut late = Vec::new();
-    for _ in 0..reads.len() {
-        let (answer, at) = tokio::time::timeout(Duration::from_secs(60), answers.recv())
-            .await
-            .expect("every read is answered")
-            .expect("the reader is still reading");
-        assert!(answer.get("error").is_none(), "{answer}");
-        if at > READ_BUDGET {
-            late.push(format!("id {} after {} ms", answer["id"], at.as_millis()));
-        }
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while conn.out.gauge().lines < queued + READS {
+        assert!(tokio::time::Instant::now() < deadline, "the reads were never answered");
+        tokio::time::sleep(Duration::from_millis(5)).await;
     }
-    reader.await.expect("every replayed line came, in order");
+
+    // The reader: notes the replay bytes that came before each answer, which a link of
+    // `BYTES_PER_MS` takes that long to carry, and checks every replayed line still comes, in
+    // order per chat.
+    let mut next_seq = [0u64; REPLAYS];
+    let (mut replayed, mut ahead, mut late) = (0usize, 0usize, Vec::new());
+    let mut answered = 0;
+    while replayed < REPLAYS * LINES_PER_REPLAY || answered < READS {
+        let line = tokio::time::timeout(Duration::from_secs(60), rx.recv())
+            .await
+            .expect("the replays and answers keep coming")
+            .expect("the connection stays open");
+        let value: Value = serde_json::from_str(&line).unwrap();
+        if value.get("method").is_none() {
+            assert!(value.get("error").is_none(), "{value}");
+            answered += 1;
+            let at = Duration::from_millis((ahead / BYTES_PER_MS) as u64);
+            if at > READ_BUDGET {
+                late.push(format!("id {} after {} ms", value["id"], at.as_millis()));
+            }
+            continue;
+        }
+        ahead += line.len();
+        let session = value["params"]["sessionId"].as_str().unwrap_or("");
+        let Some(n) = session.strip_prefix("replay-").and_then(|n| n.parse::<usize>().ok()) else {
+            continue;
+        };
+        assert_eq!(value["params"]["seq"], next_seq[n], "replay {n} in order, none dropped");
+        next_seq[n] += 1;
+        replayed += 1;
+    }
     assert!(
         late.is_empty(),
         "cheap reads waited behind {REPLAYS} bulk replays past {} ms: {late:?}",
         READ_BUDGET.as_millis()
     );
-    drop((tx, conn));
+    drop((tx, conn, scope));
 }
