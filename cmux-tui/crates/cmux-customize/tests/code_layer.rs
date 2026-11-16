@@ -5,7 +5,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use cmux_customize::library::CodeLayer;
+use cmux_customize::library::{CodeKind, CodeLayer};
 use cmux_customize::{Customize, Roots};
 use serde_json::{Value, json};
 
@@ -42,6 +42,8 @@ fn key(n: u8) -> String {
 
 fn layer(pr: u64, n: u8) -> CodeLayer {
     CodeLayer {
+        kind: Default::default(),
+        source: String::new(),
         repo: "manaflow-ai/cmux".to_owned(),
         pr,
         title: format!("pr {pr}"),
@@ -187,4 +189,112 @@ fn listing_json_of_other_entries_has_no_code_field() {
     assert!(text.contains("\"code\":{"));
     let value: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(value["entries"][0]["code"]["web"], json!(key(1)));
+}
+
+fn kinded(kind: CodeKind, source: &str, n: u8) -> CodeLayer {
+    CodeLayer { kind, source: source.to_owned(), pr: 0, title: String::new(), ..layer(0, n) }
+}
+
+#[test]
+fn every_kind_gets_its_entry_name_and_label() {
+    let cases = [
+        (layer(43496, 1), "pr-43496", "#43496"),
+        (
+            kinded(CodeKind::Branch, "lane/Cat-Icon", 1),
+            "branch-lane-cat-icon",
+            "branch lane/Cat-Icon",
+        ),
+        (kinded(CodeKind::Sha, &"dbb1e3e6".repeat(5), 1), "sha-dbb1e3e", "commit dbb1e3e"),
+        (
+            kinded(CodeKind::Dir, "/Users/me/src/My cmux", 1),
+            "dir-my-cmux",
+            "folder /Users/me/src/My cmux",
+        ),
+        (
+            kinded(CodeKind::Fork, "someone/cmux@feat/x", 1),
+            "fork-someone-feat-x",
+            "fork someone/cmux@feat/x",
+        ),
+    ];
+    for (code, name, label) in cases {
+        assert_eq!(code.name(), name);
+        assert!(code.label().starts_with(label), "{}", code.label());
+        assert!(cmux_customize::profile::valid_name(&code.name()), "{}", code.name());
+    }
+}
+
+#[test]
+fn a_pr_a_branch_and_a_folder_stack_and_off_all_puts_back_exactly() {
+    let home = Home::new();
+    let customize = home.customize();
+    let before = json!({"overlay": "/ota", "enabled": true, "server": "s"});
+    home.write_web_dev(before.clone());
+    install(&customize, 1);
+    install(&customize, 2);
+    let folder = install(&customize, 3);
+    customize.library_use_code(layer(10, 1), vec![], "cli", 1).unwrap();
+    customize.library_use_code(kinded(CodeKind::Branch, "feat-x", 2), vec![], "cli", 2).unwrap();
+    let changed = customize
+        .library_use_code(kinded(CodeKind::Dir, "/src/cmux", 3), vec![], "cli", 3)
+        .unwrap();
+    let names: Vec<&str> = changed.library.entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["dir-cmux", "branch-feat-x", "pr-10"]);
+    assert_eq!(
+        home.web_dev().unwrap()["overlay"],
+        json!(folder),
+        "the folder is on top and serves"
+    );
+    let on = customize.layers().on;
+    assert_eq!(on.len(), 3);
+    assert!(
+        on.iter()
+            .any(|l| l.kind == "dir" && l.web && l.source.as_deref() == Some("folder /src/cmux"))
+    );
+    assert!(on.iter().any(|l| l.kind == "branch" && !l.web));
+    // The same branch again replaces its entry (it does not add one) and goes on top.
+    let again = customize
+        .library_use_code(kinded(CodeKind::Branch, "feat-x", 2), vec![], "cli", 4)
+        .unwrap();
+    let names: Vec<&str> = again.library.entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["branch-feat-x", "dir-cmux", "pr-10"]);
+    let on = customize.layers().on;
+    assert!(
+        on.iter()
+            .any(|l| l.kind == "branch" && l.web && l.source.as_deref() == Some("branch feat-x"))
+    );
+    customize.library_off_all("cli", 5).unwrap();
+    assert_eq!(home.web_dev().unwrap(), before);
+}
+
+#[test]
+fn an_older_entry_reads_as_a_pull_request() {
+    let old = json!({"repo": "manaflow-ai/cmux", "pr": 7, "head": "a".repeat(40)});
+    let code: CodeLayer = serde_json::from_value(old).unwrap();
+    assert_eq!(code.kind, CodeKind::Pr);
+    assert_eq!(code.name(), "pr-7");
+    // And a PR is written as before: no kind, no source.
+    let back = serde_json::to_value(&code).unwrap();
+    assert!(back.get("kind").is_none() && back.get("source").is_none());
+}
+
+#[test]
+fn a_refresh_updates_an_entry_in_place_and_keeps_it_off() {
+    let home = Home::new();
+    let customize = home.customize();
+    install(&customize, 1);
+    install(&customize, 2);
+    install(&customize, 3);
+    customize.library_use_code(layer(10, 1), vec![], "cli", 1).unwrap();
+    customize.library_use_code(kinded(CodeKind::Branch, "feat-x", 2), vec![], "cli", 2).unwrap();
+    customize.library_settle_code("pr-10", "", Some(false), "cli", 3).unwrap();
+    // pr-10 is second and off; a newer head for it stays second and off.
+    let newer = CodeLayer { head: "c".repeat(40), ..layer(10, 3) };
+    let changed = customize.library_update_code(newer, "cli", 4).unwrap();
+    let names: Vec<&str> = changed.library.entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["branch-feat-x", "pr-10"]);
+    let pr = changed.library.entries.iter().find(|e| e.name == "pr-10").unwrap();
+    assert!(!pr.on);
+    assert_eq!(pr.code.as_ref().unwrap().head, "c".repeat(40));
+    // An entry nobody has is an error, not a new entry.
+    assert!(customize.library_update_code(layer(99, 1), "cli", 5).is_err());
 }

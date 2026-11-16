@@ -49,6 +49,8 @@ test("the categories are the approved ones, in order", () => {
     // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
     "menus",
     "accounts",
+    // Keys: the keys agents keep and ask the person for (design/settings-keys.md).
+    "keys",
     // Mobile stays its own page (Lucas 2026-11-11); Devices holds what Server showed, and its old
     // id opens it (next test).
     "mobile",

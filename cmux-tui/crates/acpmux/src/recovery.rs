@@ -87,15 +87,8 @@ pub fn annotate_peer(e: &mut RpcError, peer: &str) {
     if !is_disk_full(&e.message) {
         return;
     }
-    let data = match &mut e.data {
-        Some(Value::Object(data)) => data,
-        Some(_) => return,
-        None => {
-            e.data = Some(Value::Object(Map::new()));
-            let Some(Value::Object(data)) = &mut e.data else { return };
-            data
-        }
-    };
+    object_data(e);
+    let Some(Value::Object(data)) = &mut e.data else { return };
     if data.contains_key("errorKind") {
         return;
     }
@@ -124,15 +117,8 @@ pub fn dead_process(e: &RpcError) -> bool {
 /// message (a full disk) still wins.
 pub fn annotate_as(e: &mut RpcError, near: Option<&Path>, dead: bool) {
     let dead = dead || e.message.starts_with("agent process closed");
-    let data = match &mut e.data {
-        Some(Value::Object(data)) => data,
-        Some(_) => return,
-        None => {
-            e.data = Some(Value::Object(Map::new()));
-            let Some(Value::Object(data)) = &mut e.data else { return };
-            data
-        }
-    };
+    let wrapped = object_data(e);
+    let Some(Value::Object(data)) = &mut e.data else { return };
     if data.contains_key("errorKind") {
         return;
     }
@@ -143,6 +129,35 @@ pub fn annotate_as(e: &mut RpcError, near: Option<&Path>, dead: bool) {
     }
     if data.is_empty() {
         e.data = None;
+    } else if wrapped && data.len() == 1 {
+        // Nothing typed it: the agent's own data goes back as it sent it.
+        e.data = data.remove(AGENT_DATA);
+    }
+}
+
+/// The key an agent's own error `data` moves under when it is not an object ([`object_data`]).
+pub const AGENT_DATA: &str = "agentData";
+
+/// Make `e.data` an object this module can type: none (or null) becomes empty, and an agent's
+/// own data that is not an object (grok 1.0.77 answers `session/new` with "Authentication
+/// required" and the string data "no auth method id provided") moves under [`AGENT_DATA`], so
+/// typing never fails for the shape of what the agent sent. Returns whether it moved it.
+pub(crate) fn object_data(e: &mut RpcError) -> bool {
+    match e.data.take() {
+        Some(Value::Object(data)) => {
+            e.data = Some(Value::Object(data));
+            false
+        }
+        None | Some(Value::Null) => {
+            e.data = Some(Value::Object(Map::new()));
+            false
+        }
+        Some(other) => {
+            let mut data = Map::new();
+            data.insert(AGENT_DATA.into(), other);
+            e.data = Some(Value::Object(data));
+            true
+        }
     }
 }
 
@@ -174,7 +189,7 @@ fn classify(
         let mut details = Map::new();
         details.insert("peer".into(), json!(peer));
         if let Some(at) = data.get("lastSeen").and_then(Value::as_u64) {
-            details.insert("lastSeenAt".into(), json!(crate::server::iso(at)));
+            details.insert("lastSeenAt".into(), json!(crate::clock_text::iso(at)));
         }
         let recovery = format!(
             "Check that {peer} is on and online in `tailscale status`; `acpmux machine doctor \
@@ -445,15 +460,8 @@ pub fn start_sign_in(e: &mut RpcError, harness: &str) -> bool {
         }
         None => return false,
     };
-    let data = match &mut e.data {
-        Some(Value::Object(data)) => data,
-        Some(_) => return false,
-        None => {
-            e.data = Some(Value::Object(Map::new()));
-            let Some(Value::Object(data)) = &mut e.data else { return false };
-            data
-        }
-    };
+    object_data(e);
+    let Some(Value::Object(data)) = &mut e.data else { return false };
     data.insert("reason".into(), json!(SIGN_IN_REQUIRED));
     data.insert("errorKind".into(), json!(kind));
     data.insert(
@@ -711,6 +719,41 @@ mod tests {
             assert!(!start_sign_in(&mut e, "cursor"), "{message}");
             assert!(e.data.is_none(), "{message}");
         }
+    }
+
+    /// grok 1.0.77, signed out on a fresh Cloud machine, answers `session/new` with -32000
+    /// "Authentication required" and the string data "no auth method id provided" (its own
+    /// words, run by hand against `grok agent stdio`). A start typed only object data, so grok's
+    /// start reached the app as a bare `agent_session.refused` (cloud harness matrix,
+    /// grok-app-start). The sign-in is typed, and the agent's data stays under `agentData`.
+    #[test]
+    fn a_signed_out_start_with_string_data_names_the_harness() {
+        let mut e = RpcError::new(ACP_AUTH_REQUIRED, "Authentication required");
+        e.data = Some(json!("no auth method id provided"));
+        assert!(start_sign_in(&mut e, "grok"));
+        let data = e.data.unwrap();
+        assert_eq!(data["reason"], SIGN_IN_REQUIRED);
+        assert_eq!(data["details"]["harness"], "grok");
+        assert_eq!(data[AGENT_DATA], "no auth method id provided");
+
+        // The same class in the other typers: a turn error or a peer's full disk with an agent's
+        // string data is still typed, and an untyped one keeps the agent's data as it was.
+        let mut full = RpcError::new(-32603, "No space left on device (os error 28)");
+        full.data = Some(json!("write failed"));
+        annotate_peer(&mut full, "box");
+        let data = full.data.unwrap();
+        assert_eq!(data["errorKind"], kind::DISK_FULL);
+        assert_eq!(data[AGENT_DATA], "write failed");
+
+        let mut full = RpcError::new(-32603, "No space left on device (os error 28)");
+        full.data = Some(json!(["write failed"]));
+        annotate(&mut full, None);
+        assert_eq!(full.data.unwrap()["errorKind"], kind::DISK_FULL);
+
+        let mut other = RpcError::new(-32602, "bad params");
+        other.data = Some(json!("the agent's own"));
+        annotate(&mut other, None);
+        assert_eq!(other.data, Some(json!("the agent's own")));
     }
 
     /// The gateway's 401 for a Gemini or Grok call with no team or owner key says

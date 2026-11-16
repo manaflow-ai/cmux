@@ -65,10 +65,23 @@ pub fn home() -> PathBuf {
     default_home()
 }
 
+/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
+/// a panic in a request task ends only that task and used to leave just
+/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
+/// app sends new lines to Sentry.
+pub fn panic_log_path() -> std::path::PathBuf {
+    home().join("panics.jsonl")
+}
+
 /// The default state directory, with no ACPMUX_HOME and no override: the
 /// person's own daemon home (a hand, which runs its own daemon, protects it).
 pub fn default_home() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
+    default_home_in(&dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+}
+
+/// [`default_home`] for the OS account whose home folder is `account_home`.
+pub fn default_home_in(account_home: &Path) -> PathBuf {
+    account_home.join(".acpmux")
 }
 
 /// Whether a command may start a daemon in `home`, given this process's `ACPMUX_HOME` and
@@ -1612,7 +1625,7 @@ pub struct Config {
     /// name nobody here resolves through (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the
     /// default): no relay. `teamMessaging` (team addresses and inboxes) is on unless `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mesh_relay: Option<crate::mesh_http::MeshRelayConfig>,
+    pub mesh_relay: Option<crate::mesh_relay_config::MeshRelayConfig>,
     /// `artifacts`: the agent tools that save to and search the person's cmux artifacts
     /// (`acpmux_mcp_artifacts.rs`). On whenever `meshRelay` holds a cmux sign-in;
     /// `{"enabled": false}` turns them off, `baseUrl` names another cmux-platform deployment.
@@ -1715,6 +1728,14 @@ fn is_default_kind(k: &HarnessKind) -> bool {
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    refuse_lost_home(path)?;
+    write_atomic_checked(path, bytes)
+}
+
+/// [`write_atomic`] for a writer that checked `path` with [`refuse_lost_home`] itself before
+/// preparing its folder: a second check would refuse a home replaced since the first, which the
+/// writer's held folder (`home_fs`) already keeps the file out of.
+pub(crate) fn write_atomic_checked(path: &Path, bytes: &[u8]) -> Result<()> {
     // Sync before rename so a power loss cannot leave empty chat metadata behind.
     write_atomic_with(path, bytes, |file, tmp| {
         #[cfg(test)]
@@ -1733,15 +1754,16 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 /// Only for checked, rebuildable copies. A lost copy is rebuilt from its source.
 /// The rename still keeps concurrent readers from seeing a partial write.
 pub(crate) fn write_atomic_unsynced(path: &Path, bytes: &[u8]) -> Result<()> {
+    refuse_lost_home(path)?;
     write_atomic_with(path, bytes, |_, _| Ok(()))
 }
 
+/// The write [`write_atomic`] and [`write_atomic_unsynced`] make once `path` is checked.
 fn write_atomic_with(
     path: &Path,
     bytes: &[u8],
     sync: impl FnOnce(&std::fs::File, &Path) -> Result<()>,
 ) -> Result<()> {
-    refuse_lost_home(path)?;
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
@@ -1751,6 +1773,9 @@ fn write_atomic_with(
     if written.is_err() {
         let _ = crate::home_fs::remove_file(&tmp);
     }
+    // A writer stopped between its copy's open and its rename (a daemon stopped mid-write)
+    // never removed its copy: the next write of the file does.
+    crate::dead_temps::remove_beside(path);
     written
 }
 

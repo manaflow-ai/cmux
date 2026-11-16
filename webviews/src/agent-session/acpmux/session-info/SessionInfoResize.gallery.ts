@@ -9,6 +9,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, CWD, noChat, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "./sessionInfoSelectors";
 
 const rows = [
   user("Add retries to the fetch helper, with a backoff.", 4),
@@ -37,10 +38,9 @@ const CROSSINGS = [560, 900, 560, 1300, 420, 900];
 /// A new workspace's pane settling: it lays out small, then takes the window.
 const SETTLING = [360, 640, 900, 1300];
 
-const TOGGLE = "button.acpmux-session-info-toggle";
+const TOGGLE = SESSION_INFO_TOGGLE;
 const pressed = (ctx: PlayContext) => ctx.document.querySelector(TOGGLE)?.getAttribute("aria-pressed") === "true";
-const shown = (ctx: PlayContext) =>
-  ctx.document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") === "shown";
+const shown = (ctx: PlayContext) => ctx.document.querySelector(SESSION_INFO)?.getAttribute("data-presence") === "shown";
 
 /// Resizes to each width; after each, once the pane has it and has laid out, Session Info is as it
 /// was before the first resize. `expect`: what it must be from the start.

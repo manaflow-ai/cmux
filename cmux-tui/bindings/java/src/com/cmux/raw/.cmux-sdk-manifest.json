@@ -36,6 +36,11 @@
       "size": 8714
     },
     {
+      "path": "AgentCliFrameEvent.java",
+      "sha256": "059263bbd48d8e77e911108d87f5da5b8edb12ea9b9906bb8c2d08653004d7e5",
+      "size": 8219
+    },
+    {
       "path": "AgentInventoryChangedEvent.java",
       "sha256": "c027a12981fef0eb104e1abc7e952edea9a0d648119eb5886311e6bd9a403a9a",
       "size": 3827
@@ -97,8 +102,8 @@
     },
     {
       "path": "AttachSurfaceRequest.java",
-      "sha256": "b93d7b618a28605727afe45a2ed6279314fe72f1b7436a21461229842541b6eb",
-      "size": 12164
+      "sha256": "6cf71de707488adc3923eaadef7c54fff9faea9f1ba123ab2ec0172ba3c4ee27",
+      "size": 13654
     },
     {
       "path": "AttachSurfaceRequestMode.java",
@@ -772,8 +777,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "77077fa76717afbd598cb1db1c9c0da9cd9236e626f79d1c318c01ec0e34dfc8",
-      "size": 83413
+      "sha256": "551b01b5b079d711de4a1b7e65ac7d2a0ec9b8ad1d695c17ee61c8c72c73af1e",
+      "size": 83795
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1317,8 +1322,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "d0c625ce95d061f28b42ed77649eb4197937d3ca04edcc5306632a6cb32595cc",
-      "size": 19885
+      "sha256": "741ee9712d05dc25f1863eba9c17f1c1f6d2b254c88bc32b9c0a8b0451caff2e",
+      "size": 20092
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1432,8 +1437,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "c2e4abd138527ca20cf533e8a00e891a6421984967934d938a0a5013d307db7e",
-      "size": 71699
+      "sha256": "a5835d326bc65840ef769339ee1ab6484ea1daf498dd66ac617827abe1f0a7fb",
+      "size": 71985
     },
     {
       "path": "GetBlobRequest.java",
@@ -2207,8 +2212,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "de9ff5af4241c4f9ba3634c85eede8fb2e2382cc7a1144cce4cf7b077d9e9827",
-      "size": 8086
+      "sha256": "6dd83ce89c73747fbb1a03aa977743588293b20cefe5ddb9c1a9925b71f25766",
+      "size": 8160
     },
     {
       "path": "ProtocolEvent.java",
@@ -3266,6 +3271,26 @@
       "size": 7557
     },
     {
+      "path": "TerminalCommandContext.java",
+      "sha256": "5fa53a3ea91de58c0f4190ccff804576e62eda4e343c14f58e49bf77277605b8",
+      "size": 5381
+    },
+    {
+      "path": "TerminalCommandContextIntent.java",
+      "sha256": "0c2da53c31bf3fc130da766a6906655c3c4b9b0bc73a7373aa139d981bb951c0",
+      "size": 960
+    },
+    {
+      "path": "TerminalCommandContextRequest.java",
+      "sha256": "5b61d5536c9b5c0ad299a2e1bb47b63181a6d77d84a78c8fd7f7cb1f64f5d296",
+      "size": 2828
+    },
+    {
+      "path": "TerminalCommandContextResult.java",
+      "sha256": "ea03eb354901347aa299b9c8fbfcf31a91d42291781775ec4d8a2af5466fe301",
+      "size": 2101
+    },
+    {
       "path": "TerminalCommandDeleteResult.java",
       "sha256": "5eea09d83f980002e711e329c18b66bdaec80b2fb5bc5fe7e376446ec2e2c420",
       "size": 2045
@@ -3712,7 +3737,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5",
+  "ir_sha256": "d013da5a0974b24a933c6df877baeea68cde0d5bdaf348098241d5a9b3f7b8d1",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
