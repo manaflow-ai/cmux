@@ -100,6 +100,36 @@ class LiteralReadsCase(unittest.TestCase):
         )
 
 
+class DotSlashReadsCase(unittest.TestCase):
+    """A leading "./" is no path segment: AppWebPaneTests' rejected app root "./web" named the whole
+    web/ folder a read of CmuxNextAppsTests, and every web-only pull request then ran the Mac tier."""
+
+    def setUp(self):
+        self.graph = load_graph_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name).resolve()
+        (root / "web" / "app").mkdir(parents=True)
+        (root / "web" / "app" / "page.tsx").write_text("x\n", encoding="utf-8")
+        (root / "schemas" / "settings").mkdir(parents=True)
+        (root / "schemas" / "settings" / "schema.json").write_text("{}\n", encoding="utf-8")
+        package = root / "Packages" / "macOS" / "CmuxNext"
+        self.tests = package / "Tests" / "AppsTests"
+        self.tests.mkdir(parents=True)
+        (self.tests / "AppsTests.swift").write_text(
+            'for root in ["./web", "././web/"] {}\n'
+            'let schema = "./schemas/settings/schema.json"\n',
+            encoding="utf-8",
+        )
+        for name, value in (("ROOT", root), ("PACKAGE", package)):
+            patcher = mock.patch.object(self.graph, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_a_dot_slash_folder_is_not_a_read(self):
+        self.assertEqual(self.graph.literal_reads(self.tests), ["schemas/settings/schema.json"])
+
+
 class GlobReadsCase(unittest.TestCase):
     """A literal with `*` (PageDevServerTests' "webviews/src/pages/*/main.tsx") is recorded as that
     pattern when it matches a file in its exact case, and dropped when it matches none."""
