@@ -3,4 +3,4 @@ category: new
 action: agent.moveToMachine | Move Chat to Machine…
 gallery: agent-pane.move-machine/auto-cloud-ssh
 
-Move to… lists Auto and your connected machines with their available room. Move a chat with its history and queued work, choose when to move a running turn, and see uncommitted changes before proceeding. The same move is in the command palette and `cmux agent move`.
+Move to… lists Auto and your connected machines with their available room. Move your chat history and queued work, choose when to move a running turn, and see uncommitted changes before proceeding.

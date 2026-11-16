@@ -111,7 +111,6 @@ public struct SSHMoveRefusal: Error, Sendable {
     public var message: String
 }
 
-
 /// Runs the single acpmux move command used by the chat menu, palette and CLI. Rust owns target
 /// validation and preflight; this app-side seam only launches the bundled binary and opens the
 /// session that the move actually imported.
