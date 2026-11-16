@@ -80,7 +80,7 @@ public struct CmuxNextApp {
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
-        let delegate = AppDelegate(environment: environment, daemonPrestart: nil,
+        let delegate = AppDelegate(environment: environment,
                                    launchReads: (work, launchImages, relaunchWake), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
         app.delegate = delegate
         app.setActivationPolicy(.regular)

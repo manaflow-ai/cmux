@@ -1,2 +1,4 @@
+# #43914: Screen Sharing palette keywords, tier and categories, ahead of the pinned app FFI
+/keywords
 # palette-duplicates: one name per command and one icon per menu row (PaletteMenuVocabularyTests, ContextMenuStandardTests)
 /symbol
