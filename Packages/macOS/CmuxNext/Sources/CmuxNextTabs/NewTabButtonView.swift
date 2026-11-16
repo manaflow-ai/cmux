@@ -111,9 +111,9 @@ final class NewTabButtonView: NSView {
         return true
     }
 
-    /// The split control's corner: a tab's (``Metrics/tabCornerRadius``), on a tab's height (``frameHeight``), so the
-    /// `+ ⌄` hover reads as a tab, not a pill (Lucas 2026-11-12: "same height and roundness as tabs").
-    static var splitCornerRadius: CGFloat { Metrics.tabCornerRadius }
+    /// The split control's corner: the tab's ratio on the +'s own short side (its width beside a tab's height), so the
+    /// `+ ⌄` hover keeps one shape at every density instead of a tab's radius on a narrower button (Lucas 2026-11-15).
+    static var splitCornerRadius: CGFloat { PlusButtonLook.splitCornerRadius }
 
     /// The + button's height in the tab strip: the split look's `+ ⌄` is a tab's height, so its hover fill is a tab's
     /// band; every other look keeps the square button (`side`), centered on the tabs.
