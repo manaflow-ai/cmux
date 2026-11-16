@@ -434,3 +434,80 @@ fn p50(values: &mut [u128]) -> u128 {
     values.sort_unstable();
     values.get(values.len() / 2).copied().unwrap_or(0)
 }
+
+/// Probe (b): the local row's submit to its own publish (the index a subscriber's notify
+/// reads), seen from another thread, with the turn ordered non-unit controls, rows, units.
+/// `units`: 30 origins queue a unit of [`MAX_UNIT_CHANGES`] first.
+fn publish_sample(fixture: &mut Fixture, units: bool) -> u128 {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let cursor = fixture.next;
+    fixture.next += 1;
+    if units {
+        for origin in 0..ORIGINS {
+            let name = format!("peer-{origin:02}");
+            let changes = (0..MAX_UNIT_CHANGES)
+                .map(|n| UnitChange::Summary(Box::new(row(&name, format!("big-{n:05}"), cursor))))
+                .collect();
+            let unit = MirrorUnit {
+                origin: name.clone(),
+                after: fixture.hub.mirror_mark(&name),
+                changes,
+                mark: MirrorMark { cursor, edition: 3, whole: true },
+            };
+            fixture.hub.submit_unit(Source::Mirror, unit).expect("unit");
+        }
+    }
+    let key = RowKey::new("local", format!("local-{:05}", cursor % 20));
+    let ready = AtomicBool::new(false);
+    let elapsed = std::thread::scope(|scope| {
+        let hub = &fixture.hub;
+        let key = &key;
+        let ready = &ready;
+        let watcher = scope.spawn(move || {
+            ready.store(true, Ordering::Release);
+            loop {
+                if hub.snapshot().get_row(key).is_some_and(|row| row.last_activity == cursor) {
+                    return Instant::now();
+                }
+                std::hint::spin_loop();
+            }
+        });
+        while !ready.load(Ordering::Acquire) {
+            std::hint::spin_loop();
+        }
+        let started = Instant::now();
+        fixture.hub.submit(row("local", key.chat_id.to_string(), cursor)).expect("local row");
+        while !fixture.hub.snapshot().get_row(key).is_some_and(|row| row.last_activity == cursor) {
+            fixture.writer.process_batch();
+        }
+        let published = watcher.join().expect("watcher");
+        published.duration_since(started).as_nanos().max(1)
+    });
+    while units
+        && (0..ORIGINS).any(|origin| {
+            fixture.hub.mirror_mark(&format!("peer-{origin:02}")).map(|mark| mark.cursor)
+                != Some(cursor)
+        })
+    {
+        fixture.writer.process_batch();
+    }
+    elapsed
+}
+
+#[test]
+#[ignore = "release measurement; run with --ignored --release --nocapture"]
+fn pr08_mirror_local_row_publish_probe() {
+    let mut god = fixture(11_000, ORIGINS, 16_000);
+    thirty_sample(&mut god);
+    let mut alone: Vec<u128> = (0..90).map(|_| publish_sample(&mut god, false)).collect();
+    eprintln!("probe-b alone publish p50 {} p95 {}", p50(&mut alone.clone()), p95(&mut alone));
+    for cap in [2 * MAX_UNIT_CHANGES, usize::MAX] {
+        god.writer.mirror.turn_changes = cap;
+        let mut samples: Vec<u128> = (0..90).map(|_| publish_sample(&mut god, true)).collect();
+        eprintln!(
+            "probe-b cap {cap}: publish p50 {} p95 {}",
+            p50(&mut samples.clone()),
+            p95(&mut samples)
+        );
+    }
+}

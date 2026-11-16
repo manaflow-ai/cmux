@@ -230,6 +230,26 @@ impl UpdateQueue {
         let mut batch = Vec::new();
         let mut changes = 0;
         let mut waiting = Vec::new();
+        // Probe (b): every slot's updates ahead of its first unit, then rows, then units.
+        let keys: Vec<UpdateKey> = pending.controls.keys().cloned().collect();
+        for key in keys {
+            let Some(updates) = pending.controls.get_mut(&key) else { continue };
+            while batch.len() < limit
+                && updates
+                    .front()
+                    .is_some_and(|update| !matches!(update, PendingUpdate::Unit { .. }))
+            {
+                let Some(update) = updates.pop_front() else { break };
+                batch.push((key.clone(), update));
+            }
+            if updates.is_empty() {
+                pending.controls.remove(&key);
+            }
+        }
+        let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
+        batch.extend(keys.into_iter().filter_map(|key| {
+            pending.rows.remove(&key).map(|value| (UpdateKey::Row(key.0), value))
+        }));
         while batch.len() < limit {
             let Some((key, mut updates)) = pending.controls.pop_first() else { break };
             if let Some(PendingUpdate::Unit { unit, .. }) = updates.front() {
@@ -246,10 +266,6 @@ impl UpdateQueue {
             batch.push((key, update));
         }
         pending.controls.extend(waiting);
-        let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
-        batch.extend(keys.into_iter().filter_map(|key| {
-            pending.rows.remove(&key).map(|value| (UpdateKey::Row(key.0), value))
-        }));
         batch
     }
 }
