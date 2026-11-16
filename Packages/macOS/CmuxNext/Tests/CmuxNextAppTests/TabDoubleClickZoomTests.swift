@@ -184,7 +184,7 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         #expect(toolbar.view.buttons.isEmpty, "the indicator is the pane's, not a toolbar button")
         #expect(toolbar.view.reservedCount == 1)
         #expect(!toolbar.view.zoomButton.isHidden)
-        #expect(toolbar.view.intrinsicContentSize.width == width + TitlebarBandButton.side, "Exit Zoom's slot only")
+        #expect(toolbar.view.intrinsicContentSize.width == width + TitlebarBandButton.side + Metrics.space1 / 2, "Exit Zoom's slot and its gap only")
         #expect(toolbar.view.lit)
         let menu = try #require(toolbar.view.moreMenu?())
         #expect(menu.items.contains { ActionRegistry.menuRun(of: $0)?.id == "toggleSplitZoom" })
