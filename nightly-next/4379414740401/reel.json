@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "build": "4379414740401",
+  "notes": "notes/4379414740401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44091,
+      "title": "ci: the cmux_next_ daemon tests build only their own test targets (the job ran out of disk since #43753)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44056,
+      "title": "cmux-next checks: run the two unlisted tab-switch tests (base red from #43986, #44020)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44102,
+      "title": "quality report: say when the v2 gate home wrote no report (hq#11702)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44081,
+      "title": "Agent chat: a test that every delivered reply draws with its Copy row through API errors, a dropped link and notices",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44096,
+      "title": "Chat pages: the shared renderer gets a full collection past a bound, not a pressure notice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44028,
+      "title": "Terminal menu: Fix and Send to Chat go in the Tools folder (FFI step A2 of #38590)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44059,
+      "title": "ci: every Swift test target runs in a pull request check, or says why not (hq#11644)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44057,
+      "title": "Screen stream eval: macOS Screen Sharing's bandwidth, and a side-by-side table of latency, kbps and fps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44089,
+      "title": "cmux-next: fix the base compile of TerminalToChatPlaceholders (#44082 shipped the App-side draft in CmuxNextActions)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44062,
+      "title": "ext dev reloads a change at once under any load; a New Tab page is shown only once picked",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43388,
+      "title": "Wallpaper switching: Light and Dark, Time of Day, and dynamic wallpapers by the sun",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43953,
+      "title": "iOS: a Claude Code or Codex terminal opens on its terminal, not its chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44080,
+      "title": "measure: launch-ready's profile aligns to the process start and shows pre-main and the other busy processes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42390,
+      "title": "Sidebar: a closed pin with no name never draws its raw workspace id after a restore (#42372)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44079,
+      "title": "measure: pane-motion-films, one movie for each pane act in a session of many workspaces",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44088,
+      "title": "size_cap test: the first pass picks the smallest whatever order the disk lists",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44076,
+      "title": "cmux-rd-link: keep both Wi-Fi radios awake during a live session; mark the link socket interactive video",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44033,
+      "title": "Tab switch: the chat stays put while the next tab paints (no 35 pt shift leaving or coming back)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44064,
+      "title": "Customization showcase: five whole-window setups (cockpit, tiling, right-handed, focus, ide), not colors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44082,
+      "title": "cmux-next: typed unavailable placeholders for the terminal-to-chat rows (base red: HandlerCoverage)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44049,
+      "title": "Chat pages: closed chats' garbage in the shared renderer is collected",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44073,
+      "title": "measure: held-new-tab gets a session with tabs, the bench launcher, the tab order and the first frame of each key",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44037,
+      "title": "device hub: one entry per physical device, this Mac's other builds marked (Rust device_list)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44070,
+      "title": "Cloud: a folder past the copy limits starts at once from a first pass, never a refusal",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
