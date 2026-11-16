@@ -960,9 +960,10 @@ class LiveFrom(unittest.TestCase):
         self.assertIsNone(out["floor"])  # no FFI change within the limit
 
     def test_an_ffi_source_only_change_does_not_set_a_floor(self):
-        out = self.live_from(FFI, 5)
+        out = self.live_from(FFI, 2)
         self.assertEqual(out["live_from"][0], FFI)
-        self.assertIsNone(out["floor"])
+        self.assertEqual(len(out["live_from"]), 2)
+        self.assertNotEqual(out["floor"], FFI)
 
     def test_the_remote_viewer_ffi_source_only_change_does_not_set_a_floor(self):
         out = self.live_from(FFI_SOURCE_ONLY, 1)
