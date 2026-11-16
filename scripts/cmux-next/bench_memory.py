@@ -1173,7 +1173,6 @@ def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
 
-
 APP_VM_TOOLS = (
     # (tool, its arguments, lines kept): the app process's own memory by region, by footprint category, and by malloc
     # zone and class. The goal's app process (~250 MB idle) had never been broken down (ram-baseline, CMUX-571).
