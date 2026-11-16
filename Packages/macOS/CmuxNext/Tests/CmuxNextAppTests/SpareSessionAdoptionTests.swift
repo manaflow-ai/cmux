@@ -140,19 +140,16 @@ struct SpareSessionAdoptionTests {
         #expect(AgentPaneView.hoverReader(shown: nil, spare: nil) == nil)
     }
 
-    /// Each exclusion keeps the tab's own page, and the spare stays in the pool.
+    /// The exclusion keeps the tab's own page, and the spare stays in the pool. (What a hibernated page held is
+    /// no exclusion any more: `ChatReturnWakeTests` has its cases.)
     @Test func chatsWhoseOpenNeedsTheirOwnHandshakeKeepTheirOwnPage() async throws {
-        let tabs = Self.run(records: ["tab_wake": Self.chat("s-wake"), "tab_chief": Self.chat("s-chief")])
+        let tabs = Self.run(records: ["tab_chief": Self.chat("s-chief")])
         let spare = try await Self.connectedSpare(of: tabs)
         var taken = 0
         tabs.takeConnectedSpare = {
             taken += 1
             return spare
         }
-        // A composer kept from a hibernated page reaches the page with its handshake.
-        tabs.wakeStates["tab_wake"] = AgentPaneWakeState(shell: true, shellText: "make")
-        let wake = try #require(tabs.view(for: "tab_wake"))
-        #expect(wake !== spare)
         // A chat the Chief home keeps runs in that home's acpmux, not the spare's.
         tabs.chiefKeepsSession = { $0 == "s-chief" }
         let chief = try #require(tabs.view(for: "tab_chief"))

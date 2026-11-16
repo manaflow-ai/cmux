@@ -217,6 +217,26 @@ test("an adopt event names its chat and its turn, and anything else names none",
     expect(sessionAdoption(detail)).toBeUndefined();
 });
 
+// A chat selected again after its hidden page let go takes the prewarmed page too (decision
+// 2026-11-16). What the last page held that acpmux does not comes with the adopt event, in the shape
+// the handshake's `wake` has, so the draft's chips and the shell command survive the return.
+test("an adopt event carries what the chat's last page held, read as the handshake's wake is", () => {
+  type Carried = { wake?: { composer?: unknown; scrollAnchor?: unknown } } | undefined;
+  const chip = { id: "a1", kind: "image", name: "shot.png", mimeType: "image/png", size: 4, data: "iVBO" };
+  const adoption = sessionAdoption({
+    sessionId: "s-1",
+    wake: { attachments: [chip], shell: true, shellText: "git status", scrollAnchor: { rowId: "row-12", offset: 40 } },
+  }) as Carried;
+  expect(adoption?.wake?.composer).toEqual({ attachments: [chip], shell: true, shellText: "git status" });
+  expect(adoption?.wake?.scrollAnchor).toEqual({ rowId: "row-12", offset: 40 });
+  // At its latest message: null, as the handshake's wake reads `atLatest`.
+  const latest = sessionAdoption({ sessionId: "s-1", wake: { atLatest: true } }) as Carried;
+  expect(latest?.wake?.scrollAnchor).toBeNull();
+  // No state, or something that is none: the adoption carries none.
+  for (const wake of [undefined, null, "held", 7])
+    expect((sessionAdoption({ sessionId: "s-1", wake }) as Carried)?.wake).toBeUndefined();
+});
+
 test("the adopted New Tab page draws the chat the host kept before its attach answers", async () => {
   const chat = "adopt-kept";
   const kept = {
