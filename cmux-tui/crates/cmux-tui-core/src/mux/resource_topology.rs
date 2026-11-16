@@ -109,6 +109,7 @@ mod reservations;
 mod screen_create;
 mod structural_move;
 mod tab_workspace_move;
+mod terminal_tab_attach;
 mod topology_operation;
 #[cfg(test)]
 mod topology_test_hooks;
