@@ -45,6 +45,7 @@ import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSessio
 import { CLOUD_UNBOUND, platformCloud } from "./platform-cloud.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
+import { approveInOneCall, liveApproveDeps, type ApproveOutcome, type ApproveParams } from "./integrations/approve-one-call.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
 import { listUserTeams, personalPrincipal, principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
 
@@ -298,6 +299,14 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           idempotency_key: payload.idempotency_key,
           origin: payload.origin ?? "cli",
           ...(payload.expected_revision ? { expected_revision: payload.expected_revision } : {})
+        }
+        // G8 in one call (approve-one-call.ts): the checks, the feed answer and the approved run's reply; staging flag.
+        if (payload.op === "integration.approval.approve") {
+          const reply = (r: ApproveOutcome) => ({ ok: r.ok, op: payload.op, ...(r.ok ? { value: r.value } : { error: { code: r.code, message: r.message, retryable: r.retryable, ...(r.details === undefined ? {} : { details: r.details }) } }), transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `feed:${principal.user ?? ""}`, sequence: 0 })
+          if (env.CLOUD_APPROVE_ONE_CALL !== "1") return reply({ ok: false, code: "approval.one_call_off", message: "answer through feed.answer on this deployment", retryable: false })
+          const resolved = yield* principalFor("cloud:ConnectionDO", principal)
+          const p = (payload.params ?? {}) as ApproveParams
+          return reply(yield* Effect.tryPromise({ try: () => approveInOneCall(liveApproveDeps(env, resolved), principal, p, frame.idempotency_key), catch: unreachable }))
         }
         if (payload.op === "participant.avatar.set") return yield* Effect.tryPromise({ try: () => avatarSetRoute(env, principal, frame), catch: unreachable }) // Participant avatars (home-avatar-routes.ts).
         // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
