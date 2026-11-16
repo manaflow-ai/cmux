@@ -189,7 +189,7 @@ test("question ids are opaque and a page event may beat its operation reply", as
   await host.open();
   const seen: string[] = [];
   host.store.subscribe("local.1", (snapshot) => seen.push([...snapshot.questions.keys()][0] ?? ""));
-  const page = host.page("local.1", { before: "head" }, "family");
+  const page = host.page("local.1", { key: { origin: "local", chatId: "head" } }, "family");
   await clock.frame();
   expect(seen).toEqual([]);
   answer!({ id: "q1" });
@@ -206,4 +206,42 @@ test("question and wanted-key bounds are enforced, and completed questions free 
   store.apply(pageChange("s.1", "q0"));
   store.commit("s.1");
   expect(() => store.questionAsked("s.1", "q16", "family")).not.toThrow();
+});
+
+test("on clears a lost state and closes one question without closing its sid", async () => {
+  const clock = engine();
+  const lanes = clock.lanes();
+  lanesMade.push(lanes);
+  const calls: Call[] = [];
+  const host = new SessionListHost(
+    async (method, params) => {
+      calls.push({ method, params });
+      return method === "list.open" ? { sid: params.sid } : {};
+    },
+    undefined,
+    () => "s.on",
+  );
+  await host.open();
+  const id = (await host.page("s.on", {}, "family")) as string;
+  host.store.apply({ kind: "off", sid: "s.on", code: "lost" });
+  host.store.commit("s.on");
+  expect(host.store.snapshot("s.on")?.off).toBe("lost");
+  receiveSessionList({ batch: 9, changes: [{ kind: "on", sid: "s.on" }] }, lanes);
+  await clock.frame();
+  expect(host.store.snapshot("s.on")?.off).toBeUndefined();
+  expect(await host.closeQuestion("s.on", id)).toEqual({ ok: true });
+  expect(calls.filter((call) => call.method === "list.close")).toEqual([
+    { method: "list.close", params: { sid: "s.on", id } },
+  ]);
+  expect(host.store.has("s.on")).toBe(true);
+});
+
+test("page refuses unknown caller fields before posting wire-shaped data", async () => {
+  const host = new SessionListHost(
+    async (method, params) => (method === "list.open" ? { sid: params.sid } : {}),
+    undefined,
+    () => "s.request",
+  );
+  await host.open();
+  expect(await host.page("s.request", { cursor: "wire" }, "family")).toEqual({ ok: false, code: "list.request" });
 });

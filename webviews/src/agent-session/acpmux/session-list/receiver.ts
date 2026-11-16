@@ -10,7 +10,10 @@ const pump = createDocumentPump<SessionListBatch, SessionListChange, SessionList
   parse: parseSessionListChange,
   makePart: () => new Set<string>(),
   route: (change, hosts, parts) => {
+    const stores = new Set<SessionListHost["store"]>();
     for (const host of hosts) {
+      if (stores.has(host.store)) continue;
+      stores.add(host.store);
       const touched = host.store.apply(change);
       if (!touched.length) continue;
       let sids = parts.get(host);

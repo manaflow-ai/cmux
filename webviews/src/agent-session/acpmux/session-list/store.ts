@@ -59,6 +59,7 @@ export type SessionListChange =
       missing: readonly SessionListKey[];
       unknown: readonly SessionListKey[];
     }
+  | { kind: "on"; sid: string }
   | { kind: "origin"; sid: string; origin: string; state: string }
   | { kind: "off"; sid?: string; code: string }
   | { kind: "error"; sid?: string; id?: string; code: string };
@@ -102,6 +103,9 @@ class SidList {
   private origins = new Map<string, SessionListOrigin>();
   private snapshot: SessionListSnapshot;
   private changed = false;
+  private dirtyAll = true;
+  private dirtySlots = new Set<string>();
+  private dirtyQuestions = new Set<string>();
   private ready = false;
   private off: string | undefined;
   private error: string | undefined;
@@ -115,6 +119,14 @@ class SidList {
     private readonly nextQuestionOrder: () => number,
   ) {
     this.sid = sid;
+    this.snapshot = {
+      sid,
+      slots: new Map(),
+      slotComplete: new Map(),
+      questions: new Map(),
+      origins: new Map(),
+      ready: false,
+    };
     this.snapshot = this.build();
   }
 
@@ -133,6 +145,7 @@ class SidList {
         this.releaseQuestionRows(evict);
         this.questions.delete(evict);
         this.questionOrder.delete(evict);
+        this.dirtyQuestions.add(evict);
       }
     }
     this.questions.set(id, {
@@ -149,6 +162,7 @@ class SidList {
       unknown: EMPTY_KEYS,
     });
     this.questionOrder.set(id, this.nextQuestionOrder());
+    this.dirtyQuestions.add(id);
   }
 
   renameQuestion(from: string, to: string): void {
@@ -159,6 +173,8 @@ class SidList {
       this.questionOrder.set(to, this.questionOrder.get(from) ?? this.nextQuestionOrder());
       this.questionOrder.delete(from);
       this.questions.set(to, { ...question, id: to });
+      this.dirtyQuestions.add(from);
+      this.dirtyQuestions.add(to);
     }
     const pending = this.pendingPages.get(from) ?? this.pendingPages.get(to);
     if (pending) {
@@ -168,13 +184,22 @@ class SidList {
     }
   }
 
-  closeQuestion(id: string): void {
+  closeQuestion(id: string): boolean {
     const question = this.questions.get(id);
-    if (question?.state === "pending") {
+    if (!question) return false;
+    if (question.state === "pending") {
       this.questions.set(id, { ...question, state: "closed", complete: false });
       this.releaseQuestionRows(id);
+      this.dirtyQuestions.add(id);
+      this.changed = true;
+    } else {
+      this.releaseQuestionRows(id);
+      this.questions.delete(id);
+      this.questionOrder.delete(id);
+      this.dirtyQuestions.add(id);
       this.changed = true;
     }
+    return true;
   }
 
   private releaseQuestionRows(id: string): void {
@@ -197,6 +222,10 @@ class SidList {
           return;
         }
         if (!this.questions.has(change.id)) {
+          if (this.pendingPages.size >= LIST_MAX_QUESTIONS) {
+            const oldest = this.pendingPages.keys().next().value;
+            if (oldest) this.pendingPages.delete(oldest);
+          }
           this.pendingPages.set(change.id, change);
           return;
         }
@@ -205,6 +234,10 @@ class SidList {
       }
       case "origin":
         this.origins.set(change.origin, { origin: change.origin, state: change.state });
+        this.changed = true;
+        return;
+      case "on":
+        this.off = undefined;
         this.changed = true;
         return;
       case "off":
@@ -223,6 +256,7 @@ class SidList {
   }
 
   private applyRows(change: Extract<SessionListChange, { kind: "rows" }>): void {
+    this.dirtySlots.add(change.slot);
     const slot = this.slots.get(change.slot) ?? new Map<string, undefined>();
     const removals = change.remove.map(refOf).filter((key) => slot.has(key));
     const additions = change.upserts
@@ -230,6 +264,7 @@ class SidList {
       .filter((row): row is SessionListRow => row !== null)
       .map(keyOf)
       .filter((key) => !slot.has(key));
+    for (const key of [...removals, ...additions]) this.markKey(key);
     if (change.slot !== "live" && slot.size - removals.length + additions.length > LIST_MAX_ROWS) {
       this.error = "list.rows";
       this.changed = true;
@@ -248,6 +283,7 @@ class SidList {
       const row = normalizeRow(raw);
       if (!row) continue;
       const key = keyOf(row);
+      this.markKey(key);
       this.rows.set(key, row);
       if (!slot.has(key)) {
         slot.set(key, undefined);
@@ -270,10 +306,13 @@ class SidList {
       }),
     );
     const previous = this.questionRows.get(change.id);
+    this.dirtyQuestions.add(change.id);
+    if (previous) for (const key of previous) this.markKey(key);
     if (previous) this.releaseKeys(previous);
     const keys = new Set<string>();
     for (const row of rows) {
       const key = keyOf(row);
+      this.markKey(key);
       this.rows.set(key, row);
       keys.add(key);
       this.holders.set(key, (this.holders.get(key) ?? 0) + 1);
@@ -321,13 +360,22 @@ class SidList {
     this.origins.clear();
     this.pendingPages.clear();
     this.error = undefined;
+    this.dirtyAll = true;
     this.snapshot = this.build();
     this.changed = false;
   }
 
   private build(): SessionListSnapshot {
-    const slots = new Map<string, readonly SessionListRow[]>();
-    for (const [name, keys] of this.slots) {
+    const slots = this.dirtyAll ? new Map<string, readonly SessionListRow[]>() : new Map(this.snapshot.slots);
+    const slotComplete = this.dirtyAll ? new Map<string, boolean>() : new Map(this.snapshot.slotComplete);
+    const slotNames = this.dirtyAll ? [...this.slots.keys()] : [...this.dirtySlots];
+    for (const name of slotNames) {
+      const keys = this.slots.get(name);
+      if (!keys) {
+        slots.delete(name);
+        slotComplete.delete(name);
+        continue;
+      }
       const values = [...keys.keys()]
         .flatMap((key) => {
           const row = this.rows.get(key);
@@ -335,27 +383,36 @@ class SidList {
         })
         .sort((a, b) => compareOrder(sessionListOrder(a), sessionListOrder(b)));
       slots.set(name, Object.freeze(values) as readonly SessionListRow[]);
+      slotComplete.set(name, this.slotComplete.get(name) ?? false);
     }
+    const questions = this.dirtyAll ? new Map<string, SessionListQuestion>() : new Map(this.snapshot.questions);
+    const questionIds = this.dirtyAll ? [...this.questions.keys()] : [...this.dirtyQuestions];
+    for (const id of questionIds) {
+      const question = this.questions.get(id);
+      if (!question) {
+        questions.delete(id);
+        continue;
+      }
+      questions.set(id, {
+        ...question,
+        rows: Object.freeze(
+          [...(this.questionRows.get(id) ?? [])]
+            .flatMap((key) => {
+              const row = this.rows.get(key);
+              return row ? [row] : [];
+            })
+            .sort((a, b) => compareOrder(sessionListOrder(a), sessionListOrder(b))),
+        ),
+      });
+    }
+    this.dirtyAll = false;
+    this.dirtySlots.clear();
+    this.dirtyQuestions.clear();
     return {
       sid: this.sid,
       slots,
-      slotComplete: new Map(this.slotComplete),
-      questions: new Map(
-        [...this.questions].map(([id, question]) => [
-          id,
-          {
-            ...question,
-            rows: Object.freeze(
-              [...(this.questionRows.get(id) ?? [])]
-                .flatMap((key) => {
-                  const row = this.rows.get(key);
-                  return row ? [row] : [];
-                })
-                .sort((a, b) => compareOrder(sessionListOrder(a), sessionListOrder(b))),
-            ),
-          },
-        ]),
-      ),
+      slotComplete,
+      questions,
       origins: new Map(this.origins),
       ready: this.ready,
       ...(this.off ? { off: this.off } : {}),
@@ -370,8 +427,18 @@ class SidList {
     );
   }
 
-  refresh(): void {
+  refresh(keys?: readonly string[]): void {
     this.changed = true;
+    if (!keys) {
+      this.dirtyAll = true;
+      return;
+    }
+    for (const key of keys) this.markKey(key);
+  }
+
+  private markKey(key: string): void {
+    for (const [name, slot] of this.slots) if (slot.has(key)) this.dirtySlots.add(name);
+    for (const [id, rows] of this.questionRows) if (rows.has(key)) this.dirtyQuestions.add(id);
   }
 
   private releaseKeys(keys: ReadonlySet<string>): void {
@@ -427,8 +494,10 @@ export class SessionListStore {
     this.sids.get(sid)?.renameQuestion(from, to);
   }
 
-  closeQuestion(sid: string, id: string): void {
-    this.sids.get(sid)?.closeQuestion(id);
+  closeQuestion(sid: string, id: string): boolean {
+    const list = this.sids.get(sid);
+    if (!list) return false;
+    return list.closeQuestion(id);
   }
 
   apply(change: SessionListChange): readonly string[] {
@@ -447,15 +516,16 @@ export class SessionListStore {
         ];
         for (const [sid, other] of this.sids) {
           if (sid !== change.sid && keys.some((key) => other.holds(key))) {
-            other.refresh();
+            other.refresh(keys);
             touched.add(sid);
           }
         }
       }
       if (change.kind === "page") {
+        const keys = change.rows.map((row) => keyOf(row));
         for (const [sid, other] of this.sids) {
-          if (sid !== change.sid && change.rows.some((row) => other.holds(keyOf(row)))) {
-            other.refresh();
+          if (sid !== change.sid && keys.some((key) => other.holds(key))) {
+            other.refresh(keys);
             touched.add(sid);
           }
         }
@@ -487,6 +557,9 @@ export class SessionListStore {
   }
 }
 
+/** One row map and holder table per document, shared by all session-list hosts. */
+export const documentSessionListStore = new SessionListStore();
+
 export function parseSessionListChange(value: unknown): SessionListChange | null {
   let parsed = value;
   if (typeof value === "string") {
@@ -499,7 +572,8 @@ export function parseSessionListChange(value: unknown): SessionListChange | null
   if (!parsed || typeof parsed !== "object" || typeof (parsed as { kind?: unknown }).kind !== "string") return null;
   const change = parsed as Record<string, unknown>;
   const kind = change.kind;
-  if (kind !== "rows" && kind !== "page" && kind !== "origin" && kind !== "off" && kind !== "error") return null;
+  if (kind !== "rows" && kind !== "page" && kind !== "on" && kind !== "origin" && kind !== "off" && kind !== "error")
+    return null;
   if (kind !== "off" && typeof change.sid !== "string") return null;
   if (kind === "rows") {
     if (

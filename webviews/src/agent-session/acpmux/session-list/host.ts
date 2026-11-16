@@ -1,4 +1,10 @@
-import { SessionListStore, LIST_MAX_WANTS, type SessionListBatch, type SessionListKey } from "./store";
+import {
+  documentSessionListStore,
+  SessionListStore,
+  LIST_MAX_WANTS,
+  type SessionListBatch,
+  type SessionListKey,
+} from "./store";
 import { receiveSessionList, addSessionListHost, removeSessionListHost } from "./receiver";
 import { chatRowsNamer } from "../rows/host";
 
@@ -39,6 +45,17 @@ function pageFields(request: Record<string, unknown>, kind: SessionListPageReque
   return fields;
 }
 
+function validPageRequest(
+  request: Record<string, unknown>,
+  fallbackKind: string,
+): SessionListPageRequest["kind"] | null {
+  const allowed = new Set(["kind", "key", "folder", "cold"]);
+  if (Object.keys(request).some((field) => !allowed.has(field))) return null;
+  const requested = request.kind === undefined ? fallbackKind : request.kind;
+  if (typeof requested !== "string" || !["older", "family", "forks", "folder"].includes(requested)) return null;
+  return requested as SessionListPageRequest["kind"];
+}
+
 export class SessionListHost {
   readonly store: SessionListStore;
   private readonly post: SessionListPost;
@@ -46,7 +63,7 @@ export class SessionListHost {
   private readonly openSids = new Set<string>();
   answerMs = SESSION_LIST_OPEN_MS;
 
-  constructor(post: SessionListPost, store = new SessionListStore(), name = sessionListNamer()) {
+  constructor(post: SessionListPost, store = documentSessionListStore, name = sessionListNamer()) {
     this.post = post;
     this.store = store;
     this.name = name;
@@ -111,11 +128,10 @@ export class SessionListHost {
 
   /** Starts a page operation; wire continuation and question ids never enter this request. */
   page(sid: string, request: Record<string, unknown>, kind = "all"): Promise<string | SessionListResult> {
-    const requestedKind = typeof request.kind === "string" ? request.kind : kind;
-    if (!["older", "family", "forks", "folder"].includes(requestedKind))
-      return Promise.resolve({ ok: false, code: "list.request" });
+    const requestedKind = validPageRequest(request, kind);
+    if (!requestedKind) return Promise.resolve({ ok: false, code: "list.request" });
     if (!this.store.has(sid)) return Promise.resolve({ ok: false, code: "list.sid" });
-    const allowedKind = requestedKind as SessionListPageRequest["kind"];
+    const allowedKind = requestedKind;
     const id = this.name();
     try {
       this.store.questionAsked(sid, id, allowedKind);
@@ -139,7 +155,17 @@ export class SessionListHost {
   }
 
   next(sid: string, id: string): Promise<SessionListResult> {
+    if (!this.store.has(sid)) return Promise.resolve({ ok: false, code: "list.sid" });
     return this.post("list.next", { sid, id }).then(
+      () => ({ ok: true }),
+      (error) => ({ ok: false, code: refusalCode(error) }),
+    );
+  }
+
+  closeQuestion(sid: string, id: string): Promise<SessionListResult> {
+    if (!this.store.has(sid) || !this.store.closeQuestion(sid, id))
+      return Promise.resolve({ ok: false, code: "list.sid" });
+    return this.post("list.close", { sid, id }).then(
       () => ({ ok: true }),
       (error) => ({ ok: false, code: refusalCode(error) }),
     );
