@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 622,
+  "count": 623,
   "sections": [
     {
       "id": "general",
@@ -1183,6 +1183,19 @@
           "kind": "folder_list",
           "default": [],
           "group": "Folder Picker"
+        },
+        {
+          "key": "remote.agentShareIdleMinutes",
+          "title": "Agent Sharing Turns Off After",
+          "help": "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it.",
+          "kind": "number",
+          "default": 15,
+          "group": "cmux Remote",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "unit": "minutes"
+          }
         },
         {
           "key": "remote.endSharingOnQuit",
