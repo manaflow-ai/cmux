@@ -1274,16 +1274,18 @@ fn claude_follow_prompt_identity_filters_effects_and_preserves_uuid() {
 
 #[test]
 fn claude_follow_recorded_shape_fixture_has_expected_kinds_and_no_unknowns() {
-    let kinds: BTreeSet<_> = CLAUDE_FOLLOW
+    let kinds: BTreeSet<String> = CLAUDE_FOLLOW
         .lines()
-        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap()["type"].clone())
+        .map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["type"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned()
+        })
         .collect();
     assert_eq!(
         kinds,
-        ["assistant", "attachment", "system", "user"]
-            .into_iter()
-            .map(serde_json::Value::from)
-            .collect()
+        ["assistant", "attachment", "system", "user"].into_iter().map(str::to_owned).collect()
     );
     let mut state = State::default();
     for line in CLAUDE_FOLLOW.lines() {
