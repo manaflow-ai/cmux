@@ -318,6 +318,14 @@ impl LinuxPlatform {
         self.clear_host_deferred();
         let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
         let pid = child.id();
+        // Same process is decided from this record (pid, start time, boot), not the pid file.
+        record_session_host(
+            &paths,
+            pid,
+            std::iter::once(spec.program.display().to_string())
+                .chain(spec.args.iter().cloned())
+                .collect(),
+        );
         // Track the child before anything else can fail, so a later error
         // never leaves an untracked session host (a second one would start
         // and park could not stop the first).
@@ -780,6 +788,18 @@ impl Platform for LinuxPlatform {
         let layout = self.layout().ok()?.clone();
         let (pid, pidfd) =
             procs::find_session_host(&self.cfg.paths.at(DAEMON_PID_FILE), &layout.bin, layout.uid)?;
+        // The owner record names the host by pid, start time and boot: a pid the record names
+        // that now runs with another start time is another process, whatever its argv says.
+        if let cmux_supervise_core::record::Loaded::Record(owner) =
+            cmux_supervise_core::record::load(&supervise_files(&self.cfg.paths).owner)
+            && owner.pid == pid
+            && owner.liveness() == cmux_supervise_core::Liveness::Dead
+        {
+            eprintln!(
+                "cmux-host: pid {pid} is not the recorded session host (reused); not adopted"
+            );
+            return None;
+        }
         self.epoll.add(pidfd.raw(), T_DAEMON).ok()?;
         let carrier = crate::carrier_entry::args_in(&procs::cmdline(pid).unwrap_or_default());
         self.daemon =
@@ -885,6 +905,73 @@ impl Platform for LinuxPlatform {
         let path = self.cfg.paths.at(STATUS_FILE);
         ensure_agent_dir(&self.cfg.paths)?;
         identity::write_atomic(&path, status.to_json().as_bytes(), 0o644)
+    }
+
+    fn record_stop(
+        &mut self,
+        cause: cmux_supervise_core::StopCause,
+    ) -> Option<cmux_supervise_core::BudgetState> {
+        let files = supervise_files(&self.cfg.paths);
+        // A fault is a death: one event naming what the dead host owned.
+        if cause.counts()
+            && let cmux_supervise_core::record::Loaded::Record(owner) =
+                cmux_supervise_core::record::load(&files.owner)
+        {
+            let death = cmux_supervise_core::death::Death {
+                name: files.name.clone(),
+                owner,
+                cause: cause.clone(),
+                owned: vec![
+                    "the session host's sessions and their carrier circuits".to_owned(),
+                    self.cfg.paths.at(DAEMON_PID_FILE).display().to_string(),
+                ],
+                at_ms: cmux_supervise_core::budget::now_ms(),
+            };
+            let _ = cmux_supervise_core::death::append(&files.deaths, &death);
+        }
+        match files.budget.record_with(cause, cmux_supervise_core::budget::now_ms(), &write_private)
+        {
+            Ok(state) => Some(state),
+            Err(e) => {
+                eprintln!("cmux-host: restart budget: {e}");
+                Some(files.budget.state())
+            }
+        }
+    }
+
+    fn restart_budget(&self) -> Option<cmux_supervise_core::BudgetState> {
+        Some(supervise_files(&self.cfg.paths).budget.state())
+    }
+}
+
+/// The session host's files on the supervisor contract.
+fn supervise_files(paths: &crate::config::Paths) -> cmux_supervise_core::Files {
+    cmux_supervise_core::Files::new(
+        &paths.at(crate::config::SUPERVISE_DIR),
+        crate::config::SESSION_HOST_NAME,
+        crate::config::SESSION_HOST_BUDGET,
+    )
+}
+
+/// The contract's writer here: the folder made root-only, the file by tmp-then-rename.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    identity::write_atomic(path, bytes, 0o600)
+}
+
+/// The owner record of the session host just spawned (`pid`), before anything waits on it.
+fn record_session_host(paths: &crate::config::Paths, pid: u32, argv: Vec<String>) {
+    let files = supervise_files(paths);
+    let Some(who) = cmux_supervise_core::identity::of(pid) else {
+        eprintln!("cmux-host: owner record: session host {pid} cannot be read");
+        return;
+    };
+    let previous = cmux_supervise_core::record::load(&files.owner);
+    let record = cmux_supervise_core::OwnerRecord::new(who, previous.record(), argv);
+    if let Err(e) = cmux_supervise_core::record::store_with(&files.owner, &record, &write_private) {
+        eprintln!("cmux-host: owner record: {e}");
     }
 }
 
