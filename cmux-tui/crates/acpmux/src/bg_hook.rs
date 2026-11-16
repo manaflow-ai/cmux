@@ -272,13 +272,13 @@ pub fn subagent_mark(input: &Value) -> Option<Value> {
     let kind = input
         .get("agent_type")
         .and_then(Value::as_str)
-        .filter(|k| crate::cli::sender::subagent_word(k))
+        .filter(|k| crate::sender_env::subagent_word(k))
         .unwrap_or("subagent");
-    if !crate::cli::sender::subagent_word(id) {
+    if !crate::sender_env::subagent_word(id) {
         return None;
     }
     let command = input.pointer("/tool_input/command")?.as_str()?;
-    let env = crate::cli::sender::SUBAGENT_ENV;
+    let env = crate::sender_env::SUBAGENT_ENV;
     if !may_run_acpmux(command) || command.contains(env) {
         return None;
     }
@@ -390,7 +390,7 @@ fn plain_command(argv: &[&str]) -> bool {
         // GNU sed's `e` command and `s///e` run the pattern space.
         "sed" => {
             let args: Vec<String> = rest.iter().map(|a| (*a).to_owned()).collect();
-            crate::hub::shell_readonly::sed_prints_only(&args)
+            crate::shell_readonly::sed_prints_only(&args)
         }
         "git" => {
             let mut words = rest.iter();
@@ -413,12 +413,10 @@ fn plain_command(argv: &[&str]) -> bool {
 /// `command` without the hook's mark line ([`subagent_mark`]) when it starts with one, else as
 /// it is. The mark only sets `ACPMUX_CALLER_SUBAGENT` to two plain words: it runs nothing.
 pub fn without_subagent_mark(command: &str) -> &str {
-    let prefix = format!("export {}=", crate::cli::sender::SUBAGENT_ENV);
+    let prefix = format!("export {}=", crate::sender_env::SUBAGENT_ENV);
     let Some((line, rest)) = command.split_once('\n') else { return command };
     let marked = line.strip_prefix(&prefix).and_then(|value| value.split_once(':')).is_some_and(
-        |(kind, id)| {
-            crate::cli::sender::subagent_word(kind) && crate::cli::sender::subagent_word(id)
-        },
+        |(kind, id)| crate::sender_env::subagent_word(kind) && crate::sender_env::subagent_word(id),
     );
     if marked { rest } else { command }
 }
@@ -489,7 +487,7 @@ pub fn subagent_call_starts(home: &std::path::Path, session: &str, input: &Value
         return;
     };
     let kind =
-        text("agent_type").filter(|k| crate::cli::sender::subagent_word(k)).unwrap_or("subagent");
+        text("agent_type").filter(|k| crate::sender_env::subagent_word(k)).unwrap_or("subagent");
     let _ = crate::subagent_call::record(home, session, call, agent, kind);
 }
 
