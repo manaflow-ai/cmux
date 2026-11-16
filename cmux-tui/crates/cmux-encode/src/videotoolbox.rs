@@ -133,6 +133,15 @@ crate::framework! {
 }
 use vt_sys::*;
 
+// Speed keys bound apart from `vt_sys`: one missing on an older macOS (PrioritizeEncodingSpeed-
+// OverQuality is macOS 12+) must not fail `frameworks()`; the session is then built without it.
+crate::framework! {
+    mod vt_speed_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        static kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality: CFStringRef;
+        static kVTCompressionPropertyKey_MaxFrameDelayCount: CFStringRef;
+    }
+}
+
 /// Loads the frameworks the encoder binds at run time (crate::dynlib); an error says which
 /// framework or symbol is missing.
 // Each module's `available` also arrives through its glob import; the path names which one.
@@ -332,6 +341,18 @@ fn create_session(
         let rate = number_f64(f64::from(fps.max(1)));
         set(kVTCompressionPropertyKey_ExpectedFrameRate(), rate);
         CFRelease(rate);
+        // Lower latency per frame: speed over quality (as the app's SurfaceFrameEncoder sets),
+        // and no frame held back inside the encoder. Optional: an OS without the keys, or an
+        // encoder that refuses one, keeps the session as built above.
+        if vt_speed_sys::available().is_ok() {
+            set(
+                vt_speed_sys::kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality(),
+                kCFBooleanTrue(),
+            );
+            let no_delay = number_i32(0);
+            set(vt_speed_sys::kVTCompressionPropertyKey_MaxFrameDelayCount(), no_delay);
+            CFRelease(no_delay);
+        }
     }
     Ok(session)
 }
