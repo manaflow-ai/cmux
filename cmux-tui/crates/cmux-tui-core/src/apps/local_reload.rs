@@ -98,8 +98,7 @@ impl Supervisor {
     /// not its files changed (a watch that missed an event, a host to start
     /// over). A script that does not load keeps the last good view
     /// (`refused_saves`); the answer names it with its init error:
-    /// `{reloaded, refused: [{app, reason}], removed}`. The reference is
-    /// Herdr's `server reload-config`.
+    /// `{reloaded, refused: [{app, reason}], removed}`.
     pub fn reload_local_now(&self, app: Option<&str>) -> Result<serde_json::Value, ApiError> {
         if self.safe_mode_on() {
             return Err(ApiError::new(

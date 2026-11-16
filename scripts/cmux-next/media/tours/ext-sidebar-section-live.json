@@ -130,7 +130,7 @@
       }
     },
     {
-      "title": "cmux ext reload customize: read the folder again on request (like Herdr's reload-config); the section reruns in place",
+      "title": "cmux ext reload customize: read the folder again on request; the section reruns in place",
       "daemon": true,
       "cmux": [
         "workspace",

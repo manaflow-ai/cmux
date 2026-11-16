@@ -470,7 +470,7 @@ pub(super) fn reload_text(data: &Value) -> String {
     out
 }
 
-/// `cmux [global options] reload-config [--json]`: Herdr's `reload-config`
+/// `cmux [global options] reload-config [--json]`: one reload
 /// for cmux. The app reads `cmux-next.json` and the Ghostty config again
 /// (its Reload Configuration action), and the daemon reruns every local
 /// extension (`apps-reload`). Either half runs when the other cannot: with

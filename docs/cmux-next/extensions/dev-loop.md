@@ -129,8 +129,7 @@ These apps keep no rollback copy: they are your files.
 ## Reload on request
 
 A save reloads by itself. To reload when you choose (a file written where the watch did not see it, a
-folder on a network volume, a script you want to start over), ask for it, as Herdr's
-`server reload-config` does:
+folder on a network volume, a script you want to start over), ask for it with one command:
 
 ```sh
 cmux ext reload my-prs        # local/my-prs: read its folder again and rerun it
