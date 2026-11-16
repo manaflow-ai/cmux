@@ -172,9 +172,7 @@ quiesce() {
   local app="$1" side="$2" label="$3" started now left waited
   started="$(python3 -I -c 'import time; print(int(time.time() * 1000))')"
   while :; do
-    # The paths come in through the environment: in awk's own arguments, awk would match its own command line.
-    left="$(LR_MACOS="$app/Contents/MacOS/" LR_FRAMEWORKS="$app/Contents/Frameworks/" ps -axo command= \
-      | awk 'index($0, ENVIRON["LR_MACOS"]) || index($0, ENVIRON["LR_FRAMEWORKS"]) { n++ } END { print n + 0 }')"
+    left="$(quiesce_left "$app")"
     now="$(python3 -I -c 'import time; print(int(time.time() * 1000))')"
     waited=$((now - started))
     [[ "$left" == 0 || "$waited" -ge 60000 ]] && break
@@ -184,4 +182,13 @@ quiesce() {
   echo "LR-SETTLE $side $label waited_ms=$waited left=$left settle_s=2"
 }
 
-main "$@"; exit $?
+# quiesce_left APP: how many processes run from APP/Contents/MacOS or APP/Contents/Frameworks. The paths reach awk
+# through its environment (in its arguments, awk would match its own command line), so the prefix goes on awk: on
+# ps, awk read empty strings, macOS awk's index($0, "") matched every line, and each launch waited the full 60 s.
+quiesce_left() {
+  ps -axo command= | LR_MACOS="$1/Contents/MacOS/" LR_FRAMEWORKS="$1/Contents/Frameworks/" \
+    awk 'index($0, ENVIRON["LR_MACOS"]) || index($0, ENVIRON["LR_FRAMEWORKS"]) { n++ } END { print n + 0 }'
+}
+
+# Sourced (tests/launch-ready-quiesce.test.sh), it only defines its functions.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; exit $?; fi
