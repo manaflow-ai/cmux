@@ -93,6 +93,14 @@ public final class AppsClient {
         catch { throw .refused(error) }
     }
 
+    /// The installed extensions' `@` items for `{query, prefix?, limit?}`, as the daemon ranks them
+    /// (`apps.composer.mentions`).
+    public func composerMentions(_ args: AppJSON) async throws(AppsClientError) -> AppJSON {
+        if case .unavailable(let reason) = availability { throw .unavailable(reason) }
+        do throws(AppsTransportError) { return try await transport.composerMentions(args) }
+        catch { throw .refused(error) }
+    }
+
     /// Adds bundled package directories (loaded once off the main actor at
     /// launch); a directory already known for an app stays.
     public func useBundledDirectories(_ directories: [String: URL]) {

@@ -58,6 +58,7 @@ import { FileSearch } from "./FileSearch";
 import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
+import { mentionAsk, useExtensionMentionPrefixes, useExtensionMentions } from "./composer/extensionMentions";
 import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
 import {
   hasOtherChats,
@@ -1349,11 +1350,17 @@ function ComposerFrame({
   // follows (cx-ncc.68, mentionItems.ts).
   const chatId = snapshot.summary?.sessionId;
   const otherChats = useMemo(() => hasOtherChats(snapshot.sessions, chatId), [snapshot.sessions, chatId]);
+  // Installed extensions' mention providers (`@pr`), composer/extensionMentions.ts.
+  const mentionPrefixes = useExtensionMentionPrefixes();
   const mentionTyped =
-    !open && !recalling && (searchFiles || otherChats || snapshot.catalog.length > 0) && mentionDismissed !== text
+    !open &&
+    !recalling &&
+    (searchFiles || otherChats || snapshot.catalog.length > 0 || mentionPrefixes.length > 0) &&
+    mentionDismissed !== text
       ? mentionQuery(text, markdownOffset(text, caret))
       : undefined;
   const mentionWord = mentionTyped?.query;
+  const extensionMentions = useExtensionMentions(mentionWord, mentionPrefixes);
   const mentionSearch = useMentionSearch(searchFiles, mentionWord);
   const mentionFiles = mentionResults(mentionSearch);
   // Recent @ picks belong to this chat's folder on its machine, and only where its files are searched.
@@ -1371,8 +1378,10 @@ function ComposerFrame({
             sessions: snapshot.sessions,
             chatId,
             harnesses: guestHarnesses,
+            extension: extensionMentions,
+            extensionFirst: mentionWord !== undefined && mentionAsk(mentionWord, mentionPrefixes).prefix !== undefined,
           }),
-    [mentionWord, mentionFiles, snapshot.sessions, guestHarnesses, chatId, recentScope],
+    [mentionWord, mentionFiles, snapshot.sessions, guestHarnesses, chatId, recentScope, extensionMentions],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
   // chat; it never hints at a file search.

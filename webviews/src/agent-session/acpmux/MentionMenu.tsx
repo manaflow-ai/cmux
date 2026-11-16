@@ -74,6 +74,8 @@ export function MentionMenu({
             <span className="acpmux-slash-name">{runs(item.name)}</span>
             {item.kind === "session" ? (
               item.project && <span className="acpmux-slash-description">{item.project}</span>
+            ) : item.kind === "extension" ? (
+              <span className="acpmux-slash-description">{item.mention.detail ?? item.mention.extension}</span>
             ) : item.kind === "harness" ? (
               <span className="acpmux-slash-description">{t("mention.readOnlyGuest")}</span>
             ) : (
