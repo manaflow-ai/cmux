@@ -168,14 +168,25 @@ impl Supervisor {
             if !current || !installed || key.preview {
                 return Err(error("scope.missing", "the app is not installed"));
             }
-            let storage = self.storage();
-            let storage = storage
-                .as_ref()
-                .ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
-            return storage
-                .call(&app, &op, &params)
-                .map(|value| json!({ "value": value }))
-                .map_err(|e| error(e.code, e.message));
+            let answer = {
+                let storage = self.storage();
+                let storage = storage
+                    .as_ref()
+                    .ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
+                storage
+                    .call(&app, &op, &params)
+                    .map(|value| json!({ "value": value }))
+                    .map_err(|e| error(e.code, e.message))
+            };
+            drop(inner);
+            // The person's page key bindings changed: the app routes the new keys at once.
+            let rebinds = matches!(op.as_str(), "app.storage.set" | "app.storage.delete")
+                && params.get("key").and_then(Value::as_str)
+                    == Some(super::page_keys::OVERRIDES_KEY);
+            if answer.is_ok() && rebinds {
+                self.page_keys_changed(&app);
+            }
+            return answer;
         }
         if op == "net.fetch" {
             let request = egress::admit(&params, &grant.scopes, grant.sandboxed)

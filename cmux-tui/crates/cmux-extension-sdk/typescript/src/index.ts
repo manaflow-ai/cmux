@@ -125,6 +125,84 @@ export function command<A, R>(run: (args: A, ctx: { app: string; gesture?: strin
 }
 
 // ---------------------------------------------------------------------------------------------
+// Browser pages. The pages of the browser tabs cmux draws, and single keys on them.
+
+/** A browser tab's page as cmux reports it (`browser.page.state`). */
+export interface BrowserPageState {
+  tab: string
+  url: string
+  title: string
+  profile: string
+}
+
+/** Which tab a page call acts on: `tab` (a `tab_…` id, or a unique prefix), else the focused browser tab. */
+export interface BrowserPageTarget {
+  tab?: string
+}
+
+/**
+ * The page of a browser tab cmux draws: run a script in it, read its URL and title, and move it.
+ * Pass the `cmux` a command got (`ctx.cmux`) so a call made for a key press or a palette pick
+ * carries the person's gesture; the global `cmux` works outside one.
+ *
+ * Scopes: `browser:execute` for `eval` (it reads and changes what the person browses, so the install
+ * card highlights it), `browser:read` for `state`, `browser:write` for the rest.
+ *
+ *     const page = browserPage(ctx.cmux)
+ *     const links = await page.eval(() => document.links.length)
+ *     await page.back()
+ */
+export function browserPage(c: CmuxGlobal = cmux) {
+  const run = <T>(op: string, params: Record<string, unknown>) => c.call<T>(`browser.page.${op}`, params)
+  return {
+    /**
+     * Runs `script` in the page's own world and answers its value (JSON). A function is sent as its
+     * source and called with `args` (JSON values), so it must not close over anything else. Answer
+     * at once: a promise is not waited for. Work that outlives the call (listening for keys, say)
+     * stays in the page, on listeners the script adds.
+     */
+    async eval<T = unknown>(script: string | ((...args: never[]) => T), options: BrowserPageTarget & { args?: unknown[] } = {}): Promise<T> {
+      const source = typeof script === "function" ? `(${script.toString()})(...${JSON.stringify(options.args ?? [])})` : script
+      const reply = await run<{ value?: T }>("eval", { tab: options.tab, script: source })
+      return reply?.value as T
+    },
+    /** The page's URL, title and browser profile. */
+    state: (target: BrowserPageTarget = {}) => run<BrowserPageState>("state", { ...target }),
+    back: (target: BrowserPageTarget = {}) => run<{ tab: string }>("back", { ...target }),
+    forward: (target: BrowserPageTarget = {}) => run<{ tab: string }>("forward", { ...target }),
+    reload: (target: BrowserPageTarget = {}) => run<{ tab: string }>("reload", { ...target }),
+    navigate: (url: string, target: BrowserPageTarget = {}) => run<{ tab: string }>("navigate", { ...target, url }),
+    /** Opens `url` in a new browser tab beside the page. */
+    newTab: (url: string, target: BrowserPageTarget = {}) => run<{ tab?: string }>("new_tab", { ...target, url })
+  }
+}
+
+/**
+ * The storage key of the person's page key bindings: `{"<op>": ["<key>", ...]}`. A command whose
+ * catalog op has a `keyboard` entry with `"when": "browserFocused"` runs when the person presses
+ * that key on a browser page that left it alone while no text field had focus, with
+ * `{tab}` (the page's tab) as its args. A page key is a letter, `shift+` a letter, or `/`. Keys
+ * written here replace the catalog's for that op (`[]` unbinds it), and cmux routes them at once.
+ */
+export const PAGE_KEYS_STORAGE_KEY = "cmux.keys"
+
+/** The person's page key bindings, by op: `{}` when they kept the catalog's (scope `storage:local`). */
+export async function pageKeys(c: CmuxGlobal = cmux): Promise<Record<string, string[]>> {
+  const saved = await c.storage.get<Record<string, string[]>>(PAGE_KEYS_STORAGE_KEY)
+  return saved && typeof saved === "object" ? saved : {}
+}
+
+/** Saves the person's page key bindings (scope `storage:local`); `{}` puts back the catalog's. */
+export function setPageKeys(bindings: Record<string, string[]>, c: CmuxGlobal = cmux): Promise<unknown> {
+  return Object.keys(bindings).length ? c.storage.set(PAGE_KEYS_STORAGE_KEY, bindings) : c.storage.delete(PAGE_KEYS_STORAGE_KEY)
+}
+
+/** Whether `key` is a key cmux can route from a page: `a` to `z` or `/`, alone or with `shift+`. */
+export function isPageKey(key: string): boolean {
+  return /^(shift\+)?[a-z/]$/.test(key)
+}
+
+// ---------------------------------------------------------------------------------------------
 // Composer places. These are data in the manifest, not exports: cmux's daemon reads them and
 // answers the agent chat composer, so a save of cmux-app.json updates the composer live.
 

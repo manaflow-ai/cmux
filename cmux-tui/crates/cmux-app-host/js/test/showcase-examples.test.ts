@@ -1,5 +1,5 @@
 // The showcase example extensions (examples/extensions/{weather,recent-prs,changes,agent-pet,
-// agent-standup,workspace-notes}) in the fake host. Each imports nothing but cmux-extension-sdk.
+// agent-standup,workspace-notes,link-hints}) in the fake host. Each imports nothing but cmux-extension-sdk.
 // Their dist/ is build output (gitignored): `cmux ext dev` packs src/main.ts the same way, so
 // these tests pack each one here and mount the result.
 import { beforeAll, describe, expect, test } from "bun:test"
@@ -12,7 +12,7 @@ const root = join(import.meta.dir, "../../../../..")
 const dir = (name: string) => join(root, "examples/extensions", name)
 const ok = (value: unknown) => ({ ok: true, body: { value } })
 const fail = (code: string, message = code) => ({ ok: false, body: { code, message, retryable: false } })
-const NAMES = ["weather", "recent-prs", "agent-pet", "agent-standup", "workspace-notes", "changes"]
+const NAMES = ["weather", "recent-prs", "agent-pet", "agent-standup", "workspace-notes", "changes", "link-hints"]
 const built = new Map<string, string>()
 beforeAll(async () => {
   for (const name of NAMES) built.set(name, await pack(dir(name)))
@@ -354,5 +354,85 @@ describe("local/changes", () => {
     await h.settle(10)
     expect(String(empty(h, "m")!.title)).toBe("No saved search")
     expect(h.calls.some((c) => c.name === "integration.request")).toBe(false)
+  })
+})
+
+describe("local/link-hints", () => {
+  function hints(count = 4) {
+    const h = host("link-hints")
+    const store = new Map<string, unknown>()
+    h.handlers["browser.page.eval"] = () => ok({ value: count })
+    h.handlers["browser.page.back"] = (p) => ok({ tab: p.tab })
+    h.handlers["action.run"] = () => ok(null)
+    h.handlers["toast.show"] = () => ok(null)
+    h.handlers["app.storage.get"] = (p) => ok(store.get(p.key) ?? null)
+    h.handlers["app.storage.set"] = (p) => (store.set(p.key, p.value), ok(null))
+    h.handlers["app.storage.delete"] = (p) => (store.delete(p.key), ok(null))
+    return { h, store }
+  }
+  const run = async (h: FakeHost, name: string, args: unknown, cbId: number) => {
+    h.runCommand(name, args, cbId)
+    await h.settle(10)
+    return h.commandResults.get(cbId)
+  }
+
+  test("every verb is a page key on its own command", () => {
+    const catalog = JSON.parse(readFileSync(join(dir("link-hints"), "catalog.json"), "utf8"))
+    const keys = Object.fromEntries(catalog.operations.map((op: any) => [op.name.split(".").pop(), op.keyboard.map((k: any) => `${k.key} ${k.when}`)]))
+    expect(keys).toEqual({
+      follow: ["f browserFocused"], follow_new_tab: ["shift+f browserFocused"], back: ["b browserFocused"], bookmark: ["a browserFocused"],
+      save_images: ["shift+d browserFocused"], copy_url: ["y browserFocused"], find: ["/ browserFocused"]
+    })
+    for (const op of catalog.operations) expect(built.get("link-hints")).toContain(`var ${op.export} = `)
+  })
+
+  test("f draws the labels in the page the key came from", async () => {
+    const { h } = hints()
+    expect(await run(h, "followLink", { tab: "tab_7" }, 1)).toEqual({ ok: true, body: { labels: 4 } })
+    const call = h.calls.find((c) => c.name === "browser.page.eval")!
+    expect(call.params.tab).toBe("tab_7")
+    expect(call.params.script).toStartWith("(function hintScript(")
+    expect(call.params.script).toEndWith(`)(...["sadfjklewcmpgh",false])`)
+    expect(h.calls.some((c) => c.name === "toast.show")).toBe(false)
+  })
+
+  test("F labels links for a new tab, and says so when there are none", async () => {
+    const { h } = hints(0)
+    expect(await run(h, "followLinkInNewTab", {}, 1)).toEqual({ ok: true, body: { labels: 0 } })
+    expect(h.calls.find((c) => c.name === "browser.page.eval")!.params.script).toEndWith(`,true])`)
+    expect(h.calls.find((c) => c.name === "toast.show")!.params.title).toBe("No links on screen")
+  })
+
+  test("b, a and y run the page's back and cmux's own actions", async () => {
+    const { h } = hints()
+    await run(h, "goBack", { tab: "tab_7" }, 1)
+    await run(h, "bookmarkPage", { tab: "tab_7" }, 2)
+    await run(h, "copyURL", { tab: "tab_7" }, 3)
+    expect(h.calls.find((c) => c.name === "browser.page.back")!.params).toEqual({ tab: "tab_7" })
+    expect(h.calls.filter((c) => c.name === "action.run").map((c) => c.params.id)).toEqual(["bookmark.addPage", "browser.copyURL"])
+  })
+
+  test("the keys pane rebinds a verb, refuses a key cmux can't route, and puts the defaults back", async () => {
+    const { h, store } = hints()
+    h.mount("m", "renderKeys")
+    await h.settle(10)
+    expect(rows(h, "m").slice(0, 3).map((r) => [r.title, r.subtitle])).toEqual([["Follow a link", "f"], ["Open a link in a new tab", "F"], ["Go back", "b"]])
+    const field = () => h.findNode("m", (n) => n.type === "TextField")!
+    h.dispatch("m", field(), "submit", { text: "g, G" })
+    await h.settle(10)
+    expect(store.get("cmux.keys")).toEqual({ "local.link_hints.follow": ["g", "shift+g"] })
+    expect(rows(h, "m")[0]!.subtitle).toBe("g, G")
+    h.dispatch("m", field(), "submit", { text: "cmd+g" })
+    await h.settle(10)
+    expect(empty(h, "m")?.title).toBe("Couldn't change a key")
+    expect(store.get("cmux.keys")).toEqual({ "local.link_hints.follow": ["g", "shift+g"] })
+    h.dispatch("m", field(), "submit", { text: "" })
+    await h.settle(10)
+    expect(store.get("cmux.keys")).toEqual({ "local.link_hints.follow": [] })
+    expect(rows(h, "m")[0]!.subtitle).toBe("Off")
+    h.dispatch("m", h.findNode("m", (n) => n.type === "Row" && n.props.title === "Put back every default key")!, "tap")
+    await h.settle(10)
+    expect(store.has("cmux.keys")).toBe(false)
+    expect(rows(h, "m")[0]!.subtitle).toBe("f")
   })
 })

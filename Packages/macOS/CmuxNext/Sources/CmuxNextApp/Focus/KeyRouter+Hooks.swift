@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextApps
 import CmuxNextBrowser
 import CmuxNextFocus
 
@@ -140,9 +141,17 @@ extension KeyRouter {
     /// keyboard. Plain keys never reach the dispatcher, so typing in a
     /// terminal or a text field never gets here.
     func routePageKey(_ key: BrowserPageKey, from tab: any BrowserTab) {
-        guard let services, !services.linkHints.isActive, services.settings?.snapshot.browserVimKeys != false, let controller = window(showing: tab),
+        guard let services, !services.linkHints.isActive, let controller = window(showing: tab),
               case .browserPage(_, let shown) = controller.focus.state.resolved, shown == services.cache.key(of: tab),
               Self.allows(.content, focus: controller.focus.state) else { return pageKeys.reset() }
+        // An installed extension's page key (`page_keys`, its catalog op's `keyboard` entry on a
+        // page) comes before cmux's own: the person installed it to have that key.
+        if let entry = AppCommandPalette.entries(services.apps).first(where: { $0.command.answers(pageKey: key.character, shift: key.shift) }) {
+            pageKeys.reset()
+            services.registry.track(AppCommandPalette.run(entry, services: services, origin: .user, arguments: ["tab": .string(shown)]))
+            return
+        }
+        guard services.settings?.snapshot.browserVimKeys != false else { return pageKeys.reset() }
         let context = keyContext(for: controller.focus.state, facts: Facts())
         let bits = context.bits
         // `gg` (Vimium's top of the page) is two keys: the first `g` waits for the second.
