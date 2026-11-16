@@ -78,7 +78,6 @@
     "end-terminals-keep-layout-v1",
     "feed-client-v1",
     "feed-local-owner-v1",
-    "floating-panes-v1",
     "frontend-browser-activate-v1",
     "frontend-browser-history-v1",
     "frontend-browser-insert-after-v1",
