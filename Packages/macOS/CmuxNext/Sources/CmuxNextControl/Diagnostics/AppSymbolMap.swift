@@ -31,6 +31,14 @@ public struct AppSymbolMap: Sendable {
         #dsohandle.assumingMemoryBound(to: mach_header.self)
     }
 
+    /// The file name of ``codeImage`` as `dladdr` names its frames: `CmuxNextApp`, or the
+    /// executable's name in a static build.
+    public static let codeImageName: String? = {
+        var info = Dl_info()
+        guard dladdr(UnsafeRawPointer(codeImage), &info) != 0, let name = info.dli_fname else { return nil }
+        return (String(cString: name) as NSString).lastPathComponent
+    }()
+
     /// The map of the running app's code image, or nil when the bundle has none
     /// or it holds no slice with that image's UUID. Loaded on first use; read it
     /// off the main thread.
