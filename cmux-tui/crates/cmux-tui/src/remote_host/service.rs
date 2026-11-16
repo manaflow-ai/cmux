@@ -15,6 +15,9 @@ use std::time::Duration;
 use anyhow::anyhow;
 use anyhow::{Context as _, bail};
 
+mod linger;
+pub(crate) use linger::enable_linger;
+
 #[cfg(target_os = "macos")]
 const LAUNCHD_LABEL: &str = "com.cmuxterm.host-remote";
 #[cfg(target_os = "linux")]
@@ -352,26 +355,6 @@ pub(crate) fn restart(exe: &Path, with_service: bool) -> anyhow::Result<String> 
     }
     let pid = spawn_detached(exe)?;
     Ok(format!("started cmux host serve (pid {pid}){why}"))
-}
-
-/// Best effort and noninteractive: hosting stays available when logind refuses the grant.
-pub(crate) fn enable_linger() -> String {
-    let enabled = cmux_process::Command::new("loginctl")
-        .args(["--no-ask-password", "enable-linger"])
-        .stdin(cmux_process::Stdio::null())
-        .stdout(cmux_process::Stdio::null())
-        .stderr(cmux_process::Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success());
-    linger_note(enabled).to_owned()
-}
-
-fn linger_note(enabled: bool) -> &'static str {
-    if enabled {
-        "linger enabled: hosting survives logout"
-    } else {
-        "linger could not be enabled; run `sudo loginctl enable-linger $USER` so hosting survives logout"
-    }
 }
 
 fn run_quiet(program: &str, args: &[&str]) -> anyhow::Result<()> {
