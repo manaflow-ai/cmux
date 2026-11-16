@@ -1368,10 +1368,11 @@ impl Hub {
             let _phase = gauges.phase("hub suggestion gate");
             StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()))
         };
+        let fatal = crate::supervise::Fatal::default();
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = {
             let _phase = gauges.phase("hub ledger");
-            ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")))
+            ledger::Ledger::open_with_fatal(home.as_ref().map(|h| h.join("ledger")), fatal.clone())
         };
         let peer_snapshots = {
             let _phase = gauges.phase("hub peer snapshots");
@@ -1385,10 +1386,15 @@ impl Hub {
             let _phase = gauges.phase("hub audit log");
             audit_log::AuditLog::open(store.audit_dir())
         };
-        let usage_limits = StdMutex::new(config.usage_warnings.limits());
+        let usage_limits = {
+            let _phase = gauges.phase("hub usage limits");
+            StdMutex::new(config.usage_warnings.limits())
+        };
         #[cfg(feature = "hub-carrier")]
-        let hub_carrier =
-            crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
+        let hub_carrier = {
+            let _phase = gauges.phase("hub carrier");
+            crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref())
+        };
         let _phase = gauges.phase("hub assembly");
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
@@ -1438,7 +1444,7 @@ impl Hub {
             scope: cmux_scope::Scope::new("acpmux hub"),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
-            fatal: crate::supervise::Fatal::default(),
+            fatal,
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
@@ -1627,14 +1633,14 @@ impl Hub {
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
         }
-        let _phase = gauges.phase("staged recovery");
-        hub.recover_staged_replacements();
-        drop(_phase);
         hub.watch_rehydrates();
         if loading {
             hub.logs_ready.send_replace(false);
             hub.adoption_ready.send_replace(false);
         } else {
+            let _phase = gauges.phase("staged recovery");
+            hub.recover_staged_replacements();
+            drop(_phase);
             hub.load_from_store(deferred);
         }
         if !deferred {

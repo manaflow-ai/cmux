@@ -4,19 +4,55 @@ use super::*;
 
 pub(super) struct StoreLoad {
     pub ready: tokio::sync::watch::Sender<bool>,
+    /// The load task has returned, whether it published a usable store or raised Fatal.
+    pub done: tokio::sync::watch::Sender<bool>,
+    /// Transfer-marker recovery completes before the store list. Exact-id reads wait here.
+    pub recovery: tokio::sync::watch::Sender<bool>,
+    pub recovery_error: tokio::sync::watch::Sender<Option<String>>,
     pub total: std::sync::atomic::AtomicUsize,
+}
+
+struct StoreLoadDone(tokio::sync::watch::Sender<bool>);
+
+impl Drop for StoreLoadDone {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
+    }
 }
 
 impl StoreLoad {
     pub fn new(loading: bool) -> Self {
-        Self { ready: tokio::sync::watch::channel(!loading).0, total: Default::default() }
+        Self {
+            ready: tokio::sync::watch::channel(!loading).0,
+            done: tokio::sync::watch::channel(!loading).0,
+            recovery: tokio::sync::watch::channel(!loading).0,
+            recovery_error: tokio::sync::watch::channel(None).0,
+            total: Default::default(),
+        }
     }
 }
 
 impl Hub {
     pub async fn load_store_async(self: &Arc<Self>) {
         let hub = self.clone();
+        let recovered = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let recovered_in_task = recovered.clone();
+        let done = self.store_load.done.clone();
         let result = tokio::task::spawn_blocking(move || {
+            let _done = StoreLoadDone(done);
+            let _recovery_phase = crate::gauges::global().phase("staged recovery");
+            #[cfg(test)]
+            if hub
+                .store
+                .session_path("__cmux_force_recovery_panic__")
+                .is_some_and(|path| path.exists())
+            {
+                panic!("forced staged recovery panic");
+            }
+            hub.recover_staged_replacements();
+            drop(_recovery_phase);
+            hub.store_load.recovery.send_replace(true);
+            recovered_in_task.store(true, std::sync::atomic::Ordering::SeqCst);
             hub.load_from_store(true);
             // Before spawns are released, after the index is complete. This sweep must never
             // mistake the initially empty in-memory session map for an empty store.
@@ -26,15 +62,37 @@ impl Hub {
         .await;
         if let Err(error) = result {
             tracing::error!("reading the session store failed: {error}");
+            if !recovered.load(std::sync::atomic::Ordering::SeqCst) {
+                // Leave both marks pending: a panic before recovery completes is a fatal startup
+                // failure, never a recovered or ready store that can serve empty truth.
+                self.store_load.recovery_error.send_replace(Some(
+                    "staged recovery task panicked before recovery completed".to_owned(),
+                ));
+                self.fatal
+                    .raise("the staged recovery task panicked before recovery completed".into());
+                return;
+            }
+            // A panic after the recovery mark keeps the base branch's handling. The follow-up
+            // recovery of load_from_store is deliberately a separate PR (417.7).
         }
         self.watch_orphans();
         self.store_load.ready.send_replace(true);
         self.bg_notify_resume_in_background();
     }
 
+    pub(crate) async fn wait_store_ended(&self) {
+        let mut done = self.store_load.done.subscribe();
+        let _ = done.wait_for(|done| *done).await;
+    }
+
     pub(crate) async fn wait_store(&self) {
         let mut ready = self.store_load.ready.subscribe();
         let _ = ready.wait_for(|ready| *ready).await;
+    }
+
+    pub(crate) async fn wait_recovery(&self) {
+        let mut recovery = self.store_load.recovery.subscribe();
+        let _ = recovery.wait_for(|ready| *ready).await;
     }
 
     pub(crate) fn store_loaded(&self) -> bool {
@@ -47,6 +105,7 @@ impl Hub {
         if self.store_loaded() {
             return;
         }
+        self.wait_recovery().await;
         let id = match SessionReceipt::split_qualified_id(key) {
             Some((host, id)) if host == LOCAL_HOST_ID => id,
             Some(_) => {
@@ -143,5 +202,27 @@ impl Hub {
     /// The daemon's startup task ended: `_acpmux/status` `loading.startupDone`.
     pub(crate) fn end_startup_work(&self) {
         self.startup_work_done.send_replace(true);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_recovery_panic_is_fatal_without_recovered_or_ready_marks() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Local;
+        let store = crate::store::open(&config.store, dir.path()).unwrap();
+        let marker = dir.path().join("sessions/__cmux_force_recovery_panic__");
+        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        std::fs::write(&marker, b"test").unwrap();
+        let hub = Hub::new_loading(config, store, crate::mailbox::Mailbox::memory());
+        hub.load_store_async().await;
+        assert!(hub.fatal.reason().is_some());
+        assert!(!*hub.store_load.recovery.borrow());
+        assert!(!*hub.store_load.ready.borrow());
+        assert!(*hub.store_load.done.borrow());
     }
 }

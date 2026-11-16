@@ -182,22 +182,35 @@ impl Hub {
 
     /// Recover an outer session store staged for a replacement before a daemon crash.
     pub(super) fn recover_staged_replacements(&self) {
+        let _state_lock = super::transfer::harness_state_lock();
         let Some(probe) = self.store.session_path("__cmux_harness_recovery_probe__") else {
             return;
         };
         let Some(root) = probe.parent() else { return };
         let Ok(entries) = std::fs::read_dir(root) else { return };
+        let mut importing = Vec::new();
+        let mut replacement_backups = Vec::new();
+        let mut durable_markers = Vec::new();
+        let mut replacement_states = Vec::new();
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.ends_with(".durable-transfer-state.importing")
                 || name.ends_with(".replacement-state.json.importing")
             {
-                let _ = crate::home_fs::remove_file(entry.path());
+                importing.push(entry.path());
+            } else if name.ends_with(".replacement-backup") {
+                replacement_backups.push(entry.path());
+            } else if name.ends_with(".durable-transfer-state") {
+                durable_markers.push(entry.path());
+            } else if name.starts_with(".") && name.ends_with(".replacement-state.json") {
+                replacement_states.push(entry.path());
             }
         }
-        let Ok(entries) = std::fs::read_dir(root) else { return };
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
+        for path in importing {
+            let _ = crate::home_fs::remove_file(path);
+        }
+        for path in replacement_backups {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
             let Some(id) =
                 name.strip_prefix(".").and_then(|n| n.strip_suffix(".replacement-backup"))
             else {
@@ -207,7 +220,7 @@ impl Hub {
                 continue;
             }
             let target = root.join(id);
-            let state = entry.path().with_extension("replacement-state.json");
+            let state = path.with_extension("replacement-state.json");
             let Ok(raw) = std::fs::read(&state) else { continue };
             let Ok(value) = serde_json::from_slice::<Value>(&raw) else { continue };
             let owner_agent = value.get("agentId").and_then(Value::as_str).unwrap_or("");
@@ -234,17 +247,16 @@ impl Hub {
             };
             let committed = phase == "committed" || landed;
             if committed {
-                let _ = crate::home_fs::remove_dir_all(entry.path());
+                let _ = crate::home_fs::remove_dir_all(path);
             } else {
                 if std::fs::symlink_metadata(&target).is_ok() {
                     let _ = crate::home_fs::remove_dir_all(&target);
                 }
-                let _ = crate::home_fs::rename(entry.path(), target);
+                let _ = crate::home_fs::rename(path, target);
             }
         }
-        let Ok(entries) = std::fs::read_dir(root) else { return };
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
+        for path in durable_markers {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
             let Some(agent_id) =
                 name.strip_prefix(".").and_then(|n| n.strip_suffix(".durable-transfer-state"))
             else {
@@ -253,26 +265,19 @@ impl Hub {
             if !super::transfer::is_plain_id(agent_id) {
                 continue;
             }
-            let _state_lock = super::transfer::harness_state_lock();
-            self.recover_durable_marker(root, &entry.path(), agent_id);
+            self.recover_durable_marker(root, &path, agent_id);
         }
-        if let Ok(entries) = std::fs::read_dir(root) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if !name.starts_with(".") || !name.ends_with(".replacement-state.json") {
-                    continue;
-                }
-                if let Ok(raw) = std::fs::read(entry.path())
-                    && let Ok(value) = serde_json::from_slice::<Value>(&raw)
+        for path in replacement_states {
+            if let Ok(raw) = std::fs::read(&path)
+                && let Ok(value) = serde_json::from_slice::<Value>(&raw)
+            {
+                let agent = value.get("agentId").and_then(Value::as_str).unwrap_or("");
+                let outer = value.get("outerId").and_then(Value::as_str).unwrap_or("");
+                let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
+                if matches!(phase, "prepared" | "staged" | "committed")
+                    && recovery_owner(root, agent, outer)
                 {
-                    let agent = value.get("agentId").and_then(Value::as_str).unwrap_or("");
-                    let outer = value.get("outerId").and_then(Value::as_str).unwrap_or("");
-                    let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
-                    if matches!(phase, "prepared" | "staged" | "committed")
-                        && recovery_owner(root, agent, outer)
-                    {
-                        let _ = crate::home_fs::remove_file(entry.path());
-                    }
+                    let _ = crate::home_fs::remove_file(path);
                 }
             }
         }
@@ -706,6 +711,7 @@ impl Hub {
                     });
                 if !stored {
                     if source_store_backup.is_none() {
+                        let _ = self.wait_recovery().await;
                         self.recover_staged_replacements();
                         let _ = self.kill(&session, true).await;
                     } else {
@@ -717,6 +723,7 @@ impl Hub {
                                 backup.with_extension("replacement-state.json"),
                             );
                         }
+                        let _ = self.wait_recovery().await;
                         self.recover_staged_replacements();
                     }
                     return Err(transfer_error("store", "could not durably record transferred_in"));
@@ -731,6 +738,7 @@ impl Hub {
                         });
                     if let Err(error) = commit {
                         let _ = self.kill(&session, true).await;
+                        let _ = self.wait_recovery().await;
                         self.recover_staged_replacements();
                         return Err(error);
                     }

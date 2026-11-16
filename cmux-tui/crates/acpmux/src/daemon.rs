@@ -605,6 +605,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     };
     let _hub_ready_phase = gauges.phase("hub end to requests ready");
     if let Some(v2) = v2.as_ref() {
+        let _phase = gauges.phase("v2 tees");
         let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
         hub.install_v2_tee(tee);
         // Links carry the list stream only with `list` and `peers` in the set (`link_v2.rs`).
@@ -619,6 +620,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             hub.install_book_tee(tee);
             v2_tasks.spawn(task);
         }
+        drop(_phase);
     }
     // A copied machine's first start settles what the logs left open as stopped
     // (`hub/clone_boot.rs`); read before any log is.
@@ -774,6 +776,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // daemon answers read no token (or the previous launch's) and stayed remote-origin for its
     // whole life (Leo, 2026-11-12: his own Claude chat refused on his own Mac). The peer token
     // likewise, for a peer that reads it after asking this daemon.
+    let _auth_phase = gauges.phase("request auth files");
     let local_app = if ws_listener.is_some() {
         let mut pages = vec![crate::server::AGENT_PANE_ORIGIN.to_owned()];
         // The validated `--allow-dev-origin` values (loopback http, a port).
@@ -802,7 +805,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     } else {
         None
     };
+    drop(_auth_phase);
     // A re-bound socket's listener takes the old one's place (`daemon/socket_rebind.rs`).
+    let _listener_phase = gauges.phase("listener tasks");
     #[cfg(unix)]
     let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
     #[cfg(unix)]
@@ -824,6 +829,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             ws_shutdown.clone(),
         ))
     });
+    drop(_listener_phase);
     let ready = serde_json::json!({
         "ready": true,
         "pid": std::process::id(),

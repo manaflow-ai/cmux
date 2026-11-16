@@ -342,6 +342,7 @@ impl Hub {
         // Without its own receipt the copied records would decide its transfer state after a
         // restart (`transfer_authority.rs`): the import fails and leaves no chat.
         if !logged {
+            let _ = self.wait_recovery().await;
             self.recover_staged_replacements();
             let _ = self.kill(&session, true).await;
             return Err(RpcError::internal("import: could not durably record imported"));
@@ -350,6 +351,7 @@ impl Hub {
         self.end_move(&session);
         self.save_meta(&session);
         if !defer_finalize && let Err(error) = self.finalize_harness_state(&session.meta()) {
+            let _ = self.wait_recovery().await;
             self.recover_staged_replacements();
             let _ = self.kill(&session, true).await;
             return Err(RpcError::internal(error.to_string()));

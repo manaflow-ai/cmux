@@ -175,7 +175,7 @@ impl Hub {
     pub(crate) async fn persist_for_handoff(self: Arc<Self>, deadline: tokio::time::Instant) {
         // Cancelling session cleanup may have dropped its metadata task handle. The blocking
         // index read still owns the sessions it will publish; include them before the fence.
-        self.wait_store().await;
+        self.wait_store_ended().await;
         let (metadata_done, metadata_saved) = tokio::sync::oneshot::channel::<()>();
         let store = {
             let hub = self.clone();
