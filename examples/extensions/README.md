@@ -16,6 +16,7 @@ and the sample stays installed. `cmux ext remove ID` uninstalls it.
 | [Workspace notes](workspace-notes) | A short to-do list for each workspace | `cmux ext dev examples/extensions/workspace-notes` |
 | [Link hints](link-hints) | Browse the built-in browser with the keyboard: follow links by their labels, go back, bookmark, find | `cmux ext dev examples/extensions/link-hints` |
 | [Reader mode](reader-mode) | The browser tab's article as clean, readable text, and back, with one key | `cmux ext dev examples/extensions/reader-mode` |
+| [The Leo collection](leo-collection) | Clock, weather, gacha and usage, riced up, with a look that ties them together | `examples/extensions/leo-collection/install.sh` |
 
 `cmux ext dev` packs `src/main.ts` with `bun`, so `bun` must be on your PATH. `bun
 examples/extensions/build.ts --check` packs every sample and validates its manifest.
