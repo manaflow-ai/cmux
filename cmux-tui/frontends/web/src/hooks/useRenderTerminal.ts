@@ -538,6 +538,9 @@ export function useRenderTerminal({ client, surface, active, focusOnMount = fals
       try {
         let recoveryAttempt = 0;
         for (;;) {
+          // Keep the cached frame visible while a replacement transport is
+          // attaching, but do not let input or resize target the old model.
+          currentModel = null;
           stream = await client.attachSurface(surface, { mode: "render" });
           if (cancelled) return;
           if (graphicsResnapshotRequested) {
