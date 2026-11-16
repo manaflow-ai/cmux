@@ -750,6 +750,11 @@ jobs:
     if: always() && needs.plan.result == 'success'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
+    # actions: read lets the screen diff download the newest feat-cmux-next
+    # push run's review-gate-path-* stills (scripts/ci/ios_gate_screen_diff.py).
+    permissions:
+      contents: read
+      actions: read
     outputs:
       blocking: ${{ steps.report.outputs.blocking }}
     steps:
@@ -760,6 +765,7 @@ jobs:
           sparse-checkout: |
             cmux-next-ios/scripts
             cmux-next-ios/AppStoreReview
+            scripts/ci
       # A pull request is judged on its base's known blockers, never on a list
       # it could edit to pin its own regression.
       - name: Checkout the base's known blockers
@@ -781,6 +787,9 @@ jobs:
           ASC_RESULT: ${{ needs.asc-validate.result }}
           EXPECT_AGENT: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || inputs.agent_pass }}
           JUDGED_SHA: ${{ needs.plan.outputs.sha }}
+          # The screen diff reads feat-cmux-next's push runs with it.
+          GH_TOKEN: ${{ github.token }}
+          GATE_LANE: ${{ needs.plan.outputs.lane }}
           # A direct push or pull_request run fails on a new blocker only:
           # the ones in known-blockers.json were there before it. A
           # submission (dispatch, or a call from the production pipeline)
@@ -837,6 +846,21 @@ jobs:
               echo '```json'; cat "$f"; echo '```'; } | tee -a review-gate.md >> "$GITHUB_STEP_SUMMARY"
             code=1
           done < <(find in -name 'device-plan-mismatch.json' -type f | sort)
+          # Each family's stills against the newest feat-cmux-next push run's,
+          # by attachment name: changed, new and removed screens, each
+          # justified by a `Visual-change: <screen or *>: <why>` line in the
+          # pull request body or not. It warns only and never sets $code.
+          if [ -f scripts/ci/ios_gate_screen_diff.py ]; then
+            timeout 420 python3 -I scripts/ci/ios_gate_screen_diff.py --head-root in \
+              --family iphone --family ipad --family duo --fetch-baseline --lane "$GATE_LANE" \
+              --work "$RUNNER_TEMP/screen-baseline" --out "$RUNNER_TEMP/screens.md" \
+              || echo "::warning::the iOS screen diff did not finish"
+            if [ -f "$RUNNER_TEMP/screens.md" ]; then
+              tee -a review-gate.md < "$RUNNER_TEMP/screens.md" >> "$GITHUB_STEP_SUMMARY"
+              unjustified="$(grep -m1 -oE '[0-9]+ iOS screens differ from feat-cmux-next with no Visual-change line' "$RUNNER_TEMP/screens.md" || true)"
+              if [ -n "$unjustified" ]; then echo "::warning::$unjustified (see the run summary)"; fi
+            fi
+          fi
           exit $code
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
