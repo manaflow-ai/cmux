@@ -8,6 +8,7 @@
 //!            [--source synthetic|synthetic-still|synthetic-tick [--synthetic-size WxH]] (macOS bench builds, `host` and `serve`:
 //!            a generated picture with the marker instead of the display; no grants needed; src/synthetic.rs)
 //!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
+//!   observe  --pid VIEWER_PID --window CGWINDOW_ID --marker-origin X,Y --cell-size N --at X,Y [--input key|click] [--samples 200] [--input-cmd POSTER (posts the input under its own Accessibility grant; the result brackets the latency)]
 //!   observe  --mode passive --pid VIEWER_PID --window CGWINDOW_ID --start-file PATH --marker-origin X,Y --cell-size N [--expected-nonce 32 lowercase hex] [--duration-s 10] [--interval-ms 1000]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
