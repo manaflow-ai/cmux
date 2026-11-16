@@ -57,6 +57,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.stripScrollbar` | string | `"system"` | `system`, `auto`, `always`, `off` | Column Scroll Bar. A thin bar under the columns that shows and moves the visible range. |
 | `layout.closeFocus` | string | `"mostRecent"` | `previousNeighbor`, `mostRecent` | Focus After Closing a Pane. Which pane gets focus when the focused pane closes. |
 | `shortcuts.showModifierHoldHints` | boolean | `true` |  | Show Shortcuts When Holding a Modifier. Hold Command or Control for 0.30 seconds to show shortcut hints. |
+| `shortcuts.keyPositions` | string | `"typed"` | `typed`, `qwerty` | Shortcut Keys. On Dvorak, Colemak or AZERTY, QWERTY Positions keeps Command and Control shortcuts on the keys they have on a US keyboard. |
 | `updates.channel` | string | `"nightly"` | `stable`, `nightly`, `canary`, `dev` | Update Channel. Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while. |
 | `updates.checkAutomatically` | boolean | `true` |  | Check for Updates Automatically |
 | `updates.checkIntervalSeconds` | real | `3600` | 900 to 604800 | Check Every |
@@ -365,6 +366,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `editor.cursorSmoothCaretAnimation` | string | `"off"` | `off`, `explicit`, `on` | Animate Cursor Movement |
 | `editor.cursorSurroundingLines` | real | `0` | 0 to 50 | Lines Kept Around the Cursor |
 | `editor.multiCursorModifier` | string | `"alt"` | `alt`, `ctrlCmd` | Add a Cursor With. The key you hold while you click to add a cursor. |
+| `editor.vimMode` | boolean | `false` |  | Vim Keys in the Editor. Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar. |
 | `editor.autoClosingBrackets` | boolean | `true` |  | Close Brackets |
 | `editor.autoClosingQuotes` | boolean | `true` |  | Close Quotes |
 | `editor.linkedEditing` | boolean | `false` |  | Rename Matching Tags Together |

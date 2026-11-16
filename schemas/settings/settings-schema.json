@@ -231,6 +231,7 @@
               "appearance.customDensity",
               "appearance.customDensities",
               "appearance.metrics.chromeFontSize",
+              "appearance.fontSmoothing",
               "appearance.metrics.sidebarRowHeight",
               "appearance.borders",
               "appearance.focusIndicator",
@@ -1723,6 +1724,17 @@
           },
           {
             "key" : "keyboard.1",
+            "rows" : [
+              "shortcuts.keyPositions",
+              "editor.vimMode"
+            ],
+            "title" : {
+              "key" : "settings.group.keyboardLayout",
+              "text" : "Layout and Vim"
+            }
+          },
+          {
+            "key" : "keyboard.2",
             "rows" : [
               "tabs.commandDigits",
               "sidebar.numbering",
@@ -8657,6 +8669,157 @@
       "title" : {
         "key" : "settings.shortcuts.showModifierHoldHints",
         "text" : "Show Shortcuts When Holding a Modifier"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "typed",
+        "qwerty"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.shortcutKeysTyped",
+            "text" : "As Your Layout Types Them"
+          },
+          "value" : "typed"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.shortcutKeysQwerty",
+            "text" : "QWERTY Positions"
+          },
+          "value" : "qwerty"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "typed",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.keyboardLayout",
+        "text" : "Layout and Vim"
+      },
+      "help" : {
+        "key" : "settings.shortcuts.keyPositions.help",
+        "text" : "On Dvorak, Colemak or AZERTY, QWERTY Positions keeps Command and Control shortcuts on the keys they have on a US keyboard."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "shortcuts.keyPositions",
+      "keywords" : [
+        "keyboard layout",
+        "dvorak",
+        "colemak",
+        "azerty",
+        "qwertz",
+        "qwerty",
+        "shortcuts",
+        "key position"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "shortcuts",
+        "keyPositions"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "keyboard",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:shortcuts.keyPositions"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.shortcuts.keyPositions",
+        "text" : "Shortcut Keys"
       },
       "validation" : "portable"
     },
@@ -34027,6 +34190,162 @@
     },
     {
       "accepts" : [
+        "antialiased",
+        "system"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.fontSmoothingThin",
+            "text" : "Thin"
+          },
+          "value" : "antialiased"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.fontSmoothingSystem",
+            "text" : "System"
+          },
+          "value" : "system"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "antialiased",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.fontSmoothing.help",
+        "text" : "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.fontSmoothing",
+      "keywords" : [
+        "font",
+        "text",
+        "smoothing",
+        "antialiasing",
+        "antialiased",
+        "thin",
+        "bold",
+        "weight",
+        "rendering",
+        "crisp",
+        "AppleFontSmoothing"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "fontSmoothing"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.fontSmoothing"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.fontSmoothing",
+        "text" : "Text Smoothing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0.9,
         1.25,
         1.075
@@ -58579,6 +58898,141 @@
       "title" : {
         "key" : "settings.editor.multiCursorModifier",
         "text" : "Add a Cursor With"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : {
+        "key" : "settings.editor.vimMode.help",
+        "text" : "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.vimMode",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "vim",
+        "vi",
+        "modal",
+        "hjkl",
+        "keyboard"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "vimMode"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:editor.vimMode"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.editor.vimMode",
+        "text" : "Vim Keys in the Editor"
       },
       "validation" : "portable"
     },

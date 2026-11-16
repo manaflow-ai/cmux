@@ -3172,6 +3172,12 @@
       "title" : "Remove Trailing Spaces on Save",
       "type" : "boolean"
     },
+    "editor.vimMode" : {
+      "default" : false,
+      "description" : "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar.",
+      "title" : "Vim Keys in the Editor",
+      "type" : "boolean"
+    },
     "editor.wordBasedSuggestions" : {
       "default" : true,
       "description" : "editor.wordBasedSuggestions",
@@ -4551,6 +4557,16 @@
       "description" : "Terminal agents reopen their session after a crash or restart.",
       "title" : "Resume Agents After Restart",
       "type" : "boolean"
+    },
+    "shortcuts.keyPositions" : {
+      "default" : "typed",
+      "description" : "On Dvorak, Colemak or AZERTY, QWERTY Positions keeps Command and Control shortcuts on the keys they have on a US keyboard.",
+      "enum" : [
+        "typed",
+        "qwerty"
+      ],
+      "title" : "Shortcut Keys",
+      "type" : "string"
     },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,
