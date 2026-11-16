@@ -13,6 +13,8 @@ profile=release
 # Every commit runs with glibc capped at the arenas the tip caps itself to (malloc_arenas.rs DAEMON_ARENAS), so a
 # Linux-only allocator setting does not read as a change of what the daemon holds; arenas=0 leaves glibc default.
 arenas=2
+# The heap profile build: release code generation without its link-time cost (Cargo.toml [profile.gate]).
+dhat_profile=gate
 shas=()
 for arg in "$@"; do
   case "$arg" in
@@ -21,6 +23,7 @@ for arg in "$@"; do
     settle=*) settle="${arg#settle=}" ;;
     profile=*) profile="${arg#profile=}" ;;
     arenas=*) arenas="${arg#arenas=}" ;;
+    dhat_profile=*) dhat_profile="${arg#dhat_profile=}" ;;
     *) shas+=("$arg") ;;
   esac
 done
@@ -74,12 +77,23 @@ for sha in "${shas[@]}"; do
   for run in 1 2 3; do
     python3 "$here/tui-idle-ram.py" --tui "$out/cmux-tui" --workspaces "$workspaces" --settle "$settle" --label "${full:0:12}-r$run" || status=1
   done
-  if [[ "$dhat" == 1 ]] && ! grep -q '^dhat-heap' "$tree/cmux-tui/crates/cmux-tui/Cargo.toml"; then
-    echo "DHAT none: ${full:0:12} has no dhat-heap feature"
-  elif [[ "$dhat" == 1 ]]; then
-    (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$CARGO_TARGET_DIR_DHAT" cargo build --locked --profile "$profile" -p cmux-tui "${bins[@]}" --features dhat-heap 2>&1 | tail -n 2) || { status=1; continue; }
+  if [[ "$dhat" == 1 ]]; then
+    locked=(--locked)
+    if ! grep -q '^dhat-heap' "$tree/cmux-tui/crates/cmux-tui/Cargo.toml"; then
+      # A commit from before the feature: this checkout's heap_profile.rs, its feature and its two calls, put in the
+      # scratch tree only (the lock gains the optional dep, so this one build is not --locked).
+      crate="$tree/cmux-tui/crates/cmux-tui"
+      cp "$root/cmux-tui/crates/cmux-tui/src/heap_profile.rs" "$crate/src/heap_profile.rs"
+      sed -i '0,/^\[features\]$/s//[features]\ndhat-heap = ["dep:dhat"]/' "$crate/Cargo.toml"
+      sed -i '0,/^\[dependencies\]$/s//[dependencies]\ndhat = { version = "0.3", optional = true }/' "$crate/Cargo.toml"
+      sed -i '0,/^mod /s//mod heap_profile;\nmod /' "$crate/src/main.rs"
+      sed -i '0,/^pub fn main() -> std::process::ExitCode {$/s//&\n    heap_profile::start();/' "$crate/src/main.rs"
+      locked=()
+      echo "DHAT injected: ${full:0:12}"
+    fi
+    (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$CARGO_TARGET_DIR_DHAT" cargo build "${locked[@]}" --profile "$dhat_profile" -p cmux-tui "${bins[@]}" --features dhat-heap 2>&1 | tail -n 2) || { status=1; continue; }
     prof="$scratch/dhat-${full:0:12}.json"
-    CMUX_TUI_DHAT_OUT="$prof" python3 "$here/tui-idle-ram.py" --tui "$CARGO_TARGET_DIR_DHAT/$profile/cmux-tui" \
+    CMUX_TUI_DHAT_OUT="$prof" python3 "$here/tui-idle-ram.py" --tui "$CARGO_TARGET_DIR_DHAT/$dhat_profile/cmux-tui" \
       --workspaces "$workspaces" --settle "$settle" --label "${full:0:12}-dhat" || status=1
     if [ -f "$prof" ]; then python3 "$here/dhat-top.py" "$prof" 40 | sed "s/^/${full:0:12} /"; else echo "DHAT none: ${full:0:12}"; fi
     [ -n "${FAST_CHECKS_OUT:-}" ] && [ -f "$prof" ] && cp "$prof" "$FAST_CHECKS_OUT/"
