@@ -162,18 +162,19 @@ async fn a_request_on_a_link_that_answers_keeps_it() {
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
-    let answering = tokio::spawn(async move { while server.next().await.is_some() {} });
+    // Says nothing for 3 s (a loaded peer), then reads, which answers each ping with a pong.
+    let answering = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        while server.next().await.is_some() {}
+    });
     let mut out_rx = peer.out_rx.lock().await.take().unwrap();
     let link = peer.clone();
     let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
-    for _ in 0..3 {
-        tokio::time::sleep(Duration::from_millis(2_500)).await;
-        peer.out
-            .try_send(Outbound { epoch: peer.link_epoch(), key: None, line: "{}".into() })
-            .unwrap();
-    }
+    // Sent on a link silent 2.5 s: the probe goes out, and the pong at 3 s keeps the link.
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    peer.out.try_send(Outbound { epoch: peer.link_epoch(), key: None, line: "{}".into() }).unwrap();
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert!(!serving.is_finished(), "a link that answers is kept");
+    assert!(!serving.is_finished(), "a link that answers the probe is kept");
     serving.abort();
     answering.abort();
 }

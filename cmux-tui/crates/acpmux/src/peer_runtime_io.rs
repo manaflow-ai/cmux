@@ -525,7 +525,14 @@ impl Peer {
             }
             return Err("refused (test)".into());
         }
-        let (via, opened) = self.open_first().await?;
+        let (via, opened) = match self.open_first().await {
+            Ok(opened) => opened,
+            Err(error) => {
+                // No path opened: the network, not a slow peer (`SilenceBudget::dial_struggled`).
+                self.with_silence(SilenceBudget::dial_struggled);
+                return Err(error);
+            }
+        };
         // A losing ssh attempt's process ends now.
         if via != Via::Ssh {
             self.end_tunnel().await;
@@ -891,11 +898,9 @@ impl Peer {
         // out within the send budget, is dropped and reconnected; one interval
         // of silence only marks it degraded.
         let timings = self.timings;
-        // `down` counted the drop that ended the last link; any more are dials that failed.
-        let failed_dials = self.link().attempts > 1;
         let (was, silence) = self.with_silence(|b| {
             let was = b.current();
-            b.opened(tokio::time::Instant::now(), failed_dials);
+            b.opened(tokio::time::Instant::now());
             (was, b.current())
         });
         if silence > was {
@@ -1076,6 +1081,12 @@ impl Peer {
                 _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
                 _ = wake_check.tick() => check_wake!(),
                 _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
+                    // A request's probe on a link still reading bytes (a large frame on its way, the
+                    // pong queued behind it) is moving: wait another `NETWORK_PROBE`, not drop it.
+                    if request_probe && heard.as_ref().is_some_and(|h| h.silent() < network::NETWORK_PROBE) {
+                        wake_probe = Some(tokio::time::Instant::now() + network::NETWORK_PROBE);
+                        continue;
+                    }
                     if request_probe {
                         self.with_silence(SilenceBudget::probe_dropped);
                     }
@@ -1392,6 +1403,8 @@ impl Peer {
                     }
                     // Before the frame is marked: a link a wake check drops never had it.
                     check_wake!();
+                    // Read before the write: a large frame's write is not the peer's silence.
+                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
                     // Marked before the write: a frame that is partly written may still run.
                     let prompt_key = key.as_ref();
                     if let Some(key) = prompt_key {
@@ -1421,7 +1434,6 @@ impl Peer {
                     // goes out with it and the link is dropped and redialed when nothing answers
                     // within `NETWORK_PROBE`, not after the whole silence budget. Not for a peer
                     // that proved slow (`SilenceBudget::may_probe`).
-                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
                     if wake_probe.is_none() && silent >= timings.ping_every && self.with_silence(|b| b.may_probe()) {
                         let deadline = tokio::time::Instant::now() + network::NETWORK_PROBE;
                         match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
@@ -1435,7 +1447,10 @@ impl Peer {
                                 ));
                             }
                             Ok(Err(e)) => break Err(e.to_string()),
-                            Err(_) => break Err(stopped_reading(network::NETWORK_PROBE)),
+                            Err(_) => {
+                                self.with_silence(SilenceBudget::probe_dropped);
+                                break Err(stopped_reading(network::NETWORK_PROBE));
+                            }
                         }
                     }
                 }

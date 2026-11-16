@@ -187,7 +187,9 @@ impl SilenceBudget {
         self.dropped_at = Some(now);
     }
 
-    /// A dial failed or was started over (a client asked while it was still connecting).
+    /// A dial opened no path, or was started over (a client asked while it was still
+    /// connecting): the network was gone. Not a link that opened and then dropped in its
+    /// handshake, which a slow peer does too.
     pub fn dial_struggled(&mut self) {
         self.struggled = true;
     }
@@ -203,10 +205,9 @@ impl SilenceBudget {
         !self.fixed && !self.slow_proven
     }
 
-    /// A new link's WebSocket opened: the peer's daemon answers. `failed_dials`: dials failed
-    /// between the last link and this one.
-    pub fn opened(&mut self, now: tokio::time::Instant, failed_dials: bool) {
-        let struggled = std::mem::take(&mut self.struggled) || failed_dials;
+    /// A new link's WebSocket opened: the peer's daemon answers.
+    pub fn opened(&mut self, now: tokio::time::Instant) {
+        let struggled = std::mem::take(&mut self.struggled);
         let probed = std::mem::take(&mut self.probe_dropped);
         let dropped = self.dropped_at.take();
         if struggled {
@@ -1036,7 +1037,7 @@ mod tests {
         assert_eq!(budget.current(), secs(20), "once per drop");
         for _ in 0..4 {
             budget.dropped(start);
-            budget.opened(start, false);
+            budget.opened(start);
         }
         assert_eq!(budget.current(), SilenceBudget::CAP, "never past the old 80 s");
         // Calm: answers 3 s apart, then a step down each `stable_after`, to the start.
@@ -1070,7 +1071,8 @@ mod tests {
         budget.answered_after(secs(5), start);
         assert_eq!(budget.current(), secs(10));
         budget.dropped(start);
-        budget.opened(start + secs(1), true);
+        budget.dial_struggled();
+        budget.opened(start + secs(1));
         assert_eq!(
             budget.current(),
             secs(6),
@@ -1078,14 +1080,14 @@ mod tests {
         );
         budget.dropped(start);
         budget.dial_struggled();
-        budget.opened(start + secs(1), false);
+        budget.opened(start + secs(1));
         assert_eq!(
             budget.current(),
             secs(6),
             "a connect started over while the network was down: same"
         );
         budget.dropped(start);
-        budget.opened(start + secs(1), false);
+        budget.opened(start + secs(1));
         assert_eq!(budget.current(), secs(12), "a clean reopen still reads as a slow peer");
     }
 
@@ -1099,14 +1101,15 @@ mod tests {
         let secs = Duration::from_secs;
         assert!(budget.may_probe());
         budget.probe_dropped();
-        budget.opened(start, false);
+        budget.opened(start);
         assert_eq!(budget.current(), secs(12));
         assert!(!budget.may_probe(), "slow, not gone");
         budget.settle(start + t.stable_after);
         assert_eq!(budget.current(), secs(6));
         assert!(budget.may_probe(), "calm again: requests may check the link");
         budget.probe_dropped();
-        budget.opened(start, true);
+        budget.dial_struggled();
+        budget.opened(start);
         assert!(
             budget.may_probe() && budget.current() == secs(6),
             "a probe drop whose redial failed was a network loss"
@@ -1124,7 +1127,7 @@ mod tests {
         let now = tokio::time::Instant::now();
         budget.answered_after(Duration::from_secs(14), now);
         budget.dropped(now);
-        budget.opened(now, false);
+        budget.opened(now);
         assert_eq!(budget.current(), Duration::from_secs(15));
         let slow = LinkTimings { ping_every: Duration::from_secs(40), ..LinkTimings::default() };
         assert_eq!(SilenceBudget::new(&slow).current(), Duration::from_secs(120), "over the cap");
