@@ -126,8 +126,8 @@ class AuditFixtureTests(unittest.TestCase):
         self.repo = self.tmp / "repo"
         self.env = git_env(self.tmp)
         (self.tmp / "gitconfig").write_text("")
-        for relative in ("scripts/ci/generated_files_guard.py", "scripts/cmux-next/generated_outputs.py",
-                         "scripts/cmux-next/generated_merge.py"):
+        for relative in ("scripts/ci/generated_files_guard.py", "scripts/ci/ci_process_tree.py",
+                         "scripts/cmux-next/generated_outputs.py", "scripts/cmux-next/generated_merge.py"):
             (self.repo / relative).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, self.repo / relative)
         (self.repo / "scripts/cmux-next/settings-exports.txt").write_text("docs/settings.json\n")
@@ -226,8 +226,8 @@ class MergeRegeneratesTests(unittest.TestCase):
         self.repo = self.tmp / "repo"
         self.env = git_env(self.tmp)
         (self.tmp / "gitconfig").write_text("[merge \"cmux-generated-v1\"]\n\tdriver = true\n")
-        for relative in ("scripts/ci/generated_files_guard.py", "scripts/cmux-next/generated_outputs.py",
-                         "scripts/cmux-next/generated_merge.py"):
+        for relative in ("scripts/ci/generated_files_guard.py", "scripts/ci/ci_process_tree.py",
+                         "scripts/cmux-next/generated_outputs.py", "scripts/cmux-next/generated_merge.py"):
             (self.repo / relative).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, self.repo / relative)
         (self.repo / "scripts/cmux-next/settings-exports.txt").write_text("docs/settings.json\n")
@@ -288,7 +288,9 @@ class MergeRegeneratesTests(unittest.TestCase):
 
 
 class InsertionsOnTheHandWrittenRegistriesTests(unittest.TestCase):
-    """policy.json-shaped lists both sides append a method to merge with cmux-insertions-v1 (cmux#44453)."""
+    """A registry both sides insert a method into, one entry per line, merges with cmux-insertions-v1. Two
+    edits of one existing line (cmux#44453's field order on one policy.json line) still conflict: that is a
+    real disagreement, and keeping either side would drop the other's change."""
 
     def test_two_appended_methods_merge(self):
         tmp = Path(tempfile.mkdtemp(prefix="generated-merge-ins-"))
@@ -311,19 +313,19 @@ class InsertionsOnTheHandWrittenRegistriesTests(unittest.TestCase):
             path.write_text('{\n  "requests": [\n' + body + '\n  ],\n  "x": 1\n}\n')
 
         git("init", "-q", "-b", "main")
-        write(["a", "b"])
+        write(["a", "z"])
         git("add", "-A")
         git("commit", "-q", "-m", "base")
         git("checkout", "-q", "-b", "lane")
-        write(["a", "b", "lane"])
+        write(["a", "lane", "z"])
         git("commit", "-qam", "lane")
         git("checkout", "-q", "main")
-        write(["a", "b", "base"])
+        write(["a", "base", "z"])
         git("commit", "-qam", "base method")
         git("checkout", "-q", "lane")
         merged = git("merge", "--no-edit", "main", check=False)
         self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
-        self.assertEqual(json.loads(path.read_text())["requests"], ["a", "b", "lane", "base"])
+        self.assertEqual(json.loads(path.read_text())["requests"], ["a", "lane", "base", "z"])
 
 
 if __name__ == "__main__":
