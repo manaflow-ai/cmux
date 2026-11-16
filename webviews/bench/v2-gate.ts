@@ -34,6 +34,10 @@ export type PageGate = { needs: "bun" | "browser"; run: () => Promise<Measured> 
 /// ms from performance.now() to the ns every time row of the home is in.
 const ns = (ms: number) => Math.round(ms * 1e6);
 
+// The registry tests (cmux-tui/crates/acpmux/benches/v2/mod.rs, page_gates()) find this table's
+// rows by a line pattern: an entry's key opens its own line, indented two spaces, quoted, then
+// `: {` (`  "v2.pr06.page_store_apply": {`). Keep every entry in that shape: a key the formatter
+// or an edit moves off it is a row the tests no longer see.
 export const PAGE_GATES: Record<string, PageGate> = {
   "v2.pr06.page_store_apply": {
     needs: "bun",
@@ -53,21 +57,33 @@ export const PAGE_GATES: Record<string, PageGate> = {
       };
     },
   },
-  // The done-when bounds the god store by the cap, not by the small chat's store: the line's
-  // small side is the byte cap and the row's ratio is 1.0. Rows over STORE_MAX_ROWS fail the run.
+  // Both sides measured: the peak bytes each store held while paging up through its chat. The home
+  // bounds the god side by the row's god_max (STORE_MAX_BYTES) and the ratio its done-when derives.
+  // Beside the line, every run asserts the fixture filled the store: the small side held exactly
+  // its 200 rows, the god side paged and its peak rows reached STORE_MAX_ROWS without passing it.
   "v2.pr06.page_store_held": {
     needs: "bun",
     run: async () => {
-      const { god } = await measureHeld();
+      const { god, small } = await measureHeld();
       const line = {
         name: "v2.pr06.page_store_held",
-        small_p95: STORE_MAX_BYTES,
+        small_p95: small.peakBytes,
         god_p95: god.peakBytes,
         unit: "bytes",
       };
-      if (heldUnderCap(god)) return { line };
-      const failure = `the god store held ${god.peakRows} rows and ${god.peakBytes} bytes, over the cap of ${STORE_MAX_ROWS} rows and ${STORE_MAX_BYTES} bytes`;
-      return { line, failure };
+      const failures = [
+        heldUnderCap(god)
+          ? ""
+          : `the god store held ${god.peakRows} rows and ${god.peakBytes} bytes, over the cap of ${STORE_MAX_ROWS} rows and ${STORE_MAX_BYTES} bytes`,
+        small.rows === small.chatRows && small.peakRows === small.chatRows
+          ? ""
+          : `the small store held ${small.rows} rows (peak ${small.peakRows}), not its chat's ${small.chatRows}`,
+        god.pages > 0 ? "" : "the god store never paged",
+        god.peakRows === STORE_MAX_ROWS
+          ? ""
+          : `the god store's peak was ${god.peakRows} rows, not the cap of ${STORE_MAX_ROWS}`,
+      ].filter(Boolean);
+      return failures.length === 0 ? { line } : { line, failure: failures.join("; ") };
     },
   },
 };

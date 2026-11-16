@@ -2,6 +2,12 @@
 
 use super::super::{GOD_SMALL_LIMIT, GateRow};
 
+/// The page row store's caps, written as webviews/src/agent-session/acpmux/rows/store.ts writes
+/// its `STORE_MAX_ROWS` and `STORE_MAX_BYTES`; the registry test
+/// `the_page_store_caps_match_the_store` reads that file and fails when they part.
+pub const STORE_MAX_ROWS: f64 = 1_600.0;
+pub const STORE_MAX_BYTES: f64 = (4 * 256 * 1024) as f64;
+
 pub const ROWS: &[GateRow] = &[
     GateRow {
         pr: "6e",
@@ -62,13 +68,13 @@ pub const ROWS: &[GateRow] = &[
     GateRow {
         pr: "6c",
         name: "v2.pr06.page_store_held",
-        done_when: "The rows and row bytes the page's row store holds after paging through a chat of 20,000 rows against one of 200: at the store's cap or under it.",
-        // The line's small side is the store's byte cap (STORE_MAX_BYTES), its god side the bytes
-        // the god store held at its peak: at or under the cap is a ratio of at most 1. Rows over
-        // STORE_MAX_ROWS fail the line's run, which marks it red.
+        done_when: "The rows and row bytes the page's row store holds after paging through a chat of 20,000 rows against one of 200: at the store's cap or under it. Peak bytes, both sides measured: 9.6x (the god store may hold STORE_MAX_ROWS = 1,600 rows against the small store's 200, 1,600 / 200 x 1.2), at most STORE_MAX_BYTES (1 MiB).",
+        // Rows over STORE_MAX_ROWS, a small store that did not hold its 200 rows, or a god store
+        // that never reached the cap fail the line's run (webviews/bench/v2-gate.ts), which marks
+        // it red.
         measured: true,
-        ratio: 1.0,
+        ratio: STORE_MAX_ROWS / 200.0 * GOD_SMALL_LIMIT,
         ratio_all: None,
-        god_max: None,
+        god_max: Some(STORE_MAX_BYTES),
     },
 ];

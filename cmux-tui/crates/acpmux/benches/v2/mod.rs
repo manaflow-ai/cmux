@@ -575,6 +575,9 @@ mod tests {
     /// The page's gate entry script, from the repository's root: the `page` group's runner.
     const PAGE_ENTRY: &str = "webviews/bench/v2-gate.ts";
 
+    /// The page row store, whose caps bound `v2.pr06.page_store_held`.
+    const PAGE_STORE: &str = "webviews/src/agent-session/acpmux/rows/store.ts";
+
     /// The target the `page` group's runner runs: the rows of the entry script's table.
     fn page_target() -> Target {
         ("webviews".to_owned(), PAGE_ENTRY.to_owned())
@@ -1141,6 +1144,33 @@ mod tests {
         assert!(page_runs_row("v2.pr06.page_store_held", "page_store_held"));
         assert!(!page_runs_row("v2.pr06.page_store_held", "page_store_apply"));
         assert!(!page_runs_row("v2.pr06.hold_attach", "hold_attach"));
+    }
+
+    /// `v2.pr06.page_store_held`'s bound and ratio come from the page row store's caps: the row
+    /// file writes them as the store writes its own, and this reads the store's and compares.
+    #[test]
+    fn the_page_store_caps_match_the_store() {
+        let path = repository().join(PAGE_STORE);
+        let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+        let cap = |name: &str| -> f64 {
+            let pattern = format!(r"(?m)^export const {name} = ([0-9_]+(?: \* [0-9_]+)*);$");
+            let found = regex::Regex::new(&pattern).unwrap().captures(&text);
+            let found = found.unwrap_or_else(|| panic!("{path:?} has no {name} of the form N * N"));
+            found[1]
+                .split(" * ")
+                .map(|part| part.replace('_', "").parse::<f64>().unwrap())
+                .product()
+        };
+        assert_eq!(
+            rows::pr06::STORE_MAX_ROWS,
+            cap("STORE_MAX_ROWS"),
+            "rows/pr06.rs STORE_MAX_ROWS"
+        );
+        assert_eq!(
+            rows::pr06::STORE_MAX_BYTES,
+            cap("STORE_MAX_BYTES"),
+            "rows/pr06.rs STORE_MAX_BYTES"
+        );
     }
 
     #[test]

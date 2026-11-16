@@ -211,34 +211,15 @@ acpmux_connection_gates() {
 }
 run_group acpmux-v2-connection acpmux_connection_gates
 
-# The page group needs the bun webviews/package.json pins (scripts/check-webviews-bun-version.sh),
-# which the nightly's Rust setup does not install. Under CI the group installs that version itself,
-# the way tui_core_native_ready gets zig; off CI, or where it cannot be had, the group fails with a
-# line naming it.
+# The page group needs the bun webviews/package.json pins (scripts/check-webviews-bun-version.sh).
+# The workflow that runs this script sets it up first (cmux-next-quality-report.yml, the pinned
+# setup-bun step); the script only checks it and, where it cannot be had, fails the group with a
+# line naming it, never installing anything itself.
 page_ready() {
   "$repo_root/scripts/check-webviews-bun-version.sh" --quiet && return 0
-  if [[ -z "${CI:-}" ]]; then
-    "$repo_root/scripts/check-webviews-bun-version.sh" || true
-    echo "v2 gates: no bun of the webviews pin on PATH; the page group's rows need it" >&2
-    return 1
-  fi
-  local want dir
-  want=$(python3 -I "$repo_root/scripts/webviews_bun_version.py" "$repo_root/webviews/package.json") || {
-    echo "v2 gates: cannot read the webviews bun pin; the page group's rows need it" >&2
-    return 1
-  }
-  dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/v2-gates-bun"
-  echo "v2 gates: no bun $want on PATH; installing it for the page group"
-  if ! curl -fsSL https://bun.sh/install | BUN_INSTALL="$dir" bash -s "bun-v$want" >"$dir.log" 2>&1; then
-    tail -n 5 "$dir.log" >&2
-    echo "v2 gates: cannot install bun $want; the page group's rows need it" >&2
-    return 1
-  fi
-  export PATH="$dir/bin:$PATH"
-  "$repo_root/scripts/check-webviews-bun-version.sh" || {
-    echo "v2 gates: the installed bun is not the webviews pin; the page group's rows need it" >&2
-    return 1
-  }
+  "$repo_root/scripts/check-webviews-bun-version.sh" || true
+  echo "v2 gates: no bun of the webviews pin on PATH; the page group's rows need it" >&2
+  return 1
 }
 
 # The page's rows (webviews/bench/v2-gate.ts), after the cargo groups.
