@@ -97,8 +97,10 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
 
     /// Finds the staged bundle on `work`'s files lane at best-effort priority, then starts each run
     /// (``AsyncProcess``, nothing waits on a thread). Returns a line for the update log.
+    /// With `marker`, a pre-warm that found the staged bundle leaves ``build`` there for that build's first
+    /// launch (``consumeLaunchMarker(build:at:)``), which records itself as pre-warmed (`cmux app launch-times`).
     public func perform(work: BackgroundWork, processes: AsyncProcess = AsyncProcess(),
-                        timeout: Duration = .seconds(20)) async -> String {
+                        timeout: Duration = .seconds(20), marker: URL? = nil) async -> String {
         let scanned = try? await work.run(.bestEffort, mayBlock: .files) { [self] () -> (URL, [Run])? in
             stagedBundle().map { ($0, runs(bundle: $0)) }
         }
@@ -117,7 +119,40 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             let elapsed = (ContinuousClock.now - started).components
             parts.append("\(run.executable.lastPathComponent) \(status) \(elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000) ms")
         }
+        if let marker {
+            let build = build
+            try? await work.run(.bestEffort, mayBlock: .files) { Self.writeLaunchMarker(build: build, at: marker) }
+        }
         return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): " + (parts.isEmpty ? "nothing to run" : parts.joined(separator: ", "))
+    }
+
+    /// `~/Library/Application Support/<bundle id>/launch-prewarm`: the build the last pre-warm ran, until
+    /// that build's first launch consumes it. One line, rewritten by each pre-warm.
+    public static func launchMarkerURL(bundleIdentifier: String) -> URL {
+        let support = FileManager().urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager().homeDirectoryForCurrentUser.appending(path: "Library/Application Support", directoryHint: .isDirectory)
+        return support.appending(path: bundleIdentifier, directoryHint: .isDirectory).appending(path: "launch-prewarm")
+    }
+
+    /// Leaves `build` at `marker`. Blocking. A failure leaves no marker: that launch records itself as not pre-warmed.
+    static func writeLaunchMarker(build: String, at marker: URL) {
+        try? FileManager.checked.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data("\(build)\n".utf8).blockingWrite(to: marker, options: .atomic)
+    }
+
+    /// Whether the marker names `build` (a pre-warm ran this build before this, its first launch); it is
+    /// then removed, so a relaunch of the same build is not pre-warmed. A marker of another build (a staged
+    /// update not installed yet) stays. Blocking.
+    public static func consumeLaunchMarker(build: String, at marker: URL) -> Bool {
+        guard !build.isEmpty, let data = try? Data(blockingContentsOf: marker),
+              String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == build else { return false }
+        try? FileManager.checked.removeItem(at: marker)
+        return true
+    }
+
+    /// ``consumeLaunchMarker(build:at:)`` at the app's own marker (``launchMarkerURL(bundleIdentifier:)``).
+    public static func consumeLaunchMarker(build: String, bundleIdentifier: String) -> Bool {
+        consumeLaunchMarker(build: build, at: launchMarkerURL(bundleIdentifier: bundleIdentifier))
     }
 
     /// A bundle's Info.plist, or nil.
