@@ -424,7 +424,7 @@ fn turn_cap_compare() {
         for (side, cap) in caps.iter().enumerate() {
             god.writer.mirror.turn_changes = *cap;
             let mut samples: Vec<u128> =
-                (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god)).collect();
+                (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god).0).collect();
             capped[side].push(p95(&mut samples));
             drains[side].extend((0..10).map(|_| drain_sample(&mut god)));
         }
