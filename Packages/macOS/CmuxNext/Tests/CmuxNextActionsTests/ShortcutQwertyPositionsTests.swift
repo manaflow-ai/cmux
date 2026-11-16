@@ -45,6 +45,13 @@ import Testing
         #expect(ActionRegistry().shortcuts(for: event).first == Shortcut("j", modifiers: [.command]))
     }
 
+    @Test func recorderRecordsTheQwertyKey() throws {
+        let event = try Self.dvorakC([.command])
+        #expect(ShortcutRecorder.shortcut(for: event).key == "j")
+        #expect(ShortcutRecorder.shortcut(for: event, qwerty: true) == Shortcut("c", modifiers: [.command]))
+        #expect(ActionRegistry().stroke(for: event) == Shortcut("j", modifiers: [.command]))
+    }
+
     @Test func tableCoversEveryLetterOnce() {
         let letters = Set("abcdefghijklmnopqrstuvwxyz".map(String.init))
         #expect(letters.isSubset(of: Set(Shortcut.qwertyKeys.values)))

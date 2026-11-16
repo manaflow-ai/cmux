@@ -202,7 +202,7 @@ body {
   color: var(--page-text);
 }
 .ed-vim > span + span {
-  margin-left: 10px;
+  margin-left: var(--ds-space-3);
 }
 .ed-vim input {
   font: inherit;
