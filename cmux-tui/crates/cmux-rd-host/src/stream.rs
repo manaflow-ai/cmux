@@ -518,7 +518,7 @@ impl MediaSession {
             self.paced_logs.push_back((out.datagrams.len(), line));
         }
         pacer.push_frame(out.datagrams, self.engine.target_bps(), self.frame_interval_us, now_us());
-        self.send_paced(carrier)
+        Ok(self.send_paced(carrier)?)
     }
 
     /// Sends the paced datagrams that are due, telling the engine when each left.
