@@ -50,6 +50,10 @@ pub struct AttachParams {
     /// Answer from the chat's settled view first (`settled-attach-v1`,
     /// `server/requests/settled_attach.rs`): a read, falling back to a plain page.
     pub settled: Option<bool>,
+    /// The hold of a chat whose rows come from the row store (`attach-hold-v1`,
+    /// `server/requests.rs` `hold_attach_filter`): no page and no log read, only the exact
+    /// page-state `kinds` streamed live; needs `eventStream: true`.
+    pub hold: Option<bool>,
     pub kinds: Option<EventKinds>,
     /// Send every matching record as `_acpmux/event`; else the agent's
     /// updates arrive as ACP `session/update` and acpmux's own as

@@ -2597,6 +2597,13 @@
             "null"
           ]
         },
+        "hold": {
+          "description": "The hold of a chat whose rows come from the row store (`attach-hold-v1`,\n`server/requests.rs` `hold_attach_filter`): no page and no log read, only the exact\npage-state `kinds` streamed live; needs `eventStream: true`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "kinds": {
           "anyOf": [
             {
