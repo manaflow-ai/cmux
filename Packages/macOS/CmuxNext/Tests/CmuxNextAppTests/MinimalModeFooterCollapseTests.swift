@@ -51,3 +51,35 @@ import Testing
         #expect(abs(rest.listBottom - shown.listBottom) <= 0.5, "nothing hides by default, so nothing moves: \(shown) vs \(rest)")
     }
 }
+
+extension MinimalModeFooterCollapseTests {
+    /// The height motion runs the footer fade's curve (`Motion.fadeCurve`, ease-out 0, 0, 0.58, 1): it starts fast
+    /// and settles, from 0 to 1.
+    @Test func theHeightRunsTheFadesEaseOutCurve() {
+        #expect(SidebarFooterCollapseMotion.easeOut(0) == 0)
+        #expect(abs(SidebarFooterCollapseMotion.easeOut(1) - 1) < 0.001)
+        let half = SidebarFooterCollapseMotion.easeOut(0.5)
+        #expect(half > 0.6 && half < 0.9, "ease-out is past halfway at half time: \(half)")
+        var last: CGFloat = 0
+        for step in 1...20 {
+            let value = SidebarFooterCollapseMotion.easeOut(Double(step) / 20)
+            #expect(value >= last, "monotonic")
+            last = value
+        }
+    }
+
+    /// `sidebar.spacesVisibility` Always keeps the strip (which shares the footer's row) shown, so the footer keeps its room.
+    @Test func spacesShownAlwaysKeepTheFootersRoom() async throws {
+        let previousMotion = Motion.reduceMotionOverride
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = previousMotion }
+        let h = try await SidebarBandHideTests().make(#"{"sidebar":{"minimal":true}}"#)
+        defer { h.tearDown() }
+        await h.until { h.sidebar.design.sidebarSections.minimal }
+        // The window root passes `sidebar.spacesVisibility` to the sidebar (WindowRootView); this harness has none.
+        h.sidebar.spacesVisibility = .always
+        let shown = Self.measure(h.sidebar, revealed: true)
+        let rest = Self.measure(h.sidebar, revealed: false)
+        #expect(abs(rest.listBottom - shown.listBottom) <= 0.5, "the shown strip keeps its row: \(shown) vs \(rest)")
+    }
+}

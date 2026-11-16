@@ -42,6 +42,19 @@ extension SidebarViewComponents {
             liveModeBadge?.animator().alphaValue = target.footer
         }
         fadeLine(aboveLine, to: target.topBand)
+        // The faded footer's height goes to the list (or comes back) with the fade (``SidebarFooterCollapseMotion``).
+        needsLayout = true
+    }
+
+    /// The height the list takes from the sidebar's bottom chrome now (``SidebarFooterCollapseMotion``): in
+    /// Minimal Mode (or Show Sidebar Controls Only on Hover) with the pointer away, the footer section when it
+    /// and the spaces strip (which may share its row) are faded out, and the footer row of `footerRowHeight` too
+    /// when no accessory (a status view) shows in it. 0 by default, and with `sidebar.spacesVisibility` Always:
+    /// what still shows keeps its room.
+    func footerCollapseTarget(footerRowHeight: CGFloat, hasAccessories: Bool) -> CGFloat {
+        let reveal = appliedChromeReveal ?? chromeReveal(revealed: isChromeRevealed)
+        guard reveal.footer == 0, reveal.spaces == 0 else { return 0 }
+        return footerRegion.layoutResult.height + (hasAccessories ? 0 : footerRowHeight)
     }
 
     /// A menu from a hover-revealed titlebar control opened (`true`) or closed (`false`). On the
