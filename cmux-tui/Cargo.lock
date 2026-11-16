@@ -1738,6 +1738,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-launch-record"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [

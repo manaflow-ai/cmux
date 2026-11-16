@@ -117,6 +117,7 @@ dependencies = [
  "cmux-daemon-launch-core",
  "cmux-health-core",
  "cmux-layout-reducer-ffi",
+ "cmux-launch-record",
  "cmux-motion",
  "cmux-palette-ranker",
  "cmux-rd-ffi",
@@ -228,6 +229,13 @@ version = "0.1.0"
 dependencies = [
  "rusqlite",
  "serde",
+]
+
+[[package]]
+name = "cmux-launch-record"
+version = "0.1.0"
+dependencies = [
+ "proptest",
 ]
 
 [[package]]
