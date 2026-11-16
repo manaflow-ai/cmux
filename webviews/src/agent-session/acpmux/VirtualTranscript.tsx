@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useDeferredValue,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -1649,7 +1650,9 @@ function TranscriptView({
   focusComposer,
   openAt,
   onAnchor,
+  onFollowingAnchor,
   anchorNow,
+  placeNow,
   inViewNow,
   heldWorkedClosing,
   onLoadOlder,
@@ -1688,9 +1691,17 @@ function TranscriptView({
   openAt?: ScrollAnchor;
   /// Where it rests after each settled scroll (null at the latest message).
   onAnchor?: (anchor: ScrollAnchor | null) => void;
+  /// Where it rests the moment following starts or stops, before the scroll settles: Toggle
+  /// Terminal and Chat reads whether the chat is at its latest message on the next key
+  /// (AgentPaneView+TogglePlace.swift). `onAnchor` still reports once per settled scroll.
+  onFollowingAnchor?: (anchor: ScrollAnchor | null) => void;
   /// Filled with where it last rested in view (null at the latest message, undefined when it was
   /// never in view), for a page about to let go.
   anchorNow?: React.MutableRefObject<(() => ScrollAnchor | null | undefined) | undefined>;
+  /// Filled with the placement Toggle Terminal and Chat makes before the pane shows (togglePlace.ts):
+  /// row `rowId` at the top of the view, or the latest message for null, in one frame with no glide.
+  /// False when the row is not loaded. A transcript with no height yet places on its first layout.
+  placeNow?: React.Ref<(rowId: string | null) => boolean>;
   /// Filled with the ids of the rows in the reader's view now, or null while it follows the latest
   /// message (a turn's end keeps those rows open, conversation/turnEndHold.ts).
   inViewNow?: React.MutableRefObject<(() => readonly string[] | null) | undefined>;
@@ -1967,6 +1978,9 @@ function TranscriptView({
     // comes after (followChase `resume`).
     if (next && !followingRef.current) resumeFollowMotion();
     if (next) heldPlace.current = undefined;
+    // Following starting or stopping goes to the host at once, apart from the settled report
+    // (`onAnchor`, once per rested scroll): Toggle Terminal and Chat reads it on the next key.
+    if (next !== followingRef.current && onFollowingAnchor) queueMicrotask(() => reportAnchorRef.current(next));
     followingRef.current = next;
     onFollowingChange?.(next);
     setFollowing(next);
@@ -5622,25 +5636,43 @@ function TranscriptView({
       holdWebSwap(() => (onAnchorRef.current && anchorTimer.current !== undefined ? "transcript.place-unsaved" : null)),
     [],
   );
-  const reportAnchor = () => {
-    anchorTimer.current = undefined;
+  /// Where the reader rests now; undefined before the chat opens (its offset is not the reader's)
+  /// and while hidden with no place seen. `deferred`: hidden, so it is the place last seen.
+  /// `rowEvenAtLatest`: the row at the top of the view even before a scroll leaves the latest message
+  /// (following stopped on a key, the scroll comes next), so the place reads as not the latest.
+  const anchorHere = (rowEvenAtLatest = false): { anchor: ScrollAnchor | null; deferred: boolean } | undefined => {
     const node = ref.current;
-    // Before the chat opens its offset is not the reader's: the kept place stays.
-    if (!node || !onAnchor || !didOpenAtLatest.current) return;
+    if (!node || !didOpenAtLatest.current) return undefined;
     // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
-    anchorDeferred.current = node.clientHeight === 0;
-    // Meanwhile it keeps where the reader last saw it (as `pane.wakeState` does); the report comes
-    // again once it shows.
-    if (anchorDeferred.current && seenAnchor.current === undefined) return;
+    const deferred = node.clientHeight === 0;
+    // Meanwhile it keeps where the reader last saw it (as `pane.wakeState` does).
+    if (deferred) return seenAnchor.current === undefined ? undefined : { anchor: seenAnchor.current, deferred };
     const { layout: placed, rows: shown } = latestLayout.current;
     const logicalTop = layoutScrollTop(node);
     const index = visibleLayoutRange(placed, logicalTop, 0, 0).first;
     const row = shown[index];
-    const anchor: ScrollAnchor | null = anchorDeferred.current
-      ? (seenAnchor.current ?? null)
-      : scrolledTo.current.atLatest || !row
+    const anchor: ScrollAnchor | null =
+      (scrolledTo.current.atLatest && !rowEvenAtLatest) || !row
         ? null
         : { rowId: row.id, offset: logicalTop - placed.geometry.topAt(index) };
+    return { anchor, deferred };
+  };
+  /// `followingNow`: following just started (true) or stopped (false), reported to
+  /// `onFollowingAnchor` at once and apart from the settled report below.
+  const reportAnchor = (followingNow?: boolean) => {
+    if (followingNow !== undefined) {
+      const here = anchorHere(!followingNow);
+      if (here) onFollowingAnchor?.(followingNow ? null : here.anchor);
+      return;
+    }
+    anchorTimer.current = undefined;
+    const node = ref.current;
+    if (!node || !onAnchor || !didOpenAtLatest.current) return;
+    anchorDeferred.current = node.clientHeight === 0;
+    // The report comes again once a hidden pane shows.
+    const here = anchorHere();
+    if (!here) return;
+    const { anchor } = here;
     const key = JSON.stringify(anchor);
     if (key === reportedAnchor.current) return;
     reportedAnchor.current = key;
@@ -6044,6 +6076,37 @@ function TranscriptView({
     rideToLatest(node, target, reduce, true);
   };
   jumpToLatestRef.current = jumpToLatest;
+  // Toggle Terminal and Chat (togglePlace.ts): the turn the terminal showed, at the top of the view,
+  // set before the pane shows. A cut, never a glide: the pane is hidden while it moves, so the first
+  // frame the reader sees is already there, its rows mounted (`handleScroll` at once, not on the
+  // scroll event a hidden page may not get before it shows). A transcript with no viewport places
+  // nothing: a place kept for later would land after the reader already sees it, a jump.
+  const placeAt = (rowId: string | null): boolean => {
+    const node = ref.current;
+    if (!node || node.clientHeight <= 0) return false;
+    const { layout: placed, rows: shown } = latestLayout.current;
+    const index = rowId === null ? -1 : indexOfRow(shown, rowId, { current: -1 });
+    if (rowId !== null && index < 0) return false;
+    const latest = Math.max(0, placed.totalHeight - node.clientHeight);
+    revealing.current = undefined;
+    stopJump();
+    unlift();
+    clearScrollOrigin(node);
+    if (index < 0) {
+      writeAnchorScrollTop(node, latest);
+      scrolledTo.current = { top: node.scrollTop, atLatest: true };
+      follow(true, "toggle");
+    } else {
+      writeAnchorScrollTop(node, Math.min(latest, placed.geometry.topAt(index)));
+      scrolledTo.current = { top: node.scrollTop, atLatest: false };
+      follow(false, "toggle");
+    }
+    handleScroll(node, true);
+    // The host keeps the new place now, not after the settle: a swap straight back reads it.
+    reportAnchorRef.current();
+    return true;
+  };
+  useImperativeHandle(placeNow, () => placeAt);
   /// Jump up (jumpUp.ts): to where the reader left off, holding where the view is; pressed again
   /// (or Esc), back there. The reader asked for this place, so the view stops following the reply.
   /// It glides on Jump to latest's ride (curve, distance duration, move token): a long way skips at

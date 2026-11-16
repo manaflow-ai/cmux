@@ -206,7 +206,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { PICKER_LABELS } from "./composerPickerModel";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
-import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
+import { startRefusalRoute, SIGN_IN_REQUIRED } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
@@ -438,6 +438,7 @@ import {
 } from "./conversation/cloudTurnCheckpoints";
 import { isFindRow, type ChatFind } from "./conversation/chatFind";
 import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
+import { togglePlace, togglePromptRow, type TogglePlace } from "./conversation/togglePlace";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
   ACTIVITY_LINE,
@@ -917,6 +918,11 @@ declare global {
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
+      /// Toggle Terminal and Chat (togglePlace.ts): the chat's prompts and the one whose turn is in
+      /// view, and the placement at prompt `at`'s turn (null: the latest message) before it shows,
+      /// skipped past `until` (ms since 1970): the swap showed the chat without it, so it would jump.
+      togglePlace?(): TogglePlace;
+      placeToggle?(at: number | null, until?: number): boolean;
       /// A dictation change from the host (CmuxNextAgentPane AgentPaneDictation), spliced at the prompt's cursor.
       dictation?(update: DictationUpdate): void;
       /// A design mode highlight from a browser pane (CmuxNextAgentPane AgentPaneDesignSelection):
@@ -6883,6 +6889,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
+  /// The transcript's Toggle Terminal and Chat placement (VirtualTranscript `placeNow`).
+  const placeTranscript = useRef<((rowId: string | null) => boolean) | null>(null);
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
   const [sends, setSends] = useState(0);
   /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom
@@ -7924,6 +7932,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
       revealTurn(turnId) {
         revealRef.current(turnId);
+      },
+      togglePlace() {
+        return togglePlace(counted.current.transcriptRows, transcriptAnchor.current?.());
+      },
+      placeToggle(at, until) {
+        if (until !== undefined && Date.now() > until) return false;
+        const rowId = at === null ? null : togglePromptRow(counted.current.transcriptRows, at);
+        return rowId !== undefined && (placeTranscript.current?.(rowId) ?? false);
       },
       applyCustomization(customization) {
         if ("themeCSS" in customization) {
@@ -11732,6 +11748,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     anchorNow={
                                                                       quick || childRows ? undefined : transcriptAnchor
                                                                     }
+                                                                    placeNow={
+                                                                      quick || childRows ? undefined : placeTranscript
+                                                                    }
                                                                     inViewNow={
                                                                       quick || childRows ? undefined : transcriptInView
                                                                     }
@@ -11746,6 +11765,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                         : onTranscriptFollowingChange
                                                                     }
                                                                     onAnchor={
+                                                                      quick || childRows || !shownSessionId
+                                                                        ? undefined
+                                                                        : (anchor) =>
+                                                                            postScrollAnchor(shownSessionId, anchor)
+                                                                    }
+                                                                    onFollowingAnchor={
                                                                       quick || childRows || !shownSessionId
                                                                         ? undefined
                                                                         : (anchor) =>
