@@ -3593,8 +3593,10 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
 
 #[test]
 fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts() {
-    // The exact revision assertions below count creation commits only; a
-    // shell's cwd report would add its own revision.
+    // The revision asserts below read the creation's own revision only. The
+    // session's revision after a restart is not pinned (decision 2026-11-16):
+    // the daemon makes its own commit a short time after each start. A shell's
+    // cwd report would add one more commit, so shell integration stays off.
     let mut harness = RecoveryHarness::start_unstarted("public-create-recovery");
     harness.host_ready_delay_ms = Some(2_000);
     harness.shell_integration = false;
@@ -3646,7 +3648,6 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
         serde_json::json!({"machine":"current","session":"current"}),
         None,
     );
-    assert_eq!(first_snapshot["cursor"]["revision"], "1");
     assert_eq!(first_snapshot["workspaces"].as_array().unwrap().len(), 1);
     assert_eq!(first_snapshot["terminals"].as_array().unwrap().len(), 1);
     let after_first_restart = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
@@ -3692,7 +3693,6 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
         serde_json::json!({"machine":"current","session":"current"}),
         None,
     );
-    assert_eq!(second_snapshot["cursor"]["revision"], "1");
     assert_eq!(second_snapshot["workspaces"].as_array().unwrap().len(), 1);
     assert_eq!(second_snapshot["terminals"].as_array().unwrap().len(), 1);
     let after_second_restart = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
