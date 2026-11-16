@@ -171,7 +171,7 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
                                     out.extend(rb(json!({"t": "rb.tooltip", "text": event.to_string()})));
                                 }
                             }
-                            pending = newest(pending, emit(&mut out, o));
+                            pending = pending.or(emit(&mut out, o));
                         } else if let Ok(Control::Service { body, .. }) = serde_json::from_slice::<Control>(&payload) {
                             match body["t"].as_str() {
                                 Some("rb.navigate") => {
@@ -208,27 +208,15 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
             },
             _ = interval.tick() => {
                 let full = Rect { x: 0, y: 0, width: 390, height: 844 };
-                pending = newest(pending, engine.damage(0, full, now()));
+                pending = pending.or(engine.damage(0, full, now()));
                 let o = engine.tick(true, now());
-                pending = newest(pending, emit(&mut out, o));
+                pending = pending.or(emit(&mut out, o));
             }
         }
         if !out.is_empty() && stream.write_all(&out).await.is_err() {
             return url;
         }
     }
-}
-
-/// The encode to do next: always the engine's newest request, as the real
-/// hosts keep it (surface.rs `Flow::newest`). The engine's frame gate counts
-/// a request as sent, so an older one dropped for it never stalls it; keeping
-/// the older one instead throws away a recovery keyframe the engine just
-/// forced, and `encoded` then clears the force with that older P-frame.
-fn newest(
-    pending: Option<cmux_rd_engine::EncodeRequest>,
-    request: Option<cmux_rd_engine::EncodeRequest>,
-) -> Option<cmux_rd_engine::EncodeRequest> {
-    request.or(pending)
 }
 
 fn emit(out: &mut Vec<u8>, o: Output) -> Option<cmux_rd_engine::EncodeRequest> {
