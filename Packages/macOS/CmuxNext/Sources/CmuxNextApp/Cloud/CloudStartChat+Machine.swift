@@ -107,7 +107,7 @@ extension CloudStartChat {
             if let id, plan.machine == nil { _ = try Self.checked(await cli.startChatPin(key: start.key, account: text, machine: id, workspace: workspace)) } // unpinned, a retry could open the chat elsewhere
             let session = try await CloudMove(services: services).machine(invocation, pick: pick), machineID = session.machineID
             // The machine reaches models through its edge (the Mac as the gateway), on the app's machine software.
-            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) }
+            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) }) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
             return (session, plan)
         }
     }

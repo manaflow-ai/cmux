@@ -217,10 +217,22 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     /// `cmux link machine update`: updates the machine's cmux-tui to this app's own pinned build when it is outdated;
     /// `toBundled` whenever it runs another build, with `ifOlder` only when that build is older than this app's.
-    public func machineUpdate(socket: String, toBundled: Bool = false, ifOlder: Bool = false) async throws -> Answer {
+    /// `within`: the run ends (its process killed) after this at most, and answers ``machineUpdateAbandoned``: a chat start's own
+    /// update, which a machine whose updater never takes an older build than it applied kept waiting for its 25-minute outcome while
+    /// the start, and every later update in the app's one queue, waited behind it (2026-11-16).
+    public func machineUpdate(socket: String, toBundled: Bool = false, ifOlder: Bool = false, within: Duration? = nil) async throws -> Answer {
         struct Call: Encodable { var verb = "machine-update"; var socket: String, toBundled: Bool, ifOlder: Bool }
-        return try await run(Call(socket: socket, toBundled: toBundled, ifOlder: ifOlder), reading: "machine-update").answer
+        do {
+            return try await run(Call(socket: socket, toBundled: toBundled, ifOlder: ifOlder), reading: "machine-update", limit: within).answer
+        } catch let error as DaemonError {
+            guard case .timedOut = error, let within else { throw error }
+            return Answer(ok: false, errorCode: Self.machineUpdateAbandoned, error: "the update did not finish within \(within)")
+        }
     }
+
+    /// The error code of a ``machineUpdate(socket:toBundled:ifOlder:within:)`` run ended at its `within` bound: how the update
+    /// ended is unknown, and the machine may still be on its own build.
+    public static let machineUpdateAbandoned = "machine_update_abandoned"
 
     /// `cmux link machine pin`: its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
@@ -470,16 +482,19 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// How Rust says to run a call.
     private struct Invocation: Decodable { var args: [String], timeoutSeconds: Int?, minTimeoutSeconds: Int? }
 
-    private func output<Call: Encodable>(_ call: Call, stdin: Data? = nil, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> ProcessResult {
+    /// `bound`: a caller's shorter limit for this one run (``machineUpdate(socket:toBundled:ifOlder:within:)``).
+    private func output<Call: Encodable>(_ call: Call, stdin: Data? = nil, stderrLine: (@Sendable (String) -> Void)? = nil,
+                                         bound: Duration? = nil) async throws -> ProcessResult {
         guard let invocation = CloudMoveCore().call("cli_invocation", call, as: Invocation.self) else { throw CloudMoveCLIUnanswered() }
-        let limit = invocation.timeoutSeconds.map { Duration.seconds($0) } ?? max(timeout, .seconds(invocation.minTimeoutSeconds ?? 0))
+        let own = invocation.timeoutSeconds.map { Duration.seconds($0) } ?? max(timeout, .seconds(invocation.minTimeoutSeconds ?? 0))
+        let limit = bound.map { min($0, own) } ?? own
         return try await ProcessRunner.run(executable: binary, arguments: Self.withSeedRefusal(invocation.args, call), environment: nil, stdin: stdin,
                                            timeout: limit, stderrLine: stderrLine, clock: ContinuousClock())
     }
 
     private func run<Call: Encodable>(_ call: Call, reading: String = "plain", stdin: Data? = nil,
-                                      stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> Read {
-        let result = try await output(call, stdin: stdin, stderrLine: stderrLine)
+                                      stderrLine: (@Sendable (String) -> Void)? = nil, limit: Duration? = nil) async throws -> Read {
+        let result = try await output(call, stdin: stdin, stderrLine: stderrLine, bound: limit)
         let request = ReadRequest(reading: reading, stdout: String(decoding: result.stdout, as: UTF8.self),
                               stderr: String(decoding: result.stderr, as: UTF8.self), status: result.status)
         var read = CloudMoveCore().call("cli_read", request, as: Read.self)

@@ -249,21 +249,85 @@ public struct CloudOutdatedMachine {
         CloudMoveCore().updatesBeforeCopyingAgain(ok: ok, errorCode: errorCode, side: side)
     }
 
+    /// How long a chat start waits for its own update of its machine before it goes on without it
+    /// (``updateBeforeUsingCapability(holds:relink:within:update:)``, `CloudMachineRoute.prepare`). A machine whose host
+    /// updater follows its channel never takes a build older than the one it applied (a DEV build of a branch usually is),
+    /// and the start's card then said nothing for 8 minutes while the CLI waited 25 for an outcome that never came
+    /// (2026-11-16). A minute and a half is about as long as a start can show "machine" before it reads as stalled; an
+    /// update that does apply answers well within it, and it covers the start's own run's bound (``startUpdateRun``).
+    public static let startUpdateWait: Duration = .seconds(90)
+
+    /// The bound of a chat start's own `cmux link machine update` run (`CloudMoveCLI.machineUpdate(within:)`), under
+    /// ``startUpdateWait``: past it the run ends as `machine_update_abandoned`, so the app's one update queue's turn ends
+    /// with it and no later start or update of any machine waits behind it.
+    public static let startUpdateRun: Duration = .seconds(75)
+
+    /// `operation`'s value when it returns within `limit` on `clock`; nil when it did not (it is cancelled then), or the
+    /// caller was cancelled.
+    public static func bounded<T: Sendable, C: Clock & Sendable>(_ limit: Duration, clock: C, _ operation: @escaping @Sendable () async -> T) async -> T?
+        where C.Duration == Duration {
+        try? await withDeadline(limit, label: "cloud machine start update", clock: clock, operation)
+    }
+
     /// Updates a machine before using a capability that its current daemon does not advertise.
     /// The update restarts the daemon, so this waits, up to `relink`, for `holds` itself (read from the
     /// new handshake), not just for the link to change: a new link may come up before its handshake
     /// carries the capability, and opening then was refused although the update had worked (capture at
-    /// a799d97a, 2026-11-02). If the update cannot run or the capability does not arrive in time, this
-    /// returns and the caller's existing capability refusal remains the final result.
+    /// a799d97a, 2026-11-02). If the update cannot run, changed nothing (`update` false: a refusal), did not
+    /// end within `limit`, or the capability does not arrive in time, this returns and the caller's existing
+    /// capability refusal remains the final result.
     @MainActor
     public static func updateBeforeUsingCapability(
         holds: @escaping @MainActor @Sendable () -> Bool,
         relink: Duration = CloudWait.relinkWait,
+        within limit: Duration = startUpdateWait,
         update: @escaping @MainActor @Sendable () async -> Bool
     ) async {
+        await updateBeforeUsingCapability(holds: holds, relink: relink, within: limit, clock: ContinuousClock(), update: update)
+    }
+
+    /// ``updateBeforeUsingCapability(holds:relink:within:update:)`` with its bounds on `clock` (a test's `ManualClock`).
+    @MainActor
+    public static func updateBeforeUsingCapability<C: Clock & Sendable>(
+        holds: @escaping @MainActor @Sendable () -> Bool,
+        relink: Duration = CloudWait.relinkWait,
+        within limit: Duration = startUpdateWait,
+        clock: C,
+        update: @escaping @MainActor @Sendable () async -> Bool
+    ) async where C.Duration == Duration {
         guard !holds() else { return }
-        guard await update() else { return }
-        _ = await CloudWait.holds(within: relink, until: holds)
+        guard await bounded(limit, clock: clock, { await update() }) == true else { return }
+        _ = await CloudWait.holds(within: relink, clock: clock, until: holds)
+    }
+
+    /// ``updateBeforeUsingCapability(holds:relink:within:update:)``, then `missing` thrown while `lacks` still holds: a
+    /// start that needs a capability its machine's software lacks, and that the machine could not be updated to (the
+    /// update was refused or did not end within `limit`), ends at once saying so instead of a chat its provider refuses.
+    @MainActor
+    public static func requireCapability(
+        holds: @escaping @MainActor @Sendable () -> Bool,
+        lacks: @MainActor () -> Bool,
+        relink: Duration = CloudWait.relinkWait,
+        within limit: Duration = startUpdateWait,
+        update: @escaping @MainActor @Sendable () async -> Bool,
+        missing: @autoclosure () -> any Error
+    ) async throws {
+        try await requireCapability(holds: holds, lacks: lacks, relink: relink, within: limit, clock: ContinuousClock(), update: update, missing: missing())
+    }
+
+    /// ``requireCapability(holds:lacks:relink:within:update:missing:)`` with its bounds on `clock` (a test's `ManualClock`).
+    @MainActor
+    public static func requireCapability<C: Clock & Sendable>(
+        holds: @escaping @MainActor @Sendable () -> Bool,
+        lacks: @MainActor () -> Bool,
+        relink: Duration = CloudWait.relinkWait,
+        within limit: Duration = startUpdateWait,
+        clock: C,
+        update: @escaping @MainActor @Sendable () async -> Bool,
+        missing: @autoclosure () -> any Error
+    ) async throws where C.Duration == Duration {
+        await updateBeforeUsingCapability(holds: holds, relink: relink, within: limit, clock: clock, update: update)
+        if lacks() { throw missing() }
     }
 
     /// Runs `copy` on the machine's link socket (`socket`, nil when not connected: `notConnected` is thrown); when

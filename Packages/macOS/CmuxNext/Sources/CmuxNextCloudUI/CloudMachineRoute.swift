@@ -46,23 +46,31 @@ public struct CloudMachineRoute: Sendable {
     /// The machine ``init(api:machineID:)`` named; a ``prepare(_:)`` refusal retries on it.
     private let machineID: String?
 
-    /// A Cloud start's machine before its first chat: it runs this app's machine software (`update`, a no-op
-    /// when it does, ``afterUpdate(within:_:)``) and its agents reach models through its edge. A refusal is the
-    /// start's failure, its reason as the start card shows it, with a retry on the same machine.
+    /// A Cloud start's machine before its first chat: its agents reach models through its edge, and it serves
+    /// what the start needs (`serves`: the daemon's capabilities). The machine is checked first and updated
+    /// (`update`, ``afterUpdate(within:_:)``) only when it lacks one of them: a machine whose host updater follows
+    /// its channel never takes this app's build when it is older (a DEV build of a branch), and an unconditional
+    /// update held every start for 8 minutes before going on as it was (2026-11-16). A refusal is the start's
+    /// failure, its reason as the start card shows it, with a retry on the same machine.
     ///
     /// A machine whose software predates the report (``Verdict/unsupported``) is not refused: the app's update
     /// never moves a machine back, so a machine on a newer build than this app's that still lacks the report
     /// (an image ahead of a DEV build's branch), or an app with no machine build to install, could never pass
     /// and every start on a new machine ended here. Its chat starts on the software the image came with; a
-    /// machine that does report and is not routed is still refused.
-    public func prepare(_ update: @escaping @Sendable () async -> Void) async throws {
+    /// machine that does report and is not routed is still refused. A capability the start then lacks ends it
+    /// where it is used (``CloudOutdatedMachine/requireCapability(holds:lacks:relink:within:update:missing:)``, ``tooOld``).
+    public func prepare(serves: @MainActor () -> Bool = { true }, _ update: @escaping @Sendable () async -> Void) async throws {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+        if await serves(), let verdict = try? await routeVerdict(), verdict == .ready || verdict == .unsupported {
+            logger.info("cloud start chat: \(machineID ?? "", privacy: .public) already serves this start (\(verdict.rawValue, privacy: .public)); no update")
+            return
+        }
         logger.info("cloud start chat: bringing \(machineID ?? "", privacy: .public) to this app's machine software")
         do {
             try await afterUpdate(update)
         } catch let refused as Refused {
             if refused.verdict == .unsupported {
-                logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model-route report after its update; starting on its image's software")
+                logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model-route report after its update, or the update did not end in time; starting on its own software")
                 return
             }
             throw CloudMoveFailure(message: refused.message, retry: machineID.map { .move(machineID: $0) })
@@ -73,16 +81,15 @@ public struct CloudMachineRoute: Sendable {
     private struct Reply: Decodable { var command: String, verdict: Verdict? }
 
     /// How long a start waits for its machine to run the app's own machine software (the update pushes the
-    /// app's pinned build and restarts the machine's services on it) before it gives up with ``Refused``.
-    public static let updateDeadline: Duration = .seconds(8 * 60)
+    /// app's pinned build and restarts the machine's services on it) before it gives up with ``Refused``:
+    /// ``CloudOutdatedMachine/startUpdateWait``, which says why (it was 8 minutes until 2026-11-16).
+    public static let updateDeadline: Duration = CloudOutdatedMachine.startUpdateWait
 
     /// Runs `update` (the app's update of the machine to its own machine software, a no-op for a machine
     /// already on it or on a newer build), at most `deadline`, then ``verify()``. A missed deadline is
     /// ``Refused`` with ``Verdict/unsupported``.
     public func afterUpdate(within deadline: Duration = updateDeadline, _ update: @escaping @Sendable () async -> Void) async throws {
-        do {
-            try await withDeadline(deadline, label: "cloud machine software update") { await update() }
-        } catch is DeadlineExceeded {
+        guard await CloudOutdatedMachine.bounded(deadline, clock: ContinuousClock(), { await update() }) != nil else {
             throw Refused(verdict: .unsupported)
         }
         try await verify()
@@ -91,12 +98,23 @@ public struct CloudMachineRoute: Sendable {
     /// Returns when the machine's agents reach models through its edge; throws ``Refused`` otherwise. An
     /// exec that fails (the machine went away, the route timed out) throws its own error.
     public func verify() async throws {
-        guard let command = CloudStartCore().call("cloud_machine_route", Request(stdout: nil), as: Reply.self)?.command else {
-            throw Refused(verdict: .invalid)
-        }
-        let ran = try await exec(command, Self.timeoutMs)
-        let verdict = CloudStartCore().call("cloud_machine_route", Request(stdout: ran.stdout), as: Reply.self)?.verdict ?? .invalid
+        let verdict = try await routeVerdict()
         guard verdict == .ready else { throw Refused(verdict: verdict) }
+    }
+
+    /// What Rust answers about the machine's model-route report (``verify()``'s reading). An exec that fails throws.
+    func routeVerdict() async throws -> Verdict {
+        guard let command = CloudStartCore().call("cloud_machine_route", Request(stdout: nil), as: Reply.self)?.command else { return .invalid }
+        let ran = try await exec(command, Self.timeoutMs)
+        return CloudStartCore().call("cloud_machine_route", Request(stdout: ran.stdout), as: Reply.self)?.verdict ?? .invalid
+    }
+
+    /// A start whose machine's software lacks a capability it needs (a chosen model connection's start credentials)
+    /// and that the machine could not be updated to: its start card's text, with Retry on the same machine.
+    public nonisolated static var tooOld: String {
+        String(localized: "cloud.machineRoute.tooOld",
+               defaultValue: "This Cloud machine's software is too old for this version of cmux, and it couldn't be updated. Try again in a few minutes, or update cmux.",
+               table: "Cloud", bundle: .module)
     }
 
     nonisolated static func message(_ verdict: Verdict) -> String {

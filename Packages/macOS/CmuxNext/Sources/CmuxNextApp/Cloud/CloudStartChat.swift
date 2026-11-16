@@ -228,10 +228,10 @@ struct CloudStartChat {
     private func openUploaded(_ start: AgentPaneCloudStart, from origin: Origin, on machine: CloudMachineSession, cwd: String?,
                               trusted: Bool, tabKey: String, copy: CloudMovedChats.Entry? = nil,
                               original: AgentPaneCloudStart? = nil) async throws -> String {
-        // A chosen model connection goes with the launch only to a daemon that takes one; an image's older daemon dropped it and the provider refused the agent.
-        await CloudOutdatedMachine.updateBeforeUsingCapability(
-            holds: { services.agentTabs.holdsTabs(machine.daemon) && (origin.connection == nil || machine.daemon.supports(AgentSessionAttachClient.startCredentialsCapability)) },
-            update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
+        // A chosen model connection goes with the launch only to a daemon that takes one (an image's older daemon dropped it and the provider refused the agent): a connected one that lacks it after a refused or bounded update ends the start, saying so.
+        try await CloudOutdatedMachine.requireCapability(
+            holds: { services.agentTabs.holdsTabs(machine.daemon) && (origin.connection == nil || machine.daemon.supports(AgentSessionAttachClient.startCredentialsCapability)) }, lacks: { origin.connection != nil && machine.daemon.connection != nil && !machine.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) },
+            update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }, missing: CloudMove.Failure(message: CloudMachineRoute.tooOld, retry: .move(machineID: machine.machineID)))
         let context = AppActionContext(services: services), daemon = machine.daemon, failure = CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title), retry: .move(machineID: machine.machineID))
         let (seed, handOff) = AgentPaneSeedSource.handingOffDraft(start.seed(cwd: cwd)) { [services] in services.agentTabs.unsentDrafts.draft(forTab: services.agentTabs.resolve(origin.tab.id), machine: services.agentTabs.daemonListing(origin.tab)?.machineID) }
         defer { handOff(false) }

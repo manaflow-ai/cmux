@@ -132,6 +132,137 @@
         }
       }
     },
+    "cloud.machineRoute.tooOld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud machine's software is too old for this version of cmux, and it couldn't be updated. Try again in a few minutes, or update cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "برنامج جهاز Cloud هذا أقدم من أن يعمل مع هذا الإصدار من cmux، وتعذّر تحديثه. حاول مرة أخرى بعد بضع دقائق، أو حدّث cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Softver ove Cloud mašine je prestar za ovu verziju cmuxa i nije ga bilo moguće ažurirati. Pokušaj ponovo za nekoliko minuta ili ažuriraj cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Softwaren på denne Cloud-maskine er for gammel til denne version af cmux, og den kunne ikke opdateres. Prøv igen om et par minutter, eller opdater cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Software dieser Cloud-Maschine ist zu alt für diese Version von cmux und konnte nicht aktualisiert werden. Versuche es in ein paar Minuten erneut oder aktualisiere cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El software de esta máquina de Cloud es demasiado antiguo para esta versión de cmux y no se pudo actualizar. Vuelve a intentarlo en unos minutos o actualiza cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le logiciel de cette machine Cloud est trop ancien pour cette version de cmux et n'a pas pu être mis à jour. Réessayez dans quelques minutes ou mettez à jour cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il software di questa macchina Cloud è troppo vecchio per questa versione di cmux e non è stato possibile aggiornarlo. Riprova tra qualche minuto oppure aggiorna cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンのソフトウェアはこのバージョンの cmux には古すぎ、更新できませんでした。数分後にもう一度お試しいただくか、cmux をアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីរបស់ម៉ាស៊ីន Cloud នេះចាស់ពេកសម្រាប់កំណែ cmux នេះ ហើយមិនអាចធ្វើបច្ចុប្បន្នភាពបានទេ។ ព្យាយាមម្តងទៀតក្នុងរយៈពេលពីរបីនាទី ឬធ្វើបច្ចុប្បន្នភាព cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신의 소프트웨어가 이 버전의 cmux에 비해 너무 오래되었으며 업데이트할 수 없었습니다. 몇 분 후에 다시 시도하거나 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Programvaren på denne Cloud-maskinen er for gammel for denne versjonen av cmux, og den kunne ikke oppdateres. Prøv igjen om noen minutter, eller oppdater cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oprogramowanie tej maszyny Cloud jest za stare dla tej wersji cmux i nie udało się go zaktualizować. Spróbuj ponownie za kilka minut albo zaktualizuj cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O software desta máquina do Cloud é antigo demais para esta versão do cmux e não foi possível atualizá-lo. Tente de novo em alguns minutos ou atualize o cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Программное обеспечение этой машины Cloud слишком старое для этой версии cmux, и его не удалось обновить. Повторите попытку через несколько минут или обновите cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซอฟต์แวร์ของเครื่อง Cloud นี้เก่าเกินไปสำหรับ cmux เวอร์ชันนี้ และอัปเดตไม่ได้ ลองอีกครั้งในอีกไม่กี่นาที หรืออัปเดต cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Cloud makinesinin yazılımı cmux'ın bu sürümü için çok eski ve güncellenemedi. Birkaç dakika sonra yeniden deneyin veya cmux'ı güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Програмне забезпечення цієї машини Cloud застаре для цієї версії cmux, і його не вдалося оновити. Спробуйте ще раз за кілька хвилин або оновіть cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phần mềm của máy Cloud này quá cũ so với phiên bản cmux này và không thể cập nhật. Hãy thử lại sau vài phút hoặc cập nhật cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Cloud 机器的软件对于此版本的 cmux 来说过旧，且无法更新。请几分钟后重试，或更新 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Cloud 機器的軟體對於此版本的 cmux 來說太舊，且無法更新。請幾分鐘後再試一次，或更新 cmux。"
+          }
+        }
+      }
+    },
     "cloud.error.machineLimit": {
       "extractionState": "manual",
       "localizations": {
