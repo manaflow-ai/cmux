@@ -268,6 +268,61 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Approve, allow once, a Cloud request your own session confirmed, by its request id: refused unless it holds exactly that op and params, pending, posted by that team's Cloud. Answers the approved run's reply when it ends within the wait.
+    IntegrationApprovalApproveOp {
+        name: "integration.approval.approve",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: IntegrationApprovalApproveParams,
+        result: IntegrationApprovalApproveResult,
+        error: IntegrationApprovalApproveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalApproveParams {
+    pub request: String,
+    pub op: String,
+    pub params: Value,
+    pub team: TeamId,
+}
+
+wire_enum! {
+    IntegrationApprovalApproveResultAnswered {
+        Here = "here",
+        Elsewhere = "elsewhere",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalApproveResult {
+    pub request: String,
+    pub answered: IntegrationApprovalApproveResultAnswered,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub reply: Option<Value>,
+}
+
+wire_errors! {
+    /// The error codes integration.approval.approve declares.
+    IntegrationApprovalApproveError {
+        ApprovalMismatch = "approval.mismatch",
+        ApprovalOneCallOff = "approval.one_call_off",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it.
     IntegrationApprovalGetOp {
         name: "integration.approval.get",
@@ -835,71 +890,4 @@ wire_errors! {
         UnknownInvite = "unknown_invite",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// Create a Linear issue in a Linear team as the cmux app.
-    LinearIssueCreateOp {
-        name: "linear.issue.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: LinearIssueCreateParams,
-        result: Value,
-        error: LinearIssueCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LinearIssueCreateParams {
-    pub connection: ConnectionId,
-    pub team_id: String,
-    pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes linear.issue.create declares.
-    LinearIssueCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List the Linear teams this connection can reach (ids for linear.issue.create).
-    LinearTeamsListOp {
-        name: "linear.teams.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: LinearTeamsListParams,
-        result: LinearTeamsListResult,
-        error: LinearTeamsListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LinearTeamsListParams {
-    pub connection: ConnectionId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LinearTeamsListResultTeamsItem {
-    pub id: String,
-    pub key: String,
-    pub name: String,
 }
