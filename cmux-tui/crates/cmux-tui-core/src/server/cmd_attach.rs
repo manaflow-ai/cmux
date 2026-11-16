@@ -46,7 +46,9 @@ use super::spawn_attach_notification_stream_coalesced;
 use super::terminal_colors_json;
 use super::terminal_snapshot;
 use super::wait_for_initial_browser_resize;
-use super::{AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY};
+use super::{
+    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
+};
 use crate::Mux;
 use crate::RenderAttachFrame;
 use crate::SurfaceId;
@@ -58,6 +60,7 @@ use crate::sizing_policy::detach_reason;
 use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::AttachFrame;
 use crate::surface::AttachLifecycle;
+use cmux_agent_cli_render::adapter::Adapter;
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
@@ -194,6 +197,9 @@ pub(super) fn attach_surface(
         mux.control_clients.supports_capability(client, AGENT_CLI_HYBRID_CAPABILITY);
     let hybrid_lean =
         mux.control_clients.supports_capability(client, AGENT_CLI_HYBRID_LEAN_CAPABILITY);
+    let shell_lines = hybrid_declared
+        && hybrid_lean
+        && mux.control_clients.supports_capability(client, TERMINAL_SHELL_LINES_CAPABILITY);
     let hybrid_resume =
         agent_cli_hybrid::resume_request(hybrid_declared, hybrid_stream, hybrid_frame)?;
     anyhow::ensure!(
@@ -268,11 +274,15 @@ pub(super) fn attach_surface(
         return snapshot.attach(mux, client, surface, writer, initial_size);
     }
     // `agent-cli-hybrid-v1`: a plain byte attach of an agent CLI's terminal gets cell
-    // deltas instead of its bytes (server/agent_cli_hybrid.rs).
-    let hybrid = hybrid_declared
+    // deltas instead of its bytes, and with `terminal-shell-lines-v1` so does a plain shell's
+    // (server/agent_cli_hybrid.rs).
+    let adapter = (hybrid_declared
         && surface.kind() == SurfaceKind::Pty
-        && mode.as_deref().unwrap_or("bytes") == "bytes"
-        && agent_cli_hybrid::runs_agent_cli(mux, &surface);
+        && mode.as_deref().unwrap_or("bytes") == "bytes")
+        .then(|| agent_cli_hybrid::adapter(mux, &surface))
+        .unwrap_or(Adapter::Pty);
+    let shell_viewer = shell_lines && adapter == Adapter::Shell;
+    let hybrid = adapter == Adapter::Agent || shell_viewer;
     // Only the plain byte attach coalesces; render mode keeps its own frames.
     let coalesce_interval = if !hybrid
         && surface.kind() == SurfaceKind::Pty
@@ -560,6 +570,7 @@ pub(super) fn attach_surface(
             &[&*attach.replay, &*attach.pending_sequence].concat(),
             hybrid_resume,
             hybrid_lean,
+            shell_viewer,
         );
         let (viewer, first) = match started {
             Ok(started) => started,
@@ -570,15 +581,21 @@ pub(super) fn attach_surface(
             }
         };
         hybrid_viewer = Some(viewer);
-        // What `vt-state` would carry beside the screen: the terminal's colors.
-        let mut colors = initial.colors;
-        if let Some(fields) = colors.as_object_mut() {
-            fields.insert("event".into(), json!("colors-changed"));
-            fields.insert("surface".into(), json!(surface_id));
+        match first {
+            Some(first) => {
+                // What `vt-state` would carry beside the screen: the terminal's colors.
+                let mut colors = initial.colors;
+                if let Some(fields) = colors.as_object_mut() {
+                    fields.insert("event".into(), json!("colors-changed"));
+                    fields.insert("surface".into(), json!(surface_id));
+                }
+                writer
+                    .send_initial(&colors, &outbound_stream)
+                    .and_then(|()| writer.send_initial(&first, &outbound_stream))
+            }
+            // A shell running a full-screen program: its bytes, as a byte viewer gets them.
+            None => writer.send_initial_vt_state(&initial, &outbound_stream),
         }
-        writer
-            .send_initial(&colors, &outbound_stream)
-            .and_then(|()| writer.send_initial(&first, &outbound_stream))
     } else {
         writer.send_initial_vt_state(&initial, &outbound_stream)
     };
