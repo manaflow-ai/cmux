@@ -74,6 +74,18 @@ describe("manifest", () => {
     readFileSync(join(dir, manifest.icon))
   })
 
+  test("every text field fits the v2 cap of 300 characters (the host silently drops a longer package)", () => {
+    const long: string[] = []
+    const walk = (value: unknown, path: string) => {
+      if (typeof value === "string") {
+        if (value.length > 300) long.push(`${path} (${value.length})`)
+      } else if (Array.isArray(value)) value.forEach((v, i) => walk(v, `${path}[${i}]`))
+      else if (value && typeof value === "object") for (const [k, v] of Object.entries(value)) walk(v, `${path}.${k}`)
+    }
+    walk(manifest, "$")
+    expect(long).toEqual([])
+  })
+
   test("imports nothing but the public SDK and its own files", () => {
     for (const file of ["main.ts", "model.ts", "sample.ts"]) {
       const src = readFileSync(join(dir, "src", file), "utf8")
