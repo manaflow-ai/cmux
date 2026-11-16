@@ -98,6 +98,13 @@ test("the chat's mark: its gate moves nothing, the rest of the page moves on, th
   expect(frames).toBeLessThan(IDLE_FRAMES);
   expect(queue.length).toBe(0);
   expect(budget.minimal).toBe(true);
+  // It went idle with misses still in the window: no timer takes the mark away.
+  expect(timers.filter((timer) => timer.at < Infinity).length).toBe(0);
+  // Its next poke a second later reads frames in budget with the window clear.
+  now += 1000;
+  budget.poke();
+  while (run(FRAME) > 0 && frames < 4000) frames += 1;
+  expect(budget.minimal).toBe(true);
   // No work for HEALTHY_FOR: the chat is healthy again, and the mark goes, on one timer.
   expect(timers.filter((timer) => timer.at < Infinity).length).toBe(1);
   now += HEALTHY_FOR;
@@ -212,4 +219,44 @@ test("a commit at rest reads a few frames, not IDLE_FRAMES; frames that keep mis
   }
   expect(again.minimal).toBe(true);
   again.dispose();
+});
+
+// Leo, 2026-11-16, on his NIGHTLY at 4 fps: "it shuold be instant even under load". A loaded chat
+// gets a record every few seconds; two idle seconds between them took the minimal mark away, so each
+// record came back in on its fade, held invisible through its first frame (entranceClock.ts).
+test("a chat that goes idle while its frames still miss stays minimal for its next record", () => {
+  const dom = new JSDOM("<!doctype html><html><body><div id=chat class=acpmux-shell></div></body></html>", {
+    pretendToBeVisual: true,
+  });
+  const chat = dom.window.document.getElementById("chat")!;
+  const queue: ((time: number) => void)[] = [];
+  const timers: { at: number; callback: () => void }[] = [];
+  let now = 0;
+  const budget = createFrameBudget(chat, {
+    now: () => now,
+    frame: (callback) => queue.push(callback),
+    cancel: () => {},
+    later: (callback, ms) => timers.push({ at: now + ms, callback }) - 1,
+    cancelLater: (handle) => {
+      timers[handle] = { at: Infinity, callback: () => {} };
+    },
+  });
+  const run = (gap: number) => {
+    now += gap;
+    const next = queue.splice(0);
+    for (const callback of next) callback(now);
+    return next.length;
+  };
+  // Records 3 s apart on a page drawing 4 frames a second: each poke reads its frames to IDLE_FRAMES.
+  for (let record = 0; record < 3; record += 1) {
+    budget.poke();
+    let frames = 0;
+    while (run(250) > 0 && frames < 200) frames += 1;
+    expect(budget.minimal).toBe(true);
+    now += 3000;
+    for (const timer of timers.splice(0)) if (timer.at <= now) timer.callback();
+    // The next record lands minimal: no fade, drawn in the frame it comes.
+    expect(chat.getAttribute("data-chat-motion")).toBe("minimal");
+  }
+  budget.dispose();
 });
