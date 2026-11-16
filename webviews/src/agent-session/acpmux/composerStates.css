@@ -692,7 +692,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   --acpmux-composer-edge-focus: transparent;
 }
 .acpmux-composer-box:has(:focus-visible),
-:root:has(.nt-box :focus-visible) .nt-composer-surface {
+.nt-box:has(:focus-visible),
+body:has(.nt-box :focus-visible) .nt-popover {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
 /* The New Tab box is shared glass (#24593), whose own rim ignores --acpmux-card-ring. Its edge is
@@ -766,7 +767,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 @media (prefers-contrast: more) {
   :root[data-page-inactive] .acpmux-composer-box:has(:focus-visible),
-  :root[data-page-inactive]:has(.nt-box:is(:focus-visible, :has(:focus-visible))) .nt-composer-surface {
+  :root[data-page-inactive] .nt-box:is(:focus-visible, :has(:focus-visible)),
+  :root[data-page-inactive] body:has(.nt-box:focus-visible, .nt-box :focus-visible) .nt-popover {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
   }
 }

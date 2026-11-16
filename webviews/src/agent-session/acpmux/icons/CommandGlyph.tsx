@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import catalog from "../../../../../Packages/macOS/CmuxNext/Sources/CmuxNextIcons/Resources/icon-catalog.json";
+import catalog from "./iconCatalog.json";
 import {
   harnessSymbolHostSnapshot,
   harnessSymbolsSnapshot,
