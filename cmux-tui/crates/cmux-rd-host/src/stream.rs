@@ -173,7 +173,8 @@ struct FrameLog {
     capture_us: u64,
     release_us: u64,
     encoded_bytes: usize,
-    idr: bool,
+    /// Why the frame is an IDR, or `None` for a delta frame.
+    idr_reason: Option<&'static str>,
 }
 
 impl Timing {
@@ -200,7 +201,8 @@ impl Timing {
             "encode_start_us": times.encode_start_us,
             "encoded_us": times.encoded_us,
             "encoded_bytes": log.encoded_bytes,
-            "idr": log.idr,
+            "idr": log.idr_reason.is_some(),
+            "idr_reason": log.idr_reason,
         })
     }
 
@@ -545,7 +547,8 @@ impl MediaSession {
             capture_us: frame.t_capture_us,
             release_us: frame.released_us,
             encoded_bytes: frame.access_unit.len(),
-            idr: frame.idr,
+            // An IDR the engine did not ask for is the encoder's own choice.
+            idr_reason: frame.idr.then(|| req.idr_reason.map_or("encoder", |r| r.as_str())),
         });
         self.encode_ms.push_back(frame.encode_ms);
         if self.encode_ms.len() > 120 {

@@ -68,7 +68,16 @@ final class UnsentKeysClock {
         }
     }
 
-    static func waitUntil(_ seconds: Double = 5, _ condition: () -> Bool) async throws {
+    /// How long a step may take to get the screen and the session where it
+    /// puts them. A deadline, never a measure: each wait ends as soon as its
+    /// condition holds. The kit-test job runs every suite of the package in
+    /// one process at once, and while they all start the main actor and the
+    /// cooperative pool are busy for seconds: there a 5 s setup ended before
+    /// the session had sent the fake Mac its first command (run 43658355643:
+    /// `started=true`, no output pumped, `cmds=[]`).
+    static let deadline: Double = 30
+
+    static func waitUntil(_ seconds: Double = deadline, _ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .milliseconds(Int(seconds * 1000)))
         while !condition(), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10)) // test: polls the screen until a deadline
@@ -84,6 +93,12 @@ final class UnsentKeysClock {
         let link = MockMacLink { service, line in daemon.respond(service, line) }
         let channels = ChannelLog()
         let session = DaemonTerminalSession(surface: 7) {
+            // The first attach lands after the size claimer's 1 s delay, as
+            // it does in the kit-test job, where every suite starts at once
+            // and the attach waits seconds for the main actor.
+            if channels.last == nil {
+                try await Task.sleep(for: .seconds(2)) // test: a slow first attach
+            }
             let channel = try await link.openChannel(service: "daemon", args: [:])
             channels.append(channel)
             return DaemonClient(channel: channel)
@@ -92,13 +107,27 @@ final class UnsentKeysClock {
         session.now = { clock.now }
         let model = TerminalModel(session: session, artifactSource: UnavailableArtifactSource(), title: "unsent-keys")
         let screen = TerminalViewController(model: model)
+        // The page is on screen and taking input, as `TerminalTabPage` says
+        // on appear. Without it the size claimer gives the claim up after
+        // its 1 s delay, and an attach that lands later has its replay, its
+        // alternate screen and the app's modes held by the reclaim hold
+        // (the Mac's 80x24 against the phone's grid, no claim to end it):
+        // the screen never leaves the prompt and Ghostty never hears 1000h.
+        model.setPageShown(true)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = screen
         window.makeKeyAndVisible()
         let rig = Rig(daemon: daemon, channels: channels, session: session, model: model, screen: screen, window: window, clock: clock)
-        try await waitUntil { session.isAttached && model.isTUI && screen.surface.capturesMouse }
-        try #require(session.isAttached, "the session never attached")
-        try #require(screen.surface.capturesMouse, "the app's mouse mode never reached Ghostty")
+        // The suite's first test starts with every other suite of the job:
+        // twice the step deadline.
+        try await waitUntil(2 * deadline) { session.isAttached && model.isTUI && screen.surface.capturesMouse }
+        // Where the setup stands when it fails.
+        let state = "started=\(screen.started) surface=\(screen.surface.surface != nil) shown=\(screen.surface.isShown) "
+            + "appState=\(UIApplication.shared.applicationState.rawValue) attached=\(session.isAttached) tui=\(model.isTUI) "
+            + "pending=\(screen.outputPendingBytes) counts=\(screen.outputCounts) frame=\(screen.surface.frame) "
+            + "cmds=\(daemon.recorded.compactMap { $0["cmd"] as? String })"
+        try #require(session.isAttached, "the session never attached: \(state)")
+        try #require(screen.surface.capturesMouse, "the app's mouse mode never reached Ghostty: \(state)")
         return rig
     }
 
