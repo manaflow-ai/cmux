@@ -75,7 +75,7 @@ fn v2_pr12_follow_append() -> io::Result<()> {
         for side in order {
             let fixture = side_mut(&mut fixtures, side)?;
             let mut samples = Vec::with_capacity(FOLLOW_GATE_SAMPLES);
-            for _sample in 0..FOLLOW_GATE_SAMPLES {
+            for sample in 0..FOLLOW_GATE_SAMPLES {
                 assert_fixture_shape(fixture)?;
                 let line = format!("append-{round}-{sample}\n");
                 writeln!(fixture.file, "append-{round}-{sample}")?;
@@ -151,7 +151,7 @@ fn v2_pr12_follow_read_at() -> io::Result<()> {
         for side in order {
             let fixture = side_mut(&mut fixtures, side)?;
             let mut samples = Vec::with_capacity(FOLLOW_GATE_SAMPLES);
-            for sample in 0..FOLLOW_GATE_SAMPLES {
+            for _sample in 0..FOLLOW_GATE_SAMPLES {
                 assert_fixture_shape(fixture)?;
                 fixture.file.write_all(&vec![b'y'; 8192])?;
                 fixture.file.write_all(b"\n")?;
