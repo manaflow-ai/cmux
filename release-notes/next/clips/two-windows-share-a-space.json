@@ -1,0 +1,12 @@
+{
+  "caption": "Switch a window to a space that another window shows, and both windows show the same workspaces and the same live terminal.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A terminal with some output", "cmux": ["action", "run", "newTab", "--arg", "name=Build", "--arg", "command=clear; printf '\\n  \\033[1;34mBUILD\\033[0m\\n\\n  \\033[32m+\\033[0m compile\\n  \\033[32m+\\033[0m link\\n  \\033[32m+\\033[0m done\\n'; sleep 900", "--arg", "focus=true"], "wait": 2.5},
+    {"title": "New Window: a new space", "cmux": ["action", "run", "newWindow"], "wait": 3, "clip": true},
+    {"title": "Previous Space: the first window's space, in this window too", "rpc": {"method": "debug.key", "params": {"key": "h", "modifiers": ["control", "option", "command"]}}, "wait": 2.5, "clip": true},
+    {"title": "End", "wait": 0.5, "clip": true}
+  ],
+  "crop": [0, 0, 1, 1]
+}

@@ -15,7 +15,7 @@ public final class TabShownElsewhereView: NSView {
         self.onShowHere = onShowHere
         super.init(frame: .zero)
         wantsLayer = true
-        label.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+        label.font = Typography.system(.default, size: TypeScale.body, weight: TypeScale.emphasis)
         label.lineBreakMode = .byTruncatingTail
         button.bezelStyle = .rounded
         (button.target, button.action) = (self, #selector(showHere))
