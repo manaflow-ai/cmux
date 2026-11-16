@@ -10,7 +10,7 @@ what the film made. Out: <out>/<id>.mov, <out>/<id>.mov.frames.json (the display
 
 The sources of the acts, and their limits (each row says which it used):
   keys     `debug.key`: real key events on the app's own queue; not the HID tap, not the window server. A held key
-           is one key-down and its repeats (the first after 225 ms, then one each 30 ms).
+           is one key-down and its repeats (the first after --repeat-delay-ms, then one each --repeat-ms).
   pointer  `debug.mouse`: mouse events on the app's own queue, one request for each step of a drag, paced by this
            script; the system pointer does not move in the film. The row has the step rate of the app's input journal.
   action   `action.run`, for an act with no default key; its label says so.
@@ -46,7 +46,6 @@ KEY = {"d": 2, "h": 4, "x": 7, "c": 8, "b": 11, "w": 13, "r": 15, "t": 17, "1": 
        "down": 125, "up": 126, "cmd": 55, "shift": 56, "opt": 58, "ctrl": 59}
 MODIFIERS = ("ctrl", "opt", "shift", "cmd")
 NAMES = {"return": "Enter", "`": "backtick", "=": "=", "-": "-"}
-REPEAT_DELAY_MS, REPEAT_MS = 225, 30
 LEAD_S, MIN_FILM_S, TAKE_S = 1.0, 4.5, 30
 DRAG_RATE = 120
 PING = "/sbin/ping -i 0.2 127.0.0.1"
@@ -131,9 +130,10 @@ GROUPS = {"kinds": lambda i: i[0] in "TBA" and "-" in i, "mixed": lambda i: i.st
           "extra": lambda i: i[0] == "X", "all": lambda i: True}
 
 
-def key_steps(chord, presses=1, gap_ms=250, repeats=0):
+def key_steps(chord, presses=1, gap_ms=250, repeats=0, delay_ms=0, every_ms=0):
     """`chord` as `debug.key` steps: the modifiers go down first and stay down; each key is pressed `presses` times
-    with `gap_ms` from key-down to key-down, each key-down with `repeats` auto-repeats behind it (a held key)."""
+    with `gap_ms` from key-down to key-down, each key-down with `repeats` auto-repeats behind it (a held key: the
+    first repeat after `delay_ms`, the next ones each `every_ms`)."""
     names = chord.split("+")
     mods, keys = [n for n in names if n in MODIFIERS], names[-1].split(",")
     steps = [{"key_code": KEY[m], "down": True, **({"after_ms": 2} if i else {})} for i, m in enumerate(mods)]
@@ -141,7 +141,7 @@ def key_steps(chord, presses=1, gap_ms=250, repeats=0):
     for _ in range(presses):
         for key in keys:
             steps.append({"key_code": KEY[key], "down": True, "after_ms": lead})
-            steps += [{"key_code": KEY[key], "down": True, "after_ms": REPEAT_MS if i else REPEAT_DELAY_MS, "repeat": True} for i in range(repeats)]
+            steps += [{"key_code": KEY[key], "down": True, "after_ms": every_ms if i else delay_ms, "repeat": True} for i in range(repeats)]
             steps.append({"key_code": KEY[key], "down": False, "after_ms": 8})
             lead = max(gap_ms - 8, 1)
     return steps + [{"key_code": KEY[m], "down": False, "after_ms": 2} for m in reversed(mods)]
@@ -328,8 +328,9 @@ class Films:
             if act[0] == "keys":
                 _, chord, presses, gap, hold = act
                 # "tabs": the key-down and its repeats close all but 2 tabs of the pane, so the pane stays.
-                repeats = max(1, len(self.st.tabs(workspace, focus)) - 3) if hold == "tabs" else 1 + int((hold * 1000 - REPEAT_DELAY_MS) / REPEAT_MS) if hold else 0
-                steps = key_steps(chord, presses, gap, repeats)
+                delay, every = self.opts.repeat_delay_ms, max(self.opts.repeat_ms, 1)
+                repeats = max(1, len(self.st.tabs(workspace, focus)) - 3) if hold == "tabs" else max(1, 1 + int((hold * 1000 - delay) / every)) if hold else 0
+                steps = key_steps(chord, presses, gap, repeats, delay, every)
                 reply = self.app.rpc("debug.key", {"sequence": steps, "key_window": key_window}) or {}
                 if reply.get("error") and key_window != "shell":
                     row["refused_as"] = f"{key_window}: {str(reply['error'])[:120]}"
@@ -436,6 +437,8 @@ def main():
                         help="the agent pages' in-page mock: auto = off, then a second launch with it on for the A- and M- films; 0 or 1 = one launch")
     parser.add_argument("--program", default="auto", help="the program of a `redraw` pane: auto, htop, nvim, top")
     parser.add_argument("--mbps", type=float, default=60, help="the recorder's bit rate")
+    parser.add_argument("--repeat-delay-ms", type=float, default=375, help="a held key's first repeat (the default is macOS's own default setting)")
+    parser.add_argument("--repeat-ms", type=float, default=90, help="a held key's repeat interval (the default is macOS's own default setting)")
     parser.add_argument("--thread-rows", type=int, default=2000, help="rows of a chat pane's thread before it streams")
     parser.add_argument("--stream-seconds", type=float, default=25, help="how long a chat pane streams")
     parser.add_argument("--settle", type=float, default=3.0, help="seconds between a film's set-up and its take")
@@ -458,7 +461,7 @@ def main():
     os.environ.update({"BENCH_LAUNCH_AUDIO": "keep", "BENCH_LAUNCH_OSASCRIPT": "/usr/bin/true"})
     needs_mock = [i for i in wanted if next(s for s in FILMS if s["id"] == i)["setup"] in MOCK_SETUPS]
     plan = [(False, [i for i in wanted if i not in needs_mock]), (True, needs_mock)] if opts.chat_mock == "auto" else [(opts.chat_mock == "1", wanted)]
-    report = {"films": [], "failures": [], "launches": [], "limits": LIMITS, "key_repeat_ms": [REPEAT_DELAY_MS, REPEAT_MS], "mbps": opts.mbps,
+    report = {"films": [], "failures": [], "launches": [], "limits": LIMITS, "key_repeat_ms": [opts.repeat_delay_ms, opts.repeat_ms], "mbps": opts.mbps,
               "alt_screen": "not read: no debug call says if a terminal is on its alternate screen"}
     for mock, idents in plan:
         if not idents:
