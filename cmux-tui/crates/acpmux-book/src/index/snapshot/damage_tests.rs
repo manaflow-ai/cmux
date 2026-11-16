@@ -20,6 +20,21 @@ fn write_rows(path: &std::path::Path, count: usize) -> SummaryIndex {
     index
 }
 
+#[test]
+fn a_sidecar_bound_to_another_snapshot_is_set_aside() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("index.snap");
+    write_rows(&path, 2);
+    fs::write(path.with_extension("snap.kin"), vec![0u8; 4096]).unwrap();
+
+    let snapshot = DiskSnapshot::open(&path).unwrap().unwrap();
+    assert!(!snapshot.has_kin_table());
+    // Set aside only for this snapshot handle: do not rename by pathname,
+    // which may already refer to the next generation's valid accelerator.
+    assert!(path.with_extension("snap.kin").is_file());
+    assert!(!path.with_extension("snap.kin.bad").exists());
+}
+
 fn damage_frame(path: &std::path::Path, ordinal: usize) {
     let mut bytes = fs::read(path).unwrap();
     let mut offset = super::HEADER_BYTES;

@@ -90,8 +90,8 @@ pub async fn spawn_with_fds(
     }
     // Debug builds only: the test process whose end ends the host (`daemon/owner_exit.rs`).
     #[cfg(debug_assertions)]
-    if let Some(pid) = std::env::var_os(crate::daemon::owner_exit::TEST_OWNER_PID_ENV) {
-        cmd.env(crate::daemon::owner_exit::TEST_OWNER_PID_ENV, pid);
+    if let Some(pid) = std::env::var_os(crate::owner_exit::TEST_OWNER_PID_ENV) {
+        cmd.env(crate::owner_exit::TEST_OWNER_PID_ENV, pid);
     }
     // Above every target number first, so no dup2 below overwrites a source not moved yet.
     let high: Vec<std::os::fd::OwnedFd> = fds
