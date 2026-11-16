@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43839529572",
+  "recorded_at": "2026-11-16T09:34:04Z",
+  "reason": "cmux-tui 37b8e7f72d5f changes the image's cmux-tui (pinned c243ee6dea48)",
+  "dry_run": false,
+  "cmux_tui": "37b8e7f72d5f0b5e93f89227c707fc514108d92e",
+  "fixes": [
+    {
+      "sha": "37b8e7f72d5f0b5e93f89227c707fc514108d92e",
+      "mergedAt": "2026-11-16T01:07:44-08:00",
+      "subject": "Palette: Stop Sharing This Mac answers the old stop titles (built-in aliases) (#44346)"
+    },
+    {
+      "sha": "6ac008722b601d5f23f5edbe0481494b8d5a890b",
+      "mergedAt": "2026-11-16T01:01:53-08:00",
+      "subject": "Screen sharing: one frame drains in one frame interval (VideoToolbox frame budget), bitrate cuts apply at once (#44314)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T09:34:04Z",
+    "snapshot_id": "sh-508942dfaafb4a8fab9ff93595bcfd2e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43839529572): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d69f8987402c488d7b9cc4d3cc41d123bb574cde",
+    "image": "cloud-native-auto-37b8e7f7-43839529572-1",
+    "revision": "ci-43839529572-1",
+    "at": "2026-11-16T09:34:04Z"
+  },
+  "rolled_back": false
+}
