@@ -733,6 +733,9 @@ pub struct FileGeneration {
     pub dev: u64,
     pub ino: u64,
     pub size: u64,
+    /// Number of initial bytes covered by the fixed-head proof. Keeping this fixed across
+    /// appends avoids treating growth of a short file as a rewrite of its head.
+    pub head_len: u64,
     pub head: u64,
 }
 
@@ -767,7 +770,7 @@ pub struct FollowFileSource {
 impl FollowFileSource {
     pub fn open(path: &Path) -> io::Result<Self> {
         let inner = FileSource::open(path)?;
-        let generation = file_generation(path)?;
+        let generation = file_generation(path, None)?;
         Ok(Self { inner, generation })
     }
 
@@ -782,9 +785,12 @@ impl FollowFileSource {
     /// Compare the path's bounded generation proof with the last one observed. Appends are
     /// accepted and advance the monotonic size; every other mutation is returned to the caller.
     pub fn check_generation(&mut self) -> io::Result<GenerationChange> {
-        let current = file_generation(self.inner.file_path().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::Unsupported, "follow source has no path")
-        })?)?;
+        let current = file_generation(
+            self.inner.file_path().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::Unsupported, "follow source has no path")
+            })?,
+            Some(self.generation.head_len),
+        )?;
         let previous = self.generation;
         if current.dev != previous.dev || current.ino != previous.ino {
             return Ok(GenerationChange::Replaced);
@@ -860,11 +866,12 @@ impl RawSource for FollowFileSource {
     }
 }
 
-fn file_generation(path: &Path) -> io::Result<FileGeneration> {
+fn file_generation(path: &Path, fixed_head_len: Option<u64>) -> io::Result<FileGeneration> {
     let file = File::open(path)?;
     let before = file.metadata()?;
+    let head_len = fixed_head_len.unwrap_or_else(|| before.len().min(4096));
     let mut head = Vec::new();
-    (&file).take(4096).read_to_end(&mut head)?;
+    (&file).take(head_len).read_to_end(&mut head)?;
     let after = file.metadata()?;
     let (dev_before, ino_before) = file_identity(&before);
     let (dev_after, ino_after) = file_identity(&after);
@@ -874,7 +881,13 @@ fn file_generation(path: &Path) -> io::Result<FileGeneration> {
             "transcript changed during generation read",
         ));
     }
-    Ok(FileGeneration { dev: dev_after, ino: ino_after, size: after.len(), head: fnv1a(&head) })
+    Ok(FileGeneration {
+        dev: dev_after,
+        ino: ino_after,
+        size: after.len(),
+        head_len,
+        head: fnv1a(&head),
+    })
 }
 
 fn fnv1a(bytes: &[u8]) -> u64 {
