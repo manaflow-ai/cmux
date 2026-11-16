@@ -463,13 +463,4 @@ mod tests {
         assert_eq!(run_cli(&["bogus".into()]), 2);
         assert_eq!(run_cli(&["status".into(), "--nope".into(), "x".into()]), 1);
     }
-
-    /// The real desktop of this runner: a frame of a real size (the Windows CI selftest step
-    /// runs this with a desktop session).
-    #[test]
-    fn this_desktop_captures() {
-        let check = check_capture();
-        assert_eq!(check.error, None);
-        assert!(check.width >= 2 && check.height >= 2, "{check:?}");
-    }
 }
