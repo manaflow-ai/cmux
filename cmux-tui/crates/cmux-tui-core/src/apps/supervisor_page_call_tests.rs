@@ -2,6 +2,8 @@
 //! a page reaches cmux only through its app's grant.
 
 use super::*;
+use crate::apps::catalog::Package;
+use crate::apps::mirror::{self, Op};
 
 const WEB_APP: &str = "local/web";
 
