@@ -137,6 +137,8 @@ struct Sim {
     returning: VecDeque<(u64, Vec<Arrival>, u32)>,
     viewer_newest: u32,
     acked: u32,
+    /// Frames the encoder may have unacknowledged.
+    in_flight_frames: u32,
     frame: u32,
     next_frame: u64,
     next_feedback: u64,
@@ -148,7 +150,7 @@ struct Sim {
 }
 
 impl Sim {
-    fn new(rtt_us: u64) -> Self {
+    fn new(rtt_us: u64, in_flight_frames: u32) -> Self {
         let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
         cc.on_rtt(rtt_us);
         Self {
@@ -162,6 +164,7 @@ impl Sim {
             returning: VecDeque::new(),
             viewer_newest: 0,
             acked: 0,
+            in_flight_frames,
             frame: 0,
             next_frame: 0,
             next_feedback: FEEDBACK_US,
@@ -177,7 +180,7 @@ impl Sim {
         while self.now < end_us {
             if self.now >= self.next_frame {
                 self.next_frame += 1_000_000 / FPS;
-                if self.frame - self.acked < FRAMES_IN_FLIGHT {
+                if self.frame - self.acked < self.in_flight_frames {
                     self.frame += 1;
                     let bytes = (self.cc.target_bps() as f64 / 8.0 / FPS as f64) as usize;
                     let n = bytes.div_ceil(MTU).max(1);
@@ -270,13 +273,13 @@ fn radio(holds: Vec<(u64, u64)>, loss: f64) -> Link {
 /// target, and each hold's target is back within a second of the hold ending.
 fn replay(name: &str, holds: Vec<(u64, u64)>, loss: f64) {
     let end = WARMUP_US + schedule_seconds() * 1_000_000;
-    let mut clean = Sim::new(8_000);
+    let mut clean = Sim::new(8_000, FRAMES_IN_FLIGHT);
     clean.run(&radio(Vec::new(), loss), end);
     let after: Vec<u64> =
         clean.targets.iter().filter(|&&(t, _)| t >= WARMUP_US).map(|&(_, v)| v).collect();
     let clean_mean = after.iter().sum::<u64>() as f64 / after.len() as f64;
 
-    let mut sim = Sim::new(8_000);
+    let mut sim = Sim::new(8_000, FRAMES_IN_FLIGHT);
     sim.run(&radio(holds.clone(), loss), end + 1_000_000);
     let (low_at, low) = sim
         .targets
@@ -341,31 +344,41 @@ fn wifi_long_schedule_holds_the_target_through_every_outage() {
 /// with and without the radio's holds on top.
 #[test]
 fn a_bandwidth_limited_link_still_cuts() {
+    let mut failures = Vec::new();
     for (name, holds) in [("clean", Vec::new()), ("wifi-away", wifi_away())] {
         let link =
             Link { capacity_bps: 10e6, base_us: 1_000, loss: 0.0, buffer_us: 300_000.0, holds };
-        let mut sim = Sim::new(1_000);
+        // No frame gate: the encoder keeps filling the target, so a queue grows at the
+        // bottleneck (the gate would hold it to two frames and hide the trend).
+        let mut sim = Sim::new(1_000, u32::MAX);
         assert_eq!(sim.cc.target_bps(), 30_000_000);
         sim.run(&link, 40_000_000);
-        let first_s = sim.targets.iter().take_while(|&&(t, _)| t <= 1_000_000);
-        assert!(
-            first_s.clone().any(|&(_, v)| v <= 13_000_000),
-            "{name}: never under 13 Mbps in the first second"
-        );
+        let first_cut = sim.targets.iter().find(|&&(_, v)| v <= 13_000_000).map(|&(t, _)| t);
         let steady: Vec<u64> =
             sim.targets.iter().filter(|&&(t, _)| t >= 15_000_000).map(|&(_, v)| v).collect();
         let mean = steady.iter().sum::<u64>() as f64 / steady.len() as f64;
         let mut delays = sim.queue_delays_us[sim.queue_delays_us.len() / 3..].to_vec();
         delays.sort_unstable();
-        let p50 = delays[delays.len() / 2];
+        let p95 = delays[delays.len() * 95 / 100];
         println!(
-            "bandwidth-limited {name}: steady mean {:.1} Mbps, queue p50 {p50} us",
+            "bandwidth-limited {name}: under 13 Mbps at {:?} ms, steady mean {:.1} Mbps, queue p95 {p95} us",
+            first_cut.map(|t| t / 1000),
             mean / 1e6
         );
-        assert!(mean <= 11.5e6, "{name}: steady mean {:.1} Mbps over a 10 Mbps link", mean / 1e6);
-        assert!(mean >= 6e6, "{name}: steady mean {:.1} Mbps", mean / 1e6);
-        if name == "clean" {
-            assert!(p50 < 50_000, "{name}: queue p50 {p50} us");
-        }
+        failures.extend(
+            [
+                first_cut
+                    .is_none_or(|t| t > 1_000_000)
+                    .then(|| format!("{name}: not under 13 Mbps within 1 s")),
+                (mean > 11.5e6).then(|| {
+                    format!("{name}: steady mean {:.1} Mbps over a 10 Mbps link", mean / 1e6)
+                }),
+                (mean < 6e6).then(|| format!("{name}: steady mean {:.1} Mbps", mean / 1e6)),
+                (name == "clean" && p95 >= 100_000).then(|| format!("{name}: queue p95 {p95} us")),
+            ]
+            .into_iter()
+            .flatten(),
+        );
     }
+    assert!(failures.is_empty(), "{failures:#?}");
 }
