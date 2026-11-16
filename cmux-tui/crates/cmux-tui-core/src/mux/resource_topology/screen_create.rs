@@ -89,6 +89,7 @@ impl Mux {
                 viewport_base_width: None,
                 layout_columns: Vec::new(),
                 layout_revision: 0,
+                floating: Vec::new(),
                 layout_undo: Default::default(),
             });
             // A workspace whose only screen this is shows it either way.

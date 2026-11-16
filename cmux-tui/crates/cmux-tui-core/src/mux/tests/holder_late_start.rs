@@ -553,6 +553,7 @@ fn registry_with_running_terminals(
             zoomed_pane: None,
             auto_layout: None,
             viewport: RegistryViewport::default(),
+            floating: Vec::new(),
         }),
         ResourceChange::UpsertPane(RegistryPane {
             public_id: pane.clone(),

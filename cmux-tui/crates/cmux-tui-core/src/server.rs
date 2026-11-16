@@ -254,6 +254,7 @@ use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod column_move;
 mod command_history;
+mod floating_panes;
 mod page_credential;
 mod page_files;
 mod page_listener;
@@ -1931,6 +1932,8 @@ enum Command {
     SetRowHeights(rows::SetRowHeightsParams),
     /// Move a whole viewport column one place (`column-move-v1`).
     MoveColumn(column_move::MoveColumnParams),
+    /// `floating-panes-v1`: float a pane above the tiled layout, put it back, or move it.
+    FloatPane(floating_panes::FloatPaneParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -3201,6 +3204,9 @@ mod device_kind_tests;
 #[cfg(test)]
 #[path = "server/dock_columns_tests.rs"]
 mod dock_columns_tests;
+#[cfg(test)]
+#[path = "server/floating_panes_tests.rs"]
+mod floating_panes_tests;
 #[cfg(test)]
 #[path = "server/pinned_columns_tests.rs"]
 mod pinned_columns_tests;

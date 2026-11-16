@@ -33,6 +33,7 @@
 use super::*;
 use crate::model::{ColumnDock, DockEdge, DockMode};
 
+mod floating_panes;
 mod identities;
 pub(super) use identities::validate_screen_splits;
 
@@ -69,7 +70,7 @@ pub(super) fn create_column_dock_schema(transaction: &Transaction<'_>) -> anyhow
            screen_id TEXT NOT NULL
          );",
     )?;
-    Ok(())
+    floating_panes::create_schema(transaction)
 }
 
 fn write_column_docks(
@@ -104,7 +105,12 @@ pub(super) fn delete_side_tables(
     revision: i64,
 ) -> anyhow::Result<()> {
     identities::retire_side_splits(transaction, screen_id, revision)?;
-    for table in ["resource_column_docks", "resource_screen_rows", "resource_lone_docks"] {
+    for table in [
+        "resource_column_docks",
+        "resource_screen_rows",
+        "resource_lone_docks",
+        "resource_floating_panes",
+    ] {
         transaction
             .execute(&format!("DELETE FROM {table} WHERE screen_id = ?1"), params![screen_id])?;
     }
@@ -159,7 +165,8 @@ pub(super) fn side_tables_match(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(stored == desired_rows(screen)
         && column_docks_match(transaction, screen)?
-        && stored_lone_dock(transaction, screen.public_id.as_str())? == desired_lone_dock(screen)?)
+        && stored_lone_dock(transaction, screen.public_id.as_str())? == desired_lone_dock(screen)?
+        && floating_panes::matches(transaction, screen)?)
 }
 
 /// `(column id, column json)` of the screen's lone pinned column, if it has one.
@@ -280,6 +287,7 @@ pub(super) fn with_side_tables(
         overlay_column_rows(screen, &column_id, &rows);
     }
     overlay_lone_docks(connection, &mut screens)?;
+    floating_panes::overlay(connection, &mut screens)?;
     Ok(screens)
 }
 
@@ -504,5 +512,6 @@ pub(super) fn upsert_resource_screen(
     )?;
     write_column_docks(transaction, screen)?;
     write_lone_dock(transaction, screen)?;
-    write_screen_rows(transaction, screen)
+    write_screen_rows(transaction, screen)?;
+    floating_panes::write(transaction, screen)
 }

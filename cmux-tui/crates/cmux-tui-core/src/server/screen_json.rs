@@ -121,5 +121,10 @@ pub(crate) fn screen_layout_json(
             ),
         );
     }
+    // `floating-panes-v1`: the panes above the tiled layout, back to front. Only when any.
+    let floating = screen.floating_panes();
+    if !floating.is_empty() {
+        value.insert("floating", floating_panes::floating_json(&floating));
+    }
     value
 }
