@@ -2,12 +2,19 @@
 #![deny(clippy::indexing_slicing, clippy::string_slice, clippy::expect_used)]
 #![forbid(unsafe_code)]
 
-use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::fs::{File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use super::record::Record;
 
 pub const CHUNK_BYTES: usize = 256 * 1024;
+/// A raw line is bounded before it reaches the per-chat writer.
+pub const MAX_RAW_LINE_BYTES: usize = CHUNK_BYTES;
+/// Sparse raw seq index spacing: one fixed-size mark per 256 KiB written.
+pub const RAW_INDEX_BYTES: u64 = 256 * 1024;
 /// Maps one whole line and its byte position to source places. A v1 source can obtain
 /// its seq from the line itself; a file uses the byte position. No table grows with lines.
 pub type Places = fn(&[u8], u64) -> io::Result<Range<u64>>;
@@ -137,6 +144,198 @@ pub trait RawSource: Send + 'static {
     fn read_at(&mut self, _place: u64, _offset: u64, _max: usize) -> io::Result<Piece> {
         Err(io::Error::new(io::ErrorKind::Unsupported, "this source reads no part of a line"))
     }
+}
+
+/// A durable source entry in `raw.map`. The map is append-only and synced before the first raw
+/// record names the returned number.
+pub struct RawMap {
+    file: File,
+    next: u32,
+}
+
+impl RawMap {
+    pub fn open(path: &Path) -> io::Result<Self> {
+        let next =
+            if path.exists() { BufReader::new(File::open(path)?).lines().count() } else { 0 };
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
+        Ok(Self { file, next: u32::try_from(next).map_err(io::Error::other)? })
+    }
+
+    /// Append and sync one source description. The returned number is the zero-based map line.
+    pub fn append_file(&mut self, path: &Path, identity: &[u8]) -> io::Result<u32> {
+        let number = self.next;
+        let line = serde_json::json!({
+            "kind": "file",
+            "path": path.to_string_lossy(),
+            "identity": String::from_utf8_lossy(identity),
+        });
+        let mut bytes = serde_json::to_vec(&line).map_err(io::Error::other)?;
+        bytes.push(b'\n');
+        self.file.write_all(&bytes)?;
+        self.file.sync_all()?;
+        self.next = self.next.checked_add(1).ok_or_else(|| io::Error::other("raw map is full"))?;
+        Ok(number)
+    }
+}
+
+/// The sole writer for one hosted chat's raw file. It shares no lock with another chat. Callers
+/// send the returned receipt as the lossy actor notice; a host entry is acknowledged once this
+/// method returns successfully.
+pub struct RawWriter {
+    file: File,
+    index: Option<File>,
+    path: PathBuf,
+    next_seq: u64,
+    offset: u64,
+    last_sync: Instant,
+    unsynced: bool,
+    last_index_offset: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WriteReceipt {
+    pub seq: u64,
+    pub start: u64,
+    pub end: u64,
+    pub synced: bool,
+}
+
+impl RawWriter {
+    /// Register the file in `raw.map` (and sync that line) before opening the append handle.
+    pub fn open_mapped(
+        map: &mut RawMap,
+        path: &Path,
+        identity: &[u8],
+        index_path: Option<&Path>,
+        next_seq: u64,
+    ) -> io::Result<(u32, Self)> {
+        let source = map.append_file(path, identity)?;
+        Ok((source, Self::open_with_index(path, index_path, next_seq)?))
+    }
+
+    /// Open a raw file after its `raw.map` line has been synced by the caller.
+    pub fn open(path: &Path, next_seq: u64) -> io::Result<Self> {
+        Self::open_with_index(path, None, next_seq)
+    }
+
+    /// Open with an optional sparse `(seq, byte_offset)` index. The index is append-only and is
+    /// synced with the raw file, so a reader can seek to one chunk without a whole-file scan.
+    pub fn open_with_index(
+        path: &Path,
+        index_path: Option<&Path>,
+        next_seq: u64,
+    ) -> io::Result<Self> {
+        let mut file = OpenOptions::new().create(true).read(true).append(true).open(path)?;
+        repair_torn_tail(&mut file)?;
+        let offset = file.metadata()?.len();
+        let (index, last_index_offset) = if let Some(index_path) = index_path {
+            let mut index =
+                OpenOptions::new().create(true).read(true).append(true).open(index_path)?;
+            let length = index.metadata()?.len();
+            let last_index_offset = if length >= 16 {
+                index.seek(SeekFrom::Start(length - 8))?;
+                let mut bytes = [0; 8];
+                index.read_exact(&mut bytes)?;
+                u64::from_le_bytes(bytes)
+            } else {
+                0
+            };
+            (Some(index), last_index_offset)
+        } else {
+            (None, 0)
+        };
+        Ok(Self {
+            file,
+            index,
+            path: path.to_path_buf(),
+            next_seq,
+            offset,
+            last_sync: Instant::now(),
+            unsynced: false,
+            last_index_offset,
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Append one v1-shaped line. `sync_now` is true for acts and turn ends; unsynced writes are
+    /// forced when the one-second durability window elapses.
+    pub fn append(
+        &mut self,
+        record: &Record,
+        at: u64,
+        host_seq: Option<u64>,
+        sync_now: bool,
+    ) -> io::Result<WriteReceipt> {
+        let seq = self.next_seq;
+        let mut line = record.line(seq, at, host_seq).map_err(io::Error::other)?;
+        line.push(b'\n');
+        if line.len() > MAX_RAW_LINE_BYTES {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "raw line exceeds 256 KiB"));
+        }
+        let start = self.offset;
+        self.file.write_all(&line)?;
+        self.offset = self
+            .offset
+            .checked_add(line.len() as u64)
+            .ok_or_else(|| io::Error::other("raw offset overflow"))?;
+        if self.offset.saturating_sub(self.last_index_offset) >= RAW_INDEX_BYTES {
+            if let Some(index) = &mut self.index {
+                index.write_all(&seq.to_le_bytes())?;
+                index.write_all(&start.to_le_bytes())?;
+                self.last_index_offset = self.offset;
+            }
+        }
+        self.next_seq =
+            self.next_seq.checked_add(1).ok_or_else(|| io::Error::other("raw seq overflow"))?;
+        self.unsynced = true;
+        let due = sync_now || self.last_sync.elapsed() >= Duration::from_secs(1);
+        if due {
+            self.file.sync_all()?;
+            if let Some(index) = &self.index {
+                index.sync_all()?;
+            }
+            self.last_sync = Instant::now();
+            self.unsynced = false;
+        }
+        Ok(WriteReceipt { seq, start, end: self.offset, synced: !self.unsynced })
+    }
+
+    pub fn sync(&mut self) -> io::Result<()> {
+        if self.unsynced {
+            self.file.sync_all()?;
+            if let Some(index) = &self.index {
+                index.sync_all()?;
+            }
+            self.last_sync = Instant::now();
+            self.unsynced = false;
+        }
+        Ok(())
+    }
+}
+
+fn repair_torn_tail(file: &mut File) -> io::Result<()> {
+    let length = file.metadata()?.len();
+    if length == 0 {
+        return Ok(());
+    }
+    file.seek(SeekFrom::Start(length - 1))?;
+    let mut last = [0u8; 1];
+    file.read_exact(&mut last)?;
+    if last[0] == b'\n' {
+        return Ok(());
+    }
+    let window = length.min(MAX_RAW_LINE_BYTES as u64);
+    file.seek(SeekFrom::Start(length - window))?;
+    let mut bytes = vec![0; usize::try_from(window).map_err(io::Error::other)?];
+    file.read_exact(&mut bytes)?;
+    let Some(newline) = bytes.iter().rposition(|byte| *byte == b'\n') else {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "raw torn tail exceeds 256 KiB"));
+    };
+    file.set_len(length - window + newline as u64 + 1)?;
+    file.sync_all()
 }
 
 /// Part of one line, from [`RawSource::read_at`]. `bytes` holds no newline.
@@ -483,6 +682,50 @@ mod tests {
         chunk.validate(0)?;
         assert_eq!(chunk.lines().count(), CHUNK_BYTES);
         assert_eq!(chunk.resident_bytes(), CHUNK_BYTES);
+        Ok(())
+    }
+
+    #[test]
+    fn raw_map_is_synced_before_the_first_record_and_receipts_are_ordered() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let map_path = dir.path().join("raw.map");
+        let raw_path = dir.path().join("raw").join("events.ndjson");
+        std::fs::create_dir_all(raw_path.parent().ok_or_else(|| invalid("raw parent"))?)?;
+        let mut map = RawMap::open(&map_path)?;
+        let index_path = dir.path().join("raw.idx");
+        let (source, mut writer) =
+            RawWriter::open_mapped(&mut map, &raw_path, b"file:test", Some(&index_path), 41)?;
+        assert_eq!(source, 0);
+        let record = Record {
+            dir: "in".into(),
+            kind: "message".into(),
+            msg: serde_json::json!({"text":"hi"}),
+        };
+        let receipt = writer.append(&record, 99, Some(7), true)?;
+        assert_eq!(receipt.seq, 41);
+        assert!(receipt.synced);
+        let map_line = std::fs::read_to_string(&map_path)?;
+        let raw_line = std::fs::read_to_string(&raw_path)?;
+        assert!(map_line.contains("file:test"));
+        assert!(raw_line.contains("\"seq\":41"));
+        assert!(raw_line.ends_with('\n'));
+        assert!(index_path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn raw_writer_repairs_a_torn_tail_without_reading_the_whole_file() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let raw = dir.path().join("events.ndjson");
+        std::fs::write(&raw, b"{\"seq\":1}\npartial")?;
+        let mut writer = RawWriter::open(&raw, 2)?;
+        let record =
+            Record { dir: "mux".into(), kind: "notice".into(), msg: serde_json::json!({}) };
+        let receipt = writer.append(&record, 100, None, true)?;
+        assert_eq!(receipt.seq, 2);
+        let bytes = std::fs::read(&raw)?;
+        assert!(!bytes.windows(b"partial".len()).any(|window| window == b"partial"));
+        assert!(bytes.ends_with(b"\n"));
         Ok(())
     }
 

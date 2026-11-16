@@ -54,6 +54,24 @@ pub struct Record {
     pub msg: Value,
 }
 
+impl Record {
+    /// Encode one v1 event-log line. The writer supplies the monotonic seq, wall-clock time, and
+    /// host delivery number; the record body is otherwise untouched.
+    pub fn line(&self, seq: u64, at: u64, host_seq: Option<u64>) -> serde_json::Result<Vec<u8>> {
+        let mut value = serde_json::json!({
+            "seq": seq,
+            "at": at,
+            "dir": &self.dir,
+            "kind": &self.kind,
+            "msg": &self.msg,
+        });
+        if let Some(host_seq) = host_seq {
+            value["hostSeq"] = serde_json::json!(host_seq);
+        }
+        serde_json::to_vec(&value)
+    }
+}
+
 /// Convert a host entry to the v1 record form. `None` is reserved for v1's "kept nowhere"
 /// entries; the actor applies any method-specific suppression before calling this function.
 pub fn record_of(entry: RecordEntry, context: RecordContext) -> Option<Record> {
