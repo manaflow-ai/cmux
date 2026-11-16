@@ -305,6 +305,26 @@ class TableTests(unittest.TestCase):
         self.assertIsNone(cos.spare_pool([open_(100, 10)]))  # a case that never asks the pool says nothing
 
 
+    def test_the_table_says_the_page_engine_of_each_cases_opens(self):
+        # Decision 2026-11-16: a measure says its engine. The app's trace has it; the table and the click
+        # records dropped it, so a run in WebKit read as a run in the default engine.
+        bench = load_bench("--conditions", "idle", "--cases", "sidebar,click")
+        opens = [{**open_(100, 10), "engine": "cef"}, {**open_(120, 10), "engine": "cef"}, open_(90, 10)]
+        clicks = [{"first_content_ms": 80, "trace": {"engine": "webkit:chromium-unavailable"}}]
+        table = bench.markdown({"host": "h", "model": "m", "ncpu": 1, "cases": {},
+                                "raw": {"idle": {"sidebar": opens, "click": clicks}}})
+        self.assertIn("page engine, sidebar idle: cef 2/3, not said 1/3", table)
+        self.assertIn("page engine, click idle: webkit:chromium-unavailable 1/1", table)
+        self.assertIsNone(cos.page_engines([]))
+        self.assertIsNone(cos.page_engines([{"error": "arm: none"}]))  # an open that never ran says nothing
+
+    def test_a_clicks_record_keeps_the_engine_of_its_trace(self):
+        bench = load_bench("--conditions", "idle", "--cases", "click")
+        self.assertIn("engine", bench.CLICK_TRACE_KEYS)
+        for kept in ("marks_ms", "order", "frames", "first_content_ms", "longest_empty_ms", "timed_out", "page_timing"):
+            self.assertIn(kept, bench.CLICK_TRACE_KEYS)
+
+
 class ClickRowTests(unittest.TestCase):
     """The click cases read workspace ids from debug.sidebar_rows, whose keys are SidebarRowKey descriptions."""
 
