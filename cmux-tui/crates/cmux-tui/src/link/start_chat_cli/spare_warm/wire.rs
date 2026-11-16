@@ -23,8 +23,16 @@ pub(in crate::link::start_chat_cli) fn wire_teams(
     active: Option<&str>,
     install_token: &str,
 ) -> Vec<String> {
-    let _ = (install_team, install_token);
-    active.map(str::trim).filter(|team| !team.is_empty()).map(str::to_owned).into_iter().collect()
+    let Some(active) = active.map(str::trim).filter(|team| !team.is_empty()) else {
+        return Vec::new();
+    };
+    let mut teams = vec![active.to_owned()];
+    if let Some(install) = install_team(install_token)
+        && install != active
+    {
+        teams.push(install);
+    }
+    teams
 }
 
 /// The answer to a `wireTeams` request, the install token being stdin's first line.

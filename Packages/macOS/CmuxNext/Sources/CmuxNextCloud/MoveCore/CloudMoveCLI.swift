@@ -293,6 +293,19 @@ public nonisolated struct CloudMoveCLI: Sendable {
         _ = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil)
     }
 
+    /// The teams the Cloud wire subscribes in (Rust's `wireTeams`, the `install` token on stdin): `active` first, then
+    /// the install token's team when it is another. Nil on any failure (the caller keeps `active` alone).
+    public func startChatWireTeams(active: String?, install: String?) async -> [String]? {
+        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
+        let ask: [String: Any] = ["account": "wire", "wireTeams": active.map { ["active": $0] } ?? [String: String]()]
+        guard let payload = try? JSONSerialization.data(withJSONObject: ask, options: [.sortedKeys]),
+              let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
+                                        stdin: Data(((install ?? "") + "\n").utf8)),
+              let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
+              let teams = reply["teams"] as? [String] else { return nil }
+        return teams
+    }
+
     /// Whether a warm installed `account`'s `provider` login on `machine` recently and no newer copy onto it is in flight
     /// (Rust's `loginReceipt`): the start then checks and passes no login of its own. False on any failure.
     public func startChatLoginReceipt(machine: String, account: String, provider: String, scope: [String: String]? = nil) async -> Bool {

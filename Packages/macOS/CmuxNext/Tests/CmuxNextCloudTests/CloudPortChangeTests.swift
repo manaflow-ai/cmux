@@ -52,6 +52,17 @@ struct CloudPortChangeTests {
     }
 
     /// A snapshot's spares needing login go to the same handler as the event, for the socket's own team only.
+    /// The wire opens a socket per team Rust names past the active one, in addition to it, never instead; none when
+    /// the install token's team is the active one.
+    @Test func theWireAddsOnlyTheTeamsPastTheActiveOne() async {
+        let active = "team_aaaaaaaaaaaaaaaaaaaa", personal = "team_0123456789abcdef0123"
+        #expect(await CloudMachineWire.extraTeams(active: active, teams: { _ in [active, personal] }) == [personal])
+        #expect(await CloudMachineWire.extraTeams(active: active, teams: { _ in [active] }).isEmpty)
+        #expect(await CloudMachineWire.extraTeams(active: active, teams: { _ in [personal, active, personal] }) == [personal])
+        #expect(await CloudMachineWire.extraTeams(active: active, teams: { _ in nil }).isEmpty)
+        #expect(await CloudMachineWire.extraTeams(active: nil, teams: { _ in [personal] }).isEmpty)
+    }
+
     @Test func aSnapshotNamesItsSparesNeedingLoginForTheSocketsTeamOnly() throws {
         let team = "team_0123456789abcdef0123"
         let frame = try JSONSerialization.data(withJSONObject: [
