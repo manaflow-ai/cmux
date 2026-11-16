@@ -66,7 +66,7 @@ struct CloudMoveTests {
             let services = move.services
             let url = move.project.deletingLastPathComponent().appendingPathComponent("cmux.json")
             try Data(#"{"workspaces":{"newPlacement":"afterCurrent"}}"#.utf8).write(to: url)
-            let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+            let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                               managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
             await settings.reload()
             services.settings = settings
