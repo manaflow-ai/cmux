@@ -95,18 +95,12 @@ fn floating_panes_persist_across_restart() {
     let mux = open_restart_mux(&root, &session);
     assert!(live_list(&mux).is_empty());
     let outcome = mux
-        .float_pane_as(
-            &crate::Actor::Daemon,
-            live_pane(&mux, &right),
-            FloatMode::On,
-            Some(moved),
-            None,
-        )
+        .float_pane_as(&Actor::Daemon, live_pane(&mux, &right), FloatMode::On, Some(moved), None)
         .unwrap();
     assert_eq!(outcome.frame, Some(moved));
     assert!(outcome.changed);
     let outcome = mux
-        .float_pane_as(&crate::Actor::Daemon, live_pane(&mux, &low), FloatMode::Toggle, None, None)
+        .float_pane_as(&Actor::Daemon, live_pane(&mux, &low), FloatMode::Toggle, None, None)
         .unwrap();
     assert_eq!(outcome.frame, Some(centered));
     assert_eq!(live_list(&mux), expected);
@@ -123,7 +117,7 @@ fn floating_panes_persist_across_restart() {
     });
     // Putting the front pane back is durable too.
     let outcome = mux
-        .float_pane_as(&crate::Actor::Daemon, live_pane(&mux, &low), FloatMode::Off, None, None)
+        .float_pane_as(&Actor::Daemon, live_pane(&mux, &low), FloatMode::Off, None, None)
         .unwrap();
     assert_eq!(outcome.frame, None);
     mux.shutdown();
