@@ -437,6 +437,11 @@ fn serve_session(
     if crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    // LTR only where this host encodes with VideoToolbox, as `cmux-rd host` does; OpenH264
+    // hosts and viewers without the cap keep IDR recovery.
+    if cfg!(target_os = "macos") {
+        host_caps.push(cmux_rd_core::service::caps::LTR);
+    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {

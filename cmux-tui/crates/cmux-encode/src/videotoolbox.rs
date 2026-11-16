@@ -50,10 +50,6 @@ struct CFDictionaryKeyCallBacks {
 struct CFDictionaryValueCallBacks {
     _p: [u8; 0],
 }
-#[repr(C)]
-struct CFArrayCallBacks {
-    _p: [u8; 0],
-}
 
 type OutputCallback = extern "C" fn(*mut c_void, *mut c_void, OSStatus, u32, CMSampleBufferRef);
 
@@ -63,8 +59,6 @@ crate::framework! {
         static kCFBooleanFalse: CFBooleanRef;
         ref kCFTypeDictionaryKeyCallBacks: CFDictionaryKeyCallBacks;
         ref kCFTypeDictionaryValueCallBacks: CFDictionaryValueCallBacks;
-        ref kCFTypeArrayCallBacks: CFArrayCallBacks;
-        fn CFArrayCreate(a: CFAllocatorRef, values: *const CFTypeRef, n: c_long, cb: *const CFArrayCallBacks) -> CFArrayRef;
         ref kCFTypeArrayCallBacks: c_void;
         fn CFDictionaryCreate(a: CFAllocatorRef, keys: *const CFTypeRef, values: *const CFTypeRef, n: c_long, kcb: *const CFDictionaryKeyCallBacks, vcb: *const CFDictionaryValueCallBacks) -> CFDictionaryRef;
         fn CFNumberCreate(a: CFAllocatorRef, t: c_long, v: *const c_void) -> CFNumberRef;
@@ -289,7 +283,7 @@ extern "C" fn on_output(
             let attachment = CFArrayGetValueAtIndex(attachments, 0);
             let value = CFDictionaryGetValue(
                 attachment,
-                kVTSampleAttachmentKey_RequireLTRAcknowledgementToken(),
+                vt_ltr_sys::kVTSampleAttachmentKey_RequireLTRAcknowledgementToken(),
             );
             if !value.is_null() {
                 let mut token = 0i64;
@@ -389,7 +383,7 @@ fn create_session(
     unsafe {
         let set = |k: CFStringRef, v: CFTypeRef| VTSessionSetProperty(session, k, v);
         if vt_ltr_sys::available().is_ok() {
-            set(kVTCompressionPropertyKey_EnableLTR(), kCFBooleanTrue());
+            set(vt_ltr_sys::kVTCompressionPropertyKey_EnableLTR(), kCFBooleanTrue());
         }
         set(kVTCompressionPropertyKey_RealTime(), kCFBooleanTrue());
         set(kVTCompressionPropertyKey_AllowFrameReordering(), kCFBooleanFalse());
@@ -663,11 +657,15 @@ impl VideoToolbox {
                         kCFTypeArrayCallBacks(),
                     );
                     owned_arrays.push((array, values));
-                    pairs.push((kVTEncodeFrameOptionKey_AcknowledgedLTRTokens(), array));
+                    pairs
+                        .push((vt_ltr_sys::kVTEncodeFrameOptionKey_AcknowledgedLTRTokens(), array));
                 }
                 if self.force_ltr_refresh && !force_idr && !self.acknowledged_ltr_tokens.is_empty()
                 {
-                    pairs.push((kVTEncodeFrameOptionKey_ForceLTRRefresh(), kCFBooleanTrue()));
+                    pairs.push((
+                        vt_ltr_sys::kVTEncodeFrameOptionKey_ForceLTRRefresh(),
+                        kCFBooleanTrue(),
+                    ));
                 }
             }
             let props = if pairs.is_empty() { null() } else { dict(&pairs) };

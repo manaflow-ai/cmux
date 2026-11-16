@@ -682,12 +682,10 @@ impl MediaEngine {
         let ltr_enabled = self.cfg.ltr_enabled;
         let Some(state) = self.streams.get_mut(&stream) else { return };
         state.last_acked_frame = state.last_acked_frame.max(fb.acked_frame);
-        for token in &fb.acked_ltr_tokens {
-            if !state.acknowledged_ltr_tokens.contains(token) {
-                state.acknowledged_ltr_tokens.push(*token);
-            }
-        }
-        state.acknowledged_ltr_tokens.truncate(16);
+        // The viewer sends its whole acknowledged set every time (its newest 16, oldest first)
+        // and empties it on a keyframe or decoder reset, so its newest feedback is the truth:
+        // merging kept stale tokens after a reset, and truncating kept the oldest 16.
+        state.acknowledged_ltr_tokens.clone_from(&fb.acked_ltr_tokens);
         if fb.acked_frame > 0
             && let Some(sent_at_us) = state.sent_at_us.remove(&fb.acked_frame)
         {
