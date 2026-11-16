@@ -687,6 +687,8 @@ class Orchestrator:
             bench += f"--input key --samples {self.a.samples}"
         else:
             bench += f"--input none --duration-s {self.a.fps_seconds}"
+            if getattr(self.a, "marker_log", False):
+                bench += " --marker-log 1"
         viewer = self.viewer.popen(bench)
         host = None
         try:
@@ -762,6 +764,8 @@ class Orchestrator:
                     rec["fps"] = rep.get("fps")
                     rec["mbit_per_s"] = rep.get("bytes", 0) * 8 / max(rep.get("seconds", 1), 1e-3) / 1e6
                     rec.update(motion_link(rep.get("series") or []))
+                    if rep.get("marker_log") is not None:
+                        rec["marker_log"] = rep["marker_log"]
             else:
                 rec["error"] = (viewer.stderr.read() if viewer.poll() is not None else "timeout")[-400:]
         except Exception as e:  # noqa: BLE001 - a broken attempt is a failed attempt
@@ -930,7 +934,12 @@ class Orchestrator:
             rec = self.cmux_attempt(origin, "fps")
             rec["trial"] = n
             if self.synthetic:
-                rec["host_frames"] = host_frames(self.host_timing(), self.a.max_fps)
+                lines = self.host_timing()
+                rec["host_frames"] = host_frames(lines, self.a.max_fps)
+                if getattr(self.a, "marker_log", False):
+                    # Frame k of the log carries marker k (tick mode), for stall analysis.
+                    rec["host_frame_times"] = [[x["release_us"], x.get("sent_us")]
+                                               for x in lines if x.get("release_us") is not None]
             if rec["ok"]:
                 fps.append(rec["marker_fps"])
                 self.motion_rows.append(rec)
@@ -1090,6 +1099,9 @@ def main():
                    "(`cmux-rd serve --source synthetic-*`), input bumps the marker; no rig, "
                    "marker app or Screen Recording/Accessibility grant (cmux leg only)")
     r.add_argument("--synthetic-size", help="WxH of the synthetic picture (default 1920x1080)")
+    r.add_argument("--marker-log", action="store_true",
+                   help="fps trials keep every decoded marker change and, with --source synthetic, "
+                   "the host's frame times (frame-by-frame recovery after a stall)")
     r.add_argument("--synthetic-scene", choices=["bars", "text", "noise", "churn"],
                    help="what the synthetic picture shows under the marker (default bars; text "
                    "and noise translate; churn is new content every frame)")
