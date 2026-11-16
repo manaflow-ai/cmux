@@ -355,16 +355,28 @@ impl ReadyDaemon {
     }
 }
 
+impl Drop for ReadyDaemon {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 pub fn spawn_ready_daemon(scratch: &Path) -> ReadyDaemon {
     let socket = scratch.join("acpmux.sock");
-    let started = Instant::now();
-    let mut child = acpmux(scratch)
+    let mut command = acpmux(scratch);
+    command
         .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", scratch)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_CATALOG_FETCH", "0")
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env("ACPMUX_SPARE_HARNESS", "0")
+        .env("ACPMUX_SPARE_HARNESS", "0");
+    if let Some(path) = std::env::var_os("V2_GATE_OUT") {
+        command.env("V2_GATE_OUT", path);
+    }
+    let started = Instant::now();
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

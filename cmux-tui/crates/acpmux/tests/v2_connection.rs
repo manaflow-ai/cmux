@@ -4,7 +4,7 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&["V2_GATE_OUT"]);
 
 use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use acpmux_book::index::{Summary, SummaryIndex};
@@ -33,11 +33,40 @@ fn start_fixture(chats: usize, store_bytes: u64) -> tempfile::TempDir {
     let pad = scratch.path().join("store.pad");
     let file = std::fs::File::create(pad).expect("store pad");
     file.set_len(store_bytes).expect("4 GB sparse store pad");
+    let chat_count = std::fs::read_dir(&sessions).expect("chat fixture directory").count();
+    assert_eq!(chat_count, chats, "fixture chat count");
+    assert_eq!(
+        std::fs::metadata(scratch.path().join("store.pad")).expect("store pad metadata").len(),
+        store_bytes,
+        "fixture store size"
+    );
     scratch
 }
 
 async fn daemon_hello(socket: &std::path::Path) {
     let mut client = UnixStream::connect(socket).await.expect("connect ready daemon");
+    let upgrade = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "_acpmux/v2",
+        "params": {"protocol": 2, "surfaces": ["chat"]}
+    });
+    client.write_all(format!("{}\n", upgrade).as_bytes()).await.expect("send v2 upgrade");
+    let mut bytes = Vec::new();
+    loop {
+        let byte = client.read_u8().await.expect("read v2 upgrade");
+        if byte == b'\n' {
+            break;
+        }
+        bytes.push(byte);
+    }
+    let reply: serde_json::Value = serde_json::from_slice(&bytes).expect("v2 upgrade reply");
+    assert_eq!(reply.pointer("/result/upgrade"), Some(&json!(true)));
+    let surfaces = reply
+        .pointer("/result/surfaces")
+        .and_then(serde_json::Value::as_array)
+        .expect("advertised v2 surfaces");
+    assert!(surfaces.iter().any(|surface| surface == "chat"));
     hello(&mut client).await;
 }
 
@@ -66,9 +95,9 @@ fn v2_pr09_listen_start() {
                 daemon.stop();
             }
         }
+        small.push(small_round);
+        god.push(god_round);
     }
-    // The alternating rounds above collect both sides; keep a nonempty report
-    // even when a future fixture runner changes the round count.
     assert_eq!(small.len(), ROUNDS);
     assert_eq!(god.len(), ROUNDS);
     let measures = |rounds: Vec<Vec<u128>>| rounds;
