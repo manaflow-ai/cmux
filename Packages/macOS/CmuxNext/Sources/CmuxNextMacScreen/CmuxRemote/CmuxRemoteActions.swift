@@ -181,11 +181,11 @@ extension CmuxRemoteActionEnvironment {
     }
 
     /// A share request with no overview: `.apply` (Always Allow) turns sharing on, and a missing
-    /// macOS grant still gets its own step; `.nothing` (this Mac already shares) is done.
+    /// macOS grant still gets its own step. `.nothing` (this Mac already shares) writes nothing to the
+    /// hub, but a missing grant still gets its steps: a share that cannot capture is not done.
     static func shareWithoutOverview(_ step: ShareStep, setup: CmuxRemoteSharingSetup,
                                      present: (CmuxDialogSpec) async -> String) async throws -> Bool {
-        guard step == .apply else { return true }
-        return try await setup.proceed(after: "continue", present: present)
+        try await setup.proceed(after: "continue", enabling: step == .apply, present: present)
     }
 
     /// Whether a share request may skip the overview: `remote.shareWithoutAsking` is on and the

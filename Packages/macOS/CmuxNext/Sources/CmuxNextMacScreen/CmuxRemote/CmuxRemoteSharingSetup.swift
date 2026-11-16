@@ -123,7 +123,8 @@ struct CmuxRemoteSharingSetup {
 
     /// Each permission step advances only after a fresh TCC read. A declined or closed sheet never
     /// changes the sharing switch. Accessibility is optional; viewing still needs Screen Recording.
-    func proceed(after answer: String, present: (CmuxDialogSpec) async -> String) async throws -> Bool {
+    /// `enabling` false (this Mac already shares): only the missing grants' steps, no hub write.
+    func proceed(after answer: String, enabling: Bool = true, present: (CmuxDialogSpec) async -> String) async throws -> Bool {
         guard answer == "continue", !Task.isCancelled else { return false }
         var permissions = await refresh()
         var screenRequested = false, controlRequested = false, viewOnly = false
@@ -149,7 +150,7 @@ struct CmuxRemoteSharingSetup {
             }
         }
         guard !Task.isCancelled else { return false }
-        try await enable()
+        if enabling { try await enable() }
         return true
     }
 
