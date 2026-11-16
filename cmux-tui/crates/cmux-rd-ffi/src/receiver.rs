@@ -289,9 +289,11 @@ impl Receiver {
         let fb = if overflow {
             // Arrivals beyond one message go out first, without the rest.
             Feedback {
-                acked_frame: (!self.keyframe_requested)
-                    .then(|| self.reassembler.last_released())
-                    .unwrap_or(0),
+                acked_frame: if self.keyframe_requested {
+                    0
+                } else {
+                    self.reassembler.last_released()
+                },
                 acked_ltr_tokens: self.acknowledged_ltr_tokens(),
                 arrivals,
                 ..Feedback::default()
@@ -300,9 +302,11 @@ impl Receiver {
             self.last_feedback_us = Some(now_us);
             self.released_since_feedback = false;
             Feedback {
-                acked_frame: (!self.keyframe_requested)
-                    .then(|| self.reassembler.last_released())
-                    .unwrap_or(0),
+                acked_frame: if self.keyframe_requested {
+                    0
+                } else {
+                    self.reassembler.last_released()
+                },
                 decode_us: self.median_decode_us(),
                 need_recovery: self.need_recovery(),
                 acked_ltr_tokens: self.acknowledged_ltr_tokens(),

@@ -156,7 +156,7 @@ fn feedback_with_128_arrivals_keeps_its_version_1_layout_and_round_trips_with_lt
     let arrivals: Vec<Arrival> = (0..MAX_ARRIVALS as u16)
         .map(|seq| Arrival { transport_seq: seq, arrival_us: u32::from(seq) * 10 })
         .collect();
-    let legacy = Feedback { acked_frame: 7, arrivals: arrivals.clone(), ..Feedback::default() };
+    let legacy = Feedback { acked_frame: 7, arrivals, ..Feedback::default() };
     let bytes = legacy.encode();
     assert_eq!(&bytes[9..11], &[0x80, 0x00], "the arrival count stays where version 1 put it");
     assert_eq!(Feedback::decode(&bytes).expect("decode"), legacy);
