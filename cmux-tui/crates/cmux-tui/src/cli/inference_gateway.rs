@@ -517,6 +517,9 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
     if let Some(team) = options.team.as_deref().and_then(|t| HeaderValue::from_str(t).ok()) {
         request.headers_mut().insert("x-cmux-team", team);
     }
+    if let Err(error) = cmux_build_space::insert(request.headers_mut()) {
+        return Ended::Stop(error.to_string());
+    }
     // No Sec-WebSocket-Protocol: the backend (InferenceGateway.ts) negotiates none, and tungstenite refuses a
     // handshake whose offered protocol the server does not echo. The version is checked on its `hello` frame below.
     let config = WebSocketConfig::default()

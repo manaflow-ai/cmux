@@ -490,6 +490,7 @@ impl HttpSource {
     ) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::builder()
+            .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(FETCH_TIMEOUT)
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))

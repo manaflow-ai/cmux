@@ -64,6 +64,7 @@ members = [
     "crates/cmux-cloud-config",
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
+    "crates/cmux-build-space",
     "crates/cmux-cloud-client",
     "crates/cmux-cloud-codex-holder",
     "crates/cmux-cloud-api",
@@ -182,6 +183,7 @@ default-members = [
     "crates/cmux-cloud-config",
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
+    "crates/cmux-build-space",
     "crates/cmux-cloud-client",
     "crates/cmux-cloud-codex-holder",
     "crates/cmux-cloud-api",
@@ -312,6 +314,7 @@ cmux-cloud-tasks = { path = "crates/cmux-cloud-tasks" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-cloud-handlers = { path = "crates/cmux-cloud-handlers" }
 cmux-window-rules = { path = "crates/cmux-window-rules" }
+cmux-build-space = { path = "crates/cmux-build-space" }
 cmux-cloud-client = { path = "crates/cmux-cloud-client" }
 cmux-cloud-codex-holder = { path = "crates/cmux-cloud-codex-holder" }
 cmux-cloud-api = { path = "crates/cmux-cloud-api" }

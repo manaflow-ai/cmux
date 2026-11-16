@@ -132,6 +132,7 @@ pub(crate) async fn resolve(
     // Short bounded fetches keep launch responsive; cache or the known-origin
     // fallback covers backend outages without mixing sign-in credentials.
     let client = reqwest::Client::builder()
+        .default_headers(cmux_build_space::headers().map_err(|error| error.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(2))
         .timeout(Duration::from_secs(5))

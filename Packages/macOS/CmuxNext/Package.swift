@@ -2494,6 +2494,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextProcessEnvironment",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             resources: [
                 .process("Localizable.xcstrings"),

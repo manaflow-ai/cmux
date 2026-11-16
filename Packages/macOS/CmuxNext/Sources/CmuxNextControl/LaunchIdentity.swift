@@ -1,3 +1,4 @@
+import CMUXAuthCore
 public import CmuxNextCompat
 public import CmuxNextProcessEnvironment
 public import Foundation
@@ -51,8 +52,16 @@ public struct LaunchIdentity: Sendable, Equatable {
         // The build's tag (the shipped one first), so the CLI's build key is
         // this app's even for a copy that ships another tag than its id.
         if let tag = build.tag ?? tag { environment["CMUX_TAG"] = tag }
+        if let space = buildSpaceValue { environment[Self.buildSpaceKey] = space }
         return environment
     }
+
+    /// The variable that tells every Rust child of this app its cloud build space (cmux-tui
+    /// `cmux-build-space`): `dev:<slug>` for a tagged dev build, unset for nightly and stable.
+    public static let buildSpaceKey = "CMUX_BUILD_SPACE"
+
+    /// This build's `X-Cmux-Build-Space` value (``BuildIdentity/devTag``), nil without one.
+    public var buildSpaceValue: String? { CMUXBuildSpace(devTag: build.devTag)?.headerValue }
 
     /// Pure resolution. `bundledEnvironment` is the bundle's own
     /// `Info.plist` `LSEnvironment`; `processEnvironment` is consulted only
@@ -175,10 +184,16 @@ public struct LaunchIdentity: Sendable, Equatable {
         bundle: Bundle = .main,
         environmentGuard: ProcessEnvironmentGuard = .process
     ) -> [String] {
+        let bundled = bundledEnvironment(bundle)
         let keys = inheritedKeys(processEnvironment: ProcessInfo.processInfo.environment,
-                                 bundledEnvironment: bundledEnvironment(bundle), bundleID: bundle.bundleIdentifier)
+                                 bundledEnvironment: bundled, bundleID: bundle.bundleIdentifier)
+        // This build's own space replaces any inherited one, so every Rust child that inherits
+        // this environment (the `cmux` CLI runs, `cmux link`, the Codex holder, acpmux) sends it.
+        let space = BuildIdentity(bundleID: bundle.bundleIdentifier, bundledTag: bundled["CMUX_TAG"]).devTag
+            .flatMap { CMUXBuildSpace(devTag: $0)?.headerValue }
         environmentGuard.write("LaunchIdentity.stripInheritedEnvironment") {
             for key in keys { unsetenv(key) }
+            if let space { setenv(buildSpaceKey, space, 1) }
         }
         return keys.sorted()
     }
