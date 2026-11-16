@@ -1,4 +1,4 @@
-// shared/machineLoad.ts: acpmux's `peers[].load` read and worded the same for every list of machines
+// ui/machineLoad.ts: acpmux's `peers[].load` read and worded the same for every list of machines
 // (the composer's machine picker and Settings > Machines), so both show the same numbers.
 import { expect, test } from "bun:test";
 import { freeGB, machineLoadOf, machineLoadsFromStatus, machineLoadText, type MachineLoadSay } from "./machineLoad";

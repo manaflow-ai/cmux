@@ -89,7 +89,7 @@ import {
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import { peerResourcesFromStatus } from "./machineResources";
-import { machineLoadsFromStatus } from "../shared/machineLoad";
+import { machineLoadsFromStatus } from "../../ui/machineLoad";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
 import { noteReplaced } from "./sessionIndex";

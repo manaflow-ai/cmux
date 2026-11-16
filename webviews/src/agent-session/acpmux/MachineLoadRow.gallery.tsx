@@ -1,14 +1,14 @@
 // l10n-allow-file: gallery fixtures (sample machines), not shipped UI.
 //
-// The composer's machine picker with each machine's load line (shared/MachineLoadLine.tsx): cores busy
+// The composer's machine picker with each machine's load line (ui/MachineLoadLine.tsx): cores busy
 // of total, free RAM, live chats and placement's verdict from acpmux's `peers[].load`, the same line
 // Settings > Machines draws (settings.machine-load-rows). Idle, busy, offline and a long list.
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { ComponentProps } from "react";
 import { ComposerContext } from "./ComposerContext";
-import { idleLoad, busyLoad, offlineLoad, manyMachines, threeMachines } from "../shared/machineLoad.fixtures";
-import type { MachineLoad } from "../shared/machineLoad";
+import { idleLoad, busyLoad, offlineLoad, manyMachines, threeMachines } from "../../ui/machineLoad.fixtures";
+import type { MachineLoad } from "../../ui/machineLoad";
 
 type Props = ComponentProps<typeof ComposerContext>;
 
@@ -61,7 +61,7 @@ export default componentEntry<Props>({
   title: "Machine picker load rows",
   area: "Agent pane",
   pane: true,
-  covers: ["agent-session/shared/MachineLoadLine.tsx#MachineLoadLine"],
+  covers: ["ui/MachineLoadLine.tsx#MachineLoadLine"],
   styles: () => Promise.all([import("./styles.css"), import("./composerLocation.css")]),
   load: () => import("./ComposerContext").then((module) => module.ComposerContext),
   widths: { narrow: 400, normal: 620 },

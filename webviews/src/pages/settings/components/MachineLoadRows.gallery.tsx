@@ -1,16 +1,10 @@
 // l10n-allow-file: gallery fixtures (sample machine names), not shipped UI.
-// Settings > Machines' rows with each machine's load line (shared/MachineLoadLine.tsx), drawn from the
+// Settings > Machines' rows with each machine's load line (ui/MachineLoadLine.tsx), drawn from the
 // same fixtures as the composer's machine picker (agent-pane.machine-load-row): the two show the same
 // numbers and verdict from acpmux's `peers[].load`. Idle, busy, offline and a long list.
 import { componentEntry } from "../../../gallery/format";
-import type { MachineLoad } from "../../../agent-session/shared/machineLoad";
-import {
-  busyLoad,
-  idleLoad,
-  manyMachines,
-  offlineLoad,
-  threeMachines,
-} from "../../../agent-session/shared/machineLoad.fixtures";
+import type { MachineLoad } from "../../../ui/machineLoad";
+import { busyLoad, idleLoad, manyMachines, offlineLoad, threeMachines } from "../../../ui/machineLoad.fixtures";
 
 type Props = { loads: Record<string, MachineLoad> };
 
@@ -18,7 +12,7 @@ async function load() {
   const { installCatalog } = await import("../strings");
   installCatalog((await import("../generated/strings.json")).default);
   const { sayLoad } = await import("./HostSections");
-  const { MachineLoadLine } = await import("../../../agent-session/shared/MachineLoadLine");
+  const { MachineLoadLine } = await import("../../../ui/MachineLoadLine");
   return function MachineLoadRows({ loads }: Props) {
     return (
       <section className="settings-page" style={{ padding: 16 }}>

@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { translate as t, type StringKey } from "./i18n";
 import { type Environment, type EnvironmentSection } from "./environments";
 import { type CloudMachine, isCloudMachineRow } from "./cloudMachines";
-import { MACHINE_LOAD_REFRESH_MS } from "../shared/machineLoad";
+import { MACHINE_LOAD_REFRESH_MS } from "../../ui/machineLoad";
 
 /// The sections (environments.ts `environmentSections`): This Mac, My machines, Cloud and VMs.
 export const SECTION_LABELS: Record<EnvironmentSection, StringKey> = {

@@ -11,12 +11,8 @@ import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { graphemePrefix } from "../../../ui/initials";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
-import { MachineLoadLine } from "../../../agent-session/shared/MachineLoadLine";
-import {
-  MACHINE_LOAD_REFRESH_MS,
-  type MachineLoad,
-  type MachineLoadSay,
-} from "../../../agent-session/shared/machineLoad";
+import { MachineLoadLine } from "../../../ui/MachineLoadLine";
+import { MACHINE_LOAD_REFRESH_MS, type MachineLoad, type MachineLoadSay } from "../../../ui/machineLoad";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -92,7 +88,7 @@ function machineLoadFor(loads: Record<string, MachineLoad>, row: HostListRow): M
 }
 
 /**
- * Settings > Machines' load rows (shared/machineLoad.ts), the same reading the composer's machine picker
+ * Settings > Machines' load rows (ui/machineLoad.ts), the same reading the composer's machine picker
  * words: read when the card shows, then every MACHINE_LOAD_REFRESH_MS while it shows and the page is
  * visible; nothing reads while the card is not drawn or the window is hidden.
  */

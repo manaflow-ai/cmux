@@ -8,7 +8,7 @@ import Foundation
 /// acpmux placement.rs `load_row`) unchanged, nothing else of the row (never its URL), or no peers
 /// when acpmux does not answer. The page (webviews/src/pages/settings/components/HostSections.tsx)
 /// reads it while Machines shows, and words it as the composer's machine picker does
-/// (shared/machineLoad.ts): one source, so both show the same numbers. acpmux answers from what its
+/// (webviews ui/machineLoad.ts): one source, so both show the same numbers. acpmux answers from what its
 /// links hold (no peer is asked), so a read costs the same with 3 machines or 300.
 @MainActor
 public final class SettingsMachineLoad: PageProvider {

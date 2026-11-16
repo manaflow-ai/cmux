@@ -26,8 +26,8 @@ import { isCloudMachineRow } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
 import { useRowPresence } from "./rowPresence";
-import { MachineLoadLine } from "../shared/MachineLoadLine";
-import type { MachineLoadSay } from "../shared/machineLoad";
+import { MachineLoadLine } from "../../ui/MachineLoadLine";
+import type { MachineLoadSay } from "../../ui/machineLoad";
 import type { RunModeRows } from "./sandboxRun";
 import {
   SECTION_LABELS,
@@ -93,7 +93,7 @@ export type SavedEnvironmentRows = {
 /// Mac, Bring Back Local from a Cloud machine. A new chat with `runMode` (hq#3367) also offers
 /// Sandboxed as Cloud's other face, with no row of its own: shown while ⌥ is held and while it is
 /// the pick.
-/// A machine row's load line in the pane's words (shared/machineLoad.ts).
+/// A machine row's load line in the pane's words (ui/machineLoad.ts).
 const sayLoad: MachineLoadSay = (key, values) => t(`composer.machineLoad.${key}` as StringKey, values);
 
 export function EnvironmentPicker({
