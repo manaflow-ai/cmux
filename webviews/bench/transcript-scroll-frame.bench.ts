@@ -215,6 +215,8 @@ try {
           p50: median(perfs.map((perf) => perf[kind].p50_ms)),
           p95: median(perfs.map((perf) => perf[kind].p95_ms)),
           target: TARGET_MS.frameWork,
+          // perfStats gives whole ms: 1 -> 2 is its rounding (1.4 -> 1.6), not a doubling (cmux#24569).
+          floor: 1,
         });
 } finally {
   await browser.close();
