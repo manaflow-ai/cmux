@@ -556,26 +556,65 @@ class ReferencedFilesExist(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+SCRIPT_TEST_RUNNER = "scripts/cmux-next/tests/run-script-tests.py"
+
+
+def named_script_tests() -> set[str]:
+    """The scripts/cmux-next test_*.py files a `python3` line of a workflow or a CI script names."""
+    texts = [path.read_text(encoding="utf-8", errors="replace")
+             for folder in (ROOT / ".github/workflows", ROOT / "scripts/ci") for path in sorted(folder.rglob("*"))
+             if path.is_file() and path.suffix in (".yml", ".yaml", ".sh", ".py")]
+    run = set()
+    for text in texts:
+        for line in text.splitlines():
+            if not line.lstrip().startswith("#"):
+                run |= set(re.findall(r"python3(?: -I)? (scripts/cmux-next/[A-Za-z0-9_./-]*test_[A-Za-z0-9_-]+\.py)", line))
+    return run
+
+
+def all_script_tests() -> list[str]:
+    return sorted(path.relative_to(ROOT).as_posix() for path in (ROOT / "scripts/cmux-next").rglob("test_*.py")
+                  if not {"node_modules", "__pycache__"} & set(path.parts))
+
+
+def load_script_test_runner():
+    spec = importlib.util.spec_from_file_location("run_script_tests", ROOT / SCRIPT_TEST_RUNNER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def script_tests_run(tests: list[str]) -> set[str]:
+    """Of `tests`, the ones CI runs: each a named `python3` line runs, and, when the checks job's script tests
+    run the glob runner, each that runner picks."""
+    run = named_script_tests() & set(tests)
+    runner_line = f"python3 {SCRIPT_TEST_RUNNER}"
+    if (ROOT / SCRIPT_TEST_RUNNER).exists() and runner_line in check_commands(
+            next(step for step in steps() if step.get("id") == "script-tests")).splitlines():
+        run |= set(load_script_test_runner().selected(tests))
+    return run
+
+
 class ScriptTestsAreListed(unittest.TestCase):
-    """Every scripts/cmux-next test_*.py is run by a `python3` line of a workflow or a CI script.
+    """Every scripts/cmux-next test_*.py runs in CI.
     test_hot_apply.py and 72 others were run by no line, so their reds went unseen (30 of
-    test_hot_apply's 100 failed on feat-cmux-next until #43831)."""
+    test_hot_apply's 100 failed on feat-cmux-next until #43831). The fix was a hand list in the checks job,
+    and each new test missing from it then turned feat-cmux-next red (#43986, #44113, #44407)."""
 
     def test_no_test_file_is_left_out(self):
-        texts = [path.read_text(encoding="utf-8", errors="replace")
-                 for folder in (ROOT / ".github/workflows", ROOT / "scripts/ci") for path in sorted(folder.rglob("*"))
-                 if path.is_file() and path.suffix in (".yml", ".yaml", ".sh", ".py")]
-        run = set()
-        for text in texts:
-            for line in text.splitlines():
-                if not line.lstrip().startswith("#"):
-                    run |= set(re.findall(r"python3(?: -I)? (scripts/cmux-next/[A-Za-z0-9_./-]*test_[A-Za-z0-9_-]+\.py)", line))
-        tests = [path.relative_to(ROOT).as_posix() for path in (ROOT / "scripts/cmux-next").rglob("test_*.py")
-                 if not {"node_modules", "__pycache__"} & set(path.parts)]
+        tests = all_script_tests()
         self.assertGreater(len(tests), 90)
-        left_out = sorted(set(tests) - run)
-        self.assertEqual(left_out, [], "add each to the checks job's script tests in .github/workflows/cmux-next.yml "
-                                       "(a test that needs a Mac skips on Linux with its reason)")
+        left_out = sorted(set(tests) - script_tests_run(tests))
+        self.assertEqual(left_out, [], f"each is run by no line; {SCRIPT_TEST_RUNNER} runs every test_*.py it "
+                                       "does not exclude (a test that needs a Mac skips on Linux with its reason)")
+
+    def test_a_new_script_test_runs_with_no_workflow_edit(self):
+        """A test_*.py added later runs in the checks job without a line naming it."""
+        for new in ("scripts/cmux-next/tests/test_added_after_this_guard.py",
+                    "scripts/cmux-next/test_added_after_this_guard.py",
+                    "scripts/cmux-next/some-tool/test_added_after_this_guard.py"):
+            self.assertTrue(new in script_tests_run(all_script_tests() + [new]),
+                            f"a new {new} would run in no CI job until a hand-edited line named it")
 
 
 class GodfileScopes(unittest.TestCase):
