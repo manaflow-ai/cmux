@@ -33,6 +33,10 @@ const SYMBOLS: Record<string, string> = {
   "square.stack": "apps.stack",
   link: "link",
   "arrow.up.right": "link.external",
+  sparkles: "task.ai",
+  sparkle: "task.ai",
+  star: "browser.omnibox.star",
+  "star.fill": "browser.omnibox.star.active",
 };
 
 export function appSceneIcon(value: unknown): string {
