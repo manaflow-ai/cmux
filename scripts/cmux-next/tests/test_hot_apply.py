@@ -621,13 +621,14 @@ class HotKeys(unittest.TestCase):
         self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff: no FFI file
 
     def test_hot_keys_keep_ffi_sources_out_until_the_pin_moves(self):
+        git_history.require_history(ROOT, [FFI_SOURCE_ONLY, FFI_REPIN], depth=2)
         hot = load_hot("hot_apply_keys_digest_under_test")
 
         def digest(sha):
             listing = subprocess.run(["git", "-C", str(ROOT), "ls-tree", "-r", "-z", "--full-tree", sha],
                                      capture_output=True, check=True).stdout.decode()
             blobs = {entry.split("\t", 1)[1]: entry.split()[2] for entry in listing.split("\0") if entry}
-            files = hot.live_apply.classify_range(str(ROOT), f"{sha}^", sha)["files"]
+            files = hot.live_apply.classify([("M", p) for p in blobs], {})["files"]
             return hot.ffi_digest(ROOT, sha, blobs, files.get("daemon", []))
 
         parent = run_git("rev-parse", f"{FFI_SOURCE_ONLY}^").stdout.strip()
@@ -996,6 +997,57 @@ class LiveFrom(unittest.TestCase):
                     mock.patch.object(hot, "ffi_input", return_value=False), \
                     mock.patch.object(hot.ffi_part, "app_pin_source", return_value="same"):
                 self.assertEqual(hot.pins_daemon(Path(repo), sha), [path])
+
+
+class PinCompatibility(unittest.TestCase):
+    """Missing historical pins and broken present pins never silently mean the same release."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="hot-apply-pin-compat-")
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.hot = load_hot("hot_apply_pin_compat_under_test")
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        (self.repo / "base").write_text("base\n")
+        self.base = self.commit()
+        self.pin = self.repo / self.hot.ffi_part.PIN_FILE
+        self.pin.parent.mkdir(parents=True)
+        import app_ffi_pin
+        self.pin.write_text(app_ffi_pin.render("a" * 40, "b" * 64))
+        self.added = self.commit()
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def commit(self):
+        self.git("add", ".")
+        self.git("commit", "-qm", "fixture")
+        return self.git("rev-parse", "HEAD")
+
+    def test_introducing_or_removing_a_pin_sets_an_included_floor(self):
+        self.assertEqual(self.hot.live_from(self.repo, self.added)["live_from"], [self.added])
+        self.pin.unlink()
+        removed = self.commit()
+        result = self.hot.live_from(self.repo, removed)
+        self.assertEqual(result["live_from"], [removed])
+        self.assertEqual(result["floor_paths"], [self.hot.ffi_part.PIN_FILE])
+
+    def test_malformed_pin_cannot_publish_compatibility_or_a_digest(self):
+        self.pin.write_text("not JSON\n")
+        broken = self.commit()
+        with self.assertRaises(ValueError):
+            self.hot.live_from(self.repo, broken)
+        with self.assertRaises(ValueError):
+            self.hot.ffi_digest(self.repo, broken, {}, [])
+
+    def test_before_pinning_the_digest_still_tracks_linked_sources(self):
+        path = "cmux-tui/crates/cmux-app-ffi/src/lib.rs"
+        before = self.hot.ffi_digest(self.repo, self.base, {path: "a" * 40}, [path])
+        after = self.hot.ffi_digest(self.repo, self.base, {path: "b" * 40}, [path])
+        self.assertNotEqual(before, after)
 
 
 class WebCache(unittest.TestCase):
@@ -1451,6 +1503,7 @@ class HotApplyFFI(unittest.TestCase):
                         CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri(),
                         CMUX_HOT_APPLY_COMMIT_BASE=(self.tmp / "commits").as_uri(),
                         CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"))
+        self.addCleanup(setattr, self.ffi, "RELEASES", self.ffi.RELEASES)
         self.ffi.RELEASES = self.releases.as_uri()
 
     def tearDown(self):
@@ -1484,7 +1537,9 @@ class HotApplyFFI(unittest.TestCase):
 
     def fetch_library(self):
         state = self.tmp / "state"
-        get = lambda url: urllib.request.urlopen(url).read()
+        def get(url):
+            with urllib.request.urlopen(url) as response:
+                return response.read()
         return self.ffi.fetch_library(FFI_FIX, state, get, get)
 
     def test_plan_keeps_a_source_only_ffi_edit_with_the_daemon(self):
@@ -1508,7 +1563,7 @@ class HotApplyFFI(unittest.TestCase):
         self.assertNotIn("ffi", plan["parts"], err)
         self.assertTrue(any("branch" in note for note in plan["notes"]), plan["notes"])
 
-    def test_a_dry_run_fetches_and_checks_the_published_library(self):
+    def test_fetch_checks_the_published_library(self):
         digest = self.publish()
         library, got = self.fetch_library()
         self.assertEqual(got, digest)

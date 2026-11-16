@@ -529,16 +529,22 @@ def set_digest(blobs: dict[str, str], paths: list[str]) -> str:
     return hashlib.sha256("".join(f"{p}\0{blobs[p]}\n" for p in sorted(set(paths))).encode()).hexdigest()
 
 
+def pinned_ffi_source(repo: Path, sha: str) -> str | None:
+    """None only before the pin exists; an unreadable or malformed pin is not compatibility evidence."""
+    if not git(repo, "ls-tree", "--name-only", sha, "--", ffi_part.PIN_FILE):
+        return None
+    return ffi_part.app_pin_source(repo, sha)
+
+
 def ffi_digest(repo: Path, sha: str, blobs: dict[str, str], daemon: list[str]) -> str:
     """Digest what the app's linked FFI library and Swift build read at SHA.
 
     FFI sources are built into the separately pinned binary release, so a source edit does not change the
     library an app links until the pin moves. Rust inputs the Swift build reads directly still require an app.
     """
-    try:
-        pin_source = ffi_part.app_pin_source(repo, sha)
-    except Exception:  # noqa: BLE001 - commits before the pin file have no linked release to compare
-        pin_source = ""
+    pin_source = pinned_ffi_source(repo, sha)
+    if pin_source is None:
+        return set_digest(blobs, linked_rust(repo, daemon))
     entries = [(p, blobs[p]) for p in swift_read_rust(repo, daemon)]
     entries.append((ffi_part.PIN_FILE, pin_source))
     return hashlib.sha256("".join(f"{p}\0{blob}\n" for p, blob in sorted(set(entries))).encode()).hexdigest()
@@ -690,12 +696,12 @@ def pins_daemon(repo: Path, commit: str) -> list[str]:
         return [f"{commit} has no parent here"]
     files = live_apply.classify_range(str(repo), parent, commit)["files"]
     daemon = sorted(set(files.get("daemon", [])))
+    before, after = pinned_ffi_source(repo, parent), pinned_ffi_source(repo, commit)
+    if before is None and after is None:
+        return linked_rust(repo, daemon)
     paths = swift_read_rust(repo, daemon)
-    try:
-        if ffi_part.app_pin_source(repo, parent) != ffi_part.app_pin_source(repo, commit):
-            paths.append(ffi_part.PIN_FILE)
-    except Exception:  # noqa: BLE001 - commits before the pin file have no pin to move
-        pass
+    if before != after:
+        paths.append(ffi_part.PIN_FILE)
     return paths
 
 
@@ -779,6 +785,8 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
             try:
                 if swift_read:
                     raise ffi_part.Left("the Swift build reads " + ", ".join(swift_read[:3]))
+                if pinned_ffi_source(repo, base) is None or pinned_ffi_source(repo, sha) is None:
+                    raise ffi_part.Left("no app FFI pin to establish the linked release: it needs a new app")
                 if branch:
                     raise ffi_part.Left("a branch's app FFI is not published (app-ffi-release.yml publishes merges)")
                 if ffi_part.pin_moved(repo, base, sha):
