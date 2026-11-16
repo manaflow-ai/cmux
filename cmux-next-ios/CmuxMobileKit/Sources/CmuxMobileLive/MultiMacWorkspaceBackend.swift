@@ -271,6 +271,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
         guard let kept = keptTerminalChats, let key = KeptTerminalChats.key(kept.account, macID, harness, session) else { return }
         kept.kept.keepChat(chat, for: key)
     }
+    /// True with no account or cache: there is nothing to read.
+    public var keptTerminalChatsLoaded: Bool { keptTerminalChats?.kept.isLoaded ?? true }
+    public func loadKeptTerminalChats() async { await keptTerminalChats?.kept.load() }
 
     // MARK: WorkspaceGroupBackend
 
