@@ -7,10 +7,13 @@
 use super::record::{Entry, EventRecord, Record, RecordState};
 
 /// Read-only values supplied by the caller for one harness entry.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Call {
     /// A live update may be reduced by the repeat filter; replayed updates are always retained.
     pub eligible_update: bool,
+    /// Shared scanner policy supplied by the caller; there is no default
+    /// or identity masker outside tests.
+    pub mask: fn(&str) -> String,
 }
 
 /// A caller-side action that must retain v1's ordering around the record write.
@@ -25,6 +28,13 @@ pub struct Before {
     pub steps: Vec<Step>,
     /// The record to append, if any. Its repeat hashes are committed only by `after`.
     pub record: Option<Record>,
+}
+
+impl Before {
+    /// Clone writer-facing fields while retaining the record for `after`.
+    pub fn record_parts(&self) -> Option<(&'static str, String, serde_json::Value)> {
+        self.record.as_ref().map(|record| (record.dir, record.kind.clone(), record.msg.clone()))
+    }
 }
 
 /// Data returned after the writer reports whether the record reached durable storage.

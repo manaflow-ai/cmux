@@ -502,32 +502,42 @@ impl Hub {
             } else {
                 false
             };
-            let mut state = SessionRecordState {
-                session: &tap_session,
-                awaiting_first_delta: &awaiting_first_delta,
+            let (rec, logged) = if d == "in"
+                && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
+            {
+                let mut state = SessionRecordState {
+                    session: &tap_session,
+                    awaiting_first_delta: &awaiting_first_delta,
+                };
+                let before = acpmux_core::chat::stage::before(
+                    acpmux_core::chat::record::Entry::Notification {
+                        direction: acpmux_core::chat::record::Direction::In,
+                        method: "session/update",
+                        value,
+                    },
+                    &mut state,
+                    acpmux_core::chat::stage::Call {
+                        eligible_update,
+                        mask: crate::secret_scan::mask,
+                    },
+                );
+                let Some((record_dir, record_kind, record_value)) = before.record_parts() else {
+                    tap_hub.touch(&tap_session);
+                    let _ = acpmux_core::chat::stage::after(before, &mut state, None);
+                    return true;
+                };
+                let (rec, logged) = tap_hub.append_logged(
+                    &tap_session,
+                    record_dir,
+                    &record_kind,
+                    record_value,
+                    host_seq,
+                );
+                let _ = acpmux_core::chat::stage::after(before, &mut state, logged.then_some(&rec));
+                (rec, logged)
+            } else {
+                tap_hub.append_logged(&tap_session, d, &kind, value, host_seq)
             };
-            let before = acpmux_core::chat::stage::before(
-                acpmux_core::chat::record::Entry::Notification {
-                    direction: acpmux_core::chat::record::Direction::In,
-                    method: "session/update",
-                    value,
-                },
-                &mut state,
-                acpmux_core::chat::stage::Call { eligible_update, mask: crate::secret_scan::mask },
-            );
-            let Some((record_dir, record_kind, record_value)) = before.record_parts() else {
-                tap_hub.touch(&tap_session);
-                let _ = acpmux_core::chat::stage::after(before, &mut state, None);
-                return true;
-            };
-            let (rec, logged) = tap_hub.append_logged(
-                &tap_session,
-                record_dir,
-                &record_kind,
-                record_value,
-                host_seq,
-            );
-            let _ = acpmux_core::chat::stage::after(before, &mut state, logged.then_some(&rec));
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
