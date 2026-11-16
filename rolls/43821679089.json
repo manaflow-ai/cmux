@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43821679089",
+  "recorded_at": "2026-11-16T07:23:36Z",
+  "reason": "cmux-tui 70ac180876fa changes the image's cmux-tui (pinned 05b93ccbfe10)",
+  "dry_run": false,
+  "cmux_tui": "70ac180876fa782606adab330e3d3010e33d1feb",
+  "fixes": [
+    {
+      "sha": "70ac180876fa782606adab330e3d3010e33d1feb",
+      "mergedAt": "2026-11-15T22:52:29-08:00",
+      "subject": "Floating panes: a fixed seed for the property tests of the reducer (cmux-layout-reducer) (#44248)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T07:23:36Z",
+    "snapshot_id": "sh-43cdeb9fb9604cb39b2f6fbf7d1306de",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43821679089): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "625aaa3e7f9fcaa8b77bd04b12c709b448157008",
+    "image": "cloud-native-auto-70ac1808-43821679089-1",
+    "revision": "ci-43821679089-1",
+    "at": "2026-11-16T07:23:36Z"
+  },
+  "rolled_back": false
+}
