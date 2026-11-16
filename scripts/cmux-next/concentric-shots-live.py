@@ -12,6 +12,8 @@ composite with the overlay panels that toasts and dialogs draw in; no Screen Rec
   confirm      the confirm dialog card (Cancel, Close)
   save         the three-button save dialog card
   update       the sidebar's Update Ready card
+  updated      the sidebar's Updated card, hovered so its close x shows
+  notice       a tip's notice card ("Did you know?") with its close x
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
@@ -121,6 +123,14 @@ try:
     time.sleep(2)  # capture harness: the card comes in
     shoot("update")
     rpc("debug.updater", {"action": "unstage"})
+    if True:  # the cards with a close x: the Updated card (hovered, so its x shows) and a tip's notice card
+        print("updated", rpc("debug.updater", {"action": "updated", "previous": "0.0.1"}), flush=True)
+        time.sleep(3)  # capture harness: the Updated card's page loads its words
+        shoot("updated", lambda: rpc("debug.update_surfaces", {"action": "hover-updated"}))
+        print("tip", rpc("debug.updater", {"action": "tip"}), flush=True)
+        time.sleep(2)  # capture harness: the notice card comes in
+        shoot("notice")
+        rpc("debug.updater", {"action": "untip"})
     print("playground", rpc("debug.toast", {"perform": "debug.toastPlayground"}), flush=True)
     time.sleep(3)  # capture harness: the playground window and its toasts come up
     shoot("playground", window=playground_window)
