@@ -109,3 +109,39 @@ fn bench_row_runs() {
     .expect("row");
     assert!(row["shown_fps"].as_f64().unwrap() > 10.0, "{row}");
 }
+
+/// A clean link loses nothing, so a session sends one keyframe, its first. On Linux every
+/// frame of `cmux-rd testapp --workload motion` came out an IDR (cmux#44425's harness):
+/// OpenH264's screen usage makes one of every frame that moves most of the picture, which
+/// only `noise` here does. Full-screen motion may cost two more, the scene change that
+/// shows it and the encoder's move to camera usage (cmux-encode `openh264::MOTION_CHANGE`);
+/// none after that.
+#[test]
+fn a_clean_link_sends_one_keyframe() {
+    for (scene, most) in [(SceneKind::Drag, 1), (SceneKind::Scroll, 1), (SceneKind::Noise, 3)] {
+        let row = cmux_codecs::bench::run_row(&cmux_codecs::bench::RowCfg {
+            codec: Codec::H264,
+            scene,
+            loss_pct: 0.0,
+            burst_len: 0.0,
+            max_kbps: None,
+            rtt_ms: 2,
+            link_mbps: 1000.0,
+            seconds: 3,
+            width: 640,
+            height: 360,
+            fps: 30,
+            threads: 2,
+            on_time_ms: 100,
+            deadline_ms: 200,
+            seed: 1,
+            h264: Default::default(),
+        })
+        .expect("row");
+        // Enough frames that an IDR on each would break the bound.
+        assert!(row["encoded"].as_u64().expect("encoded") > 2 * most, "{scene:?}: {row}");
+        let keyframes = row["keyframes"].as_u64().expect("keyframes");
+        assert!((1..=most).contains(&keyframes), "{scene:?}: {row}");
+        assert_eq!(row["engine_keyframes"], keyframes, "{scene:?}: {row}");
+    }
+}
