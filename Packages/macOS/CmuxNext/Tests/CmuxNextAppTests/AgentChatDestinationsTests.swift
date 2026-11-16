@@ -99,7 +99,7 @@ struct AgentChatDestinationsTests {
         var chosen: String?
         registry.bind("palette.newAgentChatOn", run: { chosen = $0["host"]?.targetValue?.id })
         let descriptor = try #require(ActionCatalog.all.first { $0.id == "palette.newAgentChatOn" })
-        let source = PaletteSourcesBridge.agentChatTargets(Self.source, next: EmptyTargets())
+        let source = Self.source.paletteTargets(next: EmptyTargets())
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: source)
         guard case .push(let page) = flow.effect(collected: ActionInvocation()) else { Issue.record("no chooser"); return }
         let provider = try #require(page.providers.first)
