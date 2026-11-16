@@ -162,8 +162,8 @@ async function loadUsage(refresh = false) {
   try {
     const status = await cmux.call("usage_app.status", { accounts: true, refresh })
     // A refused scope or a router error answers with no providers and a problem: say that, not
-    // "no accounts".
-    if (status.problem || (status.state && status.state !== "ready" && !(status.providers || []).length)) {
+    // "no accounts". A failed refresh keeps the last reading with a problem: draw the reading.
+    if (!(status.providers || []).length && (status.problem || (status.state && status.state !== "ready"))) {
       setUsageError(status.problem?.message ?? `The Usage app is ${status.state}`)
       return
     }

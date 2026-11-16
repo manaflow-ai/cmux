@@ -128,6 +128,15 @@ describe("the collection", () => {
     expect(h.findNode("m", (n) => n.type === "EmptyState" && n.props.title === "No accounts")).toBeUndefined()
   })
 
+  test("a failed refresh that kept the last reading still draws the reading", async () => {
+    const h = host()
+    h.handlers["usage_app.status"] = ok({ ...STATUS, problem: { code: "net.failed", message: "offline" } })
+    h.mount("m", "renderSection")
+    await h.settle(10)
+    await runFrames(h)
+    expect(texts(h)).toContain("72%")
+  })
+
   test("the clock and the reads run once for every open view, and stop with the last one", async () => {
     const h = host()
     const repeating = () => [...h.timers.values()].filter((t) => t.repeat).map((t) => t.ms).sort((a, b) => a - b)
