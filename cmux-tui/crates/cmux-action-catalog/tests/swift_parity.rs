@@ -25,6 +25,8 @@ fn repo() -> PathBuf {
 /// request rows).
 const AWAITING_REPIN: &[&str] = &[
     "customize.reset",
+    "app.try.run",
+    "app.try.undo",
     "terminal.fixLastCommand",
     "terminal.sendLastOutputToChat",
     "terminal.sendSelectionToChat",
@@ -454,6 +456,29 @@ fn ids_and_cli_names_are_unique() {
     for action in cmux_action_catalog::actions() {
         assert!(ids.insert(action.id), "{} twice", action.id);
         assert!(cli.insert(action.cli_name), "CLI name {} twice", action.cli_name);
+    }
+}
+
+/// ActionSurfaceParityTests.declarationsAreConsistent's MCP rule, checked here at step A: an MCP
+/// exemption needs a CLI verb, since an action the CLI exempts already leaves MCP with the CLI's
+/// reason. Without this, a row like `ownerVerb` plus `systemChange` passes this crate and turns the
+/// Swift suite red only once the re-pin ships it (review F1 on #43637).
+#[test]
+fn mcp_exemptions_have_a_cli_verb() {
+    use cmux_action_catalog::Decision;
+    for action in cmux_action_catalog::actions() {
+        let plan = action.surface_plan;
+        let Some(mcp) = plan.mcp_exemption else { continue };
+        assert!(
+            !matches!(plan.cli, Some(Decision::Exempt(_))),
+            "{}: an MCP exemption without a CLI verb (the CLI exemption already covers MCP)",
+            action.id
+        );
+        assert!(
+            ["credentials", "endsApp", "systemChange"].contains(&mcp),
+            "{}: MCP reason {mcp}",
+            action.id
+        );
     }
 }
 
