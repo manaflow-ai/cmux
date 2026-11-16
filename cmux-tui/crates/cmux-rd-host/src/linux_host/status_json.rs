@@ -73,12 +73,10 @@ fn x11_probe(display: &str) -> Option<((u32, u32), Readback)> {
     let (conn, screen) = x11rb::connect(Some(display)).ok()?;
     let root = conn.setup().roots.get(screen)?;
     let size = (root.width_in_pixels.into(), root.height_in_pixels.into());
+    // No warning here: `status` is polled; the capture itself warns once per session.
     let readback = match crate::capture::shm_works(&conn, 4096) {
         Ok(_) => Readback::Shm,
-        Err(e) => {
-            eprintln!("{}", crate::capture::core_fallback_warning(display, &e));
-            Readback::Core
-        }
+        Err(_) => Readback::Core,
     };
     Some((size, readback))
 }

@@ -52,7 +52,7 @@ for lib in "${libs[@]}"; do
           # shellcheck disable=SC2086 # the variant's words are separate arguments
           taskset -c "0-$((cores - 1))" "$bin" encode-selftest --codec openh264 \
             --workload "$workload" --width "${size%x*}" --height "${size#*x}" --frames "$frames" \
-            ${args//+/ } ${largs//+/ } >"$out.run" 2>&1 || true
+            ${args//+/ } ${largs//+/ } >"$out.run" 2>"$out.err" || cat "$out.err" >>"$out.run"
           python3 -c '
 import json, sys
 text = open(sys.argv[4]).read().strip()
