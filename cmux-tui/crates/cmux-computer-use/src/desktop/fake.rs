@@ -29,7 +29,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     Click { window: String, point: Option<Point>, element: Option<String>, count: u8 },
-    Type { window: String, text: String },
+    Type { window: String, element: Option<String>, text: String },
     Keys { window: String, combo: KeyCombo },
     Scroll { window: String, dx: f64, dy: f64 },
     Drag { window: String, from: Point, to: Point },
@@ -91,6 +91,57 @@ pub struct FakeDesktop {
     /// Installed apps by display name (for menu items that name an app):
     /// (name, bundle id). Running apps count too.
     pub installed: Mutex<Vec<(String, String)>>,
+    /// Set: every window's tree is this one (tests of ids, diffs and guards
+    /// change it between calls). Its menus part is left out when the walk
+    /// asks for no menus (a child with role `menu_bar`).
+    pub tree: Mutex<Option<Element>>,
+    /// Trees walked so far.
+    pub walks: Mutex<u32>,
+    /// The element limit the latest walk was asked for.
+    pub last_max_nodes: Mutex<usize>,
+    /// Where the effect of the next inputs must show ([`ActionOutcome::shows`]).
+    pub shows: Mutex<Option<String>>,
+    /// Set: a watch listens and reports these signals ([`Desktop::watch`]).
+    pub signals: std::sync::Arc<Mutex<Option<Signals>>>,
+    /// The pasteboard's change count ([`Desktop::world`]).
+    pub pasteboard: Mutex<i64>,
+    /// The next input writes to the pasteboard.
+    pub copies_on_input: Mutex<bool>,
+    /// Set: delivered results ask for a read-back, which answers this.
+    pub reads_back: Mutex<Option<bool>>,
+    /// The read-back's state already matched before the action.
+    pub already: Mutex<bool>,
+    /// Whether the app answers ([`Desktop::responsive`]).
+    pub responsive: Mutex<Option<bool>>,
+    /// What a confirmed result reads back after the settle.
+    pub confirms_on_reread: Mutex<Option<bool>>,
+    /// The read-backs state no change (their wanted state held before).
+    pub unchanged: Mutex<bool>,
+    /// Delivered results carry a read-back even when `reads_back` is None
+    /// (it then answers "unreadable").
+    pub reads_back_expect: Mutex<bool>,
+    /// What a batch step's read-back answers right after its step (`None`:
+    /// as after the batch).
+    pub holds_after_step: Mutex<Option<bool>>,
+    /// Set: the type_text call with this index (from 0) fails (a gate
+    /// refusing partway through paced typing).
+    pub type_fails_at: Mutex<Option<usize>>,
+    /// type_text calls so far.
+    pub type_calls: Mutex<usize>,
+    /// Windows moved or resized since the fake was made: id -> frame now.
+    pub reframed: Mutex<Vec<(String, Rect)>>,
+}
+
+/// A fake watch: the signals the desktop's `signals` holds when read.
+struct FakeWatch(std::sync::Arc<Mutex<Option<Signals>>>);
+
+impl Watch for FakeWatch {
+    fn signals(&self) -> Signals {
+        lock(&self.0).clone().unwrap_or_default()
+    }
+    fn listening(&self) -> bool {
+        lock(&self.0).is_some()
+    }
 }
 
 impl FakeDesktop {
@@ -158,7 +209,32 @@ impl FakeDesktop {
             popups: Mutex::new(vec![]),
             menu_policy: Mutex::new(None),
             installed: Mutex::new(vec![("Terminal".into(), "com.apple.Terminal".into())]),
+            tree: Mutex::new(None),
+            walks: Mutex::new(0),
+            last_max_nodes: Mutex::new(0),
+            reframed: Mutex::new(Vec::new()),
+            shows: Mutex::new(None),
+            signals: std::sync::Arc::new(Mutex::new(None)),
+            pasteboard: Mutex::new(0),
+            copies_on_input: Mutex::new(false),
+            reads_back: Mutex::new(None),
+            already: Mutex::new(false),
+            responsive: Mutex::new(Some(true)),
+            confirms_on_reread: Mutex::new(Some(true)),
+            unchanged: Mutex::new(false),
+            reads_back_expect: Mutex::new(false),
+            holds_after_step: Mutex::new(None),
+            type_fails_at: Mutex::new(None),
+            type_calls: Mutex::new(0),
         }
+    }
+
+    /// A window as it is now ([`Self::reframed`]).
+    fn reframe(&self, mut w: Window) -> Window {
+        if let Some((_, f)) = lock(&self.reframed).iter().find(|(id, _)| *id == w.id) {
+            w.frame = *f;
+        }
+        w
     }
 
     pub fn events(&self) -> Vec<Event> {
@@ -172,6 +248,9 @@ impl FakeDesktop {
         {
             self.opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(w);
         }
+        if std::mem::take(&mut *lock(&self.copies_on_input)) {
+            *lock(&self.pasteboard) += 1;
+        }
         let steal =
             self.steal_on_input.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
         if let Some(stolen) = steal {
@@ -183,7 +262,38 @@ impl FakeDesktop {
         self.restores.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
-    /// The window's pop-ups as tree elements, an open one with its menu.
+    /// A confirmed result whose read-back after the settle answers
+    /// [`Self::confirms_on_reread`].
+    fn confirmed(&self, route: &str) -> ActionOutcome {
+        let unchanged = *lock(&self.unchanged);
+        let expect = Some(Expect {
+            token: 0,
+            what: "value".into(),
+            already: false,
+            before: "a".into(),
+            wanted: if unchanged { "a".into() } else { "b".into() },
+        });
+        ActionOutcome { expect, ..ActionOutcome::confirmed(route) }
+    }
+
+    /// A delivered result, showing where [`Self::shows`] says.
+    fn delivered(&self) -> ActionOutcome {
+        let already = *lock(&self.already);
+        let carries = lock(&self.reads_back).is_some() || *lock(&self.reads_back_expect);
+        let expect = carries.then(|| Expect {
+            token: 1,
+            what: "text".into(),
+            already,
+            before: "a".into(),
+            wanted: if *lock(&self.unchanged) { "a".into() } else { "b".into() },
+        });
+        ActionOutcome {
+            shows: lock(&self.shows).clone(),
+            expect,
+            ..ActionOutcome::delivered("fake")
+        }
+    }
+
     /// The bundle ids of the installed or running apps named `name`.
     fn apps_named(&self, name: &str) -> Option<Vec<String>> {
         let installed = lock(&self.installed);
@@ -211,7 +321,9 @@ impl FakeDesktop {
         })
     }
 
+    /// The window's pop-ups as tree elements, an open one with its menu.
     fn popup_elements(&self, window_id: &str) -> Vec<Element> {
+        // As on macOS, every element has its identity, the same across walks.
         let node = |id: &str, role: &str, name: &str, children: Vec<Element>| Element {
             id: id.into(),
             role: role.into(),
@@ -222,6 +334,8 @@ impl FakeDesktop {
             focused: false,
             disabled: false,
             children,
+            identity: Some(crate::observe::hash_identity(id)),
+            ..Element::default()
         };
         lock(&self.popups)
             .iter()
@@ -329,7 +443,7 @@ impl FakeDesktop {
         self.push(event);
         Some(Ok(ActionOutcome {
             menu: Some(MenuReport::picked(&picked_title, Some(1))),
-            ..ActionOutcome::confirmed("fake_menu_pick")
+            ..self.confirmed("fake_menu_pick")
         }))
     }
 
@@ -362,12 +476,42 @@ impl Desktop for FakeDesktop {
     }
     fn list_windows(&self) -> DResult<Vec<Window>> {
         *self.window_lists.lock().unwrap_or_else(std::sync::PoisonError::into_inner) += 1;
-        let mut all = self.windows.clone();
+        let mut all: Vec<Window> = self.windows.iter().map(|w| self.reframe(w.clone())).collect();
         all.extend(self.opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone());
         Ok(all)
     }
     fn window(&self, id: &str) -> DResult<Option<Window>> {
-        Ok(self.windows.iter().find(|w| w.id == id).cloned())
+        Ok(self.windows.iter().find(|w| w.id == id).cloned().map(|w| self.reframe(w)))
+    }
+    fn watch(&self, _window_id: &str) -> Option<Box<dyn Watch>> {
+        Some(Box::new(FakeWatch(self.signals.clone())))
+    }
+    fn read_back(&self, expect: &Expect) -> Option<bool> {
+        if expect.token == 0 {
+            return *lock(&self.confirms_on_reread);
+        }
+        *lock(&self.reads_back)
+    }
+    fn peek_back(&self, expect: &Expect) -> Option<bool> {
+        if let Some(step) = *lock(&self.holds_after_step) {
+            return Some(step);
+        }
+        self.read_back(expect)
+    }
+    fn responsive(&self, _window_id: &str) -> Option<bool> {
+        *lock(&self.responsive)
+    }
+    fn world(&self) -> Option<World> {
+        let opened = lock(&self.opened);
+        let mut windows: Vec<String> = self
+            .windows
+            .iter()
+            .chain(opened.iter())
+            .filter(|w| w.on_screen && !w.minimized)
+            .map(|w| w.id.clone())
+            .collect();
+        windows.sort();
+        Some(World { windows, pasteboard: Some(*lock(&self.pasteboard)), front_pid: None })
     }
     fn window_ids_over(&self, frame: &Rect) -> DResult<Vec<String>> {
         let opened = self.opened.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -446,7 +590,24 @@ impl Desktop for FakeDesktop {
             origin,
         })
     }
-    fn ui_tree(&self, window_id: &str, _options: TreeOptions) -> DResult<UiTree> {
+    fn draws_title_bars(&self) -> bool {
+        true
+    }
+    fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree> {
+        *lock(&self.walks) += 1;
+        *lock(&self.last_max_nodes) = options.max_nodes;
+        if let Some(mut root) = lock(&self.tree).clone() {
+            self.known(window_id)?;
+            if !options.menus {
+                root.children.retain(|c| c.role != "menu_bar");
+            }
+            fn count(e: &Element) -> usize {
+                1 + e.children.iter().map(count).sum::<usize>()
+            }
+            // Reported cut short past max_nodes (the walk keeps every node).
+            let truncated = count(&root) > options.max_nodes;
+            return Ok(UiTree { window_id: window_id.into(), root, truncated });
+        }
         let w = self
             .windows
             .iter()
@@ -479,10 +640,12 @@ impl Desktop for FakeDesktop {
                     focused: false,
                     disabled: false,
                     children: vec![],
+                    ..Element::default()
                 }]
                 .into_iter()
                 .chain(self.popup_elements(window_id))
                 .collect(),
+                ..Element::default()
             },
         })
     }
@@ -521,18 +684,27 @@ impl Desktop for FakeDesktop {
             }
         }
         self.push(event);
-        Ok(ActionOutcome::delivered("fake"))
+        Ok(self.delivered())
     }
     fn type_text(
         &self,
         window_id: &str,
-        _e: Option<&str>,
+        element: Option<&str>,
         text: &str,
         _d: Delivery,
     ) -> DResult<ActionOutcome> {
         self.known(window_id)?;
-        self.push(Event::Type { window: window_id.into(), text: text.into() });
-        Ok(ActionOutcome::delivered("fake"))
+        let call = std::mem::replace(&mut *lock(&self.type_calls), 0);
+        *lock(&self.type_calls) = call + 1;
+        if *lock(&self.type_fails_at) == Some(call) {
+            return Err(DesktopError::Unsupported("the caret gate refused".into()));
+        }
+        self.push(Event::Type {
+            window: window_id.into(),
+            element: element.map(str::to_string),
+            text: text.into(),
+        });
+        Ok(self.delivered())
     }
     fn press_keys(
         &self,
@@ -542,12 +714,12 @@ impl Desktop for FakeDesktop {
     ) -> DResult<ActionOutcome> {
         self.known(window_id)?;
         self.push(Event::Keys { window: window_id.into(), combo: combo.clone() });
-        Ok(ActionOutcome::delivered("fake"))
+        Ok(self.delivered())
     }
     fn scroll(&self, target: &PointerTarget, dx: f64, dy: f64) -> DResult<ActionOutcome> {
         self.known(target.window_id())?;
         self.push(Event::Scroll { window: target.window_id().into(), dx, dy });
-        Ok(ActionOutcome::delivered("fake"))
+        Ok(self.delivered())
     }
     fn drag(
         &self,
@@ -559,7 +731,7 @@ impl Desktop for FakeDesktop {
     ) -> DResult<ActionOutcome> {
         self.known(window_id)?;
         self.push(Event::Drag { window: window_id.into(), from, to });
-        Ok(ActionOutcome::delivered("fake"))
+        Ok(self.delivered())
     }
     fn set_value(&self, window_id: &str, element_id: &str, value: &str) -> DResult<ActionOutcome> {
         self.known(window_id)?;
@@ -572,7 +744,16 @@ impl Desktop for FakeDesktop {
             return done;
         }
         self.push(event);
-        Ok(ActionOutcome::confirmed("fake"))
+        // With a read-back: as a route does, already matching is delivered.
+        let mut out = if *lock(&self.already) {
+            self.delivered()
+        } else if lock(&self.reads_back).is_some() {
+            ActionOutcome { expect: self.delivered().expect, ..ActionOutcome::confirmed("fake") }
+        } else {
+            self.confirmed("fake")
+        };
+        out.shows = None;
+        Ok(out)
     }
     fn perform_action(
         &self,
@@ -592,7 +773,7 @@ impl Desktop for FakeDesktop {
             return done;
         }
         self.push(event);
-        Ok(ActionOutcome::confirmed("fake"))
+        Ok(self.confirmed("fake"))
     }
     /// Like Windows: a bare name launches `<name>.exe`, matched lowercased.
     fn launches_by_identity(&self) -> bool {

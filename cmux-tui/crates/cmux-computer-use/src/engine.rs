@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 use crate::cursor::{CursorEvent, CursorSink, NoCursor, caption};
 use crate::desktop::{
     Button, CaptureTarget, ClickSpec, Delivery, Desktop, DesktopError, Element, Point,
-    PointerTarget, Rect, TreeOptions, Window,
+    PointerTarget, Rect, TreeOptions, Watch, Window,
 };
 use crate::frame::{self, Geometry};
 use crate::keys::KeyCombo;
@@ -58,6 +58,10 @@ pub struct CallContext {
     /// shows none (`computerUse.cursorTag` decides when it shows).
     pub tag: Option<String>,
 }
+
+/// The `_meta` key of an MCP text block that holds a look's outline, and
+/// where in the result's JSON it was (`tree` or `state.tree`).
+pub const OUTLINE_META: &str = "cmux/outline";
 
 /// A tool's result.
 #[derive(Clone, Debug, PartialEq)]
@@ -89,9 +93,30 @@ impl ToolOutput {
         Self::error(e.code(), e.to_string())
     }
 
-    /// The MCP `tools/call` result.
+    /// The MCP `tools/call` result. An outline (`tree`, or the state's
+    /// `tree`) goes as its own text block after the JSON, as plain lines:
+    /// quoted inside JSON every line break and quote would be escaped.
     pub fn to_mcp(&self) -> Value {
-        let mut content = vec![json!({"type": "text", "text": self.body.to_string()})];
+        let mut body = self.body.clone();
+        let mut texts: Vec<(&str, String)> = Vec::new();
+        // The outline replaces the JSON tree (kept for direct callers) in what
+        // the model reads.
+        let mut take = |o: Option<&mut serde_json::Map<String, Value>>, place: &'static str| {
+            if let Some(o) = o
+                && let Some(Value::String(t)) = o.remove("tree")
+            {
+                o.remove("root");
+                o.remove("frames_in");
+                texts.push((place, t));
+            }
+        };
+        take(body.as_object_mut(), "tree");
+        take(body.get_mut("state").and_then(Value::as_object_mut), "state.tree");
+        let mut content = vec![json!({"type": "text", "text": body.to_string()})];
+        // `_meta` says where the text came from, so a script gets it back in place.
+        for (from, t) in texts {
+            content.push(json!({"type": "text", "text": t, "_meta": {OUTLINE_META: from}}));
+        }
         if let Some(png) = &self.png_base64 {
             content.push(json!({"type": "image", "data": png, "mimeType": "image/png"}));
         }
@@ -320,6 +345,8 @@ pub struct Engine {
     /// session -> the app its foreground call brought to the front (see
     /// engine_focus: AgentFront).
     agent_front: Mutex<HashMap<String, focus::AgentFront>>,
+    /// Element ids, the agents' last looks and the guards ([`crate::observe`]).
+    observe: observe_glue::Observe,
     audit: Option<PathBuf>,
     machine_name: String,
     settle: Settle,
@@ -392,6 +419,7 @@ impl Engine {
             seen: Mutex::new(HashMap::new()),
             last_display: Mutex::new(HashMap::new()),
             agent_front: Mutex::new(HashMap::new()),
+            observe: observe_glue::Observe::new(parts.state_dir.as_deref()),
             audit,
             machine_name: parts.machine_name,
             settle: parts.settle,
@@ -427,6 +455,7 @@ impl Engine {
         lock(&self.seen).retain(|(s, _), _| s != session);
         lock(&self.last_display).remove(session);
         lock(&self.agent_front).remove(session);
+        self.forget_session_seen(session);
     }
 
     pub fn call(&self, ctx: &CallContext, name: &str, args: &Value) -> ToolOutput {
@@ -460,6 +489,7 @@ impl Engine {
                         && let Some(id) = args.get("window_id").and_then(Value::as_str)
                     {
                         lock(&self.seen).remove(&(ctx.session.clone(), format!("w:{id}")));
+                        self.forget_seen(&ctx.session, id);
                     }
                     if let Some(out) = serde_json::from_str::<Value>(&done)
                         .ok()
@@ -485,6 +515,23 @@ impl Engine {
         let windows_before = (tools::OBSERVES.contains(&name) && name != "batch")
             .then(|| args_str(&args, "window_id").and_then(|id| self.window_ids_over_target(id)))
             .flatten();
+        let acted = self.acted_id(&args);
+        // Whether the agent had a screenshot of the window before acting: only
+        // then can the state say its pixels changed or not.
+        let had_screenshot = args_str(&args, "window_id").is_some_and(|id| {
+            lock(&self.seen).contains_key(&(ctx.session.clone(), format!("w:{id}")))
+        });
+        // An action whose window is watched through an adaptive settle: the
+        // app's accessibility signals and what is on screen outside the
+        // window are read from before it acts, for its outcome.
+        let watched = (tools::OBSERVES.contains(&name)
+            && name != "batch"
+            && args.get("observe").and_then(Value::as_bool) != Some(false)
+            && self.settle_mode(&args) == SettleMode::Adaptive)
+            .then(|| args_str(&args, "window_id"))
+            .flatten();
+        let world_before = watched.and_then(|_| self.desktop.world());
+        let watch = watched.and_then(|id| self.desktop.watch(id)).filter(|w| w.listening());
         let raising = self.foreground_begin(tool, &args);
         let mut guard = self.focus_begin(&ctx.session, tool, &args);
         let (mut out, app) = match self.dispatch(tool, ctx, &args) {
@@ -493,8 +540,10 @@ impl Engine {
         };
 
         let mut focus = guard.as_mut().map(|g| self.focus_after_action(g, &out));
+        // Recorded at once (a restart must not act twice), but never with a
+        // confirmed the outcome has not decided yet: replaced below.
         if let Some(call_id) = acting_id {
-            self.sessions.remember(&ctx.session, call_id, out.to_json().to_string());
+            self.sessions.remember(&ctx.session, call_id, provisional_record(&out));
         }
         if tool.acts()
             && let Some(reason) = out.code.as_deref().and_then(refusal_caption)
@@ -509,23 +558,75 @@ impl Engine {
         // After the record: a retry returns the action's result, and the agent
         // takes a fresh screenshot for the state then.
         // A batch attaches its own state, once, at its end.
+        let mut settled_ms = None;
         if !out.is_error
             && tools::OBSERVES.contains(&name)
             && name != "batch"
             && args.get("observe").and_then(Value::as_bool) != Some(false)
+            && out.body.pointer("/menu/state") != Some(&json!(observe_glue::MENU_BAR_LISTING))
             && let Some(window_id) = args_str(&args, "window_id")
             && let Some(app) = &app
         {
             let mode = self.settle_mode(&args);
-            self.attach_state(
+            settled_ms = self.attach_state(
                 ctx,
                 window_id,
                 app,
                 &mut out,
                 mode,
                 name == "type_text",
-                windows_before.as_deref(),
+                watch.as_deref(),
             );
+        }
+        // The state as the model reads it: the outline of what changed, and
+        // the app's windows that opened or closed (a batch's and a wait's too).
+        if !out.is_error && out.body.get("state").is_some() {
+            self.present_state(
+                ctx,
+                &args,
+                &mut out,
+                windows_before.as_deref(),
+                acted,
+                had_screenshot,
+            );
+        }
+        // The outcome of an action (a result with the route's evidence).
+        if !out.is_error && name != "batch" && out.body.get("evidence").is_some() {
+            let signals = watch.as_ref().map(|w| w.signals());
+            drop(watch);
+            let outside = world_before.and_then(|before| {
+                let after = self.desktop.world()?;
+                let mut changes = after.changes_since(&before);
+                // A foreground action brings its own app to the front.
+                let raised = parse_delivery(&args).ok() == Some(Delivery::Foreground)
+                    && after.front_pid.is_some()
+                    && args_str(&args, "window_id")
+                        .and_then(|id| self.desktop.window(id).ok().flatten())
+                        .is_some_and(|w| Some(w.pid) == after.front_pid);
+                if raised {
+                    changes.retain(|c| c != crate::desktop::FRONT_APP_CHANGED);
+                }
+                Some(changes)
+            });
+            // A stalled app shows nothing new because it does nothing: one
+            // AX round-trip after the settle says it still answers.
+            let responsive = settled_ms
+                .and_then(|_| args_str(&args, "window_id"))
+                .and_then(|id| self.desktop.responsive(id));
+            self.attach_outcome(&mut out, settled_ms, signals, outside, responsive);
+            // A retry returns the result with its outcome (not the state).
+            if let Some(call_id) = acting_id {
+                self.sessions.remember(&ctx.session, call_id, retry_record(&out));
+            }
+        } else if let Some(body) = out.body.as_object_mut() {
+            body.remove("shows");
+            body.remove("expect");
+        }
+        // Without an outcome (no evidence, an error): the final record.
+        if let Some(call_id) = acting_id
+            && (out.is_error || name == "batch" || out.body.get("evidence").is_none())
+        {
+            self.sessions.remember(&ctx.session, call_id, retry_record(&out));
         }
         if let Some(g) = &guard {
             focus = Some(self.focus_after_settle(g, focus));
@@ -693,20 +794,29 @@ impl Engine {
                     .map(|n| n.clamp(1, 5000) as usize)
                     .unwrap_or(TreeOptions::default().max_nodes);
                 let mut tree = self
-                    .desktop
-                    .ui_tree(&window.id, TreeOptions { max_nodes, ..TreeOptions::default() })
+                    .walk_tree_for(
+                        Some(&ctx.session),
+                        &window.id,
+                        TreeOptions { max_nodes, ..TreeOptions::default() },
+                    )
                     .map_err(|e| ToolOutput::desktop(&e))?;
                 let geometry = self.geometry_for(ctx, &window);
                 rewrite_frames(&mut tree.root, &geometry);
-                Ok((
-                    ToolOutput::ok(json!({
-                        "window_id": tree.window_id,
-                        "truncated": tree.truncated,
-                        "frames_in": "screenshot pixels",
-                        "root": tree.root,
-                    })),
-                    Some(app),
-                ))
+                let mut body = serde_json::Map::new();
+                body.insert("window_id".into(), json!(tree.window_id));
+                body.insert("truncated".into(), json!(tree.truncated));
+                self.present(
+                    &ctx.session,
+                    &window.id,
+                    &tree.root,
+                    tree.truncated,
+                    crate::observe::Look::from_args(args),
+                    &mut body,
+                    Vec::new(),
+                    None,
+                    observe_glue::Pixels::NotRead,
+                );
+                Ok((ToolOutput::ok(Value::Object(body)), Some(app)))
             }
             "click" => self.click(&config, ctx, args),
             "type_text" => {
@@ -717,13 +827,14 @@ impl Engine {
                     .ok_or_else(|| ToolOutput::error("invalid_arguments", "text is required"))?;
                 let delivery = parse_delivery(args)?;
                 let app = self.act_on(&config, ctx, &window, delivery, false)?;
+                let guarded = self.guard(ctx, "type_text", &window, args, None)?;
                 self.cursor.show(CursorEvent::Typing {
                     session: ctx.session.clone(),
                     label: ctx.label.clone(),
                     at: None,
                     text: caption(text),
                 });
-                let element = args_str(args, "element_id");
+                let element = guarded.element.as_deref();
                 let out = if self.settle_mode(args) == SettleMode::Anthropic {
                     self.type_paced(&ctx.session, &window.id, element, text, delivery)?
                 } else {
@@ -754,7 +865,11 @@ impl Engine {
             "scroll" => {
                 let window = self.window(need(args, "window_id")?)?;
                 let app = self.act_on(&config, ctx, &window, Delivery::Background, true)?;
-                let target = self.pointer_target(ctx, &window, args)?;
+                let guarded = self.guard(ctx, "scroll", &window, args, None)?;
+                let target = match guarded.element {
+                    Some(element_id) => PointerTarget::Element { window_id: window.id, element_id },
+                    None => self.pointer_target(ctx, &window, args)?,
+                };
                 let dx = args_f64(args, "dx").unwrap_or(0.0).clamp(-200.0, 200.0);
                 let dy = args_f64(args, "dy").unwrap_or(0.0).clamp(-200.0, 200.0);
                 if let PointerTarget::Point { point, .. } = &target {
@@ -781,7 +896,7 @@ impl Engine {
                 let window = self.window(need(args, "window_id")?)?;
                 let delivery = parse_delivery(args)?;
                 let app = self.act_on(&config, ctx, &window, delivery, true)?;
-                let g = self.geometry_for(ctx, &window);
+                let g = self.pixel_geometry(ctx, &window)?;
                 let from = g.to_global(need_f64(args, "from_x")?, need_f64(args, "from_y")?);
                 let to = g.to_global(need_f64(args, "to_x")?, need_f64(args, "to_y")?);
                 self.glide(ctx, from);
@@ -800,19 +915,28 @@ impl Engine {
             "set_value" => {
                 let window = self.window(need(args, "window_id")?)?;
                 let app = self.act_on(&config, ctx, &window, Delivery::Background, false)?;
+                need(args, "element_id")?;
+                let guarded = self.guard(ctx, "set_value", &window, args, None)?;
+                let element = guarded.element.unwrap_or_default();
                 let value = args.get("value").and_then(Value::as_str).unwrap_or_default();
                 let out = self
                     .desktop
-                    .set_value(&window.id, need(args, "element_id")?, value)
+                    .set_value(&window.id, &element, value)
                     .map_err(|e| ToolOutput::desktop(&e))?;
                 Ok((self.outcome(ctx, out), Some(app)))
             }
             "perform_action" => {
                 let window = self.window(need(args, "window_id")?)?;
                 let app = self.act_on(&config, ctx, &window, Delivery::Background, false)?;
+                need(args, "element_id")?;
+                let guarded = self.guard(ctx, "perform_action", &window, args, None)?;
+                if let Some(done) = guarded.done {
+                    return Ok((done, Some(app)));
+                }
+                let element = guarded.element.unwrap_or_default();
                 let out = self
                     .desktop
-                    .perform_action(&window.id, need(args, "element_id")?, need(args, "action")?)
+                    .perform_action(&window.id, &element, need(args, "action")?)
                     .map_err(|e| ToolOutput::desktop(&e))?;
                 Ok((self.outcome(ctx, out), Some(app)))
             }
@@ -1072,6 +1196,42 @@ impl Engine {
             })
     }
 
+    /// How the agent's pixels of `window` map to the desktop: its latest
+    /// screenshot of the window, at the window's origin now (a window that
+    /// moved since is still hit where the agent saw it). Refused when the
+    /// session has no screenshot of the window (a retry, a worker restart, an
+    /// ended session: a guessed scale is twice off on a Retina display), or
+    /// when the window's size changed since (the pixels no longer say where).
+    fn pixel_geometry(&self, ctx: &CallContext, window: &Window) -> Result<Geometry, ToolOutput> {
+        let stored = lock(&self.seen)
+            .get(&(ctx.session.clone(), format!("w:{}", window.id)))
+            .map(|(g, _)| *g);
+        let Some(g) = stored else {
+            return Err(ToolOutput::error(
+                "no_screenshot",
+                format!(
+                    "x and y are pixels of your latest screenshot of window {}, and there is none in this session (after a retry or a restart, or it ended). Take a screenshot of this window first, or pass element_id.",
+                    window.id
+                ),
+            ));
+        };
+        let (w, h) = (g.width as f64 * g.points_per_pixel, g.height as f64 * g.points_per_pixel);
+        if (w - window.frame.width).abs() > 2.0 || (h - window.frame.height).abs() > 2.0 {
+            return Err(ToolOutput::error(
+                "window_resized",
+                format!(
+                    "window {} is {}x{} points now and was {}x{} in your latest screenshot of it, so its pixels no longer say where to act. Take a new screenshot of it first, or pass element_id.",
+                    window.id,
+                    window.frame.width.round(),
+                    window.frame.height.round(),
+                    w.round(),
+                    h.round()
+                ),
+            ));
+        }
+        Ok(Geometry { origin: Point { x: window.frame.x, y: window.frame.y }, ..g })
+    }
+
     fn pointer_target(
         &self,
         ctx: &CallContext,
@@ -1084,15 +1244,11 @@ impl Engine {
                 element_id: element.to_string(),
             });
         }
-        let (x, y) = match (args_f64(args, "x"), args_f64(args, "y")) {
-            (Some(x), Some(y)) => (x, y),
-            _ => {
-                // Scroll with no point: the window's center.
-                let g = self.geometry_for(ctx, window);
-                (g.width as f64 / 2.0, g.height as f64 / 2.0)
-            }
+        let point = match (args_f64(args, "x"), args_f64(args, "y")) {
+            (Some(x), Some(y)) => self.pixel_geometry(ctx, window)?.to_global(x, y),
+            // Scroll with no point: the window's center, in points.
+            _ => center(&window.frame),
         };
-        let point = self.geometry_for(ctx, window).to_global(x, y);
         Ok(PointerTarget::Point { window_id: window.id.clone(), point })
     }
 
@@ -1138,8 +1294,8 @@ impl Engine {
                         "click needs element_id or x and y",
                     ));
                 }
-                let target = self.pointer_target(ctx, &window, args)?;
-                (window, target)
+                // Mapped after the policy check (a denied app is refused as such).
+                (window, None)
             }
             None => {
                 let (x, y) = (need_f64(args, "x")?, need_f64(args, "y")?);
@@ -1164,7 +1320,7 @@ impl Engine {
                         ToolOutput::error("target_not_found", "no window at that point")
                     })?;
                 let target = PointerTarget::Point { window_id: window.id.clone(), point };
-                (window, target)
+                (window, Some(target))
             }
         };
         if args_str(args, "menu_item").is_some() && !self.desktop.picks_menu_items() {
@@ -1174,6 +1330,26 @@ impl Engine {
             ));
         }
         let app = self.act_on(config, ctx, &window, delivery, true)?;
+        let target = match target {
+            Some(t) => t,
+            None => self.pointer_target(ctx, &window, args)?,
+        };
+        let point = match &target {
+            PointerTarget::Point { point, .. } if args_str(args, "window_id").is_some() => {
+                Some(*point)
+            }
+            _ => None,
+        };
+        let guarded = self.guard(ctx, "click", &window, args, point)?;
+        if let Some(done) = guarded.done {
+            return Ok((done, Some(app)));
+        }
+        let target = match (guarded.element, target) {
+            (Some(element_id), PointerTarget::Element { window_id, .. }) => {
+                PointerTarget::Element { window_id, element_id }
+            }
+            (_, target) => target,
+        };
         if let PointerTarget::Point { point, .. } = &target {
             self.glide(ctx, *point);
         }
@@ -1220,16 +1396,13 @@ impl Engine {
         self.capture_for(config, ctx, args, true, Check::Authorize)
     }
 
-    /// Waits for the window to settle after an acting call ([`Settle`]) and
-    /// adds its screenshot and tree to `out` as `state`. The ceiling counts
-    /// elapsed time, captures included. The window must still be `app`'s and
-    /// `app` still allowed before every capture and the tree; a window that
-    /// closed, changed app or became denied leaves the action's result as it
-    /// is, with the reason.
     /// Types `text` the way Anthropic's reference tool does: in groups of
     /// [`ANTHROPIC_TYPING_GROUP`] characters, [`ANTHROPIC_TYPING_DELAY`]
-    /// between keys. The first character goes to `element` (it focuses it);
-    /// the rest follow at the caret.
+    /// between keys. Every character goes to `element` (when one was given),
+    /// so each passes the same route, focus guard and caret gate: none lands
+    /// in another field that happens to have focus. A refusal partway says
+    /// how many characters went into the element first. The result is
+    /// confirmed only when every character was.
     fn type_paced(
         &self,
         session: &str,
@@ -1240,23 +1413,43 @@ impl Engine {
     ) -> Result<crate::desktop::ActionOutcome, ToolOutput> {
         let chars: Vec<char> = text.chars().collect();
         let mut last = crate::desktop::ActionOutcome::default();
-        for (group_index, group) in chars.chunks(ANTHROPIC_TYPING_GROUP).enumerate() {
+        let mut sent = 0usize;
+        let mut all_confirmed = true;
+        for group in chars.chunks(ANTHROPIC_TYPING_GROUP) {
             for (i, c) in group.iter().enumerate() {
                 if i > 0 {
                     (self.sleep)(ANTHROPIC_TYPING_DELAY);
                 }
                 // Checkpoint: the person's Stop ends the typing between two keys.
                 self.stops.check(session)?;
-                let first = group_index == 0 && i == 0;
-                last = self
-                    .desktop
-                    .type_text(
-                        window_id,
-                        if first { element } else { None },
-                        &c.to_string(),
-                        delivery,
-                    )
-                    .map_err(|e| ToolOutput::desktop(&e))?;
+                last = match self.desktop.type_text(window_id, element, &c.to_string(), delivery) {
+                    Ok(out) => out,
+                    Err(e) if sent > 0 => {
+                        let mut out = ToolOutput::desktop(&e);
+                        out.body["typed_before_refusal"] = Value::from(sent as u64);
+                        out.body["error"] = Value::from(format!(
+                            "{}; {sent} of {} characters were typed {} before this, and none after",
+                            out.body["error"].as_str().unwrap_or("refused"),
+                            chars.len(),
+                            if element.is_some() { "into the element" } else { "at the caret" }
+                        ));
+                        return Err(out);
+                    }
+                    Err(e) => return Err(ToolOutput::desktop(&e)),
+                };
+                sent += 1;
+                all_confirmed &= last.evidence == "confirmed";
+            }
+        }
+        // One character's read-back cannot confirm the whole text.
+        if !all_confirmed && chars.len() > 1 {
+            last.evidence = "delivered".into();
+            last.expect = None;
+            if last.note.is_empty() {
+                last.note = format!(
+                    "typed {} characters one by one; not every one was confirmed",
+                    chars.len()
+                );
             }
         }
         Ok(last)
@@ -1342,6 +1535,10 @@ impl Engine {
             ));
         }
         let mut results = Vec::new();
+        // Steps that acted, kept whole until the batch's own settle: their
+        // outcomes are decided after it (their index in `results`, what
+        // their read-back showed right after them, and what they acted on).
+        let mut acted: Vec<(usize, ToolOutput, Option<bool>, String)> = Vec::new();
         let mut acted_on: Option<TargetApp> = None;
         let mut failed: Option<ToolOutput> = None;
         for (index, action) in actions.iter().enumerate() {
@@ -1392,6 +1589,19 @@ impl Engine {
                         failed = Some(done);
                         break;
                     }
+                    // Its read-back now, right after the step (a later step
+                    // must not confirm it); its outcome is decided after the
+                    // batch's settle, below.
+                    if done.body.get("evidence").is_some() {
+                        let now = done
+                            .body
+                            .get("expect")
+                            .and_then(|e| {
+                                serde_json::from_value::<crate::desktop::Expect>(e.clone()).ok()
+                            })
+                            .and_then(|e| self.desktop.peek_back(&e));
+                        acted.push((results.len(), done.clone(), now, batch_target(&step)));
+                    }
                     results.push(json!({"action": name, "ok": true, "result": done.body}));
                     acted_on = app.or(acted_on);
                 }
@@ -1419,11 +1629,47 @@ impl Engine {
             "stopped": failed.is_some(),
             "results": results,
         }));
+        // The batch's own settle; only an adaptive one is a real settle.
+        let mut settled_ms = None;
         if let Some(app) = &acted_on
             && args.get("observe").and_then(Value::as_bool) != Some(false)
         {
             let mode = self.settle_mode(args);
-            self.attach_state(ctx, &window_id, app, &mut out, mode, false, None);
+            settled_ms = self.attach_state(ctx, &window_id, app, &mut out, mode, false, None);
+        }
+        // Every step through the one confirm rule, its read-back read after
+        // that settle (none: a step is at most delivered); the route's
+        // internal keys go.
+        let targets: Vec<String> = acted.iter().map(|(_, _, _, t)| t.clone()).collect();
+        for (n, (index, mut done, now, target)) in acted.into_iter().enumerate() {
+            // Confirmed needs the read-back to have held right after its own
+            // step too, and no later step to have acted on the same target
+            // (its effect could be what the read-back sees).
+            let touched_later = targets[n + 1..].iter().any(|t| roles_overlap(t, &target));
+            if now != Some(true) || touched_later {
+                let why = if touched_later {
+                    "a later step in the batch acted on the same element or view"
+                } else {
+                    "the effect did not read back right after this step"
+                };
+                if done.body.get("evidence") == Some(&json!("confirmed")) {
+                    done.body["evidence"] = json!("delivered");
+                }
+                let mut note =
+                    done.body.get("note").and_then(Value::as_str).unwrap_or_default().to_string();
+                crate::outcome::append(&mut note, why);
+                done.body["note"] = json!(note);
+                // The read-back after the settle may not upgrade it either.
+                if let Some(body) = done.body.as_object_mut() {
+                    body.remove("expect");
+                }
+            }
+            self.attach_outcome(&mut done, settled_ms, None, None, None);
+            if let Some(body) = done.body.as_object_mut() {
+                body.remove("shows");
+                body.remove("expect");
+            }
+            out.body["results"][index]["result"] = done.body;
         }
         Ok((out, acted_on))
     }
@@ -1454,16 +1700,24 @@ impl Engine {
         out: &mut ToolOutput,
         mode: SettleMode,
         typed: bool,
-        windows_before: Option<&[String]>,
-    ) {
+        watch: Option<&dyn Watch>,
+    ) -> Option<u64> {
         let s = self.settle;
         let start = (self.clock)();
         let args = json!({"window_id": window_id});
         let forced = json!({"window_id": window_id, "force": true});
         let mut captures = 0u32;
+        // The app's signals at the previous capture: a change ends the wait
+        // once the app has gone quiet (no new signal since the capture
+        // before), so an effect still in progress is waited for, within
+        // the ceiling.
+        let mut signals_then = watch.map(|w| w.signals().total());
         let shot = match mode {
             SettleMode::Adaptive => {
                 (self.sleep)(s.floor);
+                // The newest capture that changed: a later one compares with
+                // it, so an unchanged one after it means the window held.
+                let mut changed_shot: Option<ToolOutput> = None;
                 loop {
                     // Checkpoint: the person's Stop ends the settle wait.
                     if let Err(stopped) = self.stops.check(&ctx.session) {
@@ -1473,10 +1727,30 @@ impl Engine {
                     captures += 1;
                     match self.capture_for(&config, ctx, &args, false, Check::StillAllowed(app)) {
                         Ok((shot, _)) => {
-                            let changed = shot.body["unchanged"] != json!(true);
                             let elapsed = (self.clock)().saturating_sub(start);
-                            if changed || elapsed >= s.ceiling {
-                                break Ok((shot, elapsed));
+                            let read = watch.map(|w| w.signals());
+                            let signals_now = read.as_ref().map(|r| r.total());
+                            // Quiet: no new signal since the capture before,
+                            // and the last one a while ago (a burst that
+                            // straddles a capture is not over).
+                            let quiet = signals_now == signals_then
+                                && read
+                                    .as_ref()
+                                    .and_then(|r| r.since_last_ms)
+                                    .is_none_or(|ms| ms >= QUIET_MS);
+                            signals_then = signals_now;
+                            let shot = if shot.body["unchanged"] != json!(true) {
+                                changed_shot = Some(shot);
+                                None
+                            } else {
+                                Some(shot)
+                            };
+                            if (changed_shot.is_some() && quiet) || elapsed >= s.ceiling {
+                                // One of the two is always set.
+                                match changed_shot.take().or(shot) {
+                                    Some(last) => break Ok((last, elapsed)),
+                                    None => break Err(ToolOutput::error("failed", "no capture")),
+                                }
                             }
                             (self.sleep)(s.step.min(s.ceiling - elapsed));
                         }
@@ -1502,30 +1776,24 @@ impl Engine {
                     "reason": e.body.get("error").or_else(|| e.body.get("message")).cloned().unwrap_or(json!(e.code)),
                     "next": "call list_windows, then screenshot the window you need",
                 });
-                return;
+                return None;
             }
         };
-        // Only after a real settle: the adaptive wait captured more than once
-        // and the window never changed. The other modes capture once, right
-        // away or after a fixed delay, which proves nothing.
-        mark_no_visible_change(
-            &mut out.body,
-            mode == SettleMode::Adaptive
-                && captures >= 2
-                && shot.body["unchanged"] == json!(true)
-                && windows_before
-                    .is_some_and(|b| self.window_ids_over_target(window_id).as_deref() == Some(b)),
-            elapsed.as_millis() as u64,
-        );
+        // A real settle: the adaptive wait (one capture or more); the other
+        // modes capture once, right away or after a fixed delay.
+        let settled =
+            (mode == SettleMode::Adaptive && captures >= 1).then_some(elapsed.as_millis() as u64);
         let mut state = shot.body.clone();
         state["settle"] = json!(mode.as_str());
         state["waited_ms"] = json!(elapsed.as_millis() as u64);
         state["captures"] = json!(captures);
         let config = self.config();
         if self.still_allowed(&config, ctx, window_id, app).is_ok()
-            && let Ok(mut tree) = self
-                .desktop
-                .ui_tree(window_id, TreeOptions { menus: false, ..TreeOptions::default() })
+            && let Ok(mut tree) = self.walk_tree_for(
+                Some(&ctx.session),
+                window_id,
+                TreeOptions { menus: false, ..TreeOptions::default() },
+            )
         {
             // The capture just recorded this window's geometry for the session.
             let seen = lock(&self.seen)
@@ -1540,6 +1808,107 @@ impl Engine {
         }
         out.body["state"] = state;
         out.png_base64 = shot.png_base64;
+        settled
+    }
+
+    /// Decides the action's outcome ([`crate::outcome`]) from its result,
+    /// its state's `changes`, the app's signals and what changed outside
+    /// the window, and writes it into the result.
+    fn attach_outcome(
+        &self,
+        out: &mut ToolOutput,
+        settled_ms: Option<u64>,
+        signals: Option<crate::desktop::Signals>,
+        outside: Option<Vec<String>>,
+        responsive: Option<bool>,
+    ) {
+        let shows = out
+            .body
+            .as_object_mut()
+            .and_then(|b| b.remove("shows"))
+            .and_then(|v| v.as_str().map(String::from));
+        // Where the effect must show counts only with a read-back to check
+        // it: without one, nothing reads the target, so no no_effect.
+        let shows = shows.filter(|_| out.body.get("expect").is_some_and(|e| !e.is_null()));
+        // The route's read-back, done now that the action settled: typed
+        // keys and scrolls land a little after they are posted.
+        let expect = out
+            .body
+            .as_object_mut()
+            .and_then(|b| b.remove("expect"))
+            .and_then(|v| serde_json::from_value::<crate::desktop::Expect>(v).ok());
+        // Every confirmed result is read again too: an app can undo an
+        // effect a moment after it read back (a field that reformats or
+        // rejects a value, a list that reselects).
+        // The one place a result becomes, or stays, confirmed: its read-back
+        // after the settle shows the intended change, and the read-back
+        // states a change (before != wanted). A route's own confirmed
+        // without such a read-back, or one whose wanted state already held,
+        // is delivered.
+        let mut already = false;
+        let confirmed = out.body["evidence"] == json!("confirmed");
+        let read = expect.map(|expect| {
+            already = !expect.states_change();
+            match self.desktop.read_back(&expect) {
+                Some(true) if already => "already".to_string(),
+                Some(true) => expect.what,
+                Some(false) => "failed".to_string(),
+                None => "unread".to_string(),
+            }
+        });
+        // Only after a real settle (adaptive mode, or a batch step's own
+        // read now): one capture at once, or none, proves nothing.
+        let shown = settled_ms.is_some()
+            && read.as_deref().is_some_and(|r| !matches!(r, "already" | "failed" | "unread"));
+        if shown {
+            out.body["evidence"] = json!("confirmed");
+        } else {
+            let why = match read.as_deref() {
+                Some("already") => Some(
+                    "the state already matched before the action, so nothing shows it was done",
+                ),
+                Some("failed") if confirmed => {
+                    Some("read again after the settle, the effect no longer shows")
+                }
+                Some("failed") => {
+                    Some("read back after the settle: the intended effect does not show")
+                }
+                _ if confirmed && settled_ms.is_none() => {
+                    Some("not watched through a settle, so the effect was not read again")
+                }
+                _ if confirmed => Some("the effect could not be read again after the settle"),
+                _ => None,
+            };
+            if confirmed {
+                out.body["evidence"] = json!("delivered");
+            }
+            if let Some(why) = why {
+                let mut note =
+                    out.body.get("note").and_then(Value::as_str).unwrap_or_default().to_string();
+                crate::outcome::append(&mut note, why);
+                out.body["note"] = json!(note);
+            }
+        }
+        if let Some(read) = read {
+            out.body["read_back"] = json!(read);
+        }
+        // no_effect needs the target read back after the settle: a read-back
+        // that could not be read leaves the effect unknown (a web field's
+        // value that does not answer).
+        let shows = if out.body["read_back"] == json!("unread") { None } else { shows };
+        let facts = crate::outcome::Facts {
+            evidence: out.body["evidence"].as_str().unwrap_or_default().to_string(),
+            shows,
+            menu: out.body.get("menu").is_some_and(|m| !m.is_null()),
+            settled_ms,
+            changes: out.body.pointer("/state/changes").cloned(),
+            signals,
+            outside,
+            already,
+            responsive,
+        };
+        let verdict = crate::outcome::decide(&facts);
+        crate::outcome::attach(&mut out.body, &facts, &verdict, no_visible_change_note);
     }
 
     /// The window is still `app`'s and `app` is still allowed (deny list,
@@ -1831,6 +2200,9 @@ mod focus;
 #[path = "engine_menus.rs"]
 mod menus_glue;
 
+/// How long after its last accessibility signal an app counts as quiet.
+const QUIET_MS: u64 = 60;
+
 /// The note a `delivered` result gets when nothing visible changed through
 /// a real settle wait: the window's pixels, and the windows over it (sheets,
 /// panels, a Save panel another process serves).
@@ -1840,29 +2212,51 @@ pub(crate) fn no_visible_change_note(waited_ms: u64) -> String {
     )
 }
 
-/// A result the route only delivered (nothing read back confirms it) whose
-/// window did not change through a real settle wait reports that, so an
-/// agent does not take the input for done when nothing happened. Only when
-/// `observed` (the engine saw it; see the caller): no prior capture, a
-/// redraw, a single capture or a confirmed route leave the result as it is.
-fn mark_no_visible_change(body: &mut Value, observed: bool, waited_ms: u64) {
-    // A result that reports a menu it opened, picked from or closed had a
-    // visible effect, whatever the window's pixels show (a menu window can
-    // fall outside the window's capture).
-    if !observed
-        || body.get("evidence") != Some(&json!("delivered"))
-        || body.get("menu").is_some_and(|m| !m.is_null())
-    {
-        return;
+/// What a batch step acts on: its element, else the window (a point, keys
+/// or typing may reach any element of it).
+fn batch_target(step: &Value) -> String {
+    if let Some(id) = step.get("element_id").and_then(Value::as_str) {
+        return format!("element:{id}");
     }
-    body["evidence"] = json!("no_visible_change");
-    let note = no_visible_change_note(waited_ms);
-    let note = match body.get("note").and_then(Value::as_str) {
-        Some(n) if !n.is_empty() => format!("{n}; {note}"),
-        _ => note,
-    };
-    body["note"] = json!(note);
+    "window".into()
 }
+
+/// Whether two batch targets may be the same thing: the same element, or
+/// either is the window or a point in it (which may be any element).
+fn roles_overlap(a: &str, b: &str) -> bool {
+    a == b || a == "window" || b == "window"
+}
+
+/// The record written before the outcome is decided: as [`retry_record`],
+/// with a confirmed route downgraded to delivered and the outcome uncertain
+/// (a restart before the outcome must not return a confirmed it never got).
+fn provisional_record(out: &ToolOutput) -> String {
+    let mut record = out.clone();
+    if record.body.get("evidence") == Some(&json!("confirmed")) {
+        record.body["evidence"] = json!("delivered");
+    }
+    if record.body.get("evidence").is_some() {
+        record.body["outcome"] = json!("uncertain");
+        record.body["outcome_reason"] = json!("the call was cut off before its outcome was read");
+    }
+    retry_record(&record)
+}
+
+/// What a retried call id returns: the result without its state, image or
+/// the route's internal keys (`shows`, `expect`).
+fn retry_record(out: &ToolOutput) -> String {
+    let mut record = out.clone();
+    if let Some(body) = record.body.as_object_mut() {
+        for key in ["state", "shows", "expect"] {
+            body.remove(key);
+        }
+    }
+    record.png_base64 = None;
+    record.to_json().to_string()
+}
+
+#[path = "engine_observe.rs"]
+mod observe_glue;
 
 #[cfg(test)]
 #[path = "engine_tests.rs"]
@@ -1875,3 +2269,7 @@ mod focus_tests;
 #[cfg(test)]
 #[path = "engine_menus_tests.rs"]
 mod menus_tests;
+
+#[cfg(test)]
+#[path = "engine_observe_tests.rs"]
+mod observe_tests;

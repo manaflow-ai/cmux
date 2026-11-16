@@ -109,6 +109,10 @@ impl State {
                 UIA_ToggleToggleStatePropertyId,
                 UIA_ExpandCollapseExpandCollapseStatePropertyId,
                 UIA_LegacyIAccessibleDefaultActionPropertyId,
+                // The element's identity across walks and its app-given name
+                // (crate::observe: stable element ids).
+                UIA_RuntimeIdPropertyId,
+                UIA_AutomationIdPropertyId,
             ] {
                 cache.AddProperty(p).map_err(|e| e.to_string())?;
             }
@@ -350,6 +354,43 @@ fn value_of(el: &IUIAutomationElement) -> String {
     String::new()
 }
 
+/// The element's RuntimeId (from the cache) as one number: UIA keeps it for
+/// the element's life, so equal ids across two walks are the same element.
+///
+/// # Safety
+/// `el` is an element of this thread whose cache holds the RuntimeId.
+unsafe fn runtime_identity(el: &IUIAutomationElement) -> Option<u64> {
+    use windows::Win32::System::Ole::{
+        SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound,
+    };
+    use windows::Win32::System::Variant::{VT_ARRAY, VT_I4};
+    // SAFETY: the caller's contract; the VARIANT is read only as the type it
+    // says it holds, and dropped (cleared) at the end.
+    unsafe {
+        let v = el.GetCachedPropertyValue(UIA_RuntimeIdPropertyId).ok()?;
+        let inner = &v.Anonymous.Anonymous;
+        if inner.vt.0 != VT_ARRAY.0 | VT_I4.0 {
+            return None;
+        }
+        let arr = inner.Anonymous.parray;
+        if arr.is_null() {
+            return None;
+        }
+        let lo = SafeArrayGetLBound(arr, 1).ok()?;
+        let hi = SafeArrayGetUBound(arr, 1).ok()?;
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for i in lo..=hi {
+            let mut x: i32 = 0;
+            SafeArrayGetElement(arr, &i, (&raw mut x).cast()).ok()?;
+            for b in x.to_le_bytes() {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        (hi >= lo).then_some(h)
+    }
+}
+
 impl Walk<'_> {
     fn node(&mut self, el: &IUIAutomationElement, depth: usize) -> Element {
         let index = self.elements.len();
@@ -370,6 +411,13 @@ impl Walk<'_> {
             let disabled = el.CachedIsEnabled().is_ok_and(|b| !b.as_bool());
             (role, name, frame, focused, disabled)
         };
+        // SAFETY: COM calls on cached data of this thread's element.
+        let (identity, identifier) = unsafe {
+            (
+                runtime_identity(el),
+                el.CachedAutomationId().map(|s| s.to_string()).unwrap_or_default(),
+            )
+        };
         let mut node = Element {
             id: pure::element_id(self.generation, index),
             role: role.into(),
@@ -379,7 +427,9 @@ impl Walk<'_> {
             actions: actions_of(el),
             focused,
             disabled,
-            children: Vec::new(),
+            identifier,
+            identity,
+            ..Element::default()
         };
         if depth + 1 >= self.options.max_depth {
             // SAFETY: a COM call on this thread's objects.

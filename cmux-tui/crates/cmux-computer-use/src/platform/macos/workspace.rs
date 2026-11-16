@@ -117,6 +117,19 @@ pub fn app_for_pid(pid: i32) -> Option<RunningApp> {
     })
 }
 
+/// The general pasteboard's change count (it goes up with every write).
+pub fn pasteboard_change_count() -> Option<i64> {
+    autoreleasepool(|_| {
+        let cls = AnyClass::get(c"NSPasteboard")?;
+        // SAFETY: +generalPasteboard returns the shared pasteboard (or nil).
+        let pb: Option<Retained<AnyObject>> = unsafe { msg_send![cls, generalPasteboard] };
+        let pb = pb?;
+        // SAFETY: -changeCount returns NSInteger.
+        let count: isize = unsafe { msg_send![&*pb, changeCount] };
+        Some(count as i64)
+    })
+}
+
 /// The frontmost app's pid, as NSWorkspace knows it.
 pub fn frontmost_pid() -> Option<i32> {
     autoreleasepool(|_| {

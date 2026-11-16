@@ -128,8 +128,10 @@ pub struct RawFrame {
 }
 
 /// One accessibility node. `id` is valid for the window's current tree
-/// generation; a stale id gives [`DesktopError::StaleElement`].
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+/// generation; a stale id gives [`DesktopError::StaleElement`]. The engine
+/// gives agents small ids that stay the same across trees of a window
+/// ([`crate::observe`]) and maps them back to these.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Element {
     pub id: String,
     pub role: String,
@@ -146,6 +148,25 @@ pub struct Element {
     pub focused: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub disabled: bool,
+    /// The app's own name for the element (macOS AXIdentifier, Windows
+    /// AutomationId), when it has one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub identifier: String,
+    /// A menu item's keyboard shortcut as press_key takes it (`cmd+shift+s`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub shortcut: String,
+    /// A menu item shows a check mark (or another mark).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub checked: bool,
+    /// A row, tab or item is selected.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub selected: bool,
+    /// The platform's identity for the element, equal across two trees of a
+    /// window exactly when it is the same element (macOS: the AXUIElement's
+    /// hash; Linux: its AT-SPI object). The engine matches elements by it to
+    /// keep their ids; never sent.
+    #[serde(skip)]
+    pub identity: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Element>,
 }
@@ -261,6 +282,48 @@ pub struct ActionOutcome {
     /// The menu the action opened, picked from or cancelled ([`crate::menus`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub menu: Option<crate::menus::MenuReport>,
+    /// Where the intended effect must show when it happens, so seeing
+    /// nothing there means it did not: `value` (the element's value),
+    /// `selection`, `text` (typed into a text element), `scroll`. `None`: the
+    /// effect may not show at all (a button, a menu item, a chord, a click on
+    /// a canvas), so seeing nothing proves nothing. The engine reads it to
+    /// decide the outcome and drops it from the result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shows: Option<String>,
+    /// A read-back of the intended effect the platform can do once the
+    /// action has settled ([`Desktop::read_back`]): typed keys and scrolls
+    /// land a little after they are posted. The engine drops it from the
+    /// result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<Expect>,
+}
+
+/// A pending read-back ([`ActionOutcome::expect`]): the platform's handle
+/// and what it checks (`text`: the typed text is in the element's value;
+/// `scroll`: the scrolled view moved).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Expect {
+    pub token: u64,
+    pub what: String,
+    /// The state already matched before the action (the caret was there,
+    /// everything was selected, the value was the one asked for).
+    #[serde(default)]
+    pub already: bool,
+    /// The intended change the read-back checks: the state before the
+    /// action, read when the check was built, and the state wanted. The
+    /// engine confirms only a change: `before != wanted`.
+    #[serde(default)]
+    pub before: String,
+    #[serde(default)]
+    pub wanted: String,
+}
+
+impl Expect {
+    /// Whether the read-back states a change (its wanted state did not
+    /// already hold before the action).
+    pub fn states_change(&self) -> bool {
+        !self.already && self.before != self.wanted
+    }
 }
 
 impl ActionOutcome {
@@ -272,6 +335,11 @@ impl ActionOutcome {
     }
     pub fn at(mut self, point: Point) -> Self {
         self.cursor_at = Some(point);
+        self
+    }
+    /// Where the intended effect must show ([`Self::shows`]).
+    pub fn showing(mut self, place: &str) -> Self {
+        self.shows = Some(place.into());
         self
     }
 }
@@ -339,6 +407,75 @@ pub struct FocusSnapshot {
     pub pointer: Option<Point>,
 }
 
+/// Accessibility signals an app sent while an action ran and settled: what
+/// changed by the app's own account (a value, a title, a selection, focus, a
+/// window or sheet, a menu), counted in the target window and elsewhere
+/// (another window, a menu, a popover, the app itself).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Signals {
+    /// Signals from elements of the target window.
+    pub in_window: u32,
+    /// Signals from anywhere else in the app.
+    pub elsewhere: u32,
+    /// Count per notification name (`AXValueChanged`, ...).
+    pub kinds: std::collections::BTreeMap<String, u32>,
+    /// When the last one came, ms after the watch started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_ms: Option<u64>,
+    /// How long ago the last one came, ms (when the signals were read).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since_last_ms: Option<u64>,
+}
+
+impl Signals {
+    pub fn total(&self) -> u32 {
+        self.in_window + self.elsewhere
+    }
+}
+
+/// [`World::changes_since`]'s words for a new front app.
+pub const FRONT_APP_CHANGED: &str = "the front app changed";
+
+/// What outside the target window could show an action's effect, read before
+/// and after it: the on-screen windows of every process (a window, panel,
+/// menu or another app it opened), the pasteboard (a copy) and the front app.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct World {
+    pub windows: Vec<String>,
+    pub pasteboard: Option<i64>,
+    pub front_pid: Option<u32>,
+}
+
+impl World {
+    /// What changed from `before` to `self`, in words (empty: nothing).
+    pub fn changes_since(&self, before: &World) -> Vec<String> {
+        let mut out = Vec::new();
+        let opened = self.windows.iter().filter(|w| !before.windows.contains(w)).count();
+        let closed = before.windows.iter().filter(|w| !self.windows.contains(w)).count();
+        if opened > 0 {
+            out.push(format!("{opened} window(s) opened on screen"));
+        }
+        if closed > 0 {
+            out.push(format!("{closed} window(s) closed"));
+        }
+        if self.pasteboard != before.pasteboard {
+            out.push("the pasteboard changed".into());
+        }
+        if self.front_pid != before.front_pid {
+            out.push(FRONT_APP_CHANGED.into());
+        }
+        out
+    }
+}
+
+/// A watch on an app's accessibility signals; stops when dropped.
+pub trait Watch: Send {
+    /// The signals so far.
+    fn signals(&self) -> Signals;
+    /// Whether the watch is really listening (the app took the observer).
+    fn listening(&self) -> bool;
+}
+
 /// One desktop. Calls block; the engine runs them off any UI thread.
 pub trait Desktop: Send + Sync {
     fn info(&self) -> PlatformInfo;
@@ -364,6 +501,35 @@ pub trait Desktop: Send + Sync {
             .collect();
         ids.sort();
         Ok(ids)
+    }
+    /// Starts watching the app of `window_id` for accessibility signals
+    /// ([`Signals`]) until the returned watch is dropped. `None`: the
+    /// platform cannot watch (then nothing is known about effects outside the
+    /// window's pixels and elements).
+    fn watch(&self, _window_id: &str) -> Option<Box<dyn Watch>> {
+        None
+    }
+    /// The [`World`] now; `None` when the platform cannot read it.
+    fn world(&self) -> Option<World> {
+        None
+    }
+    /// Reads back an action's intended effect after it settled
+    /// ([`ActionOutcome::expect`]), once: `Some(true)` it shows, `Some(false)`
+    /// it does not (yet), `None` unknown.
+    fn read_back(&self, _expect: &Expect) -> Option<bool> {
+        None
+    }
+    /// Reads `expect`'s check now and keeps it for a later
+    /// [`Self::read_back`] (a batch step: right after the step, then after
+    /// the batch's settle). `None`: unreadable.
+    fn peek_back(&self, _expect: &Expect) -> Option<bool> {
+        None
+    }
+    /// Whether the app of `window_id` answers an accessibility request now
+    /// (a stalled app shows nothing new because it does nothing at all).
+    /// `None`: unknown.
+    fn responsive(&self, _window_id: &str) -> Option<bool> {
+        None
     }
     /// Whether the app of `window` is the frontmost app (where the person's
     /// keys go). The default looks it up in [`Self::list_apps`].
@@ -478,6 +644,13 @@ pub trait Desktop: Send + Sync {
     /// The menu setting and the deny list's app names, before every acting
     /// call ([`crate::menus`]). A desktop that opens no menus ignores it.
     fn set_menu_policy(&self, _policy: crate::menus::MenuPolicy) {}
+
+    /// Whether windows have title bars the desktop draws (macOS), where a
+    /// background click does nothing; elsewhere (Wayland's client-side
+    /// decorations, custom frames) the top of a window may be the app's own.
+    fn draws_title_bars(&self) -> bool {
+        false
+    }
 
     /// Whether `click` can open a menu, choose `ClickSpec::menu_item` and
     /// close it in one call.

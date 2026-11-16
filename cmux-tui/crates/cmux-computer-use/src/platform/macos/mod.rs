@@ -16,10 +16,12 @@ mod input;
 mod key_focus;
 mod keymap;
 mod menus;
+mod readback;
 mod roles;
 mod sys;
 #[cfg(test)]
 mod tests;
+mod watch;
 mod workspace;
 
 use std::collections::{HashMap, HashSet};
@@ -38,6 +40,8 @@ pub struct MacDesktop {
     menu_policy: Mutex<crate::menus::MenuPolicy>,
     /// The menu a call opened and left open, and its window.
     opened: Mutex<Option<menus::Opened>>,
+    /// Read-backs the engine asks for after an action settled.
+    checks: Mutex<readback::Checks>,
 }
 
 impl MacDesktop {
@@ -48,7 +52,16 @@ impl MacDesktop {
             menu_guard: std::sync::RwLock::new(None),
             menu_policy: Mutex::new(crate::menus::MenuPolicy::default()),
             opened: Mutex::new(None),
+            checks: Mutex::new(readback::Checks::default()),
         }
+    }
+
+    /// Keeps `check` for the engine's read-back after the settle.
+    /// Keeps `check` for the engine's read-back after the settle (its
+    /// intended change goes with it; see [`readback`]).
+    fn expect(&self, check: Option<readback::Check>) -> Option<Expect> {
+        let check = check?;
+        Some(self.checks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).add(check))
     }
 
     fn guard(&self) -> Option<Arc<dyn MenuGuard>> {
@@ -307,6 +320,35 @@ pub(super) fn frontmost_pid() -> Option<i32> {
         .or_else(workspace::frontmost_pid)
 }
 
+/// Which app is "front", by what each caller needs:
+/// - [`frontmost_pid`]: the app with keyboard focus (AX's focused
+///   application, else NSWorkspace). A non-activating panel (Spotlight,
+///   Raycast) has the keyboard while another app stays active.
+/// - [`active_pid`]: the active app (NSWorkspace `frontmostApplication`),
+///   whose windows AppKit treats as active; a non-activating panel does not
+///   change it.
+/// - [`press_aiming`]: a posted press names its window only when the
+///   target is both the active app and the keyboard's, each read right
+///   before the post; readings that disagree, or one unread, post nothing.
+pub(super) fn active_pid() -> Option<i32> {
+    workspace::frontmost_pid()
+}
+
+/// How a press posted to `pid` right now is aimed ([`roles::press_aiming`]).
+pub(super) fn press_aiming(pid: i32) -> roles::Aiming {
+    roles::press_aiming(active_pid(), frontmost_pid(), pid)
+}
+
+/// The press aiming as the posting function takes it: addressed or not,
+/// or the refusal.
+pub(super) fn aimed(pid: i32) -> DResult<bool> {
+    match press_aiming(pid) {
+        roles::Aiming::Addressed => Ok(true),
+        roles::Aiming::Unaddressed => Ok(false),
+        roles::Aiming::Refuse => Err(DesktopError::Unsupported(roles::FRONT_UNSURE.into())),
+    }
+}
+
 fn post_event_granted() -> bool {
     // SAFETY: no arguments.
     unsafe { sys::CGPreflightPostEventAccess() }
@@ -494,6 +536,65 @@ impl Desktop for MacDesktop {
             .collect();
         ids.sort();
         Ok(ids)
+    }
+
+    fn peek_back(&self, expect: &Expect) -> Option<bool> {
+        let checks = self.checks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        checks.get(expect.token)?.holds()
+    }
+
+    fn read_back(&self, expect: &Expect) -> Option<bool> {
+        let check = self
+            .checks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take(expect.token)?;
+        check.holds()
+    }
+
+    /// One short AX round-trip to the window's app (its role).
+    fn responsive(&self, window_id: &str) -> Option<bool> {
+        let id = window_id.parse::<u32>().ok()?;
+        let cg = cgwindows::by_id(id)?;
+        let app = Ax::application(cg.pid)?;
+        app.set_timeout(0.25);
+        Some(app.string("AXRole").is_some())
+    }
+
+    /// The target window's app, watched for accessibility signals.
+    fn watch(&self, window_id: &str) -> Option<Box<dyn Watch>> {
+        let id = window_id.parse::<u32>().ok()?;
+        let cg = cgwindows::by_id(id)?;
+        Some(Box::new(watch::AxWatch::start(cg.pid, id)))
+    }
+
+    /// Every process's on-screen windows at the levels of normal windows
+    /// through menus (not this process's own, such as the agent cursor), the
+    /// pasteboard's change count and the front app.
+    fn world(&self) -> Option<World> {
+        let own = std::process::id() as i32;
+        let mut windows: Vec<String> = cgwindows::on_screen()
+            .into_iter()
+            .filter(|w| {
+                w.pid != own
+                    && (0..=101).contains(&w.layer)
+                    && w.frame.width >= 2.0
+                    && w.alpha > 0.0
+            })
+            .map(|w| w.id.to_string())
+            .collect();
+        windows.sort();
+        // The window server's front app, as everywhere else here; unread
+        // pieces make the whole unknown.
+        Some(World {
+            windows,
+            pasteboard: Some(workspace::pasteboard_change_count()?),
+            front_pid: Some(active_pid()? as u32),
+        })
+    }
+
+    fn draws_title_bars(&self) -> bool {
+        true
     }
 
     /// One window from the window server and its app alone; the full list
@@ -694,8 +795,11 @@ impl Desktop for MacDesktop {
         })
     }
 
+    // The person's focus is the active app (NSWorkspace): a non-activating
+    // panel (Spotlight, Raycast) holding the keyboard does not change it,
+    // and restoring "focus" to the panel's app would activate it.
     fn focus_snapshot(&self) -> Option<FocusSnapshot> {
-        let pid = frontmost_pid()?;
+        let pid = active_pid()?;
         let app_id =
             workspace::app_for_pid(pid).map(|a| a.id()).unwrap_or_else(|| format!("pid:{pid}"));
         let window_id = Ax::application(pid)
@@ -720,7 +824,7 @@ impl Desktop for MacDesktop {
         let yes =
             sys::Cf::boolean(true).ok_or_else(|| DesktopError::Failed("no boolean".into()))?;
         let mut accepted = true;
-        if frontmost_pid() != Some(pid) {
+        if active_pid() != Some(pid) {
             accepted = app.set("AXFrontmost", &yes).is_ok() || workspace::activate(pid);
         }
         let window = match prior.window_id.as_deref().and_then(|w| w.parse::<u32>().ok()) {
@@ -728,8 +832,10 @@ impl Desktop for MacDesktop {
             None => app.element("AXFocusedWindow"),
         };
         if let Some(window) = window {
+            // caret-gate: not a field write (the person's own window, put
+            // back as it was)
             let _ = window.set("AXMain", &yes);
-            let _ = window.set("AXFocused", &yes);
+            let _ = window.set("AXFocused", &yes); // caret-gate: restoring the person's window
             accepted &= window.perform("AXRaise").is_ok();
         }
         Ok(accepted)

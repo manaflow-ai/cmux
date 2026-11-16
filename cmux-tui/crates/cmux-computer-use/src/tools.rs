@@ -30,6 +30,19 @@ pub fn safe_tag(tag: &str) -> Option<String> {
 pub const OBSERVES: &[&str] =
     &["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "batch"];
 
+/// The acting tools whose pre-action guards `force` skips ([`crate::observe::guards`]).
+pub const GUARDED: &[&str] = &["click", "type_text", "scroll", "set_value", "perform_action"];
+
+/// `format`: how a look comes back.
+fn format_arg() -> Value {
+    json!({"type": "string", "enum": ["outline", "json"], "description": "outline (default): one line per element, [id] role \"name\" = value, flags. json: the tree as JSON, every look whole (for scripts)."})
+}
+
+/// `full`: the whole outline instead of the changes.
+fn full_arg() -> Value {
+    json!({"type": "boolean", "description": "After your first look at a window, a look shows only what changed since your last one; true shows the whole tree."})
+}
+
 /// One tool.
 pub struct Tool {
     pub name: &'static str,
@@ -56,7 +69,15 @@ impl Tool {
                 );
                 props.insert(
                     "observe".into(),
-                    json!({"type": "boolean", "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. state.unchanged true means your last screenshot of it still holds. false: skip it."}),
+                    json!({"type": "boolean", "description": "Default true: the result carries the window after acting (state: its screenshot once it changed, and its elements: what changed since your last look, or that nothing did). false: skip it."}),
+                );
+                props.insert("full".into(), full_arg());
+                props.insert("format".into(), format_arg());
+            }
+            if GUARDED.contains(&self.name) {
+                props.insert(
+                    "force".into(),
+                    json!({"type": "boolean", "description": "Skip the checks that refuse an action that would do nothing (disabled element, title bar, no text focus, element out of view). Only when you are sure."}),
                 );
             }
             props.insert(
@@ -134,10 +155,17 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "get_ui_tree",
         access: Access::Observe,
-        description: "The window's accessibility tree: element ids, roles, names, values, frames (screenshot pixels) and actions. Prefer element_id targets over coordinates: they work in the background and survive layout changes. On macOS the tree ends with the app's menu bar (role menu bar), every menu's items listed while the menus stay closed: click a menu item's element_id to run it (About, Save As..., Make Plain Text) without opening a menu.",
+        description: "The window's elements, one line each: [id] role \"name\" = value, then flags (focused, disabled, checked, a menu item's shortcut, extra actions). Ids stay the same for the same element across looks and actions; use them as element_id (best: works in the background). After your first look, a look shows only the changes since your last one (+ added, ~ changed with what it was, - removed), or says nothing changed. The menu bar lists its menus: click a menu's id to list its items (it stays closed), then click an item's id to run it.",
         schema: || {
             obj(
-                json!({"window_id": window_id(), "max_nodes": {"type": "integer", "minimum": 1, "maximum": 5000}}),
+                json!({
+                    "window_id": window_id(),
+                    "max_nodes": {"type": "integer", "minimum": 1, "maximum": 5000},
+                    "full": full_arg(),
+                    "format": format_arg(),
+                    "frames": {"type": "boolean", "description": "End each line with its frame in screenshot pixels (@x,y wxh)."},
+                    "menus": {"type": "boolean", "description": "List every menu bar menu's items too."}
+                }),
                 &["window_id"],
             )
         },
@@ -145,7 +173,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "click",
         access: Access::Act,
-        description: "Click an element (element_id) or a point (x, y in screenshot pixels) in a window, in the background. With no window_id, x and y are pixels of your latest display screenshot. A click on a pop-up or menu button, or a right click or control-click, opens its menu and leaves it open: the result's menu lists the items, and the next call presses one (perform_action press or click on its element in get_ui_tree). With menu_item, the menu opens, that item is pressed and the menu closes in this one call (a context menu too; use it when the menu would hide items or hold the person's keyboard). To choose a pop-up item in one call, set_value also works. Menu bar menus are not opened in the background.",
+        description: "Click an element (element_id) or a point (x, y in screenshot pixels) in a window, in the background. With no window_id, x and y are pixels of your latest display screenshot. A click on a pop-up or menu button, or a right click or control-click, opens its menu and leaves it open: the result shows only that menu, its items with ids, and the next call clicks one. With menu_item, the menu opens, that item is pressed and the menu closes in this one call (a context menu too; use it when the menu would hide items or hold the person's keyboard). To choose a pop-up item in one call, set_value also works. A menu bar menu's id lists its items without opening it. Refused, with what to do instead, when the click would do nothing: a disabled element, a pixel on the title bar, an element scrolled out of view.",
         schema: || {
             obj(
                 json!({
@@ -165,7 +193,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "type_text",
         access: Access::Act,
-        description: "Type text into the window's focused field, or into element_id. Background by default.",
+        description: "Type text into element_id (a text field, focused first through accessibility), or into the window's focused field. Refused when element_id is a control that takes no text, or when the focus is on a native checkbox, slider or pop-up that would take the keys as commands. Check the result: the field's new value shows as a change; no change means the text did not land.",
         schema: || {
             obj(
                 json!({"window_id": window_id(), "text": {"type": "string"}, "element_id": {"type": "string"}, "delivery": delivery()}),
@@ -241,11 +269,13 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "wait",
         access: Access::Observe,
-        description: "Wait for slow work (a page load, a build, an animation), then return the window's state (or a display screenshot without window_id). ms defaults to 2000, at most 100000; duration in seconds also works.",
+        description: "Wait for slow work (a page load, a build, an animation), then return the window's state: what changed since your last look (or a display screenshot without window_id). ms defaults to 2000, at most 100000; duration in seconds also works.",
         schema: || {
             obj(
                 json!({
                     "window_id": window_id(),
+                    "full": full_arg(),
+                    "format": format_arg(),
                     "ms": {"type": "number", "minimum": 0, "maximum": 100000},
                     "duration": {"type": "number", "minimum": 0, "maximum": 100}
                 }),
@@ -311,7 +341,7 @@ pub fn mcp_list() -> Value {
 }
 
 /// The instructions an agent gets with the server (MCP `instructions`).
-pub const INSTRUCTIONS: &str = "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. When the task is about something on this computer, look before you answer: it usually means an app or document already open, so start with list_windows (or list_apps) and work in that window rather than replying in chat. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. App menu commands are in the tree's menu bar: click a menu item to run it. Every action returns the window after acting (state: screenshot and tree), so do not take another screenshot to check. Work in the background first: it never takes the person's focus or pointer, a blue cmux cursor shows them where you act, and it works for nearly everything. Use delivery foreground only when the person allowed it (status says), and only for a system-wide shortcut (cmd+space for Spotlight) or when the person wants the app in front: when the task is to open or show them something, finish by bringing that window forward (a foreground click on its title bar raises it). Foreground takes their focus. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.";
+pub const INSTRUCTIONS: &str = "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. When the task is about something on this computer, look before you answer: it usually means an app or document already open, so start with list_windows (or list_apps) and work in that window rather than replying in chat. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. Element ids stay the same across looks. App menu commands are in the tree's menu bar: click a menu's id to list its items, then click the item to run it. Every action returns the window after acting: what changed since your last look (+ added, ~ changed, - removed, windows opened or closed) and a screenshot when it changed. Read it before you say a step worked: \"No change\" means the action did nothing visible, so try another way instead of reporting it done. Work in the background first: it never takes the person's focus or pointer, a blue cmux cursor shows them where you act, and it works for nearly everything. Use delivery foreground only when the person allowed it (status says), and only for a system-wide shortcut (cmd+space for Spotlight) or when the person wants the app in front: when the task is to open or show them something, finish by bringing that window forward (a foreground click on its title bar raises it). Foreground takes their focus. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.";
 
 #[cfg(test)]
 mod tests {

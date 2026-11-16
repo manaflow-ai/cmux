@@ -92,6 +92,511 @@ pub fn is_text_input(role: &str) -> bool {
     matches!(role, "AXTextField" | "AXTextArea" | "AXComboBox" | "AXSearchField")
 }
 
+/// Whether a press (`AXPress`, `AXIncrement`, `AXDecrement`) on an element
+/// of `role` must show in its value: a checkbox, radio button, switch,
+/// disclosure triangle, stepper or slider. A plain button, `AXConfirm`,
+/// `AXCancel`, `AXShowMenu` or a custom action may act where nothing shows.
+pub fn press_shows_value(role: &str, subrole: Option<&str>, action: &str) -> bool {
+    let value_role = matches!(
+        role,
+        "AXCheckBox" | "AXRadioButton" | "AXDisclosureTriangle" | "AXIncrementor" | "AXSlider"
+    ) || subrole == Some("AXSwitch");
+    value_role && matches!(action, "AXPress" | "AXIncrement" | "AXDecrement")
+}
+
+/// The digit `title` is, when it is exactly one ASCII digit.
+pub fn single_digit(title: &str) -> Option<char> {
+    let mut chars = title.trim().chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) if c.is_ascii_digit() => Some(c),
+        _ => None,
+    }
+}
+
+/// Whether a press finds its effect already done: a radio button already on
+/// (value 1) stays on.
+pub fn press_already_done(role: &str, action: &str, before: &str) -> bool {
+    role == "AXRadioButton" && action == "AXPress" && before.trim() == "1"
+}
+
+/// Whether a plain click in a text element may place the caret through
+/// accessibility: not when the element is denied (`blocked`), not in a
+/// table or list row (a click there selects the row, an editable cell does
+/// not start editing), and not in the app the person is using (it would
+/// move their caret).
+pub fn caret_click_allowed(blocked: bool, in_row: bool, persons_app: bool) -> bool {
+    !blocked && !in_row && !persons_app
+}
+
+/// A slider about as tall as it is wide: a circular one (its value follows
+/// the angle, not a track).
+pub fn looks_circular(frame: &Rect) -> bool {
+    let ratio = frame.width / frame.height;
+    (0.8..=1.25).contains(&ratio)
+}
+
+/// How near a slider's read value must be to the wanted one: 2% of its range
+/// (a slider with tick marks snaps to the nearest one).
+pub fn slider_tolerance(min: f64, max: f64) -> f64 {
+    ((max - min) * 0.02).max(f64::EPSILON)
+}
+
+/// How typed text reaches a text element in the background.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InsertRoute {
+    /// Insert through accessibility (AXSelectedText), never followed by keys.
+    Ax,
+    /// Posted keys, gated as always, read back at the caret: web content and
+    /// browser fields accept an AX write and ignore it.
+    Keys,
+}
+
+/// [`InsertRoute`] for an element inside web content (an AXWebArea
+/// ancestor) or in a browser app.
+pub fn insert_route(in_web_content: bool, browser_app: bool) -> InsertRoute {
+    if in_web_content || browser_app { InsertRoute::Keys } else { InsertRoute::Ax }
+}
+
+/// Browser engines by bundle id prefix (any case): their text fields
+/// accept AX writes without applying them.
+pub const BROWSERS: &[&str] = &[
+    "com.apple.Safari",
+    "com.google.Chrome",
+    "org.chromium.Chromium",
+    "company.thebrowser.",
+    "org.mozilla.",
+    "com.microsoft.edgemac",
+    "com.brave.Browser",
+    "com.operasoftware.Opera",
+    "com.vivaldi.Vivaldi",
+    "com.kagi.kagimacOS",
+    "app.zen-browser.",
+    "com.duckduckgo.macos.browser",
+];
+
+/// Whether the app with `bundle_id` is a browser ([`BROWSERS`]).
+pub fn is_browser(bundle_id: Option<&str>) -> bool {
+    bundle_id.is_some_and(|id| {
+        let id = id.to_ascii_lowercase();
+        BROWSERS.iter().any(|p| id.starts_with(&p.to_ascii_lowercase()))
+    })
+}
+
+/// The value a set_value request writes, as `value_for` maps it: on an
+/// element whose value is a number, "true"/"on" is 1 and "false"/"off" is
+/// 0, and a number is that number (written out as AX reads it back);
+/// `None` when the request is no number there (the write is refused).
+pub fn requested_value(current_is_number: bool, value: &str) -> Option<String> {
+    if !current_is_number {
+        return Some(value.to_string());
+    }
+    let n: f64 = match value.trim() {
+        "true" | "on" => 1.0,
+        "false" | "off" => 0.0,
+        s => s.parse().ok()?,
+    };
+    Some(if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { format!("{n}") })
+}
+
+/// Whether an element is in web content, from the roles from it up to its
+/// window (`None`: a read failed or the walk ran past its bound). Callers
+/// choose the safe side for `Unknown` themselves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Web {
+    In,
+    Out,
+    Unknown,
+}
+
+/// [`Web`] from the roles walked.
+pub fn web_content(roles: Option<Vec<String>>) -> Web {
+    match roles {
+        None => Web::Unknown,
+        Some(r) if r.iter().any(|r| r == "AXWebArea") => Web::In,
+        // Not web only for a walk that reached the window or the app.
+        Some(r) if r.last().is_some_and(|l| matches!(l.as_str(), "AXWindow" | "AXApplication")) => {
+            Web::Out
+        }
+        Some(_) => Web::Unknown,
+    }
+}
+
+/// Whether the native AX routes (caret, text drag, slider, scroll, the AX
+/// insert) may run: only outside web content, known; unknown takes the
+/// events or the keys.
+pub fn native_route(web: Web) -> bool {
+    web == Web::Out
+}
+
+/// Whether the menu gate treats an element as web content (which narrows
+/// the roles that open a menu to a pop-up with one). Unknown is not web:
+/// the full gate applies, so nothing that could open a menu passes
+/// ungated.
+pub fn menu_gate_web(web: Web) -> bool {
+    web == Web::In
+}
+
+/// The tolerance a stepper's read-back allows around its target: half a
+/// step (so stopping one step short does not reach it, and one step moved
+/// from one step away is not "already"), and a hair more for rounding.
+pub fn step_tolerance(step: f64) -> f64 {
+    step.abs() / 2.0 + 1e-9
+}
+
+/// The refusal when an element that may open a menu cannot be read.
+pub const MENU_UNREAD_REFUSAL: &str = "this element could not be read well enough to tell whether it opens a menu, so nothing was done; try again, or take a screenshot and use another element";
+
+/// What the focus guard reads after an AX focus write ([`focus_guard`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FocusFacts {
+    /// The app's focused element: `Some(true)` the target, `Some(false)`
+    /// another, `None` none reported.
+    pub app_names_target: Option<bool>,
+    /// The target's own AXFocused before and after the write.
+    pub own_before: Option<bool>,
+    pub own_after: Option<bool>,
+    /// The target is in web content, through this many web areas.
+    pub in_web: bool,
+    pub web_areas: usize,
+    /// The web area's host view (the element just outside it) AXFocused.
+    pub host_focused: Option<bool>,
+    /// The app reports no focused window, and then whether it has a sheet
+    /// or more than one window keys could reach.
+    pub no_focused_window: bool,
+    pub other_targets: bool,
+}
+
+/// Whether keys may follow an AX focus write. The app naming the target
+/// posts keys; naming another element posts none. Naming none (a background
+/// app; Safari's background web field on macOS 27.0.1), the target's own
+/// focus must have turned false to true across the write (document-level
+/// focus alone could be another web view's, an inspector's), in web content
+/// its host view must be focused and the walk must pass one web area only
+/// (an iframe is refused), and with no focused window the app must have no
+/// sheet and only one window keys could reach.
+pub fn focus_guard(f: &FocusFacts) -> bool {
+    match f.app_names_target {
+        Some(same) => same && f.web_areas <= 1,
+        None => {
+            f.own_before == Some(false)
+                && f.own_after == Some(true)
+                && f.web_areas <= 1
+                && (!f.in_web || f.host_focused == Some(true))
+                && !(f.no_focused_window && f.other_targets)
+        }
+    }
+}
+
+/// `before` with `text` inserted at the UTF-16 range (`location`, `length`)
+/// it replaces; `None` when the range lies outside `before`.
+pub fn insert_at(before: &str, text: &str, location: isize, length: isize) -> Option<String> {
+    let b: Vec<u16> = before.encode_utf16().collect();
+    let (start, len) = (usize::try_from(location).ok()?, usize::try_from(length).ok()?);
+    let end = start.checked_add(len)?;
+    if end > b.len() {
+        return None;
+    }
+    let mut out: Vec<u16> = b[..start].to_vec();
+    out.extend(text.encode_utf16());
+    out.extend(&b[end..]);
+    String::from_utf16(&out).ok()
+}
+
+/// What the web value route reads of a field ([`web_value_gate`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct WebField {
+    pub kind: WebKind,
+    pub secure: bool,
+    pub width: f64,
+    pub height: f64,
+    /// Its frame overlaps its window.
+    pub on_screen: bool,
+    pub hidden: bool,
+    /// It exposes a length limit (AXMaxLength), which a value write does
+    /// not apply.
+    pub limited: bool,
+    pub center: Point,
+}
+
+/// What a web text element is, for its value to be its content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WebKind {
+    /// A text field or search field with no children: an `<input>`.
+    Plain,
+    /// A text field with children: rich content (`role="textbox"`).
+    Rich,
+    /// A text area: a native `<textarea>` or a contenteditable, which
+    /// Safari shows alike.
+    Area,
+    /// Anything else (a combobox, a group).
+    Other,
+}
+
+/// From the element's role and how many children it has. Live in Safari
+/// (macOS 27.0.1): an `<input>` has none; a native `<textarea>` and a
+/// one-paragraph contenteditable (an empty ProseMirror `<p><br></p>`, a
+/// one-paragraph Quill, a one-line CodeMirror 6) are both an AXTextArea with
+/// one AXGroup child, with the same attributes, settable attributes,
+/// parameterized attributes and actions, so no text area counts as plain.
+pub fn web_kind(role: &str, kids: usize) -> WebKind {
+    match role {
+        "AXTextField" | "AXSearchField" if kids == 0 => WebKind::Plain,
+        "AXTextField" | "AXSearchField" => WebKind::Rich,
+        "AXTextArea" => WebKind::Area,
+        _ => WebKind::Other,
+    }
+}
+
+/// Whether the gate lets a password field through: typing into one by its
+/// value would replace it with what it shows; set_value replaces it by
+/// design (read back by its length).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SecureField {
+    Refuse,
+    Allow,
+}
+
+/// The refusal when a web field's facts cannot be read.
+pub const WEB_FIELD_UNREAD: &str = "this web field could not be read well enough to write its value safely, so nothing was written; try again";
+
+/// The smallest a field may be, wide and high, for its value to be its
+/// content: input helpers of terminals and code editors are styled 1 pt or
+/// hidden (WebKit pads a 1x1 textarea to 12x6 pt), and a text field one can
+/// read is taller than 10 pt.
+pub const WEB_FIELD_MIN: f64 = 10.0;
+
+/// Whether a value write may be made into a web field: a plain text input
+/// (see [`web_kind`]), not tiny, off screen or hidden (an input helper, whose
+/// value is not the content), and not a password field unless `secure`
+/// allows it.
+pub fn web_value_gate(f: Option<&WebField>, secure: SecureField) -> Result<(), &'static str> {
+    let Some(f) = f else { return Err(WEB_FIELD_UNREAD) };
+    if f.secure && secure == SecureField::Refuse {
+        return Err(
+            "this is a password field; its value is never written this way, because what it shows is not its text. Use delivery foreground",
+        );
+    }
+    match f.kind {
+        WebKind::Plain => {}
+        WebKind::Rich => {
+            return Err(
+                "this web text field holds rich content (a rich editor), so its value is not written through accessibility; use delivery foreground",
+            );
+        }
+        WebKind::Area => {
+            return Err(
+                "this is a web text area; a browser shows a native text area and a rich editor alike to accessibility, so its value is not written through accessibility, and the field could not be focused for keys in the background; use delivery foreground",
+            );
+        }
+        WebKind::Other => {
+            return Err(
+                "this web element is not a plain text field (a combobox or another control), so its value is not written through accessibility; use delivery foreground",
+            );
+        }
+    }
+    if f.width < WEB_FIELD_MIN || f.height < WEB_FIELD_MIN || !f.on_screen || f.hidden {
+        return Err(
+            "this web field is tiny, off screen or hidden (an editor's input helper, whose value is not its content), so its value is not written this way; use delivery foreground",
+        );
+    }
+    Ok(())
+}
+
+/// Whether a web field the gate refuses only for being out of its window
+/// is first scrolled into view (a field the page is scrolled past): every
+/// other rule of the gate holds first ([`web_value_gate_but_view`]), so a
+/// tiny, hidden, rich or password field is refused without scrolling; an
+/// input placed off the page cannot be scrolled into view.
+pub fn scroll_into_view_first(f: &WebField, secure: SecureField) -> bool {
+    !f.on_screen && web_value_gate_but_view(f, secure).is_ok()
+}
+
+/// Whether a web field may take a value write: only while it holds its
+/// page's focus (read strictly, `None` unread). Live in Safari (macOS
+/// 27.0.1): an AXValue write on an `<input>` lands in whichever field holds
+/// the page's focus, whichever one was addressed, and returns success.
+pub fn holds_page_focus(focused: Option<bool>) -> bool {
+    focused == Some(true)
+}
+
+/// Whether a failed value write certainly wrote nothing: the app refused
+/// the argument or the attribute. Any other error (no answer in time, an
+/// element gone, a generic failure) may have come after the write applied.
+pub fn write_not_applied(e: super::sys::AXError) -> bool {
+    matches!(
+        e,
+        super::sys::AX_ILLEGAL_ARGUMENT
+            | super::sys::AX_ATTRIBUTE_UNSUPPORTED
+            | super::sys::AX_ACTION_UNSUPPORTED
+    )
+}
+
+/// The note of a web value write at UTF-16 position `at` that replaced
+/// `replaced` selected characters.
+pub fn web_value_note(at: isize, replaced: isize, limited: bool, scrolled: bool) -> String {
+    let what = match replaced {
+        0 => String::new(),
+        1 => ", replacing the 1 selected character,".into(),
+        n => format!(", replacing the {n} selected characters,"),
+    };
+    // macOS 27.0.1, Safari: the value write fires the page's input event
+    // (not change, which comes when the field loses focus).
+    let mut note = format!(
+        "web content: the text was written into the field's value at position {at} (its selection then){what} through accessibility, with no keystrokes, so the page's key handlers did not run (its input event did)"
+    );
+    if limited {
+        note.push_str("; the field has a length limit, which was not applied");
+    }
+    if scrolled {
+        note.push_str("; the page was scrolled to bring the field into view first");
+    }
+    note
+}
+
+/// The gate's rules except being in view, which scrolling can fix: every
+/// other rule refuses before anything is scrolled.
+pub fn web_value_gate_but_view(f: &WebField, secure: SecureField) -> Result<(), &'static str> {
+    web_value_gate(Some(&WebField { on_screen: true, ..f.clone() }), secure)
+}
+
+/// Where background typing into web content goes once the focus write was
+/// tried: keys when the guard proved focus; else the value route when the
+/// field is eligible for it; else the reason it is not (no keys, nothing
+/// written).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WebTyping {
+    Keys,
+    Value,
+    Refuse(&'static str),
+}
+
+pub fn web_typing(focused: bool, eligible: Result<(), &'static str>) -> WebTyping {
+    match (focused, eligible) {
+        (true, _) => WebTyping::Keys,
+        (false, Ok(())) => WebTyping::Value,
+        (false, Err(why)) => WebTyping::Refuse(why),
+    }
+}
+
+/// Where the person's caret is relative to a field a targeted write goes
+/// into, in the app the person is using (#13742: targeted writes into a
+/// field that is not where the person's caret is stay allowed).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Caret {
+    /// The app's focused element is another element, unrelated to the field.
+    Elsewhere,
+    /// The focused element is the field, contains it, or lies inside it.
+    OnTarget,
+    /// The app's focused element could not be read.
+    Unread,
+}
+
+/// One step of the walk up to the menu bar: `Some(true)` at the menu bar,
+/// `Some(false)` at the window or the application (the element is not in
+/// the menu bar), `None` to keep walking. Any other role keeps walking: a
+/// subview inside a menu item's custom view (a search field, a slider, a
+/// button) has a role of its own and is still in the menu bar.
+pub fn menu_bar_walk_step(role: &str) -> Option<bool> {
+    match role {
+        "AXMenuBar" => Some(true),
+        "AXWindow" | "AXApplication" => Some(false),
+        _ => None,
+    }
+}
+
+/// How many levels the walk follows before it gives up: deep enough for
+/// any window's content (Electron and web pages run past 20 levels; the
+/// old cap of 16 refused them).
+pub const MENU_WALK_MAX: usize = 128;
+
+/// Whether an element is in the menu bar, from `role_at(n)`, the role of
+/// its `n`-th ancestor (0: the element itself; `None`: unreadable). `None`
+/// when a role could not be read, or the walk passed [`MENU_WALK_MAX`]
+/// levels without reaching the menu bar, a window or the application.
+pub fn menu_bar_walk(mut role_at: impl FnMut(usize) -> Option<String>) -> Option<bool> {
+    for depth in 0..MENU_WALK_MAX {
+        let role = role_at(depth)?;
+        if let Some(answer) = menu_bar_walk_step(&role) {
+            return Some(answer);
+        }
+    }
+    None
+}
+
+/// The refusal when an element's place (in the menu bar or not) cannot be
+/// read, before a press that the menu bar's checks would gate.
+pub const MENU_PLACE_UNREAD: &str = "Computer Use could not read whether this element is in the menu bar, so it does not act on it (the menu checks could not be applied); try again";
+
+/// Whether a focused element that contains the field may hold the
+/// person's caret on it: a web area, a group or a scroll area may (the caret
+/// sits in a field inside it); a window or the application itself is focused
+/// when no element in it has the caret (live: a fixture window on macOS
+/// 27.0.1 reports its window as the focused element).
+pub fn container_holds_caret(role: &str) -> bool {
+    !matches!(role, "AXWindow" | "AXApplication")
+}
+
+/// Whether a targeted value write may go into a field of the person's app:
+/// only when their caret is elsewhere (an unreadable one fails closed).
+pub fn caret_allows_write(caret: Caret) -> bool {
+    caret == Caret::Elsewhere
+}
+
+/// The refusal when the person's caret is on (or cannot be told apart
+/// from) the field.
+pub const CARET_ON_TARGET: &str = "this field is where the person's caret is in the app they are using (or their focus could not be read), so its value is not written; use delivery foreground";
+
+/// Whether a web field still held the page's focus after a value write:
+/// its own AXFocused read true, and the web area's focused element, where
+/// it could be read, is the field. Otherwise the write may have gone into
+/// another field.
+pub fn kept_focus(own: Option<bool>, area_names_target: Option<bool>) -> bool {
+    own == Some(true) && area_names_target != Some(false)
+}
+
+/// How a posted press is aimed, from the two readings of the front app
+/// taken right before the post.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Aiming {
+    /// The target is the front app by both readings: name its window.
+    Addressed,
+    /// Another app is front by both readings: a background press, not
+    /// addressed (an addressed one would raise the target's window).
+    Unaddressed,
+    /// The readings disagree about the target, or one cannot be read: an
+    /// unaddressed press could land as if in the target's menu bar (the
+    /// Apple menu), an addressed one could raise it. Nothing is posted.
+    Refuse,
+}
+
+/// [`Aiming`] from the active app's and the keyboard's pids.
+pub fn press_aiming(active: Option<i32>, keyboard: Option<i32>, target: i32) -> Aiming {
+    match (active, keyboard) {
+        (Some(a), Some(k)) if a == target && k == target => Aiming::Addressed,
+        (Some(a), Some(k)) if a != target && k != target => Aiming::Unaddressed,
+        _ => Aiming::Refuse,
+    }
+}
+
+/// The two readings agreed on, for "the person's front app" where one pid
+/// is needed (`None`: they disagree or one cannot be read; callers fail
+/// closed on it).
+pub fn agreed_front(active: Option<i32>, keyboard: Option<i32>) -> Option<i32> {
+    match (active, keyboard) {
+        (Some(a), Some(k)) if a == k => Some(a),
+        _ => None,
+    }
+}
+
+/// The refusal when the front app cannot be read consistently.
+pub const FRONT_UNSURE: &str = "which app is in front could not be read consistently (a panel such as Spotlight may hold the keyboard), so the click was not posted; try again, or use an element_id";
+
+/// Command-A alone: Select All.
+pub fn is_select_all(combo: &crate::keys::KeyCombo) -> bool {
+    combo.modifiers == [crate::keys::Modifier::Meta]
+        && matches!(combo.key, crate::keys::Key::Char('a' | 'A'))
+}
+
 pub fn is_secure(role: &str, subrole: Option<&str>) -> bool {
     subrole == Some("AXSecureTextField") || role == "AXSecureTextField"
 }
@@ -310,19 +815,55 @@ pub fn prime_block(
     launch_titles: &[String],
     open_titles: &[String],
 ) -> Option<&'static str> {
-    const LAUNCH: &str = "this menu item is in a launch list (Services, Open With, Share, Recent Items or Quick Actions) or an open command's submenu, or its place could not be read; it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
+    const LAUNCH: &str = "this menu item is in a launch list (Services, Open With, Share, Recent Items or Quick Actions) or an open command's submenu; it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
     const OPENS: &str = "this menu item opens or reveals documents or apps, which can start another app (a denied one too), or its title or key could not be read; it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
     let is_open = |t: &str| {
         let key = submenu_title_key(t);
         open_titles.iter().any(|o| key == *o || key.starts_with(&format!("{o} ")))
     };
-    let Some(ancestors) = ancestors else { return Some(LAUNCH) };
+    const PLACE: &str = "this menu item's place in the menus could not be read (a submenu deeper than the walk, or a menu that did not answer), so it is not known whether it is a launch or open command; it is disabled while its app is in the background and is never made available there, so nothing was pressed. Use delivery foreground if it is allowed";
+    let Some(ancestors) = ancestors else { return Some(PLACE) };
     if ancestors.iter().any(|t| launch_titles.contains(&submenu_title_key(t)) || is_open(t)) {
         return Some(LAUNCH);
     }
     let (Some(title), Some(opens_by_key)) = (title, opens_by_key) else { return Some(OPENS) };
     if opens_by_key || is_open(title) {
         return Some(OPENS);
+    }
+    None
+}
+
+/// One parent of a menu item, as read (for [`menu_place`]).
+pub struct MenuNode {
+    /// None: the role could not be read.
+    pub role: Option<String>,
+    /// Err: the title could not be read.
+    pub title: Result<Option<String>, ()>,
+}
+
+/// How far up a menu item's place is walked.
+pub const MENU_PLACE_DEPTH: usize = 10;
+
+/// A menu item's place (pure, for tests): the titles of the menu items and
+/// menu bar items above it, from its parents read one at a time, or None
+/// when the walk does not reach the menu bar: a role or title that cannot be
+/// read, the walk ending elsewhere (the application), deeper than
+/// [`MENU_PLACE_DEPTH`], or `live` turning false (the scope ended).
+pub fn menu_place(
+    parents: impl Iterator<Item = MenuNode>,
+    live: &dyn Fn() -> bool,
+) -> Option<Vec<String>> {
+    let mut titles = Vec::new();
+    for node in parents.take(MENU_PLACE_DEPTH) {
+        if !live() {
+            return None;
+        }
+        match node.role.as_deref()? {
+            "AXMenuItem" | "AXMenuBarItem" => titles.push(node.title.ok()?.unwrap_or_default()),
+            "AXMenuBar" => return Some(titles),
+            "AXApplication" => return None,
+            _ => {}
+        }
     }
     None
 }

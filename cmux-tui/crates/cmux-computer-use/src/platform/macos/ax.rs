@@ -128,6 +128,60 @@ impl Ax {
         Ok(read)
     }
 
+    // Strict reads, for read-backs: `Err` when the read failed, `Ok(None)`
+    // when the attribute has no value. The lossy readers below map a failed
+    // read to "nothing", which a read-back must never take for an answer.
+
+    /// A string attribute.
+    pub fn try_string(&self, name: &str) -> Result<Option<String>, AXError> {
+        self.attr(name).map(|v| v.and_then(|v| v.as_string()))
+    }
+
+    /// A boolean attribute.
+    pub fn try_bool(&self, name: &str) -> Result<Option<bool>, AXError> {
+        self.attr(name).map(|v| v.and_then(|v| v.as_bool()))
+    }
+
+    /// A number attribute.
+    pub fn try_number(&self, name: &str) -> Result<Option<f64>, AXError> {
+        self.attr(name).map(|v| v.filter(Cf::is_number).and_then(|v| v.as_f64()))
+    }
+
+    /// The value as text (a string, or a number written out).
+    pub fn try_value_text(&self) -> Result<Option<String>, AXError> {
+        self.attr("AXValue").map(|v| v.and_then(|v| value_text(&v)))
+    }
+
+    /// The selected text range.
+    pub fn try_selected_range(&self) -> Result<Option<CFRange>, AXError> {
+        self.attr("AXSelectedTextRange").map(|v| v.and_then(|v| range_of(&v)))
+    }
+
+    /// One element attribute.
+    pub fn try_element(&self, name: &str) -> Result<Option<Ax>, AXError> {
+        self.attr(name).map(|v| v.and_then(Ax::from_cf))
+    }
+
+    /// An element-array attribute (no value: empty).
+    pub fn try_elements(&self, name: &str) -> Result<Vec<Ax>, AXError> {
+        self.attr(name).map(|v| {
+            v.map(|v| v.items().into_iter().filter_map(Ax::from_cf).collect()).unwrap_or_default()
+        })
+    }
+
+    /// How many values an array attribute holds, without reading them
+    /// (`AXUIElementGetAttributeValueCount`).
+    pub fn try_count(&self, name: &str) -> Result<usize, AXError> {
+        let key = Cf::string(name).ok_or(AX_CANNOT_COMPLETE)?;
+        let mut n: CFIndex = 0;
+        // SAFETY: self and key are live; n is an out parameter.
+        match unsafe { AXUIElementGetAttributeValueCount(self.ptr(), key.ptr(), &mut n) } {
+            AX_OK => Ok(n.max(0) as usize),
+            AX_NO_VALUE | AX_ATTRIBUTE_UNSUPPORTED => Ok(0),
+            e => Err(e),
+        }
+    }
+
     pub fn string(&self, name: &str) -> Option<String> {
         self.attr(name).ok().flatten().and_then(|v| v.as_string())
     }
@@ -218,6 +272,48 @@ impl Ax {
         self.attr("AXValue").ok().flatten().and_then(|v| value_text(&v))
     }
 
+    /// A number attribute.
+    pub fn number(&self, name: &str) -> Option<f64> {
+        self.attr(name).ok().flatten().filter(Cf::is_number).and_then(|v| v.as_f64())
+    }
+
+    /// The selected text range (`AXSelectedTextRange`).
+    pub fn selected_range(&self) -> Option<CFRange> {
+        let v = self.attr("AXSelectedTextRange").ok().flatten()?;
+        range_of(&v)
+    }
+
+    /// Selects `range` of the element's text (`AXSelectedTextRange`).
+    pub fn set_selected_range(&self, range: CFRange) -> Result<(), AXError> {
+        // SAFETY: range outlives the call; AXValueCreate copies it (+1).
+        let v = Cf::created(unsafe { AXValueCreate(AX_VALUE_CFRANGE, (&raw const range).cast()) })
+            .ok_or(AX_CANNOT_COMPLETE)?;
+        self.set("AXSelectedTextRange", &v)
+    }
+
+    /// The text range at a global point (`AXRangeForPosition`): its
+    /// location is the character offset there.
+    pub fn range_for_position(&self, x: f64, y: f64) -> Option<CFRange> {
+        let p = CGPoint { x, y };
+        // SAFETY: p outlives the call; AXValueCreate copies it (+1).
+        let param = Cf::created(unsafe { AXValueCreate(AX_VALUE_CGPOINT, (&raw const p).cast()) })?;
+        let attr = Cf::string("AXRangeForPosition")?;
+        let mut out: CFTypeRef = std::ptr::null();
+        // SAFETY: live element, attribute and parameter; out receives +1.
+        let err = unsafe {
+            AXUIElementCopyParameterizedAttributeValue(
+                self.ptr(),
+                attr.ptr(),
+                param.ptr(),
+                &mut out,
+            )
+        };
+        if err != AX_OK {
+            return None;
+        }
+        range_of(&Cf::created(out)?)
+    }
+
     /// The process that owns the element.
     pub fn pid(&self) -> Option<i32> {
         let mut pid = 0i32;
@@ -258,6 +354,16 @@ impl Ax {
         unsafe { AXUIElementSetMessagingTimeout(self.ptr(), seconds) };
     }
 
+    /// The element's hash: equal for two references to the same element
+    /// (CFHash agrees with CFEqual), across tree walks.
+    pub fn identity(&self) -> u64 {
+        unsafe extern "C" {
+            fn CFHash(cf: CFTypeRef) -> usize;
+        }
+        // SAFETY: self is live.
+        unsafe { CFHash(self.ptr()) as u64 }
+    }
+
     pub fn same(&self, other: &Ax) -> bool {
         unsafe extern "C" {
             fn CFEqual(a: CFTypeRef, b: CFTypeRef) -> u8;
@@ -288,6 +394,23 @@ fn frame_of(pos: &Cf, size: &Cf) -> Option<Rect> {
         }
     }
     Some(Rect { x: p.x, y: p.y, width: s.width, height: s.height })
+}
+
+fn range_of(v: &Cf) -> Option<CFRange> {
+    let mut r = CFRange::default();
+    // SAFETY: v is live; the type is checked before the copy into r.
+    let ok = unsafe {
+        v.type_id() == AXValueGetTypeID()
+            && AXValueGetType(v.ptr()) == AX_VALUE_CFRANGE
+            && AXValueGetValue(v.ptr(), AX_VALUE_CFRANGE, (&raw mut r).cast()) != 0
+    };
+    ok.then_some(r)
+}
+
+/// A value as text (a string, or a number written out); `None` for any
+/// other kind of value.
+pub(super) fn value_as_text(v: &Cf) -> Option<String> {
+    value_text(v)
 }
 
 fn value_text(v: &Cf) -> Option<String> {
@@ -362,7 +485,7 @@ pub fn window_states(pid: i32) -> HashMap<u32, (String, bool)> {
     out
 }
 
-const NODE_ATTRS: [&str; 12] = [
+const NODE_ATTRS: [&str; 17] = [
     "AXRole",
     "AXSubrole",
     "AXTitle",
@@ -375,6 +498,11 @@ const NODE_ATTRS: [&str; 12] = [
     "AXChildren",
     "AXPlaceholderValue",
     "AXHelp",
+    "AXIdentifier",
+    "AXMenuItemCmdChar",
+    "AXMenuItemCmdModifiers",
+    "AXMenuItemMarkChar",
+    "AXSelected",
 ];
 
 struct Walk {
@@ -458,6 +586,14 @@ impl Walk {
             actions,
             focused: v[7].as_ref().and_then(Cf::as_bool).unwrap_or(false),
             disabled: v[8].as_ref().and_then(Cf::as_bool).is_some_and(|enabled| !enabled),
+            identifier: text(&v[12]),
+            shortcut: crate::observe::outline::menu_shortcut(
+                &text(&v[13]),
+                v[14].as_ref().and_then(Cf::as_i64).unwrap_or(0),
+            ),
+            checked: !text(&v[15]).trim().is_empty(),
+            selected: v[16].as_ref().and_then(Cf::as_bool).unwrap_or(false),
+            identity: Some(ax.identity()),
             children: Vec::new(),
         };
         let raw = RawNode {
@@ -929,6 +1065,23 @@ pub fn in_menu_bar(el: &Ax) -> bool {
         current = node.element("AXParent");
     }
     false
+}
+
+/// [`in_menu_bar`], read strictly ([`roles::menu_bar_walk`]): `Some(true)`
+/// under the menu bar, `Some(false)` at the window or the application,
+/// `None` when a role or parent could not be read or the walk passed its
+/// cap.
+pub fn try_in_menu_bar(el: &Ax) -> Option<bool> {
+    let mut current = Some(el.clone());
+    roles::menu_bar_walk(|depth| {
+        let node = current.take()?;
+        let role = node.try_string("AXRole").ok()??;
+        // The parent is read only when the walk goes on past this role.
+        if roles::menu_bar_walk_step(&role).is_none() && depth + 1 < roles::MENU_WALK_MAX {
+            current = node.try_element("AXParent").ok().flatten();
+        }
+        Some(role)
+    })
 }
 
 /// CFRunLoopRunInMode's kCFRunLoopRunFinished.

@@ -294,11 +294,10 @@ fn a_scope_refuses_the_front_app_and_unknown_windows() {
     assert!(activation::KeyInApp::enter_with(&os, &reg, 99, 5).is_none());
     os.fail_posts.set(true);
     assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
-    // Review 4 (5): ended under the app's lock: no scope is left open. Its
-    // hand-back post failed too, so input to the app is held for a moment
-    // (review 6, 3); a new scope may still enter.
-    assert!(!reg.is_open(7));
-    assert!(reg.is_open(5), "input held after the failed hand-back");
+    // Review 4 (5), 8 (6): ended under the app's lock with nothing posted
+    // (its first record failed): no scope is left open and the app is not
+    // held; a new scope may enter.
+    assert!(!reg.is_open(5));
     os.fail_posts.set(false);
     // Nothing left open: a new scope enters.
     assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_some());
@@ -435,35 +434,209 @@ fn a_joiner_does_not_extend_the_bound() {
     assert!(!first.live() && !joiner.live(), "both end one bound after the first entry");
 }
 
-/// Review 6 (1): input reaches an app's process only through
-/// `activation::post_unprimed`: only input.rs calls the post-to-process API,
-/// and only activation.rs builds a `Posting` (its field is private there).
-#[test]
-fn only_post_unprimed_can_post_to_a_process() {
-    let files = [
-        ("actions.rs", include_str!("actions.rs")),
-        ("activation.rs", include_str!("activation.rs")),
-        ("ax.rs", include_str!("ax.rs")),
-        ("capture.rs", include_str!("capture.rs")),
-        ("cgwindows.rs", include_str!("cgwindows.rs")),
-        ("input.rs", include_str!("input.rs")),
-        ("key_focus.rs", include_str!("key_focus.rs")),
-        ("keymap.rs", include_str!("keymap.rs")),
-        ("menus.rs", include_str!("menus.rs")),
-        ("mod.rs", include_str!("mod.rs")),
-        ("roles.rs", include_str!("roles.rs")),
-        ("workspace.rs", include_str!("workspace.rs")),
-    ];
-    let post_to_pid = concat!("CGEvent", "PostToPid(");
-    let build = concat!("Posting", " { route");
-    for (name, src) in files {
-        if name != "input.rs" {
-            assert!(!src.contains(post_to_pid), "{name} posts to a process directly");
+/// The parameter lists of every `pub...fn` in `src` (pub, pub(super),
+/// pub(crate), pub unsafe, extern), each read to its closing parenthesis, so
+/// a signature rustfmt splits across lines is read whole.
+fn pub_fn_params(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = src;
+    while let Some(i) = rest.find("fn ") {
+        let before = &rest[..i];
+        let line_start = before.rfind('\n').map_or(0, |n| n + 1);
+        let head = before[line_start..].trim();
+        let after = &rest[i..];
+        if head.starts_with("pub")
+            && let Some(open) = after.find('(')
+        {
+            let mut depth = 0usize;
+            let mut end = None;
+            for (j, c) in after[open..].char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = Some(open + j);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(end) = end {
+                out.push(after[open..=end].to_string());
+            }
         }
-        if name != "activation.rs" {
-            assert!(!src.contains(build), "{name} builds a Posting");
+        rest = &after[3..];
+    }
+    out
+}
+
+/// Every .rs file under `dir`, subdirectories included.
+fn rust_sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(dir).expect("source directory") {
+        let path = entry.expect("entry").path();
+        if path.is_dir() {
+            rust_sources(&path, out);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            out.push(path);
         }
     }
+}
+
+/// Reviews 6 (1), 7, 8: input reaches an app's process only through
+/// `activation::post_unprimed`. The posters are declared only in a private
+/// module of input.rs, so nothing else can name them; this test is the
+/// backstop. Every source file under this directory (subdirectories too) is
+/// read at test time: only input.rs names the CoreGraphics and SkyLight
+/// event posters (to a process, a PSN, the HID tap), only activation.rs
+/// names SLPSPostEventRecordTo, sys.rs names none; no public input.rs
+/// function takes a bare Route (signatures read whole, any pub form); only
+/// activation.rs builds a Posting.
+#[test]
+fn only_post_unprimed_can_post_to_a_process() {
+    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src/platform/macos"));
+    let posters = [
+        concat!("CGEvent", "PostToPid"),
+        concat!("CGEvent", "PostToPSN"),
+        concat!("SLEvent", "PostToPid"),
+        concat!("SLEvent", "PostToPSN"),
+        concat!("CGSPost", "Event"),
+        concat!("CGEvent", "Post("),
+    ];
+    let record_poster = concat!("SLPSPost", "EventRecordTo");
+    let build = concat!("Posting", " { route");
+    let mut files = Vec::new();
+    rust_sources(dir, &mut files);
+    let mut seen = 0;
+    for path in files {
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        if name == "tests.rs" {
+            continue;
+        }
+        seen += 1;
+        let src = std::fs::read_to_string(&path).expect("read source");
+        if name != "input.rs" {
+            for p in posters {
+                assert!(!src.contains(p), "{name} names {p}: post through input with a Posting");
+            }
+        }
+        if name != "activation.rs" {
+            assert!(!src.contains(record_poster), "{name} names {record_poster}");
+            assert!(!src.contains(build), "{name} builds a Posting");
+        }
+        if name == "input.rs" {
+            for params in pub_fn_params(&src) {
+                assert!(
+                    !params.contains(": Route") && !params.contains(":Route"),
+                    "input.rs exposes a bare-Route poster: {params}"
+                );
+            }
+        }
+    }
+    assert!(seen >= 10, "the macOS sources were found ({seen})");
+}
+
+/// The guard's signature reader sees split signatures and every pub form.
+#[test]
+fn the_guard_reads_whole_signatures() {
+    let src = "pub(super) fn a(\n    route: Route,\n    x: u8,\n) {}\npub unsafe fn b(r: Route) {}\nfn c(route: Route) {}\npub(crate) fn d(p: &Posting) {}";
+    let params = pub_fn_params(src);
+    assert_eq!(params.len(), 3, "{params:?}");
+    assert!(params[0].contains("route: Route"));
+    assert!(params[1].contains("r: Route"));
+    assert!(params[2].contains("&Posting"));
+}
+
+/// Review 8 (4): an action clears the hand-back flag before it runs and
+/// adds a failure during it to its result or refusal, once.
+#[test]
+fn an_action_reports_its_own_failed_hand_back_once() {
+    let fail = || {
+        let os = fake(&[(10, 5)]);
+        let reg = activation::Registry::new();
+        let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+        os.windows.borrow_mut().clear();
+        drop(key);
+    };
+    // A stale flag from before the call is cleared.
+    fail();
+    let ok = actions::reporting_hand_back(|| Ok(ActionOutcome::delivered("x")));
+    assert!(ok.unwrap().note.is_empty());
+    // A failure during the call: on Ok and on Err, once.
+    let ok = actions::reporting_hand_back(|| {
+        fail();
+        let mut out = ActionOutcome::delivered("x");
+        activation::append_note(&mut out.note, activation::HAND_BACK_FAILED);
+        Ok(out)
+    })
+    .unwrap();
+    assert_eq!(ok.note.matches(activation::HAND_BACK_FAILED).count(), 1);
+    let err = actions::reporting_hand_back(|| {
+        fail();
+        Err(DesktopError::TargetNotFound("gone".into()))
+    })
+    .unwrap_err();
+    assert!(format!("{err:?}").contains(activation::HAND_BACK_FAILED));
+    // Review of b4236e6 (12): the note follows the whole message; it is not
+    // put into the element id ("element 1.2 (note) is stale").
+    let err = actions::reporting_hand_back(|| {
+        fail();
+        Err(DesktopError::StaleElement("1.2".into()))
+    })
+    .unwrap_err()
+    .to_string();
+    assert!(err.starts_with("element 1.2 is stale; call get_ui_tree again ("), "{err}");
+    assert!(err.ends_with(&format!("({})", activation::HAND_BACK_FAILED)), "{err}");
+}
+
+/// Review 8 (6): a scope whose first record failed posted nothing: no
+/// hand-back failure is reported and the app is not held.
+#[test]
+fn a_failure_before_any_post_holds_nothing() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    os.fail_posts.set(true);
+    activation::take_hand_back_failed();
+    assert!(activation::KeyInApp::enter_with(&os, &reg, 10, 5).is_none());
+    assert!(!activation::take_hand_back_failed());
+    assert!(!reg.is_open(5));
+}
+
+/// Review 7, 8 (4, 5): a menu item's place is read up to the menu bar; a
+/// walk that does not reach it is no place (blocked, with its own reason).
+#[test]
+fn a_menu_items_place_must_reach_the_menu_bar() {
+    use roles::{MenuNode, menu_place};
+    let node = |role: Option<&str>, title: Result<Option<&str>, ()>| MenuNode {
+        role: role.map(str::to_string),
+        title: title.map(|t| t.map(str::to_string)),
+    };
+    let yes = || true;
+    let walk = vec![
+        node(Some("AXMenu"), Ok(None)),
+        node(Some("AXMenuItem"), Ok(Some("Font"))),
+        node(Some("AXMenu"), Ok(None)),
+        node(Some("AXMenuBarItem"), Ok(Some("Format"))),
+        node(Some("AXMenuBar"), Ok(None)),
+    ];
+    assert_eq!(menu_place(walk.into_iter(), &yes), Some(vec!["Font".into(), "Format".into()]));
+    // Ends at the application: no place.
+    let walk = vec![node(Some("AXMenu"), Ok(None)), node(Some("AXApplication"), Ok(None))];
+    assert_eq!(menu_place(walk.into_iter(), &yes), None);
+    // Unreadable role or title: no place.
+    assert_eq!(menu_place(vec![node(None, Ok(None))].into_iter(), &yes), None);
+    let walk = vec![node(Some("AXMenuItem"), Err(())), node(Some("AXMenuBar"), Ok(None))];
+    assert_eq!(menu_place(walk.into_iter(), &yes), None);
+    // Deeper than the walk: no place.
+    let deep = (0..roles::MENU_PLACE_DEPTH + 1).map(|_| node(Some("AXMenu"), Ok(None)));
+    assert_eq!(menu_place(deep, &yes), None);
+    // The scope ended: no place.
+    let walk = vec![node(Some("AXMenuBar"), Ok(None))];
+    assert_eq!(menu_place(walk.into_iter(), &|| false), None);
+    // No place is refused with its own reason.
+    let why = roles::prime_block(Some("Select All"), None, Some(false), &[], &[]).unwrap();
+    assert!(why.contains("place in the menus could not be read"), "{why}");
 }
 
 /// Review 5 (1B): the last scope's entry stays in the registry until its
@@ -513,6 +686,74 @@ fn a_menu_item_retitled_during_validation_is_not_pressed() {
     assert_eq!(roles::same_item(Some("Undo Typing"), Some("Undo Typing")), Ok(()));
     assert!(roles::same_item(Some("Undo Typing"), Some("Redo Typing")).is_err());
     assert!(roles::same_item(Some("Save"), None).is_err());
+}
+
+/// Review 7: the scope fails closed when the front app cannot be read:
+/// not live, and its hand-back posts nothing and holds the app's input.
+#[test]
+fn an_unreadable_front_app_fails_closed_in_live_and_hand_back() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    assert!(key.live());
+    os.front_unknown.set(true);
+    assert!(!key.live());
+    let before = os.posts.borrow().len();
+    activation::take_hand_back_failed();
+    assert_eq!(key.end(), activation::Ended::HandBackFailed);
+    assert_eq!(os.posts.borrow().len(), before, "no focus-out posted");
+    assert!(reg.is_open(5), "input held");
+    assert!(activation::take_hand_back_failed(), "the call learns of it");
+}
+
+/// Review 7: a failed hand-back is reported whatever path ended the scope:
+/// a drop on an early return sets the same flag the action reads.
+#[test]
+fn a_dropped_scope_reports_its_failed_hand_back() {
+    let os = fake(&[(10, 5)]);
+    let reg = activation::Registry::new();
+    activation::take_hand_back_failed();
+    {
+        let _key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+        os.windows.borrow_mut().clear();
+    } // dropped, not ended
+    assert!(activation::take_hand_back_failed());
+    assert!(!activation::take_hand_back_failed(), "read once");
+}
+
+/// Review 7: input yields to a scope entry waiting for the same app, so a
+/// long typing loop cannot keep it out between chunks.
+#[test]
+fn input_yields_to_a_waiting_scope_entry() {
+    let reg = Arc::new(activation::Registry::new());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let r2 = reg.clone();
+    // Hold the app's lock as a chunk would, while an entry starts waiting.
+    let lock = reg.lock_pid(5);
+    let waiter = std::thread::spawn(move || {
+        let _entry = r2.lock_pid_for_entry(5);
+        tx.send("entry").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(80));
+    });
+    while !reg.entry_waiting_for_test(5) {
+        std::thread::yield_now();
+    }
+    drop(lock);
+    // The next chunk waits for the entry instead of taking the lock first.
+    let r = reg.post_unprimed(5, 1, std::time::Duration::from_secs(2), |_| "chunk");
+    assert_eq!(rx.try_recv(), Ok("entry"), "the entry went first");
+    assert_eq!(r, Some("chunk"));
+    waiter.join().unwrap();
+}
+
+/// An NSTabView's tabs are AXRadioButtons with the AXTabButton subrole and
+/// their own AXTitle (read live in the truth fixture: "General",
+/// "Advanced"): the tree calls them `tab_button` and keeps the title as the
+/// name, in the JSON tree and the outline alike.
+#[test]
+fn tabs_are_tab_buttons_named_by_their_title() {
+    assert_eq!(roles::role_name("AXRadioButton", Some("AXTabButton")), "tab_button");
+    assert_eq!(roles::role_name("AXRadioButton", None), "radio");
 }
 
 #[test]
@@ -2150,4 +2391,754 @@ fn the_protected_prefixes_are_sent_as_prefix_entries() {
     let prefixes = crate::policy::protected_prefixes();
     assert!(prefixes.contains(&"com.cmuxterm.remote."));
     assert!(prefixes.iter().all(|p| p.ends_with('.')));
+}
+
+/// Command-A alone is Select All, read back as the whole text selected;
+/// with another modifier it is some other command.
+#[test]
+fn only_command_a_alone_is_select_all() {
+    let combo = |s: &str| KeyCombo::parse(s).unwrap();
+    assert!(roles::is_select_all(&combo("cmd+a")));
+    assert!(!roles::is_select_all(&combo("cmd+shift+a")));
+    assert!(!roles::is_select_all(&combo("ctrl+a")));
+    assert!(!roles::is_select_all(&combo("a")));
+}
+
+/// A drag on a slider sets the value under its end: the fraction along the
+/// track (bottom to top when the slider stands), within the range.
+#[test]
+fn a_slider_drag_sets_the_value_under_its_end() {
+    let wide = Rect { x: 100.0, y: 50.0, width: 200.0, height: 20.0 };
+    let at = |x, y| Point { x, y };
+    assert_eq!(actions::slider_value_at(&wide, 0.0, 100.0, at(220.0, 60.0)), 60.0);
+    assert_eq!(actions::slider_value_at(&wide, 0.0, 100.0, at(400.0, 60.0)), 100.0);
+    assert_eq!(actions::slider_value_at(&wide, 10.0, 20.0, at(50.0, 60.0)), 10.0);
+    let tall = Rect { x: 0.0, y: 0.0, width: 20.0, height: 100.0 };
+    assert_eq!(actions::slider_value_at(&tall, 0.0, 1.0, at(10.0, 25.0)), 0.75);
+}
+
+/// Review of b4236e6 (1, 2): a click in text places the caret through
+/// accessibility only outside rows (an editable cell's row is selected
+/// instead) and outside the person's app (their caret would move); never
+/// for a denied element.
+#[test]
+fn a_caret_is_placed_only_outside_rows_and_the_persons_app() {
+    assert!(roles::caret_click_allowed(false, false, false));
+    assert!(!roles::caret_click_allowed(false, true, false), "row");
+    assert!(!roles::caret_click_allowed(false, false, true), "the person's app");
+    assert!(!roles::caret_click_allowed(true, false, false), "denied");
+}
+
+/// Review of b4236e6 (4): only a value control pressed, incremented or
+/// decremented must show it in its value; a confirm, cancel, show-menu,
+/// custom action or a plain button can act invisibly.
+#[test]
+fn only_a_value_control_press_must_show_in_its_value() {
+    for role in ["AXCheckBox", "AXRadioButton", "AXDisclosureTriangle", "AXIncrementor", "AXSlider"]
+    {
+        assert!(roles::press_shows_value(role, None, "AXPress"), "{role}");
+    }
+    assert!(roles::press_shows_value("AXIncrementor", None, "AXIncrement"));
+    assert!(roles::press_shows_value("AXCheckBox", Some("AXSwitch"), "AXPress"));
+    assert!(roles::press_shows_value("AXButton", Some("AXSwitch"), "AXPress"));
+    for action in ["AXConfirm", "AXCancel", "AXShowMenu", "AXRaise", "Custom"] {
+        assert!(!roles::press_shows_value("AXCheckBox", None, action), "{action}");
+    }
+    for role in ["AXButton", "AXTextField", "AXPopUpButton", "AXMenuItem"] {
+        assert!(!roles::press_shows_value(role, None, "AXPress"), "{role}");
+    }
+}
+
+/// Review of b4236e6 (6): a slider's read value is near the wanted one
+/// within 2% of its range, whatever its range; a square slider is circular
+/// and left to the events.
+#[test]
+fn a_slider_tolerance_follows_its_range_and_circular_ones_are_left_alone() {
+    assert_eq!(roles::slider_tolerance(0.0, 100.0), 2.0);
+    assert_eq!(roles::slider_tolerance(0.0, 1.0), 0.02);
+    assert!(roles::slider_tolerance(5.0, 5.0) > 0.0);
+    assert!(roles::looks_circular(&Rect { x: 0.0, y: 0.0, width: 32.0, height: 32.0 }));
+    assert!(!roles::looks_circular(&Rect { x: 0.0, y: 0.0, width: 200.0, height: 20.0 }));
+    assert!(!roles::looks_circular(&Rect { x: 0.0, y: 0.0, width: 20.0, height: 120.0 }));
+}
+
+/// Review of e75f474 (3, 4, 10): the gate every AX pointer write (caret
+/// click, text drag, scroll, slider) goes through. In the person's front app
+/// nothing is written and the events run; while another session's scope is
+/// open on the app the write is refused; the front app is read again under
+/// the lock, so an app that comes front while waiting is not written to.
+#[test]
+fn ax_pointer_writes_refuse_the_front_app_and_an_open_scope() {
+    use std::cell::Cell;
+    use std::time::Duration;
+    let reg = activation::Registry::new();
+    let wrote = Cell::new(0);
+    let write = || wrote.set(wrote.get() + 1);
+    // Not the front app, no scope: written.
+    let done = actions::gated_in(&reg, 5, Duration::from_millis(50), || false, write).unwrap();
+    assert_eq!(done, actions::AxWrite::Done(()));
+    assert_eq!(wrote.get(), 1);
+    // The person's front app: nothing written.
+    let front = actions::gated_in(&reg, 5, Duration::from_millis(50), || true, write).unwrap();
+    assert_eq!(front, actions::AxWrite::PersonsApp);
+    // It comes front between the first check and the lock: nothing written.
+    let reads = Cell::new(0);
+    let late = actions::gated_in(
+        &reg,
+        5,
+        Duration::from_millis(50),
+        || {
+            reads.set(reads.get() + 1);
+            reads.get() > 1
+        },
+        write,
+    )
+    .unwrap();
+    assert_eq!(late, actions::AxWrite::PersonsApp);
+    assert_eq!(wrote.get(), 1);
+    // Another session's key-in-app scope open on the app: refused.
+    let os = fake(&[(10, 5)]);
+    let key = activation::KeyInApp::enter_with(&os, &reg, 10, 5).expect("entered");
+    let refused = actions::gated_in(&reg, 5, Duration::from_millis(50), || false, write);
+    assert!(
+        matches!(&refused, Err(DesktopError::Unsupported(m)) if m == activation::PRIMED_KEYS_REFUSAL),
+        "{refused:?}"
+    );
+    assert_eq!(wrote.get(), 1);
+    drop(key);
+}
+
+/// Review of e75f474 (6): a radio button already on, pressed, is done
+/// already (uncertain), not "no effect".
+#[test]
+fn a_pressed_radio_button_already_on_is_already_done() {
+    assert!(roles::press_already_done("AXRadioButton", "AXPress", "1"));
+    assert!(!roles::press_already_done("AXRadioButton", "AXPress", "0"));
+    assert!(!roles::press_already_done("AXCheckBox", "AXPress", "1"), "a checkbox toggles");
+}
+
+/// Follow-up of e75f474: watches detached from a stalled app are capped per
+/// app; past the cap none starts (so no action there is no_effect).
+#[test]
+fn detached_watches_are_capped_per_app() {
+    assert!(watch::may_start(0));
+    assert!(watch::may_start(3));
+    assert!(!watch::may_start(4));
+}
+
+/// Both priming defaults are one constant away: with the default off, only
+/// an explicit `1` (and a verified macOS) turns the scope on; `0` always
+/// turns it off.
+#[test]
+fn the_scope_default_is_one_constant_and_the_switch_overrides_it() {
+    assert!(activation::gate_with(true, "27.0.1", &[]));
+    assert!(!activation::gate_with(true, "27.0.1", &["0"]));
+    assert!(!activation::gate_with(false, "27.0.1", &[]));
+    assert!(activation::gate_with(false, "27.0.1", &["1"]));
+    assert!(!activation::gate_with(false, "27.0.1", &["1", "0"]));
+    assert!(!activation::gate_with(false, "26.5", &["1"]), "unverified macOS stays off");
+}
+
+/// A button's digit: its title (or description) is exactly one digit.
+#[test]
+fn a_digit_button_is_one_digit() {
+    assert_eq!(roles::single_digit("8"), Some('8'));
+    assert_eq!(roles::single_digit(" 0 "), Some('0'));
+    assert_eq!(roles::single_digit("10"), None);
+    assert_eq!(roles::single_digit("+"), None);
+    assert_eq!(roles::single_digit(""), None);
+}
+
+/// The app-scoped priming list: under `NotDenied`, browsers (the cmux app
+/// included: it hosts the cmux browser) and messaging and mail apps, their
+/// beta and canary builds, and apps with no readable bundle id are never
+/// primed; under `Any` every app is.
+#[test]
+fn the_priming_deny_list_covers_browsers_and_messaging() {
+    use activation::{PrimeApps, may_prime};
+    for id in [
+        "com.apple.Safari",
+        "com.apple.SafariTechnologyPreview",
+        "com.google.Chrome",
+        "com.google.Chrome.canary",
+        "com.google.chrome.for.testing",
+        "company.thebrowser.Browser",
+        "org.mozilla.firefox",
+        "org.mozilla.firefoxdeveloperedition",
+        "com.microsoft.edgemac.Beta",
+        "com.brave.Browser.nightly",
+        "com.cmuxterm.app",
+        "com.cmuxterm.app.debug.cu.preview",
+        "com.apple.MobileSMS",
+        "com.apple.mail",
+        "com.tinyspeck.slackmacgap",
+        "com.hnc.Discord",
+        "net.whatsapp.WhatsApp",
+        "ru.keepcoder.Telegram",
+        "com.microsoft.teams2",
+        "com.microsoft.Outlook",
+        "org.mozilla.nightly",
+        "org.chromium.Chromium",
+        "com.operasoftware.Opera",
+        "com.vivaldi.Vivaldi",
+        "com.kagi.kagimacOS",
+        "app.zen-browser.zen",
+        "com.duckduckgo.macos.browser",
+        "org.whispersystems.signal-desktop",
+        "com.facebook.archon",
+        "com.tencent.xinWeChat",
+        "org.mozilla.thunderbird",
+        "com.readdle.SparkDesktop",
+        "com.mimestream.Mimestream",
+        "com.cmuxterm.app.next",
+    ] {
+        assert!(!may_prime(PrimeApps::NotDenied, Some(id)), "{id}");
+        assert!(may_prime(PrimeApps::Any, Some(id)), "{id}");
+    }
+    for id in ["com.apple.TextEdit", "com.apple.finder", "com.apple.Notes", "com.apple.mailplus"] {
+        // A prefix match on a dot boundary is not required: "com.apple.mailplus"
+        // starts with "com.apple.mail", so it is denied too (fail closed).
+        let denied = id.starts_with("com.apple.mail");
+        assert_eq!(may_prime(PrimeApps::NotDenied, Some(id)), !denied, "{id}");
+    }
+    assert!(!may_prime(PrimeApps::NotDenied, None), "unreadable bundle id");
+}
+
+/// Review of e840a32 (6): a posted press is aimed from both readings of the
+/// front app: addressed when both are the target, a background press when
+/// both are another app, and refused (nothing posted) when they disagree or
+/// one is unread, so it can neither open the Apple menu nor raise a window.
+#[test]
+fn a_press_with_disagreeing_front_readings_is_not_posted() {
+    use roles::{Aiming, press_aiming};
+    assert_eq!(press_aiming(Some(5), Some(5), 5), Aiming::Addressed);
+    assert_eq!(press_aiming(Some(9), Some(9), 5), Aiming::Unaddressed);
+    assert_eq!(press_aiming(Some(9), Some(7), 5), Aiming::Unaddressed, "a panel over another app");
+    assert_eq!(press_aiming(Some(5), Some(9), 5), Aiming::Refuse, "a panel over the target");
+    assert_eq!(press_aiming(Some(9), Some(5), 5), Aiming::Refuse);
+    assert_eq!(press_aiming(None, Some(9), 5), Aiming::Refuse);
+    assert_eq!(press_aiming(Some(9), None, 5), Aiming::Refuse);
+}
+
+/// Review of e840a32 (4): where one front pid is needed (the scope's
+/// checks), the readings must agree; otherwise none, and the checks fail
+/// closed.
+#[test]
+fn one_front_pid_only_when_the_readings_agree() {
+    assert_eq!(roles::agreed_front(Some(5), Some(5)), Some(5));
+    assert_eq!(roles::agreed_front(Some(5), Some(9)), None);
+    assert_eq!(roles::agreed_front(None, Some(9)), None);
+}
+
+/// Coordinator decision after d2b779e: text into web content or a browser's
+/// field goes as posted keys (no AX write is attempted, so nothing can be
+/// typed twice); elsewhere through accessibility, never followed by keys.
+#[test]
+fn web_content_takes_keys_and_everything_else_the_ax_insert() {
+    use roles::{InsertRoute, insert_route, is_browser};
+    assert_eq!(insert_route(true, false), InsertRoute::Keys, "a web area in any app");
+    assert_eq!(insert_route(false, true), InsertRoute::Keys, "a browser's own field");
+    assert_eq!(insert_route(false, false), InsertRoute::Ax);
+    for id in [
+        "com.apple.Safari",
+        "com.google.Chrome.canary",
+        "org.mozilla.firefox",
+        "company.thebrowser.Browser",
+    ] {
+        assert!(is_browser(Some(id)), "{id}");
+    }
+    for id in ["com.apple.TextEdit", "com.apple.Notes"] {
+        assert!(!is_browser(Some(id)), "{id}");
+    }
+    assert!(!is_browser(None));
+}
+
+/// Review of 02ca109 (3): set_value on a checkbox wants what the write sets
+/// ("on" is 1), not the agent's word.
+#[test]
+fn a_set_value_wants_what_the_write_sets() {
+    assert_eq!(roles::requested_value(true, "on").as_deref(), Some("1"));
+    assert_eq!(roles::requested_value(true, "false").as_deref(), Some("0"));
+    assert_eq!(roles::requested_value(true, "2.0").as_deref(), Some("2"));
+    assert_eq!(roles::requested_value(true, "0.5").as_deref(), Some("0.5"));
+    assert_eq!(roles::requested_value(false, "on").as_deref(), Some("on"));
+    assert_eq!(roles::requested_value(true, "big"), None);
+}
+
+/// Review of 02ca109 (5): web content is the element itself or an ancestor,
+/// read strictly; an unread walk counts as web content (keys route).
+#[test]
+fn web_content_is_the_element_or_an_ancestor_and_unknown_counts() {
+    use roles::Web;
+    let roles = |v: &[&str]| Some(v.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert_eq!(roles::web_content(roles(&["AXWebArea", "AXScrollArea", "AXWindow"])), Web::In);
+    assert_eq!(
+        roles::web_content(roles(&["AXTextField", "AXGroup", "AXWebArea", "AXWindow"])),
+        Web::In
+    );
+    assert_eq!(roles::web_content(roles(&["AXTextField", "AXGroup", "AXWindow"])), Web::Out);
+    assert_eq!(roles::web_content(None), Web::Unknown);
+}
+
+/// Review of 2d96f16 (2): an unknown web walk takes each caller's safe
+/// side: the native AX routes do not run (events and keys instead), and
+/// the menu gate applies in full (unknown is not web, which would narrow
+/// what it gates).
+#[test]
+fn an_unknown_web_walk_takes_the_safe_side_per_caller() {
+    use roles::{Web, menu_gate_web, native_route};
+    assert!(native_route(Web::Out));
+    assert!(!native_route(Web::In));
+    assert!(!native_route(Web::Unknown), "unknown: events or keys");
+    assert!(menu_gate_web(Web::In));
+    assert!(!menu_gate_web(Web::Out));
+    assert!(!menu_gate_web(Web::Unknown), "unknown: the full menu gate");
+    // The full gate: a menu button opens a menu unless known to be web.
+    assert!(roles::opens_menu("AXMenuButton", menu_gate_web(Web::Unknown), false));
+}
+
+/// Review of 2d96f16 (1): a stepper's read-back allows half a step around
+/// its target: one step short does not reach it, one step moved from one
+/// step away is a change.
+#[test]
+fn a_stepper_tolerance_is_half_a_step() {
+    let tol = roles::step_tolerance(1.0);
+    assert!(!readback::value_matches("9", "10", Some(tol)), "one step short");
+    assert!(readback::value_matches("10", "10", Some(tol)));
+    assert!(readback::value_matches("10.4", "10", Some(tol)), "rounding within half a step");
+    assert!(!readback::value_matches("9", "10", Some(roles::step_tolerance(1.0))), "not already");
+}
+
+/// Review of 02ca109 (4): only a clear rejection of an AX insert falls back
+/// to keys; a timeout or cannot-complete may have applied it.
+#[test]
+fn only_a_rejected_insert_falls_back_to_keys() {
+    assert!(roles::press_error_falls_back(-25201), "illegal argument");
+    assert!(roles::press_error_falls_back(-25205), "attribute unsupported");
+    assert!(!roles::press_error_falls_back(-25204), "cannot complete");
+    assert!(!roles::press_error_falls_back(-25200), "failure");
+}
+
+/// Review of d890b98 (2): the web walk ends only at the window or the app; a
+/// walk that stops anywhere else (a missing parent, an unreadable role) is
+/// unknown, never "not web".
+#[test]
+fn a_web_walk_that_stops_short_is_unknown() {
+    use roles::Web;
+    let roles = |v: &[&str]| Some(v.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert_eq!(roles::web_content(roles(&["AXTextField", "AXGroup", "AXWindow"])), Web::Out);
+    assert_eq!(
+        roles::web_content(roles(&["AXTextField", "AXGroup"])),
+        Web::Unknown,
+        "stopped short"
+    );
+    assert_eq!(
+        roles::web_content(roles(&["AXTextField", "AXGroup", ""])),
+        Web::Unknown,
+        "blank role"
+    );
+    assert_eq!(roles::web_content(roles(&[])), Web::Unknown);
+}
+
+/// Review of e28e981 (1): keys follow an AX focus write only on the guard's
+/// rules. The app naming none (a background app) needs the target's own
+/// focus turned false to true by the write, its web host focused, one web
+/// area (an iframe refused) and no sheet or second window with no focused
+/// window; the app naming another element posts none.
+#[test]
+#[allow(clippy::redundant_clone)] // each case starts from the same facts
+fn keys_follow_a_focus_write_only_on_the_guards_rules() {
+    use roles::{FocusFacts, focus_guard};
+    let safari_bg = FocusFacts {
+        app_names_target: None,
+        own_before: Some(false),
+        own_after: Some(true),
+        in_web: true,
+        web_areas: 1,
+        host_focused: Some(true),
+        no_focused_window: false,
+        other_targets: false,
+    };
+    assert!(focus_guard(&safari_bg));
+    assert!(focus_guard(&FocusFacts { app_names_target: Some(true), ..safari_bg.clone() }));
+    assert!(
+        !focus_guard(&FocusFacts { app_names_target: Some(false), ..safari_bg.clone() }),
+        "another element"
+    );
+    assert!(
+        !focus_guard(&FocusFacts { own_before: Some(true), ..safari_bg.clone() }),
+        "already focused: no change seen"
+    );
+    assert!(!focus_guard(&FocusFacts { own_before: None, ..safari_bg.clone() }));
+    assert!(
+        !focus_guard(&FocusFacts { host_focused: Some(false), ..safari_bg.clone() }),
+        "inspector or other web view has the keys"
+    );
+    assert!(!focus_guard(&FocusFacts { host_focused: None, ..safari_bg.clone() }));
+    assert!(!focus_guard(&FocusFacts { web_areas: 2, ..safari_bg.clone() }), "an iframe");
+    assert!(
+        !focus_guard(&FocusFacts {
+            web_areas: 2,
+            app_names_target: Some(true),
+            ..safari_bg.clone()
+        }),
+        "an iframe"
+    );
+    assert!(
+        !focus_guard(&FocusFacts {
+            no_focused_window: true,
+            other_targets: true,
+            ..safari_bg.clone()
+        }),
+        "a sheet or a second window"
+    );
+    let native =
+        FocusFacts { in_web: false, web_areas: 0, host_focused: None, ..safari_bg.clone() };
+    assert!(focus_guard(&native), "outside web content no host is needed");
+}
+
+/// Coordinator, after 8a4399f: typing into web content without proven focus
+/// writes before[..start] + text + before[end..] (UTF-16) into the value;
+/// a range outside the value writes nothing.
+#[test]
+fn web_typing_inserts_into_the_value_at_the_selection() {
+    assert_eq!(roles::insert_at("", "Zed", 0, 0).as_deref(), Some("Zed"));
+    assert_eq!(roles::insert_at("ab", "Z", 1, 0).as_deref(), Some("aZb"));
+    assert_eq!(
+        roles::insert_at("aXXb", "Z", 1, 2).as_deref(),
+        Some("aZb"),
+        "replaces the selection"
+    );
+    assert_eq!(roles::insert_at("é1", "Z", 1, 0).as_deref(), Some("éZ1"), "UTF-16 offsets");
+    assert_eq!(
+        roles::insert_at("😀", "Z", 2, 0).as_deref(),
+        Some("😀Z"),
+        "a surrogate pair counts two"
+    );
+    assert_eq!(roles::insert_at("ab", "Z", 3, 0), None, "past the end");
+    assert_eq!(roles::insert_at("ab", "Z", -1, 0), None);
+}
+
+/// The web value route writes only where a value is the content: a plain
+/// text input, visible, not a password field (set_value may write one).
+#[test]
+#[allow(clippy::redundant_clone)]
+fn the_web_value_route_writes_only_into_plain_visible_text_fields() {
+    let plain = roles::WebField {
+        kind: roles::WebKind::Plain,
+        secure: false,
+        width: 200.0,
+        height: 22.0,
+        on_screen: true,
+        hidden: false,
+        limited: false,
+        center: Point { x: 0.0, y: 0.0 },
+    };
+    let typing = roles::SecureField::Refuse;
+    assert!(roles::web_value_gate(Some(&plain), typing).is_ok());
+    let not = |f: roles::WebField| roles::web_value_gate(Some(&f), typing).is_err();
+    assert!(not(roles::WebField { secure: true, ..plain.clone() }), "password");
+    assert!(not(roles::WebField { kind: roles::WebKind::Rich, ..plain.clone() }), "rich editor");
+    assert!(not(roles::WebField { kind: roles::WebKind::Area, ..plain.clone() }), "text area");
+    assert!(
+        not(roles::WebField { kind: roles::WebKind::Other, ..plain.clone() }),
+        "another control"
+    );
+    assert!(not(roles::WebField { width: 1.0, height: 1.0, ..plain.clone() }), "xterm-like helper");
+    assert!(not(roles::WebField { on_screen: false, ..plain.clone() }), "off screen");
+    assert!(not(roles::WebField { hidden: true, ..plain.clone() }), "hidden");
+    assert!(roles::web_value_gate(None, typing).is_err(), "unread");
+    // set_value writes a password field's value (it is read back by length),
+    // and nothing else the typing gate refuses.
+    let setting = roles::SecureField::Allow;
+    assert!(
+        roles::web_value_gate(Some(&roles::WebField { secure: true, ..plain.clone() }), setting)
+            .is_ok()
+    );
+    for kind in [roles::WebKind::Rich, roles::WebKind::Area, roles::WebKind::Other] {
+        assert!(
+            roles::web_value_gate(Some(&roles::WebField { kind, ..plain.clone() }), setting)
+                .is_err()
+        );
+    }
+    let proxy = roles::WebField { width: 12.0, height: 6.0, ..plain.clone() };
+    assert!(roles::web_value_gate(Some(&proxy), setting).is_err(), "a padded 1x1 helper");
+}
+
+/// Live in Safari (macOS 27.0.1): an <input> has no children; a native
+/// <textarea> and a one-paragraph contenteditable (an empty ProseMirror
+/// `<p><br></p>`, a one-paragraph Quill, a one-line CodeMirror 6) are both an
+/// AXTextArea with one AXGroup child, with the same attributes, settable
+/// attributes, parameterized attributes and actions: nothing tells them apart,
+/// so a web text area is never written this way. A text field with children
+/// (role="textbox" on rich content) is rich; a combobox is another control.
+#[test]
+fn only_a_childless_web_text_field_is_plain() {
+    assert_eq!(roles::web_kind("AXTextField", 0), roles::WebKind::Plain);
+    assert_eq!(roles::web_kind("AXSearchField", 0), roles::WebKind::Plain);
+    assert_eq!(roles::web_kind("AXTextField", 1), roles::WebKind::Rich, "role=textbox");
+    assert_eq!(roles::web_kind("AXSearchField", 2), roles::WebKind::Rich);
+    assert_eq!(roles::web_kind("AXTextArea", 1), roles::WebKind::Area, "textarea or one paragraph");
+    assert_eq!(roles::web_kind("AXTextArea", 0), roles::WebKind::Area);
+    assert_eq!(roles::web_kind("AXComboBox", 0), roles::WebKind::Other, "Google search");
+    assert_eq!(roles::web_kind("AXGroup", 0), roles::WebKind::Other);
+}
+
+/// A plain field the page is scrolled past is scrolled into view before the
+/// gate, and only once every other rule holds: a tiny, hidden, rich or
+/// password field (for typing) is refused without scrolling.
+#[test]
+#[allow(clippy::redundant_clone)]
+fn only_a_plain_field_scrolled_past_is_scrolled_into_view() {
+    let past = roles::WebField {
+        kind: roles::WebKind::Plain,
+        secure: false,
+        width: 200.0,
+        height: 22.0,
+        on_screen: false,
+        hidden: false,
+        limited: false,
+        center: Point { x: 0.0, y: 0.0 },
+    };
+    let typing = roles::SecureField::Refuse;
+    let setting = roles::SecureField::Allow;
+    let scrolls = |f: &roles::WebField, s| roles::scroll_into_view_first(f, s);
+    assert!(scrolls(&past, typing));
+    assert!(roles::web_value_gate_but_view(&past, typing).is_ok());
+    assert!(roles::web_value_gate(Some(&past), typing).is_err(), "out of view until scrolled");
+    assert!(!scrolls(&roles::WebField { on_screen: true, ..past.clone() }, typing));
+    assert!(!scrolls(&roles::WebField { hidden: true, ..past.clone() }, typing));
+    assert!(!scrolls(&roles::WebField { width: 1.0, ..past.clone() }, typing));
+    assert!(!scrolls(&roles::WebField { kind: roles::WebKind::Area, ..past.clone() }, setting));
+    let password = roles::WebField { secure: true, ..past.clone() };
+    assert!(!scrolls(&password, typing), "typing refuses a password field first");
+    assert!(scrolls(&password, setting));
+}
+
+/// Background typing into web content tries keys first: the value route is
+/// the fallback only when the guard refused focus and the field is
+/// eligible; else the gate's reason (a Chrome or Electron composer, a
+/// textarea, a contenteditable or text with Enter take keys when focused).
+#[test]
+fn web_typing_tries_keys_before_the_value_route() {
+    assert_eq!(roles::web_typing(true, Ok(())), roles::WebTyping::Keys);
+    assert_eq!(roles::web_typing(true, Err("textarea")), roles::WebTyping::Keys, "a composer");
+    assert_eq!(roles::web_typing(false, Ok(())), roles::WebTyping::Value);
+    assert_eq!(roles::web_typing(false, Err("textarea")), roles::WebTyping::Refuse("textarea"));
+}
+
+/// #13742: a targeted write into a field of the person's app only where
+/// their caret is not; on it, around it, or unread: refused.
+#[test]
+fn a_targeted_write_in_the_persons_app_needs_their_caret_elsewhere() {
+    assert!(roles::caret_allows_write(roles::Caret::Elsewhere));
+    assert!(!roles::caret_allows_write(roles::Caret::OnTarget));
+    assert!(!roles::caret_allows_write(roles::Caret::Unread), "fail closed");
+    assert!(!roles::container_holds_caret("AXWindow"), "a focused window holds no caret");
+    assert!(!roles::container_holds_caret("AXApplication"));
+    assert!(roles::container_holds_caret("AXWebArea"), "the caret is in a field inside it");
+    assert!(roles::container_holds_caret("AXGroup"));
+}
+
+/// Every targeted write into a field (its value, selected text, selection
+/// or focus, or an attribute named at run time) in actions.rs, menus.rs and
+/// mod.rs goes through the one caret gate (`persons_caret_write`), or
+/// through `gated`, which refuses the person's app outright, or carries a
+/// `caret-gate:` note saying why it is not a field write (each listed
+/// here). `focus_and_select` is called only inside `gated`. A new write
+/// site must be added here, gated.
+#[test]
+fn every_targeted_field_write_goes_through_the_caret_gate() {
+    let files = [
+        ("actions.rs", include_str!("actions.rs")),
+        ("menus.rs", include_str!("menus.rs")),
+        ("mod.rs", include_str!("mod.rs")),
+    ];
+    let writes = [
+        "set(\"AXSelectedText\"",
+        "set(\"AXValue\"",
+        "set_selected_range(",
+        "set(\"AXFocused\"",
+        "set(attr",
+    ];
+    let fn_start = |l: &str| {
+        let t = l.trim_start();
+        t.starts_with("fn ")
+            || t.starts_with("pub(super) fn ")
+            || t.starts_with("pub fn ")
+            || t.starts_with("pub(crate) fn ")
+    };
+    // Inside a gate call: the write is on the call's line, or in a block
+    // (its closure) opened on a line that makes the call.
+    let gate = |l: &str| {
+        l.contains("persons_caret_write(")
+            || l.contains("gated(d, t,")
+            || l.contains("gated(d, &t,")
+    };
+    let mut sites = Vec::new();
+    let mut exempt = Vec::new();
+    for (file, src) in files {
+        let lines: Vec<&str> = src.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim_start().starts_with("//") || !writes.iter().any(|w| line.contains(w)) {
+                continue;
+            }
+            let start = (0..=i).rev().find(|&j| fn_start(lines[j])).expect("an enclosing fn");
+            let after_fn = lines[start].split("fn ").nth(1).unwrap_or("");
+            let name: String =
+                after_fn.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            if line.contains("// caret-gate:") {
+                exempt.push(format!("{file}:{name}"));
+                continue;
+            }
+            let mut gated = gate(line);
+            let mut depth = 0i32;
+            for j in (start..i).rev() {
+                let l = lines[j];
+                depth += l.matches('}').count() as i32 - l.matches('{').count() as i32;
+                if depth < 0 {
+                    // A block enclosing the write opens on line j.
+                    if gate(l) {
+                        gated = true;
+                        break;
+                    }
+                    depth = 0;
+                }
+            }
+            sites.push((format!("{file}:{name}"), gated, i + 1));
+        }
+        for (i, line) in lines.iter().enumerate() {
+            if line.contains("focus_and_select(")
+                && !fn_start(line)
+                && !line.trim_start().starts_with("//")
+            {
+                assert!(
+                    line.contains("gated(d, t,"),
+                    "{file}:{}: focus_and_select outside gated",
+                    i + 1
+                );
+            }
+        }
+    }
+    for (name, gated, line) in &sites {
+        assert!(
+            *gated || name == "actions.rs:focus_and_select",
+            "{name} (line {line}) writes outside the caret gate"
+        );
+    }
+    let mut names: Vec<&str> = sites.iter().map(|(n, _, _)| n.as_str()).collect();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(
+        names,
+        [
+            "actions.rs:ax_insert",
+            "actions.rs:ax_scroll_run",
+            "actions.rs:focus_and_select",
+            "actions.rs:set_value",
+            "actions.rs:slider_drag",
+            "actions.rs:type_text",
+            "actions.rs:web_value_write",
+            "actions.rs:write_attribute",
+        ],
+        "a new field write site: route it through persons_caret_write and list it here"
+    );
+    exempt.sort_unstable();
+    assert_eq!(
+        exempt,
+        ["actions.rs:write_attribute", "mod.rs:restore_focus"],
+        "a new caret-gate exemption: say why it is not a field write and list it here"
+    );
+}
+
+/// After a web value write: confirmed only while the field still holds the
+/// page's focus (its own, and the web area's focused element where read).
+#[test]
+fn a_web_value_write_is_kept_only_while_focus_stays() {
+    assert!(roles::kept_focus(Some(true), Some(true)));
+    assert!(roles::kept_focus(Some(true), None), "the area's focus unread");
+    assert!(!roles::kept_focus(Some(true), Some(false)), "the area names another field");
+    assert!(!roles::kept_focus(Some(false), Some(true)));
+    assert!(!roles::kept_focus(None, Some(true)));
+}
+
+/// Safari puts a text field's AXValue write into the field holding the
+/// page's focus: a web value write is made only while the target holds it.
+#[test]
+fn a_web_value_write_needs_the_page_focus() {
+    assert!(roles::holds_page_focus(Some(true)));
+    assert!(!roles::holds_page_focus(Some(false)));
+    assert!(!roles::holds_page_focus(None), "unread");
+}
+
+/// A value write that errors may still have applied, unless the error says
+/// the write was refused outright (illegal argument, unsupported).
+#[test]
+fn only_a_refusing_ax_error_means_the_value_was_not_written() {
+    use super::sys::{
+        AX_ACTION_UNSUPPORTED, AX_ATTRIBUTE_UNSUPPORTED, AX_CANNOT_COMPLETE, AX_ILLEGAL_ARGUMENT,
+        AX_INVALID_ELEMENT,
+    };
+    for e in [AX_ILLEGAL_ARGUMENT, AX_ATTRIBUTE_UNSUPPORTED, AX_ACTION_UNSUPPORTED] {
+        assert!(roles::write_not_applied(e), "{e}");
+    }
+    for e in [AX_CANNOT_COMPLETE, AX_INVALID_ELEMENT, -25200, -25212] {
+        assert!(!roles::write_not_applied(e), "{e}");
+    }
+}
+
+/// The note says where the text went and how much it replaced.
+#[test]
+fn the_web_value_note_names_the_position_and_the_replaced_characters() {
+    let n = roles::web_value_note(3, 0, false, false);
+    assert!(n.contains("position 3") && !n.contains("replac"), "{n}");
+    let n = roles::web_value_note(0, 5, true, true);
+    assert!(n.contains("replacing the 5 selected characters"), "{n}");
+    assert!(n.contains("length limit") && !n.contains("pattern"), "{n}");
+    assert!(n.contains("scrolled to bring the field into view"), "{n}");
+    assert!(roles::web_value_note(0, 1, false, false).contains("the 1 selected character,"));
+}
+
+/// The menu-bar check walks strictly: only the menu bar, the window or the
+/// application end it; anything unread refuses (check_menu_item).
+#[test]
+fn the_menu_bar_walk_ends_only_at_known_roots() {
+    assert_eq!(roles::menu_bar_walk_step("AXMenuBar"), Some(true));
+    assert_eq!(roles::menu_bar_walk_step("AXWindow"), Some(false));
+    assert_eq!(roles::menu_bar_walk_step("AXApplication"), Some(false));
+    assert_eq!(roles::menu_bar_walk_step("AXGroup"), None);
+    assert_eq!(roles::menu_bar_walk_step("AXButton"), None);
+    assert_eq!(roles::menu_bar_walk_step("AXMenuItem"), None);
+    assert_eq!(roles::menu_bar_walk_step("AXMenu"), None);
+    assert_eq!(roles::menu_bar_walk_step("AXMenuBarItem"), None);
+}
+
+/// Review of 431ddaa: an element 25 or 30 levels deep in a window (VS Code,
+/// Slack, a deep web page) is not in the menu bar; the walk's cap of 16
+/// refused every click on it. The walk still ends only at the menu bar, a
+/// window or the application, so a subview of a menu item's custom view is
+/// in the menu bar; an unreadable role, or a walk past the cap, is unknown.
+#[test]
+fn a_deep_element_is_not_in_the_menu_bar() {
+    let chain =
+        |roles: Vec<&'static str>| move |depth: usize| roles.get(depth).map(|r| (*r).to_string());
+    let mut deep = vec!["AXButton"];
+    deep.extend(std::iter::repeat_n("AXGroup", 24));
+    deep.push("AXWindow");
+    assert_eq!(roles::menu_bar_walk(chain(deep)), Some(false));
+    let mut deep_web = vec!["AXGroup"; 30];
+    deep_web.extend(["AXWebArea", "AXScrollArea", "AXGroup", "AXWindow", "AXApplication"]);
+    assert_eq!(roles::menu_bar_walk(chain(deep_web)), Some(false));
+    let item = vec!["AXMenuItem", "AXMenu", "AXMenuItem", "AXMenu", "AXMenuBarItem", "AXMenuBar"];
+    assert_eq!(roles::menu_bar_walk(chain(item)), Some(true));
+    // A subview of a menu item's custom view (Help's search field, a
+    // volume-style slider) has its own role and is in the menu bar.
+    let custom = vec!["AXButton", "AXGroup", "AXMenuItem", "AXMenu", "AXMenuBarItem", "AXMenuBar"];
+    assert_eq!(roles::menu_bar_walk(chain(custom)), Some(true));
+    let field = vec!["AXSearchField", "AXMenuItem", "AXMenu", "AXMenuBarItem", "AXMenuBar"];
+    assert_eq!(roles::menu_bar_walk(chain(field)), Some(true));
+    // The parent of a menu item cannot be read: unknown, refused.
+    assert_eq!(roles::menu_bar_walk(chain(vec!["AXMenuItem", "AXMenu"])), None);
+    // Past the cap without reaching a root: unknown.
+    assert_eq!(roles::menu_bar_walk(chain(vec!["AXGroup"; roles::MENU_WALK_MAX + 1])), None);
 }

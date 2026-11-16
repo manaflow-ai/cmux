@@ -141,20 +141,47 @@ fn a_click_opens_the_menu_and_lists_its_items_for_the_next_call() {
     let out = e.call(&ctx("c1"), "click", &json!({"window_id": "1", "element_id": "p1"}));
     assert!(!out.is_error, "{:?}", out.body);
     assert_eq!(out.body["menu"]["state"], "open");
+    assert_eq!(out.body["menu"]["hidden"], 1);
+    assert!(d.popups()[0].open);
+    // The state shows only the open menu: its items with ids, without the
+    // denied item (and the result lists them once, there).
+    let tree = out.body["state"]["tree"].as_str().unwrap();
+    assert!(tree.starts_with("The menu is open; only it is shown."), "{tree}");
+    let items: Vec<&str> = tree.lines().skip(1).collect();
+    assert_eq!(items.len(), 3, "{tree}");
+    for (line, title) in items.iter().zip(["Always", "When Unlocked", "Never"]) {
+        assert!(
+            line.starts_with('[') && line.ends_with(&format!("menu item \"{title}\"")),
+            "{line}"
+        );
+    }
+    assert!(!tree.contains("Terminal") && !tree.contains("OK"), "{tree}");
+    assert!(out.body["menu"].get("items").is_none());
+    let tree = e.call(&ctx("t1"), "get_ui_tree", &json!({"window_id": "1", "full": true}));
+    assert!(!tree.body["tree"].as_str().unwrap().contains("Terminal"));
+}
+
+/// As JSON (a script), the open menu's result keeps its item list and the tree.
+#[test]
+fn a_click_that_opens_a_menu_keeps_the_items_as_json_for_scripts() {
+    let (d, e) = rig(MenuMode::Open);
+    let out = e.call(
+        &ctx("j1"),
+        "click",
+        &json!({"window_id": "1", "element_id": "p1", "format": "json"}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    assert!(d.popups()[0].open);
     let titles: Vec<&str> = out.body["menu"]["items"]
         .as_array()
-        .unwrap()
+        .expect("items")
         .iter()
         .map(|i| i["title"].as_str().unwrap())
         .collect();
     assert_eq!(titles, ["Always", "When Unlocked", "Never"]);
-    assert_eq!(out.body["menu"]["hidden"], 1);
-    assert!(d.popups()[0].open);
-    // The state's tree shows the open menu, without the denied item.
-    let tree = out.body["state"]["root"].to_string();
-    assert!(tree.contains("When Unlocked") && !tree.contains("Open in Terminal"), "{tree}");
-    let tree = e.call(&ctx("t1"), "get_ui_tree", &json!({"window_id": "1"}));
-    assert!(!tree.body["root"].to_string().contains("Terminal"));
+    let root = out.body["state"]["root"].to_string();
+    assert!(root.contains("When Unlocked") && !root.contains("Open in Terminal"), "{root}");
+    assert!(out.body["state"].get("tree").is_none());
 }
 
 #[test]
@@ -294,4 +321,31 @@ fn a_protected_item_is_hidden_from_a_menu_listing_with_nothing_denied() {
     assert!(!out.is_error, "{:?}", out.body);
     assert_eq!(out.body["menu"]["hidden"], 1);
     assert!(!out.body["menu"].to_string().contains("cmux Remote"));
+}
+
+/// Menu mode: a click opens the pop-up's menu, the state lists only its
+/// items with ids, and a click on an item's id picks it.
+#[test]
+fn an_item_listed_by_an_open_menu_is_picked_by_its_id() {
+    let (d, e) = rig(MenuMode::Open);
+    e.call(&ctx("t0"), "get_ui_tree", &json!({"window_id": "1"}));
+    let out = e.call(&ctx("c1"), "click", &json!({"window_id": "1", "element_id": "p1"}));
+    let tree =
+        out.body["state"]["tree"].as_str().unwrap_or_else(|| panic!("{}", out.body)).to_string();
+    let never = tree
+        .lines()
+        .find(|l| l.contains("menu item \"Never\""))
+        .and_then(|l| l.split('[').nth(1))
+        .and_then(|l| l.split(']').next())
+        .unwrap_or_else(|| panic!("{tree}"))
+        .to_string();
+    let pick = e.call(&ctx("c2"), "click", &json!({"window_id": "1", "element_id": never}));
+    assert!(!pick.is_error, "{:?}", pick.body);
+    assert!(
+        d.events()
+            .iter()
+            .any(|ev| matches!(ev, Event::Click { element: Some(id), .. } if id == "p1.2")),
+        "{:?}",
+        d.events()
+    );
 }

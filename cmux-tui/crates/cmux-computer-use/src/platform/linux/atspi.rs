@@ -333,7 +333,9 @@ impl Atspi {
             actions,
             focused: bit(st, ST_FOCUSED),
             disabled: !bit(st, ST_ENABLED) && !bit(st, ST_SENSITIVE),
-            children: Vec::new(),
+            // The object path names the same object across walks.
+            identity: Some(crate::observe::hash_identity(&obj.id())),
+            ..Element::default()
         };
         if depth + 1 >= walk.options.max_depth {
             walk.truncated |= self.prop_i32(obj, ACC, "ChildCount").unwrap_or(0) > 0;
