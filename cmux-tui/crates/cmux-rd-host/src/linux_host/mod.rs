@@ -7,7 +7,11 @@
 //!       a browser sign-in link: stack_login.rs), registers this desktop as a
 //!       `linux` device, anchors it (it renews its own host session for 30 days with its
 //!       device key, no token) and turns sharing on. Control (input) is off unless
-//!       `--allow-control`.
+//!       `--allow-control`. On a Wayland session it then makes the portal grant (`grant`).
+//!   grant [--control]
+//!       Wayland: asks the xdg-desktop-portal once (its dialog, on this screen) for the screen
+//!       and, with `--control`, keyboard and pointer, and saves the restore token in
+//!       `~/.config/cmux/screen-host/`, so no share asks again (portal.rs). Enable runs it.
 //!   share on [--stack-token-file PATH|-] | share off
 //!   run [--display :0] [--xauthority PATH] [--capture x11|portal]
 //!       The host: holds the hub socket and serves approved sessions. Run it in the desktop
@@ -21,7 +25,8 @@
 //! Consent: a viewer the person already allowed (the hub's `view`/`full` permission) is
 //! served; any other request waits for `approve` and is never answered by the host itself
 //! (consent.rs). A `view` session applies no input, and so does every session of a host that
-//! captures through the Wayland portal (it applies no input): there it is served view only.
+//! captures through the Wayland portal without a RemoteDesktop grant: there it is served view
+//! only.
 
 mod b64;
 mod consent;
@@ -50,6 +55,7 @@ const DEFAULT_HUB: &str = "https://cmux-device-hub.debussy.workers.dev";
 const PING_EVERY: Duration = Duration::from_secs(30);
 
 const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--allow-control]
+       cmux-rd linux-host grant [--control]
        cmux-rd linux-host share on [--stack-token-file PATH|-] | share off
        cmux-rd linux-host run [--display :0] [--xauthority PATH] [--capture x11|portal]
        cmux-rd linux-host requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status [--json]";
@@ -188,7 +194,7 @@ fn ask_line(r: &consent::Request) -> String {
 }
 
 /// Flags that take no value.
-const FLAGS: &[&str] = &["always", "allow-control", "json"];
+const FLAGS: &[&str] = &["always", "allow-control", "control", "json"];
 
 struct Args {
     positional: Vec<String>,
@@ -243,6 +249,10 @@ pub fn run_cli(args: &[String]) -> i32 {
             .only(&["stack-token-file", "hub", "name", "allow-control"])
             .map_err(Into::into)
             .and_then(|()| enable(&parsed)),
+        ["grant"] => parsed
+            .only(&["control"])
+            .map_err(Into::into)
+            .and_then(|()| grant(parsed.flag("control"))),
         ["share", "on"] => {
             parsed.only(&["stack-token-file"]).map_err(Into::into).and_then(|()| share_on(&parsed))
         }
@@ -326,6 +336,17 @@ fn enable(args: &Args) -> Res<()> {
     Account { hub: hub_url, user_id, anchored_until }.save(&dir)?;
     let consent = LocalConsent { view: true, full: args.flag("allow-control") };
     consent.save(&dir)?;
+    // The person joining this desktop is at it now: the portal's one dialog is shown here, so
+    // no share asks later. A failed grant does not undo the join; the first share asks once.
+    if CaptureBackend::from_env(None)? == CaptureBackend::Portal {
+        match portal_grant(consent.full) {
+            Ok(line) => println!("{line}"),
+            Err(e) => eprintln!(
+                "linux-host: the screen sharing portal did not grant sharing ({e}). The first share will show its dialog once on this screen; or run: cmux-rd linux-host grant{}",
+                if consent.full { " --control" } else { "" }
+            ),
+        }
+    }
     println!(
         "This desktop is shared as \"{}\" ({}), {}. Start the host: systemctl --user enable --now cmux-screen-host.service",
         hub.device.name,
@@ -333,6 +354,49 @@ fn enable(args: &Args) -> Res<()> {
         shares_line(&Ok(consent), host_applies_input())
     );
     Ok(())
+}
+
+/// `grant [--control]`: the Wayland portal's grant, made now so no share asks.
+fn grant(control: bool) -> Res<()> {
+    if CaptureBackend::from_env(None)? != CaptureBackend::Portal {
+        println!("This is not a Wayland session: sharing it needs no portal grant.");
+        return Ok(());
+    }
+    println!("{}", portal_grant(control)?);
+    if identity::runtime_dir().is_ok_and(|dir| dir.join("capture").exists()) {
+        println!("Restart the host to use it: systemctl --user restart cmux-screen-host.service");
+    }
+    Ok(())
+}
+
+/// Asks the portal once for the screen (and, with `control`, keyboard and pointer) and saves
+/// its restore token (portal.rs); what it granted. A build that cannot capture through the
+/// portal asks nothing: a grant would show a dialog for shares it cannot serve.
+#[cfg(feature = "portal-dbus")]
+fn portal_grant(control: bool) -> Res<String> {
+    use crate::portal::{PortalState, SessionKind};
+    CaptureBackend::Portal.available()?;
+    let granted = crate::portal::grant(control, &mut |state| {
+        if state == PortalState::WaitingForConsent {
+            eprintln!("linux-host: allow screen sharing in the dialog on this screen; cmux asks only this once");
+        }
+    })?;
+    let what = match granted.kind {
+        SessionKind::RemoteDesktop => "view and control this desktop",
+        SessionKind::ScreenCast if control => {
+            "view this desktop (this portal cannot keep a grant for keyboard and pointer, so it is shared view only)"
+        }
+        SessionKind::ScreenCast => "view this desktop",
+    };
+    Ok(format!(
+        "The screen sharing portal lets cmux {what}; shares start with no prompt on this screen."
+    ))
+}
+
+#[cfg(not(feature = "portal-dbus"))]
+fn portal_grant(_control: bool) -> Res<String> {
+    CaptureBackend::Portal.available()?;
+    Err("this cmux-rd is built without the Wayland portal".into())
 }
 
 /// Whether the hub refused this device's identity itself: it never registers a removed id
@@ -463,8 +527,7 @@ fn print_status_json() {
 }
 
 /// Why a host whose capture applies no input shares view only.
-const NO_INPUT_NOTE: &str =
-    " (view only: this desktop is captured through the Wayland portal, which applies no input)";
+const NO_INPUT_NOTE: &str = " (view only: this desktop is captured through the Wayland portal, which has no keyboard and pointer grant; `cmux-rd linux-host grant --control` asks for it once)";
 
 /// What `status` says this desktop shares, under `consent` and a capture that does or does
 /// not apply input.
@@ -473,7 +536,7 @@ fn shares_line(consent: &Res<LocalConsent>, applies_input: bool) -> &'static str
     match consent {
         Ok(c) if c.full && applies_input => "view and control",
         Ok(c) if c.full => {
-            "view only (control is allowed, but this desktop is captured through the Wayland portal, which applies no input)"
+            "view only (control is allowed, but this desktop is captured through the Wayland portal, which has no keyboard and pointer grant; `cmux-rd linux-host grant --control` asks for it once)"
         }
         Ok(_) => "view only",
         Err(_) => "nothing shared (consent.json missing or unreadable)",
@@ -570,8 +633,9 @@ fn run(args: &Args) -> Res<()> {
     }
     // The capture choice is checked now, so a bad --capture fails at start, not per session.
     let capture = CaptureBackend::from_env(args.get("capture"))?;
-    // Every session is served with this capture: a portal one applies no input, so control
-    // tickets are served view only, and `approve` and `status` read this to say so.
+    // Every session is served with this capture: a portal one without the RemoteDesktop grant
+    // applies no input, so control tickets are served view only, and `approve` and `status`
+    // read this to say so. A grant made later takes a restart.
     let applies_input = capture.applies_input();
     identity::write_private(&runtime.join("capture"), capture.name().as_bytes())?;
     let serve_args = ServeArgs(serve_args);
@@ -1175,7 +1239,7 @@ mod tests {
         identity::write_private(&dir.join("capture"), CaptureBackend::Portal.name().as_bytes())
             .unwrap();
         assert_eq!(host_capture(Some(&dir)), CaptureBackend::Portal);
-        assert!(!host_capture(Some(&dir)).applies_input());
+        assert!(!host_capture(Some(&dir)).applies_input_with(false));
         identity::write_private(&dir.join("capture"), b"x11").unwrap();
         assert_eq!(host_capture(Some(&dir)), CaptureBackend::X11);
         std::fs::remove_dir_all(&dir).unwrap();
