@@ -223,6 +223,7 @@ import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
 import { answerFromHome, replyElsewhere } from "./homeInboxModel";
 import { HomeLists } from "./HomeLists";
+import { homeListsShown } from "./homeListsModel";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
@@ -11868,6 +11869,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Pinned questions join the stack but never take the composer's keys (waitingAskStore.ts).
   const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length);
   const hasBottomAsk = bottomStack.holdsKeys;
+  // A new chat's home area (HomeLists, under the composer), and whether its lists draw anything: then
+  // the hero keeps its room (styles.css `data-home-lists`). An attribute, not a `:has()` over the pane,
+  // like `data-asks`. Asked only while the home area shows.
+  const homeAreaShown = freshView && !sandboxHoldsChat && !viewedSandbox && !(cloudStart && !snapshot.sessionId);
+  const homeListed = useMemo(
+    () => homeAreaShown && homeListsShown(snapshot.sessions, snapshot.sessionId, snapshot.asks, needsYou.attentionTabs),
+    [homeAreaShown, snapshot.sessions, snapshot.sessionId, snapshot.asks, needsYou.attentionTabs],
+  );
+  // The stage shows the chat's loading layout (ChatUnavailableState reports it): the dock reserves its
+  // room (styles.css `data-stage-loading`).
+  const [stageLoading, setStageLoading] = useState(false);
   // A folder confirmation can be pending while the New Tab stays mounted. Keep the same ask in
   // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
   // the ask there would strand the prompt with no Use or Cancel action.
@@ -13325,6 +13337,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts
           // into the transcript, and restyle the composer each time.
           data-asks={hasBottomAsk ? "" : undefined}
+          // The same for a new chat's home lists and the chat's loading layout (styles.css).
+          data-home-lists={homeListed ? "" : undefined}
+          data-stage-loading={stageLoading ? "" : undefined}
           // data-jump-latest: Jump to latest is up (hidden under the inspector), set by setJumpLatestShown.
           ref={setPaneMain}
         >
@@ -13943,6 +13958,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 ) : cloudUnavailable && !missingRows ? (
                   // The tab's chat is not here: which case it is, centered where the chat would be.
                   <ChatUnavailableState
+                    onLoadingLayout={setStageLoading}
                     unavailable={cloudUnavailable}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
@@ -14022,7 +14038,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {/* Between the hero and the docked composer. */}
                 {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
                     Neither does a Cloud start's chat, which shows its sent message (CloudStartView). */}
-                {freshView && !sandboxHoldsChat && !viewedSandbox && !(cloudStart && !snapshot.sessionId) && (
+                {homeAreaShown && (
                   <div className="acpmux-home-area">
                     <HomeLists
                       sessions={snapshot.sessions}

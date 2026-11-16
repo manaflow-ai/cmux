@@ -400,8 +400,11 @@
    under it and one quiet button. */
 .acpmux-unavailable{gap:10px}
 /* Loading has no transcript under the dock. Keep the existing dock height/shrink rules, but let
-   its actual height reserve the stage's room (including a growing draft in a short pane). */
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none;max-height:calc(100% - 44px - var(--acpmux-transcript-min,96px))}
+   its actual height reserve the stage's room (including a growing draft in a short pane).
+   `data-stage-loading` (App.tsx, from ChatUnavailableState), not a `:has()` over the pane: a pane-level
+   `:has()` restyles every row on screen at each composer edit (paneAncestorHas.test.ts). The doubled
+   class keeps it over bottomStack.css's `.acpmux-dock:has(.acpmux-composer-foot)`, as the `:has()` did. */
+.acpmux-main[data-dock="float"][data-stage-loading]>.acpmux-dock.acpmux-dock{position:relative;flex:none;max-height:calc(100% - 44px - var(--acpmux-transcript-min,96px))}
 /* Equal upper/lower tracks keep the spinner centered. Its 28px square needs 40px while rotating.
    Copy stretches to its track instead of overflowing an intrinsically sized, centered grid item. */
 .acpmux-unavailable[data-unavailable="connecting"]{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 40px minmax(0,1fr);gap:8px;padding-bottom:0}
@@ -555,8 +558,9 @@
 .acpmux-main[data-new-chat] .acpmux-empty{justify-content:center;padding-bottom:6%}
 /* Home lists (HomeLists.tsx): the welcome lists between the hero and the docked composer, in its column; they scroll when tall. */
 .acpmux-main[data-new-chat]>.acpmux-dock>.acpmux-home-area{flex:0 1 auto;min-height:0;max-height:50%}
-/* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first. */
-.acpmux-main[data-new-chat]:has(>.acpmux-dock>.acpmux-home-area:not(:empty))>.acpmux-stage{min-height:128px}
+/* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first.
+   `data-home-lists` (App.tsx, homeListsShown) marks lists drawn, not a pane-level `:has()` (paneAncestorHas.test.ts). */
+.acpmux-main[data-new-chat][data-home-lists]>.acpmux-stage{min-height:128px}
 /* No lists to show: no wrapper either, so the hero centers exactly as without this feature. */
 .acpmux-home-area:empty{display:none}
 .acpmux-home-area{overflow:auto;padding:0 max(16px,calc((100% - 760px)/2)) 12px;font-family:var(--font-ui);-webkit-font-smoothing:antialiased}

@@ -874,8 +874,11 @@
    dots (a widget, off by default, App.tsx) sit absolutely at the page's foot, 2 px up and 24 px
    tall: with them on, the page keeps their room under the row (less the row's 4 px margin). */
 .nt-screen[data-layout="stage"]:has(.nt-foot) { --nt-stage-foot: 0px; }
-/* The template dots sit in the page's dots row (PageDots.tsx) beside the look dots, which keep no band. */
-.acpmux-main:has(> .nt-page-dots > .nt-style:not(.nt-look-dots)) .nt-screen[data-layout="stage"]:has(.nt-foot) {
+/* The template dots sit in the page's dots row (PageDots.tsx) beside the look dots, which keep no band.
+   The page follows the dots row in the pane (App.tsx), so the dots row carries the `:has()`, not the
+   pane: a pane-level `:has()` restyles every row on screen at each composer edit (paneAncestorHas.test.ts). */
+.acpmux-main > .nt-page-dots:has(> .nt-style:not(.nt-look-dots)) ~ .nt-screen[data-layout="stage"]:has(.nt-foot),
+.acpmux-main > .nt-page-dots:has(> .nt-style:not(.nt-look-dots)) ~ * .nt-screen[data-layout="stage"]:has(.nt-foot) {
   --nt-stage-foot: 22px;
 }
 .nt-screen[data-layout="stage"] .nt-stage {
