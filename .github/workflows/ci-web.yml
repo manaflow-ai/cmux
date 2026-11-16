@@ -1222,7 +1222,7 @@ jobs:
     # react-apps-check. It takes the 16 vCPU size from the capability map.
     # A fork head keeps the ephemeral 16 vCPU Blacksmith size: fork code never reaches the owned GCP
     # pool the map names for manaflow-ai, and no job here may pick a GitHub-hosted runner.
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(needs.runners.outputs.map).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(needs.runners.outputs.map).linux_16 }}
     timeout-minutes: 15
     defaults:
       run:
