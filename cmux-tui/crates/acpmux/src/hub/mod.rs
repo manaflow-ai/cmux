@@ -1389,6 +1389,7 @@ impl Hub {
         #[cfg(feature = "hub-carrier")]
         let hub_carrier =
             crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
+        let _phase = gauges.phase("hub assembly");
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
@@ -1622,10 +1623,13 @@ impl Hub {
             tailnet_controller: std::sync::OnceLock::new(),
             briefs,
         });
+        drop(_phase);
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
         }
+        let _phase = gauges.phase("staged recovery");
         hub.recover_staged_replacements();
+        drop(_phase);
         hub.watch_rehydrates();
         if loading {
             hub.logs_ready.send_replace(false);
