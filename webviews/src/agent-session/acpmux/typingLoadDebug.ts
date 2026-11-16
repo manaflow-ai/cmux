@@ -20,6 +20,7 @@ let active:
         toolLines: number;
         elapsedMs: number;
         maxGapMs: number;
+        maxScheduleOffsetMs: number;
         error?: string;
       };
     }
@@ -69,6 +70,7 @@ export async function typingLoad(
       toolLines: 0,
       elapsedMs: 0,
       maxGapMs: 0,
+      maxScheduleOffsetMs: 0,
       error: undefined as string | undefined,
     },
   };
@@ -79,6 +81,7 @@ export async function typingLoad(
       chunkChars: 32,
       chunkMs: 1000 / rate,
       toolEvery: 0,
+      fixedSchedule: true,
       toolLinesPerSecond: lines,
       stopped: () => state.stopped,
       progress: (counts) => Object.assign(state.receipt, counts),

@@ -60,7 +60,12 @@ export async function loadSeed(
   let firstAtLatest: boolean | undefined;
   let shifts = 0;
   let shown: string | undefined;
-  const deadline = performance.now() + 25_000;
+  // Large typing fixtures need time for the reducer and virtual transcript to mount their rows. A
+  // fixed 25 s deadline returned zero rows on Chromium before the 100k-row L3 fixture had rendered,
+  // which made the load result an invalid setup diagnostic rather than a typing measurement. Keep
+  // ordinary load benches bounded at 25 s; only the explicitly large fixture gets the longer window.
+  const deadlineMs = turns >= 10_000 ? 120_000 : 25_000;
+  const deadline = performance.now() + deadlineMs;
   while (still < 20 && performance.now() < deadline) {
     await frame();
     const now = await afterRender();
@@ -75,15 +80,20 @@ export async function loadSeed(
     } else if (view.key !== shown) shifts += 1;
     shown = view.key;
   }
+  const rows = host.rowCount();
   return {
     session,
     turns,
-    rows: host.rowCount(),
+    logical_rows: turns * 3,
+    rows,
     seed_ms: round2(seeded - started),
     first_content_ms: firstContent === undefined ? null : round2(firstContent),
     first_content_at_latest: firstAtLatest ?? null,
     shifts_after_first_content: shifts,
     open_ms: round2(performance.now() - seeded),
+    seed_deadline_ms: deadlineMs,
+    seed_ready: still >= 20 && rows > 0,
+    seed_timed_out: still < 20 && performance.now() >= deadline,
   };
 }
 

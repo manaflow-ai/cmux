@@ -253,9 +253,18 @@ export type LoadStreamOptions = {
   chunkChars: number;
   chunkMs: number;
   toolEvery: number;
+  /// Assign each text delta a fixed due time. A delayed timer sends one due delta in the next task;
+  /// it never emits a same-task catch-up batch.
+  fixedSchedule?: boolean;
   toolLinesPerSecond?: number;
   stopped?: () => boolean;
-  progress?: (counts: { deltas: number; toolLines: number; elapsedMs: number; maxGapMs: number }) => void;
+  progress?: (counts: {
+    deltas: number;
+    toolLines: number;
+    elapsedMs: number;
+    maxGapMs: number;
+    maxScheduleOffsetMs: number;
+  }) => void;
 };
 
 /// Whether `event` is subagent `id`'s own record (hub/paging.rs `subagent_owns`): an agent update
@@ -427,7 +436,10 @@ export class MockAcpmuxSocket {
       const at = now - (turns - turn) * 60_000;
       for (const step of light ? lightTurn(turn) : loadTurn(turn)) this.record(id, step, at);
     }
-    if (light) this.openWhole.add(id);
+    // Small light fixtures are opened whole so the short composer rows are exact. Large typing
+    // fixtures must use the normal paged attach: the production row store intentionally holds a
+    // bounded window, and one 100k-event whole response never becomes a usable page.
+    if (light && turns < 10_000) this.openWhole.add(id);
     this.sessions.push(created);
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
     return id;
@@ -463,15 +475,24 @@ export class MockAcpmuxSocket {
     let output = "";
     let previous = started;
     let maxGapMs = 0;
+    let maxScheduleOffsetMs = 0;
     let at = 0;
     let deltas = 0;
     let tools = 0;
+    let nextChunkAt = started + options.chunkMs;
     while (performance.now() < end && !this.closed && !options.stopped?.()) {
-      await this.delay(options.chunkMs);
+      if (options.fixedSchedule) {
+        const waitMs = nextChunkAt - performance.now();
+        if (waitMs > 0) await this.delay(waitMs);
+      } else await this.delay(options.chunkMs);
       if (options.stopped?.() || this.closed) break;
       const now = performance.now();
       maxGapMs = Math.max(maxGapMs, now - previous);
       previous = now;
+      if (options.fixedSchedule) {
+        maxScheduleOffsetMs = Math.max(maxScheduleOffsetMs, Math.max(0, now - nextChunkAt));
+        nextChunkAt = started + (deltas + 2) * options.chunkMs;
+      }
       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
       at += options.chunkChars;
       this.emit(target, { update: text(chunk) });
@@ -491,7 +512,7 @@ export class MockAcpmuxSocket {
           },
         });
       }
-      options.progress?.({ deltas, toolLines, elapsedMs: now - started, maxGapMs });
+      options.progress?.({ deltas, toolLines, elapsedMs: now - started, maxGapMs, maxScheduleOffsetMs });
       if (options.toolEvery > 0 && deltas % options.toolEvery === 0) {
         this.emit(target, { update: streamedTool(turn, tools) });
         tools += 1;

@@ -10,6 +10,7 @@ type LoadReceipt = {
   toolLines: number;
   elapsedMs: number;
   maxGapMs: number;
+  maxScheduleOffsetMs: number;
   error?: string;
 };
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
@@ -23,7 +24,13 @@ export async function seedComposer(surface: Surface, turns: number) {
   );
   if (receipt.error) throw new Error(`loadSeed: ${receipt.error}`);
   await surface.locator(PROMPT).first().waitFor({ timeout: 30_000 });
-  return Number(receipt.rows);
+  return {
+    rows: Number(receipt.rows),
+    logicalRows: Number(receipt.logical_rows ?? receipt.rows),
+    seedReady: receipt.seed_ready === true,
+    seedTimedOut: receipt.seed_timed_out === true,
+    seedDeadlineMs: Number(receipt.seed_deadline_ms ?? 25_000),
+  };
 }
 
 // Browser-only L2 puts five visible and five hidden documents in this renderer tree. Native
@@ -45,7 +52,8 @@ export async function runComposerLoad(
   // A light turn reduces to prompt, reply and turnSummary (direct.ts turn_result).
   // Always report/check the actual model count too; the old fixture comment omits the summary.
   const requestedRows = mode === "L3" ? 100000 : length;
-  const rows = await seedComposer(page, Math.ceil(requestedRows / 3));
+  const seed = await seedComposer(page, Math.ceil(requestedRows / 3));
+  const rows = seed.rows;
   const backgrounds: Frame[] = [];
   if (mode === "L2") {
     await page.evaluate((port) => {
@@ -171,6 +179,7 @@ export async function runComposerLoad(
       ...receipt,
       chunks_per_second: (1000 * (receipt.deltas - before[i]!.deltas)) / ms,
       tool_lines_per_second: (1000 * (receipt.toolLines - before[i]!.toolLines)) / ms,
+      max_schedule_offset_ms: receipt.maxScheduleOffsetMs,
     };
   });
   const samples = result.typing.samples as {
@@ -189,7 +198,9 @@ export async function runComposerLoad(
     samples.map((s) => s.key).join("") !== expected
   )
     errors.push("key count, order or final text mismatch");
-  if (mode === "L3" && rows < 100000) errors.push("fixture has fewer than 100000 rows");
+  if (mode === "L3" && seed.logicalRows < 100000) errors.push("fixture requested fewer than 100000 logical rows");
+  if (mode === "L3" && (!seed.seedReady || rows === 0))
+    errors.push("fixture did not reach stable nonempty row readiness before deadline");
   if ((quantile(late, 0.95) ?? Infinity) > gap) errors.push("driver missed input cadence");
   if (
     !Number.isFinite(result.typing.epoch_clock_error_ms) ||
@@ -206,6 +217,7 @@ export async function runComposerLoad(
         r.chunks_per_second < rate * 0.9 ||
         r.tool_lines_per_second < lines * 0.9 ||
         r.maxGapMs > 250 ||
+        r.maxScheduleOffsetMs > 250 ||
         r.started_epoch_ms + r.elapsedMs < (samples.at(-1)?.paint_epoch_ms ?? Infinity) - 250,
     )
   )
@@ -224,7 +236,11 @@ export async function runComposerLoad(
   return {
     mode,
     requested_rows: requestedRows,
+    logical_rows: seed.logicalRows,
     rows,
+    seed_ready: seed.seedReady,
+    seed_timed_out: seed.seedTimedOut,
+    seed_deadline_ms: seed.seedDeadlineMs,
     keys: samples.length,
     valid: errors.length === 0,
     acceptance_eligible: errors.length === 0 && keys >= 200,
