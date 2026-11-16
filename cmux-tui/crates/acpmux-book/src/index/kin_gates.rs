@@ -255,3 +255,85 @@ fn cold_continuation_gate() {
     // Sparse seeks have the existing 5b block bound; the per-request budget is fixed.
     assert!(god <= 256 * 1024);
 }
+
+#[test]
+#[ignore = "release gate"]
+fn kin_table_write_gate() {
+    fn fixture() -> SummaryIndex {
+        let mut root = row("kin-root", 1);
+        root.state = "closed".to_owned();
+        let root_key = root.key();
+        let mut index = SummaryIndex::new().apply(1, root);
+        for n in 0..11_000 {
+            let mut child = row(format!("kin-child-{n:05}"), 2 + n as u64);
+            child.state = "closed".to_owned();
+            child.parent = Some(root_key.clone());
+            index = index.apply(n as u64 + 2, child);
+        }
+        index
+    }
+
+    fn write_once(index: &SummaryIndex, with_table: bool) -> (u128, u64, u64) {
+        let directory = tempfile::tempdir().unwrap();
+        let snapshot = directory.path().join("index.snap");
+        let table = directory.path().join("index.snap.kin");
+        let start = Instant::now();
+        if with_table {
+            SortedSnapshot::write_stream_generation_with_table(
+                &snapshot,
+                index.seq(),
+                0,
+                None,
+                0,
+                SnapshotMeta::default(),
+                index.merged_rows(),
+                Some(&table),
+            )
+            .unwrap();
+        } else {
+            SortedSnapshot::write_stream_generation(
+                &snapshot,
+                index.seq(),
+                0,
+                None,
+                0,
+                SnapshotMeta::default(),
+                index.merged_rows(),
+            )
+            .unwrap();
+        }
+        let elapsed = start.elapsed().as_nanos();
+        let entries = 10_999u64;
+        let bytes = if with_table {
+            let bytes = std::fs::metadata(&table).unwrap().len();
+            assert!(bytes <= entries * 64 + 3 * 4096);
+            bytes
+        } else {
+            0
+        };
+        (elapsed, entries, bytes)
+    }
+
+    let index = fixture();
+    let mut small = Vec::new();
+    let mut god = Vec::new();
+    for round in 0..5 {
+        let (first, second) = if round % 2 == 0 { (false, true) } else { (true, false) };
+        let (first_ns, _, _) = write_once(&index, first);
+        let (second_ns, entries, bytes) = write_once(&index, second);
+        if first {
+            god.push(vec![first_ns]);
+            small.push(vec![second_ns]);
+        } else {
+            small.push(vec![first_ns]);
+            god.push(vec![second_ns]);
+        }
+        assert_eq!(entries, 10_999);
+        assert!(bytes <= entries * 64 + 3 * 4096);
+    }
+    let small_p95 = gate_rounds::best_p95(&small);
+    let god_p95 = gate_rounds::best_p95(&god);
+    gate_rounds::report("v2.pr05i.table_write", &[("small", &small), ("god", &god)]);
+    emit("v2.pr05i.table_write", small_p95, god_p95, None, "ns");
+    assert!(god_p95 as f64 <= small_p95 as f64 * 1.5);
+}
