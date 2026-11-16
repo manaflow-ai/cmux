@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43863827367",
+  "recorded_at": "2026-11-16T12:17:20Z",
+  "reason": "cmux-tui ae5aa80d9466 changes the image's cmux-tui (pinned f12bd4c90023)",
+  "dry_run": false,
+  "cmux_tui": "ae5aa80d9466b708b8edfe7f211da0f212ce10b4",
+  "fixes": [
+    {
+      "sha": "ae5aa80d9466b708b8edfe7f211da0f212ce10b4",
+      "mergedAt": "2026-11-16T03:53:01-08:00",
+      "subject": "Windows PCs join Remote machines with one PowerShell line (#44333)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T12:17:20Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
