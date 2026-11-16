@@ -204,6 +204,16 @@ pub(super) fn is_own_host(host: &str) -> bool {
 pub(crate) static FAIL_HUB_VIA_SAVES: std::sync::Mutex<Vec<String>> =
     std::sync::Mutex::new(Vec::new());
 
+/// Tests only: chats by name whose delete fails (`Hub::kill` with `purge`), before anything of the
+/// chat is stopped.
+#[cfg(test)]
+pub(crate) static FAIL_PURGES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+pub(super) fn fail_purge(name: &str) -> bool {
+    FAIL_PURGES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().any(|n| n == name)
+}
+
 #[cfg(test)]
 fn fail_hub_via_save(name: &str) -> bool {
     FAIL_HUB_VIA_SAVES

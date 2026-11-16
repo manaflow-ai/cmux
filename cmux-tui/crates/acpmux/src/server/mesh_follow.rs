@@ -120,6 +120,13 @@ pub(crate) fn follow_with(
     });
 }
 
+/// Tests only: the followers running for chat `id`, under any key that names it.
+#[cfg(test)]
+pub(crate) fn followers_of(id: &str) -> usize {
+    let qualified = format!("/{id}");
+    RUNNING.lock_or_recover().keys().filter(|(_, k)| k == id || k.ends_with(&qualified)).count()
+}
+
 /// Wake the follower of chat `key` for `conn` now: a prompt just went there.
 pub(crate) fn nudge(conn: &Conn, key: &str) {
     if let Some(nudge) = RUNNING.lock_or_recover().get(&(conn.id.clone(), key.to_owned())) {

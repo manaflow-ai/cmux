@@ -2557,6 +2557,10 @@ impl Hub {
         // Its approvals audit entries go first (`audit_log.rs`), before anything of the chat is
         // stopped or marked purged: a purge that fails or times out fails the delete with the
         // chat as it was, still recording (the writer lifts its own fence again).
+        #[cfg(test)]
+        if purge && super::mesh_rows::fail_purge(&session.meta().name) {
+            return Err(RpcError::internal("test: the delete failed"));
+        }
         if purge {
             self.audit_purge(&session.id).await?;
         }

@@ -528,6 +528,82 @@ async fn a_start_whose_trust_mark_cannot_be_saved_is_refused_and_leaves_no_chat(
     b.shutdown_all().await;
 }
 
+/// Review F7 of #38377: the app opens a hub chat by `HOST/ID`, then prompts and detaches it by the
+/// raw id the attach answered. Its live records name the chat as its row does (`sessionId` the raw
+/// id, `qualifiedSessionId` `HOST/ID`, never `HOST/HOST/ID`), and the detach by the raw id ends
+/// the follower the open started.
+#[tokio::test]
+async fn a_hub_chat_opened_by_host_and_id_follows_and_detaches_by_its_raw_id() {
+    let (dir, root, cwd) = project();
+    let b = machine_b(&root);
+    let a = machine_a(Arc::new(Loopback::new(&b, dir.path(), Some("person-1"))));
+    // The starting pane stays open: its own follower of the chat keeps running throughout.
+    let mut starter = Client::app(&a);
+    let started =
+        starter.call("session/new", new_params(&cwd, "machine-b", "opened"), &mut Vec::new()).await;
+    let id = started["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{started}"));
+    let id = id.to_owned();
+    let followed = super::super::follow::followers_of(&id);
+
+    // A second pane opens it as its row names it.
+    let mut pane = Client::app(&a);
+    let mut seen = Vec::new();
+    let attach = json!({"sessionId": format!("machine-b/{id}"), "limit": 50, "maxBytes": 1 << 20});
+    let opened = pane.call(method::MUX_ATTACH, attach, &mut seen).await;
+    assert_eq!(opened["result"]["session"]["sessionId"], json!(id), "{opened}");
+    assert_eq!(
+        super::super::follow::followers_of(&id),
+        followed + 1,
+        "the open started no follower"
+    );
+
+    // Its prompt by the raw id: the reply comes live, named as the chat's row is.
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hello by id"}]});
+    let sent = pane.call(method::SESSION_PROMPT, prompt, &mut seen).await;
+    assert_eq!(sent["result"]["via"], "mesh", "{sent}");
+    let reply = pane
+        .until(&mut seen, |v| {
+            v["method"] == method::SESSION_UPDATE
+                && v["params"]["update"]["content"]["text"] == "echo: hello by id"
+        })
+        .await;
+    assert_eq!(
+        (reply["params"]["sessionId"].as_str(), reply["params"]["qualifiedSessionId"].as_str()),
+        (Some(id.as_str()), Some(format!("machine-b/{id}").as_str())),
+        "{reply}"
+    );
+
+    // Its detach by the raw id ends the follower the open started.
+    pane.call(method::MUX_DETACH, json!({"sessionId": id}), &mut seen).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while super::super::follow::followers_of(&id) > followed {
+        assert!(tokio::time::Instant::now() < deadline, "the detached pane still follows the chat");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    b.shutdown_all().await;
+}
+
+/// Review F9 of #38377: B could not save the start's trust mark, and its delete of the chat fails
+/// too. The start is still refused, so the chat must not stay: it is stopped and gone from B's
+/// sessions, never left running unmarked after the caller heard it was not kept.
+#[tokio::test]
+async fn a_refused_start_whose_delete_fails_leaves_no_chat_running() {
+    let (dir, root, cwd) = project();
+    let b = machine_b(&root);
+    let gates = tempfile::tempdir().unwrap();
+    let paths = gate(&b, gates.path());
+    crate::trust::set(&paths, cwd.to_str().unwrap(), "trusted").unwrap();
+    crate::hub::FAIL_HUB_VIA_SAVES.lock().unwrap().push("undeletable".into());
+    crate::hub::FAIL_PURGES.lock().unwrap().push("undeletable".into());
+    let a = machine_a(Arc::new(Loopback::new(&b, dir.path(), Some("person-1"))));
+    let refused = Client::app(&a)
+        .call("session/new", new_params(&cwd, "machine-b", "undeletable"), &mut Vec::new())
+        .await;
+    assert_eq!(refused["error"]["data"]["reason"], "mesh.start_unsaved", "{refused}");
+    assert!(b.resolve("undeletable").is_err(), "a refused start's chat is still on B");
+    b.shutdown_all().await;
+}
+
 /// A message the hub leases to B from machine A's person.
 fn from_a(kind: crate::mesh::Kind, op: Option<&str>, to: Target, body: String) -> InMessage {
     InMessage {

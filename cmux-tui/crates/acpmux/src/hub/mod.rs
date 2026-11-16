@@ -146,7 +146,7 @@ pub mod media_read;
 mod mesh_book;
 mod mesh_rows;
 #[cfg(test)]
-pub(crate) use mesh_rows::FAIL_HUB_VIA_SAVES;
+pub(crate) use mesh_rows::{FAIL_HUB_VIA_SAVES, FAIL_PURGES};
 mod peer_row;
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) mod v1_source;
