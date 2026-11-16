@@ -766,6 +766,13 @@ fn hub_join(
     match (&outcome.machine, &outcome.failure) {
         (Some(machine), _) => {
             if !json_out {
+                if outcome.already_joined {
+                    // Door A re-add: the machine kept its record, and no join line was minted.
+                    println!(
+                        "{} was already joined to your account: kept its record {}",
+                        machine.name, machine.machine_id
+                    );
+                }
                 println!("{}", this_mac::added_line(&machine.name, seconds, this_mac.as_ref()));
             }
             Ok(())

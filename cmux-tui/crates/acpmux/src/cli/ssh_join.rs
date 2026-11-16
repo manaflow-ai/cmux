@@ -119,6 +119,9 @@ pub enum Kind {
     Expired,
     /// The join ran but the daemon never reported in.
     NoReport,
+    /// The far machine kept an earlier join and redeemed nothing (an acpmux whose probe told no
+    /// join status).
+    AlreadyJoined,
     /// The join script failed for its own reason; its last line says which.
     Failed,
     /// A bad request (an option-like host, a name with spaces).
@@ -172,6 +175,10 @@ pub struct Outcome {
     /// ([`replace_earlier`]), by machine id.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub replaced: Vec<String>,
+    /// The machine was already joined to this account with its daemon up: its record (`machine`)
+    /// is kept, and no join token was minted.
+    #[serde(rename = "alreadyJoined", skip_serializing_if = "std::ops::Not::not")]
+    pub already_joined: bool,
 }
 
 impl Outcome {
@@ -346,14 +353,48 @@ fn ssh_argv(program: &str, host: &str, remote: &str) -> Vec<String> {
     .to_vec()
 }
 
-/// `reach`: the far machine's OS and arch, then its ssh host key (for [`host_key_of`]). A system
-/// with no `uname` (Windows) fails at the first command, before the `&&`.
+/// `reach`: the far machine's OS and arch, then its ssh host key (for [`host_key_of`]), then its
+/// acpmux's join status on one line (for [`joined_there`]). A system with no `uname` (Windows)
+/// fails at the first command, before the `&&`.
 pub fn probe_plan(program: &str, host: &str) -> SshPlan {
     SshPlan { argv: ssh_argv(program, host, PROBE), stdin: None }
 }
 
 /// The probe's remote command.
-const PROBE: &str = "uname -sm && { cat /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || cat /etc/ssh/ssh_host_ecdsa_key.pub 2>/dev/null || true; }";
+const PROBE: &str = "uname -sm && { cat /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || cat /etc/ssh/ssh_host_ecdsa_key.pub 2>/dev/null || true; } && { ~/.local/bin/acpmux host join --status --json 2>/dev/null | tr -d '\\r\\n'; echo; }";
+
+/// The far machine's live join, from the probe's status line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JoinedThere {
+    /// The machine id its credential is for.
+    pub machine_id: Option<String>,
+    /// Its daemon answered the status.
+    pub daemon_running: bool,
+}
+
+/// The far machine's join as the probe's `host join --status` line says, when it holds a live
+/// credential: the join script then redeems nothing unless `CMUX_JOIN_REPLACE=1` ("already
+/// joined; nothing redeemed"). None when it holds none, it was revoked, a join was cut short (the
+/// script resumes that one), it is a copy of another box, or no acpmux answered.
+pub fn joined_there(reply: &Ran) -> Option<JoinedThere> {
+    reply.stdout.lines().skip(1).find_map(|line| {
+        let status: Value = serde_json::from_str(line.trim()).ok()?;
+        let yes = |key: &str| status.get(key).and_then(Value::as_bool) == Some(true);
+        let live =
+            yes("credentialPresent") && !yes("revoked") && !yes("joinIncomplete") && !yes("cloned");
+        live.then(|| JoinedThere {
+            machine_id: status
+                .get("machineId")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned),
+            daemon_running: yes("daemonRunning"),
+        })
+    })
+}
+
+/// The join script's line when the machine kept its credential and redeemed nothing.
+const NOTHING_REDEEMED: &str = "already joined; nothing redeemed";
 
 /// The far machine's ssh host key from the probe's answer, as OpenSSH prints its fingerprint
 /// (`SHA256:` and the unpadded base64 of the key blob's SHA-256), or None when it printed none.
@@ -375,15 +416,20 @@ pub fn host_key_of(reply: &Ran) -> Option<String> {
 /// `install`: the remote shell reads the token from stdin into an unexported variable, downloads
 /// the join script to a temp file (a failed download exits 4, the script's own "hub
 /// unreachable", and never runs an empty script) and runs it with the token in its environment.
-/// Its exit code is the join's.
+/// Its exit code is the join's. `replace` swaps a credential the machine already holds
+/// (`CMUX_JOIN_REPLACE=1`), so the new token is redeemed.
 pub fn join_plan(
     program: &str,
     origin: &str,
     host: &str,
     name: Option<&str>,
+    replace: bool,
     token: &str,
 ) -> SshPlan {
-    let name = name.map(|name| format!(" CMUX_JOIN_NAME={name}")).unwrap_or_default();
+    let mut name = name.map(|name| format!(" CMUX_JOIN_NAME={name}")).unwrap_or_default();
+    if replace {
+        name.push_str(" CMUX_JOIN_REPLACE=1");
+    }
     let remote = format!(
         "sh -c 'IFS= read -r t || exit 2; f=$(mktemp \"${{TMPDIR:-/tmp}}/cmux-join.XXXXXX\") || exit 1; trap \"rm -f -- \\\"\\$f\\\"\" EXIT; curl -fsSL --connect-timeout 15 {origin}/v1/machines/join.sh -o \"$f\" || {{ echo \"cmux join: could not download the join script from {origin}\" >&2; exit 4; }}; CMUX_JOIN=\"$t\" CMUX_JOIN_INTERACTIVE=0{name} sh \"$f\"'"
     );
@@ -558,6 +604,7 @@ pub async fn join(
         seconds: 0,
         failure: None,
         replaced: Vec::new(),
+        already_joined: false,
     };
     let result = steps(request, ssh, hub, started, &mut outcome, emit).await;
     outcome.seconds = started.elapsed().as_secs();
@@ -627,6 +674,37 @@ async fn steps(
     })?;
     outcome.platform = Some(platform.clone());
     let host_key = host_key_of(&probe);
+    // A machine already joined redeems a new token only with CMUX_JOIN_REPLACE=1 (Door A live
+    // rerun, 2026-11-16: a re-add a minute after the first said "already joined; nothing
+    // redeemed", then waited 60 s for a machine that never came). Joined to this account with its
+    // daemon up, it is kept as it is and nothing is minted; any other live join (another account,
+    // another name asked for, a daemon down) is swapped for the new token.
+    let there = joined_there(&probe);
+    let mut replace = false;
+    if let Some(there) = &there {
+        let rows = hub.machines().await.map_err(|e| hub_failure(&origin, &e))?;
+        match kept_record(rows, there, request.name.as_deref()) {
+            Some(machine) => {
+                emit(Progress {
+                    step: Step::Reach,
+                    state: "ok",
+                    detail: platform,
+                    seconds: seconds(),
+                });
+                outcome.already_joined = true;
+                outcome.replaced =
+                    replace_earlier(hub, &machine, host, host_key.as_deref(), None).await;
+                emit(Progress {
+                    step: Step::Connect,
+                    state: "ok",
+                    detail: format!("already joined as {}", machine.name),
+                    seconds: seconds(),
+                });
+                return Ok(machine);
+            }
+            None => replace = true,
+        }
+    }
     emit(Progress { step: Step::Reach, state: "ok", detail: platform, seconds: seconds() });
 
     emit(Progress {
@@ -652,10 +730,12 @@ async fn steps(
         detail: String::new(),
         seconds: seconds(),
     });
-    let plan = join_plan(&program, &origin, host, request.name.as_deref(), &minted.token);
+    let plan = join_plan(&program, &origin, host, request.name.as_deref(), replace, &minted.token);
     drop(minted.token);
+    let mut redeemed_nothing = false;
     let ran = {
         let mut line = |text: &str| {
+            redeemed_nothing |= text.contains(NOTHING_REDEEMED);
             // The script's own lines (`cmux join: installing acpmux …`) are the progress.
             let detail = text.trim().trim_start_matches("cmux join:").trim();
             if !detail.is_empty() {
@@ -676,6 +756,17 @@ async fn steps(
         }
         _ => return Err(script_failure(host, &origin, &ran)),
     }
+    if redeemed_nothing {
+        // The probe saw no live join (an acpmux with no status), yet the script kept one: the
+        // new token's machine never comes, so waiting for it is a minute of nothing.
+        return Err(Failure::new(
+            Kind::AlreadyJoined,
+            format!("{host} is already joined, so its join redeemed nothing"),
+            format!(
+                "it keeps its earlier join (`cmux device list`); to swap it, run the join on {host} with CMUX_JOIN_REPLACE=1"
+            ),
+        ));
+    }
     emit(Progress { step: Step::Install, state: "ok", detail: String::new(), seconds: seconds() });
 
     emit(Progress {
@@ -684,19 +775,11 @@ async fn steps(
         detail: String::new(),
         seconds: seconds(),
     });
-    let machine = reported(hub, &minted.join_token_id, started).await.ok_or_else(|| {
-        Failure::new(
-            Kind::NoReport,
-            format!(
-                "{host} ran the join but its daemon has not reported in for {} s",
-                CONNECT_WITHIN.as_secs()
-            ),
-            format!("run `cmux device doctor {host}` to see why its daemon is not running"),
-        )
-    })?;
-    if let Some(host_key) = &host_key {
-        outcome.replaced = replace_earlier(hub, &machine, host, host_key).await;
-    }
+    let Some(machine) = reported(hub, &minted.join_token_id, started).await else {
+        return Err(no_report(hub, host, there.as_ref(), host_key.as_deref()).await);
+    };
+    let swapped = there.as_ref().and_then(|there| there.machine_id.as_deref());
+    outcome.replaced = replace_earlier(hub, &machine, host, host_key.as_deref(), swapped).await;
     emit(Progress {
         step: Step::Connect,
         state: "ok",
@@ -704,6 +787,62 @@ async fn steps(
         seconds: seconds(),
     });
     Ok(machine)
+}
+
+/// The record a machine already joined to this account keeps: its credential's machine is listed
+/// and not revoked, its daemon is up, and the add asked for no other name.
+fn kept_record(rows: Vec<Row>, there: &JoinedThere, name: Option<&str>) -> Option<Joined> {
+    let id = there.machine_id.as_deref().filter(|_| there.daemon_running)?;
+    let row = rows.into_iter().find(|row| row.machine_id == id && !row.revoked)?;
+    if name.is_some_and(|name| !name.eq_ignore_ascii_case(&row.name)) {
+        return None;
+    }
+    Some(Joined { machine_id: row.machine_id, name: row.name, hostname: row.hostname })
+}
+
+/// Whether `row`'s token went, from this computer, to `host` with the ssh host key `host_key`.
+fn same_machine(hub: &dyn Hub, row: &Row, host: &str, host_key: &str) -> bool {
+    row.join_token_id
+        .as_deref()
+        .and_then(|id| hub.remembered(id))
+        .is_some_and(|entry| entry.host == host && entry.host_key == host_key)
+}
+
+/// The daemon never reported with the new token. When the hub lists this machine reporting under
+/// an earlier join (the id it held, or a token this computer sent to the same host and host key),
+/// its daemon is up: the next step is not doctor.
+async fn no_report(
+    hub: &dyn Hub,
+    host: &str,
+    there: Option<&JoinedThere>,
+    host_key: Option<&str>,
+) -> Failure {
+    let message = format!(
+        "{host} ran the join but its daemon has not reported in for {} s",
+        CONNECT_WITHIN.as_secs()
+    );
+    let fresh_ms = now_ms().saturating_sub(CONNECT_WITHIN.as_secs().saturating_mul(2_000));
+    let held = there.and_then(|there| there.machine_id.as_deref());
+    let earlier = hub.machines().await.ok().and_then(|rows| {
+        rows.into_iter().find(|row| {
+            !row.revoked
+                && row.last_heartbeat_ms.is_some_and(|at| at >= fresh_ms)
+                && (held == Some(row.machine_id.as_str())
+                    || host_key.is_some_and(|key| same_machine(hub, row, host, key)))
+        })
+    });
+    match earlier {
+        Some(row) => Failure::new(
+            Kind::NoReport,
+            format!("{message}: it reports as {} under an earlier join", row.name),
+            format!("its daemon is up: use it as {}, or add it again to swap its join", row.name),
+        ),
+        None => Failure::new(
+            Kind::NoReport,
+            message,
+            format!("run `cmux device doctor {host}` to see why its daemon is not running"),
+        ),
+    }
 }
 
 fn cannot_run_ssh(program: &str, error: &std::io::Error) -> Failure {
@@ -746,26 +885,27 @@ async fn reported(hub: &dyn Hub, join_token_id: &str, started: Instant) -> Optio
 /// that name, not revoked, whose token this computer minted for the same ssh destination and the
 /// same ssh host key (the [`ledger`]). A machine keeps one join record, so once it reported in
 /// with the new one the old one speaks for nothing; left, it made a second machine of that name
-/// and `cmux chat --on NAME` refused to pick. A machine of that name on another box, or one this
-/// computer did not add, is never touched. Answers the revoked machine ids.
+/// and `cmux chat --on NAME` refused to pick. `swapped`, the credential the join replaced on the
+/// machine itself, goes too, whatever its name. A machine of that name on another box, or one
+/// this computer did not add, is never touched. Answers the revoked machine ids.
 async fn replace_earlier(
     hub: &dyn Hub,
     joined: &Joined,
     host: &str,
-    host_key: &str,
+    host_key: Option<&str>,
+    swapped: Option<&str>,
 ) -> Vec<String> {
+    if host_key.is_none() && swapped.is_none() {
+        return Vec::new();
+    }
     let Ok(rows) = hub.machines().await else { return Vec::new() };
     let mut replaced = Vec::new();
     for row in rows {
-        let same_machine = row
-            .join_token_id
-            .as_deref()
-            .and_then(|id| hub.remembered(id))
-            .is_some_and(|entry| entry.host == host && entry.host_key == host_key);
+        let earlier_add = row.name.eq_ignore_ascii_case(&joined.name)
+            && host_key.is_some_and(|key| same_machine(hub, &row, host, key));
         if row.revoked
             || row.machine_id == joined.machine_id
-            || !row.name.eq_ignore_ascii_case(&joined.name)
-            || !same_machine
+            || !(earlier_add || swapped == Some(row.machine_id.as_str()))
         {
             continue;
         }
@@ -986,6 +1126,7 @@ pub async fn join_as(
             platform: None,
             seconds: 0,
             replaced: Vec::new(),
+            already_joined: false,
             failure: Some(Failure::new(
                 Kind::Usage,
                 format!("the hub origin is not usable: {error:#}"),

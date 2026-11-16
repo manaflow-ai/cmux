@@ -300,7 +300,7 @@ async fn the_join_token_goes_on_stdin_and_never_in_an_argument_list() {
 
 #[test]
 fn a_plan_never_prints_its_token() {
-    let plan = join_plan("ssh", ORIGIN, "gcp-3", Some("gcp-3"), TOKEN);
+    let plan = join_plan("ssh", ORIGIN, "gcp-3", Some("gcp-3"), false, TOKEN);
     let shown = format!("{plan:?}");
     assert!(!shown.contains(TOKEN), "{shown}");
     assert!(plan.argv.iter().all(|w| !w.contains(TOKEN)));
@@ -519,7 +519,7 @@ fn only_a_tailnet_node_this_person_owns_joins_without_asking() {
 /// stdin's first line, never in argv.
 #[test]
 fn the_install_runs_the_join_script_non_interactively() {
-    let plan = join_plan("ssh", ORIGIN, "gcp-3", None, TOKEN);
+    let plan = join_plan("ssh", ORIGIN, "gcp-3", None, false, TOKEN);
     assert_eq!(plan.argv.get(1).map(String::as_str), Some("-T"), "{:?}", plan.argv);
     assert!(plan.argv.iter().any(|w| w == "BatchMode=yes"));
     let remote = plan.argv.last().unwrap();
@@ -734,7 +734,7 @@ async fn a_join_that_redeemed_nothing_fails_at_once_and_not_as_no_report() {
     let started = tokio::time::Instant::now();
     let outcome = run_on(&vm, &hub).await;
     let f = failure(&outcome);
-    assert_eq!(serde_json::to_value(f.kind).unwrap(), "already_joined", "{f:?}");
+    assert_eq!(f.kind, Kind::AlreadyJoined, "{f:?}");
     assert!(!f.next.contains("doctor"), "{f:?}");
     assert!(started.elapsed() < CONNECT_EVERY, "it waited {:?}", started.elapsed());
     one_line(f);
