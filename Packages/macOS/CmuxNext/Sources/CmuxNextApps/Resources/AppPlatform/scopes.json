@@ -205,6 +205,22 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.site.javascript.get": {
+      "scope": "site_settings:read",
+      "class": "read"
+    },
+    "browser.site.javascript.set": {
+      "scope": "site_settings:write",
+      "class": "mutation"
+    },
+    "browser.site.style.get": {
+      "scope": "browser:write",
+      "class": "read"
+    },
+    "browser.site.style.set": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "browser.tab.emulate": {
       "scope": "browser:write",
       "class": "mutation"
@@ -1108,26 +1124,6 @@
     "notification.list": {
       "scope": "notification:read",
       "class": "read"
-    },
-    "page.javascript.get": {
-      "scope": "site_settings:read",
-      "class": "read"
-    },
-    "page.javascript.set": {
-      "scope": "site_settings:write",
-      "class": "mutation"
-    },
-    "page.read": {
-      "scope": "page:read",
-      "class": "read"
-    },
-    "page.style.get": {
-      "scope": "page:write",
-      "class": "read"
-    },
-    "page.style.set": {
-      "scope": "page:write",
-      "class": "mutation"
     },
     "palette_usage.forget": {
       "scope": "palette_usage:write",
