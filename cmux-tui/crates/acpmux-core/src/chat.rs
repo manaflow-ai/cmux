@@ -30,6 +30,17 @@ pub mod stream;
 use crate::conn::Reply;
 use crate::wire::{Blob, Page};
 
+pub mod draft;
+pub mod presence;
+
+pub use draft::{
+    ActError, DraftCommit, MAX_DRAFT_BYTES, TOO_LARGE, validate_draft, write_draft_atomic,
+};
+pub use presence::{
+    MAX_PRESENCE_BYTES, MAX_PRESENCE_PEOPLE, PresencePerson, PresenceStateOp, TYPING_EXPIRY,
+    TYPING_RATE_LIMIT, TypingRateLimited, TypingTracker,
+};
+
 pub type SourceFactory = Arc<dyn Fn() -> std::io::Result<Box<dyn source::RawSource>> + Send + Sync>;
 
 struct EmptySource;
@@ -1812,6 +1823,10 @@ fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
     state.settled_since_checkpoint = 0;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "chat/act_tests.rs"]
+mod act_tests;
 
 #[cfg(test)]
 mod tests;

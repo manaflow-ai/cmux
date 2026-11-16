@@ -8,7 +8,6 @@
 //! Chat actors, peer links and lifecycle code build on these modules in later
 //! PRs. This crate deliberately has no whole-list reply type.
 
-pub mod act;
 pub mod boot;
 pub mod chat;
 pub mod conn;
