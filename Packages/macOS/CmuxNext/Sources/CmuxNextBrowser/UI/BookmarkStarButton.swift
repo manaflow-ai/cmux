@@ -46,7 +46,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = OmnibarStyle.chipButtonCornerRadius
+        layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: OmnibarStyle.trailingIconSize + 2)
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
         image.translatesAutoresizingMaskIntoConstraints = false
@@ -78,7 +78,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     override func layout() {
         super.layout()
         // The bar's height can change live (density, `browser.omnibar.height`): the corner follows it.
-        layer?.cornerRadius = OmnibarStyle.chipButtonCornerRadius
+        layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: min(bounds.width, bounds.height))
     }
 
     /// The badge takes the whole press (not its image or label) and the first

@@ -162,6 +162,12 @@ extension AddressBarView {
             "draws_background": String(editor.drawsBackground),
             "layer_backed": String(editor.layer != nil),
             "editor_class": String(describing: type(of: editor)),
+            // The fonts the omnibar draws with: the style's, the field's, the editor's typed text and its typing font.
+            "font_style": String(format: "%.2f", OmnibarStyle.font.pointSize),
+            "font_field": String(format: "%.2f", field.font?.pointSize ?? 0),
+            "font_typed": editor.textStorage.flatMap { $0.length > 0 ? $0.attribute(.font, at: 0, effectiveRange: nil) as? NSFont : nil }
+                .map { String(format: "%.2f", $0.pointSize) } ?? "-",
+            "font_typing": (editor.typingAttributes[.font] as? NSFont).map { String(format: "%.2f", $0.pointSize) } ?? "-",
         ]
         // The field in global top-left screen points (screencapture -R).
         if let window, let screen = window.screen ?? NSScreen.screens.first {

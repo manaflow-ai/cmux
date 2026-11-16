@@ -59,13 +59,13 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
     private func applyTint() {
         performWithTheme {
             let tint = indicator.tone == .danger ? PageInfoStyle.danger : OmnibarStyle.textPrimary
-            icon.contentTintColor = tint
+            icon.contentTintColor = indicator.tone == .danger ? tint : OmnibarStyle.resultsIcon
             text.textColor = tint
         }
     }
 
     private func apply() {
-        icon.image = NSImage.icon(symbol: indicator.symbol, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
+        icon.image = NSImage.icon(symbol: indicator.symbol, size: OmnibarStyle.iconSide)
         applyTint()
         text.font = OmnibarStyle.font
         text.stringValue = labelText ?? ""
