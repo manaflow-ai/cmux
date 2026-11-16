@@ -17,11 +17,11 @@ then push it through the various testing instead of the other way around."
 
 Build only when `plan` says the change needs one.
 
-One command does steps 2 and 3 and leaves the proof: `scripts/cmux-next/hot-verify.py plan --source dir:.` says
+One command does steps 2 and 3 and leaves the proof: `scripts/cmux-next/hot-verify.py plan --source dir:. --app APP` says
 `needs_build: true|false`; `hot-verify.py look --source dir:.|pr:N --app APP --out DIR` puts the change into a side
 copy of APP, then writes before and after screenshots (light and dark), a click-through, a video and
 `receipt.json`. Post the receipt's `<!-- cmux-hot-verify ... -->` marker on the PR with the shots: cmuxterm-hq's
-`hot_verify_share` counts it (target 80% of hot-eligible PRs; it started at 1 of 129).
+`hot_verify_share` counts it (target 80% of the newest hot-eligible merged PRs; goal `hot-verify-share`).
 
 ## Which command, by layer
 

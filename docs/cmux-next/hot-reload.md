@@ -26,7 +26,7 @@ a video, click through it; compile checks, CI and suites come after the look. Of
 
 To look and keep the proof in one step, `scripts/cmux-next/hot-verify.py look --source dir:.|pr:N --app APP --out DIR`
 puts the change into a side copy and writes before and after screenshots, a video and a receipt for the PR
-(`hot-verify.py plan --source dir:.` first says whether it needs a build).
+(`hot-verify.py plan --source dir:. --app APP` first says whether it needs a build).
 
 `cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build, and
 `library off --all` turns every code layer off. Rust hot-apply into a Developer ID NIGHTLY takes the
