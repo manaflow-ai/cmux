@@ -861,7 +861,6 @@ pub(crate) async fn splice(
                 _ => return Ok(()),
             },
             requested = keyframe => {
-                tracing::info!(requested, "DIAG host keyframe ask");
                 if requested {
                     bridge.request_keyframe();
                 }
@@ -877,7 +876,7 @@ pub(crate) async fn splice(
         }
         if let Some(c) = claim.as_ref() {
             let now = now_us();
-            if now.saturating_sub(last_report_us) >= 100_000 {
+            if now.saturating_sub(last_report_us) >= 5_000_000 {
                 last_report_us = now;
                 let state = c.state();
                 tracing::info!(
