@@ -336,7 +336,12 @@ fn emit(
         c.last_resolve = mark;
         let name = s["name"].as_str().unwrap_or(key);
         let reply: String = crate::secret_scan::mask(&c.reply).chars().take(400).collect();
-        found.push(format!("{name} ({key}) is {state}. Last reply: {reply}\nacpmux last {key}\nacpmux history {key}\nacpmux pending"));
+        let next = if state == "blocked" {
+            "\nIf the remote sandbox refused the work, choose Full access on the starting machine only when authorized, or retry with a folder and tools that sandbox permits."
+        } else {
+            ""
+        };
+        found.push(format!("{name} ({key}) is {state}. Last reply: {reply}{next}\nacpmux last {key}\nacpmux history {key}\nacpmux pending"));
     }
 }
 
