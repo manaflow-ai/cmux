@@ -3,6 +3,8 @@
 //! the limit. Not a gate: it asserts nothing and prints one table, also written to
 //! `.build/artifacts/vt-ultra.txt` at the repository root (fetch it with `--artifact`).
 //!
+//!   Q0  per-frame slice QP parsed from the stream against the target, per scene and setting
+//!       (bars, #44496 text, noise and churn, scrolled glyphs), to find what holds QP up.
 //!   Q1  4:4:4: which profiles and pixel formats VideoToolbox accepts for H.264 and HEVC, what
 //!       chroma format the stream's SPS carries, and whether the decoder gives the chroma back.
 //!   Q2  text quality against a QP ceiling (18, 20, 22): bytes per frame and luma error of a
@@ -97,6 +99,7 @@ unsafe extern "C" {
     fn CMSampleBufferGetFormatDescription(sb: Ref) -> Ref;
     fn CMSampleBufferGetSampleAttachmentsArray(sb: Ref, create: u8) -> Ref;
     fn CMBlockBufferGetDataLength(b: Ref) -> usize;
+    fn CMBlockBufferCopyDataBytes(b: Ref, off: usize, len: usize, dst: *mut c_void) -> i32;
     fn CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
         d: Ref,
         i: usize,
@@ -734,6 +737,8 @@ struct Cfg {
     min_qp: Option<i32>,
     max_qp: Option<i32>,
     low_latency: bool,
+    /// PrioritizeEncodingSpeedOverQuality (the merged encoder sets it).
+    speed: bool,
 }
 
 impl Cfg {
@@ -751,6 +756,7 @@ impl Cfg {
             min_qp: None,
             max_qp: None,
             low_latency: true,
+            speed: true,
         }
     }
 }
@@ -834,7 +840,7 @@ impl Enc {
         }
         e.set_owned("MaxKeyFrameInterval", n32(i32::MAX));
         e.set_owned("ExpectedFrameRate", nf(f64::from(cfg.fps)));
-        e.set("PrioritizeEncodingSpeedOverQuality", yes());
+        e.set("PrioritizeEncodingSpeedOverQuality", if cfg.speed { yes() } else { no() });
         e.set_owned("MaxFrameDelayCount", n32(0));
         if let Some(kbps) = cfg.avg_kbps {
             e.set_owned(
@@ -1453,6 +1459,9 @@ fn vt_ultra_measurements() {
     let only = std::env::var("VT_ULTRA_ONLY").unwrap_or_default();
     let want = |q: &str| only.is_empty() || only.split(',').any(|x| x == q);
     let t = Instant::now();
+    if want("q0") {
+        q0::run_all(&mut log);
+    }
     if want("q4") {
         q4(&mut log);
     }
@@ -1467,4 +1476,625 @@ fn vt_ultra_measurements() {
     }
     log.line(format!("# done in {:.0}s", t.elapsed().as_secs_f64()));
     let _ = cfstr;
+}
+
+/// Q0 (the architect, 2026-11-16): a wired 1080p run spent 1.0 Mbps on bars, 2.0 on text and
+/// 2.7 on noise against a 30-43 Mbps target, 5.7 ms encodes, no drops. Is the encoder at its
+/// quality ceiling or holding back? Per frame: the slice QP parsed from the stream (PPS
+/// pic_init_qp_minus26 + slice_qp_delta), the AverageBitRate and DataRateLimits the session
+/// reports, and the QP bounds. Each scene runs under the merged settings and one setting
+/// changed at a time, so whichever setting holds QP up shows itself.
+mod q0 {
+    use super::*;
+
+    // ---- H.264 SPS/PPS/slice header, as far as slice_qp_delta.
+    #[derive(Default, Clone, Copy)]
+    pub struct Sps {
+        sep_colour: bool,
+        log2_frame_num: usize,
+        poc_type: u64,
+        log2_poc_lsb: usize,
+        poc_always_zero: bool,
+        frame_mbs_only: bool,
+        scaling: bool,
+    }
+    #[derive(Default, Clone, Copy)]
+    pub struct Pps {
+        cabac: bool,
+        bottom_present: bool,
+        weighted_pred: bool,
+        weighted_bipred: u64,
+        init_qp: i64,
+        redundant: bool,
+    }
+
+    impl Bits<'_> {
+        fn se(&mut self) -> i64 {
+            let k = self.ue() as i64;
+            if k % 2 == 1 { (k + 1) / 2 } else { -(k / 2) }
+        }
+    }
+
+    fn parse_sps(nal: &[u8]) -> Sps {
+        let mut r = Bits::new(&nal[1..]);
+        let profile = r.u(8);
+        r.u(16);
+        r.ue();
+        let mut s = Sps::default();
+        if [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135].contains(&profile) {
+            let chroma = r.ue();
+            if chroma == 3 {
+                s.sep_colour = r.u(1) == 1;
+            }
+            r.ue();
+            r.ue();
+            r.u(1);
+            s.scaling = r.u(1) == 1;
+        }
+        s.log2_frame_num = r.ue() as usize + 4;
+        s.poc_type = r.ue();
+        if s.poc_type == 0 {
+            s.log2_poc_lsb = r.ue() as usize + 4;
+        } else if s.poc_type == 1 {
+            s.poc_always_zero = r.u(1) == 1;
+            r.se();
+            r.se();
+            let n = r.ue();
+            for _ in 0..n {
+                r.se();
+            }
+        }
+        r.ue();
+        r.u(1);
+        r.ue();
+        r.ue();
+        s.frame_mbs_only = r.u(1) == 1;
+        s
+    }
+
+    fn parse_pps(nal: &[u8]) -> Pps {
+        let mut r = Bits::new(&nal[1..]);
+        r.ue();
+        r.ue();
+        let mut p = Pps { cabac: r.u(1) == 1, bottom_present: r.u(1) == 1, ..Default::default() };
+        let groups = r.ue();
+        assert_eq!(groups, 0, "slice groups are not parsed");
+        r.ue();
+        r.ue();
+        p.weighted_pred = r.u(1) == 1;
+        p.weighted_bipred = r.u(2);
+        p.init_qp = 26 + r.se();
+        r.se();
+        r.se();
+        r.u(1);
+        r.u(1);
+        p.redundant = r.u(1) == 1;
+        p
+    }
+
+    /// The slice's QP, or None where the header holds what this parser skips.
+    fn slice_qp(nal: &[u8], s: &Sps, p: &Pps) -> Option<i64> {
+        let ref_idc = (nal[0] >> 5) & 3;
+        let idr = nal[0] & 0x1f == 5;
+        let mut r = Bits::new(&nal[1..]);
+        r.ue();
+        let t = r.ue() % 5;
+        r.ue();
+        if s.sep_colour {
+            r.u(2);
+        }
+        r.u(s.log2_frame_num);
+        let mut field = false;
+        if !s.frame_mbs_only {
+            field = r.u(1) == 1;
+            if field {
+                r.u(1);
+            }
+        }
+        if idr {
+            r.ue();
+        }
+        if s.poc_type == 0 {
+            r.u(s.log2_poc_lsb);
+            if p.bottom_present && !field {
+                r.se();
+            }
+        } else if s.poc_type == 1 && !s.poc_always_zero {
+            r.se();
+            if p.bottom_present && !field {
+                r.se();
+            }
+        }
+        if p.redundant {
+            r.ue();
+        }
+        let (is_p, is_b, is_i) = (t == 0 || t == 3, t == 1, t == 2 || t == 4);
+        if is_b {
+            r.u(1);
+        }
+        if is_p || is_b {
+            if r.u(1) == 1 {
+                r.ue();
+                if is_b {
+                    r.ue();
+                }
+            }
+        }
+        if !is_i {
+            for _ in 0..if is_b { 2 } else { 1 } {
+                if r.u(1) == 1 {
+                    loop {
+                        let idc = r.ue();
+                        if idc == 3 {
+                            break;
+                        }
+                        if idc > 5 {
+                            return None;
+                        }
+                        r.ue();
+                    }
+                }
+            }
+        }
+        if (p.weighted_pred && is_p) || (p.weighted_bipred == 1 && is_b) {
+            return None;
+        }
+        if ref_idc != 0 {
+            if idr {
+                r.u(1);
+                r.u(1);
+            } else if r.u(1) == 1 {
+                loop {
+                    let op = r.ue();
+                    if op == 0 {
+                        break;
+                    }
+                    if op > 6 {
+                        return None;
+                    }
+                    if op == 1 || op == 3 {
+                        r.ue();
+                    }
+                    if op == 2 {
+                        r.ue();
+                    }
+                    if op == 3 || op == 6 {
+                        r.ue();
+                    }
+                    if op == 4 {
+                        r.ue();
+                    }
+                }
+            }
+        }
+        if p.cabac && !is_i {
+            r.ue();
+        }
+        Some(p.init_qp + r.se())
+    }
+
+    fn params(desc: Ref) -> (Sps, Pps) {
+        let (mut sps, mut pps) = (Sps::default(), Pps::default());
+        let mut i = 0usize;
+        loop {
+            let (mut ptr, mut size, mut count, mut nal) = (null::<u8>(), 0usize, 0usize, 0i32);
+            let st = unsafe {
+                CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                    desc, i, &mut ptr, &mut size, &mut count, &mut nal,
+                )
+            };
+            if st != 0 || ptr.is_null() {
+                break;
+            }
+            let b = unsafe { std::slice::from_raw_parts(ptr, size) };
+            match b[0] & 0x1f {
+                7 => sps = parse_sps(b),
+                8 => pps = parse_pps(b),
+                _ => {}
+            }
+            i += 1;
+            if i >= count {
+                break;
+            }
+        }
+        (sps, pps)
+    }
+
+    /// The QP of every slice in one sample (AVCC, 4-byte lengths).
+    fn sample_qps(sb: Ref, sps: &Sps, pps: &Pps) -> Vec<Option<i64>> {
+        let len = sample_bytes(sb);
+        let mut data = vec![0u8; len];
+        unsafe {
+            CMBlockBufferCopyDataBytes(
+                CMSampleBufferGetDataBuffer(sb),
+                0,
+                len,
+                data.as_mut_ptr().cast(),
+            )
+        };
+        let (mut at, mut out) = (0usize, vec![]);
+        while at + 4 <= data.len() {
+            let n =
+                u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]) as usize;
+            at += 4;
+            if at + n > data.len() || n == 0 {
+                break;
+            }
+            let nal = &data[at..at + n];
+            if matches!(nal[0] & 0x1f, 1 | 5) {
+                out.push(slice_qp(nal, sps, pps));
+            }
+            at += n;
+        }
+        out
+    }
+
+    // ---- PR #44496's scenes (src/synthetic.rs Texture), the same textures and motion.
+    fn mix(key: u64) -> u64 {
+        let mut z = key.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+    #[derive(Clone, Copy, PartialEq)]
+    pub enum Kind {
+        Text,
+        Noise,
+        Churn,
+    }
+    pub struct Scene {
+        kind: Kind,
+        w: usize,
+        h: usize,
+        ty: Vec<u8>,
+        tuv: Vec<u8>,
+        tw: usize,
+        trows: usize,
+        marker: Vec<u8>,
+        y: Vec<u8>,
+        cb: Vec<u8>,
+        cr: Vec<u8>,
+        neutral: Vec<u8>,
+    }
+    const NEUTRAL: u8 = 128;
+    impl Scene {
+        pub fn new(kind: Kind, w: usize, h: usize) -> Self {
+            let (ty, tuv, tw, trows) = match kind {
+                Kind::Text => text(w & !1, 2048),
+                Kind::Noise | Kind::Churn => noise(1024, h.saturating_sub(BAND_ROWS).max(2) & !1),
+            };
+            let mut marker = vec![96u8; w];
+            let guard = [true, false, true, false];
+            for i in 0..20 {
+                let white = if i < 16 { false } else { guard[i - 16] };
+                marker[i * CELL..(i + 1) * CELL].fill(if white { 235 } else { 16 });
+            }
+            Scene {
+                kind,
+                w,
+                h,
+                ty,
+                tuv,
+                tw,
+                trows,
+                marker,
+                y: vec![0; w * h],
+                cb: vec![0; w * h],
+                cr: vec![0; w * h],
+                neutral: vec![NEUTRAL; w],
+            }
+        }
+    }
+    fn text(width: usize, rows: usize) -> (Vec<u8>, Vec<u8>, usize, usize) {
+        let cols = width / 8;
+        let mut y = vec![22u8; width * rows];
+        let mut uv = vec![NEUTRAL; width * rows / 2];
+        let tints: [(u8, u8); 4] = [(NEUTRAL, NEUTRAL), (170, 100), (90, 170), (160, 160)];
+        for line in 0..rows / 16 {
+            let seed = mix(line as u64);
+            let indent = (seed % 6) as usize * 2;
+            let room = cols.saturating_sub(indent + 12).max(1);
+            let end = (indent + 12 + (seed >> 8) as usize % room).min(cols);
+            let mut tint = tints[0];
+            for col in indent..end {
+                let cell = mix(seed ^ ((col as u64) << 20));
+                if cell % 7 == 0 {
+                    tint = tints[(cell >> 8) as usize % tints.len()];
+                    continue;
+                }
+                for gy in 0..9 {
+                    let bits = mix(cell ^ (gy as u64 + 1));
+                    for gx in 0..5 {
+                        if (bits >> (gx * 7)) & 3 == 0 {
+                            y[(line * 16 + 3 + gy) * width + col * 8 + 1 + gx] = 210;
+                        }
+                    }
+                }
+                for cy in 0..8 {
+                    let at = (line * 8 + cy) * width + col * 8;
+                    for pair in uv[at..at + 8].chunks_exact_mut(2) {
+                        pair.copy_from_slice(&[tint.0, tint.1]);
+                    }
+                }
+            }
+        }
+        (y, uv, width, rows)
+    }
+    fn noise(width: usize, rows: usize) -> (Vec<u8>, Vec<u8>, usize, usize) {
+        let mut y = vec![0; width * rows];
+        for row in 0..rows {
+            let lift = if (row / 64) % 2 == 0 { 0 } else { 12 };
+            for x in 0..width {
+                let k = x / 64;
+                let base = if k % 2 == 0 { 40 } else { 60 + (k / 2 * 37) % 150 } + lift;
+                let grain = (mix(((row as u64) << 32) | x as u64) % 57) as i32 - 28;
+                y[row * width + x] = (base as i32 + grain).clamp(16, 235) as u8;
+            }
+        }
+        let chroma: Vec<u8> = (0..width / 2)
+            .flat_map(|cx| {
+                let k = cx * 2 / 64;
+                if k % 2 == 0 {
+                    [NEUTRAL, NEUTRAL]
+                } else {
+                    [(64 + (k * 53) % 128) as u8, (64 + (k * 91) % 128) as u8]
+                }
+            })
+            .collect();
+        (y, chroma.repeat(rows / 2), width, rows)
+    }
+    impl Source for Scene {
+        fn prepare(&mut self, frame: usize) {
+            let phase = frame * 8;
+            let (dx, dy) = match self.kind {
+                Kind::Text => (0, phase / 2),
+                Kind::Noise => (phase, 0),
+                Kind::Churn => {
+                    let jump = mix(phase as u64 ^ 0x6368_7572_6e00);
+                    ((jump % 1024) as usize, ((jump >> 32) as usize % self.trows) & !1)
+                }
+            };
+            let w = self.w;
+            for row in BAND_ROWS..self.h {
+                let src = (row - BAND_ROWS + dy) % self.trows * self.tw;
+                let (tl, tu) = (
+                    &self.ty[src..src + self.tw],
+                    (row - BAND_ROWS + (dy & !1)) / 2 % (self.trows / 2) * self.tw,
+                );
+                let tu = &self.tuv[tu..tu + self.tw];
+                for x in 0..w {
+                    let sx = (x + dx) % self.tw;
+                    self.y[row * w + x] = tl[sx];
+                    let cx = ((x & !1) + (dx & !1)) % self.tw;
+                    self.cb[row * w + x] = tu[cx & !1];
+                    self.cr[row * w + x] = tu[(cx & !1) + 1];
+                }
+            }
+        }
+        fn luma(&self, y: usize) -> &[u8] {
+            if y < CELL {
+                &self.marker
+            } else if y < BAND_ROWS {
+                &BAND96[..self.w]
+            } else {
+                &self.y[y * self.w..(y + 1) * self.w]
+            }
+        }
+        fn cb(&self, y: usize) -> &[u8] {
+            if y < BAND_ROWS { &self.neutral } else { &self.cb[y * self.w..(y + 1) * self.w] }
+        }
+        fn cr(&self, y: usize) -> &[u8] {
+            if y < BAND_ROWS { &self.neutral } else { &self.cr[y * self.w..(y + 1) * self.w] }
+        }
+        fn chroma_static(&self) -> bool {
+            false
+        }
+    }
+    static BAND96: [u8; 7680] = [96; 7680];
+
+    // ---- The runs.
+    struct Variant {
+        name: &'static str,
+        low_latency: bool,
+        limits: bool,
+        speed: bool,
+        max_qp: Option<i32>,
+        avg: bool,
+    }
+    const VARIANTS: &[Variant] = &[
+        Variant {
+            name: "merged(ll+avg+DRL+speed)",
+            low_latency: true,
+            limits: true,
+            speed: true,
+            max_qp: None,
+            avg: true,
+        },
+        Variant {
+            name: "no-DRL",
+            low_latency: true,
+            limits: false,
+            speed: true,
+            max_qp: None,
+            avg: true,
+        },
+        Variant {
+            name: "no-speed",
+            low_latency: true,
+            limits: true,
+            speed: false,
+            max_qp: None,
+            avg: true,
+        },
+        Variant {
+            name: "no-ll",
+            low_latency: false,
+            limits: true,
+            speed: true,
+            max_qp: None,
+            avg: true,
+        },
+        Variant {
+            name: "no-ll,no-DRL,no-speed",
+            low_latency: false,
+            limits: false,
+            speed: false,
+            max_qp: None,
+            avg: true,
+        },
+        Variant {
+            name: "merged+maxQP20",
+            low_latency: true,
+            limits: true,
+            speed: true,
+            max_qp: Some(20),
+            avg: true,
+        },
+    ];
+
+    fn summarize(v: &[i64]) -> String {
+        if v.is_empty() {
+            return "-".into();
+        }
+        let mut s = v.to_vec();
+        s.sort();
+        format!("min={} p50={} max={}", s[0], s[s.len() / 2], s[s.len() - 1])
+    }
+
+    fn one(
+        log: &mut Log,
+        scene: &str,
+        src: &mut dyn Source,
+        w: usize,
+        h: usize,
+        fps: u32,
+        kbps: u32,
+        v: &Variant,
+    ) {
+        let mut cfg = Cfg::new(H264, w, h, fps);
+        cfg.profile = k("kVTProfileLevel_H264_High_AutoLevel");
+        cfg.low_latency = v.low_latency;
+        cfg.speed = v.speed;
+        cfg.max_qp = v.max_qp;
+        cfg.avg_kbps = v.avg.then_some(kbps);
+        cfg.limits = v
+            .limits
+            .then(|| ((u64::from(kbps) * 1000 / 8 / u64::from(fps)) as i32, 1.0 / f64::from(fps)));
+        let mut enc = match Enc::new(&cfg) {
+            Ok(e) => e,
+            Err(e) => return log.line(format!("Q0 {scene} {} error={e}", v.name)),
+        };
+        let notes = std::mem::take(&mut enc.notes);
+        let readback = |enc: &Enc| {
+            format!(
+                "AverageBitRate={} DataRateLimits={} MaxAllowedFrameQP={} MinAllowedFrameQP={}",
+                enc.get("AverageBitRate"),
+                enc.get("DataRateLimits"),
+                enc.get("MaxAllowedFrameQP"),
+                enc.get("MinAllowedFrameQP")
+            )
+        };
+        let before = readback(&enc);
+        let interval = 1_000_000 / i64::from(fps);
+        let (still, moving) = (10usize, 120usize);
+        let (mut params_cache, mut qps, mut bytes, mut ms, mut drops, mut unparsed) =
+            (None, vec![], vec![], vec![], 0usize, 0usize);
+        let mut per_frame = vec![];
+        let mut idr_qp = None;
+        for f in 0..still + moving {
+            let frame = if f < still { 0 } else { f - still + 1 };
+            src.prepare(frame);
+            if f == 0 || f >= still {
+                write(enc.pb, src, h, true);
+            }
+            let (samples, took) = match enc.encode(f as i64 * interval, f == 0) {
+                Ok(x) => x,
+                Err(e) => return log.line(format!("Q0 {scene} {} frame {f} error={e}", v.name)),
+            };
+            let mut got = false;
+            for s in samples {
+                if s.sb.is_null() || s.status != 0 {
+                    continue;
+                }
+                got = true;
+                let desc = unsafe { CMSampleBufferGetFormatDescription(s.sb) };
+                let (sps, pps) = *params_cache.get_or_insert_with(|| params(desc));
+                let slices = sample_qps(s.sb, &sps, &pps);
+                let known: Vec<i64> = slices.iter().flatten().copied().collect();
+                unparsed += slices.len() - known.len();
+                let frame_qp = known.iter().copied().max();
+                if f == 0 {
+                    idr_qp = frame_qp;
+                } else if f >= still {
+                    if let Some(q) = frame_qp {
+                        qps.push(q);
+                    }
+                    per_frame.push(frame_qp.map_or("?".into(), |q| q.to_string()));
+                    bytes.push(sample_bytes(s.sb) as f64);
+                }
+                unsafe { CFRelease(s.sb) };
+            }
+            if f >= still {
+                ms.push(took);
+                if !got {
+                    drops += 1;
+                    per_frame.push("drop".into());
+                }
+            }
+        }
+        let after = readback(&enc);
+        let mbps = mean(&bytes) * 8.0 * f64::from(fps) / 1e6;
+        log.line(format!(
+            "Q0 {scene} {w}x{h}@{fps} target={}Mbps {} | out {:.2} Mbps (mean {:.0}B max {:.0}B) | slice QP {} (IDR {:?}) | drops={drops}/{moving} unparsed_slices={unparsed} enc_ms mean={:.2} | set: {before} | after: {} | notes=[{}]",
+            kbps / 1000,
+            v.name,
+            mbps,
+            mean(&bytes),
+            pct(&bytes, 1.0),
+            summarize(&qps),
+            idr_qp,
+            mean(&ms),
+            if after == before { "same".to_string() } else { after },
+            notes.join(",")
+        ));
+        if v.name.starts_with("merged(") {
+            log.line(format!("Q0 {scene} {} per-frame QP: {}", v.name, per_frame.join(" ")));
+        }
+    }
+
+    pub fn run_all(log: &mut Log) {
+        log.line("## Q0 per-frame slice QP (parsed from the bitstream) vs the target, 1080p60 at 40 Mbps, 10 still frames then 120 moving; H.264 High as the merged encoder");
+        let (w, h, fps) = (1920usize, 1080usize, 60u32);
+        for kbps in [40_000u32, 8_000] {
+            for scene in ["bars", "text", "noise", "churn", "scroll"] {
+                for v in VARIANTS {
+                    if kbps != 40_000 && !v.name.starts_with("merged(") {
+                        continue;
+                    }
+                    match scene {
+                        "bars" => one(log, scene, &mut Bars::new(w), w, h, fps, kbps, v),
+                        "text" => {
+                            one(log, scene, &mut Scene::new(Kind::Text, w, h), w, h, fps, kbps, v)
+                        }
+                        "noise" => {
+                            one(log, scene, &mut Scene::new(Kind::Noise, w, h), w, h, fps, kbps, v)
+                        }
+                        "churn" => {
+                            one(log, scene, &mut Scene::new(Kind::Churn, w, h), w, h, fps, kbps, v)
+                        }
+                        _ => one(
+                            log,
+                            scene,
+                            &mut TextPage::new(w, h, 122, 24, false),
+                            w,
+                            h,
+                            fps,
+                            kbps,
+                            v,
+                        ),
+                    }
+                }
+            }
+        }
+    }
 }
