@@ -109,11 +109,7 @@ pub struct Picture {
 
 impl Picture {
     pub fn height(&self) -> usize {
-        if self.image.width == 0 {
-            0
-        } else {
-            self.image.y.len() / self.image.width
-        }
+        self.image.y.len().checked_div(self.image.width).unwrap_or(0)
     }
 }
 
@@ -222,20 +218,20 @@ pub fn run(
                         start_session(&net, config)?;
                     }
                 }
-                NetEvent::Endpoint(EndpointEvent::PathChanged { kind, rtt_us, .. }) => {
-                    if let Some(k) = kind {
-                        let name = k.wire_name().to_owned();
-                        let relayed = crate::linux_host::rd_doc::is_relayed(&name);
-                        let _ = to_hub.send(ToHub::Path(if relayed { "relay" } else { "direct" }));
-                        eprintln!(
-                            "Path: {name}{}",
-                            rtt_us.map_or(String::new(), |us| format!(
-                                ", rtt {:.1} ms",
-                                us as f64 / 1000.0
-                            ))
-                        );
-                        path_kind = Some(name);
-                    }
+                NetEvent::Endpoint(EndpointEvent::PathChanged {
+                    kind: Some(k), rtt_us, ..
+                }) => {
+                    let name = k.wire_name().to_owned();
+                    let relayed = crate::linux_host::rd_doc::is_relayed(&name);
+                    let _ = to_hub.send(ToHub::Path(if relayed { "relay" } else { "direct" }));
+                    eprintln!(
+                        "Path: {name}{}",
+                        rtt_us.map_or(String::new(), |us| format!(
+                            ", rtt {:.1} ms",
+                            us as f64 / 1000.0
+                        ))
+                    );
+                    path_kind = Some(name);
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
                     match serde_json::from_slice::<Control>(&record) {

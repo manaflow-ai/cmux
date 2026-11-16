@@ -430,9 +430,9 @@ fn i420_to_bgrx(p: &I420, h: usize, out: &mut [u8]) {
             let d = i32::from(ur[col / 2]) - 128;
             let e = i32::from(vr[col / 2]) - 128;
             let px = &mut o[col * 4..col * 4 + 4];
-            px[0] = ((c + 132186 * d) >> 16).clamp(0, 255) as u8;
-            px[1] = ((c - 25624 * d - 53280 * e) >> 16).clamp(0, 255) as u8;
-            px[2] = ((c + 104595 * e) >> 16).clamp(0, 255) as u8;
+            px[0] = ((c + 132186 * d + 32768) >> 16).clamp(0, 255) as u8;
+            px[1] = ((c - 25624 * d - 53280 * e + 32768) >> 16).clamp(0, 255) as u8;
+            px[2] = ((c + 104595 * e + 32768) >> 16).clamp(0, 255) as u8;
             px[3] = 0;
         }
     }
