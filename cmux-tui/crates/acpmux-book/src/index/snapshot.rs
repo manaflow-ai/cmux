@@ -219,7 +219,7 @@ pub struct SnapshotPiece {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Position {
+pub(in crate::index) struct Position {
     pub(super) offset: u64,
     pub(super) ordinal: u64,
     pub(super) record_len: Option<usize>,
