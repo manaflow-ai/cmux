@@ -25,6 +25,7 @@ import {
   type ChatUiFont,
 } from "./chatUiFont";
 import { configureStatusVerbs } from "./statusVerbs";
+import { configureKeyStyle } from "../../ui/keyStyle";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
@@ -360,6 +361,8 @@ export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   configureStatusVerbs(raw);
   configureSenderIconLook(raw);
+  // `app.keyStyle` and `app.shortcutLayout` (Swift AgentPaneDisplaySetting.followedAppPaths): every list here.
+  configureKeyStyle(raw);
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
