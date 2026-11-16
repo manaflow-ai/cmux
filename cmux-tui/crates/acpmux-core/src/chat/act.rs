@@ -7,7 +7,6 @@
 #![forbid(unsafe_code)]
 
 use crate::chat::act_ids::{ActIdLookup, ActIdRing};
-use acpmux_book::translate::{QueueEntry, prompt_hash};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::{self, File, OpenOptions};
@@ -29,6 +28,8 @@ pub struct ActEnvelope {
     pub at: u64,
     pub by: String,
     pub since: Option<u64>,
+    /// Cursor in the followed transcript that caused this action.
+    pub after: u64,
     pub body: Value,
 }
 
@@ -41,7 +42,21 @@ impl ActEnvelope {
         since: Option<u64>,
         body: Value,
     ) -> Self {
-        Self { k: "act".into(), op: op.into(), id: id.into(), at, by: by.into(), since, body }
+        Self {
+            k: "act".into(),
+            op: op.into(),
+            id: id.into(),
+            at,
+            by: by.into(),
+            since,
+            after: 0,
+            body,
+        }
+    }
+
+    pub fn with_after(mut self, after: u64) -> Self {
+        self.after = after;
+        self
     }
 
     /// Compact JSON plus its newline. Oversized data is rejected before any
@@ -71,6 +86,7 @@ pub fn act_result(
         at,
         by: by.into(),
         since,
+        after: 0,
         body,
     }
 }
@@ -354,27 +370,33 @@ pub struct QueueReceipt {
 /// carry `{promptId}`. The queue never stores a second body map.
 pub struct ActorQueue {
     writer: FollowedChatWriter,
-    entries: Vec<QueueEntry>,
+    state: acpmux_book::translate::State,
     ids: ActIdRing,
 }
 
 impl ActorQueue {
     pub fn new(writer: FollowedChatWriter) -> Self {
         let ids = ActIdRing::empty(&writer.chat_path);
-        Self { writer, entries: Vec::new(), ids }
+        Self { writer, state: Default::default(), ids }
     }
 
     pub fn with_ids(writer: FollowedChatWriter, ids: ActIdRing) -> Self {
-        Self { writer, entries: Vec::new(), ids }
+        Self { writer, state: Default::default(), ids }
     }
     pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-    pub fn entries(&self) -> &[QueueEntry] {
-        &self.entries
+        self.state.queue_len()
     }
 
     pub fn apply(&mut self, envelope: ActEnvelope) -> Result<QueueReceipt, QueueError> {
+        let after = envelope.after;
+        self.apply_at(envelope, after)
+    }
+
+    pub fn apply_at(
+        &mut self,
+        envelope: ActEnvelope,
+        transcript_after: u64,
+    ) -> Result<QueueReceipt, QueueError> {
         if envelope.k != "act" || envelope.id.is_empty() || !allowed_op(&envelope.op) {
             return Err(QueueError::Invalid("invalid action envelope".into()));
         }
@@ -399,21 +421,25 @@ impl ActorQueue {
             ActIdLookup::IdUnknown => return Err(QueueError::Invalid("id_unknown".into())),
             ActIdLookup::New => {}
         }
-        if envelope.op == "prompt" && self.entries.len() >= MAX_QUEUE_ENTRIES {
+        if envelope.op == "prompt" && self.state.act_queue_full() {
             return Err(QueueError::Full);
         }
-        validate_transition(&self.entries, &envelope)?;
-        let receipt = self.writer.append(&envelope)?;
-        transition(&mut self.entries, &envelope)?;
+        let stored = envelope.with_after(transcript_after);
+        let line = stored.line().map_err(QueueError::from)?;
+        self.state.validate_act(&line).map_err(|error| QueueError::Invalid(error.to_string()))?;
+        let receipt = self.writer.append(&stored)?;
+        self.state
+            .apply_act(&line, receipt.place, line.len() as u64)
+            .map_err(|error| QueueError::Invalid(error.to_string()))?;
         self.ids
             .remember_bytes(&envelope.id, &envelope.op, &body, receipt.after)
             .map_err(QueueError::from)?;
         let result = act_result(
-            envelope.id.clone(),
-            envelope.at,
-            envelope.by.clone(),
+            stored.id.clone(),
+            stored.at,
+            stored.by.clone(),
             Some(receipt.after),
-            serde_json::json!({"ok":true,"op":envelope.op,"after":receipt.after}),
+            serde_json::json!({"ok":true,"op":stored.op,"after":receipt.after}),
         );
         let output = QueueReceipt { receipt, duplicate: false, result };
         Ok(output)
@@ -422,60 +448,6 @@ impl ActorQueue {
 
 fn allowed_op(op: &str) -> bool {
     matches!(op, "prompt" | "retract")
-}
-
-fn validate_transition(entries: &[QueueEntry], envelope: &ActEnvelope) -> Result<(), QueueError> {
-    let target = envelope
-        .body
-        .get("promptId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .ok_or_else(|| QueueError::Invalid("body.promptId is required".into()))?;
-    if envelope.op == "prompt" {
-        let _ = prompt_entry(target, envelope)?;
-    }
-    if envelope.op == "retract" && entries.iter().all(|entry| entry.id_hash != prompt_hash(target))
-    {
-        // Retraction is idempotent at the queue state level; the durable action
-        // still records it for replay and the id ring handles request repeats.
-    }
-    Ok(())
-}
-
-fn prompt_entry(target: &str, envelope: &ActEnvelope) -> Result<QueueEntry, QueueError> {
-    Ok(QueueEntry::new(
-        prompt_hash(target),
-        envelope.body.get("at").and_then(Value::as_u64).unwrap_or(envelope.at),
-        envelope.body.get("held").and_then(Value::as_bool).unwrap_or(false),
-        envelope.body.get("place").and_then(Value::as_u64).unwrap_or(0),
-        envelope.body.get("span").and_then(Value::as_u64).unwrap_or(0),
-        envelope.body.get("textLen").and_then(Value::as_u64).unwrap_or(0),
-    ))
-}
-
-fn transition(entries: &mut Vec<QueueEntry>, envelope: &ActEnvelope) -> Result<(), QueueError> {
-    let target = envelope
-        .body
-        .get("promptId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .ok_or_else(|| QueueError::Invalid("body.promptId is required".into()))?;
-    let hash = prompt_hash(target);
-    match envelope.op.as_str() {
-        "prompt" => {
-            let entry = prompt_entry(target, envelope)?;
-            if let Some(slot) = entries.iter().position(|old| old.id_hash == hash) {
-                if let Some(old) = entries.get_mut(slot) {
-                    *old = entry;
-                }
-            } else {
-                entries.push(entry);
-            }
-        }
-        "retract" => entries.retain(|entry| entry.id_hash != hash),
-        _ => return Err(QueueError::Invalid("unknown action operation".into())),
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -543,7 +515,17 @@ mod tests {
         let first_writer = writer(dir.path());
         let mut queue = ActorQueue::new(first_writer);
         for n in 0..MAX_QUEUE_ENTRIES {
-            queue.entries.push(QueueEntry::new(n as u64, 0, false, 0, 0, 0));
+            let line = ActEnvelope::new(
+                "prompt",
+                format!("p{n}"),
+                0,
+                "person",
+                None,
+                serde_json::json!({"promptId": format!("p{n}")}),
+            )
+            .line()
+            .unwrap();
+            queue.state.apply_act(&line, n as u64, line.len() as u64).unwrap();
         }
         let error = queue
             .apply(ActEnvelope::new("prompt", "new", 1, "person", None, Value::Null))
