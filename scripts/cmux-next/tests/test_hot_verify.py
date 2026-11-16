@@ -464,5 +464,102 @@ class ControlSocketTest(unittest.TestCase):
                 self.assertEqual(hv.control_socket(4242, os.path.join(d, "missing.sock")), hashed)
 
 
+
+class VideoTest(unittest.TestCase):
+    """The look's video: with the kit, the kit's Recorder (CuaDriver's Screen Recording grant) records it, never
+    record-window, which has no grant on a fleet worker (2026-11-15/16: every fleet look said "no Screen Recording
+    grant" while CuaDriver held it on the same minis)."""
+
+    class FakeRecorder:
+        def __init__(self):
+            self.process, self.calls = None, []
+
+        @property
+        def running(self):
+            return self.process is not None
+
+        def start(self, out, clip):
+            self.calls.append(("start", clip))
+            self.process = type("P", (), {"pid": 4242})()
+            return {"clip": f"clips/{clip}.mp4", "recording": True}
+
+        def stop(self, out):
+            self.calls.append(("stop",))
+            self.process = None
+            dest = Path(out) / "clips" / f"{hv.LOOK_CLIP}.mp4"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(b"\0" * 8192)
+            return {"clip": f"clips/{hv.LOOK_CLIP}.mp4", "bytes": 8192}
+
+        def close(self):
+            self.calls.append(("close",))
+            self.process = None
+
+    def kit(self):
+        recorder = self.FakeRecorder()
+        return type("Kit", (), {"Recorder": staticmethod(lambda: recorder)})(), recorder
+
+    def test_the_kit_records_through_cua_driver_and_the_clip_becomes_video_mp4(self):
+        kit, recorder = self.kit()
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            video = hv.Video(out, kit)
+            self.assertEqual(video.name, "cua-driver")
+            with unittest.mock.patch.object(hv.Video, "binary", side_effect=AssertionError("record-window ran")):
+                self.assertEqual(video.start(123), 4242)
+            self.assertTrue(video.running)
+            with unittest.mock.patch.object(hv, "window_frame", return_value=None), \
+                    unittest.mock.patch.object(hv, "main_display_points", return_value=(1920.0, 1080.0)):
+                mp4 = video.stop()
+            self.assertEqual(mp4, out / "video.mp4")
+            self.assertTrue(mp4.is_file())
+            self.assertFalse((out / "clips").exists())
+            self.assertFalse(video.facts["window"])
+            self.assertIn("display", video.facts)
+            self.assertEqual(recorder.calls, [("start", hv.LOOK_CLIP), ("stop",)])
+
+    def test_a_refused_start_is_a_look_error_naming_cua_driver(self):
+        kit, recorder = self.kit()
+        recorder.start = lambda out, clip: (_ for _ in ()).throw(RuntimeError("cua-driver start_recording: no"))
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(hv.LookError, "CuaDriver's recording did not start"):
+                hv.Video(Path(tmp), kit).start(1)
+
+    def test_abandon_closes_a_running_cua_recording(self):
+        kit, recorder = self.kit()
+        with tempfile.TemporaryDirectory() as tmp:
+            video = hv.Video(Path(tmp), kit)
+            video.start(1)
+            video.abandon()
+            self.assertFalse(video.running)
+            self.assertIn(("close",), recorder.calls)
+
+    def test_the_look_clip_name_is_one_a_steps_file_cannot_take(self):
+        self.assertIsNone(hv.SHOT_NAME.fullmatch(hv.LOOK_CLIP))
+
+    def test_without_a_kit_record_window_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(hv.Video(Path(tmp)).name, "record-window")
+
+    def test_window_crop_is_in_the_videos_own_pixels(self):
+        crop = hv.window_crop({"X": 480.0, "Y": 270.0, "Width": 960.0, "Height": 540.0}, (1920.0, 1080.0))
+        self.assertEqual(crop, "crop=trunc(iw*0.5/2)*2:trunc(ih*0.5/2)*2:trunc(iw*0.25/2)*2:trunc(ih*0.25/2)*2")
+
+    def test_window_crop_refuses_a_window_off_the_main_display(self):
+        self.assertIsNone(hv.window_crop({"X": 2000.0, "Y": 0.0, "Width": 800.0, "Height": 600.0}, (1920.0, 1080.0)))
+        self.assertIsNone(hv.window_crop({"X": -10.0, "Y": 0.0, "Width": 800.0, "Height": 600.0}, (1920.0, 1080.0)))
+        self.assertIsNone(hv.window_crop(None, (1920.0, 1080.0)))
+        self.assertIsNone(hv.window_crop({"X": 0.0, "Y": 0.0, "Width": 800.0, "Height": 600.0}, None))
+
+    def test_cut_to_window_keeps_the_display_without_ffmpeg(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mp4 = Path(tmp) / "video.mp4"
+            mp4.write_bytes(b"x")
+            with unittest.mock.patch.object(hv.shutil, "which", return_value=None):
+                why = hv.cut_to_window(mp4, {"X": 0.0, "Y": 0.0, "Width": 800.0, "Height": 600.0}, (1920.0, 1080.0))
+            self.assertIn("no ffmpeg", why)
+            self.assertEqual(mp4.read_bytes(), b"x")
+
+
 if __name__ == "__main__":
     unittest.main()
