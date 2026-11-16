@@ -65,7 +65,8 @@ import Testing
     @Test func theJoinBlockShowsTheAskAndTheTrustedMacs() async throws {
         let model = Self.model(person: true, record: JoinConsentRecord.parse(Self.result))
         await model.refresh()
-        let page = try #require(try JSONSerialization.jsonObject(with: try #require(model.pageData())) as? [String: Any])
+        let pageData = try #require(model.pageData())
+        let page = try #require(try JSONSerialization.jsonObject(with: pageData) as? [String: Any])
         let ask = try #require(page["grantor_ask"] as? [String: Any])
         #expect(ask["id"] as? String == "mac-0011223344556677")
         #expect(ask["words"] as? [String] == ["amber", "birch", "cedar", "delta"])
@@ -79,7 +80,8 @@ import Testing
 
         let none = Self.model(person: true, record: JoinConsentRecord())
         await none.refresh()
-        let plain = try #require(try JSONSerialization.jsonObject(with: try #require(none.pageData())) as? [String: Any])
+        let plainData = try #require(none.pageData())
+        let plain = try #require(try JSONSerialization.jsonObject(with: plainData) as? [String: Any])
         #expect(plain["grantor_ask"] is NSNull)
         #expect((plain["grantors"] as? [Any])?.isEmpty == true)
     }
