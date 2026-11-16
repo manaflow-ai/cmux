@@ -227,17 +227,31 @@ held_pr() {
     echo "#$number's head ${previous:0:12} is $age min old (hold $hold_min min): moving it" >&2
     return 1
   fi
-  # One bounded page: a head with more check runs than it holds is moved.
-  failed="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/check-runs?per_page=100" \
-    --jq 'if .total_count > (.check_runs | length) then "unread" else [.check_runs[] | select(.conclusion as $c
-      | ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"] | index($c))] | length end')" ||
-    return 1
+  # Every page of check runs, at the head and at the base commit it was staged on: a check that fails the same way
+  # on the base is not the head's own, so it does not move the head. One page, any failure counted: #44074
+  # (2026-11-16) had about 200 check runs and the cmux-next checks job red on base reds, so every publish moved it
+  # (6f1d36c1, fe47e481, a30893db, c5a8aa57) and no head finished its CI. A failed base read counts every failure.
+  # One bounded page per call (scripts/ci/gh_pages.py): the gh quota wrapper refuses an unbounded paginating call.
+  failed_names() {
+    local runs
+    runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
+      python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs")" || return 1
+    jq -r '.[] | select(.conclusion as $c
+      | ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"] | index($c)) | .name' <<<"$runs"
+  }
+  local head_failed base_failed="" staged_on
+  head_failed="$(failed_names "$previous")" || return 1
+  if staged_on="$(git merge-base "$previous" "$tip" 2>/dev/null)" && [[ "$staged_on" =~ ^[0-9a-f]{40}$ ]]; then
+    base_failed="$(failed_names "$staged_on")" || base_failed=""
+  fi
+  failed="$(comm -23 <(sed '/^$/d' <<<"$head_failed" | sort -u) <(sed '/^$/d' <<<"$base_failed" | sort -u) | wc -l)"
+  failed="${failed//[[:space:]]/}"
   [[ "$failed" =~ ^[0-9]+$ ]] || return 1
   status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" || return 1
   [[ "$status" =~ ^(success|pending|failure|error)$ ]] || return 1
   [[ "$status" == failure || "$status" == error ]] && failed=$((failed + 1))
   if (( failed > 0 )); then
-    echo "#$number's head ${previous:0:12} has $failed failed check(s): moving it" >&2
+    echo "#$number's head ${previous:0:12} has $failed failed check(s) of its own: moving it" >&2
     return 1
   fi
   echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), no check failed; it lands first and its merge re-pins $TAG (app-ffi-repin.yml)"
