@@ -593,7 +593,7 @@ impl Conn {
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line_replying(reply_to) {
             Ok(line) => {
-                self.out.push(line);
+                self.out.push_in(line, outbound::reply_lane(msg, reply_to));
             }
             Err(bytes) => self.left_out_too_large(msg.method(), bytes),
         }
@@ -658,9 +658,14 @@ impl Conn {
             let name = if name.is_empty() { "(unnamed)" } else { name.as_str() };
             crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
         }
-        // One queue, in order: a notice queued after this reply goes after it. The client keeps
-        // each row with the higher `listSeq` (`hub/row_log.rs`), so their order does not matter.
-        if !queue.push(line) {
+        // A notice queued after this reply may go before it, and the answer to a cheap list read
+        // goes ahead of the bulk lane (`outbound.rs`): the client keeps each row with the higher
+        // `listSeq` (`hub/row_log.rs`), so their order does not matter.
+        let lane = match method {
+            Some(m) if outbound::is_cheap_read(m) => outbound::Lane::Read,
+            _ => outbound::Lane::Bulk,
+        };
+        if !queue.push_in(line, lane) {
             return false;
         }
         whole
