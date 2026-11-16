@@ -521,7 +521,10 @@ public final class MacScreenDevicesSettings {
             case "remove":
                 guard let id = run.id else { return RunResult(error: "id") }
                 let isMe = id == hub.identity.id
-                try await hub.removeDevice(id)
+                // Another Mac lists once for all its records (its builds, renewals): Remove takes them all.
+                for record in isMe ? [id] : hub.recordIDs(of: id) {
+                    try await hub.removeDevice(record)
+                }
                 if isMe { thisDeviceRemoved() }
             case "setAccess":
                 guard let id = run.id, let scope = run.scope.flatMap(MacScreenAccess.init(value:)) else {

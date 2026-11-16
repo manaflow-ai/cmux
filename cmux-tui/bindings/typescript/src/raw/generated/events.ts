@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea. */
+/* cmux-tui mux protocol 12, IR 395c64cf019d86e9b1348fc53d3c55625bc449821f6428bea0c29cb515a8cec8. */
 
 
 import type * as T from "./types.js";
@@ -617,6 +617,8 @@ export type TabAddedEvent = { event: "tab-added" } & {
   "pane": T.Id;
   "screen": T.Id;
   "surface": T.Id;
+  /** The transaction of the create request that made the tab, when it sent one (conversation-tab-transaction-v1, tab-create-place-v1). */
+  "transaction"?: (string) | null;
   "workspace": T.Id;
 };
 
