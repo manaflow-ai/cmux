@@ -1060,6 +1060,9 @@ const FIRST_SEND_FRESH_MS = 2000;
 /// reader reached rows that were not loaded yet, so the page fades in. Pages ask well ahead
 /// (OLDER_AHEAD_VIEWPORTS), so a page normally lands farther away and draws in place.
 const OLDER_LATE_VIEWPORTS = 1;
+/// Loaded rows at least this many views tall keep the older-history room while the reader waits at
+/// their top (`giveRoomNearTop`); a shorter tail gives it up, so a scroll up is never pushed back down.
+const OLDER_KEEP_ROOM_VIEWPORTS = 3;
 
 /// Whether the reader's view is at the top of the loaded rows, read before a page lands above them.
 /// A hidden or unplaced scroller draws in place (WebKit would play a hidden page's fade on return).
@@ -5539,7 +5542,7 @@ function TranscriptView({
     const first = rows[0];
     if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current || node.clientHeight === 0) return;
     if (userScrollIntent(node).isScrollbarDragging()) return;
-    if (node.scrollHeight - room >= node.clientHeight) return;
+    if (node.scrollHeight - room >= node.clientHeight * OLDER_KEEP_ROOM_VIEWPORTS) return;
     if (layoutScrollTop(node) - room >= node.clientHeight * OLDER_LATE_VIEWPORTS) return;
     // A tail shorter than the view keeps its place at the view's foot: the room left is what lies
     // between the view's top and the rows, so nothing scrolls (read from the scroller itself, whose
