@@ -99,7 +99,7 @@ extension WorkspaceTabsSource {
     /// The face `tab` shows: the person's choice (this launch's, else the one kept from an earlier
     /// launch) while it is enabled, else Rust's default.
     func face(of tab: WorkspaceTab, faces: TerminalChatFaces) -> TabFace {
-        guard faces.offered, let chosen = chosenFaces[tab.id] ?? keptFace(tab) else { return faces.defaultFace }
+        guard faces.offered, let chosen = chosenFaces[tab.id] else { return faces.defaultFace }
         switch chosen {
         case .chat: return faces.chatEnabled ? .chat : faces.defaultFace
         case .terminal: return faces.terminalEnabled ? .terminal : faces.defaultFace
