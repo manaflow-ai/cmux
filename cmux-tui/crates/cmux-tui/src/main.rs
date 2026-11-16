@@ -2007,6 +2007,12 @@ fn run_main() {
     if usage_patterns_cli::requested(&raw_args) {
         client_log::exit(usage_patterns_cli::run(raw_args.get(1..).unwrap_or_default()));
     }
+    // `cmux share prepare [--on MACHINE]`: screen sharing's status on a machine
+    // (`cmux.screen-share.status/1`), read there; no daemon of this machine.
+    if let Some(prepare_args) = devices::setup::prepare::requested(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(devices::setup::prepare::run(&prepare_args));
+    }
     if let Some(device_args) = devices::device_args(&raw_args) {
         discard_provider_secret_environment();
         client_log::exit(devices::run(&device_args));

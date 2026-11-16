@@ -899,6 +899,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
         },
         Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
+        Command::Host(PeerCmd::ScreenShare { cmd }) => {
+            let install = match cmd {
+                crate::cli::command_host::ScreenShareCmd::Status { install } => install,
+                crate::cli::command_host::ScreenShareCmd::Install => true,
+            };
+            let home = crate::config::home();
+            let options = crate::screen_share::Options { install };
+            let status =
+                tokio::task::spawn_blocking(move || crate::screen_share::read(&home, options))
+                    .await?;
+            if json_out {
+                crate::cli::output::print_json(&serde_json::to_value(&status)?);
+            } else {
+                let state = serde_json::to_value(status.state)?;
+                println!("{}: {}", state.as_str().unwrap_or_default(), status.detail);
+            }
+            Ok(())
+        }
         Command::Host(PeerCmd::Consent { cmd }) => {
             let (screen, control, signed_in_machines, granted) = match cmd {
                 crate::cli::command_host::ConsentCmd::Grant {

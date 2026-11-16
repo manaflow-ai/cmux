@@ -24,8 +24,8 @@ struct Mac {
     plist: Option<String>,
     signed_in: bool,
     redeem: &'static str,
-    grants: (bool, bool),
-    shared: bool,
+    /// The Screen Sharing helper's (Accessibility, Screen Recording); None: its cmux has no `share prepare`.
+    grants: Option<(bool, bool)>,
 }
 
 impl Default for Mac {
@@ -40,8 +40,7 @@ impl Default for Mac {
             plist: None,
             signed_in: true,
             redeem: "ok",
-            grants: (true, true),
-            shared: true,
+            grants: Some((true, true)),
         }
     }
 }
@@ -136,11 +135,33 @@ impl Remote for FakeMac {
                 "unknown" => ok("rc=2\ncmux: unknown command \"handoff\"\n"),
                 _ => ok("rc=1\nthe code expired\n"),
             }
-        } else if script == SHARE_STATUS {
-            ok(json!({"state": "running", "host": {
-                "permissions": {"accessibility": mac.grants.0, "screen_recording": mac.grants.1},
-                "screen": {"shared": mac.shared}}})
-            .to_string())
+        } else if script == SHARE_PREPARE {
+            let Some((accessibility, screen_recording)) = mac.grants else {
+                return Ok(ok("{}\n"));
+            };
+            let session = if mac.console == mac.user {
+                acpmux::screen_share::Session::ThisUser
+            } else {
+                acpmux::screen_share::Session::Nobody
+            };
+            let status = acpmux::screen_share::classify(acpmux::screen_share::Facts {
+                mac: true,
+                installed: Some(acpmux::screen_share::Installed {
+                    app: "/Users/me/.acpmux/screen-sharing/x/cmux NIGHTLY Screen Sharing.app"
+                        .into(),
+                    bundle_id: "com.cmuxterm.app.nightly.screen-sharing".into(),
+                    name: "cmux NIGHTLY Screen Sharing".into(),
+                    digest: "d".into(),
+                    source: "/Applications/cmux NIGHTLY.app".into(),
+                }),
+                probe: Some(Ok(acpmux::screen_share::Permissions {
+                    screen_recording,
+                    accessibility,
+                })),
+                session: Some(session),
+                ..Default::default()
+            });
+            ok(serde_json::to_string(&status).unwrap())
         } else if script == OPEN_SETTINGS {
             ok("")
         } else {
@@ -408,23 +429,59 @@ fn no_gui_session_warns_and_starts_nothing() {
 }
 
 #[test]
-fn a_missing_grant_is_named_and_its_settings_pane_opened() {
+fn a_missing_grant_names_the_screen_sharing_helper_and_opens_its_pane() {
     let mac = FakeMac::new(Mac {
         version: "2100".into(),
         running: true,
-        grants: (true, false),
-        shared: false,
+        grants: Some((true, false)),
         ..Mac::default()
     });
     let run = setup(&mac, &Asker::default());
     assert_eq!(state(&run, "share"), StepState::Warn);
     let text = detail(&run, "share");
-    assert!(text.contains("Share This Mac is off"), "{text}");
-    assert!(text.contains("missing Screen Recording"), "{text}");
+    assert!(
+        text.starts_with(
+            "allow cmux NIGHTLY Screen Sharing under Privacy & Security > Screen Recording"
+        ),
+        "{text}"
+    );
     assert!(!text.contains("Accessibility"), "{text}");
-    assert_eq!(mac.sent_script(OPEN_SETTINGS), [Some(b"screen-recording\n".to_vec())]);
-    // Setup never turns sharing on.
-    assert!(mac.scripts().iter().all(|s| !s.contains("share on")));
+    let line = run.lines.iter().find(|l| l.step == "share").unwrap();
+    assert_eq!(
+        line.fix,
+        "on studio-mac, a person allows cmux NIGHTLY Screen Sharing under Privacy & Security > Screen Recording"
+    );
+    // One holder: the helper that captures, never cmux Remote or the app.
+    for text in [&line.detail, &line.fix] {
+        assert!(!text.contains("cmux Remote"), "{text}");
+    }
+    assert_eq!(mac.sent_script(OPEN_SETTINGS), [Some(b"screen_recording\n".to_vec())]);
+    assert_eq!(mac.sent_script(SHARE_PREPARE), [None]);
+}
+
+#[test]
+fn nobody_logged_in_is_said_and_no_pane_is_opened() {
+    let mac = FakeMac::new(Mac { console: "root", grants: Some((false, false)), ..Mac::default() });
+    let status: acpmux::screen_share::Status =
+        serde_json::from_str(&mac.exec(SHARE_PREPARE, None).unwrap().stdout).unwrap();
+    assert_eq!(status.session, acpmux::screen_share::Session::Nobody);
+    let (state, detail, fix) =
+        share_line("studio-mac", &status, false, |_| panic!("a pane opened on the login window"));
+    assert_eq!(state, StepState::Warn);
+    assert!(detail.contains("nobody is logged in"), "{detail}");
+    assert!(fix.contains("Screen Recording and Accessibility"), "{fix}");
+}
+
+#[test]
+fn a_cmux_without_share_prepare_asks_for_an_update() {
+    let mac =
+        FakeMac::new(Mac { version: "2100".into(), running: true, grants: None, ..Mac::default() });
+    let run = setup(&mac, &Asker::default());
+    assert_eq!(state(&run, "share"), StepState::Warn);
+    assert_eq!(
+        detail(&run, "share"),
+        "cannot read screen sharing on studio-mac: its cmux has no `share prepare` yet"
+    );
 }
 
 #[test]
@@ -532,7 +589,7 @@ fn start_runs_reach_login_item_and_start_only() {
 
 #[test]
 fn a_dry_run_changes_nothing() {
-    let mac = FakeMac::new(Mac { signed_in: false, grants: (false, true), ..Mac::default() });
+    let mac = FakeMac::new(Mac { signed_in: false, grants: Some((false, true)), ..Mac::default() });
     let run = run_device("studio-mac", &mac, &Asker::default(), Mode::Setup, true, &mut |_| {});
     assert!(run.changed.is_empty(), "{run:?}");
     for script in [INSTALL, KEEPALIVE, START, REDEEM, OPEN_SETTINGS] {
@@ -701,7 +758,7 @@ fn scripts_carry_no_data_and_no_sudo() {
         START,
         WHOAMI,
         REDEEM,
-        SHARE_STATUS,
+        SHARE_PREPARE,
         OPEN_SETTINGS,
     ] {
         assert!(!script.contains("sudo"), "{script}");
@@ -725,8 +782,12 @@ fn the_daemon_op_and_the_cli_print_the_same_step_lines() {
         allow_agents: false,
         dry_run: false,
     };
-    let mac =
-        Mac { version: "2000".into(), signed_in: false, grants: (true, false), ..Mac::default() };
+    let mac = Mac {
+        version: "2000".into(),
+        signed_in: false,
+        grants: Some((true, false)),
+        ..Mac::default()
+    };
 
     let cli_world = FakeWorld::new(mac.clone());
     let mut cli = Vec::new();
@@ -830,4 +891,43 @@ fn every_answer_to_allow_agents_is_a_line_and_none_is_a_fail() {
     let closed = step(Err(json!({"code": "app.unavailable", "message": "cmux is not running"})));
     assert_eq!(closed.state, StepState::Warn);
     assert_eq!(closed.fix, "open cmux on this computer");
+}
+
+#[test]
+fn share_prepare_is_its_own_verb_and_other_share_verbs_go_on() {
+    let words = |w: &[&str]| w.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(prepare::requested(&words(&["share", "prepare"])), Some(vec![]));
+    assert_eq!(
+        prepare::requested(&words(&["--json", "share", "prepare", "--on", "studio-mac"])),
+        Some(words(&["--json", "--on", "studio-mac"]))
+    );
+    assert_eq!(prepare::requested(&words(&["share", "chat"])), None);
+    assert_eq!(prepare::requested(&words(&["share"])), None);
+    assert_eq!(prepare::requested(&words(&["device", "share", "prepare"])), None);
+}
+
+#[test]
+fn share_prepare_on_a_machine_reads_its_status_there() {
+    let world = FakeWorld::new(Mac { grants: Some((true, false)), ..Mac::default() });
+    let status = prepare::on(&world, "studio-mac");
+    assert_eq!(status.state, acpmux::screen_share::State::NeedsGrant);
+    assert_eq!(status.missing, [acpmux::screen_share::Grant::ScreenRecording]);
+    assert_eq!(status.holder.as_deref(), Some("cmux NIGHTLY Screen Sharing"));
+    assert_eq!(world.mac.sent_script(SHARE_PREPARE), [None]);
+    // Reading never opens a pane or changes anything there.
+    assert!(world.mac.sent_script(OPEN_SETTINGS).is_empty());
+
+    let granted = FakeWorld::new(Mac::default());
+    assert_eq!(prepare::on(&granted, "studio-mac").state, acpmux::screen_share::State::Granted);
+}
+
+#[test]
+fn share_prepare_says_why_when_a_machine_gives_no_status() {
+    let unknown = prepare::on(&FakeWorld::new(Mac::default()), "nowhere");
+    assert_eq!(unknown.state, acpmux::screen_share::State::NotInstalled);
+    assert_eq!(unknown.detail, "nowhere: no device named nowhere");
+    let old = prepare::on(&FakeWorld::new(Mac { grants: None, ..Mac::default() }), "studio-mac");
+    assert_eq!(old.state, acpmux::screen_share::State::NotInstalled);
+    assert!(old.detail.contains("cmux device setup studio-mac"), "{}", old.detail);
+    assert_eq!(old.schema, "cmux.screen-share.status/1");
 }

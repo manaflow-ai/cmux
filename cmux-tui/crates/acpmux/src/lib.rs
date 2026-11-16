@@ -234,6 +234,8 @@ pub mod rows;
 pub mod rpc;
 pub mod run_elsewhere;
 pub mod schema;
+/// The Screen Sharing helper a join installs, and its status (`cmux.screen-share.status/1`).
+pub mod screen_share;
 pub mod secret_mcp;
 pub mod secret_scan;
 pub mod self_command;

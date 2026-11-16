@@ -587,6 +587,16 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         );
         tracing::warn!("hub carrier off for this run: this home was copied from another machine");
     }
+    // Screen sharing as a join leaves it (`screen_share.rs`): install or update the Screen
+    // Sharing helper from a cmux app here and read its grants again, since a new app or an OS
+    // update may have changed either. Off the start path: a probe may take up to 10 s.
+    if cfg!(target_os = "macos") && !memory_store {
+        let share_home = home();
+        let _ = std::thread::Builder::new().name("screen-share-status".into()).spawn(move || {
+            let status = crate::screen_share::at_daemon_start(&share_home);
+            tracing::info!(state = ?status.state, "screen sharing: {}", status.detail);
+        });
+    }
     // Start one mesh before Hub starts its saved peers. It forwards only to
     // the WebSocket listener bound above, whose existing tokens remain mandatory.
     let wireguard = if config.transport.wireguard && !clone_unsettled {

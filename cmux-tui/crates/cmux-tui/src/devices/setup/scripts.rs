@@ -99,16 +99,23 @@ out=$("$CLI" whoami --json 2>&1); echo "rc=$?"; printf '%s\n' "$out""#;
 pub(super) const REDEEM: &str = r#"CLI='/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux'
 out=$("$CLI" auth handoff redeem --json 2>&1); echo "rc=$?"; printf '%s\n' "$out""#;
 
-/// cmux Remote's status on the target (the grants and Share This Mac).
-pub(super) const SHARE_STATUS: &str = r#"CLI='/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux'
-"$CLI" remote-host status --json 2>&1"#;
+/// Screen sharing on the target (`cmux.screen-share.status/1`): installs or updates the Screen
+/// Sharing helper beside the daemon from the cmux app there, then reads its grants from a fresh
+/// helper process. The joined daemon's acpmux first, else NIGHTLY's own CLI; `{}` from neither.
+pub(super) const SHARE_PREPARE: &str = r#"A="$HOME/.local/bin/acpmux"; C='/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux'
+if [ -x "$A" ]; then out=$("$A" machine screen-share status --install --json 2>/dev/null); case "$out" in *cmux.screen-share.status/1*) printf '%s\n' "$out"; exit 0 ;; esac; fi
+if [ -x "$C" ]; then out=$("$C" share prepare --json 2>/dev/null); case "$out" in *cmux.screen-share.status/1*) printf '%s\n' "$out"; exit 0 ;; esac; fi
+echo '{}'"#;
 
-/// Opens the System Settings pane of one grant (its name on stdin) on the target's screen.
-/// Opening a pane grants nothing.
-pub(super) const OPEN_SETTINGS: &str = r#"CLI='/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux'
-IFS= read -r grant
-case "$grant" in accessibility|screen-recording) ;; *) exit 2 ;; esac
-"$CLI" remote-host open-settings "$grant" >/dev/null 2>&1"#;
+/// Opens the System Settings pane of one grant (its name on stdin) in the logged-in session of
+/// the target. Opening a pane grants nothing; a person still clicks.
+pub(super) const OPEN_SETTINGS: &str = r#"IFS= read -r grant
+case "$grant" in
+  screen_recording) url='x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture' ;;
+  accessibility) url='x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility' ;;
+  *) exit 2 ;;
+esac
+launchctl asuser "$(id -u)" open "$url" >/dev/null 2>&1"#;
 
 /// The keepalive LaunchAgent: every 5 minutes (and at login), open NIGHTLY in the background
 /// when its control socket does not answer the bundled CLI. It never kills anything.

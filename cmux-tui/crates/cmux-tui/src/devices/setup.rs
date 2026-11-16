@@ -12,6 +12,7 @@ use std::process::Stdio;
 use std::sync::LazyLock;
 
 use acpmux::cli::hosts::{Remote, RemoteOut, SshRemote};
+use acpmux::screen_share::{Grant, Session, State as ShareState, Status};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -37,6 +38,7 @@ pub(crate) const KEEPALIVE_LABEL: &str = "com.cmuxterm.app.nightly.keepalive";
 const RELEASE_TEAM: &str = "7WLXT3NR37";
 
 mod feed;
+pub(crate) mod prepare;
 mod scripts;
 mod verbs;
 
@@ -649,71 +651,70 @@ pub(crate) fn sign_in_step(
     (StepState::Warn, format!("sign in on {name}: {}", last_line(&answer)), String::new())
 }
 
-/// The grants cmux Remote needs, as `remote-host status` names them and as a person reads them.
-const GRANTS: [(&str, &str, &str); 2] = [
-    ("accessibility", "accessibility", "Accessibility"),
-    ("screen_recording", "screen-recording", "Screen Recording"),
-];
-
+/// The share step: installs the Screen Sharing helper beside the daemon and reads its grants
+/// ([`SHARE_PREPARE`], `cmux.screen-share.status/1`). The helper is the one holder of Screen
+/// Recording and Accessibility for sharing (cmux#44069), so this names it, never cmux Remote
+/// or the app. A missing grant is a person's one click on that Mac: its pane is opened there.
 fn share_step(name: &str, remote: &dyn Remote, dry_run: bool) -> Outcome {
-    let out = exec(remote, SHARE_STATUS, None);
-    let status = serde_json::from_str::<Value>(out.stdout.trim()).ok().filter(|_| out.ok);
+    let out = exec(remote, SHARE_PREPARE, None);
+    let status = serde_json::from_str::<Status>(out.stdout.trim()).ok().filter(|_| out.ok);
     let Some(status) = status else {
+        let why =
+            if out.ok { "its cmux has no `share prepare` yet".to_owned() } else { said(&out) };
         return (
             StepState::Warn,
-            format!("cannot read cmux Remote on {name}: {}", said(&out)),
-            String::new(),
+            format!("cannot read screen sharing on {name}: {why}"),
+            format!("cmux device setup {name}"),
         );
     };
-    // `cmux remote-host status --json` prints the daemon's data, maybe in an `{ok, data}` envelope.
-    let status = status.get("data").filter(|d| d.is_object()).unwrap_or(&status);
-    let host = status.get("host").unwrap_or(&Value::Null);
-    let shared = ["shared", "sharing", "on"]
-        .iter()
-        .find_map(|key| host.get("screen").and_then(|s| s.get(*key)).and_then(Value::as_bool))
-        .or_else(|| status.pointer("/screen/shared").and_then(Value::as_bool));
-    let sharing = match shared {
-        Some(true) => "Share This Mac is on",
-        Some(false) => "Share This Mac is off",
-        None => "Share This Mac: unknown",
-    };
-    let permissions = host.get("permissions").unwrap_or(&Value::Null);
-    if permissions.is_null() {
-        return (
+    share_line(name, &status, dry_run, |grant| {
+        let _ = exec(remote, OPEN_SETTINGS, Some(format!("{}\n", grant_word(grant)).as_bytes()));
+    })
+}
+
+/// The share step's line for `status`; `open` opens one missing grant's pane on that Mac.
+pub(crate) fn share_line(
+    name: &str,
+    status: &Status,
+    dry_run: bool,
+    mut open: impl FnMut(Grant),
+) -> Outcome {
+    let holder = status.holder.as_deref().unwrap_or("cmux Screen Sharing");
+    match status.state {
+        ShareState::Granted => (StepState::Ok, status.detail.clone(), String::new()),
+        ShareState::Unsupported => (StepState::Skip, status.detail.clone(), String::new()),
+        ShareState::NotInstalled => (
             StepState::Warn,
+            status.detail.clone(),
             format!(
-                "{sharing}; cmux Remote did not report its grants ({})",
-                status.get("state").and_then(Value::as_str).unwrap_or("not running")
+                "install a cmux NIGHTLY with the Screen Sharing helper: cmux device setup {name}"
             ),
-            String::new(),
-        );
-    }
-    let missing: Vec<(&str, &str)> = GRANTS
-        .iter()
-        .filter(|(key, _, _)| permissions.get(*key).and_then(Value::as_bool) != Some(true))
-        .map(|(_, arg, title)| (*arg, *title))
-        .collect();
-    if missing.is_empty() {
-        return (
-            StepState::Ok,
-            format!("{sharing}; Accessibility and Screen Recording are allowed"),
-            String::new(),
-        );
-    }
-    let titles = missing.iter().map(|(_, title)| *title).collect::<Vec<_>>().join(" and ");
-    if !dry_run {
-        for (grant, _) in &missing {
-            let _ = exec(remote, OPEN_SETTINGS, Some(format!("{grant}\n").as_bytes()));
+        ),
+        ShareState::NeedsGrant => {
+            let titles = status.missing.iter().map(|g| g.title()).collect::<Vec<_>>().join(" and ");
+            let opened = !dry_run && status.session == Session::ThisUser;
+            if opened {
+                status.missing.iter().copied().for_each(&mut open);
+            }
+            (
+                StepState::Warn,
+                format!(
+                    "{}{}",
+                    status.detail,
+                    if opened { " (its System Settings pane is open there)" } else { "" }
+                ),
+                format!("on {name}, a person allows {holder} under Privacy & Security > {titles}"),
+            )
         }
     }
-    (
-        StepState::Warn,
-        format!(
-            "{sharing}; missing {titles}{}",
-            if dry_run { "" } else { " (its System Settings pane is open there)" }
-        ),
-        format!("on {name}, allow cmux Remote under Privacy & Security > {titles}"),
-    )
+}
+
+/// A grant as [`OPEN_SETTINGS`] reads it on stdin.
+fn grant_word(grant: Grant) -> &'static str {
+    match grant {
+        Grant::ScreenRecording => "screen_recording",
+        Grant::Accessibility => "accessibility",
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
