@@ -33,5 +33,16 @@
     "revision": "ci-43805873048-1",
     "at": "2026-11-16T04:53:17Z"
   },
-  "rolled_back": false
+  "rolled_back": false,
+  "production": {
+    "commit": "379e8982edc0bba4f9819d8768971acab6f1d48c",
+    "run": "https://github.com/manaflow-ai/cmux/actions/runs/43806748628",
+    "deploy": "success",
+    "product_smoke": "success",
+    "boot_image": "cloud-native-auto-60a0aa22-43805873048-1",
+    "smoke_done_at": "2026-11-16T04:54:56Z",
+    "green": true,
+    "superseded": false
+  },
+  "rollback": null
 }
