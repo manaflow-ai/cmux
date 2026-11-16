@@ -678,8 +678,9 @@ pub struct Vaapi {
     /// Frames since the last IDR; `None` until the first frame (which is an IDR).
     since_idr: Option<u32>,
     idr_pic_id: u16,
-    /// Which of `recon` the next frame reconstructs into (the other holds its reference).
-    cur: usize,
+    /// Which of `recon` the next frame reconstructs into (false: the first; the other holds
+    /// its reference).
+    cur: bool,
     // Declared last: dropped after `Drop for Vaapi` destroyed everything made on it.
     display: Display,
 }
@@ -752,7 +753,7 @@ impl Vaapi {
             applied_kbps: None,
             since_idr: None,
             idr_pic_id: 0,
-            cur: 0,
+            cur: false,
             probe,
             display,
         };
@@ -884,6 +885,13 @@ impl Vaapi {
         self.height.div_ceil(16)
     }
 
+    /// The surface the next frame reconstructs into, or (`reference`) the one holding the
+    /// frame before it.
+    fn recon(&self, reference: bool) -> VAId {
+        let [first, second] = self.recon;
+        if self.cur == reference { first } else { second }
+    }
+
     fn high(&self) -> bool {
         self.probe.profile == VA_PROFILE_H264_HIGH
     }
@@ -984,17 +992,25 @@ impl Vaapi {
         if fits {
             // SAFETY: the mapping covers data_size bytes (checked against every row written).
             let data = unsafe { std::slice::from_raw_parts_mut(base.cast::<u8>(), size) };
+            // Rows at `offset + row * pitch`, `w` bytes each; `fits` proved each is inside.
+            fn row_at(data: &mut [u8], start: usize, w: usize) -> Option<&mut [u8]> {
+                data.get_mut(start..).and_then(|d| d.get_mut(..w))
+            }
             for (row, src) in pic.y.chunks_exact(w).take(h).enumerate() {
-                data[y_off + row * y_pitch..][..w].copy_from_slice(src);
+                if let Some(dst) = row_at(data, y_off + row * y_pitch, w) {
+                    dst.copy_from_slice(src);
+                }
             }
             let cw = w / 2;
             for (row, (u, v)) in
                 pic.u.chunks_exact(cw).zip(pic.v.chunks_exact(cw)).take(h / 2).enumerate()
             {
-                let dst = &mut data[uv_off + row * uv_pitch..][..w];
+                let Some(dst) = row_at(data, uv_off + row * uv_pitch, w) else { continue };
                 for ((pair, &u), &v) in dst.chunks_exact_mut(2).zip(u).zip(v) {
-                    pair[0] = u;
-                    pair[1] = v;
+                    if let [cb, cr] = pair {
+                        *cb = u;
+                        *cr = v;
+                    }
                 }
             }
         }
@@ -1239,7 +1255,7 @@ impl Vaapi {
         }
         let poc = (frame as i32).wrapping_mul(2);
         let current = VAPictureH264 {
-            picture_id: self.recon[self.cur],
+            picture_id: self.recon(false),
             frame_idx: frame % (1 << (LOG2_MAX_FRAME_NUM_MINUS4 + 4)),
             flags: 0,
             top_field_order_cnt: poc,
@@ -1249,7 +1265,7 @@ impl Vaapi {
         let reference = (!idr).then(|| {
             let poc = (frame.wrapping_sub(1) as i32).wrapping_mul(2);
             VAPictureH264 {
-                picture_id: self.recon[self.cur ^ 1],
+                picture_id: self.recon(true),
                 frame_idx: frame.wrapping_sub(1) % (1 << (LOG2_MAX_FRAME_NUM_MINUS4 + 4)),
                 flags: VA_PICTURE_H264_SHORT_TERM_REFERENCE,
                 top_field_order_cnt: poc,
@@ -1379,7 +1395,7 @@ impl Vaapi {
         }
         self.applied_kbps = Some(self.kbps);
         self.since_idr = Some(frame.wrapping_add(1));
-        self.cur ^= 1;
+        self.cur = !self.cur;
         Ok(idr)
     }
 }
@@ -1422,7 +1438,10 @@ impl Drop for Vaapi {
             if self.context != VA_INVALID_ID {
                 (api.destroy_context)(dpy, self.context);
             }
-            let mut surfaces = [self.input, self.recon[0], self.recon[1]];
+            let mut surfaces = {
+                let [a, b] = self.recon;
+                [self.input, a, b]
+            };
             if self.input != VA_INVALID_ID {
                 (api.destroy_surfaces)(dpy, surfaces.as_mut_ptr(), 3);
             }
