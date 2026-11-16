@@ -2,7 +2,7 @@ use super::*;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 
-const CODE: &str = "cmh_team_0123456789abcdefghij.abcdefghijABCDEFGHIJ0123456789-_abcdefghij";
+const CODE: &str = "cmh_team_0123456789abcdefghij.abcdefghijABCDEFGHIJ0123456789-_abcdefghijk";
 
 /// A fake cmux-api that answers every request with `status` and `reply` and keeps each request
 /// as it arrived (head and body).
@@ -70,7 +70,7 @@ fn authorization(request: &str) -> Option<String> {
 
 #[test]
 fn a_mint_posts_the_apps_session_as_the_bearer_and_answers_the_code() {
-    let reply = r#"{"code":"cmh_team_0123456789abcdefghij.abcdefghijABCDEFGHIJ0123456789-_abcdefghij","expires_at":1700000120000,"user":"user_1","email":"a@b.c","device":"air"}"#;
+    let reply = r#"{"code":"cmh_team_0123456789abcdefghij.abcdefghijABCDEFGHIJ0123456789-_abcdefghijk","expires_at":1700000120000,"user":"user_1","email":"a@b.c","device":"air"}"#;
     let (origin, seen) = api(201, reply);
     let answer = run(json!({
         "api": origin, "credential": "stack-access",
