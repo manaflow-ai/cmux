@@ -67,7 +67,7 @@ final class CEFRuntime {
         heapUsed: { [weak self] browser in
             guard let tab = self?.tabsByBrowser[browser],
                   let reply = try? await tab.devTools(method: "Runtime.getHeapUsage", params: [:]) else { return nil }
-            return CEFPageRendererGC.usedSize(reply)
+            return await CEFPageRendererGC.usedSize(reply)
         },
         collect: { [weak self] browser in
             guard let tab = self?.tabsByBrowser[browser] else { return }
