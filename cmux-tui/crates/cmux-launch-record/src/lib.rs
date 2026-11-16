@@ -417,6 +417,114 @@ pub struct CmuxLaunchWindow {
     pub window_id: [c_char; 65],
     pub image_path: [c_char; 1025],
 }
+
+#[repr(C)]
+pub struct CmuxLaunchWindowInput {
+    pub frame_x: f64,
+    pub frame_y: f64,
+    pub frame_width: f64,
+    pub frame_height: f64,
+    pub display_id: u32,
+    pub background_rgba: [u8; 4],
+    pub bar_rgba: [u8; 4],
+    pub image_pixel_width: u32,
+    pub image_pixel_height: u32,
+    pub window_id: *const c_char,
+    pub image_path: *const c_char,
+    pub visible_workspace_id: *const c_char,
+    pub visible_tab_ids: *const *const c_char,
+    pub visible_tab_count: usize,
+}
+
+#[repr(C)]
+pub struct CmuxLaunchSidebarInput {
+    pub id: *const c_char,
+    pub title: *const c_char,
+    pub icon_key: *const c_char,
+}
+
+unsafe fn c_string<'a>(p: *const c_char) -> Option<&'a str> {
+    if p.is_null() {
+        return None;
+    }
+    unsafe { CStr::from_ptr(p).to_str().ok() }
+}
+
+unsafe fn input_data(
+    windows: *const CmuxLaunchWindowInput,
+    window_count: usize,
+    sidebars: *const CmuxLaunchSidebarInput,
+    sidebar_count: usize,
+    socket: *const c_char,
+) -> Option<LaunchRecordData> {
+    if (window_count != 0 && windows.is_null()) || (sidebar_count != 0 && sidebars.is_null()) {
+        return None;
+    }
+    let mut output = LaunchRecordData {
+        windows: Vec::with_capacity(window_count),
+        sidebar_rows: Vec::with_capacity(sidebar_count),
+        session_socket_path: c_string(socket)?.to_owned(),
+    };
+    for i in 0..window_count {
+        let w = unsafe { &*windows.add(i) };
+        let id = unsafe { c_string(w.window_id)? }.to_owned();
+        let image_path = unsafe { c_string(w.image_path)? }.to_owned();
+        let workspace = unsafe { c_string(w.visible_workspace_id)? }.to_owned();
+        if w.visible_tab_count != 0 && w.visible_tab_ids.is_null() {
+            return None;
+        }
+        let mut tabs = Vec::with_capacity(w.visible_tab_count);
+        for j in 0..w.visible_tab_count {
+            tabs.push(unsafe { c_string(*w.visible_tab_ids.add(j))? }.to_owned());
+        }
+        output.windows.push(WindowRecord {
+            id,
+            frame: Frame {
+                x: w.frame_x,
+                y: w.frame_y,
+                width: w.frame_width,
+                height: w.frame_height,
+            },
+            display_id: w.display_id,
+            background_rgba: w.background_rgba,
+            bar_rgba: w.bar_rgba,
+            image_path,
+            image_pixel_width: w.image_pixel_width,
+            image_pixel_height: w.image_pixel_height,
+            visible_workspace_id: workspace,
+            visible_tab_ids: tabs,
+        });
+    }
+    for i in 0..sidebar_count {
+        let s = unsafe { &*sidebars.add(i) };
+        output.sidebar_rows.push(SidebarRow {
+            id: unsafe { c_string(s.id)? }.to_owned(),
+            title: unsafe { c_string(s.title)? }.to_owned(),
+            icon_key: unsafe { c_string(s.icon_key)? }.to_owned(),
+        });
+    }
+    Some(output)
+}
+
+/// Writes a bounded launch record through the app FFI. Null pointers, invalid UTF-8,
+/// non-ASCII strings and records over 64 KiB return false without touching the destination.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_launch_record_write(
+    path: *const c_char,
+    windows: *const CmuxLaunchWindowInput,
+    window_count: usize,
+    sidebars: *const CmuxLaunchSidebarInput,
+    sidebar_count: usize,
+    socket: *const c_char,
+) -> bool {
+    let Some(path) = (unsafe { c_string(path) }) else { return false };
+    let Some(data) =
+        (unsafe { input_data(windows, window_count, sidebars, sidebar_count, socket) })
+    else {
+        return false;
+    };
+    write_atomic(path, &data).is_ok()
+}
 impl Default for CmuxLaunchWindow {
     fn default() -> Self {
         unsafe { std::mem::zeroed() }
