@@ -9,6 +9,9 @@ viewing Mac at the decoded frame that shows it. One table:
                    display refresh over a full-screen animation (`--tick --motion`)
   rtt_ms           the link's UDP round trip (min/p50), from the clock probe
 
+and, for cmux under motion (the fps trials), the received Mbps (video and FEC datagram bytes
+into the viewer: run average and peak second) and the host's smoothed datagram loss %.
+
 plus, for cmux, where each key press's time went (host CMUX_RD_TIMING_LOG joined with the
 bench's per-sample times; the two clocks are tied by an NTP-style UDP probe, min-RTT sample):
 
@@ -67,6 +70,24 @@ MONO = time.CLOCK_MONOTONIC  # the clock cmux-rd's now_ns() reads (clock.rs)
 KEYSYM_A = 0x61
 CELLS = 20
 GUARD = (True, False, True, False)
+
+
+def motion_link(series):
+    """Received Mbps for each second of a `--input none` run (video and FEC datagram bytes into
+    the viewer) and the host's smoothed datagram loss (its `stats` control, computed from the
+    viewer's feedback), one value a second."""
+    mbps = [b["bytes"] * 8 / max(b.get("duration_ms") or 1000, 1) / 1e3 for b in series]
+    loss = [(b.get("host_stats") or {}).get("loss_pct") for b in series]
+    loss = [x for x in loss if x is not None]
+    kbps = [(b.get("host_stats") or {}).get("kbps") for b in series]
+    kbps = [x for x in kbps if x is not None]
+    return {
+        "mbit_per_s_peak": round(max(mbps), 2) if mbps else None,
+        "mbit_per_s_series": [round(x, 2) for x in mbps],
+        "loss_pct_mean": round(statistics.mean(loss), 3) if loss else None,
+        "loss_pct_max": round(max(loss), 3) if loss else None,
+        "target_kbps_last": kbps[-1] if kbps else None,
+    }
 
 
 def mono_ns():
@@ -525,6 +546,7 @@ class Orchestrator:
     def __init__(self, args):
         self.a = args
         self.ff_rows = []
+        self.motion_rows = []  # cmux fps trials: received Mbps and loss under motion
         self.host = Remote(args.host, args.via)
         self.viewer = Remote(args.viewer, args.via)
         self.root = args.root
@@ -681,6 +703,7 @@ class Orchestrator:
                     rec["marker_fps"] = rep.get("marker_fps")
                     rec["fps"] = rep.get("fps")
                     rec["mbit_per_s"] = rep.get("bytes", 0) * 8 / max(rep.get("seconds", 1), 1e-3) / 1e6
+                    rec.update(motion_link(rep.get("series") or []))
             else:
                 rec["error"] = (viewer.stderr.read() if viewer.poll() is not None else "timeout")[-400:]
         except Exception as e:  # noqa: BLE001 - a broken attempt is a failed attempt
@@ -810,6 +833,7 @@ class Orchestrator:
             rec["trial"] = n
             if rec["ok"]:
                 fps.append(rec["marker_fps"])
+                self.motion_rows.append(rec)
             self.log(rec)
         self.rig({"cmd": "stop"})
         return firsts, g2g, fps, rows
@@ -895,6 +919,21 @@ class Orchestrator:
             fmt = lambda s: f"{s['p50']:.1f} / {s['p95']:.1f}" if s else "-"  # noqa: E731
             print(f"{name:<22} {fmt(sf):>24} {fmt(sg):>25} {(sp['p50'] if sp else '-'):>17} "
                   f"{len(f)}tr/{len(g)}k")
+        if self.motion_rows:
+            m = self.motion_rows
+            peak = [r["mbit_per_s_peak"] for r in m if r.get("mbit_per_s_peak") is not None]
+            loss = [r["loss_pct_mean"] for r in m if r.get("loss_pct_mean") is not None]
+            loss_max = [r["loss_pct_max"] for r in m if r.get("loss_pct_max") is not None]
+            link = {"mbit_per_s_avg": round(statistics.mean(r["mbit_per_s"] for r in m), 2),
+                    "mbit_per_s_peak": round(max(peak), 2) if peak else None,
+                    "loss_pct_mean": round(statistics.mean(loss), 3) if loss else None,
+                    "loss_pct_max": round(max(loss_max), 3) if loss_max else None}
+            summ["cmux_motion_link"] = link
+            print()
+            print(f"cmux under motion ({len(m)} x {self.a.fps_seconds} s): received "
+                  f"{link['mbit_per_s_avg']} Mbps avg, {link['mbit_per_s_peak']} Mbps peak (1 s); "
+                  f"host loss {link['loss_pct_mean']} % mean, {link['loss_pct_max']} % max")
+
         def stage_table(title, rows, keys):
             print()
             print(title)
