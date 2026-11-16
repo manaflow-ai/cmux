@@ -20,7 +20,7 @@ final class AppSceneIconNSView: AppSceneNodeNSView {
         if let motion = changeMotion, previousNode?.props["symbol"] != node.props["symbol"] || previousNode?.props["color"] != node.props["color"] {
             Motion.appScenes.sceneCrossfade(motion, on: image.layer, in: window)
         }
-        image.image =NSImage.icon(symbol: node.string("symbol") ?? "circle", size: side)
+        image.image = NSImage.icon(symbol: node.string("symbol") ?? "circle", size: side)
     }
 
     override func paint() {

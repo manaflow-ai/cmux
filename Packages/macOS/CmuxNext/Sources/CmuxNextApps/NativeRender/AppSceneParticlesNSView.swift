@@ -21,8 +21,11 @@ final class AppSceneParticlesNSView: AppSceneNodeNSView {
 
     /// The steady field, at `rate`.
     let field = CAEmitterLayer()
-    /// One-shot bursts: its model birth rate stays 0; a burst holds it at 1 for a moment.
+    /// The burst set-up (cells, position, shape): it never emits; each burst plays on a copy in
+    /// ``burstHost``, so a new burst never restarts the particles of the one before.
     let bursts = CAEmitterLayer()
+    /// Holds the bursts in flight; each one leaves when its last particle is gone.
+    let burstHost = CALayer()
     private var lastBurst: Double?
     /// What the cells were built for, so a redraw with nothing new keeps the particles in flight.
     private var built: (preset: Preset, colors: [CGColor], size: CGSize)?
@@ -36,6 +39,8 @@ final class AppSceneParticlesNSView: AppSceneNodeNSView {
             layer?.addSublayer(emitter)
         }
         bursts.birthRate = 0
+        burstHost.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
+        layer?.addSublayer(burstHost)
         settings = Motion.changes.subscribe { [weak self] _ in self?.updateEmission() }
         setAccessibilityElement(false)
     }
@@ -68,15 +73,16 @@ final class AppSceneParticlesNSView: AppSceneNodeNSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// Particles stay inside the node's frame (a long fall or a wide burst would cover its siblings).
+    override var clipsContent: Bool { true }
     override func contentHeight(width: CGFloat) -> CGFloat { 0 }
 
     override func layoutContent(in rect: CGRect) {
-        for emitter in [field, bursts] {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            emitter.frame = rect
-            CATransaction.commit()
-        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for emitter in [field, bursts, burstHost] { emitter.frame = rect }
+        for burst in burstHost.sublayers ?? [] { burst.frame = burstHost.bounds }
+        CATransaction.commit()
         performWithTheme { buildCells() }
     }
 
@@ -84,10 +90,33 @@ final class AppSceneParticlesNSView: AppSceneNodeNSView {
 
     /// Fires one burst from the middle (nothing while it does not emit).
     func fireBurst() {
-        guard isEmitting, let burst = Motion.appScenes.sceneBurstAnimation() else { return }
+        guard isEmitting, let cells = bursts.emitterCells, !cells.isEmpty,
+              let burst = Motion.appScenes.sceneBurstAnimation(lifetime: Self.longestLife(cells)) else { return }
+        let emitter = CAEmitterLayer()
+        emitter.actions = bursts.actions
+        emitter.renderMode = bursts.renderMode
+        emitter.emitterShape = bursts.emitterShape
+        emitter.emitterMode = bursts.emitterMode
+        emitter.emitterPosition = bursts.emitterPosition
+        emitter.emitterSize = bursts.emitterSize
+        emitter.emitterCells = cells
+        emitter.birthRate = 0
         // A burst starts now, not from the emitter's own clock (which would pre-age the particles).
-        bursts.beginTime = CACurrentMediaTime()
-        bursts.add(burst, forKey: "scene.burst")
+        emitter.beginTime = CACurrentMediaTime()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        emitter.frame = burstHost.bounds
+        burstHost.addSublayer(emitter)
+        CATransaction.setMainCompletion { [weak emitter] in emitter?.removeFromSuperlayer() }
+        emitter.add(burst, forKey: "scene.burst")
+        CATransaction.commit()
+    }
+
+    /// How long the longest-lived particle of `cells` (and their sub-cells) can last.
+    static func longestLife(_ cells: [CAEmitterCell]) -> TimeInterval {
+        cells.map { cell in
+            TimeInterval(cell.lifetime + cell.lifetimeRange) + longestLife(cell.emitterCells ?? [])
+        }.max() ?? 0
     }
 
     /// Starts or stops the steady field for the window, the settings and `rate`.
@@ -99,7 +128,7 @@ final class AppSceneParticlesNSView: AppSceneNodeNSView {
         // Off by the settings: nothing in flight stays on screen either.
         let still = !Motion.appScenes.animatesLoops
         field.isHidden = still
-        bursts.isHidden = still
+        burstHost.isHidden = still
         CATransaction.commit()
     }
 

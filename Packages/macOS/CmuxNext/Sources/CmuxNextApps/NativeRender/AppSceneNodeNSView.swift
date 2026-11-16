@@ -95,6 +95,8 @@ class AppSceneNodeNSView: NSView {
     var glowLayer: CALayer? { layer }
     /// Whether `gradient` paints this node's background (a shape fills its outline with it instead).
     var drawsGradientBackground: Bool { true }
+    /// Whether the node clips what it draws to its bounds even without a `cornerRadius` (particles).
+    var clipsContent: Bool { false }
     /// The outline a `shimmer` band is clipped to, in the view's coordinates (nil: the rounded bounds).
     var shimmerOutline: CGPath? { nil }
 
@@ -168,6 +170,17 @@ class AppSceneNodeNSView: NSView {
             animateAdditive(layer, "bounds", from: NSValue(rect: CGRect(x: 0, y: 0, width: old.width - newSize.width, height: old.height - newSize.height)),
                             zero: NSValue(rect: .zero))
         }
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        // AppKit owns the backing layer's geometry: a move keeps `scale`, `rotation` and `offset`.
+        reassertTransform()
+    }
+
+    /// A node on its way out (its exit transition) takes no clicks: the scene removed it.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        exitHost == nil ? super.hitTest(point) : nil
     }
 
     override func layout() {

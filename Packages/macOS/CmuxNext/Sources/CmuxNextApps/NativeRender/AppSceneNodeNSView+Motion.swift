@@ -148,7 +148,19 @@ extension AppSceneNodeNSView {
         filter.radius = radius
         layerUsesCoreImageFilters = true
         contentFilters = [filter]
-        if let animation { layer.add(animation, forKey: "scene.blur") }
+        if let animation {
+            // Animated down to nothing: the filter goes once the blur is gone, so no Core Image
+            // pass keeps running at radius 0.
+            CATransaction.begin()
+            if radius == 0 {
+                CATransaction.setMainCompletion { [weak self] in
+                    guard let self, self.node.blurRadius == 0 else { return }
+                    self.contentFilters = []
+                }
+            }
+            layer.add(animation, forKey: "scene.blur")
+            CATransaction.commit()
+        }
     }
 
     /// `glow` on ``glowLayer``: color, radius and opacity animate during a prop change.
@@ -312,7 +324,7 @@ extension AppSceneNodeNSView {
         exitToken &+= 1
         let token = exitToken
         exitHost = host
-        for key in ["scene.enter.transform", "scene.enter.opacity"] { layer?.removeAnimation(forKey: key) }
+        // An enter still in flight keeps running: the exit adds to it, so nothing jumps.
         let started = playTransition(entering: false) { [weak self] in
             guard let self, self.exitToken == token, let host = self.exitHost, self.superview === host else { return }
             self.exitHost = nil

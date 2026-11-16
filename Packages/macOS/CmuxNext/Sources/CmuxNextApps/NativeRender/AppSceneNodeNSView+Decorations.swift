@@ -55,7 +55,7 @@ extension AppSceneNodeNSView {
         layer.cornerCurve = .continuous
         layer.cornerRadius = cornerRadius
         // A glow is a shadow outside the bounds: a node that glows rounds without clipping.
-        layer.masksToBounds = cornerRadius > 0 && node.glow == nil
+        layer.masksToBounds = clipsContent || (cornerRadius > 0 && node.glow == nil)
         layer.borderWidth = node.props["borderColor"]?.stringValue == nil ? 0 : CGFloat(node.number("borderWidth") ?? 1)
         // Painted now too, so a node reads right before its first draw.
         performWithTheme { paintDecorations() }
@@ -84,15 +84,39 @@ extension AppSceneNodeNSView {
             let from = appliedTransform
             withoutActions { layer.transform = target }
             // From the old value's parts, so a resize alone never animates.
-            if let from, from != parts, parts.scale > 0.001 {
-                let delta = space.transform(scale: from.scale / parts.scale, degrees: from.degrees - parts.degrees,
-                                            offset: CGPoint(x: from.offset.x - parts.offset.x, y: from.offset.y - parts.offset.y))
-                animateAdditive(layer, "transform", from: NSValue(caTransform3D: delta), zero: NSValue(caTransform3D: CATransform3DIdentity))
-            }
+            if let from, from != parts { animateTransform(layer, from: from, to: parts, in: space) }
         }
         appliedTransform = parts
         layoutGradientBackground()
         layoutGlowPath()
+    }
+
+    /// Puts the node's own transform back after AppKit moved its layer (the parts last laid out).
+    func reassertTransform() {
+        guard let layer, let parts = appliedTransform else { return }
+        let target = SceneTransformSpace(layer: layer).transform(scale: parts.scale, degrees: parts.degrees, offset: parts.offset)
+        if !CATransform3DEqualToTransform(layer.transform, target) { withoutActions { layer.transform = target } }
+    }
+
+    /// Animates the own transform from `from`'s parts to `to`'s, additively. Core Animation adds an
+    /// additive transform as `delta · model` and turns a matrix the short way, so the scale and
+    /// offset change is one exact delta (`from · model⁻¹`, with the new rotation) and the rotation
+    /// change is pieces of at most 90° about the center that add up (0 to 270 turns 270 clockwise;
+    /// 0 to 360, once round).
+    private func animateTransform(_ layer: CALayer, from: SceneTransformParts, to: SceneTransformParts, in space: SceneTransformSpace) {
+        // A target scale of 0 has no inverse: the delta is taken against a vanishing one.
+        let model = space.transform(scale: max(to.scale, 0.001), degrees: to.degrees, offset: to.offset)
+        let identity = NSValue(caTransform3D: CATransform3DIdentity)
+        if from.scale != to.scale || from.offset != to.offset {
+            let start = space.transform(scale: from.scale, degrees: to.degrees, offset: from.offset)
+            let delta = CATransform3DConcat(start, CATransform3DInvert(model))
+            animateAdditive(layer, "transform", from: NSValue(caTransform3D: delta), zero: identity)
+        }
+        let turn = from.degrees - to.degrees
+        guard turn != 0 else { return }
+        let pieces = Int((abs(turn) / 90).rounded(.up))
+        let piece = space.transform(degrees: turn / CGFloat(pieces))
+        for _ in 0..<pieces { animateAdditive(layer, "transform", from: NSValue(caTransform3D: piece), zero: identity) }
     }
 }
 

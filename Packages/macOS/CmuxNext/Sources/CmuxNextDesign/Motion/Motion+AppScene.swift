@@ -325,14 +325,18 @@ extension MotionGate {
         return out
     }
 
-    /// A one-shot particle burst: the emitter's `birthRate` held at 1 for a tenth of a second (its
-    /// model value is 0), or nil when particles are off.
-    @MainActor public func sceneBurstAnimation() -> CAAnimation? {
+    /// A one-shot particle burst on an emitter of its own: its `birthRate` held at 1 for a tenth of
+    /// a second (its model value is 0), lasting `lifetime` more seconds so the caller removes the
+    /// emitter when its last particle is gone; nil when particles are off.
+    @MainActor public func sceneBurstAnimation(lifetime: TimeInterval) -> CAAnimation? {
         guard animatesLoops else { return nil }
         let burst = CABasicAnimation(keyPath: "birthRate")
         burst.fromValue = 1 as Float
         burst.toValue = 1 as Float
         burst.duration = 0.1
-        return burst
+        let life = CAAnimationGroup()
+        life.animations = [burst]
+        life.duration = burst.duration + min(max(lifetime, 0), 30)
+        return life
     }
 }

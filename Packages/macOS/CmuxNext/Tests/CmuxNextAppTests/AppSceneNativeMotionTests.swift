@@ -236,12 +236,16 @@ import Testing
             let (window, root) = Self.host(model, shown: true)
             defer { window.contentView = nil; window.close() }
             let fx = try #require(Self.node("fx", in: root) as? AppSceneParticlesNSView)
-            #expect(fx.bursts.animation(forKey: "scene.burst") == nil, "the first value fires nothing")
+            #expect(fx.burstHost.sublayers?.isEmpty ?? true, "the first value fires nothing")
             #expect(fx.field.birthRate == 0, "confetti emits only on a burst without a rate")
             guard fx.isEmitting else { return }
             model.apply([.update(id: "fx", props: ["burst": 1])])
             root.layoutSubtreeIfNeeded()
-            #expect(fx.bursts.animation(forKey: "scene.burst") != nil)
+            let first = try #require(fx.burstHost.sublayers?.first, "a burst plays on an emitter of its own")
+            #expect(first.animation(forKey: "scene.burst") != nil)
+            model.apply([.update(id: "fx", props: ["burst": 2])])
+            root.layoutSubtreeIfNeeded()
+            #expect(fx.burstHost.sublayers?.count == 2, "a second burst leaves the first one's particles in flight")
         }
     }
 
