@@ -495,11 +495,9 @@ fn a_recovery_during_an_older_encode_still_forces_the_next_frame() {
         ..Feedback::default()
     });
     let held = e.on_datagram(&ask, true, 305_000).encode;
+    assert!(held.is_none(), "the fps cap holds the recovery encode: {held:?}");
     // The source answers the request it was working on.
     send(&mut e, &older, false, 500, 306_000);
-    let next = held
-        .or_else(|| e.poll(330_000))
-        .or_else(|| e.damage(0, small, 330_000))
-        .expect("the next request");
+    let next = e.poll(330_000).or_else(|| e.damage(0, small, 330_000)).expect("the next request");
     assert!(next.force_idr, "the keyframe the viewer asked for was dropped: {next:?}");
 }
