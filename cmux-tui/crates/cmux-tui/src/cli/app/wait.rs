@@ -16,9 +16,10 @@ use super::{GlobalArgs, OutputMode, SCREENSHOT_TIMEOUT, command_socket, safe_to_
 /// Only the long waits (a screenshot's 35 s, a waiting run's 45 s) show
 /// notes; a 5 s control-plane read answers or fails before a note helps.
 const LONG_WAIT: Duration = SCREENSHOT_TIMEOUT;
-/// No note for a wait shorter than this.
-const FIRST_NOTE_AFTER: Duration = Duration::from_secs(2);
-const NOTE_EVERY: Duration = Duration::from_secs(5);
+/// No note for a wait shorter than this: the shared 10 s notice bound (a
+/// wait that ends sooner says nothing).
+const FIRST_NOTE_AFTER: Duration = Duration::from_secs(10);
+const NOTE_EVERY: Duration = Duration::from_secs(10);
 /// The first wait before a new connection after the app dropped one; each next wait doubles, up to
 /// [`RECONNECT_MAX_WAIT`], until the request's deadline (`run::not_run_deadline`): an app restarting
 /// its control server takes as long as it takes, never a fixed two tries.

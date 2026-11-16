@@ -431,7 +431,6 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             2,
         ));
     }
-    eprintln!("cmux: connecting to {}…", config.label);
     let session = match first_session(&mut config) {
         Ok(session) => session,
         Err(error) => {

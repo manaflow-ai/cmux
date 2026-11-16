@@ -11,8 +11,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
-/// The test build's wait for `action.run`, instead of 45 s.
-const WAIT_MS: &str = "3500";
+/// The test build's wait for `action.run`, instead of 45 s: just past the
+/// 10 s before the first progress note.
+const WAIT_MS: &str = "11500";
 
 fn spawn(socket: &Path, output: &[&str]) -> Child {
     spawn_command(socket, output, &["action", "run", "window.new"])
@@ -57,7 +58,7 @@ fn a_silent_app_shows_progress_and_times_out_with_the_next_command() {
     let stderr = String::from_utf8_lossy(&human.stderr);
     assert_eq!(human.status.code(), Some(3), "{stderr}");
     assert!(
-        stderr.contains("waiting for the cmux app to run window.new (2 s of 3 s)"),
+        stderr.contains("waiting for the cmux app to run window.new (10 s of 11 s)"),
         "no progress line: {stderr}"
     );
     // The next command keeps the route this call took.
@@ -90,6 +91,6 @@ fn a_silent_app_shows_progress_and_times_out_with_the_next_command() {
     assert_eq!(details["socket"], socket.to_string_lossy().as_ref(), "{error}");
     assert_eq!(details["method"], "action.run", "{error}");
     assert_eq!(details["waiting_for"], "window.new", "{error}");
-    assert_eq!(details["timeout_seconds"], 3, "{error}");
+    assert_eq!(details["timeout_seconds"], 11, "{error}");
     assert_eq!(details["next_command"], next.as_str(), "{error}");
 }

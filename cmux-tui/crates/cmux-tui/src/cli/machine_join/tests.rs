@@ -363,15 +363,13 @@ fn add_human_prints_the_line_and_waits_on_a_terminal_until_it_joins() {
         "{}",
         ran.out
     );
-    // Not on a terminal, a person's run prints the line and returns.
+    // Not on a terminal, a person's run prints the line and returns, with no
+    // hint after it.
     let (origin, requests) = fake(joining(vec![json!([])], far()));
     let ran = run_with(&["machine", "add"], &origin, OutputMode::Human, false, true, never());
     assert_eq!(ran.code, Ok(0));
-    assert!(
-        ran.out.trim_end().ends_with("It shows in `cmux machine list` once it joins."),
-        "{}",
-        ran.out
-    );
+    assert!(ran.out.starts_with("Run this on the new machine."), "{}", ran.out);
+    assert!(!ran.out.contains("once it joins"), "{}", ran.out);
     requests.recv().unwrap();
     assert!(requests.try_recv().is_err());
 }
