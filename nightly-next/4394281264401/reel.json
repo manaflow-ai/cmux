@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "build": "4394281264401",
+  "notes": "notes/4394281264401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44701,
+      "title": "Worker logs: read cmux-vm's own lines in window mode (cmux-platform#1442)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44428,
+      "title": "acpmux v2 12b: preserve Claude follow identities",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44559,
+      "title": "acpmux v2 12a: follow transcript generations and bounded reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44598,
+      "title": "Agent chat: a streamed token in a long chat no longer copies every reply id (CMUX-571)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44598/hv-76b990c47af5-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 44577,
+      "title": "sign-in: Rust owns the install token lease (renew at 2/3 of life, bounded mint, a named stall)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44568,
+      "title": "v2 row 11a: act wire and durable receipt ring",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44708,
+      "title": "measure: the pane films tool sends an act 3 times at most and never again after a time-out, and its row keeps the `layout` spans",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44353,
+      "title": "agent pane: a v2 host for a chat's rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44691,
+      "title": "cloud-journey: the preclaim burst keeps going past a failed claim, and names its step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44697,
+      "title": "ci(test-ios): a bot's re-run on a cmux-next lane takes the picker's Blacksmith route",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44696,
+      "title": "Cloud VM image: a desktop (openbox, xterm) on the agent display at 1920x1080, and a check that fails loudly on a black screen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44694,
+      "title": "app FFI re-pin: hold a head under CI past one page of checks and base reds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44461,
+      "title": "8c A: owner-routed selector resolution",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44707,
+      "title": "Agent chat: a streamed token in a chat with started chats no longer rebuilds every row",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
