@@ -22,7 +22,13 @@ Rows (report.json `rows`, perf-cron.py kind budgets; reporting only, perf-cron.p
 Prints TERMINAL-THROUGHPUT lines. Exits 1 when a terminal gave no timed burst (the report says why in `missing`).
 
   terminal-throughput-bench.py --app "<cmux DEV tag.app>" --out DIR [--json FILE] [--mb 200] [--runs 3]
-      [--warmup-mb 16] [--timeout 240] [--ghostty-app PATH] [--no-ghostty]
+      [--warmup-mb 16] [--timeout 240] [--ghostty-app PATH] [--no-ghostty] [--breakdown] [--trace]
+
+--trace (terminal_throughput_trace.py): the first timed burst of each terminal runs under one Instruments recording of
+every process (System Trace and Time Profiler). Per thread of the terminal's processes, over the burst window: running,
+runnable and blocked time, each system call's count, wall time and bytes, and the heaviest frames; one
+TERMINAL-THROUGHPUT-HOP line per read or write row with bytes, which is each hop's MB/s and blocked share. The traced
+burst runs slower than the others (the recording costs CPU); it is still a timed run.
 """
 import argparse, hashlib, json, os, platform, random, shlex, shutil, statistics, subprocess, sys, tempfile, time
 
@@ -208,6 +214,30 @@ class Breakdown:
 
 
 
+def is_python(process_name):
+    """The writer's process as Instruments names it (/usr/bin/python3 runs as `Python`) (pure)."""
+    return process_name.lower().startswith("python")
+
+
+def start_trace(opts, i, terminal):
+    """--trace: an Instruments recording over the first timed burst of `terminal` (terminal_throughput_trace.py)."""
+    if not opts.trace or i != 1:
+        return None
+    from terminal_throughput_trace import Recorder
+    return Recorder(opts.out, f"{terminal}-{i}")
+
+
+def finish_trace(tracer, terminal, keep):
+    """Stops `tracer`, prints its summary (TERMINAL-THROUGHPUT-TRACE) and one TERMINAL-THROUGHPUT-HOP line per I/O
+    row with bytes, and returns the summary for the report."""
+    from terminal_throughput_trace import hop_lines
+    summary = tracer.stop(keep, is_python)
+    print("TERMINAL-THROUGHPUT-TRACE " + json.dumps({"terminal": terminal, **summary}), flush=True)
+    for line in hop_lines(summary):
+        print(f"TERMINAL-THROUGHPUT-HOP {terminal} | {line}", flush=True)
+    return summary
+
+
 def payload_block(seed=571, size=1 << 20):
     """About `size` bytes of terminal text, the same every run (pure)."""
     rng = random.Random(seed)
@@ -283,14 +313,17 @@ def measure_next(opts, writer, payload, scratch):
         for i, limit in plan:
             result = os.path.join(scratch, f"next-{i}.json")
             cmd = " ".join(shlex.quote(a) for a in ["/usr/bin/python3", "-I", writer, payload, result, str(limit)])
+            tracer = start_trace(opts, i, "next")
             probe = (Breakdown(lambda c: opts.app in c or "cmux-tui" in c or "acpmux" in c or writer in c, opts.out,
-                               f"next-{i}") if opts.breakdown and i != "warmup" else None)
+                               f"next-{i}") if opts.breakdown and i != "warmup" and not tracer else None)
             reply = app.rpc("action.run", {"action": "newTab", "args": {"name": f"throughput-{i}", "focus": True,
                                                                          "command": cmd}})
             if isinstance(reply, dict) and reply.get("error"):
                 out["error"] = f"newTab: {reply['error']}"
                 break
             res = wait_result(result, opts.timeout, alive=lambda: app.process.poll() is None)
+            if tracer:
+                out["trace"] = finish_trace(tracer, "next", lambda name: "cmux" in name or is_python(name))
             if probe:
                 out.setdefault("breakdown", []).append(probe.finish((res or {}).get("seconds")))
             if i == "warmup":
@@ -360,11 +393,14 @@ def measure_ghostty(opts, writer, payload, scratch, grid):
                 "--quit-after-last-window-closed=true", "--confirm-close-surface=false", "--window-save-state=never",
                 "--auto-update=off", f"--window-width={cols}", f"--window-height={rows}"]
         log = open(os.path.join(opts.out, f"ghostty-{i}.log"), "w")
+        tracer = start_trace(opts, i, "ghostty")
         probe = (Breakdown(lambda c: app in c or writer in c, opts.out, f"ghostty-{i}", delay=0.8)
-                 if opts.breakdown and i != "warmup" else None)
+                 if opts.breakdown and i != "warmup" and not tracer else None)
         proc = subprocess.Popen(argv, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             res = wait_result(result, opts.timeout, alive=lambda: proc.poll() is None)
+            if tracer:
+                out["trace"] = finish_trace(tracer, "ghostty", lambda name: "ghostty" in name.lower() or is_python(name))
             if probe:
                 out.setdefault("breakdown", []).append(probe.finish((res or {}).get("seconds")))
         finally:
@@ -412,6 +448,9 @@ def main(argv=None):
     parser.add_argument("--no-ghostty", action="store_true")
     parser.add_argument("--breakdown", action="store_true",
                         help="per burst: CPU per process and a mid-burst sample of each (TERMINAL-THROUGHPUT-BREAKDOWN)")
+    parser.add_argument("--trace", action="store_true",
+                        help="the first timed burst of each terminal under Instruments (System Trace and Time Profiler): "
+                             "per thread, its states, system calls and bytes over the burst (TERMINAL-THROUGHPUT-TRACE)")
     opts = parser.parse_args(argv)
     os.makedirs(opts.out, exist_ok=True)
     scratch = tempfile.mkdtemp(prefix="tput.", dir="/private/tmp" if os.path.isdir("/private/tmp") else None)
