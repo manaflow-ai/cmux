@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "build": "4379664417401",
+  "notes": "notes/4379664417401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44061,
+      "title": "ci: list the tab-switch harness tests in the cmux-next checks job (base red since #43986)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44108,
+      "title": "Customization showcase: captures of Customize…, the templates and themes, and a clip spec for Customize…",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44108/customize-templates-a.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 44066,
+      "title": "cmux-rd serve: start at 30 Mbps on LAN, send the frame after an input at once, VT speed keys",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43288,
+      "title": "iPhone Screen Sharing: reattach at once after a drop and on return to the foreground",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44086,
+      "title": "Agent chat: one ask renders once over the composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44113,
+      "title": "measure: renderer-rest, each Chromium renderer's footprint, pages and V8 heap while the empty app rests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42981,
+      "title": "CMUX-570: ship the smaller bundled engine with paired snapshots",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44095,
+      "title": "acpmux conn: an unsub or credit for a sid the connection ended itself is not an error",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
