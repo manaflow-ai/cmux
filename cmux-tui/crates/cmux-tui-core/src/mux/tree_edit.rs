@@ -566,6 +566,9 @@ pub(super) fn remove_surface(
     let old_order = pane.tabs.clone();
     pane.tabs.remove(idx);
     if !pane.tabs.is_empty() {
+        // A tab that still launches can have its slot next to the closed
+        // tab: the list of the creations keeps the active tab for it.
+        state.tab_places.lock().tab_closes(pane_id, &old_order, target, selected == Some(target));
         // The app's rule, from the one place it lives (Chrome's, positional
         // here: the daemon keeps no opener): the tab after the closed one,
         // else the one before it; an unselected close keeps it.

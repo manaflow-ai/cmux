@@ -8,13 +8,17 @@
 //! tabs of the pane are those of the same requests applied one by one in the
 //! order of their arrival. The active tab follows the same rule among the
 //! creations: a tab that comes after the tab of a later request does not take
-//! the active tab from it ([`PlaceLists::takes_active`]).
+//! the active tab from it ([`PlaceLists::takes_active`]), and a tab whose
+//! slot a close of the active tab picked takes it when it comes
+//! ([`PlaceLists::tab_closes`]).
 //!
 //! The list is a pure value: it reads the pane's tabs from its caller and
 //! holds no lock.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
+
+use cmux_focus_core::close_focus;
 
 use super::tab_place::{Anchor, Settled, Slot, TabPlace, Wanted, settle};
 use crate::{PaneId, SurfaceId};
@@ -38,7 +42,7 @@ pub(crate) struct Asked<'a> {
 }
 
 /// One entry of the list of a pane.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Entry {
     /// A tab of the pane.
     Tab(SurfaceId),
@@ -72,6 +76,17 @@ impl Creation {
     }
 }
 
+/// The record of the active tab of one pane that has a creation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ActiveTab {
+    /// The number of the creation that last took the active tab by its own
+    /// request.
+    last: u64,
+    /// A close of the active tab picked the slot of this creation, which had
+    /// no tab yet; and the tab that closed.
+    awaited: Option<(u64, SurfaceId)>,
+}
+
 /// The tab creations that have a `place` or a `transaction`, and the list of
 /// each pane that has one.
 #[derive(Clone, Debug, Default)]
@@ -82,9 +97,9 @@ pub(crate) struct PlaceLists {
     creations: VecDeque<Creation>,
     /// The list of each pane that has a creation of the record.
     lists: HashMap<PaneId, Vec<Entry>>,
-    /// The number of the creation that last took the active tab of each pane
-    /// that has a creation of the record.
-    active: HashMap<PaneId, u64>,
+    /// The record of the active tab of each pane that has a creation of the
+    /// record.
+    active: HashMap<PaneId, ActiveTab>,
 }
 
 impl PlaceLists {
@@ -168,7 +183,8 @@ impl PlaceLists {
         }
         // Before the creation leaves the record: a pane with no creation
         // has no record of its active tab.
-        let active = asked.activate && self.takes_active(pane, number);
+        let open = |tab: SurfaceId| tabs.iter().any(|slot| slot.tab == Some(tab));
+        let active = self.takes_active(pane, number, asked.activate, open);
         if let Some(position) = self.creations.iter().position(|creation| creation.number == number)
         {
             self.finish(position, Some(tab));
@@ -177,18 +193,111 @@ impl PlaceLists {
         (Settled { index, joined }, active)
     }
 
-    /// The tab of the creation `number` goes into `pane` and asks for the
-    /// active tab of the pane. It gets the active tab if no creation with a
-    /// later number took it: the requests applied one by one in the order of
-    /// their arrival leave the tab of the last of them active. Only a
-    /// creation writes this record: a select, a move or a close between a
-    /// request and its tab does not.
-    pub(crate) fn takes_active(&mut self, pane: PaneId, number: u64) -> bool {
-        if self.active.get(&pane).is_some_and(|last| *last > number) {
+    /// The tab of the creation `number` goes into `pane`; `asks` says if it
+    /// asks for the active tab of the pane, and `open` says if a tab is in
+    /// the pane now. Gives if the tab takes the active tab.
+    ///
+    /// A tab that asks gets the active tab if no creation with a later number
+    /// took it: the requests applied one by one in the order of their arrival
+    /// leave the tab of the last of them active. A tab whose slot a close of
+    /// the active tab picked ([`PlaceLists::tab_closes`]) gets it in each
+    /// case: one by one, that close made it the active tab. A select or a
+    /// move between a request and its tab does not write this record.
+    pub(crate) fn takes_active(
+        &mut self,
+        pane: PaneId,
+        number: u64,
+        asks: bool,
+        open: impl Fn(SurfaceId) -> bool,
+    ) -> bool {
+        let record = self.active.entry(pane).or_default();
+        // The tab that the close took away is in the pane: that close did
+        // not happen (a close plan that was refused).
+        if record.awaited.is_some_and(|(_, closed)| open(closed)) {
+            record.awaited = None;
+        }
+        if record.awaited.is_some_and(|(awaited, _)| awaited == number) {
+            record.awaited = None;
+            if asks {
+                record.last = record.last.max(number);
+            }
+            return true;
+        }
+        if !asks || record.last > number {
             return false;
         }
-        self.active.insert(pane, number);
+        *record = ActiveTab { last: number, awaited: None };
         true
+    }
+
+    /// `closed`, a tab of `pane`, closes: `tabs` are the pane's tabs before
+    /// the close, and `was_active` says if `closed` was the active tab.
+    ///
+    /// The pane gives its active tab to a tab that it has. One by one, the
+    /// close gives it to the next entry of the strip, or to the entry before
+    /// when no next one is there, and that entry can be the slot of a
+    /// creation whose tab is not there yet. The record then keeps that
+    /// creation, and its tab takes the active tab when it comes
+    /// ([`PlaceLists::takes_active`]). The record keeps the creation while
+    /// it has no tab: one by one, a later close of another tab is not a
+    /// close of the active tab.
+    ///
+    /// The caller can be a close plan on a copy of the session state, which
+    /// can be refused after this call. So the record keeps `closed` too, and
+    /// it drops the creation when `closed` is seen in the pane after that.
+    pub(crate) fn tab_closes(
+        &mut self,
+        pane: PaneId,
+        tabs: &[SurfaceId],
+        closed: SurfaceId,
+        was_active: bool,
+    ) {
+        let old = self.active.get(&pane).copied().unwrap_or_default();
+        let waits: HashSet<u64> = self
+            .creations
+            .iter()
+            .filter(|creation| creation.pane == pane && creation.pending)
+            .map(|creation| creation.number)
+            .collect();
+        // The creation that an earlier close picked still has no tab, and
+        // that close happened.
+        let kept =
+            old.awaited.filter(|(number, tab)| waits.contains(number) && !tabs.contains(tab));
+        let awaited = if !was_active {
+            // An earlier close of this tab did not happen, and this one
+            // gives the active tab to no tab.
+            old.awaited.filter(|(_, tab)| *tab != closed)
+        } else if waits.is_empty() {
+            None
+        } else if kept.is_some() {
+            kept
+        } else {
+            let slots: Vec<Slot> = tabs
+                .iter()
+                .map(|tab| Slot { tab: Some(*tab), pinned: false, group: None })
+                .collect();
+            self.repair(pane, &slots);
+            let list = self.lists.get(&pane).map(Vec::as_slice).unwrap_or_default();
+            let waits_or_tab = |entry: &&Entry| match entry {
+                Entry::Tab(_) => true,
+                Entry::Hole(number) => waits.contains(number),
+            };
+            let before: Vec<Entry> = list.iter().filter(waits_or_tab).copied().collect();
+            let closed_entry = Entry::Tab(closed);
+            let after: Vec<Entry> =
+                before.iter().filter(|entry| **entry != closed_entry).copied().collect();
+            let shown: HashSet<Entry> = after.iter().copied().collect();
+            // The rule of the pane's own close, with no relations: the
+            // nearest entry after the closed tab, else the nearest before.
+            let relations = close_focus::TabRelations::<Entry>::default();
+            match close_focus::tab(Some(&closed_entry), &before, &after, &shown, &relations) {
+                Some(Entry::Hole(number)) => Some((number, closed)),
+                _ => None,
+            }
+        };
+        if awaited != old.awaited {
+            self.active.insert(pane, ActiveTab { awaited, ..old });
+        }
     }
 
     /// The creation `number` ended with no commit: with `tab` it names that

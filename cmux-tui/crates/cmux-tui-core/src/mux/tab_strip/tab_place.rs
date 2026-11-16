@@ -272,12 +272,15 @@ impl Placed {
         })
     }
 
-    /// A new tab of `pane` that [`Placed::land`] gave no slot asks for the
-    /// active tab of the pane: a creation with a slot gets the answer of the
-    /// list, each other creation gets the active tab, as before `place`. The
-    /// caller holds the state lock.
-    pub(crate) fn takes_active(&self, state: &State, pane: PaneId) -> bool {
-        self.hole.is_none_or(|number| state.tab_places.lock().takes_active(pane, number))
+    /// A new tab of `pane` that [`Placed::land`] gave no slot; `asks` says if
+    /// it asks for the active tab of the pane. A creation with a slot gets
+    /// the answer of the list; each other creation gets the active tab when
+    /// it asks, as before `place`. The caller holds the state lock.
+    pub(crate) fn takes_active(&self, state: &State, pane: PaneId, asks: bool) -> bool {
+        let Some(number) = self.hole else { return asks };
+        let open =
+            |tab: SurfaceId| state.panes.get(&pane).is_some_and(|pane| pane.tabs.contains(&tab));
+        state.tab_places.lock().takes_active(pane, number, asks, open)
     }
 }
 
