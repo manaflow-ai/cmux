@@ -101,6 +101,15 @@ jobs:
           since="$(date -u -d '45 days ago' +%Y-%m-%d)"
           timeout 600 git fetch -q --no-tags --filter=blob:none --shallow-since="$since" origin \
             "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" "+refs/pull/$PR/head:refs/remotes/pr/head"
+          # The checkout's depth-1 fetch marks the base tip shallow, and --shallow-since does not deepen a tip
+          # the clone already has: #43862's head then shared no history with it, and the plan failed at
+          # `git merge-base` (5 of 9 looks, 2026-11-15T18:2xZ). Deepen until they meet, doubling each time: the
+          # branch takes about 700 commits a day, and 200 to 25600 reaches past the 45 days fetched above.
+          for depth in 200 400 800 1600 3200 6400 12800 25600; do
+            git merge-base refs/remotes/pr/head "refs/remotes/origin/$BASE_REF" > /dev/null 2>&1 && break
+            timeout 120 git fetch -q --no-tags --filter=blob:none --deepen="$depth" origin \
+              "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" "+refs/pull/$PR/head:refs/remotes/pr/head"
+          done
           if [[ "$(git rev-parse refs/remotes/pr/head)" != "$HEAD_SHA" ]]; then
             echo "eligible=false" >> "$GITHUB_OUTPUT"
             echo "hot verify: #$PR moved past ${HEAD_SHA:0:12}; its own run plans it" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -340,7 +349,9 @@ jobs:
             exit 0
           fi
           nonce="hv-$PR-${HEAD_SHA:0:12}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          mapfile -t chunks < <(python3 scripts/cmux-next/hot-verify-ci.py pack --pr "$PR" --head "$HEAD_SHA" --nonce "$nonce" --video)
+          # Not mapfile: a fleet Mac's /bin/bash is 3.2, which has none (#43916's look on glaeda-5, 2026-11-15).
+          chunks=()
+          while IFS= read -r chunk; do chunks+=("$chunk"); done < <(python3 scripts/cmux-next/hot-verify-ci.py pack --pr "$PR" --head "$HEAD_SHA" --nonce "$nonce" --video)
           (( ${#chunks[@]} > 0 )) || { echo "::error::the step's inputs did not pack"; exit 1; }
           args=()
           for chunk in "${chunks[@]}"; do args+=("--arg=$chunk"); done
