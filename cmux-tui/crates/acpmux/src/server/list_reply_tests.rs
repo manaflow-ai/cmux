@@ -29,7 +29,8 @@ async fn hub_with_mirrored_row_status(status: &str) -> Arc<crate::hub::Hub> {
     let (tx, _rx) = mpsc::channel(8);
     let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
     hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
-    let row = json!({"sessionId": "m1", "name": OWN, "status": "idle", "updatedAt": 5});
+    let remote_name = (status != "closed").then_some(OWN).unwrap_or("lane");
+    let row = json!({"sessionId": "m1", "name": remote_name, "status": "idle", "updatedAt": 5});
     let mut settled = peer.settled();
     for notice in [PeerNotice::sessions_from_values(vec![row]), PeerNotice::Connected] {
         hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
