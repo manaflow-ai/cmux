@@ -876,7 +876,7 @@ async fn daemon_registration_refreshes_after_authentication_rejection() {
         maximum_frame_bytes: 64,
         control_timeout: Duration::from_secs(2),
     };
-    let (mut socket, lease) =
+    let DaemonControl { mut socket, lease_seconds: lease, .. } =
         authenticate_daemon_control(&config, &credentials, &RelayTls::default()).await.unwrap();
     assert_eq!(lease, 30);
     assert_eq!(calls.load(AtomicOrdering::SeqCst), 2);
@@ -1469,4 +1469,38 @@ async fn a_flood_leaves_the_batched_sender_in_shared_messages() {
         messages * (MAX_RELAY_BATCH_FRAMES / 2) <= FLOOD_FRAMES,
         "a flood of {FLOOD_FRAMES} frames left in {messages} messages"
     );
+}
+
+/// A signed ticket's lifetime is read from its claims, and only a source that
+/// can give a new ticket schedules a renewal: at two thirds of the lifetime.
+#[test]
+fn a_signed_ticket_renews_at_two_thirds_of_its_lifetime_and_an_opaque_one_never() {
+    use base64::Engine as _;
+    let claims = serde_json::json!({
+        "version": 2,
+        "issuer": "relay.test",
+        "permission": "register",
+        "role": "daemon",
+        "slot": "slot-a",
+        "circuit": null,
+        "lane": null,
+        "generation": null,
+        "issued_at_unix": 1_000,
+        "expires_at_unix": 1_300,
+    });
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(&claims).unwrap());
+    let signed = RelayCredential::parse(format!("v2.{payload}.signature")).unwrap();
+    assert_eq!(signed.lifetime(), Some(Duration::from_secs(300)));
+    let callback = RelayCredentialSource::callback(|| async { Ok::<_, ()>(String::new()) });
+    let now = Instant::now();
+    assert_eq!(renewal_time(&callback, &signed, now), Some(now + Duration::from_secs(200)));
+    // The same ticket from a static source cannot be renewed.
+    let fixed = RelayCredentialSource::static_ticket(format!("v2.{payload}.signature")).unwrap();
+    assert_eq!(renewal_time(&fixed, &signed, now), None);
+    // Opaque or malformed tickets keep a registration as before.
+    for opaque in ["o2.abc.def", "registration-ticket", "v2.not-base64!.sig", "v2.e30.sig"] {
+        let credential = RelayCredential::parse(opaque.to_owned()).unwrap();
+        assert_eq!(renewal_time(&callback, &credential, now), None, "{opaque}");
+    }
 }

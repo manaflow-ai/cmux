@@ -8,7 +8,7 @@
 use crate::panic_free::JsonFields;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 
@@ -309,6 +309,13 @@ struct Attachment {
     outbound: OutboundStream,
     /// Calls running on worker threads (at most [`MAX_CALLS`]).
     calls: AtomicUsize,
+    /// An unfiltered stream of a chat this machine's acpmux owns has a
+    /// contiguous sequence. Filtered streams, and a peer's chat (its link is
+    /// not sent every record: `MUX_UNSENT`), have holes and skip the check.
+    ordered_stream: bool,
+    /// The seq the next live record should have; 0 until the page's
+    /// `lastSeq` or the first live record seeds it.
+    next_stream_seq: AtomicU64,
     ended: AtomicBool,
     /// Permission ids acpmux announced on this attachment, oldest first.
     permissions: Mutex<VecDeque<String>>,
@@ -403,6 +410,26 @@ impl Attachment {
         } else {
             self.outbound.close();
         }
+    }
+
+    /// A newer live record arriving before an older one leaves the client with
+    /// no way to recover the gap from the stream. End the attachment so its
+    /// normal after-seq replay fetches the missing records. A record at or
+    /// below what the stream already covers (one written while the attach read
+    /// its page) is an overlap the client drops: it passes and moves nothing.
+    /// `deliver` runs one record at a time, so load-then-store does not race.
+    pub(super) fn accepts_stream_seq(&self, seq: u64) -> bool {
+        if !self.ordered_stream || seq == 0 {
+            return true;
+        }
+        let expected = self.next_stream_seq.load(Ordering::Relaxed);
+        if expected != 0 && seq > expected {
+            return false;
+        }
+        if expected == 0 || seq == expected {
+            self.next_stream_seq.store(seq.saturating_add(1), Ordering::Relaxed);
+        }
+        true
     }
 }
 

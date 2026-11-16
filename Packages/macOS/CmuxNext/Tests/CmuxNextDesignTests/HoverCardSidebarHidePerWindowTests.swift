@@ -84,7 +84,6 @@ struct HoverCardSidebarHidePerWindowTests {
         coordinator.appIsActive = { true }
         coordinator.hoverCardsEnabled = { true }
         coordinator.mouseButtonDown = { false }
-        coordinator.delaySettles = { false }
         coordinator.windowNumberAt = { point in [a, b].first { $0.frame.contains(point) }?.windowNumber }
         coordinator.ownWindows = { [a, b].map { (number: $0.windowNumber, frame: $0.frame) } }
         let sourceA = Source(window: a, id: "ws:a")

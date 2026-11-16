@@ -47,6 +47,22 @@ impl CaptureBackend {
         Self::choose(explicit, std::env::var("XDG_SESSION_TYPE").ok().as_deref())
     }
 
+    /// Whether a viewer's input reaches this desktop with the backend: XTest on X11; the
+    /// portal backend drops every input event (`portal.rs`), so its sessions are view only.
+    #[cfg(feature = "link")]
+    pub fn applies_input(self) -> bool {
+        matches!(self, CaptureBackend::X11)
+    }
+
+    /// The `--capture` word for the backend.
+    #[cfg(feature = "link")]
+    pub fn name(self) -> &'static str {
+        match self {
+            CaptureBackend::X11 => "x11",
+            CaptureBackend::Portal => "portal",
+        }
+    }
+
     /// Whether this build can capture with the backend. The portal backend is its own
     /// module (`portal.rs`, `pipewire_capture.rs`, feature `portal`); a build without it
     /// fails a portal session with [`PORTAL_NOT_BUILT_IN`] instead of streaming a black or
@@ -105,6 +121,17 @@ mod tests {
         assert_eq!(CaptureBackend::choose(None, Some("x11")), Ok(CaptureBackend::X11));
         assert_eq!(CaptureBackend::choose(None, Some("tty")), Ok(CaptureBackend::X11));
         assert_eq!(CaptureBackend::choose(None, None), Ok(CaptureBackend::X11));
+    }
+
+    #[test]
+    #[cfg(feature = "link")]
+    fn only_x11_applies_input() {
+        // XTest injects input; the portal backend drops it (portal.rs).
+        assert!(CaptureBackend::X11.applies_input());
+        assert!(!CaptureBackend::Portal.applies_input());
+        for backend in [CaptureBackend::X11, CaptureBackend::Portal] {
+            assert_eq!(CaptureBackend::parse(backend.name()), Ok(backend));
+        }
     }
 
     #[test]

@@ -65,7 +65,7 @@ pub use write::SortedSnapshot;
 
 pub(super) const HEADER_BYTES: usize = 4096;
 const MAGIC: &[u8; 8] = b"ACIDX003";
-const CHECKPOINT_BYTES: usize = 552;
+pub const CHECKPOINT_BYTES: usize = 552;
 const TRAILER_BYTES: usize = 4;
 const FIRST_ROWS: usize = 400;
 pub const SEEK_BYTES: usize = 64 * 1024;

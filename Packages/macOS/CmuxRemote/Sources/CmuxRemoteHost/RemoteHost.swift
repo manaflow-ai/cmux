@@ -140,13 +140,13 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
         shuttingDown = true
         children.freeze()
         screen.setWanted(false)
-        children.stopOwnedChildren()
         let children = self.children, layout = self.layout
-        // task-owner: one bounded shutdown per host; exit only after every tracked child was reaped.
+        // task-owner: one bounded shutdown per host. A child that outlives SIGTERM by 15 s gets
+        // SIGKILL; the host then exits either way, so frozen admission never outlives it.
+        // The daemon's own group-absence check still holds capture closed for any survivor.
         Task.detached {
-            guard await children.waitUntilEmpty(timeout: .seconds(15)) else {
-                logger.error("remote child shutdown deadline expired; host retained for diagnosis")
-                return
+            if !(await children.terminate(grace: .seconds(15), kill: .seconds(5))) {
+                logger.error("remote children were not reaped after SIGKILL; exiting anyway")
             }
             unlink(layout.supervisorSocket)
             unlink(layout.appSocket)
@@ -396,15 +396,9 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             result = await host.captureLease.prepare(binding, children: host.children,
                                                     workerAbsent: host.screen.pid == nil && host.computerUse.running.isEmpty)
         } else if method == "capture.cleanup.unprepared" {
-            host.children.freeze()
-            host.screen.setWanted(false)
-            host.children.stopOwnedChildren()
-            let exited = await host.children.waitUntilEmpty(timeout: .seconds(15))
-            guard exited, await host.captureLease.beginUnpreparedCleanup(binding) else {
-                return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: exited ? "remote_lease_mismatch" : "remote_worker_timeout",
-                                                                            leaseBound: true).fields)
-            }
-            result = await host.captureLease.cleanup(binding, writersExited: exited, unprepared: true)
+            let screen = host.screen
+            result = await host.captureLease.cleanupUnprepared(binding, children: host.children,
+                                                               stopWorkers: { screen.setWanted(false) })
         } else {
             guard await host.captureLease.beginCleanup(binding) else {
                 return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: "remote_lease_mismatch").fields)

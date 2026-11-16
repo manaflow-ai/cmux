@@ -239,16 +239,49 @@ impl Carrier for ServeCarrier {
     }
 }
 
+/// Start bitrate off a direct LAN path (the congestion controller's own start).
+const WAN_START_KBPS: u32 = 8_000;
+/// Start bitrate on a direct LAN path. The controller grows only 8% per second of
+/// flowing frames, so from 8 Mbps it took about 24 s of motion to reach 50 Mbps; a LAN
+/// carries 30 Mbps at once, and a rising delay still cuts it within a few frames.
+const LAN_START_KBPS: u32 = 30_000;
+/// A round trip under this counts as LAN when the path's class does not say so (a peer
+/// first learned during the handshake is classed `direct_wan`).
+const LAN_RTT_US: u64 = 5_000;
+
+/// The start bitrate when `--start-kbps` is not given, from the current path's class and
+/// medium (wire names) and round trip; never above `max_kbps`. A relay is never LAN.
+fn default_start_kbps(
+    path_kind: Option<&str>,
+    medium: Option<&str>,
+    rtt_us: Option<u64>,
+    max_kbps: u32,
+) -> u32 {
+    let relay = matches!(path_kind, Some("turn_relay" | "do_relay" | "via_cloud_region"));
+    let lan = !relay
+        && (path_kind == Some("direct_lan")
+            || matches!(medium, Some("lan" | "link"))
+            || rtt_us.is_some_and(|rtt| rtt < LAN_RTT_US));
+    let start = if lan { LAN_START_KBPS } else { WAN_START_KBPS };
+    start.min(max_kbps)
+}
+
+/// Whether a session with the setup line's `scope` (`view` or `control`) starts view only
+/// with `capture`: a capture that applies no input (the Wayland portal) is view only, so the
+/// viewer is told view, not a control session whose input is dropped.
+fn view_only_for(scope: &str, capture: CaptureBackend) -> Res<bool> {
+    match scope {
+        "view" => Ok(true),
+        "control" => Ok(!capture.applies_input()),
+        other => Err(format!("scope {other}: use view or control").into()),
+    }
+}
+
 pub fn run(opts: &Opts) -> Res<()> {
     let mut first = String::new();
     io::stdin().lock().read_line(&mut first)?;
     let setup: Setup = serde_json::from_str(&first).map_err(|e| format!("setup line: {e}"))?;
     let peer_key = unhex32(&setup.peer_key).ok_or("peer_key must be 64 hex characters")?;
-    let view_only = match setup.scope.as_str() {
-        "view" => true,
-        "control" => false,
-        other => return Err(format!("scope {other}: use view or control").into()),
-    };
     let stun: Vec<SocketAddr> = setup
         .stun
         .iter()
@@ -270,6 +303,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         })
     }));
     let capture = CaptureBackend::from_env(setup.capture.as_deref().or(opts.get("capture")))?;
+    let view_only = view_only_for(&setup.scope, capture)?;
     let display = session_display(opts, &setup);
     // The displays first, so the viewer can offer a display picker; then the session key.
     #[cfg(target_os = "linux")]
@@ -333,6 +367,9 @@ fn serve_session(
     let started = Instant::now();
     let mut hello = None;
     let mut start = None;
+    // The current path's class and medium (wire names), from the last path change.
+    let mut path_kind: Option<&'static str> = None;
+    let mut path_medium: Option<&'static str> = None;
     // Lines that came in the same read as the setup sit in stdin's buffer, where a wait on the
     // descriptor never sees them.
     carrier.pump_app()?;
@@ -365,6 +402,11 @@ fn serve_session(
                     return Ok("viewer closed the link".into())
                 }
                 NetEvent::Endpoint(path @ EndpointEvent::PathChanged { .. }) => {
+                    // The path's class picks the start bitrate.
+                    if let EndpointEvent::PathChanged { kind, medium, .. } = &path {
+                        path_kind = kind.map(|k| k.wire_name());
+                        path_medium = medium.map(|m| m.wire_name());
+                    }
                     // The round trip sizes the frames in flight when the stream starts.
                     carrier.link.record_path(path);
                 }
@@ -422,11 +464,16 @@ fn serve_session(
     let display = display.to_owned();
     // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
     let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
+    let max_kbps = opts.num_or("max-kbps", 50_000)?;
+    let start_kbps = opts.num_or(
+        "start-kbps",
+        default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
+    )?;
     let cfg = SessionCfg {
         display,
         max_fps,
-        start_kbps: opts.num_or("start-kbps", 8000)?,
-        max_kbps: opts.num_or("max-kbps", 50_000)?,
+        start_kbps,
+        max_kbps,
         preset: String::new(),
         profile: opts.str_or("profile", "high"),
         codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
@@ -438,7 +485,9 @@ fn serve_session(
         upstream_record: None,
         upstream_record_max_bytes: 0,
         max_width: setup.max_width,
-        input_frame_now: opts.flag("input-frame-now"),
+        // On by default: the frame that shows an input's effect goes out at once instead of
+        // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
+        input_frame_now: opts.flag_or("input-frame-now", true),
         // Enough frames in flight to cover the path's round trip, at least two: the next
         // frame encodes while the last one waits for its acknowledgement.
         frames_in_flight: carrier
@@ -465,4 +514,43 @@ fn serve_session(
     media.close_upstreams();
     let _ = table.stop(session, &Actor::Remote(Some(principal.clone())));
     Ok(reason)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn portal_sessions_are_view_only_whatever_the_scope() {
+        // The portal backend drops input: a control session there would not be one.
+        assert!(view_only_for("view", CaptureBackend::X11).unwrap());
+        assert!(!view_only_for("control", CaptureBackend::X11).unwrap());
+        assert!(view_only_for("view", CaptureBackend::Portal).unwrap());
+        assert!(view_only_for("control", CaptureBackend::Portal).unwrap());
+        assert!(view_only_for("full", CaptureBackend::X11).is_err());
+    }
+
+    #[test]
+    fn a_lan_path_starts_at_the_lan_bitrate() {
+        assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 50_000), 30_000);
+        assert_eq!(default_start_kbps(Some("direct_wan"), Some("lan"), None, 50_000), 30_000);
+        assert_eq!(default_start_kbps(Some("direct_wan"), Some("link"), None, 50_000), 30_000);
+        // A peer learned in the handshake is classed WAN; a sub-5 ms round trip is LAN.
+        assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(1_200), 50_000), 30_000);
+        assert_eq!(default_start_kbps(None, None, Some(4_999), 50_000), 30_000);
+    }
+
+    #[test]
+    fn other_paths_keep_the_old_start_and_max_caps_both() {
+        assert_eq!(default_start_kbps(None, None, None, 50_000), 8_000);
+        assert_eq!(
+            default_start_kbps(Some("direct_wan"), Some("routed"), Some(5_000), 50_000),
+            8_000
+        );
+        assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(40_000), 50_000), 8_000);
+        // A relay is never LAN, whatever its round trip.
+        assert_eq!(default_start_kbps(Some("turn_relay"), Some("lan"), Some(1_000), 50_000), 8_000);
+        assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 20_000), 20_000);
+        assert_eq!(default_start_kbps(None, None, None, 4_000), 4_000);
+    }
 }

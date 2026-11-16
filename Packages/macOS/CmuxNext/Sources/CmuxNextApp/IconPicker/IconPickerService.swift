@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSidebar
+import CmuxNextWakeups
 
 /// Shows the one icon picker (R94) in a floating panel beside its anchor and reports the outcome. One warm picker (S3 d):
 /// the first open (or sign of intent) loads the page into its panel; every later open reuses that panel, page and provider
@@ -48,6 +49,11 @@ final class IconPickerService {
     private var warm: Warm?
     /// Opens and closes the panel like every native popup (POLISH: calm motion).
     private let fade = PopupFade()
+    /// Frees the warm picker after ``idleLimit`` with no open (`release`); the next sign of intent or open makes it again.
+    private let idle = DemandTimer(owner: "IconPickerService.idleRelease")
+    /// How long the warm page stays with no open before it is freed (its WebContent and WebKit GPU memory).
+    /// `debug.overlay_open_bench` shortens it for a measurement; nil keeps the page for good.
+    var idleLimit: Duration? = .seconds(10 * 60)
     /// A page made by the open itself shows once drawn, 1 s at most (`PageRevealGate`).
     private let reveal = PageRevealGate(owner: "IconPickerService.firstLoad"), firstLoadLimit: Duration = .seconds(1)
 
@@ -58,6 +64,11 @@ final class IconPickerService {
     /// Whether the panel, page and provider exist, so an open reuses them; `isPageReady`: its page also drew the picker.
     var isWarm: Bool { warm != nil }
     var isPageReady: Bool { warm?.provider.isSubscribed == true }
+    /// The open picker's panel is on screen; `drawn`: with its page drawn (the picker shows only once it is).
+    var isCardShown: Bool { open.map { $0.panel.isVisible && $0.panel.alphaValue > 0 } ?? false }
+    var isOpen: Bool { open != nil }
+    func drawn(since start: ContinuousClock.Instant) -> Bool { isCardShown && isPageReady }
+    func prepare() { prepare(page: true) }
 
     /// Each open's timing (`debug.timings` lists them as `icon_picker_opens`).
     var onOpened: ((IconPickerOpenTiming) -> Void)?
@@ -67,7 +78,26 @@ final class IconPickerService {
     func prepare(page: Bool = true, then: (() -> Void)? = nil) {
         guard let catalog else { return loadCatalog { [weak self] in self?.prepare(page: page, then: then) } }
         if page, warm == nil { _ = makeWarm(catalog: catalog) }
+        if page, open == nil { scheduleRelease() }
         then?()
+    }
+
+    /// Frees the panel, page and provider while no picker is open; the symbol catalog stays (no web page).
+    func release() {
+        idle.cancel()
+        guard open == nil, let warm else { return }
+        self.warm = nil
+        reveal.cancel()
+        warm.provider.onSubscribed = nil
+        warm.panel.onDismiss = nil
+        warm.panel.parent?.removeChildWindow(warm.panel)
+        warm.panel.orderOut(nil)
+        warm.page.close()
+    }
+
+    private func scheduleRelease() {
+        guard let limit = idleLimit, warm != nil else { return }
+        idle.schedule(after: limit) { @MainActor [weak self] in self?.release() }
     }
 
     /// Opens the picker at `anchor` for `target` (an object whose icon is `current`);
@@ -88,6 +118,7 @@ final class IconPickerService {
         }
         let catalogReady = ContinuousClock.now
         open?.provider.finish(.cancel)
+        idle.cancel()
         prefs.load()
         let createdPage = warm == nil
         guard let warm = warm ?? makeWarm(catalog: catalog) else { return completion(.cancel) }
@@ -179,13 +210,19 @@ final class IconPickerService {
         return Anchor(view: content, rect: NSRect(x: bounds.midX - 1, y: bounds.maxY - 80, width: 2, height: 2))
     }
 
-    /// Fades the panel out; the page stays loaded for the next open.
+    /// Fades the panel out; the page stays loaded for the next open, until ``idleLimit`` passes with none.
     private func close() {
         reveal.cancel()
         guard let open else { return }
         self.open = nil
         open.panel.onDismiss = nil
         fade.close(open.panel, toward: open.anchor)
+        scheduleRelease()
+    }
+
+    /// Cancels the open picker as a click outside does (`debug.overlay_open_bench`).
+    func cancelOpen() {
+        open?.provider.finish(.cancel)
     }
 }
 
