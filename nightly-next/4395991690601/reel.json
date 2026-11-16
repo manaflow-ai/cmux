@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4395991690601",
+  "notes": "notes/4395991690601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44698,
+      "title": "cloud journey: send a request once more on a retryable owner.unreachable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44712,
+      "title": "cmux-next iOS: a workspace tab's composer field keeps its accessibility identifier",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44476,
+      "title": "cmux next: new tab suggestions read like the command palette",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44736,
+      "title": "acpmux: finish page driver bounds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44235,
+      "title": "Floating panes: the list of a screen in the daemon (cmux-tui-core)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44718,
+      "title": "Cloud VM image roll: promote only an image whose guest ensures every picker harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44730,
+      "title": "What's New clips: waiting befores share a nightly tip that built and no longer starve behind PLAN_LIMIT",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44706,
+      "title": "perf cron: one fast paired round no longer drops the god-chat token and thought medians (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44692,
+      "title": "ci(next): declare the tab-switch scope job in checkout-lean.json",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44704,
+      "title": "TabStripRapidCloseTests: the close-slot fixture leaves the carried point off the status tab's x",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44449,
+      "title": "cmux next: every density is Default scaled by one factor",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44713,
+      "title": "cloud image: fetch Ubuntu pins by content, not from a live apt index",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44587,
+      "title": "device-hub: POST /v1/auth/machine signs a joined machine in from its cmux-platform credential",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44726,
+      "title": "acpmux: a new chat resolves a harness installed after the daemon started (hq#12175)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44621,
+      "title": "cmux-supervise-core: one supervisor contract for Remote and Cloud, adopted in acpmux and cmux-host",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
