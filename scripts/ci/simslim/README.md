@@ -48,6 +48,14 @@ SimSlim's default slim set (164 daemons on iOS 26.5), keeping what our app and i
 | StoreKit / in-app purchase | `storekitd`, `itunesstored`, the three `ams*` daemons, `passd`, `financed` | billing; the purchase sheet needs Wallet and Finance |
 | Universal links | `swcd` | `applinks:cmux.com`, `cloud-api.cmux.dev` |
 
+Visible on a slim simulator: the Home Screen and lock screen wallpaper is black (the poster
+services are off), and system banners such as "Ready for Apple Intelligence" no longer cover the
+app at launch. The app itself draws the same.
+
+Measured per variant on aws-m4pro-8 (`measure-matrix.sh`, 120 s settle): stock 278 processes /
+4.53 GB; fleet.json 77 / 1.01 GB; keeping photos 1.06, search 1.04, icloud 1.10, siri 1.24,
+widgets 2.46, photos+search+icloud 1.11 GB. Five at once: 23.9 GB stock, 4.9 GB slim.
+
 Not slimmed by SimSlim at all (always on): the pasteboard, user notifications, biometrics
 (Face ID enrollment), the keyboard, SpringBoard, `sharingd`.
 
@@ -78,7 +86,7 @@ word with a dot is a label. A typo fails the step before any simulator boots.
 | Photos picker empty or stuck, photo library access | `photos` |
 | iCloud, Sign in with Apple, Apple Account (`akd`) | `icloud` |
 | Siri, speech recognition, dictation (`corespeechd`) | `siri` |
-| Widgets, Live Activities, lock-screen posters | `widgets` |
+| Widgets, Live Activities, lock-screen posters; the Home Screen wallpaper (slim shows black) | `widgets` (the costly one: 2.46 GB instead of 1.01 GB) |
 | Contacts, Calendar, Reminders, Mail pickers | `pim` |
 | iMessage, FaceTime, identity services | `messaging` |
 | HealthKit, HomeKit | `health` |
