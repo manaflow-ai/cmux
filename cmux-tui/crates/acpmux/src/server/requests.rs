@@ -1593,13 +1593,12 @@ async fn dispatch_request_with_identity(
                 // for the person's own clients here only (`vm_boundary::owner`): a saved
                 // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
                 // (`hub/agent_vm.rs`).
-                if (peer.vm_boundary()
+                if crate::hub::vm_boundary::owner(
+                    conn.auth,
+                    super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                    &params,
+                ) && (peer.vm_boundary()
                     || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
-                    && crate::hub::vm_boundary::owner(
-                        conn.auth,
-                        super::remote_guard::control_of(conn.origin, conn.auth, &params),
-                        &params,
-                    )
                 {
                     crate::hub::merge_mux_meta(
                         &mut p,

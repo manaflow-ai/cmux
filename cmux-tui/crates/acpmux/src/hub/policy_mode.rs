@@ -195,7 +195,11 @@ impl Hub {
             cfg!(target_os = "macos"),
             peer,
             self.approve_all_allowed(),
-        ) && self.off_latch().allows_full_access();
+        ) && self.off_latch().allows_full_access()
+            // Its own approve-all (asked, or the vmHost grant `requests.rs` gives first), never a
+            // chat that only has no narrower policy (a switched fork that took none).
+            && meta.permission_policy.as_deref().and_then(|p| p.parse().ok())
+                == Some(PermissionPolicy::ApproveAll);
         bridge_settle_modes(peer, narrow_policy(&meta, default), &offered, vm_boundary)
     }
 
