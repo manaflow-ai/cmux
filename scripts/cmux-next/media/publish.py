@@ -42,7 +42,9 @@ TOURS_DIR = "scripts/cmux-next/media/tours"
 VIDEO_FPS = 60
 # tour.py's FRAME_INTERVAL, for a manifest that names none.
 DEFAULT_FRAME_INTERVAL = 0.5
-VIDEO_SIZE = (1280, 800)
+# Tours capture at 2x (tour.py checks real 2x pixels), so the video keeps them: at 1280x800 a Retina window
+# was halved and read as low resolution.
+VIDEO_SIZE = (2560, 1600)
 # The GIF's frame rate comes from pr_media.gif_attempts: 50 fps from a 60 Hz recording when it fits, else 30,
 # stepping down width first and then rate until it fits under the inline limit (never above the clip's rate).
 GIF_WIDTHS = (720, 560, 440)
@@ -161,6 +163,17 @@ def capture_file(directory: Path, manifest: dict[str, Any]) -> Path | None:
     return path
 
 
+def fit_filter(width: int, height: int) -> str:
+    """ffmpeg filters that put any frame in width x height with nothing blank: the frame scaled to fit (up or
+    down, lanczos), centered on a dimmed, blurred copy of itself scaled to cover. A narrower or smaller frame
+    (a cropped step, another window) stays the same picture, not a strip between white bars."""
+    return (f"split[fit_back][fit_front];"
+            f"[fit_back]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
+            f"boxblur=40:2,colorchannelmixer=rr=0.7:gg=0.7:bb=0.7[fit_blur];"
+            f"[fit_front]scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos[fit_pic];"
+            f"[fit_blur][fit_pic]overlay=(W-w)/2:(H-h)/2,setsar=1")
+
+
 def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: Any,
                run: Callable[..., Any] = subprocess.run) -> tuple[Path | None, Path | None]:
     """(mp4, gif) from a native recording, or measured-rate still frames."""
@@ -181,8 +194,7 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
         rate = []
     done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", *source, "-t", "300",
                 # A fixed output size: a frame of another size cannot break the stream.
-                "-vf", f"scale={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:force_original_aspect_ratio=decrease,"
-                       f"pad={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:(ow-iw)/2:(oh-ih)/2:color=white",
+                "-vf", fit_filter(*VIDEO_SIZE),
                 *rate, "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(mp4)],
                capture_output=True, text=True, env=env)
     if done.returncode != 0 or not mp4.is_file():

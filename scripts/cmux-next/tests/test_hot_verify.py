@@ -171,7 +171,8 @@ class PlanTest(unittest.TestCase):
         self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
         self.assertEqual(planned["layers"], [])
 
-    PIN = '{"url": "https://example.invalid/cmux-app-ffi-%s/CCmuxAppFFI.xcframework.zip", "checksum": "%s"}\n'
+    PIN = ('{"url": "https://github.com/manaflow-ai/cmux/releases/download/'
+           'cmux-app-ffi-%s/CCmuxAppFFI.xcframework.zip", "checksum": "%s"}\n')
 
     def test_ffi_drift_under_the_same_pin_swaps_the_daemon(self):
         # cmux#44125's look (2026-11-16): the nightly 4dde96d6e699 and the PR's fork f2186cbc8970 both pinned
