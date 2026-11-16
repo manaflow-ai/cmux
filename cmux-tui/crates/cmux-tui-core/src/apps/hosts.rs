@@ -603,7 +603,7 @@ impl Supervisor {
     ) {
         let outs = {
             let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if !inner.hosts.get(key).is_some_and(|h| h.generation == generation) {
+            if inner.hosts.get(key).is_none_or(|h| h.generation != generation) {
                 return;
             }
             let reason = format!("spawn: {error}");
