@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43837839415",
+  "recorded_at": "2026-11-16T09:25:11Z",
+  "reason": "cmux-tui c243ee6dea48 changes the image's cmux-tui (pinned a9c000eb3a49)",
+  "dry_run": false,
+  "cmux_tui": "c243ee6dea48259f17cf4ac1c122ea7f03aef9ad",
+  "fixes": [
+    {
+      "sha": "c243ee6dea48259f17cf4ac1c122ea7f03aef9ad",
+      "mergedAt": "2026-11-16T00:56:35-08:00",
+      "subject": "Cloud spare warm: the login receipt's team comes from its own install token (#44258)"
+    },
+    {
+      "sha": "f866653e17aec3dd77c986be20de333a36f549c5",
+      "mergedAt": "2026-11-16T08:47:50Z",
+      "subject": "acpmux: a person's chat on another machine starts at the person's start level (#44326)"
+    },
+    {
+      "sha": "67653cce680df0a5df6150d060716ff126b0a28b",
+      "mergedAt": "2026-11-16T00:47:19-08:00",
+      "subject": "fix(cli): a browser created with no place opens in the column right of its caller"
+    },
+    {
+      "sha": "14714a5adfb1a93158ad0c8f8a58732fd88d9b7a",
+      "mergedAt": "2026-11-16T00:47:19-08:00",
+      "subject": "test(cli): a browser created with no place opens in the column right of its caller"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T09:25:11Z",
+    "snapshot_id": "sh-2a5647b6c9bc454a9b0f47a7364e5556",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43837839415): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7ac7a2709b0c2011748063b812620470c8d2bf29",
+    "image": "cloud-native-auto-c243ee6d-43837839415-1",
+    "revision": "ci-43837839415-1",
+    "at": "2026-11-16T09:25:11Z"
+  },
+  "rolled_back": false
+}
