@@ -10,8 +10,8 @@ use serde::Serialize;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScreenRoute {
-    /// A screen through the device hub: a Mac's (cmux Remote's screen worker on that Mac) or a
-    /// Linux desktop's (`cmux-rd linux-host`). The hub only lists a machine once it registered;
+    /// A screen through the device hub: a Mac's (cmux Remote's screen worker on that Mac), a
+    /// Linux desktop's (`cmux-rd linux-host`) or a Windows PC's (`cmux-rd windows-host`). The hub only lists a machine once it registered;
     /// `cmux_window_rules::screen_share::plan` refuses one it does not list.
     Hub,
     /// A Cloud machine's desktop.
@@ -43,7 +43,7 @@ pub enum Screen {
 /// - a Cloud machine: View its desktop (opening it resumes a paused machine);
 /// - a headless Linux server or VM: it has no desktop to share;
 /// - an iPhone or iPad: it cannot share its screen;
-/// - a kind nothing tells: a Mac by its OS as above; anything else (a Linux one may be a desktop
+/// - a kind nothing tells: a Mac or a Windows PC by its OS as above; anything else (a Linux one may be a desktop
 ///   or a server) is listed as unknown, so no row gets a button that may be dead.
 pub fn offer(kind: DeviceKind, os: Option<&str>, connected: bool) -> Screen {
     let hub = || {
@@ -65,7 +65,7 @@ pub fn offer(kind: DeviceKind, os: Option<&str>, connected: bool) -> Screen {
         DeviceKind::LinuxServer => none(NoScreen::NoDesktop),
         DeviceKind::IPhone | DeviceKind::IPad => none(NoScreen::Phone),
         DeviceKind::Generic => match os.map(str::to_ascii_lowercase).as_deref() {
-            Some("macos" | "darwin") => hub(),
+            Some("macos" | "darwin" | "windows") => hub(),
             Some("ios" | "ipados" | "android") => none(NoScreen::Phone),
             _ => none(NoScreen::Unknown),
         },
