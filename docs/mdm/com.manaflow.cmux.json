@@ -2697,6 +2697,12 @@
       "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
+    "customize.fromTheApp" : {
+      "default" : false,
+      "description" : "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.",
+      "title" : "Customize From the Window",
+      "type" : "boolean"
+    },
     "developerTools.appPages" : {
       "default" : true,
       "description" : "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them.",
@@ -5648,7 +5654,7 @@
       "default" : [
 
       ],
-      "description" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu.",
+      "description" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back.",
       "items" : {
         "enum" : [
           "splitRight",

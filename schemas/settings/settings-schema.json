@@ -2096,6 +2096,7 @@
               "labs.voiceRoomURL",
               "labs.machineJoin",
               "labs.liveCode",
+              "customize.fromTheApp",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -5505,7 +5506,7 @@
       },
       "help" : {
         "key" : "settings.tabs.toolbarButtons.help",
-        "text" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
+        "text" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.toolbarButtons",
@@ -5593,7 +5594,7 @@
           "operations" : [
 
           ],
-          "reason" : "action ids; toggled from the tab bar's right-click menu (Show in Tab Bar)",
+          "reason" : "action ids; toggled from the tab bar's More menu (Show in Tab Bar)",
           "row" : null
         },
         "socket" : {
@@ -101391,6 +101392,142 @@
       "title" : {
         "key" : "settings.labs.liveCode",
         "text" : "Live Code"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.customizeFromTheApp.help",
+        "text" : "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "customize.fromTheApp",
+      "keywords" : [
+        "customize",
+        "inspector",
+        "option",
+        "hover",
+        "right-click",
+        "theme",
+        "labs"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "customize",
+        "fromTheApp"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:customize.fromTheApp"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.customizeFromTheApp",
+        "text" : "Customize From the Window"
       },
       "validation" : "portable"
     },
