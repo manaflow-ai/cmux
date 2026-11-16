@@ -100,6 +100,9 @@ public struct Action: Identifiable {
     /// Why the palette row cannot run for the focused object, read without refusing anything; the
     /// row is then disabled with it. Nil (or nil returned) for a row that runs.
     public var paletteUnavailableReason: (@MainActor () -> String?)?
+    /// Whether the palette leaves the row out for the focused object, read without refusing anything: an
+    /// action that does nothing there is not offered. Nil (or false returned) for a row that shows.
+    public var paletteHidden: (@MainActor () -> Bool)?
     /// The current value of this action's choices argument for a target (a
     /// context menu's choices submenu checks it); nil defers to the registry's `choiceState`.
     public var choiceState: (@MainActor (ActionTargetRef?) -> String?)?

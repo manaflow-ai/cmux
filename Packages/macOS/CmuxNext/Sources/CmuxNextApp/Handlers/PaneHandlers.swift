@@ -17,7 +17,7 @@ enum PaneHandlers {
         bindFocus(registry, ctx)
         bindSizing(registry, ctx)
         PaneHandlers.bindPaneVerbs(into: registry, context: ctx)
-        FloatingPaneActions.register(into: registry) { ctx.daemonPane($0).map { (ctx.services.daemon(for: $0), $0.handle) } }
+        FloatingPaneActions.register(into: registry, openLook: { try ctx.services.debugSettings.show(selection: .section($0), focus: $1) }) { ctx.daemonPane($0).map { (ctx.services.daemon(for: $0), $0.handle) } }
     }
 
     // MARK: Geometry helpers
@@ -32,7 +32,7 @@ enum PaneHandlers {
         let frames = content.layoutView.navigationFrames(ofScreenContaining: pane)
         return FocusNavigation.neighbor(of: pane, direction: direction, frames: frames,
                                         recency: content.recentPanes,
-                                        columns: screen.layout.columns.map(\.root.panes))
+                                        columns: screen.layout.columns.map(\.root.panes), floating: screen.floating.map(\.pane))
     }
 
     static func focus(_ pane: LayoutPaneID, in content: WorkspaceContentController) {

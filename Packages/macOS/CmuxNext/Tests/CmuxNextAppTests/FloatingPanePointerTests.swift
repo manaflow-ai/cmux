@@ -2,9 +2,9 @@ import AppKit
 @testable import CmuxNextLayout
 import Testing
 
-/// A pointer on a floating pane's card: the bar at the top moves the pane, the left, right and bottom rim and the
-/// two bottom corners resize it. The frame stays inside the pane area and is not smaller than the smallest floating
-/// pane; the top edge moves only with the whole pane.
+/// A pointer on a floating pane's card: the bar at the top moves the pane, each of the 4 edges and the 4 corners
+/// resizes it. The opposite edge or corner stays in place, the frame stays inside the pane area and is not smaller
+/// than the smallest floating pane.
 @MainActor struct FloatingPanePointerTests {
     let pane: PaneID = "a", other: PaneID = "b"
     /// The pane area, and a card in it: the left edge at 0.1, the top at 0.125, 0.4 wide and 0.375 high.
@@ -66,11 +66,30 @@ import Testing
         #expect(LayoutFloatingPane.cardRect(aroundPane: inner) == card)
     }
 
+    @Test func theTopRimMovesTheTopEdgeOnly() {
+        expectFrame(frame(.top, dx: 80, dy: -50), x: 0.1, y: 0.0625, w: 0.4, h: 0.4375, "higher at the top")
+        expectFrame(frame(.top, dy: -500), x: 0.1, y: 0, w: 0.4, h: 0.5, "the top edge stops at the area's edge")
+        expectFrame(frame(.top, dy: 5000), x: 0.1, y: 0.35, w: 0.4, h: 0.15, "the bottom edge stays and the pane keeps the smallest height")
+    }
+
+    @Test func aTopCornerMovesTwoEdges() {
+        expectFrame(frame(.topLeft, dx: -50, dy: -50), x: 0.05, y: 0.0625, w: 0.45, h: 0.4375, "the top left corner")
+        expectFrame(frame(.topRight, dx: 100, dy: -50), x: 0.1, y: 0.0625, w: 0.5, h: 0.4375, "the top right corner")
+        expectFrame(frame(.topRight, dx: -5000, dy: 5000), x: 0.1, y: 0.35, w: 0.15, h: 0.15, "the smallest pane, its bottom left corner in place")
+        expectFrame(frame(.topLeft, dx: 5000, dy: 5000), x: 0.35, y: 0.35, w: 0.15, h: 0.15, "the smallest pane, its bottom right corner in place")
+    }
+
     @Test func theCardKnowsWhichPartAPointIsOn() {
-        let view = FloatingPaneCardView(pane: pane, cornerRadius: 6)
+        let view = FloatingPaneCardView(pane: pane)
         view.frame = CGRect(x: 0, y: 0, width: 200, height: 150)
-        #expect(view.zone(at: CGPoint(x: 100, y: 5)) == .move)
-        #expect(view.zone(at: CGPoint(x: 2, y: 5)) == .move, "the top has no resize: the bar goes from side to side")
+        #expect(view.zone(at: CGPoint(x: 100, y: 5)) == .move, "the bar below the top band moves the pane")
+        #expect(view.zone(at: CGPoint(x: 100, y: 13)) == .move)
+        #expect(view.zone(at: CGPoint(x: 100, y: 2)) == .top, "the top band is the top of the bar")
+        #expect(view.zone(at: CGPoint(x: 2, y: 2)) == .topLeft)
+        #expect(view.zone(at: CGPoint(x: 198, y: 2)) == .topRight)
+        #expect(view.zone(at: CGPoint(x: 10, y: 2)) == .topLeft, "the top band near the side is the corner")
+        #expect(view.zone(at: CGPoint(x: 2, y: 10)) == .topLeft, "the side rim near the top is the corner")
+        #expect(view.zone(at: CGPoint(x: 198, y: 10)) == .topRight)
         #expect(view.zone(at: CGPoint(x: 2, y: 60)) == .left)
         #expect(view.zone(at: CGPoint(x: 198, y: 60)) == .right)
         #expect(view.zone(at: CGPoint(x: 100, y: 148)) == .bottom)
@@ -78,6 +97,34 @@ import Testing
         #expect(view.zone(at: CGPoint(x: 195, y: 148)) == .bottomRight)
         #expect(view.zone(at: CGPoint(x: 2, y: 140)) == .bottomLeft, "the side rim near the bottom is the corner")
         #expect(view.zone(at: CGPoint(x: 198, y: 140)) == .bottomRight)
+    }
+
+    /// The cursor's rectangles: one for each part of the bar and the rim, no two on the same point, and each one
+    /// in the zone that a press there gets. Together they are the card less the pane.
+    @Test func eachPartOfTheBarAndTheRimHasOneCursorRectangle() {
+        let view = FloatingPaneCardView(pane: pane)
+        view.frame = CGRect(x: 0, y: 0, width: 200, height: 150)
+        let entries = FloatingPaneCardView.zoneRects(in: view.bounds)
+        #expect(Set(entries.map(\.zone)) == Set(FloatingPaneCardView.Zone.allCases))
+        for (index, entry) in entries.enumerated() {
+            #expect(view.zone(at: CGPoint(x: entry.rect.midX, y: entry.rect.midY)) == entry.zone, "\(entry.zone) \(entry.rect)")
+            for other in entries[(index + 1)...] {
+                #expect(!entry.rect.intersects(other.rect), "\(entry.zone) \(entry.rect) and \(other.zone) \(other.rect)")
+            }
+        }
+        let inner = LayoutFloatingPane.paneRect(inCard: view.bounds)
+        let area = entries.reduce(0) { $0 + $1.rect.width * $1.rect.height }
+        #expect(area == view.bounds.width * view.bounds.height - inner.width * inner.height)
+    }
+
+    /// The bar shows a hand, and each resize zone shows a cursor of its own that is not the hand.
+    @Test func aResizeZoneDoesNotShowTheHand() {
+        #expect(FloatingPaneCardView.cursor(for: .move) === NSCursor.openHand)
+        #expect(FloatingPaneCardView.cursor(for: .move, dragging: true) === NSCursor.closedHand)
+        for zone in FloatingPaneCardView.Zone.allCases where zone != .move {
+            let cursor = FloatingPaneCardView.cursor(for: zone, dragging: true)
+            #expect(cursor !== NSCursor.openHand && cursor !== NSCursor.closedHand && cursor !== NSCursor.arrow, "\(zone)")
+        }
     }
 
     /// The view shows a drag's frame until the release, and tells a new frame from a new list of panes.

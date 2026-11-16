@@ -15,14 +15,21 @@ public nonisolated enum FocusNavigation {
     /// `columns` (column strip mode, panes per column) makes a move into
     /// another column land on that column's most recently focused pane,
     /// wherever it sits in the column (each column keeps an active tile).
+    ///
+    /// `floating` (the screen's floating panes, back to front) makes the keys reach a floating pane and leave it
+    /// (``FloatingRule``). With none, the rule above is the whole rule.
     public static func neighbor(
         of pane: PaneID,
         direction: LayoutDirection,
         frames: [PaneID: CGRect],
         recency: [PaneID] = [],
-        columns: [[PaneID]] = []
+        columns: [[PaneID]] = [],
+        floating: [PaneID] = []
     ) -> PaneID? {
         guard let source = frames[pane] else { return nil }
+        if floating.contains(where: { frames[$0] != nil }) {
+            return FloatingRule(frames: frames, recency: recency, columns: columns, floating: floating).neighbor(of: pane, direction)
+        }
         let candidates = frames.compactMap { id, rect in
             id == pane ? nil : Candidate(id: id, rect: rect, source: source, direction: direction)
         }

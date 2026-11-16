@@ -370,7 +370,7 @@ final class ScreenContentView: NSView {
                 // nonzero rest offset, but only a handoff's first frame is already at its target size.
                 context.hosts[pane]?.isContentHandoff = true
             }
-            context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes)
+            if baseGeometry.floatingCards[pane] == nil { context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes) }
         }
         // Out of a zoom: the covered panes it kept that this layout did not take back (closed while zoomed) go now.
         if structural, !zoomed { context.releaseRetired(of: screenID, until: .zoom) }

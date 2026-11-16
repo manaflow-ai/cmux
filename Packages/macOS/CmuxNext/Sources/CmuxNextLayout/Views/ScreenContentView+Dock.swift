@@ -83,7 +83,7 @@ extension ScreenContentView {
         // A pane scrolled partly out of its scroll area shows only inside the area's window.
         let areaWindow = displayedAreaWindow(of: host.pane)
         let input = StripClipInput(frame: host.frame, clip: scrolls ? clip : nil, areaWindow: areaWindow,
-                                   covers: above[ObjectIdentifier(host)] ?? [])
+                                   covers: floatState.contentCovers(above[ObjectIdentifier(host)] ?? []))
         guard force || host.stripClipInput != input else { return false }
         host.stripClipInput = input
         stripClipsComputed += 1

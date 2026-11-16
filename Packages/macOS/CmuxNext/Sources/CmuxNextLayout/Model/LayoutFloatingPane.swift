@@ -52,4 +52,12 @@ public nonisolated struct LayoutFloatingPane: Hashable, Sendable {
         guard size.width > 0, size.height > 0 else { return CGRect(x: 0, y: 0, width: 1, height: 1) }
         return CGRect(x: rect.minX / size.width, y: rect.minY / size.height, width: rect.width / size.width, height: rect.height / size.height)
     }
+
+    /// The intent that brings `pane` to the front when it gets the focus: one `setFloatingFrame` with the frame it
+    /// has (the daemon brings a floating pane that gets a frame to the front). Nil for a tiled pane, for the front
+    /// pane and for a focus that a scroll moved.
+    static func raise(_ pane: PaneID, in floating: [LayoutFloatingPane], source: ColumnFocusSource) -> LayoutIntent? {
+        guard source != .scroll, floating.last?.pane != pane, let entry = floating.first(where: { $0.pane == pane }) else { return nil }
+        return .setFloatingFrame(pane, frame: entry.frame)
+    }
 }

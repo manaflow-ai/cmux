@@ -375,8 +375,8 @@ public final class LayoutModel {
         lastFocusSource = source
         if focusRingEarned != (source == .keyboard) { focusRingEarned = source == .keyboard }
         focusedPane = pane
-        // A keyboard or programmatic focus on a canvas pans to it; a click or a scroll never does.
-        if source != .pointer, source != .scroll { revealOnCanvas(pane, screen: screen.id) }
+        if source != .pointer, source != .scroll { revealOnCanvas(pane, screen: screen.id) } // A keyboard or programmatic focus on a canvas pans to it; a click or a scroll never does.
+        if let raise = LayoutFloatingPane.raise(pane, in: screen.floating, source: source) { emit(raise) } // A floating pane that gets the focus comes to the front.
         if notify { emit(.focus(pane)) }
     }
 
@@ -390,7 +390,7 @@ public final class LayoutModel {
     /// `LayoutRootView.moveFocus(_:)`. Returns the newly focused pane.
     @discardableResult
     public func moveFocus(_ direction: LayoutDirection, frames: [PaneID: CGRect]) -> PaneID? {
-        guard let focusedPane, let next = FocusNavigation.neighbor(of: focusedPane, direction: direction, frames: frames) else { return nil }
+        guard let focusedPane, let next = FocusNavigation.neighbor(of: focusedPane, direction: direction, frames: frames, floating: screen(containing: focusedPane)?.floating.map(\.pane) ?? []) else { return nil }
         focus(next, notify: true, source: .keyboard)
         return next
     }
