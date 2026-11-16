@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 import os
@@ -92,10 +93,16 @@ nonisolated struct MacScreenShareStatusProbe: Sendable {
                 resume(nil)
                 return
             }
-            // task-owner: the probe's deadline; it ends the process, whose termination answers
-            Task.detached {
-                try? await Task.sleep(for: deadline)
+            // The probe's deadline: it ends the process, whose termination answers. The timer lives
+            // until the process ends (its termination handler holds and cancels it).
+            let timer = DemandTimer(owner: "mac-screen.share-status-deadline")
+            timer.schedule(after: deadline) {
                 if process.isRunning { process.terminate() }
+            }
+            let answer = process.terminationHandler
+            process.terminationHandler = { ended in
+                timer.cancel()
+                answer?(ended)
             }
         }
     }
