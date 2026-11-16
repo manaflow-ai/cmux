@@ -83,3 +83,16 @@ extension MinimalModeFooterCollapseTests {
         #expect(abs(rest.listBottom - shown.listBottom) <= 0.5, "the shown strip keeps its row: \(shown) vs \(rest)")
     }
 }
+
+extension MinimalModeFooterCollapseTests {
+    /// With the motion on (no Reduce Motion), a change starts from the height on screen and lands on its target once
+    /// the clock has stepped the fade's duration: the list's bottom edge moves, then settles.
+    @Test func theHeightMovesOverTheFadeThenSettles() {
+        let motion = SidebarFooterCollapseMotion()
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        #expect(motion.height(toward: 0, in: view) == 0, "the first layout lands at once")
+        // No window: the change applies at once (nothing on screen to animate).
+        #expect(motion.height(toward: 25, in: view) == 25)
+        #expect(motion.height(toward: 0, in: view) == 0)
+    }
+}
