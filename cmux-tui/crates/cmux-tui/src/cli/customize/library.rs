@@ -2,6 +2,7 @@
 //! turn on and off and stack in order; shared as one file or one link.
 //! The model is `cmux_customize::library`; this is its grammar and words.
 
+use std::collections::BTreeSet;
 use std::io::{Read, Write};
 
 use base64::Engine;
@@ -181,7 +182,12 @@ pub(super) fn execute(
             Answer::Library { json: json!({ "library": listing }), human }
         }
         Request::Refresh => super::pr::refresh(customize, origin, now_ms)?,
-        Request::On { name } => changed(customize.library_set_on(&name, true, origin, now_ms)?),
+        Request::On { name } => {
+            let before = views_scopes(customize);
+            let mut answer = changed(customize.library_set_on(&name, true, origin, now_ms)?);
+            waiting(&mut answer, &before, &views_scopes(customize));
+            answer
+        }
         Request::Off { name, reason: Some(reason) }
             if customize
                 .library()?
@@ -248,6 +254,7 @@ pub(super) fn execute(
         Request::Import { source, on } => {
             let text = read_source(&source)?;
             let collection = Customize::parse_collection(&text)?;
+            let before = views_scopes(customize);
             let imported = customize.library_import(&collection, on, origin, now_ms)?;
             let mut human = String::new();
             if !imported.added.is_empty() {
@@ -274,9 +281,54 @@ pub(super) fn execute(
             if !on && !imported.added.is_empty() {
                 human.push_str("  cmux customize library on NAME   turn one on\n");
             }
-            Answer::Library { json: json!(imported), human }
+            let mut answer = Answer::Library { json: json!(imported), human };
+            waiting(&mut answer, &before, &views_scopes(customize));
+            answer
         }
     })
+}
+
+/// The scopes the customize folder's views app asks for (`scopes` in its
+/// manifest, picked as the app's catalog picks it: `cmux-app.json`, else
+/// `cmux-app.v2.json`); empty when there is none.
+fn views_scopes(customize: &Customize) -> BTreeSet<String> {
+    let dir = &customize.roots().customize_dir;
+    ["cmux-app.json", "cmux-app.v2.json"]
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|path| path.is_file())
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|manifest| {
+            manifest.get("scopes")?.as_object().map(|o| o.keys().cloned().collect())
+        })
+        .unwrap_or_default()
+}
+
+/// The scopes past reading that the views now ask for and did not before. cmux
+/// grants the views' read scopes by itself; these wait for the person, who
+/// allows each one on a card.
+fn widened(before: &BTreeSet<String>, after: &BTreeSet<String>) -> Vec<String> {
+    after.difference(before).filter(|scope| !scope.ends_with(":read")).cloned().collect()
+}
+
+/// Says which new scopes wait for the person's approval, and where they give it.
+fn waiting(answer: &mut Answer, before: &BTreeSet<String>, after: &BTreeSet<String>) {
+    let scopes = widened(before, after);
+    if scopes.is_empty() {
+        return;
+    }
+    if let Answer::Library { json, human } = answer {
+        if let Some(object) = json.as_object_mut() {
+            object.insert("waiting_scopes".into(), json!(scopes));
+        }
+        human.push_str(&format!(
+            "your views now ask for {}: cmux does not grant {} until you allow {} (App Store, Installed, local/customize; a card asks you first)\n",
+            scopes.join(", "),
+            if scopes.len() == 1 { "it" } else { "them" },
+            if scopes.len() == 1 { "it" } else { "each one" },
+        ));
+    }
 }
 
 fn changed(change: Changed) -> Answer {
@@ -559,6 +611,75 @@ mod tests {
         assert!(human.contains("cmux serves its own pages"), "{human}");
         let status = execute(&customize, Request::Status, "cli", 3).unwrap();
         assert_eq!(status.json()["layers"]["line"], "customize: 0 on");
+    }
+
+    /// A shared collection whose views ask for more than the person's own
+    /// views did says which new scopes wait for their approval, and where
+    /// they give it (cmux grants only the reads by itself).
+    #[test]
+    fn an_import_whose_views_ask_for_more_names_the_scopes_that_wait() {
+        use cmux_customize::Roots;
+        let manifest = |scopes: &str| {
+            format!(
+                r#"{{
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "engines": {{ "cmux": "^2.0" }},
+  "runtime": {{ "main": "main.js" }},
+  "implements": {{ "cmux.section/1": {{ "export": "renderSection", "title": "PRs", "symbol": "sparkles" }} }},
+  "scopes": {{ {scopes} }},
+  "description": "My own views"
+}}
+"#
+            )
+        };
+        let write = |root: &std::path::Path, path: &str, text: &str| {
+            let file = root.join("config").join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        };
+        let views = |root: &std::path::Path, scopes: &str, at: u64| {
+            let customize = Customize::open(Roots::under(root));
+            write(root, "cmux-next.json", "{}\n");
+            customize.ensure_baseline(at).unwrap();
+            customize.begin("my views", "cli", at + 1).unwrap();
+            write(root, "customize/main.js", "export function renderSection() {}\n");
+            write(root, "customize/cmux-app.json", &manifest(scopes));
+            customize.apply(None, "cli", at + 2).unwrap();
+            customize
+        };
+
+        let theirs = tempfile::tempdir().unwrap();
+        let shared = views(
+            theirs.path(),
+            r#""workspace:read": "r", "terminal:write": "w", "actions:run": "run""#,
+            10,
+        );
+        let collection = shared.library_export("their views", "", false).unwrap();
+        let file = theirs.path().join("collection.json");
+        std::fs::write(&file, serde_json::to_string(&collection).unwrap()).unwrap();
+
+        let mine = tempfile::tempdir().unwrap();
+        let customize = views(mine.path(), r#""agent_chat:read": "r""#, 20);
+        let source = file.to_str().unwrap().to_owned();
+        let answer =
+            execute(&customize, Request::Import { source: source.clone(), on: true }, "cli", 30)
+                .unwrap();
+        assert_eq!(answer.json()["waiting_scopes"], json!(["actions:run", "terminal:write"]));
+        let human = answer.human(30);
+        assert!(
+            human.contains("your views now ask for actions:run, terminal:write")
+                && human.contains("App Store, Installed, local/customize"),
+            "{human}"
+        );
+
+        // Off, nothing live changes, so nothing waits.
+        let other = tempfile::tempdir().unwrap();
+        let customize = views(other.path(), r#""agent_chat:read": "r""#, 40);
+        let answer = execute(&customize, Request::Import { source, on: false }, "cli", 50).unwrap();
+        assert!(answer.json().get("waiting_scopes").is_none(), "{}", answer.json());
     }
 
     #[test]

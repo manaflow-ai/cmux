@@ -173,9 +173,12 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
-    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals.
-    {"name": "throughput", "args": [*MEASURE, "--suite=terminal-throughput"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput"},
+    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
+    # bench configuration (Release optimization, split-spring.sh --config=bench), since Ghostty is its optimized
+    # release; the default Debug build made the ratio a Debug-against-Release one. Rows before this were Debug.
+    {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
+     "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -229,8 +232,11 @@ ROW_PARTS = [
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
 # here reads a higher p95 as worse. The memory-agents breakdown (memory-agents-cron.py) says where the judged totals'
-# memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged.
-REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.)")
+# memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged. The chat
+# composer's typing stages (acp.<engine>.typing.to_listener and .to_work, perf-budgets.py STAGE_ROW_RE) say where
+# the judged to_frame time goes: shown, not judged (measurement only, no new gate).
+REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
+                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}

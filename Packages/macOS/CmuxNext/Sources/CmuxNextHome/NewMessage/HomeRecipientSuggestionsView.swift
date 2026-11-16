@@ -37,7 +37,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     private var lines: [Int: (look: HomeRecipientLook, detail: String)] = [:]
 
     let table = NSTableView()
-    let scroll = NSScrollView()
+    let scroll = OverlayScrollView()
     let emptyLabel = ThemedLabel(wrappingLabelWithString: "")
     /// The list floats over the page: the shared overlay glass, never the solid popup surface
     /// (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").

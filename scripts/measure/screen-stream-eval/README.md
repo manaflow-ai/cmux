@@ -23,7 +23,8 @@ these are path diagnostics, not a matched wire-bandwidth comparison with another
 
 `.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
 main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
-uploads `results.json` and a `summary.md` that shows each number's change against the last daily
+uploads `results.json`, `summary.md`, and `probe.json` (schema `cmux.screen-share-fast/1`) that the
+screen-share-fast goal reads. The summary shows each number's change against the last daily
 run (the last successful one that dispatcher started).
 
 ## Prebuilt tools
@@ -108,14 +109,32 @@ Today's targets:
 - `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
   --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
   `rd-window-30` runs it at 30 fps. Both have window rows only.
+- `apple-rfb`: Apple's Screen Sharing server measured headless, with no window on any Mac.
+  `rfb-viewer.py` runs from a shell on the viewer Mac, logs in to the host's screensharingd with
+  the host account (RFB security type 30, the login Screen Sharing.app uses), keeps one update
+  request outstanding and decodes only the marker rows, so its pure-Python decoder never throttles
+  the stream. Latency is an RFB key or click to the first decoded update whose marker counter
+  changed (it ends at decode, like rd's `bench`); kbps is the RFB bytes it read; fps is the
+  framebuffer updates that carried a rectangle; the OCR frame is one fully decoded framebuffer at
+  the end of the hold. Readiness is the same fresh nonce as below, read from the framebuffer.
+  The client offers ZRLE, zlib, CopyRect and raw (`encodings_seen` records what the server used),
+  so this is Apple's server with standard RFB encodings, not the picture Screen Sharing.app gets
+  over Apple's own encodings. The login is a file in the viewer account's real home,
+  `~/.config/screen-stream-eval/login` (mode 0600): the host account's password, for the account
+  with the viewer's name (the fleet Macs share one), or a user name line first. Never argv,
+  environment or logs. Each view runs under a hard time limit.
 - `apple-high` and `apple-standard` open Apple's Screen Sharing.app against the
   same host and sample the displayed connection for OCR and viewer CPU. They
   request Standard + Full Quality and Standard + Adaptive Quality respectively;
   neither is Apple's separate High Performance connection type. Connection
   setup still requires an authorized connection. The adapter selects and checks
   the quality menu item, then requires a fresh source nonce in the selected window
-  before its window workload starts. VNC payload bytes, decoded FPS and session
-  time to first frame remain unavailable. The
+  before its window workload starts. kbps is the Screen Sharing.app process's
+  received bytes from `nettop` (all its sockets, as `gui-viewer.sh` counts a
+  third-party viewer), read at each one-second bucket's end; a failed read, or no bytes
+  in the whole window, keeps every row's bytes null with `bytes_unavailable`
+  rather than reporting zero. Decoded FPS and session time to first frame
+  remain unavailable. The
   target records sampled screenshot changes separately as `sampled_fps`; this
   is a normalized observation rate, not decoded transport FPS. The target
   selects Full Quality for `apple-high` and Adaptive Quality for
@@ -125,8 +144,11 @@ Today's targets:
   Select Standard during connection setup on the dedicated viewer. Apple
   targets require a second Mac and explicit `targets=`; the daily loopback
   defaults remain `rd,webrtc`.
-  Apple window runs require `presented-observer=1` with numeric
-  `presented-pid=PID`, `presented-window=CGWINDOW_ID`,
+  Each view launches its own Screen Sharing.app instance (`open -g -n`, never
+  activated), binds its pid and window, quits only that pid when the view ends
+  (success, failure or signal), and a watchdog ends a view that hangs; a
+  Screen Sharing process the target did not start is never touched. Apple
+  window runs require `presented-observer=1` with
   `presented-marker-origin=X,Y`, `presented-cell-size=N` and
   `presented-input-point=X,Y` (all coordinates are viewer capture pixels), plus
   optional `presented-display=main`, `presented-timeout-ms=1000` and
@@ -247,7 +269,9 @@ appear under `targets.petal` in the same schema.
 ## Results
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
-`eval.py`) and `summary.md`. For `rd`, each window's additive `extra.netem_metrics` records
+`eval.py`) and `summary.md`. With more than one target, `summary.md` starts, after the run line, with a "Side by side"
+table, one row per target: key and click glass-to-glass p50, kbps and fps in each window phase (a
+viewer without frame counts shows its sampled screenshot changes, marked `*`). For `rd`, each window's additive `extra.netem_metrics` records
 per-encode attempts, emitted frames, skips, IDRs, P frames, received video/FEC bytes and bitrate.
 Decoded FPS counts successful decoder output. On-time FPS counts frames decoded within 100 ms
 of the source's captured display-frame timestamp, joined to decoder completion by the exact
@@ -263,6 +287,12 @@ There is no unqualified first-repeat or partial-repeat aggregate.
 Each target also leaves its raw files under
 `artifacts/screen-stream-eval/NAME/`, on the worker: the latency JSON and, per repeat N, `window-N.json`, `phases-N.jsonl`,
 `host-N.png`, `viewer-frame-N`, `ocr-N.json`, and the logs, with pairing links redacted.
+
+`probe.json` is the goal-facing row. It is complete only for a two-Mac run (`run.link` starts with
+`lan`), with an `rd` key p50 and an Apple comparison target's key p50. A missing pair or comparison is
+`outcome: unknown`; a complete run is `pass` only when the cmux key p50 is at most 160 ms, otherwise
+`fail`. The row includes the exact source-results SHA-256, host/viewer/link/revision, and motion FPS
+observations. It never invents a comparison number from a one-Mac loopback run.
 
 ## Two Macs
 

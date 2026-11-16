@@ -410,7 +410,7 @@ extension SidebarListViewComponents {
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: indentWidth, height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate || adopting)
-        let history = chatHistory.place(layout, state: SidebarChatHistory.shared.state, metrics: model.minimal ? metrics.minimal : metrics,
+        let history = chatHistory.place(layout, state: SidebarChatHistory.shared.state, metrics: metrics,
                                         in: self, animated: animate || adopting)
         let lines = groupLineViews.update(groupLines(layout), from: animate || adopting ? groupLines(layout, current: true) : [], in: self, above: decorations,
                                           animated: animate || adopting)
@@ -494,6 +494,7 @@ extension SidebarListViewComponents {
         case let (.workspace(id), view as WorkspaceRowView):
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row, badgeStyle: model.rowBadgeStyle)
+            view.configureScreen(model.groupsByComputer ? nil : sections[row.section]?.machine)
             paintSecondaryFills(view, id)
             view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id) || standsForDropGroup(row)
             // A group drawn as its one row draws its header's keyboard focus ring (`SidebarGroupKeys`).
@@ -542,7 +543,8 @@ extension SidebarListViewComponents {
         case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupID: id, groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
-        case let (.listHeader(header), view as ListHeaderRowView): view.configure(header, count: row.childCount)
+        case let (.listHeader(header), view as ListHeaderRowView):
+            view.configure(header, count: row.childCount, sharesLocalScreen: model.sections.contains { $0.machine?.kind == .local })
         case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView):
             view.isKeyboardFocused = showsFocusRing && focusedFold == row.key
             view.configure(row)

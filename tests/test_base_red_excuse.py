@@ -14531,7 +14531,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
         "product builds and tests (Swift, Rust, web, backend, cloud, iOS), whose reds read product code": (
             "app-platform.yml", "auth-refresh-tests.yml", "automation-bench.yml", "backend-migrations.yml",
             "backend.yml", "ci.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloud-vm-image-lock.yml",
-            "cloudflare-relay.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml", "cmux-next-cua-helper-identity.yml",
+            "cloudflare-relay.yml", "device-hub.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml", "cmux-next-cua-helper-identity.yml",
             "cmux-next-media.yml", "cmux-next-hot-verify.yml", "cmux-next-motion-golden.yml", "cmux-next-remote-daemon.yml",
             "cmux-next-shell-integration.yml", "cmux-next-shim-cpp.yml", "cmux-tui-sdks.yml", "cmux-tui-spec.yml",
             "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
@@ -14544,7 +14544,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "web-complexity-trusted.yml", "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
             "cmux-skill-contract.yml", "agent-brands.yml",
             # React Doctor (da29cd0a): a ratchet over the React projects' own code.
-            "cmux-next-react-doctor.yml"),
+            "cmux-next-react-doctor.yml",
+            # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
+            "cmux-next-tab-switch.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
