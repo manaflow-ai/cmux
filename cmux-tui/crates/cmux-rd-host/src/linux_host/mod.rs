@@ -28,6 +28,7 @@ mod identity;
 mod net;
 mod rd_doc;
 mod session;
+mod status_json;
 
 use crate::capture_backend::CaptureBackend;
 use crate::Res;
