@@ -24,6 +24,16 @@ public final class KeptTerminalChats {
         var chats: [String: Stamped] = [:]
         /// `account|mac|tab` -> "chat" or "terminal".
         var faces: [String: Stamped] = [:]
+
+        init() {}
+
+        /// A file written before faces were kept has no `faces` key: it still reads, with its
+        /// pairings (synthesized decoding would refuse it and drop them).
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            chats = try container.decodeIfPresent([String: Stamped].self, forKey: .chats) ?? [:]
+            faces = try container.decodeIfPresent([String: Stamped].self, forKey: .faces) ?? [:]
+        }
     }
 
     @ObservationIgnored public let file: URL
