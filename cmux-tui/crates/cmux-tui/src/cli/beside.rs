@@ -13,6 +13,11 @@
 //! there's a terminal that gets opened when there's already a browser, and
 //! vice versa"), the app's RightColumnPlacement rule.
 //!
+//! A browser created with no place (`cmux browser open URL`, `cmux tab create
+//! browser`) by anyone, an agent or a person's terminal, is a tab in the
+//! column right of the caller when there is one (the pane holding a browser,
+//! else the lowest), never over the caller's terminal (Lawrence 2026-11-15).
+//!
 //! This module only decides; each transport sends the requests.
 
 use serde_json::{Map, Value, json};
@@ -86,9 +91,46 @@ pub(super) fn placement(identity: &Value) -> Option<Placement> {
     Some(Placement::NewColumn { workspace, chat_pane })
 }
 
-/// Where a browser tab created with no place goes: not decided yet (red).
-pub(super) fn browser_placement(_identity: &Value) -> Option<Placement> {
-    None
+/// Where a browser tab created with no place goes (`cmux browser open URL`,
+/// `cmux tab create browser`), from the app's identity answer: a tab in the
+/// existing column right of the caller, in the pane there that already holds
+/// a browser, else the column's lowest pane, never a split below it and never
+/// the caller's own pane (Lawrence 2026-11-15: an agent's `cmux browser open`
+/// of its page put the tab over the terminal it ran in, "i expected it to just
+/// open in the right side"). `None` with no column on the right: the creation
+/// keeps the daemon's default (a split would make a terminal pane first).
+pub(super) fn browser_placement(identity: &Value) -> Option<Placement> {
+    let caller = identity.get("caller")?;
+    if caller.get("found").and_then(Value::as_bool) == Some(false) {
+        return None;
+    }
+    let workspace = caller.get("workspace").and_then(Value::as_str)?.to_owned();
+    let beside = identity.get("beside")?;
+    let pane = beside.get("pane").and_then(Value::as_str)?;
+    let column: Vec<(&str, bool)> = beside
+        .get("panes")
+        .and_then(Value::as_array)
+        .map(|panes| {
+            panes
+                .iter()
+                .filter_map(|entry| {
+                    let id = entry.get("id").and_then(Value::as_str)?;
+                    let browser = entry
+                        .get("kinds")
+                        .and_then(Value::as_array)
+                        .is_some_and(|kinds| kinds.iter().any(|kind| kind == "browser"));
+                    Some((id, browser))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let chosen = column
+        .iter()
+        .rev()
+        .find(|(_, browser)| *browser)
+        .or(column.last())
+        .map_or(pane, |(id, _)| *id);
+    Some(Placement::Pane { workspace, pane: chosen.to_owned() })
 }
 
 /// The `pane.split` params that open the terminal a `tab.create_terminal`
@@ -161,7 +203,9 @@ pub(super) enum CliOutcome {
 /// [`placement`] for `cmux tab create terminal` run by an agent
 /// (`CMUX_AGENT_SESSION`) with no `--workspace`, `--screen` or `--pane`, on
 /// the request's own connection. A person's terminal keeps the daemon's
-/// default, the pane they type in.
+/// default, the pane they type in. [`browser_placement`] for `cmux browser
+/// open` / `cmux tab create browser` with no place, run by anyone: a browser
+/// never opens over the terminal that asked for it.
 #[cfg(unix)]
 pub(super) fn apply_cli(
     global: &super::GlobalArgs,
@@ -175,9 +219,13 @@ pub(super) fn apply_cli(
 
     let creates_terminal =
         matches!(plan.operation, WireOperation::Typed(ResourceOperation::TabCreateTerminal));
+    let creates_browser =
+        matches!(plan.operation, WireOperation::Typed(ResourceOperation::TabCreateBrowser));
     let agent = std::env::var("CMUX_AGENT_SESSION").is_ok_and(|session| !session.is_empty());
     let Some(params) = plan.params.as_object_mut() else { return CliOutcome::Unchanged };
-    if !creates_terminal || !agent || !names_no_place(params) {
+    // A browser with no place goes beside any caller (an agent's or a person's
+    // terminal); a terminal only beside an agent's chat.
+    if !(creates_browser || creates_terminal && agent) || !names_no_place(params) {
         return CliOutcome::Unchanged;
     }
     let identity = super::app::socket_path(global)
@@ -185,7 +233,8 @@ pub(super) fn apply_cli(
         .and_then(|mut app| {
             super::app::request(&mut app, "system.identify", json!({}), super::app::READ_TIMEOUT)
         });
-    let Some(placed) = identity.ok().and_then(Result::ok).and_then(|identity| placement(&identity))
+    let decide = if creates_browser { browser_placement } else { placement };
+    let Some(placed) = identity.ok().and_then(Result::ok).and_then(|identity| decide(&identity))
     else {
         return CliOutcome::Unchanged;
     };
