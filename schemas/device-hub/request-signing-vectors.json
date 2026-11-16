@@ -1,0 +1,86 @@
+{
+  "protocol": "device-hub/1 device-signed requests",
+  "canonical": [
+    {
+      "name": "get without a body",
+      "method": "GET",
+      "pathAndQuery": "/v1/user/ws",
+      "ts": 1700000000,
+      "body": null,
+      "canonical": "GET\n/v1/user/ws\n1700000000\n"
+    },
+    {
+      "name": "post with a JSON body",
+      "method": "POST",
+      "pathAndQuery": "/v1/devices",
+      "ts": 7,
+      "body": "{}",
+      "canonical": "POST\n/v1/devices\n7\n44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "name": "method is upper-cased",
+      "method": "put",
+      "pathAndQuery": "/v1/permissions/h/v",
+      "ts": 1800000000,
+      "body": "{\"scope\":\"view\"}",
+      "canonical": "PUT\n/v1/permissions/h/v\n1800000000\n1994f92bb196794929460c76aba830d42b5158bf62cd96a3561f4256fb7bcc3c"
+    },
+    {
+      "name": "an empty body hashes to the empty line",
+      "method": "DELETE",
+      "pathAndQuery": "/v1/relays/r",
+      "ts": 7,
+      "body": "",
+      "canonical": "DELETE\n/v1/relays/r\n7\n"
+    },
+    {
+      "name": "path and query are signed as sent",
+      "method": "GET",
+      "pathAndQuery": "/v1/sessions/s%201/ws?ticket=a.b.c",
+      "ts": 1800000000,
+      "body": null,
+      "canonical": "GET\n/v1/sessions/s%201/ws?ticket=a.b.c\n1800000000\n"
+    },
+    {
+      "name": "body hash is over UTF-8 bytes",
+      "method": "PUT",
+      "pathAndQuery": "/v1/devices/x",
+      "ts": 1800000000,
+      "body": "{\"name\":\"Mac été\"}",
+      "canonical": "PUT\n/v1/devices/x\n1800000000\n3784128f050b4d7eddc062dd6177cae21f36c537bf720723d51c0da6a729b11c"
+    }
+  ],
+  "signatures": {
+    "publicKey": "BIqFkI32pGCH+GvspW2mImcgpeQXAyU5XZ2LHyiMJZbDREjGzFMV1HgskoX68FjicheXkLYz5jxyMVjzyIPLsFk=",
+    "cases": [
+      {
+        "name": "low-S signature verifies",
+        "message": "POST\n/v1/devices\n7\n44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "signature": "lGNG6gbju8PYqPHMIG/pqUXVn5kgfztKoeY/wSQhY/gGYxrAHPf90TzLeL4YXkikc1I2EDlFIEJJ4m5pgNoT9A==",
+        "verifies": true,
+        "lowSHex": "946346ea06e3bbc3d8a8f1cc206fe9a945d59f99207f3b4aa1e63fc1242163f806631ac01cf7fdd13ccb78be185e48a4735236103945204249e26e6980da13f4"
+      },
+      {
+        "name": "high-S copy verifies and has the same replay key",
+        "message": "POST\n/v1/devices\n7\n44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "signature": "lGNG6gbju8PYqPHMIG/pqUXVn5kgfztKoeY/wSQhY/j5nOU+4wgCL8M0h0HnobdbSZTEnW3SfkKp11xZe4kRXQ==",
+        "verifies": true,
+        "lowSHex": "946346ea06e3bbc3d8a8f1cc206fe9a945d59f99207f3b4aa1e63fc1242163f806631ac01cf7fdd13ccb78be185e48a4735236103945204249e26e6980da13f4"
+      },
+      {
+        "name": "another message does not verify",
+        "message": "GET\n/v1/user/ws\n1700000000\n",
+        "signature": "lGNG6gbju8PYqPHMIG/pqUXVn5kgfztKoeY/wSQhY/gGYxrAHPf90TzLeL4YXkikc1I2EDlFIEJJ4m5pgNoT9A==",
+        "verifies": false,
+        "lowSHex": "946346ea06e3bbc3d8a8f1cc206fe9a945d59f99207f3b4aa1e63fc1242163f806631ac01cf7fdd13ccb78be185e48a4735236103945204249e26e6980da13f4"
+      },
+      {
+        "name": "a 63-byte signature is refused",
+        "message": "POST\n/v1/devices\n7\n44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "signature": "lGNG6gbju8PYqPHMIG/pqUXVn5kgfztKoeY/wSQhY/gGYxrAHPf90TzLeL4YXkikc1I2EDlFIEJJ4m5pgNoT",
+        "verifies": false,
+        "lowSHex": null
+      }
+    ]
+  }
+}

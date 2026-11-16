@@ -286,6 +286,31 @@ mod tests {
         );
     }
 
+    /// The shared vectors the hub (workers/device-hub) and the apps (CmuxDeviceHub) test too.
+    #[test]
+    fn request_signing_vectors() {
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../../../schemas/device-hub/request-signing-vectors.json"
+        ))
+        .unwrap();
+        for case in vectors["canonical"].as_array().unwrap() {
+            let got = signing_string(
+                case["method"].as_str().unwrap(),
+                case["pathAndQuery"].as_str().unwrap(),
+                case["ts"].as_u64().unwrap(),
+                case["body"].as_str().map(str::as_bytes),
+            );
+            assert_eq!(got, case["canonical"].as_str().unwrap(), "{}", case["name"]);
+        }
+        let key = vectors["signatures"]["publicKey"].as_str().unwrap();
+        for case in vectors["signatures"]["cases"].as_array().unwrap() {
+            let sig = b64::decode(case["signature"].as_str().unwrap()).unwrap();
+            let message = case["message"].as_str().unwrap().as_bytes();
+            let verdict = case["verifies"].as_bool().unwrap();
+            assert_eq!(verify(key, message, &sig), verdict, "{}", case["name"]);
+        }
+    }
+
     #[test]
     fn device_headers_verify_with_the_registered_key() {
         let hub = Hub::new("https://hub.example", Device::generate("t").unwrap(), None).unwrap();
