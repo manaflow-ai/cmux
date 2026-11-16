@@ -374,6 +374,11 @@ export type PreclaimClaimRecord = {
   post_bind_login: "receipt" | "post-bind" | "missing" | "not_checked";
   first_chat_ms: number | null;
   first_reply_ms: number | null;
+  /**
+   * Why the first reply was not judged (the model refused or never answered the turn), else null. The reply is measured,
+   * never gated: run 43860687099's claim worked and its turn hit the test account's weekly limit.
+   */
+  reply_not_judged: string | null;
   /** The claim answer's value.claim.behind (cmux-platform#1429): the spare was held across an image roll; null with no claim. */
   claimed_behind: boolean | null;
   /** The claim answer's skipped spares by reason (cmux-platform#1418), e.g. image or a #1414 guard reason; null when absent. */
@@ -467,6 +472,7 @@ export function preclaimClaimRecord(input: {
   postBindLogin?: "receipt" | "post-bind" | "missing" | "not_checked";
   firstChatMs?: number | null;
   firstReplyMs?: number | null;
+  replyNotJudged?: string | null;
 }): PreclaimClaimRecord {
   const answer = input.answer && typeof input.answer === "object" ? input.answer as Record<string, unknown> : {};
   const machine = typeof input.machine === "string" ? input.machine : typeof answer.machine_id === "string" ? answer.machine_id : null;
@@ -483,12 +489,13 @@ export function preclaimClaimRecord(input: {
     post_bind_login: input.postBindLogin ?? "not_checked",
     first_chat_ms: input.firstChatMs ?? null,
     first_reply_ms: input.firstReplyMs ?? null,
+    reply_not_judged: input.replyNotJudged ?? null,
     ...spareFields(answer),
   };
 }
 
-/** A held claim (one roll behind) fails when its chat got no reply or its login never arrived; a failed claim that took one counts too. */
-const heldRowFailed = (r: PreclaimClaimRecord) => r.first_reply_ms === null || r.post_bind_login === "missing";
+/** A held claim (one roll behind) fails when its login never arrived; a failed claim that took one counts too. Claim-path facts only: the reply is never judged. */
+const heldRowFailed = (r: PreclaimClaimRecord) => r.post_bind_login === "missing";
 
 /**
  * The burst's counts. Held claims (a spare kept claimable across an image roll, CLOUD_SPARE_ROLL_HOLD) are counted apart from
@@ -511,6 +518,7 @@ export function preclaimSummary(rows: PreclaimClaimRecord[], failures: PreclaimF
     claims_with_image_skip: rows.filter((r) => (r.spare_skips?.image ?? 0) > 0).length,
     post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length,
     replies: rows.filter((r) => r.first_reply_ms !== null).length,
+    replies_not_judged: rows.filter((r) => r.reply_not_judged !== null).length,
     claim_to_bound_p90_ms: p90,
   };
 }
@@ -534,7 +542,7 @@ export function opaquePreclaimLeaseId(value: unknown): string | null {
 export function preclaimSummaryMarkdown(rows: PreclaimClaimRecord[], failures: PreclaimFailureRecord[] = []): string {
   const summary = preclaimSummary(rows, failures);
   const yesNo = (v: boolean | null) => (v === null ? "unknown" : v ? "yes" : "no");
-  return ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- cold creates: ${summary.cold_creates}`, `- held claims (one image roll behind): ${summary.held_claims}`, `- held claim failures: ${summary.held_failures}`, `- image skips: ${summary.image_skips} (claims with one: ${summary.claims_with_image_skip})`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- replies: ${summary.replies}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease id | lease hit | held | health before | health after | claim answer | join | guest bind | connect_info | bound | post-bind login | first chat | first reply |", "|---:|:---|:---:|:---:|:---:|:---:|---:|---:|---:|---:|---:|:---|---:|---:|", ...rows.map((r) => `| ${r.claim} | ${r.lease_id ?? "-"} | ${yesNo(r.lease_hit)} | ${yesNo(r.claimed_behind)} | ${r.health_before.outcome} | ${r.health_after.outcome} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} | ${r.first_chat_ms ?? "-"} | ${r.first_reply_ms ?? "-"} |`)].join("\n") + "\n";
+  return ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- cold creates: ${summary.cold_creates}`, `- held claims (one image roll behind): ${summary.held_claims}`, `- held claim failures: ${summary.held_failures}`, `- image skips: ${summary.image_skips} (claims with one: ${summary.claims_with_image_skip})`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- replies: ${summary.replies}`, `- replies not judged: ${summary.replies_not_judged}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease id | lease hit | held | health before | health after | claim answer | join | guest bind | connect_info | bound | post-bind login | first chat | first reply |", "|---:|:---|:---:|:---:|:---:|:---:|---:|---:|---:|---:|---:|:---|---:|---:|", ...rows.map((r) => `| ${r.claim} | ${r.lease_id ?? "-"} | ${yesNo(r.lease_hit)} | ${yesNo(r.claimed_behind)} | ${r.health_before.outcome} | ${r.health_after.outcome} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} | ${r.first_chat_ms ?? "-"} | ${r.first_reply_ms ?? "-"} |`)].join("\n") + "\n";
 }
 
 function normalizedWireValue(value: unknown): Record<string, unknown> {
@@ -634,7 +642,12 @@ export function clientPlatformOrigin(body: unknown): string {
   return url.origin;
 }
 
-export async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number }> {
+/**
+ * The first chat on a claimed machine. The agent starting and taking the prompt are claim-path facts and throw; the reply
+ * is the model's, so a refused or missing reply comes back as replyNotJudged and never fails the claim (lead: "make the
+ * gate read claim-path fields only, so a model limit can never block it again").
+ */
+export async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number | null; replyNotJudged: string | null }> {
   const started = Date.now();
   const ensured = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m claude --json 2>&1; echo "@@exit $?"`, 120_000);
   if (!/@@exit 0/.test(ensured.stdout)) throw new Error(`preclaim ${session}: agent start refused`);
@@ -646,11 +659,11 @@ export async function runPreclaimChat(exec: Exec, session: string, prompt: strin
     const reply = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1`, 45_000);
     const wait = /@@wait (\d+)/.exec(reply.stdout)?.[1];
     const text = reply.stdout.replace(/@@wait \d+\n?/, "").trim();
-    if (wait === "0" && text) return { chatMs, replyMs: Date.now() - waitStarted };
+    if (wait === "0" && text) return { chatMs, replyMs: Date.now() - waitStarted, replyNotJudged: null };
     // The send is queued: an idle exit before the turn starts is not a failed reply.
-    if (wait && wait !== "0" && wait !== "3") throw new Error(`preclaim ${session}: reply wait exit ${wait}: ${await failedTurnWhy(exec, session, text)}`);
+    if (wait && wait !== "0" && wait !== "3") return { chatMs, replyMs: null, replyNotJudged: `reply wait exit ${wait}: ${await failedTurnWhy(exec, session, text)}` };
   }
-  throw new Error(`preclaim ${session}: no reply within ${budgetMs / 1000} s`);
+  return { chatMs, replyMs: null, replyNotJudged: `no reply within ${budgetMs / 1000} s` };
 }
 
 /**
@@ -796,14 +809,16 @@ export async function runPreclaimBurst(args: {
       const receiptInstalled = typeof machine === "string" ? await spareLoginReceipt(args.cmux, args.api, stateDir, args.install.token, prepared, machine) : false;
       let firstChatMs: number | null = null;
       let firstReplyMs: number | null = null;
+      let replyNotJudged: string | null = null;
       if (typeof machine === "string") {
         const chat = await runPreclaimChat(directExec(args.api, machine, args.journey), `preclaim-${args.tag}-${index}`, `Reply with one short sentence for preclaim ${index}.`, 300_000);
         firstChatMs = chat.chatMs;
         firstReplyMs = chat.replyMs;
+        replyNotJudged = chat.replyNotJudged === null ? null : scrub(chat.replyNotJudged, args.journey.secrets).slice(0, 600);
       }
       const healthAfter = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
       const loginMode = preclaimLoginMode(spare, typeof machine === "string" ? machine : null);
-      const record = preclaimClaimRecord({ claim: index, machine, spare, leaseId, answer, leaseHit, healthBefore, healthAfter, firstChatMs, firstReplyMs, postBindLogin: loginMode === "post-bind" ? "post-bind" : receiptInstalled ? "receipt" : "missing" });
+      const record = preclaimClaimRecord({ claim: index, machine, spare, leaseId, answer, leaseHit, healthBefore, healthAfter, firstChatMs, firstReplyMs, replyNotJudged, postBindLogin: loginMode === "post-bind" ? "post-bind" : receiptInstalled ? "receipt" : "missing" });
       rows.push(record);
       if (typeof machine === "string") {
         await args.api.deleteMachine(machine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
