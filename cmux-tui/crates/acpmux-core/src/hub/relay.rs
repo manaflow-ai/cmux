@@ -265,9 +265,10 @@ impl Hub {
             let grows = name_growth(&origin)?.saturating_mul(count);
             grown.push((origin, grows));
         }
-        let fits =
-            |asked: usize| grown.iter().take(asked).all(|(_, grows)| room / asked > least + grows);
         let origins = grown;
+        let fits = |asked: usize| {
+            origins.iter().take(asked).all(|(_, grows)| room / asked > least + grows)
+        };
         let asked = (1..=origins.len()).rev().find(|asked| fits(*asked)).unwrap_or(0);
         if asked == 0
             && !origins.is_empty()
