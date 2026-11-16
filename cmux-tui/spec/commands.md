@@ -9204,6 +9204,8 @@ terminal has the same size, the first frame is one delta from that frame
 (`base` is `hybrid_frame`), not the whole screen. Any other attach, any
 terminal whose agent is something else, and any connection without the
 capability gets the byte stream, and the two fields change nothing for it.
+A connection that also declared `agent-cli-hybrid-v2` gets each frame as an
+`agent-cli-lean` event instead (the same frames in a lean form; see `events.md`).
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 

@@ -235,9 +235,7 @@ enum TabLifecycle {
         guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
         if openBrowserFromDock(ctx, invocation, pane: invoked, url: url, engine: engine, profile: profileRequest) { return }
-        // From the docked agent chat, a tab in the strip (ChatColumnPlacement),
-        // not in the chat's pane. The chat header's Preview is placed beside the
-        // chat as an agent's is.
+        // From the docked agent chat, a tab in the strip (ChatColumnPlacement), not in the chat's pane; the header's Preview as an agent's.
         let pane: PaneModel
         var docked = false
         if invocation.origin == .user, !invocation.besideCaller, let chat = ctx.services.paneController(for: invoked) {
@@ -249,14 +247,17 @@ enum TabLifecycle {
                 pane = invoked
                 docked = true
             }
+        } else if !invocation.besideCaller, let caller = invocation.callerTerminal, let from = ctx.services.paneController(for: invoked),
+                  invoked.tabs.contains(where: { $0.id == invocation.target?.id && [$0.terminalID?.rawValue, $0.terminalResourceID?.rawValue].contains(caller) }),
+                  case .pane(let id) = ctx.services.linkOpener.target(from: from, kind: .browser), id != from.layoutPaneID, let right = from.workspace?.panes[id] {
+            // A CLI or MCP browser aimed at its own terminal's tab: the pane on its right, as a Cmd-click's (LinkOpenPlacement; Lawrence 2026-11-15).
+            pane = right.pane
         } else {
             pane = invoked
         }
         if docked { return }
-        // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
-        // Whether it opens behind and is an agent's: Rust's (cmux-window-rules `tabs::browser_placement`).
-        // An agent never swaps out the page the person is working in: its tab opens unselected in the
-        // pane that has their focus, or wherever the run asks (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1).
+        // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md). Whether it opens
+        // behind: Rust's (cmux-window-rules `tabs::browser_placement`); never over the person's page (agent-browser-passkey-DESIGN.md 3.1).
         let scripted = [.cli, .mcp, .script].contains(invocation.origin)
         let placement = WindowRules().browserPlacement(WindowRules.BrowserPlacementFacts(
             scripted: scripted, allowsViewChange: invocation.allowsViewChange,
@@ -269,8 +270,7 @@ enum TabLifecycle {
         if placement?.agentDriven ?? scripted {
             agentTab = { @MainActor [weak cache] surface in cache?.markAgentDriven(surface: surface) }
         }
-        // An agent's tab beside its chat: selected there, focus stays in the chat; with no column
-        // there it opens unselected in the chat's pane and moves into a new one (AgentBesidePlacement).
+        // An agent's tab beside its chat: selected there, focus stays in the chat; else unselected and moved out (AgentBesidePlacement).
         let beside = invocation.besideCaller ? ctx.services.paneController(for: pane) : nil
         if invocation.besideCaller {
             agentTab = AgentBesidePlacement.placed(invocation, pane: pane, controller: beside, services: ctx.services, then: agentTab)

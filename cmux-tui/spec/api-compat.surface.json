@@ -140,6 +140,23 @@
         "required": true
       }
     },
+    "event:agent-cli-lean": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"agent-cli-lean\""
+        ]
+      },
+      "/f": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "event:agent-inventory-changed": {
       "/event": {
         "ty": "literal",

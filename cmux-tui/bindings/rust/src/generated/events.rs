@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 9472b6d8bde5d2eb228ed1b17a04635d764ff9f7e53ef03324fbac7af2729d96.
+// cmux-tui mux protocol 12, IR cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -49,6 +49,13 @@ pub struct AgentCliFrameEvent {
     pub frame: u64,
     pub rows: u16,
     pub stream: String,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliLeanEvent {
+    pub f: T::Base64,
     pub surface: T::Id,
 }
 
@@ -1063,6 +1070,7 @@ pub enum Event {
     ActivityChanged(ActivityChangedEvent),
     AgentChanged(AgentChangedEvent),
     AgentCliFrame(AgentCliFrameEvent),
+    AgentCliLean(AgentCliLeanEvent),
     AgentInventoryChanged(AgentInventoryChangedEvent),
     AgentInventoryWatchEnded(AgentInventoryWatchEndedEvent),
     AgentPresenceChanged(AgentPresenceChangedEvent),
@@ -1166,6 +1174,7 @@ impl Event {
             Self::ActivityChanged(_) => Some("activity-changed"),
             Self::AgentChanged(_) => Some("agent-changed"),
             Self::AgentCliFrame(_) => Some("agent-cli-frame"),
+            Self::AgentCliLean(_) => Some("agent-cli-lean"),
             Self::AgentInventoryChanged(_) => Some("agent-inventory-changed"),
             Self::AgentInventoryWatchEnded(_) => Some("agent-inventory-watch-ended"),
             Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
@@ -1268,6 +1277,7 @@ impl Event {
             Self::ActivityChanged(_) => Some(&ACTIVITY_CHANGED_EVENT_METADATA),
             Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
             Self::AgentCliFrame(_) => Some(&AGENT_CLI_FRAME_EVENT_METADATA),
+            Self::AgentCliLean(_) => Some(&AGENT_CLI_LEAN_EVENT_METADATA),
             Self::AgentInventoryChanged(_) => Some(&AGENT_INVENTORY_CHANGED_EVENT_METADATA),
             Self::AgentInventoryWatchEnded(_) => Some(&AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA),
             Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
@@ -1388,6 +1398,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-cli-frame") => match serde_json::from_value::<AgentCliFrameEvent>(raw.clone()) {
             Ok(event) => Event::AgentCliFrame(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-cli-lean") => match serde_json::from_value::<AgentCliLeanEvent>(raw.clone()) {
+            Ok(event) => Event::AgentCliLean(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

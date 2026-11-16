@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '9472b6d8bde5d2eb228ed1b17a04635d764ff9f7e53ef03324fbac7af2729d96'
+IR_SHA256 = 'cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea'
 
 
 @dataclass(frozen=True)
@@ -4103,6 +4103,7 @@ EVENTS = {
     'activity-changed': EventMetadata('activity-changed', 12, 'vm-activity-v1', ('control',), 'emitted'),
     'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
     'agent-cli-frame': EventMetadata('agent-cli-frame', 12, 'agent-cli-hybrid-v1', ('attach-byte',), 'emitted'),
+    'agent-cli-lean': EventMetadata('agent-cli-lean', 12, 'agent-cli-hybrid-v2', ('attach-byte',), 'emitted'),
     'agent-inventory-changed': EventMetadata('agent-inventory-changed', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-inventory-watch-ended': EventMetadata('agent-inventory-watch-ended', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
