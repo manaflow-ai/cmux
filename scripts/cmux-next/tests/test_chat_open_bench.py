@@ -332,6 +332,34 @@ class ClickRowTests(unittest.TestCase):
         self.assertEqual(bench.shown_workspace(Run()), "ws_new")
         self.assertEqual(calls, ["workspace.newAtBottom"])
 
+    def test_the_release_wait_ends_when_the_chats_page_is_listed_no_more(self):
+        """`click_released` clicks only after the left chat's page let go: `debug.surfaces` lists it no more."""
+        bench = load_bench()
+        replies = [{"hibernation": {"chat_pages": ["t1", "t2"]}}, {"hibernation": {"chat_pages": ["t1", "t2"]}},
+                   {"hibernation": {"chat_pages": ["t2"]}}]
+        asked = []
+
+        class Run:
+            def rpc(self, method, params=None, timeout=40):
+                asked.append(method)
+                return replies.pop(0) if len(replies) > 1 else replies[0]
+
+        self.assertEqual(bench.chat_pages(Run()), {"t1", "t2"})
+        with mock.patch.object(bench.time, "sleep"):
+            self.assertIsNotNone(bench.wait_released(Run(), {"t1"}))
+        self.assertEqual(asked, ["debug.surfaces"] * 3)
+
+    def test_the_release_wait_gives_none_when_the_page_stays(self):
+        bench = load_bench("--release-wait", "3")
+        ticks = iter(range(1000))
+
+        class Run:
+            def rpc(self, method, params=None, timeout=40):
+                return {"hibernation": {"chat_pages": ["t1"]}}
+
+        with mock.patch.object(bench.time, "sleep"), mock.patch.object(bench.time, "monotonic", lambda: next(ticks)):
+            self.assertIsNone(bench.wait_released(Run(), {"t1"}))
+
 
 class SeedCacheTests(unittest.TestCase):
     """seed() writes each template once on the seeding daemon and caches it; a second run (another

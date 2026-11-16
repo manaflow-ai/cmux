@@ -30,6 +30,9 @@ to the first frame the pane shows the chat's content, with every surface the pan
   click      a mouse click on the sidebar row of a chat never shown in this app's life (its workspace made in
              the background, so the click makes its pane): judged from pixels, not the page's mark
   click_again  a click back onto the row of a chat shown before and left (its page kept)
+  click_released  a click back onto the row of a chat shown before and left until its hidden page let go (about a
+             minute; the bench waits until `debug.surfaces` lists the chat's page no more, --release-wait at most):
+             the return of a chat that keeps only its tab's state
   click_hover  a click on the row of a chat never shown, after the pointer rested on that row for --hover-ms
              (`debug.pointer_hover`, the sidebar's hover path), as a person's pointer does before a click
 Each click case also samples the app's footprint (every process of the bundle) before its first round and
@@ -122,6 +125,8 @@ parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
 parser.add_argument("--cases", default="click,click_again,sidebar,reopen,subagent,big,bloated,restore")
 parser.add_argument("--hover-ms", type=float, default=300,
                     help="click_hover: how long the pointer rests on the row before the click")
+parser.add_argument("--release-wait", type=float, default=150,
+                    help="click_released: the most seconds to wait for the left chat's page to let go")
 parser.add_argument("--trace-clicks", action="store_true",
                     help="click cases: also arm the app's chat-open trace before each click (`trace` in the record: its marks, "
                          "from the arm, about 120 ms before the click, and the surfaces the pane showed)")
@@ -159,7 +164,7 @@ if opts.capture_check:
 APP = os.path.realpath(opts.app.rstrip("/"))
 CONDITIONS = [c.strip() for c in opts.conditions.split(",") if c.strip()]
 CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
-CLICK_CASES = ("click", "click_again", "click_hover")
+CLICK_CASES = ("click", "click_again", "click_released", "click_hover")
 # The click cases go first in a condition: each makes a sidebar row, and a row below the sidebar's fold can't be clicked.
 CASES = [c for c in CASES if c in CLICK_CASES] + [c for c in CASES if c not in CLICK_CASES]
 # subagent_column clicks three of one chat's subagents.
@@ -394,6 +399,8 @@ def seed(root):
             if "relaunched" in CASES else [],
             "click": [copy_chat(home, small, f"Click {condition} {i}") for i in range(opts.runs)],
             "click_again": [copy_chat(home, small, f"Click again {condition} {i}") for i in range(opts.runs)],
+            "click_released": [copy_chat(home, small, f"Click released {condition} {i}") for i in range(opts.runs)]
+            if "click_released" in CASES else [],
             "click_hover": [copy_chat(home, small, f"Click hover {condition} {i}") for i in range(opts.runs)],
             "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)],
             "subagent_column": [copy_chat(home, sub, f"Subagent column {condition} {i}") for i in range(opts.runs)]
@@ -853,14 +860,34 @@ def frame_click(run, key, label, keep=False):
     return record
 
 
+def chat_pages(run):
+    """The tabs whose chat has a page now (`debug.surfaces`: the agent tab store's views). A prewarmed page that
+    no tab took is not one of them."""
+    return set(((run.rpc("debug.surfaces") or {}).get("hibernation") or {}).get("chat_pages") or [])
+
+
+def wait_released(run, pages):
+    """Waits until none of `pages` has a page (the hidden chat's page let go). The seconds it took, or None when
+    --release-wait ran out."""
+    started = time.monotonic()
+    while time.monotonic() - started < opts.release_wait:
+        if not pages & chat_pages(run):
+            return round(time.monotonic() - started, 1)
+        time.sleep(1)  # test script: the hidden page lets go about a minute after it was left
+    return None
+
+
 def measure_click(run, case, session, base, label, index=0):
     """One click case: the chat's workspace made in the background (`click`), or shown once and left
-    (`click_again`), or made in the background and its row hovered for --hover-ms (`click_hover`), then a click on
-    its row from the workspace `base`, which shows no chat."""
+    (`click_again`), or shown once and left until its page let go (`click_released`), or made in the background
+    and its row hovered for --hover-ms (`click_hover`), then a click on its row from the workspace `base`, which
+    shows no chat."""
     key, row, error = background_row(run, session)
     if error:
         return {"error": error, "row": row}
-    if case == "click_again":
+    released_s = None
+    if case in ("click_again", "click_released"):
+        pages_before = chat_pages(run) if case == "click_released" else set()
         run.app.action("goToWorkspace", focus=True, workspace=key)
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
@@ -869,8 +896,17 @@ def measure_click(run, case, session, base, label, index=0):
                 break
             time.sleep(0.3)  # test script: waiting for the chat to show
         time.sleep(1.5)  # test script: let the page's own reads finish before it is left
+        own_pages = chat_pages(run) - pages_before if case == "click_released" else set()
         run.app.action("goToWorkspace", focus=True, workspace=base)
         time.sleep(1)  # test script: the page hands its tail over as it leaves
+        if case == "click_released":
+            # The click measures a return only when the chat's page is gone: a page that is still there is
+            # `click_again`.
+            if not own_pages:
+                return {"error": "the shown chat's page is not in `debug.surfaces` chat_pages: its release can't be seen", "row": row}
+            released_s = wait_released(run, own_pages)
+            if released_s is None:
+                return {"error": f"the left chat's page did not let go in {opts.release_wait:g} s", "row": row}
     else:
         time.sleep(0.5)  # test script: the new row settles (its own motion is not the chat's)
         # Still not selected right before the click, after the settle (a late auto-select would leave the click
@@ -888,6 +924,8 @@ def measure_click(run, case, session, base, label, index=0):
     armed = run.rpc("debug.chat_open_trace", {"action": "arm"}) if opts.trace_clicks else None
     record = frame_click(run, key, label, keep=index < opts.keep_frames)
     record["workspace"] = key
+    if released_s is not None:
+        record["released_after_s"] = released_s
     if armed is not None:
         trace = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 5000, "settle_ms": 100,
                                                   "page_timing": True}, timeout=30) or {}
@@ -983,7 +1021,9 @@ def main():
                 records = []
                 # Each click round leaves its chat's page kept (hidden, mounted): the app's footprint before
                 # and after the case, over the rounds, is the memory one kept chat costs.
-                memory_before = bm.sample(run.pid, APP, f"{condition}-{case}-before", 0) if case in CLICK_CASES and run.pid else None
+                # (not `click_released`: its earlier rounds' pages let go while a later round waits.)
+                memory_before = bm.sample(run.pid, APP, f"{condition}-{case}-before", 0) \
+                    if case in CLICK_CASES and case != "click_released" and run.pid else None
                 for index in range(opts.runs):
                     if case in CLICK_CASES:
                         record = measure_click(run, case, sessions[condition][case][index], base, f"{condition}-{case}-{index}", index) \
