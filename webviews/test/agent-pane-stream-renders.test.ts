@@ -54,8 +54,19 @@ await requireBrowserLane("agent-pane-stream-renders.test.ts", async () => {
       const { port } = vite!.httpServer!.address() as { port: number };
       await page.goto(`http://127.0.0.1:${port}/?mock`);
       await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
-      const seeded = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug.loadSeed(700))) as Record<string, any>;
+      // As bench/delta-renders.bench.ts sets it up: a light chat opened whole, with Session Info shown,
+      // whose usage readers a status update reaches.
+      const seeded = (await page.evaluate(() =>
+        (window as any).cmuxAcpmuxDebug.loadSeed(700, { light: true }),
+      )) as Record<string, any>;
       expect(seeded.error).toBeUndefined();
+      await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }));
+      const toggle = page.locator("button.acpmux-session-info-toggle").first();
+      await toggle.waitFor({ timeout: 10_000 });
+      if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
+      await page.waitForFunction(
+        () => document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") === "shown",
+      );
       const run = (await page.evaluate(
         (kind) =>
           (window as any).cmuxAcpmuxDebug.loadRun({
@@ -98,9 +109,12 @@ await requireBrowserLane("agent-pane-stream-renders.test.ts", async () => {
       }
       // The streaming row drew the stream.
       expect(busiest[1]).toBeGreaterThan(20);
-      // The transcript renders when a row's height changes (a new line every few chunks), never once
-      // per chunk.
-      expect(report.transcript, `transcript renders during a ${kind} stream`).toBeLessThan(STRUCTURAL + run.deltas / 2);
+      // The transcript renders when a row's height changes (a new line, which the reply's reveal
+      // moves frame by frame), never for the chunk itself: before, each chunk rendered it about twice
+      // (bench/delta-renders.bench.ts: 1.9 to 2.2 per chunk), once to copy its rows.
+      expect(report.transcript, `transcript renders during a ${kind} stream`).toBeLessThanOrEqual(
+        STRUCTURAL + run.deltas,
+      );
       expect(report.composer, `composer renders during a ${kind} stream`).toBeLessThanOrEqual(STRUCTURAL);
       // The live line under the reply stays shown while it streams, reading "Writing": it never
       // leaves and comes back (Leo, 2026-11-04: "it appears and disappears????").
