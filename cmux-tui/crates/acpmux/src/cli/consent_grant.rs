@@ -977,17 +977,18 @@ pub(crate) fn screen_auto(
             && line["viewer"].as_str() == Some(id.as_str())
             && line["at"].as_u64().is_some_and(|at| now.saturating_sub(at) < AUTO_ALLOW_LOG_MS)
     });
-    if !recent && authority.prepare().is_ok() {
-        if let Ok(_lock) = lock_waiting(authority) {
-            let mut line = Map::new();
-            line.insert("at".into(), json!(now));
-            line.insert("event".into(), json!("auto_allow"));
-            line.insert("surface".into(), json!(surface));
-            line.insert("viewer".into(), json!(id));
-            put(&mut line, "name", viewer.name.as_deref());
-            line.insert("source".into(), json!(source));
-            let _ = append_log(authority.root(), Value::Object(line));
-        }
+    if !recent
+        && authority.prepare().is_ok()
+        && let Ok(_lock) = lock_waiting(authority)
+    {
+        let mut line = Map::new();
+        line.insert("at".into(), json!(now));
+        line.insert("event".into(), json!("auto_allow"));
+        line.insert("surface".into(), json!(surface));
+        line.insert("viewer".into(), json!(id));
+        put(&mut line, "name", viewer.name.as_deref());
+        line.insert("source".into(), json!(source));
+        let _ = append_log(authority.root(), Value::Object(line));
     }
     json!({"allowed": true, "source": source})
 }
