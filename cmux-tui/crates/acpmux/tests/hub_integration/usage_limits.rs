@@ -1,6 +1,7 @@
 //! A Claude chat's plan usage limits (`claude_stdio/usage_limits.rs`): Claude Code's
 //! `rate_limit_event` lines become the session detail's `usageLimits` and a
-//! `session_info_update` with `_meta.acpmux.usageLimits`, for the pane's Context card.
+//! `session_info_update` with `_meta.acpmux.usageLimits`, for the pane's Context card, and the
+//! list row's `usageLimits`.
 
 use super::*;
 
@@ -25,6 +26,17 @@ async fn a_claude_chat_keeps_its_accounts_usage_limits() {
     ]});
     let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert_eq!(info["usageLimits"], want, "{info}");
+    // The list row carries them too: the daemon's chat list (and the extensions' usage meter)
+    // reads them without a detail read per chat.
+    let list = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
+    let row = list["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["sessionId"] == id.as_str())
+        .cloned()
+        .unwrap();
+    assert_eq!(row["usageLimits"], want, "{row}");
     let sent: Vec<Value> = hub
         .events(&id, 0, 10_000)
         .unwrap()

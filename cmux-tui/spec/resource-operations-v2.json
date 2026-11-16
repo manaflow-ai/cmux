@@ -15704,6 +15704,39 @@
             }
           },
           "description": "The pull request URLs it opened, oldest first."
+        },
+        "family": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The agent family its harness belongs to (claude, codex, gemini, ...), which names the provider whose plan it spends; null when acpmux does not know."
+        },
+        "usage": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "Its spend as its harness recorded it, subagents included: {tokens_24h, cost_usd_24h (list prices), calls_24h, context_tokens, context_window}, each a number or null when acpmux could not read it whole; null until acpmux found the harness's records (Claude Code and Codex only)."
+        },
+        "limits": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The plan limits of the account it runs on, as its harness last reported them: {plan, windows: [{id, used_percent (0-100), resets_at (unix seconds or null)}]}; id session is the 5-hour window, weekly the week. Null before the harness reported any (an API key reports none)."
         }
       },
       "extra": false
