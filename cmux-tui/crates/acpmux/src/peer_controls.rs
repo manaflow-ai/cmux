@@ -89,9 +89,9 @@ impl Peer {
         let mut expected = 0;
         loop {
             if page.to_string().len() > PAGE
-                || page["stream"] != stream
-                || page["phase"] != "snapshot"
-                || page["page"].as_u64() != Some(expected)
+                || page.get("stream").and_then(Value::as_str) != Some(stream.as_str())
+                || page.get("phase").and_then(Value::as_str) != Some("snapshot")
+                || page.get("page").and_then(Value::as_u64) != Some(expected)
             {
                 return Err(RpcError::invalid_params("invalid controls snapshot page"));
             }
@@ -109,7 +109,7 @@ impl Peer {
                 break;
             }
             expected += 1;
-            if page["next"].as_u64() != Some(expected) {
+            if page.get("next").and_then(Value::as_u64) != Some(expected) {
                 return Err(RpcError::invalid_params("controls cursor did not advance"));
             }
             page = self
@@ -128,7 +128,9 @@ impl Peer {
         let ready = self
             .link_request_on(METHOD, json!({"stream": stream, "live": true}), Some(link))
             .await?;
-        if ready["stream"] != stream || ready["phase"] != "live" {
+        if ready.get("stream").and_then(Value::as_str) != Some(stream.as_str())
+            || ready.get("phase").and_then(Value::as_str) != Some("live")
+        {
             return Err(crate::server::controls::resync_error());
         }
         Ok(())
@@ -151,8 +153,8 @@ impl Peer {
         open.ready_request = None;
         if !self.watch_active()
             && let Ok(reply) = reply
-            && reply["phase"] == "live"
-            && reply["ready"] == true
+            && reply.get("phase").and_then(Value::as_str) == Some("live")
+            && reply.get("ready").and_then(Value::as_bool) == Some(true)
             && reply.get("stream").and_then(Value::as_str) == open.stream.as_deref()
             && self.link_epoch() == link
             && self.served_as().as_deref() == Some("peer")
@@ -171,13 +173,14 @@ impl Peer {
             if value.get("stream").and_then(Value::as_str) != open.stream.as_deref() {
                 return Ok(());
             }
-            if value["phase"] == "resync" {
+            let phase = value.get("phase").and_then(Value::as_str);
+            if phase == Some("resync") {
                 open.changed.send_modify(|n| *n += 1);
-            } else if value["phase"] != "change" {
+            } else if phase != Some("change") {
                 return Err(RpcError::invalid_params("unknown controls phase"));
             }
         }
-        if value["phase"] == "resync" {
+        if value.get("phase").and_then(Value::as_str) == Some("resync") {
             // Until cut E the legacy watch is authoritative for client notices. Controls only
             // advance their snapshot generation alongside it.
             if self.watch_active() {
@@ -191,26 +194,36 @@ impl Peer {
                 )
                 .await;
         }
-        self.apply_control(link, &value["entry"]).await
+        let entry = value
+            .get("entry")
+            .ok_or_else(|| RpcError::invalid_params("controls change has no entry"))?;
+        self.apply_control(link, entry).await
     }
 
     async fn apply_control(&self, link: u64, entry: &Value) -> Result<(), RpcError> {
-        if entry["kind"] == "ready" {
+        if entry.get("kind").and_then(Value::as_str) == Some("ready") {
             return Ok(());
         }
         let (session, permission) =
             ask_key(entry).ok_or_else(|| RpcError::invalid_params("invalid controls ask key"))?;
-        let value = &entry["value"];
+        let value = entry
+            .get("value")
+            .ok_or_else(|| RpcError::invalid_params("controls ask has no value"))?;
         let terminal = entry.get("end").and_then(Value::as_str);
+        let session_id = value.get("sessionId").and_then(Value::as_str);
+        let kind = value.get("kind").and_then(Value::as_str);
+        let permission_id = value.pointer("/msg/permissionId").and_then(Value::as_str);
         if terminal.is_some()
             && terminal != Some("gone")
-            && (value["sessionId"] != session
-                || value["kind"] != "permission_decision"
-                    && value["kind"] != "permission_auto"
-                    && value["kind"] != "permission_withdrawn"
-                    && value["kind"] != "permission_resolved"
-                || value.pointer("/msg/permissionId").and_then(Value::as_str)
-                    != Some(permission.as_str()))
+            && (session_id != Some(session.as_str())
+                || !matches!(
+                    kind,
+                    Some("permission_decision")
+                        | Some("permission_auto")
+                        | Some("permission_withdrawn")
+                        | Some("permission_resolved")
+                )
+                || permission_id != Some(permission.as_str()))
         {
             return Err(RpcError::invalid_params(
                 "control terminal does not belong to this owner run",
@@ -218,8 +231,8 @@ impl Peer {
         }
         if !value.is_null()
             && terminal.is_none()
-            && (value["sessionId"] != session
-                || value["permissionId"] != permission
+            && (session_id != Some(session.as_str())
+                || value.get("permissionId").and_then(Value::as_str) != Some(permission.as_str())
                 || value.get("personInstance").and_then(Value::as_str)
                     != self.person_instance().as_deref()
                 || value.get("decisionNonce").and_then(Value::as_str).is_none_or(str::is_empty))
@@ -289,7 +302,7 @@ impl Peer {
 }
 
 fn ask_key(entry: &Value) -> Option<Key> {
-    if entry["kind"] != "asks" {
+    if entry.get("kind").and_then(Value::as_str) != Some("asks") {
         return None;
     }
     let key = entry.get("key")?.as_array()?;

@@ -282,15 +282,50 @@ impl Controls {
         };
         let entry = if entry.get("end").is_none() && entry.to_string().len() > PAGE / 2 {
             CUTS.fetch_add(1, Ordering::Relaxed);
-            let value = &entry["value"];
-            json!({"kind": "asks", "key": entry["key"], "cut": true, "value": {
-                "sessionId": value["sessionId"],
-                "permissionId": value["permissionId"],
-                "personInstance": value["personInstance"],
-                "decisionNonce": value["decisionNonce"],
-                "parent": value["parent"],
-                "handle": value["handle"],
-                "label": value["label"],
+            let Some(value) = entry.get("value") else {
+                self.resync(conn, "ask_missing_value");
+                return;
+            };
+            let Some(key) = entry.get("key") else {
+                self.resync(conn, "ask_missing_key");
+                return;
+            };
+            let Some(session_id) = value.get("sessionId").cloned() else {
+                self.resync(conn, "ask_missing_fields");
+                return;
+            };
+            let Some(permission_id) = value.get("permissionId").cloned() else {
+                self.resync(conn, "ask_missing_fields");
+                return;
+            };
+            let Some(person_instance) = value.get("personInstance").cloned() else {
+                self.resync(conn, "ask_missing_fields");
+                return;
+            };
+            let Some(decision_nonce) = value.get("decisionNonce").cloned() else {
+                self.resync(conn, "ask_missing_fields");
+                return;
+            };
+            let Some(parent) = value.get("parent").cloned() else {
+                self.resync(conn, "ask_missing_fields");
+                return;
+            };
+            let Some(handle) = value.get("handle").cloned() else {
+                self.resync(conn, "ask_missing_fields");
+                return;
+            };
+            let Some(label) = value.get("label").cloned() else {
+                self.resync(conn, "ask_missing_fields");
+                return;
+            };
+            json!({"kind": "asks", "key": key, "cut": true, "value": {
+                "sessionId": session_id,
+                "permissionId": permission_id,
+                "personInstance": person_instance,
+                "decisionNonce": decision_nonce,
+                "parent": parent,
+                "handle": handle,
+                "label": label,
             }})
         } else {
             entry

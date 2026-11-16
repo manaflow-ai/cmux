@@ -1896,8 +1896,6 @@ async fn serve_connection_from(
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
                     let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
-                    let controls_ready =
-                        m == controls::METHOD && result.is_ok() && conn.controls.ready();
                     // A shared session list, sent already as the bytes it was serialized to.
                     if !(sent.is_some() && result.is_ok()) {
                         let answer = result.map_err(|mut e| {
@@ -1912,8 +1910,8 @@ async fn serve_connection_from(
                     }
                     // A Mac that lends GitHub counts from here: its watch answer is queued, so
                     // no action reaches it before the answer that opens its side.
-                    if (watched && conn.watch_all.load(Ordering::SeqCst)
-                        || (controls_ready && conn.controls.ready()))
+                    if watched
+                        && conn.watch_all.load(Ordering::SeqCst)
                         && conn.client_requests.lends_github.load(Ordering::SeqCst)
                     {
                         hub.add_github_owner(&conn);
