@@ -363,11 +363,14 @@ fn run_agent(mut cfg: Config) -> u8 {
     // operator's `cmux host update check` or the guard queued is done, so the
     // Cloud role's binds may go out again (updater/gate.rs). Before any role
     // starts, so before the first bind.
-    if cfg.paths.is_system_root() {
-        crate::updater::gate::Gate::new(&cfg.paths).service_started();
-    }
+    // When this start is that queued restart, the Cloud role reports the machine degraded
+    // until the restarted session host answers (cloud/session.rs `Session::after_restart`).
+    let restarted = cfg.paths.is_system_root()
+        && crate::updater::gate::Gate::new(&cfg.paths)
+            .service_started_at(crate::cloud::role::wall_ms());
     let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone())
-        .with_root_bootstrap(bootstrap.clone());
+        .with_root_bootstrap(bootstrap.clone())
+        .after_queued_restart(restarted);
     // The updater is last: it starts once every other role runs, and it
     // stops first.
     let updater = crate::updater::role::UpdaterRole::new(cfg.paths.clone());

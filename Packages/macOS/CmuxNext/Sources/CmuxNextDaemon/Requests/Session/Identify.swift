@@ -26,6 +26,9 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     public var machinePlatform: MachineCatalogPlatform?
     /// Machine-level capabilities, distinct from the protocol feature names above.
     public var machineCapabilities: [String]
+    /// The SF Symbol of the kind of device the owner runs on (`machine_symbol`: `macmini`,
+    /// `server.rack`; cmux-device-kind names it); nil on older daemons.
+    public var machineSymbol: String?
     /// The host name the daemon runs on (`session-identity-v1`); nil on older daemons.
     public var machineName: String?
     /// Authenticated local screen worker UUID; independent of machine, mesh, and session IDs.
@@ -113,6 +116,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         case sessionResourceID = "session_resource_id"
         case machinePlatform = "machine_platform"
         case machineCapabilities = "machine_capabilities"
+        case machineSymbol = "machine_symbol"
         case machineName = "machine_name"
         case screenDeviceID = "screen_device_id"
         case workspaceRevision = "workspace_revision"
@@ -140,6 +144,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
             .flatMap { $0.isEmpty ? nil : ResourceID(rawValue: $0) }
         machinePlatform = try c.decodeIfPresent(MachineCatalogPlatform.self, forKey: .machinePlatform)
         machineCapabilities = try c.decodeIfPresent([String].self, forKey: .machineCapabilities) ?? []
+        machineSymbol = (try? c.decodeIfPresent(String.self, forKey: .machineSymbol)).flatMap { $0 }.flatMap { $0.isEmpty ? nil : $0 }
         machineName = try c.decodeIfPresent(String.self, forKey: .machineName).flatMap { $0.isEmpty ? nil : $0 }
         screenDeviceID = Self.normalizedScreenDeviceID(try c.decodeIfPresent(String.self, forKey: .screenDeviceID))
         generation = try c.decode(DaemonGeneration.self, forKey: .generation)

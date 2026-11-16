@@ -55,6 +55,157 @@ with open(tmp, "w") as f:
     json.dump({"bytes": n, "seconds": t1 - t0, "cols": cols, "rows": rows}, f)
 os.rename(tmp, result)
 '''
+# --breakdown: where each burst's time goes. For every process of the terminal (the app, its daemon and terminal
+# hosts, or Ghostty), over one window in the middle of the burst: its CPU and each of its threads' CPU (two `ps` reads,
+# so a host that exits with its tab still counts), and one `sample` of it, summed by top-of-stack symbol with the idle
+# waits left out. The stage that caps the rate shows as a thread near 100 %, and its symbols say what it does.
+IDLE_FRAMES = ("__psynch_cvwait", "semaphore_wait_trap", "semaphore_timedwait_trap", "kevent", "kevent64", "kevent_id",
+               "mach_msg2_trap", "mach_msg_trap", "__workq_kernreturn", "__accept", "__recvfrom", "__recvmsg", "poll",
+               "__select", "__semwait_signal", "waitid", "__wait4", "__psynch_mutexwait", "__ulock_wait",
+               "__ulock_wait2", "__sigsuspend", "read", "start_wqthread", "thread_start", "__open_nocancel")
+
+
+def cpu_time_seconds(text):
+    """Seconds in a `ps` CPU time: [D-][[H:]M:]S.ss (pure); None when it is not one."""
+    days, _, clock = text.rpartition("-")
+    seconds = 0.0
+    try:
+        for field in clock.split(":"):
+            seconds = seconds * 60 + float(field)
+        return seconds + float(days or 0) * 86400
+    except ValueError:
+        return None
+
+
+def ps_cpu_seconds(text):
+    """{pid: (cpu seconds, command)} from `ps -axo pid=,time=,command=` (pure)."""
+    procs = {}
+    for line in text.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3 or not parts[0].isdigit():
+            continue
+        seconds = cpu_time_seconds(parts[1])
+        if seconds is not None:
+            procs[int(parts[0])] = (seconds, parts[2])
+    return procs
+
+
+def ps_thread_seconds(text):
+    """Each thread's CPU seconds (system + user), in `ps -M -p PID` order (pure). Its rows end with STIME UTIME (and
+    the command on the first row); the header and anything without two CPU times are skipped."""
+    import re
+    times = []
+    for line in text.splitlines()[1:]:
+        found = re.findall(r"(?<![\w.:-])(?:\d+-)?(?:\d+:)?\d+:\d+\.\d+(?![\w.:])", line)
+        if len(found) >= 2:
+            times.append(sum(cpu_time_seconds(t) or 0.0 for t in found[:2]))
+    return times
+
+
+def terminal_processes(match):
+    """{pid: (cpu seconds, command)} of the processes whose command `match` accepts."""
+    got = subprocess.run(["ps", "-axo", "pid=,time=,command="], capture_output=True, text=True)
+    return {pid: v for pid, v in ps_cpu_seconds(got.stdout).items() if match(v[1]) and pid != os.getpid()}
+
+
+def threads_of(pid):
+    got = subprocess.run(["ps", "-M", "-p", str(pid)], capture_output=True, text=True)
+    return ps_thread_seconds(got.stdout)
+
+
+def process_label(pid, command):
+    """A process's name for the report (pure): its path inside an app bundle (`MacOS/cmux`,
+    `Resources/bin/cmux-tui __terminal-host`) or its file name, its first plain argument, and its pid. Bundle paths
+    hold spaces, so the command is cut at the bundle, not at the first space."""
+    marker = ".app/Contents/"
+    at = command.rfind(marker)
+    rest = command[at + len(marker):] if at >= 0 else command
+    argv = rest.split()
+    name = argv[0] if at >= 0 and argv else os.path.basename(argv[0]) if argv else "?"
+    sub = next((a for a in argv[1:3] if not a.startswith("-")), "")
+    return f"{name} {sub}".strip() + f" [{pid}]"
+
+
+def sample_summary(text, top=20):
+    """The heaviest top-of-stack symbols from `sample` output with the idle waits left out, and their share of the
+    samples of the busiest thread's worth (pure): `samples_per_thread` is one thread's sample count, so a symbol at
+    that count is one core's time."""
+    import re
+    per_thread, heavy, in_top = 0, [], False
+    for line in text.splitlines():
+        m = re.match(r"^    (\d+) Thread_\d+", line)
+        if m:
+            per_thread = max(per_thread, int(m.group(1)))
+            continue
+        if line.startswith("Sort by top of stack"):
+            in_top = True
+            continue
+        if in_top:
+            m = re.match(r"^\s+(.+?)\s+(\d+)\s*$", line)
+            if m:
+                symbol = " ".join(m.group(1).split())
+                if symbol.split(" (in ")[0] not in IDLE_FRAMES and len(heavy) < top:
+                    heavy.append([symbol[:140], int(m.group(2))])
+            elif not line.strip() and heavy:
+                in_top = False
+    busy = sum(n for _, n in heavy)
+    return {"samples_per_thread": per_thread, "busy_cores": round(busy / per_thread, 2) if per_thread else None,
+            "top_of_stack": heavy}
+
+
+class Breakdown:
+    """One burst's per-process and per-thread CPU over a window mid-burst, and a sample of each process."""
+
+    def __init__(self, match, out_dir, label, delay=0.5, seconds=1):
+        self.match, self.out_dir, self.label, self.delay, self.seconds = match, out_dir, label, delay, seconds
+        self.window = None
+        self.timer = __import__("threading").Thread(target=self._measure, daemon=True)
+        self.timer.start()
+
+    def _measure(self):
+        time.sleep(self.delay)  # test harness: the window starts once the burst is under way
+        before = terminal_processes(self.match)
+        threads_before = {pid: threads_of(pid) for pid in before}
+        started = time.monotonic()
+        samplers = []
+        for pid, (_, command) in before.items():
+            path = os.path.join(self.out_dir, f"sample-{self.label}-{pid}.txt")
+            samplers.append((pid, command, path, subprocess.Popen(
+                ["/usr/bin/sample", str(pid), str(self.seconds), "-mayDie", "-file", path],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)))
+        for _, _, _, proc in samplers:
+            try:
+                proc.wait(self.seconds + 30)
+            except subprocess.TimeoutExpired:
+                proc.terminate()  # the sampler this script started
+        wall = time.monotonic() - started
+        after = terminal_processes(self.match)
+        procs = {}
+        for pid, (seconds, command) in before.items():
+            entry = {"cpu_pct": None, "threads_pct": []}
+            if pid in after:
+                entry["cpu_pct"] = round(100 * (after[pid][0] - seconds) / wall, 1)
+                now = threads_of(pid)
+                then = threads_before.get(pid, [])
+                if len(now) >= len(then):
+                    busy = sorted((100 * (b - a) / wall for a, b in zip(then, now)), reverse=True)
+                    entry["threads_pct"] = [round(p, 1) for p in busy[:4]]
+            path = next((p for q, _, p, _ in samplers if q == pid), None)
+            if path and os.path.exists(path):
+                with open(path, errors="replace") as f:
+                    entry["sample"] = sample_summary(f.read())
+            if entry["cpu_pct"] is None or entry["cpu_pct"] >= 2 or entry.get("sample", {}).get("top_of_stack"):
+                procs[process_label(pid, command)] = entry
+        self.window = {"window_s": round(wall, 2), "processes": procs}
+
+    def finish(self, burst_seconds):
+        self.timer.join(timeout=60)
+        result = {"burst_s": round(burst_seconds, 3) if burst_seconds else None,
+                  **(self.window or {"error": "the window did not finish"})}
+        print("TERMINAL-THROUGHPUT-BREAKDOWN " + json.dumps({"terminal": self.label, **result}), flush=True)
+        return result
+
+
 
 
 def payload_block(seed=571, size=1 << 20):
@@ -132,12 +283,16 @@ def measure_next(opts, writer, payload, scratch):
         for i, limit in plan:
             result = os.path.join(scratch, f"next-{i}.json")
             cmd = " ".join(shlex.quote(a) for a in ["/usr/bin/python3", "-I", writer, payload, result, str(limit)])
+            probe = (Breakdown(lambda c: opts.app in c or "cmux-tui" in c or "acpmux" in c or writer in c, opts.out,
+                               f"next-{i}") if opts.breakdown and i != "warmup" else None)
             reply = app.rpc("action.run", {"action": "newTab", "args": {"name": f"throughput-{i}", "focus": True,
                                                                          "command": cmd}})
             if isinstance(reply, dict) and reply.get("error"):
                 out["error"] = f"newTab: {reply['error']}"
                 break
             res = wait_result(result, opts.timeout, alive=lambda: app.process.poll() is None)
+            if probe:
+                out.setdefault("breakdown", []).append(probe.finish((res or {}).get("seconds")))
             if i == "warmup":
                 out["warmup"] = run_record("next-warmup", 0, res)
                 continue
@@ -205,9 +360,13 @@ def measure_ghostty(opts, writer, payload, scratch, grid):
                 "--quit-after-last-window-closed=true", "--confirm-close-surface=false", "--window-save-state=never",
                 "--auto-update=off", f"--window-width={cols}", f"--window-height={rows}"]
         log = open(os.path.join(opts.out, f"ghostty-{i}.log"), "w")
+        probe = (Breakdown(lambda c: app in c or writer in c, opts.out, f"ghostty-{i}", delay=0.8)
+                 if opts.breakdown and i != "warmup" else None)
         proc = subprocess.Popen(argv, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             res = wait_result(result, opts.timeout, alive=lambda: proc.poll() is None)
+            if probe:
+                out.setdefault("breakdown", []).append(probe.finish((res or {}).get("seconds")))
         finally:
             try:
                 proc.wait(15)  # it quits once its last window closes
@@ -251,6 +410,8 @@ def main(argv=None):
     parser.add_argument("--timeout", type=float, default=240)
     parser.add_argument("--ghostty-app")
     parser.add_argument("--no-ghostty", action="store_true")
+    parser.add_argument("--breakdown", action="store_true",
+                        help="per burst: CPU per process and a mid-burst sample of each (TERMINAL-THROUGHPUT-BREAKDOWN)")
     opts = parser.parse_args(argv)
     os.makedirs(opts.out, exist_ok=True)
     scratch = tempfile.mkdtemp(prefix="tput.", dir="/private/tmp" if os.path.isdir("/private/tmp") else None)

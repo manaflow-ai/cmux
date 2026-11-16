@@ -191,7 +191,7 @@ extension AppServices {
     }
 
     func registerMacScreenDebug(on router: ControlRouter?) {
-        macScreenPages.registerDebug(on: router) { [weak self] record, key in self?.openDebugMacScreen(record, pane: key, byPerson: false) ?? "no pane" }
+        macScreenPages.registerControl(on: router) { [weak self] record, key in self?.openDebugMacScreen(record, pane: key, byPerson: false) ?? "no pane" }
     }
 
     var cmuxRemoteActions: CmuxRemoteActionEnvironment {

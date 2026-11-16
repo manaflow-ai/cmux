@@ -679,7 +679,7 @@ struct AgentChatJumpButton: View {
                         }
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
                 .accessibilityLabel("Jump to bottom")
             }
@@ -730,7 +730,7 @@ public struct AgentChatBottomStack: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .glassEffect(.regular, in: .capsule)
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")

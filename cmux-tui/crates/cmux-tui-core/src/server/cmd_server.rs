@@ -95,6 +95,12 @@ pub(super) fn identify(
         identity.insert("machine_id", json!(mux.machine_public_id));
         identity.insert("session_resource_id", json!(mux.session_public_id));
         identity.insert("machine_platform", crate::resource_api::machine_platform());
+        // What kind of device this machine is and the SF Symbol that kind draws
+        // (`cmux-device-kind`): the sidebar's machine header, hover card and remote headers
+        // draw the symbol by this name.
+        let device = cmux_device_kind::this_device().kind;
+        identity.insert("machine_device", json!(device.as_str()));
+        identity.insert("machine_symbol", json!(device.symbol()));
         identity.insert("machine_capabilities", crate::resource_api::machine_capabilities());
         // The worker's independently generated screen UUID is intentionally
         // separate from the daemon machine ID. It is read only from the

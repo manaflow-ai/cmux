@@ -215,6 +215,7 @@ public final class DeviceHubService {
         case .secureEnclaveUnavailable: return "device_identity_secure_enclave_unavailable"
         case let .keychain(status): return "device_identity_keychain_\(status)"
         case .corruptKeyBlob: return "device_identity_corrupt_key_blob"
+        case .rulesUnanswered: return "device_identity_rules_unanswered"
         case nil: return "device_identity_unavailable"
         }
     }

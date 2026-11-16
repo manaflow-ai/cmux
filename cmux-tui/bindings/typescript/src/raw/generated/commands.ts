@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d20a4715e13a8a5b7d7053b4f80ffb3e9fe841232c9f51d95d1862e647386666. */
+/* cmux-tui mux protocol 12, IR 725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5. */
 
 
 import type * as T from "./types.js";
@@ -2756,6 +2756,13 @@ export interface TerminalClipboardSubscribeRequest extends CmuxRequestBase {
   "terminal_ids": Array<string>;
 }
 
+/** Protocol v12; authority: control. */
+export interface TerminalCommandContextRequest extends CmuxRequestBase {
+  cmd: "terminal-command-context";
+  "intent"?: T.TerminalCommandContextIntent;
+  "surface": T.Id;
+}
+
 /** Protocol v9; authority: control. */
 export interface TerminalEventsRequest extends CmuxRequestBase {
   cmd: "terminal-events";
@@ -3307,6 +3314,7 @@ export type CmuxRequest =
   | SwapPaneRequest
   | TerminalClipboardReplyRequest
   | TerminalClipboardSubscribeRequest
+  | TerminalCommandContextRequest
   | TerminalEventsRequest
   | TerminalHistoryRequest
   | TerminalLastCommandRequest
@@ -5500,6 +5508,14 @@ export interface CmuxCommandDefinitionMap {
     since: 12;
     capability: "terminal-clipboard-read-v1";
     stream: "subscribe";
+  };
+  "terminal-command-context": {
+    request: TerminalCommandContextRequest;
+    result: T.TerminalCommandContextResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-command-context-v1";
+    stream: null;
   };
   "terminal-events": {
     request: TerminalEventsRequest;

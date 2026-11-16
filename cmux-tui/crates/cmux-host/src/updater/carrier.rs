@@ -1,9 +1,15 @@
 //! The carrier hold (pure): an update waits while a person's carrier
 //! session is attached to the session host, for at most [`CARRIER_MAX_HOLD`].
 //!
-//! A restart of `cmux-host.service` restarts the session host, which ends
-//! every carrier session on it: the Mac's chat or terminal drops and has to
-//! dial again. The relay chat's busy count did this job before the carrier
+//! A restart of `cmux-host.service` (`KillMode=process`) restarts only the
+//! supervisor: the session host keeps running, and the new supervisor
+//! adopts it. When the flip changed the build, the supervisor then replaces
+//! the old-build session host (SIGTERM handoff: terminals and agents
+//! survive, an attached Mac link drops and redials), but only once no
+//! carrier session is attached, after 10 min with no input on them, or 24 h
+//! after the flip, whichever comes first ([`crate::machine::ReplaceWhy`]).
+//! This hold keeps the flip itself from landing on a busy session so that
+//! replacement is usually at once. The relay chat's busy count did this job before the carrier
 //! cut (#37210) and went with it, so nothing held an update for a carrier
 //! session, and a link that came up during a connect hold was cut when the
 //! hold ran out (production start runs, 2026-11-08: the flips came 5:01 to
@@ -56,6 +62,24 @@ pub fn attached_sessions_in(json: &str) -> Option<Vec<String>> {
         }
     }
     Some(attached)
+}
+
+/// The attached sessions in a `remote enroll connections --json` reply
+/// ([`attached_sessions_in`], which it validates the same way), and the
+/// least `input_idle_ms` among them: `None` when there are none or any one
+/// of them does not report it (a session host from before the field).
+pub fn attached_input_idle_in(json: &str) -> Option<(usize, Option<u64>)> {
+    let attached = attached_sessions_in(json)?.len();
+    let v: Value = serde_json::from_str(json.trim()).ok()?;
+    let idle = v
+        .as_array()?
+        .iter()
+        .filter(|c| {
+            matches!(c.get("state").and_then(Value::as_str), Some("connected" | "reconnecting"))
+        })
+        .map(|c| c.get("input_idle_ms").and_then(Value::as_u64))
+        .try_fold(u64::MAX, |least, ms| ms.map(|ms| least.min(ms)));
+    Some((attached, idle.filter(|_| attached > 0)))
 }
 
 /// What one look at the carrier sessions found.

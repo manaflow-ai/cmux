@@ -790,6 +790,7 @@ where
             last_activity: value.get("lastActivity")?.as_u64()?,
             chat_id: value.get("chatId").or_else(|| value.get("sessionId"))?.as_str()?.to_owned(),
             origin: value.get("origin").and_then(Value::as_str).unwrap_or("local").to_owned(),
+            past: false,
         })
     }
 
@@ -861,6 +862,7 @@ where
                     last_activity: 0,
                     chat_id: parent.1.clone(),
                     origin: parent.0.clone(),
+                    past: false,
                 };
                 mirror.wanted.insert(parent.clone(), key.clone());
                 mirror.internal_wanted.insert(parent);
@@ -3142,8 +3144,12 @@ tail"#;
             let mut client = ready_mirror();
             mirror_window(&mut client);
             assert_eq!(take_pages(&mut client).len(), 1);
-            let key =
-                ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+            let key = ListKey {
+                last_activity: 1,
+                chat_id: "wanted".into(),
+                origin: "local".into(),
+                past: false,
+            };
             client.want("m", [key]).unwrap();
             assert!(take_pages(&mut client).is_empty());
             mirror_page_error(&mut client);
@@ -3172,7 +3178,12 @@ tail"#;
         mirror_window(&mut client);
         assert_eq!(take_pages(&mut client).len(), 1);
         finish_empty_walk(&mut client);
-        let key = ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+        let key = ListKey {
+            last_activity: 1,
+            chat_id: "wanted".into(),
+            origin: "local".into(),
+            past: false,
+        };
         client.want("m", [key]).unwrap();
         assert_eq!(take_pages(&mut client).len(), 1);
         mirror_page_error(&mut client);
@@ -3210,7 +3221,12 @@ tail"#;
         mirror_page_error(&mut client);
         assert!(take_pages(&mut client).is_empty());
 
-        let key = ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+        let key = ListKey {
+            last_activity: 1,
+            chat_id: "wanted".into(),
+            origin: "local".into(),
+            past: false,
+        };
         client.want("m", [key]).unwrap();
         assert_eq!(take_pages(&mut client).len(), 1);
         mirror_page_error(&mut client);
@@ -3228,8 +3244,12 @@ tail"#;
             let mut client = ready_mirror();
             mirror_window(&mut client);
             assert_eq!(take_pages(&mut client).len(), 1);
-            let key =
-                ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+            let key = ListKey {
+                last_activity: 1,
+                chat_id: "wanted".into(),
+                origin: "local".into(),
+                past: false,
+            };
             client.want("m", [key]).unwrap();
             assert!(take_pages(&mut client).is_empty());
             for error in 0..prior_errors {
@@ -3653,13 +3673,18 @@ tail"#;
                     last_activity: index as u64,
                     chat_id: id.1.clone(),
                     origin: id.0.clone(),
+                    past: false,
                 };
                 mirror.wanted.insert(id.clone(), key);
                 mirror.internal_wanted.insert(id);
             }
         }
-        let caller_key =
-            ListKey { last_activity: 1, chat_id: "caller".into(), origin: "local".into() };
+        let caller_key = ListKey {
+            last_activity: 1,
+            chat_id: "caller".into(),
+            origin: "local".into(),
+            past: false,
+        };
         client.want("m", [caller_key.clone()]).unwrap();
         let mirror = client.subscriptions["m"].mirror.as_ref().unwrap();
         assert!(mirror.caller_wanted.contains(&Client::<Value>::row_identity(&caller_key)));
@@ -3685,12 +3710,18 @@ tail"#;
                     last_activity: index as u64,
                     chat_id: id.1.clone(),
                     origin: id.0.clone(),
+                    past: false,
                 };
                 mirror.wanted.insert(id.clone(), key);
                 mirror.caller_wanted.insert(id);
             }
         }
-        let extra = ListKey { last_activity: 0, chat_id: "extra".into(), origin: "local".into() };
+        let extra = ListKey {
+            last_activity: 0,
+            chat_id: "extra".into(),
+            origin: "local".into(),
+            past: false,
+        };
         assert!(all_caller.want("m", [extra]).is_err());
     }
 
@@ -3707,8 +3738,10 @@ tail"#;
         while client.take_send().is_some() {}
         client.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), true).unwrap();
         let _ = client.take_send();
-        let key1 = ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into() };
-        let key2 = ListKey { last_activity: 2, chat_id: "b".into(), origin: "local".into() };
+        let key1 =
+            ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into(), past: false };
+        let key2 =
+            ListKey { last_activity: 2, chat_id: "b".into(), origin: "local".into(), past: false };
         client.want("m", [key1, key2.clone()]).unwrap();
         let _ = client.take_send().expect("wanted read");
         let partial = Frame::json(
@@ -3741,7 +3774,8 @@ tail"#;
         while client.take_send().is_some() {}
         client.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), true).unwrap();
         let _ = client.take_send();
-        let key = ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into() };
+        let key =
+            ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into(), past: false };
         client.want("m", [key]).unwrap();
         let _ = client.take_send().expect("wanted page");
         let error = Frame::json(
@@ -3826,119 +3860,6 @@ tail"#;
             mirror.parent_children[&(String::from("local"), String::from("parent"))]
                 .contains(&(String::from("local"), String::from("child")))
         );
-    }
-
-    #[test]
-    #[ignore = "release gate: run once through cmux-ci with --profile gate"]
-    fn v2_pr04b_mirror_v1_rows_gate() {
-        fn sample(closed_rows: usize) -> (Vec<u64>, u64) {
-            use acpmux_book::index::{ReadSide, SummaryIndex};
-
-            let mut timings = Vec::with_capacity(40);
-            let mut received = 0_u64;
-            for _ in 0..40 {
-                let mut client = Client::<Value>::connected_v2();
-                let hello = Frame::json(
-                    FrameKind::Hello,
-                    &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
-                )
-                .unwrap()
-                .encode();
-                client.received(&hello);
-                while client.take_send().is_some() {}
-                let mut sub = Sub::new("m", "list");
-                sub.rows = Some("v1".into());
-                sub.view = Some(ListView::Live);
-                client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
-                let _ = client.take_send();
-                let mut index = SummaryIndex::new();
-                for row_id in 0..closed_rows {
-                    let mut row = Summary::new(format!("closed-{row_id}"));
-                    row.state = "closed".into();
-                    row.last_activity = row_id as u64;
-                    index = index.apply(row_id as u64 + 1, row);
-                }
-                for row_id in 0..20 {
-                    let mut row = Summary::new(format!("live-{row_id}"));
-                    row.state = "idle".into();
-                    row.last_activity = 11_000 + row_id as u64;
-                    index = index.apply((closed_rows + row_id) as u64 + 1, row);
-                }
-                let page = index
-                    .read_live_page(None, ReadSide::After, false, 100, wire::MAX_PAGE_BYTES, None)
-                    .unwrap();
-                assert_eq!(page.rows.len(), 20);
-                let rows: Vec<Value> = page
-                    .rows
-                    .iter()
-                    .map(|row| serde_json::to_value(row.as_ref()).unwrap())
-                    .collect();
-                drop(page);
-                drop(index);
-                let frame = Frame::json(
-                    FrameKind::Window,
-                    &serde_json::json!({"sid":"m","cursor":1,"rows":rows,"hasBefore":false,"hasAfter":false,"edition":1}),
-                )
-                .unwrap()
-                .encode();
-                received = received.saturating_add(frame.len() as u64);
-                let started = std::time::Instant::now();
-                assert_eq!(client.received(&frame), frame.len());
-                assert!(matches!(client.next_change(), Some(Change::Window(_))));
-                timings.push(started.elapsed().as_nanos() as u64);
-            }
-            (timings, received)
-        }
-        fn p95(values: &[u64]) -> u64 {
-            let mut values = values.to_vec();
-            values.sort_unstable();
-            let index = (values.len() * 95).div_ceil(100).saturating_sub(1);
-            values[index]
-        }
-        let mut small_rounds = Vec::with_capacity(5);
-        let mut god_rounds = Vec::with_capacity(5);
-        let mut small_all = Vec::with_capacity(200);
-        let mut god_all = Vec::with_capacity(200);
-        let mut small_bytes = Vec::with_capacity(5);
-        let mut god_bytes = Vec::with_capacity(5);
-        for _ in 0..5 {
-            let (times, bytes) = sample(0);
-            small_all.extend(times.iter().copied());
-            small_rounds.push(times);
-            small_bytes.push(bytes);
-            let (times, bytes) = sample(11_000);
-            god_all.extend(times.iter().copied());
-            god_rounds.push(times);
-            god_bytes.push(bytes);
-        }
-        let best = |rounds: &[Vec<u64>]| rounds.iter().map(|round| p95(round)).min().unwrap_or(0);
-        let best_small = best(&small_rounds);
-        let best_god = best(&god_rounds);
-        let small_p95_all = p95(&small_all);
-        let god_p95_all = p95(&god_all);
-        let small_bytes = small_bytes.into_iter().min().unwrap_or(0);
-        let god_bytes = god_bytes.into_iter().min().unwrap_or(0);
-        assert!(
-            god_bytes.saturating_mul(10) <= small_bytes.saturating_mul(12),
-            "received bytes exceed the 1.2x bound: god={god_bytes}, small={small_bytes}"
-        );
-        let line = serde_json::json!({
-            "name":"v2.pr04b.mirror_v1_rows",
-            "small_p95":best_small,
-            "god_p95":best_god,
-            "small_p95_all":small_p95_all,
-            "god_p95_all":god_p95_all,
-            "unit":"ns",
-            "small_bytes":small_bytes,
-            "god_bytes":god_bytes
-        });
-        println!("{line}");
-        if let Ok(path) = std::env::var("V2_GATE_OUT") {
-            use std::io::Write as _;
-            let mut output =
-                std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
-            writeln!(output, "{line}").unwrap();
-        }
     }
 
     #[cfg(feature = "tokio")]

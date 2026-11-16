@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d20a4715e13a8a5b7d7053b4f80ffb3e9fe841232c9f51d95d1862e647386666. */
+/* cmux-tui mux protocol 12, IR 725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -614,9 +614,11 @@ export type IdentifyResult = {
   "launch_snapshot_path"?: (string) | null;
   "lifecycle_ready"?: boolean;
   "machine_capabilities"?: Array<string>;
+  "machine_device"?: string;
   "machine_id"?: string;
   "machine_name"?: string;
   "machine_platform"?: MachinePlatform;
+  "machine_symbol"?: string;
   "min_api_revision"?: (number) | null;
   "pid": number;
   "protocol": number;
@@ -1600,6 +1602,21 @@ export type TerminalColors = {
   "palette"?: Record<string, ColorHex>;
   "selection_bg": (ColorHex) | null;
   "selection_fg": (ColorHex) | null;
+};
+
+export type TerminalCommandContext = {
+  "command": (string) | null;
+  "cwd": (string) | null;
+  "exit_code": (number) | null;
+  "output": string;
+  "text": string;
+  "truncated": boolean;
+};
+
+export type TerminalCommandContextIntent = "context" | "fix";
+
+export type TerminalCommandContextResult = {
+  "context": (TerminalCommandContext) | null;
 };
 
 export type TerminalCommandDeleteResult = {

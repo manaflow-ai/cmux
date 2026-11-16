@@ -258,11 +258,40 @@ async fn start_carrier(hub: &Arc<Hub>, carrier: Option<std::net::SocketAddr>) {
         let _ = hub.hub_carrier_websocket.set(websocket);
     }
     #[cfg(feature = "hub-carrier")]
-    if carrier.is_some() && hub.hub_carrier_serve.lock_or_recover().is_none() {
-        crate::hub_carrier::start_kept(hub, carrier).await;
+    {
+        // Every way through says what the carrier does, so a log always holds its state.
+        let running = hub.hub_carrier_serve.lock_or_recover().is_some();
+        if running {
+            tracing::info!("hub carrier: already serving; this join keeps it");
+        } else if carrier.is_some() {
+            crate::hub_carrier::start_kept(hub, carrier).await;
+        } else if joined(hub).await {
+            tracing::warn!("hub carrier off: this home is a copy, or the daemon has no listener");
+        } else {
+            tracing::info!("hub carrier off: this machine is not joined");
+        }
     }
+    // A joined machine whose build left the carrier out says so: the app's and the packages'
+    // acpmux once shipped without it and logged nothing (scripts/ci/acpmux-build-features.sh).
     #[cfg(not(feature = "hub-carrier"))]
-    let _ = (hub, carrier);
+    {
+        if joined(hub).await {
+            tracing::warn!(
+                "hub carrier off: this acpmux build has no hub carrier (feature hub-carrier)"
+            );
+        }
+        let _ = carrier;
+    }
+}
+
+/// Whether config.json joins this machine with its machine credential, which turns the carrier on.
+async fn joined(hub: &Hub) -> bool {
+    hub.config
+        .read()
+        .await
+        .mesh_relay
+        .as_ref()
+        .is_some_and(|relay| relay.credential.as_deref() == Some("join"))
 }
 
 /// The daemon start's mesh relay and hub carrier. A sign-out's leave the last run did not finish
@@ -321,12 +350,23 @@ async fn at_start<D: Future<Output = Option<MeshRelayConfig>> + Send + 'static>(
     // answer.
     Some(owner.scope.spawn_named("join-at-start", async move {
         let _join = join;
+        // The leave can wait on its lock and the hub's answers; until it ends, the carrier's
+        // state is this line.
+        tracing::info!(
+            "hub carrier: waits for the sign-out's leave the last run left unfinished, then starts if still joined"
+        );
         match finish.await {
             Some(outcome) if !crate::cli::cloud_join::relay_may_start(&outcome) => {
                 tracing::info!(left = outcome.left, kept = ?outcome.kept, "sign-out leave at start");
                 // Left with the join's relay: stopped. Not finished: nothing changes now.
                 if outcome.left {
                     stop_joined(&hub).await;
+                    tracing::info!("hub carrier off: this machine left the team at this start");
+                } else {
+                    tracing::info!(
+                        kept = ?outcome.kept,
+                        "hub carrier off for this run: a sign-out's leave is not finished; the next start finishes it"
+                    );
                 }
             }
             outcome => {
@@ -339,6 +379,8 @@ async fn at_start<D: Future<Output = Option<MeshRelayConfig>> + Send + 'static>(
                     carrier(hub).await;
                     // The start's capability statement waited for this leave: it goes now.
                     crate::cli::cloud_join::state_capabilities_after_leave();
+                } else {
+                    tracing::info!("hub carrier off: this machine left the team at this start");
                 }
             }
         }
