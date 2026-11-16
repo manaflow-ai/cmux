@@ -707,8 +707,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = vm_short::run_if_requested(args) {
         return code;
     }
-    // `device revoke|rotate|doctor|vault` and `device SELECTOR show` are `machine …` (`machine`
-    // is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
+    // `device revoke|rotate|doctor|vault` and `device SELECTOR show --catalog|session|doctor` are
+    // `machine …` (`machine` is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
+    // A plain `device SELECTOR show` ran in devices/mod.rs (the device list, then this route).
     #[cfg(unix)]
     let device_alias_args;
     #[cfg(unix)]

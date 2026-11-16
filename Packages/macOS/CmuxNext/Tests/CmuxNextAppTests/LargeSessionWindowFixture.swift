@@ -113,11 +113,13 @@ enum LargeSessionWindowFixture {
     }
 
     /// `withWindow(_:_:)` for a test that acts on the window: `body` also gets its controller (and so its `services`).
-    static func withController<T>(_ size: SessionFixtureSize, _ body: @MainActor (DaemonStore, WindowController) async throws -> T) async throws -> T {
+    /// `agentPaneEnvironment`: the environment the agent pages read (a test that opens many gives them an inert address).
+    static func withController<T>(_ size: SessionFixtureSize, agentPaneEnvironment: [String: String]? = nil,
+                                  _ body: @MainActor (DaemonStore, WindowController) async throws -> T) async throws -> T {
         try #require(size.mixFaults.isEmpty, "fixture: the \(size.rawValue) mix is wrong: \(size.mixFaults)")
         let workspaces = size.workspaces
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
+        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: agentPaneEnvironment)
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         let store = services.machines.local.store
