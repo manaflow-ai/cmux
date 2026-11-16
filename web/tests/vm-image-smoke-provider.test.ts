@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { daemonListening, imageLatency, measureCloneRetrying, providerLatency, ProviderUnfinished } from "../scripts/cmux-vm-image/smoke";
+import { daemonListening, imageLatency, measureCloneRetrying, providerLatency, providerStall, ProviderUnfinished } from "../scripts/cmux-vm-image/smoke";
 import type { Vm } from "../scripts/cmux-vm-image/guest";
 
 const clone = (vmId: string) => ({ vm: {} as Vm, vmId, name: `cmuxnp-dev-vmimg-t-smoke-${vmId}` });
@@ -18,6 +18,20 @@ describe("smoke daemon-listening judges the image, not the provider", () => {
     expect(daemonListening([row(500, 900, 1200), row(500, -1, -1)])).toBe(false);
     expect(daemonListening([row(500, 900, -1)])).toBe(false);
     expect(daemonListening([])).toBe(false);
+  });
+});
+
+describe("providerStall", () => {
+  test("roll 43953739384 clone 3: a guest stalled 13.8 s before its first exec is the provider's", () => {
+    expect(providerStall(25760, 39606, 1)).toContain("first exec 13846 ms after the create returned");
+  });
+
+  test("a guest that answered promptly and has no daemon is the image's", () => {
+    expect(providerStall(4371, 5037, 1)).toBeUndefined();
+  });
+
+  test("a listening daemon is never a stall", () => {
+    expect(providerStall(25760, 39606, 0)).toBeUndefined();
   });
 });
 

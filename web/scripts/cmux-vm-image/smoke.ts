@@ -239,7 +239,22 @@ export class ProviderUnfinished extends Error {
   }
 }
 
-const providerUnfinished = (clone: Clone | undefined, step: string) => (error: unknown): never => {
+/**
+ * A restored guest answers its first exec 0.1 to 0.7 s after the create returns. Roll 43953739384's
+ * clone 3 took 13.8 s, then its daemon missed the 30 s listen poll but was ready at 145 s: the provider
+ * stalled that guest. Such a clone is replaced, and the replacement must pass; a clone that answered
+ * promptly and still has no daemon fails the image.
+ */
+export const PROVIDER_STALL_MS = 10_000;
+
+/** Why a clone whose daemon missed the listen poll is the provider's stall, or undefined when it is the image's. */
+export function providerStall(createApiMs: number, createToFirstExecMs: number, listenCode: number): string | undefined {
+  const firstExecAfterCreate = createToFirstExecMs - createApiMs;
+  if (listenCode === 0 || firstExecAfterCreate <= PROVIDER_STALL_MS) return undefined;
+  return `guest stalled: first exec ${firstExecAfterCreate} ms after the create returned, then no daemon listening in the 30 s poll`;
+}
+
+const providerUnfinished =(clone: Clone | undefined, step: string) => (error: unknown): never => {
   throw new ProviderUnfinished(clone, `${step}: ${String(error).slice(0, 200)}`);
 };
 
@@ -254,6 +269,8 @@ export async function measureClone(fs: ReturnType<typeof freestyleClient>, ledge
   const listeningMs = Date.now() - t0;
   // The poll prints its wait before it judges; without that line the guest never ran it.
   if (!/guest-wait-ms \d+/.test(listen.stdout)) throw new ProviderUnfinished(clone, `listen exec returned ${listen.code} without running: ${listen.stderr.slice(-200)}`);
+  const stall = providerStall(createMs, firstExecMs, listen.code);
+  if (stall) throw new ProviderUnfinished(clone, stall);
   const ready = await run(vm, devboxWaitForDaemonCommand(60), 90_000).catch(providerUnfinished(clone, "ready exec"));
   const readyMs = Date.now() - t0;
   const guestWaitMs = Number(/guest-wait-ms (\d+)/.exec(listen.stdout)?.[1] ?? Number.NaN);
