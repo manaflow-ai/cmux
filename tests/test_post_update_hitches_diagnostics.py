@@ -54,6 +54,17 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(stack, ["start", "main", "-[NSApplication runModalForWindow:]", "SPUInstallerDriver.wait",
                                  "semaphore_wait_trap"])
 
+    def test_round_line_with_skipped_scroll(self):
+        # The run before this fix (cmux9s, 2026-11-16) died in round_line: KeyError 'reply_ms' on a scroll row.
+        api = helpers(["pct", "round_line", "interaction_summary"])
+        row = {"label": "round0", "at_s": 5.0, "switch": [{"shown_ms": 12.0, "reply_ms": 3.0}],
+               "scroll": [{"skipped": "no scroller, window or workspace"}], "newtab": [{"reply_ms": 4.0}],
+               "type": [{"ran_ms": 9.0}]}
+        self.assertIn("scroll post None/None", api["round_line"](row))
+        row["scroll"] = [{"verb": "wheel-up", "post_ms": 130.0, "error": None}]
+        self.assertIn("scroll post 130.0/130.0", api["round_line"](row))
+        self.assertEqual(api["interaction_summary"]([row])["scroll"][0]["max"], 130.0)
+
     def test_missing_sample(self):
         self.assertEqual(self.api["main_thread_stack"](Path("/nonexistent/sample.txt")), [])
 

@@ -1155,7 +1155,7 @@ def round_line(row):
     def stat(values):
         return f"{pct(values, 50)}/{max(values) if values else None}"
     parts = [f"switch shown p50/max {stat([s['shown_ms'] for s in row['switch']])} ms",
-             f"scroll {stat([s['reply_ms'] for s in row['scroll']])}",
+             f"scroll post {stat([s['post_ms'] for s in row['scroll'] if 'post_ms' in s])}",
              f"newtab {stat([s['reply_ms'] for s in row['newtab']])}",
              f"type ran {stat([t['ran_ms'] for t in row['type']])}"]
     if "frames" in row:
@@ -1165,12 +1165,12 @@ def round_line(row):
 
 def interaction_summary(rounds):
     out = {}
-    for key, field in (("switch", "shown_ms"), ("switch_reply", "reply_ms"), ("scroll", "reply_ms"),
+    for key, field in (("switch", "shown_ms"), ("switch_reply", "reply_ms"), ("scroll", "post_ms"),
                        ("newtab", "reply_ms"), ("type", "ran_ms")):
         src = "switch" if key.startswith("switch") else key
         per_round = []
         for row in rounds:
-            values = [r[field] for r in row[src]]
+            values = [r[field] for r in row[src] if field in r]
             per_round.append({"round": row["label"], "at_s": row["at_s"], "median": pct(values, 50),
                               "max": max(values) if values else None, "n": len(values),
                               "failed": sum(1 for r in row[src] if r.get("error") or r.get("shown") is False or r.get("ok") is False)})
