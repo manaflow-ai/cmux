@@ -53,6 +53,8 @@ pub(super) mod fence;
 mod git_back;
 mod history;
 mod left_note;
+mod summary;
+pub(super) use summary::Summary;
 mod links;
 mod listed;
 mod local;
@@ -126,43 +128,6 @@ struct Pushed {
     sha256: String,
     permissions: u32,
     revision: String,
-}
-
-#[derive(Default)]
-pub(super) struct Summary {
-    pub(super) written: u64,
-    pub(super) unchanged: u64,
-    pub(super) deleted: u64,
-    /// Every path left out, named or not.
-    pub(super) skipped: u64,
-    pub(super) bytes: u64,
-    /// The first [`skips::LISTED`] skipped paths, `[{path, kind, why}]`.
-    pub(super) skipped_files: serde_json::Value,
-    /// How many were skipped of each kind (`other`: counted, not named).
-    pub(super) skipped_counts: serde_json::Value,
-    /// The content-addressed store's part ([`store`]), when one was asked for.
-    pub(super) store: Option<serde_json::Value>,
-    /// Head links ([`push_head`]) the machine did not make, for nothing at their target
-    /// yet: a head without them is not the folder's head.
-    pub(super) head_links_short: u64,
-}
-
-impl Summary {
-    pub(super) fn json(&self) -> serde_json::Value {
-        let mut line = json!({
-            "written": self.written,
-            "unchanged": self.unchanged,
-            "deleted": self.deleted,
-            "skipped": self.skipped,
-            "bytes": self.bytes,
-            "skipped_files": if self.skipped_files.is_null() { json!([]) } else { self.skipped_files.clone() },
-            "skipped_counts": if self.skipped_counts.is_null() { json!({}) } else { self.skipped_counts.clone() },
-        });
-        if let Some(store) = &self.store {
-            line.set("store", store.clone());
-        }
-        line
-    }
 }
 
 /// How far a push is: files and bytes done (written or found unchanged)
