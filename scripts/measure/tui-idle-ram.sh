@@ -2,7 +2,7 @@
 # The idle cmux-tui daemon's memory on Linux at one or more commits, from one harness on one runner (CMUX-571,
 # goal ram-baseline): scripts/measure/tui-idle-ram.py on a release build of each commit's daemon, and with dhat=1
 # also a dhat-heap build's heap at exit by allocation site (scripts/measure/dhat-top.py). Run at a pushed head:
-#   cmux-ci test -- bash -c 'scripts/measure/tui-idle-ram.sh [dhat=1] [workspaces=1] [settle=20] [profile=release] [SHA...]; echo rc=$?'
+#   cmux-ci test -- bash -c 'scripts/measure/tui-idle-ram.sh [dhat=1] [workspaces=1] [settle=20] [profile=release] [arenas=2] [SHA...]; echo rc=$?'
 # No SHA measures this checkout. Each SHA is checked out into a scratch worktree; this checkout's tui-idle-ram.py
 # and dhat-top.py measure every one. Prints "TUI-IDLE-AT <sha>" before each commit's lines.
 set -uo pipefail
@@ -10,6 +10,9 @@ dhat=0
 workspaces=1
 settle=20
 profile=release
+# Every commit runs with glibc capped at the arenas the tip caps itself to (malloc_arenas.rs DAEMON_ARENAS), so a
+# Linux-only allocator setting does not read as a change of what the daemon holds; arenas=0 leaves glibc default.
+arenas=2
 shas=()
 for arg in "$@"; do
   case "$arg" in
@@ -17,6 +20,7 @@ for arg in "$@"; do
     workspaces=*) workspaces="${arg#workspaces=}" ;;
     settle=*) settle="${arg#settle=}" ;;
     profile=*) profile="${arg#profile=}" ;;
+    arenas=*) arenas="${arg#arenas=}" ;;
     *) shas+=("$arg") ;;
   esac
 done
@@ -47,6 +51,7 @@ depth=()
 [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
 [[ ${#shas[@]} -eq 0 ]] && shas=(HEAD)
 status=0
+[[ "$arenas" != 0 ]] && export MALLOC_ARENA_MAX="$arenas"
 for sha in "${shas[@]}"; do
   if [[ "$sha" == HEAD ]]; then
     tree="$root"
@@ -69,7 +74,9 @@ for sha in "${shas[@]}"; do
   for run in 1 2 3; do
     python3 "$here/tui-idle-ram.py" --tui "$out/cmux-tui" --workspaces "$workspaces" --settle "$settle" --label "${full:0:12}-r$run" || status=1
   done
-  if [[ "$dhat" == 1 ]]; then
+  if [[ "$dhat" == 1 ]] && ! grep -q '^dhat-heap' "$tree/cmux-tui/crates/cmux-tui/Cargo.toml"; then
+    echo "DHAT none: ${full:0:12} has no dhat-heap feature"
+  elif [[ "$dhat" == 1 ]]; then
     (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$CARGO_TARGET_DIR_DHAT" cargo build --locked --profile "$profile" -p cmux-tui "${bins[@]}" --features dhat-heap 2>&1 | tail -n 2) || { status=1; continue; }
     prof="$scratch/dhat-${full:0:12}.json"
     CMUX_TUI_DHAT_OUT="$prof" python3 "$here/tui-idle-ram.py" --tui "$CARGO_TARGET_DIR_DHAT/$profile/cmux-tui" \
