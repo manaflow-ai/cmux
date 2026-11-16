@@ -4,13 +4,17 @@
 # then, Cmd-T held alone and Cmd-W held, through `debug.key` (real key events on the app's own queue; not the HID
 # tap). Per row: each key's fate, input to next commit, frames, the daemon's requests. Runs alone on the worker
 # because it launches an app:
-#   cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 \
+#   cmux-ci run --class exclusive --measurement --label measure [--label gui-session-v1] \
 #     --script scripts/measure/held-new-tab.sh --ref <sha> --arg=--config=bench --arg=--vdisplay=120 \
 #     [--arg=--workspaces=N] [--arg=--repeat-delay-ms=MS] [--arg=--repeat-ms=MS] [--arg=--film] [--arg=--no-gate] \
-#     --artifact held-new-tab.json [--artifact held-new-tab-film.tar]
+#     [--arg=--launch-form=auto|activate|one-key] --artifact held-new-tab.json [--artifact held-new-tab-film.tar]
 # --config=<debug|release|bench> picks reload.sh's build configuration, --vdisplay=HZ a virtual main display at HZ
-# (as burst-bench.sh), --film one more take as JPEG frames, --no-gate exit 0 once the report is written (an artifact
-# comes back only from a passing step); every other argument goes to held-new-tab.py.
+# (as burst-bench.sh; the helper is this script's own, no label gives it), --film one more take as JPEG frames,
+# --no-gate exit 0 when a row did not measure what it names and each round still has a valid row (the tool's exit 2;
+# an artifact comes back only from a passing step). A failed preflight and a round with no valid row stay a failed
+# step. Every other argument goes to held-new-tab.py. The label gui-session-v1 adds a console session with a screen
+# that is not locked; without it the tool's preflight says in 2 minutes for each launch form if the display link
+# gives frames and if a key makes a tab.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 tag="heldtab"
@@ -53,7 +57,7 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
   exit 1
 fi
-vdisplay_pid=""
+vdisplay_pid="" display="real"
 # shellcheck disable=SC2329 # run by the trap below
 cleanup() {
   python3 scripts/cmux-next/tag_teardown.py "$app" || true
@@ -74,19 +78,21 @@ if [[ -n "$vdisplay_hz" ]]; then
       kill -0 "$vdisplay_pid" 2>/dev/null || break
       sleep 1  # bounded wait for the helper's own ready line
     done
-    echo "held-new-tab: display: $(grep -m1 '^ready\|^error' "$vd/out" 2>/dev/null || echo 'the virtual display never reported')"
+    display="$(grep -m1 '^ready\|^error' "$vd/out" 2>/dev/null || echo 'the virtual display never reported')"
+    echo "held-new-tab: display: $display"
     sleep 2  # WindowServer settles the new main display before the app opens on it
   else
     echo "held-new-tab: the virtual display helper did not compile; measuring on the real display"
   fi
 fi
 status=0
-python3 scripts/measure/held-new-tab.py --app "$app" --out "$out/measure" ${measure_args[@]+"${measure_args[@]}"} || status=$?
+python3 scripts/measure/held-new-tab.py --app "$app" --out "$out/measure" --display="$display" ${measure_args[@]+"${measure_args[@]}"} || status=$?
 cp "$out/measure/report.json" "$PWD/held-new-tab.json" 2>/dev/null || true
 # The film: each fifth JPEG frame of the take and frames.json (the time of each frame).
 if [ -f "$out/film/frames/frames.json" ]; then
   (cd "$out/film/frames" && tar -cf "$OLDPWD/held-new-tab-film.tar" frames.json frame-*[05].jpg) || true
 fi
-# An artifact comes back only from a passing step: --no-gate passes once the report is written.
-if [[ "$gate" == 0 && -f held-new-tab.json ]]; then status=0; fi
+# An artifact comes back only from a passing step: --no-gate passes a run in which each round has a valid row (the
+# tool's exit 2). A failed preflight, and a round with no valid row, stay a failed step.
+if [[ "$gate" == 0 && "$status" == 2 && -f held-new-tab.json ]]; then status=0; fi
 exit "$status"

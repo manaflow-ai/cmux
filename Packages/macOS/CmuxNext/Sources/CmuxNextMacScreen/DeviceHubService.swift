@@ -52,7 +52,7 @@ public final class DeviceHubService {
     private let loginKeychain: LoginKeychain
     /// Settings > Devices (the React page's `devices` card).
     public let settingsModel: MacScreenDevicesSettings
-    /// Always Allow on "Share This Mac?" belongs to the signed-in account: it follows the account and leaving the hub.
+    /// Always Allow on the "Share This Mac" sheet belongs to the signed-in account: it follows the account and leaving the hub.
     public let shareGrant = RemoteShareGrant()
     private var hub: DeviceHub?
     /// What the running hub was made for: its address and the account.

@@ -10,23 +10,26 @@ import Foundation
 /// What cmux Remote's actions need from the app: the hub, a window to ask in, and Settings.
 public struct CmuxRemoteActionEnvironment {
     public var remote: CmuxRemoteService
+    public var screenHost: MacScreenHubHost
     public var hub: @MainActor () -> DeviceHub?
-    /// Settings: `remote.shareWithoutAsking`, which Always Allow on "Share This Mac?" turns on.
+    /// Settings: `remote.shareWithoutAsking`, which Always Allow on "Share This Mac" turns on.
     public var settings: @MainActor () -> SettingsController?
     public var window: @MainActor () -> NSWindow?
     public var openDevices: @MainActor () -> Void
-    /// SECURITY: whether the press answering the dialog, read as it answers, is the person's own
-    /// (``pressedByPerson(_:now:isPerson:)`` on the input event the app is dispatching then). Only then
-    /// is Always Allow kept; any other press allows this request once. None set: never kept.
-    public var personPressed: @MainActor () -> Bool
+    /// SECURITY: whether the press answering the "Share This Mac" sheet shown in the given window, read
+    /// as it answers, is the person's own (``pressedByPerson(_:in:now:isPerson:)`` on the input event the
+    /// app is dispatching then). Only then is Always Allow kept; any other press allows this request once.
+    /// None set: never kept.
+    public var personPressed: @MainActor (NSWindow) -> Bool
     /// Which account's Always Allow counts (``RemoteShareGrant``); none: the setting alone never skips.
     public var shareGrant: @MainActor () -> RemoteShareGrant?
 
-    public init(remote: CmuxRemoteService, hub: @escaping @MainActor () -> DeviceHub?,
+    public init(remote: CmuxRemoteService, screenHost: MacScreenHubHost, hub: @escaping @MainActor () -> DeviceHub?,
                 settings: @escaping @MainActor () -> SettingsController? = { nil }, window: @escaping @MainActor () -> NSWindow?,
                 shareGrant: @escaping @MainActor () -> RemoteShareGrant? = { nil },
-                openDevices: @escaping @MainActor () -> Void, personPressed: @escaping @MainActor () -> Bool = { false }) {
+                openDevices: @escaping @MainActor () -> Void, personPressed: @escaping @MainActor (NSWindow) -> Bool = { _ in false }) {
         self.remote = remote
+        self.screenHost = screenHost
         self.hub = hub
         self.settings = settings
         self.window = window
@@ -59,6 +62,8 @@ extension CmuxRemoteActionEnvironment {
         host("remote.allowScreenRecording", "request", .object(["permission": .string("screen-recording")]))
         host("remote.restartComputerUse", "restart", .object(["worker": .string("computer-use")]))
         host("remote.restartScreenSharing", "restart", .object(["worker": .string("screen-sharing")]))
+        // Stop Sharing This Mac (MacScreenActions) ends this session now; this row leaves the catalog with the
+        // next re-pin, and then this bind finds no descriptor and does nothing.
         host("remote.stopScreenSession", "screen.stop_session", .object([:]))
         _ = registry.bindEffect("remote.showStatus", unavailable: { remote.started ? nil : CmuxRemoteStrings.unavailable }, effect: { _ in
             // action-wait-allow: the status comes from the daemon and cmux Remote, other processes; the dialog shows it.
@@ -72,19 +77,24 @@ extension CmuxRemoteActionEnvironment {
                 return nil
             }
         })
-        // The person runs these from the palette: no second question.
-        for (id, on) in [("macScreen.shareThisMac", true), ("macScreen.stopSharingThisMac", false)] as [(ActionID, Bool)] {
-            _ = registry.bindEffect(id, unavailable: { environment.hub() == nil ? CmuxRemoteStrings.signedOut : nil }, effect: { _ in
-                guard let hub = environment.hub() else { return .refused(CmuxRemoteStrings.signedOut) }
-                // action-wait-allow: the device hub owns the sharing switch; the Devices page follows its push.
-                return .waiting(.network) {
-                    do { try await Self.apply(on ? "share" : "unshare", device: "", scope: nil, hub: hub, remote: remote) } catch {
-                        return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))
-                    }
-                    return nil
-                }
+        _ = registry.bindEffect("macScreen.shareThisMac", unavailable: { environment.hub() == nil ? CmuxRemoteStrings.signedOut : nil }, effect: { invocation in
+            guard environment.hub() != nil else { return .refused(CmuxRemoteStrings.signedOut) }
+            guard let window = environment.window() else { return .refused(L.t("macScreen.setup.noWindow", "Open a cmux window to share this Mac.")) }
+            return CmuxRemoteSharingSetup(host: environment.screenHost).begin(in: window, invocation: invocation)
+        })
+        _ = registry.bindEffect("macScreen.stopSharingThisMac", effect: { _ in
+            // Stop locally on this turn, even when the hub cannot be reached.
+            environment.screenHost.stopSession(reason: .hostStopped, immediately: true)
+            return .applied(result: {
+                do { try await environment.screenHost.setSharing(false) }
+                catch { return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))) }
+                return .success([:])
             })
-        }
+        })
+        _ = registry.bindEffect("macScreen.revokeViewer", unavailable: { environment.screenHost.noSessionReason }, effect: { _ in
+            _ = environment.screenHost.revokeViewer()
+            return .done
+        })
         _ = registry.bindEffect("macScreen.deviceAccess", effect: { _ in
             environment.openDevices()
             return .done
@@ -92,19 +102,8 @@ extension CmuxRemoteActionEnvironment {
     }
 
     /// Makes a confirmed change with this app's full hub session.
-    static func apply(_ action: String, device: String, scope: DeviceScope?, hub: DeviceHub, remote: CmuxRemoteService) async throws {
-        switch action {
-        case "grant":
-            // Already shared (`ShareStep.nothing`): no hub write, but a missing Screen Recording grant still gets its ask.
-            if remote.started { _ = try? await remote.call("request", .object(["permission": .string("screen-recording")])) }
-        case "share":
-            try await hub.setMacScreenShared(true)
-            if remote.started { _ = try? await remote.call("request", .object(["permission": .string("screen-recording")])) }
-        case "unshare":
-            try await hub.setMacScreenShared(false)
-        default:
-            if let scope { try await hub.setPermission(host: hub.identity.id, viewer: device, scope: scope) }
-        }
+    static func applyAccess(device: String, scope: DeviceScope?, hub: DeviceHub) async throws {
+        if let scope { try await hub.setPermission(host: hub.identity.id, viewer: device, scope: scope) }
     }
 
     /// `remote.confirm {action: share|access, device?, scope?}`.
@@ -120,43 +119,57 @@ extension CmuxRemoteActionEnvironment {
                 }
                 guard let hub = environment.hub() else { throw ControlError.invalidParams(CmuxRemoteStrings.signedOut) }
                 let name = hub.devices.first { $0.id == device }?.name ?? device
-                let share = action == "share"
-                let (title, body) = share ? CmuxRemoteStrings.confirmShare()
-                    : CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
                 let window = environment.window()
-                let remote = environment.remote
+                guard action == "share" else {
+                    let (title, body) = CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
+                    return .followUp(Self.confirmedChange(
+                        confirm: { await Self.confirm(title: title, body: body, in: window) },
+                        apply: { try await Self.applyAccess(device: device, scope: scope, hub: hub) }))
+                }
+                let screenHost = environment.screenHost
                 let settings = environment.settings()
-                let personPressed = environment.personPressed
-                let grant = environment.shareGrant()
-                let withoutAsking = grant?.covers(settingOn: settings?.snapshot.remote.shareWithoutAsking == true,
-                                                  managed: settings?.managedKeys[RemoteSettings.shareWithoutAskingPath.joined(separator: ".")] != nil) ?? false
-                let step = !share ? ShareStep.ask : Self.shareStep(alreadyShared: hub.thisDevice?.macScreenShared == true,
-                                                                     withoutAsking: withoutAsking)
+                let grant = environment.shareGrant(), personPressed = environment.personPressed
+                let step = Self.shareStep(alreadyShared: hub.thisDevice?.macScreenShared == true,
+                                          withoutAsking: Self.withoutAsking(settings: settings, grant: grant))
+                // The setup sheet asks and turns sharing on itself, so its answer is the change.
                 return .followUp(Self.confirmedChange(
                     confirm: {
-                        guard step == .ask else { return true }
-                        let answer = await Self.confirm(title: title, body: body, always: share, personPressed: personPressed, in: window)
-                        // Written first, then recorded: a record never sits beside the setting off. No account, nothing.
-                        if answer == .always, let settings, let grant, grant.account != nil, await Self.shareWithoutAsking(settings) {
-                            grant.record()
+                        let setup = CmuxRemoteSharingSetup(host: screenHost)
+                        let present = { (spec: CmuxDialogSpec) async -> String in
+                            guard let window else { return "cancel" }
+                            return await CmuxDialogCenter.shared.present(spec, in: .window(window)).button
                         }
-                        return answer != .cancel
+                        switch step {
+                        case .nothing:
+                            return true
+                        case .apply:
+                            // Always Allow skips the overview; a missing macOS grant still gets its own step.
+                            return try await setup.proceed(after: "continue", present: present)
+                        case .ask:
+                            guard let window else { return false }
+                            let answer = try await setup.confirmRequest(in: window, personPressed: personPressed)
+                            // Written first, then recorded: a record never sits beside the setting off. No account, nothing.
+                            if answer.always, let settings, let grant, grant.account != nil, await Self.shareWithoutAsking(settings) {
+                                grant.record()
+                            }
+                            return answer.shared
+                        }
                     },
-                    apply: {
-                        try await Self.apply(step == .nothing ? "grant" : action, device: device, scope: scope, hub: hub, remote: remote)
-                    }))
+                    apply: {}))
             }.withDeadline(.fixed(.seconds(130))),
         ]
     }
 
-    /// The `remote.confirm` dialog's id (`DebugDialog.userOnly` lists it: no debug press answers it).
+    /// The `remote.confirm` access dialog's id. `DebugDialog.userOnly` lists it and the share
+    /// request's overview (`cmux.dialog.screenSharing.setup.overview`, whose Always Allow turns on
+    /// the user-only `remote.shareWithoutAsking`): no debug press answers either.
     public static let confirmIdentifier = "cmux.dialog.remote.confirm"
 
     /// What `remote.confirm {action: share}` does.
     nonisolated enum ShareStep: Equatable, Sendable {
-        /// Show "Share This Mac?".
+        /// Show the "Share This Mac" overview.
         case ask
-        /// Turn sharing on with no dialog: the person chose Always Allow.
+        /// Turn sharing on with no overview: the person chose Always Allow.
         case apply
         /// Nothing: this Mac already shares. No write either, so a hub list that is behind (the
         /// person just stopped sharing on another device) never turns sharing back on.
@@ -170,23 +183,31 @@ extension CmuxRemoteActionEnvironment {
         alreadyShared ? .nothing : withoutAsking ? .apply : .ask
     }
 
-    /// The answer a pressed button gives: Always Allow counts as `always` only when the person pressed
-    /// it at this Mac; one another process pressed (computer use, a script) allows once.
-    static func answer(_ button: String, personPressed: Bool) -> ConfirmAnswer {
-        switch button {
-        case "confirm": .allow
-        case "always": personPressed ? .always : .allow
-        default: .cancel
-        }
+    /// Whether a share request may skip the overview: `remote.shareWithoutAsking` is on and the
+    /// signed-in account's person chose Always Allow, or a managing team pinned it (``RemoteShareGrant``).
+    /// No grant: the setting alone never skips.
+    static func withoutAsking(settings: SettingsController?, grant: RemoteShareGrant?) -> Bool {
+        guard let settings, let grant else { return false }
+        return grant.covers(settingOn: settings.snapshot.remote.shareWithoutAsking,
+                            managed: settings.managedKeys[RemoteSettings.shareWithoutAskingPath.joined(separator: ".")] != nil)
     }
 
-    /// SECURITY: whether `event`, the input event the app is dispatching as the dialog answers (nil
-    /// outside a dispatch: an Accessibility press, a timer), is the person's own click or key: a key or
-    /// mouse-button event at most a second before `now` (system uptime) that `isPerson` (the strict
-    /// HID-system check, `PersonInputCheck`) takes. A mouse move, an old event or none does not count.
-    public static func pressedByPerson(_ event: NSEvent?, now: TimeInterval = ProcessInfo.processInfo.systemUptime,
+    /// SECURITY: whether `event`, the input event the app is dispatching as the sheet answers (nil
+    /// outside a dispatch: an Accessibility press, a timer), is the person's own click or key on the
+    /// sheet shown in `window`: a key or mouse-button event in `window` or one of its child windows (the
+    /// overlay panel the sheet draws in) at most a second before `now` (system uptime) that `isPerson`
+    /// (the strict HID-system check, `PersonInputCheck`) takes. A mouse move, an old event, an event in
+    /// another window or none does not count.
+    public static func pressedByPerson(_ event: NSEvent?, in window: NSWindow, now: TimeInterval = ProcessInfo.processInfo.systemUptime,
                                        isPerson: (NSEvent) -> Bool) -> Bool {
-        guard let event, [.keyDown, .leftMouseDown, .leftMouseUp].contains(event.type) else { return false }
+        let windows = Set([window.windowNumber] + (window.childWindows ?? []).map(\.windowNumber))
+        return pressedByPerson(event, inWindows: windows, now: now, isPerson: isPerson)
+    }
+
+    /// ``pressedByPerson(_:in:now:isPerson:)`` for the window numbers of the sheet's window and its
+    /// overlay panel.
+    static func pressedByPerson(_ event: NSEvent?, inWindows windows: Set<Int>, now: TimeInterval, isPerson: (NSEvent) -> Bool) -> Bool {
+        guard let event, [.keyDown, .leftMouseDown, .leftMouseUp].contains(event.type), windows.contains(event.windowNumber) else { return false }
         return event.timestamp <= now && now - event.timestamp <= 1 && isPerson(event)
     }
 
@@ -203,11 +224,11 @@ extension CmuxRemoteActionEnvironment {
     /// 130 s), and the request's deadline cancels its follow-up. An Allow after that is still the
     /// person's answer, so the dialog and the change run in their own task, which the request's
     /// cancellation does not reach; the request only waits on it.
-    nonisolated static func confirmedChange(confirm: @escaping @MainActor @Sendable () async -> Bool,
+    nonisolated static func confirmedChange(confirm: @escaping @MainActor @Sendable () async throws -> Bool,
                                             apply: @escaping @Sendable () async throws -> Void) -> @Sendable () async throws -> CmuxNextSettings.JSONValue {
         {
             let answer = Task { () async throws -> CmuxNextSettings.JSONValue in
-                guard await confirm() else { return ["ok": false, "declined": true] }
+                guard try await confirm() else { return ["ok": false, "declined": true] }
                 try await apply()
                 return ["ok": true]
             }
@@ -215,28 +236,16 @@ extension CmuxRemoteActionEnvironment {
         }
     }
 
-    /// A confirm dialog's answer.
-    enum ConfirmAnswer: Equatable {
-        case cancel, allow, always
-    }
-
-    /// The person's answer to one dialog (cancel without a window). `always` adds Always Allow;
-    /// `personPressed` is read as the button answers, inside the press's own dispatch.
-    static func confirm(title: String, body: String, always: Bool = false, personPressed: @escaping @MainActor () -> Bool = { false },
-                        in window: NSWindow?) async -> ConfirmAnswer {
-        guard let window else { return .cancel }
+    /// The person's answer to one dialog (false without a window).
+    static func confirm(title: String, body: String, in window: NSWindow?) async -> Bool {
+        guard let window else { return false }
         return await withCheckedContinuation { continuation in
-            let spec = CmuxDialogSpec(title: title, lines: [body], buttons: Self.confirmButtons(always: always),
+            let spec = CmuxDialogSpec(title: title, lines: [body],
+                                      buttons: [.cancel(), CmuxDialogButton(id: "confirm", title: CmuxRemoteStrings.allow, role: .default)],
                                       identifier: Self.confirmIdentifier)
             CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in
-                continuation.resume(returning: Self.answer(answer.button, personPressed: answer.button == "always" && personPressed()))
+                continuation.resume(returning: answer.button == "confirm")
             }
         }
-    }
-
-    /// Cancel, then Always Allow when offered, then Allow (Return).
-    static func confirmButtons(always: Bool) -> [CmuxDialogButton] {
-        let allowAlways = always ? [CmuxDialogButton(id: "always", title: CmuxRemoteStrings.alwaysAllow)] : []
-        return [CmuxDialogButton.cancel()] + allowAlways + [CmuxDialogButton(id: "confirm", title: CmuxRemoteStrings.allow, role: .default)]
     }
 }

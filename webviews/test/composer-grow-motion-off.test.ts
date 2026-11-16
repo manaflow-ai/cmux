@@ -9,6 +9,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_MD_FIELD } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-grow-motion-off.test.ts", async () => {
   if (!(await probeEngineOrSkip("composer-grow-motion-off", "chromium", chromium))) return;
@@ -17,7 +18,7 @@ await requireBrowserLane("composer-grow-motion-off.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
-  const FIELD = ".acpmux-composer-box .acpmux-md-field";
+  const FIELD = COMPOSER_MD_FIELD;
   beforeAll(async () => {
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.gallery-dev.ts"),

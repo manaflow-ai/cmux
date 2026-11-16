@@ -36,10 +36,19 @@ use serde_json::{Value, json};
 
 use super::catalog::{self, CUSTOMIZE_APP, Package};
 use super::mirror::{self, Op, Source};
-use super::supervisor::{Out, Supervisor};
+use super::supervisor::{ApiError, Out, Supervisor};
 
 /// Fingerprints of the local packages (`fingerprint`), by app id.
 type Prints = HashMap<String, u64>;
+
+/// What one pass applied: the apps reloaded, the saves refused (the last
+/// good script keeps running) with their init error, the apps removed.
+#[derive(Default)]
+struct Report {
+    changed: Vec<String>,
+    refused: Vec<(String, String)>,
+    removed: Vec<String>,
+}
 
 /// Files read per package for its fingerprint (a runaway folder costs no more).
 pub(super) const MAX_FILES: usize = 2_000;
@@ -107,6 +116,81 @@ impl Supervisor {
         json!({ "safeMode": false, "rejected": rejected })
     }
 
+    /// `apps-reload` (`cmux ext reload [APP]`, `cmux reload-config`, the
+    /// palette's Reload Custom Views): one pass that reloads `app`, or every
+    /// local app, as a save of each would, whether or not its files changed
+    /// (a save the watch missed, a host to start over). A script that does
+    /// not load keeps the last good view (`refused_saves`); the answer names
+    /// it with its init error: `{reloaded, refused: [{app, reason}], removed}`.
+    pub fn reload_local_now(&self, app: Option<&str>) -> Result<Value, ApiError> {
+        if self.safe_mode_on() {
+            return Err(ApiError::new(
+                "apps.safe_mode",
+                "safe mode is on: no extension runs or reloads until it is off (cmux safe-mode off)",
+            ));
+        }
+        let _pass = self.local_reload_pass.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut prints =
+            self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_prints.clone();
+        // `UNREAD` matches no read package, so the asked apps read as changed,
+        // and a folder deleted meanwhile still reads as removed. A folder the
+        // watch never reported is not in the prints yet: it reads as new, so
+        // naming it loads it.
+        match app {
+            Some(app) => {
+                if let Some(print) = prints.get_mut(app) {
+                    *print = UNREAD;
+                }
+            }
+            None => prints.values_mut().for_each(|print| *print = UNREAD),
+        }
+        let (next, _, report) = on_screen(|| self.pass_reporting(&prints, catalog::load));
+        if let Some(app) = app
+            && !next.contains_key(app)
+            && !report.removed.iter().any(|gone| gone == app)
+        {
+            let mut known: Vec<&String> = next.keys().collect();
+            known.sort();
+            let known = known.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(", ");
+            return Err(ApiError::new(
+                "apps.local.unknown",
+                format!(
+                    "{app} is not an extension in a local folder (local: {})",
+                    if known.is_empty() { "none" } else { &known }
+                ),
+            ));
+        }
+        // A forced read of one app still applies the other saves the watch
+        // has not read yet; the answer is about the app asked for.
+        let asked = |id: &str| app.is_none_or(|app| app == id);
+        let mut reloaded: Vec<String> =
+            report.changed.into_iter().filter(|id| asked(id.as_str())).collect();
+        reloaded.sort();
+        let refused: Vec<Value> = report
+            .refused
+            .iter()
+            .filter(|(id, _)| asked(id.as_str()))
+            .map(|(id, reason)| json!({ "app": id, "reason": reason }))
+            .collect();
+        let mut removed = report.removed;
+        removed.sort();
+        Ok(json!({ "reloaded": reloaded, "refused": refused, "removed": removed }))
+    }
+
+    /// `start_local_watch` for a test that measures a save reaching the
+    /// running app through the real file watch (`supervisor_load_tests.rs`).
+    #[cfg(test)]
+    pub(super) fn start_local_watch_for_test(self: &Arc<Self>) {
+        let me = Arc::downgrade(self);
+        let dirs = watched_dirs(&self.config.sources);
+        let spawned = std::thread::Builder::new()
+            .name("apps-local-reload-test".into())
+            .spawn(move || watch(&me, dirs));
+        if let Err(error) = spawned {
+            eprintln!("cmux-tui: test apps local reload thread did not start: {error}");
+        }
+    }
+
     /// Reads the catalog again and applies what changed in local apps since
     /// `prints`; returns the new fingerprints.
     #[cfg(test)]
@@ -132,10 +216,20 @@ impl Supervisor {
         prints: &Prints,
         load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
     ) -> (Prints, Vec<(PathBuf, String)>) {
+        let (next, rejected, _) = self.pass_reporting(prints, load);
+        (next, rejected)
+    }
+
+    /// `pass`, and what it applied.
+    fn pass_reporting(
+        &self,
+        prints: &Prints,
+        load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
+    ) -> (Prints, Vec<(PathBuf, String)>, Report) {
         // Safe mode: nothing reloads. The prints stay as they were, so the
         // saves made meanwhile apply when it ends (`safe_mode.rs`).
         if self.safe_mode_on() {
-            return (prints.clone(), Vec::new());
+            return (prints.clone(), Vec::new(), Report::default());
         }
         let before = PrintsBefore::take(&self.config.sources);
         let catalog = load(&self.config.sources);
@@ -154,9 +248,18 @@ impl Supervisor {
         let removed: Vec<String> =
             prints.keys().filter(|id| !next.contains_key(*id)).cloned().collect();
         if changed.is_empty() && removed.is_empty() {
-            return (next, rejected);
+            return (next, rejected, Report::default());
         }
         let refused = self.refused_saves(&changed, &catalog);
+        let report = Report {
+            changed: changed
+                .iter()
+                .filter(|app| !refused.iter().any(|(r, _)| r == *app))
+                .cloned()
+                .collect(),
+            refused: refused.clone(),
+            removed: removed.clone(),
+        };
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             let mut outs = Vec::new();
@@ -217,7 +320,7 @@ impl Supervisor {
             outs
         };
         self.emit(outs);
-        (next, rejected)
+        (next, rejected, report)
     }
 
     /// The changed apps whose live host serves views and whose saved script
@@ -255,23 +358,24 @@ impl Supervisor {
             .collect()
     }
 
-    /// Installs the customization app with its required scopes the first
-    /// time it appears; a record the user changed (uninstalled) stays.
+    /// Installs the customization app the first time it appears while cmux
+    /// runs, as it installs at start (`seed_customize`): its read scopes and
+    /// the sandbox, nothing more until the person allows it. A record the
+    /// user changed (uninstalled) stays. Base red: this path seeded every
+    /// required scope unsandboxed, so a customize folder that a shared
+    /// collection (`customize library import ... --on`) or a profile wrote
+    /// got `terminal:write` and `actions:run` with no card.
     pub(super) fn seed_customize_locked(&self, inner: &mut super::supervisor::Inner) {
-        let Some(facts) = inner.catalog.packages.get(CUSTOMIZE_APP).map(Package::facts) else {
+        let Some(next) = inner
+            .catalog
+            .packages
+            .get(CUSTOMIZE_APP)
+            .and_then(|package| seed_customize(&inner.mirror, package))
+        else {
             return;
         };
-        let seed = Op::Seed { app: CUSTOMIZE_APP.into(), hidden: false };
-        if let Ok(outcome) = mirror::reduce(&inner.mirror, &seed, Some(&facts))
-            && outcome.changed
-        {
-            // This app appeared after the migration snapshot. Preserve its
-            // eligibility if a failed migration retries on the next start.
-            let mut mirror = outcome.mirror;
-            mirror.sidebar_auto_place.insert(CUSTOMIZE_APP.into());
-            if self.persist(&mirror).is_ok() {
-                inner.mirror = mirror;
-            }
+        if self.persist(&next).is_ok() {
+            inner.mirror = next;
         }
     }
 }

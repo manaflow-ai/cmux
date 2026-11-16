@@ -1,8 +1,8 @@
 public import CmuxNextSettings
 public import Foundation
 
-/// SECURITY: the account that chose Always Allow on "Share This Mac?". `remote.shareWithoutAsking`
-/// lets a share request skip the dialog only while the signed-in cmux account is the one whose
+/// SECURITY: the account that chose Always Allow on the "Share This Mac" sheet. `remote.shareWithoutAsking`
+/// lets a share request skip the sheet's overview only while the signed-in cmux account is the one whose
 /// person clicked Always Allow on this Mac (``covers``). Signing out, another account, or this Mac
 /// leaving the device hub forgets the grant and turns the setting off (``accountChanged(_:)``); the
 /// setting going off forgets it too (``settingChanged(on:)``), so a later file edit turning it back on
@@ -15,7 +15,7 @@ public import Foundation
 ///
 /// Not a boundary against this user's own processes: one that can run `defaults write` for this app
 /// can write the record too, as it can Hang Reports' record. It keeps a copied or edited settings
-/// file, and another account, from skipping the dialog.
+/// file, and another account, from skipping the sheet.
 @MainActor
 public final class RemoteShareGrant {
     static let defaultsKey = "cmux.remote.shareWithoutAsking.account"
@@ -33,7 +33,7 @@ public final class RemoteShareGrant {
     /// The account that clicked Always Allow, if any.
     var grantedTo: String? { defaults.string(forKey: Self.defaultsKey) }
 
-    /// Whether a share request may skip the dialog: the setting is on, and either a managing team
+    /// Whether a share request may skip the sheet's overview: the setting is on, and either a managing team
     /// pinned it or this account's person clicked Always Allow.
     public func covers(settingOn: Bool, managed: Bool) -> Bool {
         guard settingOn else { return false }

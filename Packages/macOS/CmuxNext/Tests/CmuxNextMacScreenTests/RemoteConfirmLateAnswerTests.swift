@@ -4,7 +4,7 @@ import CmuxNextControl
 import CmuxNextSettings
 import Testing
 
-/// `cmux remote-host share on` asks "Share This Mac?" in cmux and waits 130 s. The dialog stays
+/// `cmux remote-host share on` shows the "Share This Mac" sheet in cmux and waits 130 s. The sheet stays
 /// up past that, so an Allow after the caller's deadline is still the person's answer and must
 /// make the change. Before the fix the request's deadline cancelled the work holding the dialog:
 /// a late Allow resumed into a cancelled task and sharing stayed off (Leo, 2026-11-15).

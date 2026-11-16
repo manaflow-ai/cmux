@@ -24,6 +24,8 @@
 # modes above never build it) on macOS, including its VideoToolbox path, without x264
 # (no libx264 on the fleet) and with the bench feature (OpenH264 from source).
 # rd-bench: a release build of cmux-rd-host's bench client (no x264, OpenH264 from source)
+# with the secure link (`serve` and `bench --link`, the Mac Screen session path that
+# cmux-rd-host/scripts/screen-share-vs.py measures between two Macs)
 # at .build/artifacts/cmux-rd (macOS arm64; fetch it with --artifact), so a developer
 # Mac can measure a remote host (the cloud browser VM) without building cargo locally.
 # rb-testhost: fmt, clippy and tests of cmux-tui/crates/cmux-remote-browser-testhost
@@ -860,7 +862,7 @@ if [[ "$mode" == rd-bench ]]; then
   export CARGO_TARGET_DIR="$root/.build/cmux-rd-host-target"
   cd "$root/cmux-tui/crates/cmux-rd-host"
   warm_target_guard
-  step "rd-bench release build" cargo build --locked --release --no-default-features --features bench
+  step "rd-bench release build" cargo build --locked --release --no-default-features --features bench,link
   step "rd-bench artifact" copy_rd_bench
   finish
 fi
