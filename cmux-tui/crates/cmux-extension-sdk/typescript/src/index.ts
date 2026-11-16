@@ -177,8 +177,10 @@ export const EVENT_STREAMS = Object.keys(eventTable.events) as EventStream[]
 
 /** The scope the manifest must ask for to hear `stream` (`workspace:read` for `workspace.changed`). */
 export function scopeFor(stream: EventStream): string {
-  const reads = eventTable.events[stream].reads as keyof typeof scopeTable.ops
-  return scopeTable.ops[reads].scope
+  const event = eventTable.events[stream] as { reads: string; scope?: string }
+  // A reads op with a placeholder scope (integration.request): the stream names its own (github.changed).
+  if (event.scope) return event.scope
+  return scopeTable.ops[event.reads as keyof typeof scopeTable.ops].scope
 }
 
 /**
