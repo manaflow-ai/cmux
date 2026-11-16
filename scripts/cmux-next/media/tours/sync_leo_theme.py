@@ -6,7 +6,11 @@ terminal (base64) before it uses it. Run it after changing a variant:
 
     python3 scripts/cmux-next/media/tours/sync_leo_theme.py
 """
-import base64, json, pathlib, sys
+from __future__ import annotations
+
+import base64
+import json
+import pathlib
 
 repo = pathlib.Path(__file__).resolve().parents[4]
 leo = repo / "examples/customize/leo"
@@ -17,12 +21,19 @@ PALETTE = ("clear; for i in 0 1 2 3 4 5 6 7; do printf '\\033[4%sm      ' $i; do
            "printf '\\033[32msuccess\\033[0m  \\033[33mwarning\\033[0m  \\033[31mdanger\\033[0m  "
            "\\033[34mhighlight\\033[0m  \\033[35mmagenta\\033[0m  \\033[36mcyan\\033[0m\\n\\n'")
 VARIANTS = ["dusk", "daylight", "neon"]
-path = lambda v: f"/tmp/cmux-leo-theme-{v}.json"
+
+
+def path(variant: str) -> str:
+    # $LEO_DIR is a `mktemp -d` folder the tour makes in the Tour terminal: no shared-temp names.
+    return f'"$LEO_DIR/{variant}.json"'
+
 
 steps = [
     {"title": "Launch", "wait": 2, "shot": False},
     {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Tour"], "shot": False},
     {"title": "Show the Tour workspace", "cmux": ["workspace", "name:Tour", "focus"], "shot": False},
+    {"title": "Make a private folder for the profiles", "daemon": True,
+     "cmux": TARGET + ['clear; LEO_DIR="$(mktemp -d)" && echo made "$LEO_DIR"\r'], "wait": 2, "shot": False},
 ]
 for v in VARIANTS:
     b64 = base64.b64encode((leo / f"{v}.json").read_bytes()).decode()
