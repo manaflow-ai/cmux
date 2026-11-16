@@ -1099,6 +1099,101 @@ async fn restart_to_chat_attach_is_under_two_seconds() {
     assert!(shutdown <= 1_000, "Daemon shutdown took {shutdown} ms: {result}");
 }
 
+/// The chats [`a_kill_mid_replay_of_every_open_chat_repaints_each_from_its_log`] keeps open: more
+/// than the 875 of cmux#42185.
+const OPEN_CHATS: usize = 900;
+
+/// F6 of cmuxterm-hq `docs/design/remote-cloud-durability.md` (cmux#42185: "Agent chats show empty
+/// history after the daemon restarts", fixed in the pane host by #42197, #42206 and #42326): a
+/// regression guard at the issue's scale, which passes before and after. [`OPEN_CHATS`] chats are
+/// open; each pane's attach (`settled: true`, as the page sends it since #41760) is answered once.
+/// Then every pane attaches again at once (the replay of every open chat), the daemon is killed
+/// with SIGKILL once half of them are answered, and a new daemon starts on the same home. Every
+/// pane's attach to it answers with no error, within the bound, and with the history it had
+/// before: as many events, ending at the same seq.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_kill_mid_replay_of_every_open_chat_repaints_each_from_its_log() {
+    let _ = HERMETIC;
+    let scratch = std::env::temp_dir().join(format!("god-replay-kill-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let home = scratch.join("acpmux");
+    let claude = daemon_env::home(&scratch).join(".claude");
+    let shape =
+        Shape { name: "replay-kill", chats: OPEN_CHATS, god_messages: 40, ..Shape::small() };
+    let made = god_fixture::write_home(&home, &claude, &scratch.join("work"), &shape).unwrap();
+    write_config(&home, json!([]));
+    let chats: Vec<String> = std::iter::once(made.god).chain(made.others).collect();
+    assert_eq!(chats.len(), OPEN_CHATS);
+
+    let attach = |id: &str| {
+        json!({"sessionId": id, "settled": true, "waitLogs": false, "limit": PAGE_LIMIT,
+               "maxBytes": PAGE_BYTES})
+    };
+    // What a page shows: its events, and the seq of its newest.
+    let shown = |page: &Value| {
+        let events = page["events"].as_array().cloned().unwrap_or_default();
+        let last = events.iter().filter_map(|e| e["seq"].as_u64()).max();
+        (events.len(), last)
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        let mut daemon = Daemon::start(&scratch, &home, None);
+        let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "replay-kill"}});
+        let mut rpc = Rpc::connect(&daemon.socket);
+        rpc.call("initialize", hello.clone()).unwrap();
+        let before: Vec<(usize, Option<u64>)> = chats
+            .iter()
+            .map(|id| {
+                let page = rpc.call("_acpmux/attach", attach(id)).expect("an attach before");
+                rpc.notes.clear();
+                shown(&page)
+            })
+            .collect();
+        assert!(before.iter().all(|(n, last)| *n > 0 && last.is_some()), "every chat has history");
+
+        // Every open pane attaches again at once; the daemon dies with half of them answered.
+        let mut replay = Rpc::connect(&daemon.socket);
+        replay.call("initialize", hello.clone()).unwrap();
+        let ids: Vec<u64> =
+            chats.iter().map(|id| replay.request("_acpmux/attach", attach(id))).collect();
+        for id in &ids[..OPEN_CHATS / 2] {
+            let _ = replay.response(*id);
+        }
+        // SAFETY: the pid is this test's own child, not yet reaped.
+        unsafe { libc::kill(daemon.child.id() as i32, libc::SIGKILL) };
+        let _ = daemon.child.wait();
+
+        let restarted = Instant::now();
+        daemon = Daemon::start(&scratch, &home, None);
+        let mut rpc = Rpc::connect(&daemon.socket);
+        rpc.call("initialize", hello).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let mut wrong = Vec::new();
+        for (id, was) in chats.iter().zip(&before) {
+            match rpc.call_until("_acpmux/attach", attach(id), Some(deadline)) {
+                Ok(page) if shown(&page) == *was => {}
+                Ok(page) => wrong.push(format!("{id}: {:?}, was {was:?}", shown(&page))),
+                Err(e) => wrong.push(format!("{id}: {e}")),
+            }
+            rpc.notes.clear();
+        }
+        let all_ms = ms(restarted);
+        daemon.stop();
+        let _ = std::fs::remove_dir_all(&scratch);
+        (wrong, all_ms)
+    })
+    .await
+    .unwrap();
+    let (wrong, all_ms) = result;
+    println!("replay-kill: {OPEN_CHATS} chats repainted {} ms after the kill", all_ms);
+    assert!(
+        wrong.is_empty(),
+        "{} of {OPEN_CHATS} chats did not repaint their history after a kill mid-replay: {:?}",
+        wrong.len(),
+        &wrong[..wrong.len().min(10)]
+    );
+}
+
 /// One peer's hub, restartable: each start is a new daemon run (a new list epoch) over the same
 /// rows and the same peer token, so the link that reconnects to it cannot follow its cursor and
 /// reads the whole list, as from a peer that restarted or an older daemon without the follow.
