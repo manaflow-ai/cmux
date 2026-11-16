@@ -733,7 +733,14 @@ impl Driver {
             if let Some((departed_us, wire_bytes)) =
                 self.send(transmit.route, &transmit.packet, now)
             {
-                if let Some(header) = header {
+                if let Some(header) = header.filter(|header| {
+                    matches!(
+                        header.kind,
+                        cmux_rd_proto::DatagramKind::Video
+                            | cmux_rd_proto::DatagramKind::Fec
+                            | cmux_rd_proto::DatagramKind::UpMedia
+                    )
+                }) {
                     let receipt = DatagramDeparture { header, departed_us, wire_bytes };
                     if self.departures.try_send(receipt).is_ok() {
                         self.departure_wake = true;
