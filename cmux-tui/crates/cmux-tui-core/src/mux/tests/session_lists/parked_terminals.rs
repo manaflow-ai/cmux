@@ -51,6 +51,25 @@ fn the_parked_read_compiles_one_statement_set_at_any_number_of_terminals() {
     );
 }
 
+/// With no ended terminal the parked read compiles no statement: a terminal whose shell runs is not parked, and
+/// the read does not ask the registry for the kept tabs.
+#[test]
+fn the_parked_read_compiles_no_statement_when_no_terminal_ended() {
+    let (mux, root) = file_session_of("parked-read-none-ended", 4);
+    let live = mux.workspace_registry.lock().unwrap().live_terminal_public_ids().unwrap();
+    assert!(!live.is_empty(), "setup: the session has terminals");
+    let each_runs = mux.with_state(|state| {
+        live.iter()
+            .all(|id| state.terminal_catalog.get(id).is_some_and(|surface| !surface.is_dead()))
+    });
+    assert!(each_runs, "setup: the shell of each terminal of the session runs");
+    let mut named = HashSet::new();
+    let statements = selects_of(&mux, || named = mux.parked_terminal_ids(live.clone()));
+    assert!(named.is_empty(), "a terminal whose shell runs was named as parked: {named:?}");
+    assert_eq!(statements, 0, "statements that the parked read compiled with no ended terminal");
+    close_file_session(mux, root);
+}
+
 /// What `request` gives while the registry refuses each read of the table `kept_tabs` on the calling thread.
 fn with_kept_tabs_unreadable<T>(mux: &Arc<Mux>, request: impl FnOnce() -> T) -> T {
     let request_thread = std::thread::current().id();

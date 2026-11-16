@@ -275,6 +275,9 @@ fn a_removed_snapshot_gives_no_stream_end_and_a_trimmed_one_keeps_its_end() {
         super::super::snapshot::read_header(&super::super::snapshot::path(&directory, &id(2)))
             .unwrap();
     assert_eq!(header["kept_lines"], WEEK_LINES, "the 3-day snapshot is trimmed");
+    // The scanned header gives the end of the trimmed file: the new file must record the same stream.
+    assert_eq!(header["stream_end"], 2, "the trimmed file keeps its stream end");
+    assert_eq!(header["generation"], "g", "the trimmed file keeps its generation");
     assert_eq!(
         reads.stream_ends,
         std::collections::HashMap::from([2, 3, 4].map(end_of)),

@@ -196,3 +196,7 @@ fn prune_at_start(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) -> 
     reads.trim.took += checked;
     reads
 }
+
+#[cfg(test)]
+#[path = "start_tests.rs"]
+mod tests;

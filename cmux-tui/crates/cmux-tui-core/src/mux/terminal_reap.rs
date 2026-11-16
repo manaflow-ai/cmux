@@ -778,7 +778,11 @@ impl Mux {
         let kept = if ended.is_empty() {
             HashSet::new()
         } else {
-            registry.kept_tab_ids().unwrap_or_default()
+            let read = registry.kept_tab_ids();
+            if let Err(error) = &read {
+                eprintln!("cmux-tui: the kept tabs were not read, no parked trim: {error:#}");
+            }
+            read.unwrap_or_default()
         };
         ended
             .into_iter()
