@@ -48,9 +48,9 @@ on:
         type: string
         default: "10"
       spare_wait:
-        description: "Preclaim only: seconds each claim waits, at most, for a ready spare (0-900; 0 claims at once)"
+        description: "Preclaim only: seconds each claim waits, at most, for a ready spare (0-900; 0 claims at once). 300 by default: a broker dispatch sends no spare_wait, and back-to-back claims on staging's one spare measure its refill, not the claim path"
         type: string
-        default: "0"
+        default: "300"
 
 permissions:
   contents: read
@@ -293,7 +293,7 @@ jobs:
           export PRECLAIM_PRIVATE_ROWS="$private"
           set +e
           bun scripts/cmux-next/cloud-journey.ts --backend staging --model real --cmux "${{ steps.build-cmux-tui.outputs.path }}" \
-            --preclaim --claims '${{ inputs.claims }}' --spare-wait '${{ inputs.spare_wait || '0' }}' --out "$out"
+            --preclaim --claims '${{ inputs.claims }}' --spare-wait '${{ inputs.spare_wait || '300' }}' --out "$out"
           journey_code=$?
           set -e
           if [ ! -s "$private" ]; then
