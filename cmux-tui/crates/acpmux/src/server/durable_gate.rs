@@ -92,6 +92,7 @@ pub(super) fn install(
 /// while it is merely slow the lines keep waiting: a slow disk makes replies slower, never makes
 /// the daemon restart (a restart on the same disk is no faster, and every client meanwhile gets
 /// "acpmux is shutting down").
+// timeout: a check interval, not a deadline: a merely slow journal keeps the lines waiting
 const STALL_LIMIT: Duration = Duration::from_secs(10);
 
 fn stall_limit() -> Duration {

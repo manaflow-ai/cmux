@@ -45,6 +45,7 @@ pub const MAX_COMPARE: usize = 3;
 /// Most files a build's change lists; its totals count them all.
 const MAX_FILES: usize = 200;
 /// The longest one build's git read takes before it is given up.
+// timeout: a per-row hang breaker; a slower read shows that row's error and zero counts, the rest answer
 const GIT_LIMIT: Duration = Duration::from_secs(10);
 
 pub use crate::plan_build_records::{PlanBuildEntry, PlanBuildRecord};

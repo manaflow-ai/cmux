@@ -89,6 +89,17 @@ class ShortTimeoutGuardTests(unittest.TestCase):
             [5, 6],
         )
 
+    def test_a_rust_duration_limit_constant_is_a_deadline(self) -> None:
+        # A Duration constant named a LIMIT is a deadline with no other deadline word near it
+        # (cli/app/wait.rs RECONNECT_GONE_LIMIT); a usize LIMIT beside a pace is not one.
+        path = "cmux-tui/crates/cmux-tui/src/cli/app/wait.rs"
+        limit = "/// After this the app counts as quit.\nconst RECONNECT_GONE_LIMIT: Duration = Duration::from_secs(5);\n"
+        self.assertEqual([(hit["pattern"], hit["line"]) for hit in guard.scan_source(limit, path)], [("rust-duration", 2)])
+        reasoned = "// timeout: tells a quit app from a restarting one\nconst GONE_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);\n"
+        self.assertEqual(guard.scan_source(reasoned, path), [])
+        count = "const MAX_LIMIT: usize = 200;\n/// How often to read.\nconst RECHECK: Duration = Duration::from_secs(1);\n"
+        self.assertEqual(guard.scan_source(count, path), [])
+
     def test_other_language_patterns_and_test_module_exclusion(self) -> None:
         swift = "request.timeoutInterval = 2\nsetsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &value)\n"
         self.assertEqual(
