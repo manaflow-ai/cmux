@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 import importlib.util  # noqa: E402
 
@@ -618,6 +619,21 @@ class HotKeys(unittest.TestCase):
         self.assertNotIn("via", plan)
         self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff: no FFI file
 
+    def test_hot_keys_keep_ffi_sources_out_until_the_pin_moves(self):
+        hot = load_hot("hot_apply_keys_digest_under_test")
+
+        def digest(sha):
+            listing = subprocess.run(["git", "-C", str(ROOT), "ls-tree", "-r", "-z", "--full-tree", sha],
+                                     capture_output=True, check=True).stdout.decode()
+            blobs = {entry.split("\t", 1)[1]: entry.split()[2] for entry in listing.split("\0") if entry}
+            files = hot.live_apply.classify_range(str(ROOT), f"{sha}^", sha)["files"]
+            return hot.ffi_digest(ROOT, sha, blobs, files.get("daemon", []))
+
+        parent = run_git("rev-parse", f"{FFI_SOURCE_ONLY}^").stdout.strip()
+        repin_parent = run_git("rev-parse", f"{FFI_REPIN}^").stdout.strip()
+        self.assertEqual(digest(parent), digest(FFI_SOURCE_ONLY))
+        self.assertNotEqual(digest(repin_parent), digest(FFI_REPIN))
+
     def test_the_keys_plan_keeps_a_team_signed_apps_daemon_from_an_ad_hoc_build(self):
         # The published-keys plan checks the signature as the diff plan does (2026-11-15's Cloud list failure).
         app = self.tmp / "cmux NIGHTLY.app"
@@ -918,6 +934,8 @@ class TreeKey(unittest.TestCase):
 
 
 FFI ="2c58afdd5f8ac95146fed0cc3c472aee5af31562"  # cmux#43373: cmux-tui/bindings/rust, which the app links
+FFI_SOURCE_ONLY = "2816f1f6770d27a8c1f622205bdc278627165a2a"  # cmux#44307: FFI sources, no app pin move
+FFI_REPIN = "01936a9c77c22a3735bee357aa417eb7f0bf110e"  # app-ffi-repin: app-ffi-pin.json moves the release
 
 
 class LiveFrom(unittest.TestCase):
@@ -925,7 +943,7 @@ class LiveFrom(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        git_history.require_history(ROOT, [FIX, FFI], depth=4)
+        git_history.require_history(ROOT, [FIX, FFI, FFI_SOURCE_ONLY, FFI_REPIN], depth=4)
 
     def live_from(self, sha, limit):
         done = subprocess.run([sys.executable, str(SCRIPT), "live-from", sha, "--max", str(limit)],
@@ -939,10 +957,44 @@ class LiveFrom(unittest.TestCase):
         self.assertEqual(len(out["live_from"]), 3)
         self.assertIsNone(out["floor"])  # no FFI change within the limit
 
-    def test_a_commit_that_changes_rust_the_app_links_is_its_own_floor(self):
+    def test_an_ffi_source_only_change_does_not_set_a_floor(self):
         out = self.live_from(FFI, 5)
-        self.assertEqual((out["live_from"], out["floor"]), ([FFI], FFI))
-        self.assertTrue(all(p.startswith("cmux-tui/bindings/rust/") for p in out["floor_paths"]), out["floor_paths"])
+        self.assertEqual(out["live_from"][0], FFI)
+        self.assertIsNone(out["floor"])
+
+    def test_the_remote_viewer_ffi_source_only_change_does_not_set_a_floor(self):
+        out = self.live_from(FFI_SOURCE_ONLY, 1)
+        self.assertEqual(out["live_from"], [FFI_SOURCE_ONLY])
+        self.assertIsNone(out["floor"])
+        self.assertEqual(out["floor_paths"], [])
+
+    def test_a_repin_is_the_ffi_floor(self):
+        out = self.live_from(FFI_REPIN, 1)
+        self.assertEqual((out["live_from"], out["floor"]), ([FFI_REPIN], FFI_REPIN))
+        self.assertEqual(out["floor_paths"], ["Packages/macOS/CmuxNext/app-ffi-pin.json"])
+
+    def test_rust_the_swift_build_reads_outside_ffi_still_sets_a_floor(self):
+        hot = load_hot("hot_apply_pins_daemon_under_test")
+        path = "cmux-tui/crates/swift-read/src/lib.rs"
+        with tempfile.TemporaryDirectory(prefix="hot-apply-pins-test-") as repo:
+            def git(*args):
+                return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True)
+
+            git("init", "-q")
+            git("config", "user.email", "t@example.com")
+            git("config", "user.name", "t")
+            Path(repo, "base").write_text("base\n")
+            git("add", "base")
+            git("commit", "-qm", "base")
+            Path(repo, "change").write_text("change\n")
+            git("add", "change")
+            git("commit", "-qm", "swift-read")
+            sha = git("rev-parse", "HEAD").stdout.strip()
+            with mock.patch.object(hot.live_apply, "classify_range", return_value={"files": {"daemon": [path]}}), \
+                    mock.patch.object(hot, "linked_rust", side_effect=lambda _repo, paths: paths), \
+                    mock.patch.object(hot, "ffi_input", return_value=False), \
+                    mock.patch.object(hot.ffi_part, "app_pin_source", return_value="same"):
+                self.assertEqual(hot.pins_daemon(Path(repo), sha), [path])
 
 
 class WebCache(unittest.TestCase):
@@ -1428,22 +1480,20 @@ class HotApplyFFI(unittest.TestCase):
         (tag / "SHA256SUMS").write_text(f"{digest}  CCmuxAppFFI.xcframework.zip\n")
         return digest
 
-    def test_plan_takes_the_ffi_part_for_an_app_carrying_the_library(self):
+    def test_plan_keeps_a_source_only_ffi_edit_with_the_daemon(self):
         self.carry_dylib()
         code, plan, err = self.hot("plan", FFI_FIX, "--app", str(self.app))
         self.assertEqual(code, 0, err)
-        self.assertIn("ffi", plan["parts"])
-        self.assertIn("rust", plan["parts"])  # the daemon part rides with it
+        self.assertNotIn("ffi", plan["parts"])
+        self.assertIn("rust", plan["parts"])
         self.assertNotIn("Rust the app links (FFI)", plan["left"])
-        self.assertEqual(plan["ffi"]["source"], FFI_FIX)
-        self.assertEqual(plan["ffi"]["release"], f"cmux-app-ffi-{FFI_FIX}")
-        self.assertTrue(all(p.startswith("cmux-tui/crates/cmux-layout-reducer") for p in plan["ffi"]["files"]))
 
-    def test_an_app_linking_the_ffi_statically_leaves_it_with_why(self):
+    def test_a_source_only_ffi_edit_does_not_require_a_dynamic_library(self):
         code, plan, err = self.hot("plan", FFI_FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
         self.assertNotIn("ffi", plan["parts"], err)
-        self.assertIn("Rust the app links (FFI)", plan["left"])
-        self.assertTrue(any("links the app FFI statically" in note for note in plan["notes"]), plan["notes"])
+        self.assertIn("rust", plan["parts"])
+        self.assertNotIn("Rust the app links (FFI)", plan["left"])
 
     def test_a_branch_s_ffi_is_left(self):
         self.carry_dylib()
