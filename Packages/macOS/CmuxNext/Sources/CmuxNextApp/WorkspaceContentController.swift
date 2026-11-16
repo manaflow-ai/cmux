@@ -387,10 +387,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// (deterministic; never dictionary order).
     var focusedPane: PaneController? {
         if let id = focus.state.pane, let controller = panes[LayoutPaneID(id)] { return controller }
-        for id in layoutModel.screens.flatMap(\.panes) {
-            if let controller = panes[id] { return controller }
-        }
-        return nil
+        return layoutModel.screens.flatMap(\.panes).lazy.compactMap { self.panes[$0] }.first
     }
 
     /// The controller of the pane with daemon id `key`.

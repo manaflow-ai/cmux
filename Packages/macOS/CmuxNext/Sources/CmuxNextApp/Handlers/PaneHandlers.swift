@@ -17,6 +17,7 @@ enum PaneHandlers {
         bindFocus(registry, ctx)
         bindSizing(registry, ctx)
         PaneHandlers.bindPaneVerbs(into: registry, context: ctx)
+        FloatingPaneActions.register(into: registry) { ctx.daemonPane($0).map { (ctx.services.daemon(for: $0), $0.handle) } }
     }
 
     // MARK: Geometry helpers
