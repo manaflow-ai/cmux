@@ -128,7 +128,9 @@ pub enum Change {
     Off,
     Keep,
     /// Drops this machine's per-machine record of the surface: the account policy decides again.
-    /// Per-machine grants only.
+    /// In an account grant (both surfaces), the sign-in's default On: it applies as On only on a
+    /// machine that keeps no account policy for the account yet, so an automatic sign-in never
+    /// undoes an Off the person set from another Mac.
     Default,
 }
 
@@ -159,6 +161,19 @@ impl Change {
             Change::Off => Some(false),
             Change::Keep | Change::Default => None,
         }
+    }
+
+    /// What a kept account policy says for a surface: a default (the sign-in's) is On.
+    fn policy_value(self) -> Option<bool> {
+        match self {
+            Change::Default => Some(true),
+            change => change.value(),
+        }
+    }
+
+    /// The word an account policy reports for a surface (`accountPolicy`): on or off.
+    fn policy_word(self) -> &'static str {
+        if self.policy_value() == Some(true) { "on" } else { "off" }
     }
 }
 
@@ -458,8 +473,9 @@ pub fn parse(value: &Value) -> Result<Grant, Refusal> {
     }
     // The account policy is the newest account grant, whole, so it names both surfaces.
     let sets = |change: Change| matches!(change, Change::On | Change::Off);
-    if account_wide && !(sets(control) && sets(screen)) {
-        return Err(bad("an account grant sets control and screen on or off"));
+    let default = control == Change::Default && screen == Change::Default;
+    if account_wide && !(sets(control) && sets(screen)) && !default {
+        return Err(bad("an account grant sets control and screen on or off, or both default"));
     }
     let (issued_at, expires_at) = (number("issuedAt")?, number("expiresAt")?);
     let signature = value
@@ -637,9 +653,14 @@ pub(crate) fn apply(
         // The newest account policy for this account is kept whole, signature included, so this
         // machine can hand it on to a peer that enrolls later (`op: "policy"`). An older one
         // (another grantor's newer policy is kept) changes nothing.
-        let newer = read_policy(root)
-            .filter(|(kept, _)| kept.account == grant.account)
-            .is_none_or(|(kept, _)| grant.issued_at > kept.issued_at);
+        // SECURITY: the sign-in's default On (both `default`) takes only where no policy for the
+        // account is kept yet: an automatic sign-in on one Mac never undoes the person's Off.
+        let kept = read_policy(root).filter(|(kept, _)| kept.account == grant.account);
+        let newer = if grant.control == Change::Default {
+            kept.is_none()
+        } else {
+            kept.is_none_or(|(kept, _)| grant.issued_at > kept.issued_at)
+        };
         if newer {
             write_json(&root.join(POLICY), &json!({"grant": value, "at": now}))
                 .map_err(|_| store())?;
@@ -666,7 +687,10 @@ pub(crate) fn apply(
         }
         write_json(&root.join(MACHINE_GRANTS), &records).map_err(|_| store())?;
     }
-    let granted = !stale && (grant.control == Change::On || grant.screen == Change::On);
+    let turns_on = |change: Change| {
+        change == Change::On || (grant.account_wide() && change == Change::Default)
+    };
+    let granted = !stale && (turns_on(grant.control) || turns_on(grant.screen));
     let consent = rewrite_consent(authority, Some(&grant.account), granted.then_some(now))
         .map_err(|_| store())?;
     let scope = if grant.account_wide() { "account" } else { "machine" };
@@ -687,6 +711,7 @@ pub(crate) fn apply(
         let what = match grant.change(surface) {
             Change::On => "grant",
             Change::Off => "revoke",
+            Change::Default if grant.account_wide() => "grant",
             Change::Default => "default",
             Change::Keep => continue,
         };
@@ -809,7 +834,7 @@ pub(crate) fn recompute(
         let record = if surface == "control" { &records.control } else { &records.screen };
         let record = record.clone().filter(|record| counts(&record.grantor, &record.account));
         let account_record = policy.as_ref().and_then(|(grant, at)| {
-            grant.change(surface).value().map(|on| Record {
+            grant.change(surface).policy_value().map(|on| Record {
                 on,
                 issued_at: grant.issued_at,
                 grantor: grant.grantor.clone(),
@@ -1094,7 +1119,7 @@ fn account_policy(root: &Path, account: Option<&str>) -> Value {
         Value::Null,
         |(grant, _)| {
             json!({"grantor": grant.grantor, "issuedAt": grant.issued_at,
-                "control": grant.control.word(), "screen": grant.screen.word()})
+                "control": grant.control.policy_word(), "screen": grant.screen.policy_word()})
         },
     )
 }
