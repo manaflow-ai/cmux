@@ -42,6 +42,7 @@ final class SidebarBridge {
     lazy var selectionHold = SidebarSelectionHold(model: model)
     /// The saved space bar, shown until the local daemon reports its spaces.
     private var seededProfiles: (profiles: [SidebarProfile], active: SidebarProfileKey?)?
+    private var showsFirstPassAtOnce = false // the seed wrote the window's space from the store (a new window): the first run of the rows pass shows its rows at once, one time
     /// Saves what the sidebar shows (`SidebarSnapshotStore`).
     private var snapshotRecorder = SidebarSnapshotRecorder()
     /// Organization intents waiting for the home session's personal state.
@@ -173,8 +174,8 @@ final class SidebarBridge {
             guard let self else { return }
             self.model.sectionCustomization = projection
             self.showProfiles(profiles, active: active, launching: launching)
-            self.show(SidebarSection.decorated(feed.fill(sections), decorations), shownAt: shownAt, layout: shown, launching: launching, failed: failed,
-                      creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
+            self.show(SidebarSection.decorated(feed.fill(sections), decorations), shownAt: shownAt, layout: shown, launching: launching, failed: failed, creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
+            if self.showsFirstPassAtOnce { self.showsFirstPassAtOnce = false; self.container.sidebarView.showRowsOfTheMaking() } // this run is part of the window's making
             // A grouped create this pass listed loose (and left out) joins its group now: the document's move draws it
             // there on the next pass, its first frame.
             for (id, group) in PendingWorkspaceRows.shared.groupJoins.takeDue(in: windowState.id) {
@@ -241,7 +242,7 @@ final class SidebarBridge {
         // Collapsed sections: this window's view state, saved only in its sidebar snapshot.
         model.collapsedSections = Set((saved?.sidebarSections ?? []).filter(\.isCollapsed).map(\.id))
         let savedSpaces = saved.flatMap { $0.profiles.isEmpty ? nil : $0 }
-        if let savedSpaces { seededProfiles = (savedSpaces.sidebarProfiles, savedSpaces.sidebarActiveProfileID) }
+        if let savedSpaces { seededProfiles = (savedSpaces.sidebarProfiles, savedSpaces.sidebarActiveProfileID) } else { showsFirstPassAtOnce = true }
         // No saved spaces (each new window): the store's, by the rows pass's own function, so the first frame has the space bar. Not `seededProfiles`: the pass keeps those while a launch lists none.
         model.profiles = savedSpaces?.sidebarProfiles ?? SidebarSpaceBar.profiles(services.machines.local, window: state.id, windows: windows)
         model.activeProfileID = savedSpaces == nil ? SidebarProfileKey(state.profileID.rawValue) : savedSpaces?.sidebarActiveProfileID
@@ -250,8 +251,7 @@ final class SidebarBridge {
         show(sections, shownAt: shownAt, layout: SidebarRows.visibleLayout(services, window: state), launching: launching, failed: failed)
     }
 
-    /// Shows `live` with loading sections filled from the seed, and the
-    /// band's `layout` in the same turn, then saves it.
+    /// Shows `live` with loading sections filled from the seed, and the band's `layout` in the same turn, then saves it.
     private func show(_ live: [SidebarRowSection], shownAt: UInt64?, layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>,
                       creating: [PendingWorkspaceRows.Row] = []) {
         var sections = seed.connecting.holdingConnectingLabels(seed.merge(live, launching: launching, failed: failed, unloaded: Set(services.machines.daemons.lazy.filter { !$0.store.isLoaded }.map { MachineID($0.machineID) })))

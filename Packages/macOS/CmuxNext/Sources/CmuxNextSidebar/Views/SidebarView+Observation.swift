@@ -125,6 +125,18 @@ extension SidebarViewComponents {
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
     public func renderNow() { render(RenderState(model, design)) }
 
+    /// The first run of a new window's rows pass is part of the window's making: its rows show in that turn, in one
+    /// step with no motion, also while the pointer is over the rows (decision of 2026-11-16). Before a window's
+    /// seed wrote its space, that run was the window's space change, which reloads the list with no condition. The
+    /// bridge calls this one time for a window; each later change that nobody in this window asked for waits while
+    /// the pointer is over the rows, as before (`SidebarListView.showModelChange`).
+    public func showRowsOfTheMaking() {
+        renderNow()
+        guard list.holdsModelChange else { return }
+        list.releaseHeldModelChange()
+        if !list.holdsModelChange { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
+    }
+
     /// Draws the model in this turn's frame: the main run loop's block phase, before AppKit's display cycle and the
     /// commit, once however many times the turn asks. An input's turn changes the model and leaves the view work to
     /// the frame that shows it (Cmd-N's row, SWITCH STALL 6); a later `renderNow` in the turn draws it first.

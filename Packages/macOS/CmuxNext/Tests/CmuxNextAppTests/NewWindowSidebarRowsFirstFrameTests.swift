@@ -182,6 +182,35 @@ import Testing
                 "a new window's list does not draw the create's row while the pointer is over its rows")
     }
 
+    /// The show at once is the first run's only (decision of 2026-11-16). This window has no create at its making,
+    /// so the first run of its rows pass changes no row; that run uses the show at once up. Then a create's row
+    /// comes and the rows pass runs again: a change of the rows that nobody in this window asked for, with the
+    /// pointer over the rows, so the list keeps it back (`SidebarListView.showModelChange`). The pointer's answer is
+    /// the list's seam; the asserts read the list's own state: no clock, no poll and no real pointer.
+    @Test func aLaterSetOfANewWindowsRowsPassWaitsUnderThePointer() async throws {
+        let id = "rows-first-frame-later-set", created = "rows-first-frame-created-later"
+        let made = try Self.window(id, listsTheWorkspace: true)
+        defer {
+            made.close()
+            PendingWorkspaceRows.shared.remove(created)
+        }
+        let model = made.model, list = made.controller.sidebar.container.sidebarView.list
+        let lists = { model.sections.flatMap(\.workspaces).contains { $0.id.rawValue == created } }
+        try #require(!list.displayed.rows.isEmpty, "the fixture is wrong: the window's first draw lists no row")
+        list.pointerIsOverList = { _ in true }
+        await RestoredWindowSidebarRowsPassTests.drain() // the first run of the rows pass
+        made.controller.sidebar.sameTurn.syncNow(rows: false) // no rows pass: it draws what the model has
+        try #require(Work.now.since(made.start).rebuilds >= 1, "the fixture is wrong: the rows pass of the window did not run in the hops")
+        try #require(!list.holdsModelChange, "the fixture is wrong: the list holds a change after the first run of the rows pass")
+        PendingWorkspaceRows.shared.add(creating: created, window: id, machine: CmuxNextSidebar.MachineID(made.services.machines.local.machineID), name: "created",
+                                        opensPage: true, slot: nil, byDefault: nil)
+        made.controller.sidebar.sameTurn.syncNow(rows: true) // the rows pass again, then the draw
+        try #require(lists(), "the fixture is wrong: the second run of the rows pass did not list the create's row")
+        #expect(list.holdsModelChange, "a later set of a new window's rows pass did not wait while the pointer is over the rows")
+        #expect(list.displayed.row(for: .workspace(CmuxNextSidebar.WorkspaceID(created))) == nil,
+                "a later set of a new window's rows pass drew its row under the pointer")
+    }
+
     /// The debug measure of a new workspace's row (`SidebarNewRowTimer`, the socket method `debug.new_workspace`)
     /// ends at the draw that lists the row. A new window's first draw is the list's space page (the seed wrote the
     /// window's space), and that draw ends the measure's waiting entry, as the list's reload did when the first
