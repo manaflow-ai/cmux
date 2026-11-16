@@ -212,6 +212,8 @@ class Context:
         if self.host_role != "fleet":
             raise BenchError(f"{self.bench.name}: a fleet step needs --host fleet")
         ref = ref or self.args.get("ref") or base_tip()
+        if len(ref) < 40:  # cmux-ci run --ref takes all 40 characters
+            ref = parse_build(ref)["sha"]
         target_worker = target_worker or self.args.get("worker")
         cmd = ["cmux-ci", "run", "--class", step_class, "--measurement", "--script", script, "--ref", ref]
         for label in labels:

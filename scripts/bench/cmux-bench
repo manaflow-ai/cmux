@@ -96,7 +96,11 @@ def run_bench(name: str, build_spec: str | None, host: str | None, kv: dict[str,
     if import_path is None and host not in bench.hosts:
         raise BenchError(f"{name} runs on {', '.join(bench.hosts)}, not {host}")
     build = parse_build(build_spec)
-    if build.pop("pending", False) and not (import_path and build_spec is None):
+    if import_path and build_spec is None:
+        # An import is not the newest NIGHTLY unless the caller says so; a bench whose file names its build
+        # (xbench) sets it in ingest. Never let an old file become BENCH@nightly.
+        build = {"channel": "other", "version": None, "sha": None}
+    elif build.pop("pending", False):
         try:
             build.update(resolve_nightly())
         except OSError as err:
@@ -226,14 +230,19 @@ def cmd_nightly(a: argparse.Namespace) -> int:
     for name in names:
         bench = benches[name]
         try:
-            ctx = run_bench(name, "nightly", bench.hosts[0], dict(bench.nightly_args))
+            host = bench.nightly_args.get("host") or ("fleet" if "fleet" in bench.hosts else bench.hosts[0])
+            ctx = run_bench(name, "nightly", host, {k: v for k, v in bench.nightly_args.items() if k != "host"})
             if not ctx.rows:
                 failures.append(f"{name}: no rows ({'; '.join(ctx.notes)})")
                 continue
-            Ledger().append(ctx.rows)
-        except (BenchError, LedgerError, SchemaError) as err:
+        except (BenchError, SchemaError) as err:
             failures.append(f"{name}: {err}")
             continue
+        try:
+            Ledger().append(ctx.rows)
+        except LedgerError as err:
+            # The run is committed locally; compare against it anyway and push with the next run.
+            failures.append(f"{name}: recorded locally, not pushed: {err}")
         runs = _ledger_runs(False)
         try:
             prev = cmp.resolve(f"{name}@nightly~1", runs)

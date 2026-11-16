@@ -7,7 +7,7 @@ descendants, every process running from inside the bundle, every process it is r
 its terminal hosts, as scripts/perf-bench/procs.py (xbench's counters) selects them. Per process:
   - `ps -o pid,ppid,rss,command` (RSS),
   - phys_footprint from proc_pid_rusage (procs.counters; the number Activity Monitor's Memory column shows),
-  - `vmmap --summary PID` (physical footprint, dirty and swapped), unless --arg vmmap=0.
+  - `vmmap --summary PID` (physical footprint, dirty and swapped), only with --arg vmmap=1 (vmmap suspends each process while it reads it, so it is off by default on a live app).
 The raw probe output is written to a JSON dump first (cmux-bench-footprint/v1) and the rows come from parsing
 that dump, so `cmux-bench footprint --import DUMP` gives the same rows on any machine (--arg dump=PATH keeps it).
 
@@ -220,7 +220,7 @@ class Footprint(Bench):
         if platform.system() != "Darwin":
             raise BenchError("footprint --host local-readonly reads a running app on macOS; elsewhere use --import DUMP")
         app = ctx.arg("app") or next((a for a in DEFAULT_APPS if os.path.isdir(a)), DEFAULT_APPS[0])
-        dump = probe(app.rstrip("/"), ctx.arg("vmmap", "1") != "0")
+        dump = probe(app.rstrip("/"), ctx.arg("vmmap", "0") == "1")
         path = Path(ctx.arg("dump") or ctx.workdir / "footprint-probe.json")
         path.write_text(json.dumps(dump, indent=1))
         ctx.notes.append(f"footprint: probe dump {path}")

@@ -12,9 +12,12 @@ CMUX_BENCH_LEDGER=DIR uses a plain directory instead (tests, offline work); noth
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -81,19 +84,55 @@ class Ledger:
             return
         if _git(self.root, "ls-remote", "--exit-code", "--heads", "origin", BRANCH, check=False).returncode != 0:
             return
-        _git(self.root, "pull", "-q", "--rebase", "origin", BRANCH)
+        with self._lock():
+            self._rebase()
 
-    def push(self, attempts: int = 3) -> bool:
-        """Push local runs. False (with the runs kept locally) when the remote cannot be reached."""
+    @contextlib.contextmanager
+    def _lock(self):
+        """One writer per local clone at a time: the write, commit, rebase and push of a run hold it."""
+        self.root.mkdir(parents=True, exist_ok=True)
+        with open(self.root.parent / f".{self.root.name}.lock", "w") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+
+    def _rebase(self) -> None:
+        proc = _git(self.root, "pull", "-q", "--rebase", "origin", BRANCH, check=False)
+        if proc.returncode != 0:
+            # Never leave a half-done rebase: every later pull would fail on it.
+            _git(self.root, "rebase", "--abort", check=False)
+            raise LedgerError(f"pull {BRANCH}: {proc.stderr.strip() or proc.stdout.strip()}")
+
+    def _commit_stranded(self) -> None:
+        """Commit any run file a crashed or interrupted append wrote but never committed."""
         if self.remote is None:
-            return True
+            return
+        _git(self.root, "add", "--", "runs")
+        if _git(self.root, "diff", "--cached", "--quiet", check=False).returncode != 0:
+            _git(self.root, "-c", "user.name=cmux-bench", "-c", "user.email=cmux-bench@users.noreply.github.com",
+                 "commit", "-q", "-m", "runs left uncommitted by an earlier append")
+
+    def push(self, attempts: int = 3) -> None:
+        """Push local runs; raise LedgerError (the runs stay committed locally) when the remote refuses."""
+        if self.remote is None:
+            return
+        with self._lock():
+            self._push(attempts)
+
+    def _push(self, attempts: int) -> None:
+        self._commit_stranded()
         last = ""
         for _ in range(attempts):
             proc = _git(self.root, "push", "-q", "origin", f"HEAD:refs/heads/{BRANCH}", check=False)
             if proc.returncode == 0:
-                return True
+                return
             last = proc.stderr.strip()
-            _git(self.root, "pull", "-q", "--rebase", "origin", BRANCH, check=False)
+            try:
+                self._rebase()
+            except LedgerError as err:
+                last = str(err)
         raise LedgerError(f"push to {self.remote} {BRANCH} failed after {attempts} tries: {last}")
 
     # --- write ----------------------------------------------------------------------------------
@@ -111,15 +150,20 @@ class Ledger:
         rel = Path("runs") / ts[:4] / ts[5:7] / f"{run_id}.jsonl"
         path = self.root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("x", encoding="utf-8") as fh:
-            for row in rows:
-                fh.write(json.dumps(row, sort_keys=True) + "\n")
-        if self.remote is not None:
-            _git(self.root, "add", str(rel))
-            _git(self.root, "-c", "user.name=cmux-bench", "-c", "user.email=cmux-bench@users.noreply.github.com",
-                 "commit", "-q", "-m", f"{rows[0]['bench']}: {run_id} ({len(rows)} rows)")
-            if push:
-                self.push()
+        with self._lock():
+            # Write to a temp name and rename, so a reader never sees half a run.
+            tmp = path.with_suffix(".jsonl.tmp")
+            with tmp.open("x", encoding="utf-8") as fh:
+                for row in rows:
+                    fh.write(json.dumps(row, sort_keys=True) + "\n")
+            if path.exists():
+                tmp.unlink()
+                raise LedgerError(f"{rel} already exists")
+            os.replace(tmp, path)
+            if self.remote is not None:
+                self._commit_stranded()
+                if push:
+                    self._push(3)
         return path
 
     # --- read -----------------------------------------------------------------------------------
@@ -130,9 +174,13 @@ class Ledger:
         for path in sorted(base.rglob("*.jsonl")):
             if bench and f"-{bench}-" not in path.name:
                 continue
-            for line in path.read_text(encoding="utf-8").splitlines():
+            for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if line.strip():
-                    row = json.loads(line)
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        print(f"cmux-bench: ledger: skipping a bad line {path.name}:{n}", file=sys.stderr)
+                        continue
                     if bench is None or row.get("bench") == bench:
                         yield row
 

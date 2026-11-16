@@ -155,6 +155,17 @@ class GitLedgerTests(unittest.TestCase):
                 one.pull()
                 self.assertEqual(len(one.runs()), 3)
                 self.assertEqual(len(two.runs()), 3)
+                # A run file an interrupted append left uncommitted goes out with the next push.
+                stranded = make_run(nightly("4"), {"launch": 4}, "2026-11-17T00:00:00Z")
+                path = one.root / "runs/2026/11" / f"{stranded[0]['run_id']}.jsonl"
+                path.write_text("".join(json.dumps(r) + "\n" for r in stranded))
+                one.push()
+                two.pull()
+                self.assertEqual(len(two.runs()), 4)
+                # A bad line is skipped, not fatal to every read.
+                with path.open("a") as fh:
+                    fh.write("{not json\n")
+                self.assertEqual(len(one.runs()), 4)
             finally:
                 for k, v in old.items():
                     if v is None:
@@ -184,7 +195,15 @@ class RegistryAndCliTests(unittest.TestCase):
                     ["cmux.app/Contents/Frameworks/Engine.framework/Engine", 150_000_000]]}))
                 subprocess.run([sys.executable, cli, "bundle", "--import", str(listing), "--build", f"release:{version}",
                                 "--host-name", "fixture"], text=True, capture_output=True, env=env, check=True)
-            res = subprocess.run([sys.executable, cli, "compare", "bundle@latest~1", "bundle@latest", "--json",
+            # An import with no --build is never taken for a NIGHTLY.
+            plain = Path(tmp) / "plain.json"
+            plain.write_text(listing.read_text())
+            subprocess.run([sys.executable, cli, "bundle", "--import", str(plain)], text=True, capture_output=True,
+                           env=env, check=True)
+            shown = subprocess.run([sys.executable, cli, "show", "bundle@latest", "--json", "--no-pull"], text=True,
+                                   capture_output=True, env=env, check=True)
+            self.assertEqual(json.loads(shown.stdout)[0]["build"]["channel"], "other")
+            res = subprocess.run([sys.executable, cli, "compare", "bundle@latest~2", "bundle@latest~1", "--json",
                                   "--no-pull", "--fail-on-regression"], text=True, capture_output=True, env=env)
             self.assertEqual(res.returncode, 1, res.stderr)
             data = json.loads(res.stdout)
