@@ -57,6 +57,14 @@ struct CatalogGetParams {
 #[serde(deny_unknown_fields)]
 struct InstalledListParams {}
 
+/// `apps.local.reload`: one local app, or every one when `app` is absent.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalReloadParams {
+    #[serde(default)]
+    app: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetParams {
@@ -357,6 +365,10 @@ impl Supervisor {
             }
             "apps.rollback" => params(args).and_then(|p| self.rollback(p, origin)),
             "apps.resume" => params(args).and_then(|p| self.resume(p, origin)),
+            // The app's Reload Custom Views (palette, an error card's Reload):
+            // the same forced read as `apps-reload` (`cmux ext reload`).
+            "apps.local.reload" => params::<LocalReloadParams>(args)
+                .and_then(|p| self.reload_local_now(p.app.as_deref())),
             other => self.panel_call(client, other, args, origin).unwrap_or_else(|| {
                 Err(ApiError::new("apps.op.unknown", format!("{op} is not an App Store op")))
             }),
