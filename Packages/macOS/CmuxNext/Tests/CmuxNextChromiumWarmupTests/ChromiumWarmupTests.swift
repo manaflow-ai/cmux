@@ -119,6 +119,29 @@ import Testing
         warmup.stop()
     }
 
+    /// The bare launch (piece 8 of hq `docs/design/launch-shell-first.md`): with nothing restored no page asks for
+    /// Chromium, so even with Chromium the default engine nothing maps at the first frame; it loads when a page asks.
+    @Test func aBareLaunchMapsNothingForTheDefaultEngine() async {
+        let steps = Steps()
+        let warmup = recordingWarmup(steps)
+        warmup.start(defaultIsChromium: { true }, bare: true)
+        await settle { false }
+        #expect(steps.log == ["checkedUse"])
+        #expect(warmup.reason == nil)
+        warmup.stop()
+    }
+
+    /// A bare launch still maps at the first frame for a person who opened a Chromium tab in the last 7 days.
+    @Test func aBareLaunchStillMapsForRecentUse() async {
+        let steps = Steps()
+        steps.usedRecently = true
+        let warmup = recordingWarmup(steps)
+        warmup.start(defaultIsChromium: { true }, bare: true)
+        await settle { steps.log.contains("preload") }
+        #expect(steps.log == ["checkedUse", "preload"])
+        warmup.stop()
+    }
+
     @Test func theDefaultPolicy() {
         let policy = ChromiumWarmup.Policy()
         #expect(policy.launchPreloadDelay == .seconds(3))
