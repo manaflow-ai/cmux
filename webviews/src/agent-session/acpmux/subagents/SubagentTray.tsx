@@ -143,6 +143,7 @@ import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
 import { earlierPlanHead, planHead } from "./subagentTrayModel";
 import { focusRingShown } from "../../../ui/focusModality";
+import { focusRoute } from "../../../ui/focusRoute";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -384,7 +385,8 @@ export const SubagentTray = memo(function SubagentTray({
     // Fell to the page (the line left with the fold), or still in the tray (an inert line): only
     // then. Focus the person put elsewhere since stays where it is.
     const fell = !focused || focused === tray?.ownerDocument.body;
-    if ((fell || tray?.contains(focused)) && focused !== headButton.current) headButton.current?.focus();
+    if ((fell || tray?.contains(focused)) && focused !== headButton.current)
+      focusRoute(headButton.current, "system", "the subagent tray changed");
   }, [open]);
   // Held while open, or while the pointer or keyboard focus is on it (Leo, 2026-11-07: "if you have
   // things expanded and you're looking at them, they shouldn't just disappear like that"). Enter and

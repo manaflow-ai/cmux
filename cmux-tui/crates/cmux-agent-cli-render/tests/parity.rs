@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use base64::Engine as _;
 use cmux_agent_cli_render::claude::{self, Chrome};
 use cmux_agent_cli_render::hybrid::{Delta, Overlay};
+use cmux_agent_cli_render::lean::{LeanDecoder, LeanEncoder};
 use cmux_agent_cli_render::stream::{FramePacer, HybridStream};
 use cmux_agent_cli_render::{Cell, Color, Grid, Style, UNDERLINE, vt};
 use serde_json::{Value, json};
@@ -577,13 +578,37 @@ struct Streamed {
     frames: usize,
     keyframe: usize,
     resume: Option<(usize, usize)>,
+    /// What the viewer's link carried, as the daemon's event lines (JSON, base64): v1
+    /// `agent-cli-frame` events, and lean `agent-cli-lean` events (`agent-cli-hybrid-v2`).
+    v1_link: usize,
+    lean_link: usize,
 }
 
-/// The daemon's hybrid stream over `session`, paced as the daemon paces it, applied to a
-/// second terminal as the phone applies it (`vt::frame_bytes`). After every frame the
-/// viewer's screen must be the real one, cell for cell. With `drop`, the viewer misses the
-/// frames sent in that window (ms from the start) and then resumes from the last one it
-/// applied.
+/// A stream id as the daemon makes them (a UUID).
+const STREAM_ID: &str = "0b7c8f9e-4a1d-4c3e-9f2a-6d5e4b3a2c1d";
+
+/// One event line's bytes on the link, its newline included.
+fn line_len(event: &Value) -> usize {
+    serde_json::to_vec(event).unwrap().len() + 1
+}
+
+/// The PTY's `output` event lines over `session` up to its last moment.
+fn pty_link(session: &Session) -> usize {
+    let end = session.moments.last().unwrap().1;
+    session
+        .chunks
+        .iter()
+        .filter(|(t, _)| *t <= end)
+        .map(|(_, bytes)| line_len(&json!({"event": "output", "surface": 1, "data": b64(bytes)})))
+        .sum()
+}
+
+/// The daemon's hybrid stream over `session`, paced as the daemon paces it, sent in the lean
+/// form (`agent-cli-hybrid-v2`) and applied to a second terminal as the phone applies it (each
+/// lean frame decoded, then `vt::frame_bytes`). After every frame the viewer's screen must be
+/// the real one, cell for cell. With `drop`, the viewer misses the frames sent in that window
+/// (ms from the start), then reconnects (a new connection: its lean state starts over) and
+/// resumes from the last frame it applied.
 fn stream(session: &Session, drop: Option<(u64, u64)>) -> Streamed {
     let origin = std::time::Instant::now();
     let at = |ms: u64| origin + std::time::Duration::from_millis(ms);
@@ -593,10 +618,34 @@ fn stream(session: &Session, drop: Option<(u64, u64)>) -> Streamed {
     let mut phone = terminal();
     let mut hybrid = HybridStream::new(COLS, ROWS);
     let mut pacer = FramePacer::default();
+    let mut encoder = LeanEncoder::new();
+    let mut decoder = LeanDecoder::new();
+    let mut out =
+        Streamed { wire: 0, frames: 0, keyframe: 0, resume: None, v1_link: 0, lean_link: 0 };
+    let mut applied = 0;
+    let deliver = |frame: &cmux_agent_cli_render::stream::Frame,
+                   cursor: vt::Cursor,
+                   encoder: &mut LeanEncoder,
+                   decoder: &mut LeanDecoder,
+                   phone: &mut ghostty_vt::Terminal,
+                   out: &mut Streamed| {
+        let lean = encoder.encode(STREAM_ID, COLS, ROWS, frame, cursor).unwrap();
+        let decoded = decoder.decode(&lean).expect("the viewer reads every lean frame");
+        assert_eq!(
+            (decoded.frame.frame, decoded.frame.base, decoded.cursor, decoded.stream.as_str()),
+            (frame.frame, frame.base, cursor, STREAM_ID)
+        );
+        phone.vt_write(&vt::frame_bytes(&decoded.frame, ROWS, decoded.cursor).unwrap());
+        let mut v1 = frame_event(frame, cursor);
+        v1["stream"] = json!(STREAM_ID);
+        out.v1_link += line_len(&v1);
+        out.lean_link +=
+            line_len(&json!({"event": "agent-cli-lean", "surface": 1, "f": b64(&lean)}));
+        out.wire += frame.data.len();
+        out.frames += 1;
+    };
     let key = hybrid.keyframe(0);
-    phone.vt_write(&vt::frame_bytes(&key, ROWS, vt::Cursor::default()).unwrap());
-    let mut out = Streamed { wire: key.data.len(), frames: 1, keyframe: 0, resume: None };
-    let mut applied = hybrid.frame();
+    deliver(&key, vt::Cursor::default(), &mut encoder, &mut decoder, &mut phone, &mut out);
     let mut dropped = false;
     let mut send = |now: u64,
                     mac: &mut ghostty_vt::Terminal,
@@ -611,6 +660,9 @@ fn stream(session: &Session, drop: Option<(u64, u64)>) -> Streamed {
         }
         let frame = if dropped {
             dropped = false;
+            // A new connection: its lean encoder and decoder start empty.
+            encoder = LeanEncoder::new();
+            decoder = LeanDecoder::new();
             let resumed = hybrid.resume(applied, now - start).expect("the stream holds it");
             out.resume = Some((resumed.data.len(), hybrid.keyframe(now - start).data.len()));
             resumed
@@ -618,10 +670,8 @@ fn stream(session: &Session, drop: Option<(u64, u64)>) -> Streamed {
             frame
         };
         assert_eq!(frame.base, Some(applied));
-        phone.vt_write(&vt::frame_bytes(&frame, ROWS, cursor).unwrap());
+        deliver(&frame, cursor, &mut encoder, &mut decoder, phone, out);
         applied = frame.frame;
-        out.wire += frame.data.len();
-        out.frames += 1;
         let (shown, _) = live_screen(phone);
         assert_eq!(real.parity(&shown), (3200, 3200), "{}", diff_rows(&real, &shown));
     };
@@ -642,13 +692,16 @@ fn stream(session: &Session, drop: Option<(u64, u64)>) -> Streamed {
     let last = hybrid.keyframe(end - start);
     let mut fresh = terminal();
     let (real, cursor) = live_screen(&mut mac);
-    fresh.vt_write(&vt::frame_bytes(&last, ROWS, cursor).unwrap());
+    let lean = LeanEncoder::new().encode(STREAM_ID, COLS, ROWS, &last, cursor).unwrap();
+    let decoded = LeanDecoder::new().decode(&lean).unwrap();
+    fresh.vt_write(&vt::frame_bytes(&decoded.frame, ROWS, decoded.cursor).unwrap());
     assert_eq!(real.parity(&live_screen(&mut fresh).0), (3200, 3200));
     out.keyframe = last.data.len();
     out
 }
 
-fn stream_table(name: &str, session: &Session) -> (f64, f64) {
+/// The link's bytes per second: (PTY, hybrid v1, lean).
+fn stream_table(name: &str, session: &Session) -> (f64, f64, f64) {
     let (_, pty_rate, _) = pty_row(session);
     let start = session.chunks.first().unwrap().0;
     let secs = (session.moments.last().unwrap().1 - start) as f64 / 1000.0;
@@ -656,15 +709,25 @@ fn stream_table(name: &str, session: &Session) -> (f64, f64) {
     let rate = s.wire as f64 / secs;
     let dropped = stream(session, Some((8_000, 12_000)));
     let (resume, key) = dropped.resume.expect("a resume");
+    let link = |bytes: usize| bytes as f64 / secs;
+    let (pty_link, v1_link, lean_link) =
+        (link(pty_link(session)), link(s.v1_link), link(s.lean_link));
     println!(
         "\n{name}, 100x32, the daemon's stream (8 ms settle, 100 ms frames):\n\
          | stream | bytes | frames | bytes/s | parity | keyframe at the end | resume after a 4 s drop |\n\
          | --- | ---: | ---: | ---: | ---: | ---: | ---: |\n\
          | PTY | - | - | {pty_rate:.0} | 100% | - | - |\n\
-         | hybrid | {} | {} | {rate:.0} | 100% (every frame) | {} B | {resume} B (keyframe {key} B) |",
-        s.wire, s.frames, s.keyframe
+         | hybrid | {} | {} | {rate:.0} | 100% (every frame) | {} B | {resume} B (keyframe {key} B) |\n\
+         {name}, the viewer's link (event lines: JSON, base64), bytes/s:\n\
+         | PTY `output` | hybrid v1 `agent-cli-frame` | lean `agent-cli-lean` | lean, with a 4 s drop |\n\
+         | ---: | ---: | ---: | ---: |\n\
+         | {pty_link:.0} | {v1_link:.0} | {lean_link:.0} | {:.0} |",
+        s.wire,
+        s.frames,
+        s.keyframe,
+        link(dropped.lean_link),
     );
-    (rate, pty_rate)
+    (pty_link, v1_link, lean_link)
 }
 
 #[test]
@@ -672,8 +735,8 @@ fn the_daemons_stream_keeps_every_frame_at_parity_through_a_drop() {
     for (name, dir) in
         [("Claude Code 2.1.310", CLAUDE), ("Codex 0.164.0", CODEX), ("opencode 1.19.5", OPENCODE)]
     {
-        let (rate, pty_rate) = stream_table(name, &load(dir));
-        assert!(rate < pty_rate, "{name}: {rate:.0} B/s against the PTY's {pty_rate:.0}");
+        let (pty, _, lean) = stream_table(name, &load(dir));
+        assert!(lean < pty, "{name}: the lean link {lean:.0} B/s against the PTY's {pty:.0}");
     }
 }
 
@@ -684,7 +747,7 @@ fn b64(bytes: &[u8]) -> String {
 /// A frame as the daemon sends it (`agent-cli-frame`, `HybridViewer::event` in cmux-tui-core).
 fn frame_event(frame: &cmux_agent_cli_render::stream::Frame, cursor: vt::Cursor) -> Value {
     json!({
-        "event": "agent-cli-frame", "surface": 1, "stream": "bench", "frame": frame.frame,
+        "event": "agent-cli-frame", "surface": 1, "stream": STREAM_ID, "frame": frame.frame,
         "base": frame.base, "cols": COLS, "rows": ROWS, "data": b64(&frame.data),
         "cursor_x": cursor.x, "cursor_y": cursor.y, "cursor_visible": cursor.visible,
     })
@@ -778,9 +841,39 @@ fn export(session: &Session) -> Value {
         stream.check(&mut mac, ms(due) - start);
     }
     note_moments(u64::MAX, &mut mac, &stream, &mut moments);
+    // The same frames as a lean connection that attached at the attach moment sends them.
+    let attached = attached.expect("an attach moment");
+    let mut encoder = LeanEncoder::new();
+    let mut lean = |event: &Value| {
+        let frame = cmux_agent_cli_render::stream::Frame {
+            frame: event["frame"].as_u64().unwrap(),
+            base: event["base"].as_u64(),
+            data: base64::engine::general_purpose::STANDARD
+                .decode(event["data"].as_str().unwrap())
+                .unwrap(),
+        };
+        let cursor = vt::Cursor {
+            x: u16::try_from(event["cursor_x"].as_u64().unwrap()).unwrap(),
+            y: u16::try_from(event["cursor_y"].as_u64().unwrap()).unwrap(),
+            visible: event["cursor_visible"].as_bool().unwrap(),
+        };
+        let f = encoder.encode(STREAM_ID, COLS, ROWS, &frame, cursor).unwrap();
+        json!({"event": "agent-cli-lean", "surface": 1, "f": b64(&f)})
+    };
+    let attach_frame = attached["hybrid"]["frame"].as_u64().unwrap();
+    let lean_attach = lean(&attached["hybrid"]);
+    let lean_frames: Vec<Value> = stream
+        .frames
+        .iter()
+        .filter(|entry| entry[1]["frame"].as_u64().unwrap() > attach_frame)
+        .map(|entry| json!([entry[0], lean(&entry[1])]))
+        .collect();
+    let mut attached = attached;
+    attached["lean"] = lean_attach;
     json!({
         "cols": COLS, "rows": ROWS, "duration_ms": end - start, "pty": pty,
-        "frames": stream.frames, "attach": attached, "moments": moments,
+        "frames": stream.frames, "lean_frames": lean_frames, "attach": attached,
+        "moments": moments,
     })
 }
 
