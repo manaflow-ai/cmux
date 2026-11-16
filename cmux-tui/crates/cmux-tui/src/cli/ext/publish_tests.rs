@@ -5,8 +5,8 @@
 //! `ext publish` says what is left before it can be listed, and
 //! `--write-badge` fills the badge in.
 
+use cmux_process::Command;
 use std::path::Path;
-use std::process::Command;
 
 use serde_json::{Value, json};
 

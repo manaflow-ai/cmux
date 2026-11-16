@@ -5,8 +5,8 @@
 //! Nothing here writes to the network: listing is a push, a topic, or a
 //! submission the author makes.
 
+use cmux_process::{Command, Stdio};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde_json::{Value, json};
 
@@ -146,7 +146,7 @@ pub(super) fn git_init(dir: &Path) -> Option<bool> {
         .arg("-C")
         .arg(dir)
         .args(["rev-parse", "--is-inside-work-tree"])
-        .stderr(std::process::Stdio::null())
+        .stderr(Stdio::null())
         .output()
         .ok()?;
     if inside.status.success() {
@@ -157,8 +157,8 @@ pub(super) fn git_init(dir: &Path) -> Option<bool> {
             .arg("-C")
             .arg(dir)
             .args(args)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()
             .is_ok_and(|status| status.success())
     };
