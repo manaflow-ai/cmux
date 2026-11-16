@@ -1894,8 +1894,7 @@ export function mockDevicesState(): DevicesState {
       sharingToggle: "Allow Mac Screen on this Mac",
       sharingDetail: "Your devices can see or control this Mac.",
       agentsToggle: "My agents can turn screen sharing and control on my machines",
-      agentsDetail:
-        "Your agents on your own devices turn sharing on or off without asking, each with a notice and Turn Off. Other people and their agents still ask.",
+      agentsDetail: "Your agents share without asking, with a notice each time.",
       openSettings: "Open System Settings",
       allowed: "Allowed",
       relaysSection: "Relays",

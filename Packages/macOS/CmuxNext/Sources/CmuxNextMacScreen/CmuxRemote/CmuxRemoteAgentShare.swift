@@ -115,7 +115,7 @@ nonisolated enum CmuxRemoteAgentStrings {
     }
     static var settingsDetail: String {
         String(localized: "remote.agents.settings.detail",
-               defaultValue: "Your agents on your own devices turn sharing on or off without asking, each with a notice and Turn Off. Other people and their agents still ask.",
+               defaultValue: "Your agents share without asking, with a notice each time.",
                table: "CmuxRemote", bundle: .module)
     }
     static var historyAllowed: String {

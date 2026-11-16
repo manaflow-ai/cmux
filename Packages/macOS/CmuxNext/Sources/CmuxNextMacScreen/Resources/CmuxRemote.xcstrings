@@ -1448,127 +1448,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يشغّل وكلاؤك على أجهزتك الخاصة المشاركة أو يوقفونها دون أن يسألوا، مع إشعار وزر إيقاف لكل تغيير. ويظل الآخرون ووكلاؤهم يطلبون الإذن."
+            "value": "يشارك وكلاؤك دون أن يسألوا، مع إشعار في كل مرة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vaši agenti na vašim uređajima uključuju ili isključuju dijeljenje bez pitanja, svaki put uz obavijest i opciju Isključi. Drugi ljudi i njihovi agenti i dalje pitaju."
+            "value": "Vaši agenti dijele bez pitanja, uz obavijest svaki put."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dine agenter på dine egne enheder slår deling til eller fra uden at spørge, hver gang med en meddelelse og Slå fra. Andre personer og deres agenter spørger stadig."
+            "value": "Dine agenter deler uden at spørge, med en meddelelse."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deine Agenten auf deinen eigenen Geräten schalten die Freigabe ohne Nachfrage ein oder aus, jeweils mit Mitteilung und „Ausschalten“. Andere Personen und ihre Agenten fragen weiterhin."
+            "value": "Deine Agenten teilen ohne Rückfrage, mit Mitteilung."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your agents on your own devices turn sharing on or off without asking, each with a notice and Turn Off. Other people and their agents still ask."
+            "value": "Your agents share without asking, with a notice each time."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tus agentes en tus propios dispositivos activan o desactivan el uso compartido sin preguntar, cada vez con un aviso y Desactivar. Otras personas y sus agentes siguen preguntando."
+            "value": "Tus agentes comparten sin preguntar, con un aviso cada vez."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vos agents sur vos propres appareils activent ou désactivent le partage sans demander, chaque fois avec une notification et Désactiver. Les autres personnes et leurs agents demandent toujours."
+            "value": "Vos agents partagent sans demander, avec une notification."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I tuoi agenti sui tuoi dispositivi attivano o disattivano la condivisione senza chiedere, ogni volta con un avviso e Disattiva. Le altre persone e i loro agenti continuano a chiedere."
+            "value": "I tuoi agenti condividono senza chiedere, con un avviso."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "自分のデバイス上のエージェントが確認なしで共有をオン・オフし、そのたびに「オフにする」付きの通知が出ます。他の人やそのエージェントは引き続き確認を求めます。"
+            "value": "エージェントは確認なしで共有し、毎回通知が届きます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្នាក់ងាររបស់អ្នកនៅលើឧបករណ៍ផ្ទាល់ខ្លួនបើក ឬបិទការចែករំលែកដោយមិនសួរ ដោយមានការជូនដំណឹង និងប៊ូតុងបិទរាល់ពេល។ អ្នកដទៃ និងភ្នាក់ងាររបស់ពួកគេនៅតែត្រូវសួរ។"
+            "value": "ភ្នាក់ងាររបស់អ្នកចែករំលែកដោយមិនសួរ ហើយមានការជូនដំណឹង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "내 기기의 에이전트가 묻지 않고 공유를 켜거나 끄며, 매번 끄기 버튼이 있는 알림이 표시됩니다. 다른 사람과 그 에이전트는 계속 허락을 구합니다."
+            "value": "에이전트가 묻지 않고 공유하며 매번 알림이 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentene dine på dine egne enheter slår deling av eller på uten å spørre, hver gang med et varsel og Slå av. Andre personer og agentene deres spør fortsatt."
+            "value": "Agentene dine deler uten å spørre, med et varsel hver gang."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Twoi agenci na Twoich urządzeniach włączają i wyłączają udostępnianie bez pytania, za każdym razem z powiadomieniem i przyciskiem Wyłącz. Inne osoby i ich agenci nadal pytają."
+            "value": "Twoi agenci udostępniają bez pytania, z powiadomieniem."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seus agentes nos seus próprios dispositivos ativam ou desativam o compartilhamento sem perguntar, sempre com um aviso e Desativar. Outras pessoas e seus agentes continuam pedindo."
+            "value": "Seus agentes compartilham sem perguntar, com um aviso."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваши агенты на ваших устройствах включают и выключают общий доступ без запроса, каждый раз с уведомлением и кнопкой «Выключить». Другие люди и их агенты по-прежнему спрашивают."
+            "value": "Ваши агенты делятся без вопроса, каждый раз с уведомлением."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เอเจนต์บนอุปกรณ์ของคุณเองเปิดหรือปิดการแชร์ได้โดยไม่ต้องถาม พร้อมการแจ้งเตือนและปุ่มปิดทุกครั้ง คนอื่นและเอเจนต์ของพวกเขายังต้องขอเหมือนเดิม"
+            "value": "เอเจนต์ของคุณแชร์ได้โดยไม่ต้องถาม พร้อมแจ้งเตือนทุกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kendi aygıtlarınızdaki ajanlarınız paylaşımı sormadan açar veya kapatır; her seferinde bir bildirim ve Kapat düğmesi görünür. Diğer kişiler ve ajanları yine sorar."
+            "value": "Ajanlarınız sormadan paylaşır, her seferinde bildirim gelir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваші агенти на ваших пристроях вмикають і вимикають спільний доступ без запиту, щоразу зі сповіщенням і кнопкою «Вимкнути». Інші люди та їхні агенти й далі питають."
+            "value": "Ваші агенти діляться без запиту, щоразу зі сповіщенням."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tác tử trên thiết bị của bạn bật hoặc tắt chia sẻ mà không cần hỏi, mỗi lần đều có thông báo và nút Tắt. Người khác và tác tử của họ vẫn phải hỏi."
+            "value": "Tác tử của bạn chia sẻ không cần hỏi, kèm thông báo."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你自己设备上的智能体无需询问即可开启或关闭共享，每次都会显示通知和“关闭”。其他人及其智能体仍需询问。"
+            "value": "你的智能体无需询问即可共享，每次都会显示通知。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你自己裝置上的代理無需詢問即可開啟或關閉共享，每次都會顯示通知與「關閉」。其他人及其代理仍需詢問。"
+            "value": "你的代理無需詢問即可共享，每次都會顯示通知。"
           }
         }
       }

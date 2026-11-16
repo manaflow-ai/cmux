@@ -470,6 +470,7 @@ function SharingGroup({ sharing, labels }: { sharing: NonNullable<DevicesState["
             <div className="row-control">
               <Switch
                 checked={sharing.agentsMayShare}
+                disabled={sharing.busy}
                 labelId={agentsTitleId}
                 onToggle={(on) => void runAgents({ action: "setAgentsMayShare", on })}
               />
