@@ -172,7 +172,7 @@ async function pasteCompactImages(ctx: PlayContext, count: number) {
   view.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
   const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
   const editor = ctx.find({ selector: ".acpmux-md" });
-  const box = ctx.find({ selector: ".acpmux-composer-box" });
+  const box = ctx.find({ selector: ".acpmux-composer-box, .nt-composer" });
   const measure = () => ({
     field: field.getBoundingClientRect().height,
     box: box.getBoundingClientRect().height,
@@ -1688,16 +1688,33 @@ export default agentPaneEntry({
     },
     ...Object.fromEntries(
       (["claude", "codex"] as const).flatMap((composerLook) =>
-        (["empty", "text", "pair"] as const).map((scene) => [
-          `attachment-inline-compact-${composerLook}-${scene}`,
-          {
-            note: "#38135: pasting images into an empty or one-line draft keeps the composer at its text height, during loading and after the thumbnails arrive.",
-            composerLook,
-            snapshot: chat(finished),
-            ready: { draft: scene === "empty" ? "" : "Compare" },
-            play: (ctx: PlayContext) => pasteCompactImages(ctx, scene === "pair" ? 2 : 1),
-          },
-        ]),
+        (["chat", "new-tab", "quick"] as const).flatMap((surface) =>
+          (["empty", "text", "pair"] as const).map((scene) => [
+            `attachment-inline-compact-${composerLook}-${surface}-${scene}`,
+            {
+              note: "#38135: pasting images into an empty or one-line draft keeps the composer at its text height, during loading and after the thumbnails arrive.",
+              composerLook,
+              snapshot: surface === "new-tab" ? onBranch("main") : chat(finished),
+              ready: {
+                draft: scene === "empty" ? "" : "Compare",
+                ...(surface === "quick" ? { surface: "quick" } : {}),
+                ...(surface === "new-tab"
+                  ? {
+                      newSession: true,
+                      newTab: {
+                        layout: "b",
+                        kind: "agent",
+                        cwd: CWD,
+                        home: "/Users/you",
+                        lastAgent: "claude",
+                      },
+                    }
+                  : {}),
+              },
+              play: (ctx: PlayContext) => pasteCompactImages(ctx, scene === "pair" ? 2 : 1),
+            },
+          ]),
+        ),
       ),
     ),
     "attachment-inline-caret": {

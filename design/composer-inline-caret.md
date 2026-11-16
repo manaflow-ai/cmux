@@ -37,6 +37,7 @@ for opening and dragging. Selection, undo, sending, strip view, videos and faile
 tiles keep their existing behavior.
 
 The detector is `composer-inline-caret-height.browser.test.ts`: the compact gallery scenes
-measure empty/text/pair composers before paste, during a held image read, and after the read;
+measure empty/text/pair composers in chat, New Tab and Quick Composer, in both looks, before
+paste, during a held image read, and after the read;
 typed newlines must then grow the composer. `composer-inline-reorder.browser.test.ts` verifies
 that the image center remains draggable and the remove control remains reachable.

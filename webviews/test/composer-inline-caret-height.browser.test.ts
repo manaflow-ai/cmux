@@ -114,42 +114,49 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
       await warmGalleryFrame(vite, ENTRY, engine === "chromium" ? { browser } : {});
       const port = (vite.httpServer!.address() as { port: number }).port;
       for (const look of ["claude", "codex"] as const) {
-        for (const scene of ["empty", "text", "pair"] as const) {
-          const context = await browser.newContext({
-            viewport: { width: WIDTH, height: 760 },
-            colorScheme: scene === "text" ? "light" : "dark",
-            reducedMotion: "reduce",
-          });
-          const page = await context.newPage();
-          try {
-            const variant = `attachment-inline-compact-${look}-${scene}`;
-            await page.goto(
-              `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: WIDTH, frame: "component" })}`,
-            );
-            await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
-              timeout: 90_000,
+        for (const surface of ["chat", "new-tab", "quick"] as const) {
+          for (const scene of ["empty", "text", "pair"] as const) {
+            const context = await browser.newContext({
+              viewport: { width: WIDTH, height: 760 },
+              colorScheme: scene === "text" ? "light" : "dark",
+              reducedMotion: "reduce",
             });
-            const proof = await page.locator(".acpmux-md").getAttribute("data-image-height-proof");
-            expect(proof).not.toBeNull();
-            report.push(`${engine} ${look} ${scene}: ${proof}`);
-            const before = await page
-              .locator(".acpmux-composer-box")
-              .evaluate((box) => box.getBoundingClientRect().height);
-            if (process.env.CMUX_HOVER_CAPTURE_DIR)
-              await page.screenshot({
-                path: path.join(process.env.CMUX_HOVER_CAPTURE_DIR, `compact-${engine}-${look}-${scene}.png`),
+            const page = await context.newPage();
+            try {
+              const variant = `attachment-inline-compact-${look}-${surface}-${scene}`;
+              await page.goto(
+                `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: WIDTH, frame: "component" })}`,
+              );
+              await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+                timeout: 90_000,
               });
-            await page.locator(".acpmux-md").focus();
-            for (let line = 0; line < 3; line++) {
-              await page.keyboard.press("Shift+Enter");
-              await page.keyboard.type("Another line");
+              const proof = await page.locator(".acpmux-md").getAttribute("data-image-height-proof");
+              expect(proof).not.toBeNull();
+              report.push(`${engine} ${look} ${surface} ${scene}: ${proof}`);
+              const before = await page
+                .locator(".acpmux-composer-box, .nt-composer")
+                .evaluate((box) => box.getBoundingClientRect().height);
+              if (process.env.CMUX_HOVER_CAPTURE_DIR)
+                await page.screenshot({
+                  path: path.join(
+                    process.env.CMUX_HOVER_CAPTURE_DIR,
+                    `compact-${engine}-${look}-${surface}-${scene}.png`,
+                  ),
+                });
+              await page.locator(".acpmux-md").focus();
+              for (let line = 0; line < 3; line++) {
+                await page.keyboard.press("Shift+Enter");
+                await page.keyboard.type("Another line");
+              }
+              await page.waitForFunction(
+                (height) =>
+                  document.querySelector(".acpmux-composer-box, .nt-composer")!.getBoundingClientRect().height >
+                  height + 20,
+                before,
+              );
+            } finally {
+              await context.close();
             }
-            await page.waitForFunction(
-              (height) => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height > height + 20,
-              before,
-            );
-          } finally {
-            await context.close();
           }
         }
       }
