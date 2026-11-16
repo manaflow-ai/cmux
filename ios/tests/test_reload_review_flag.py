@@ -144,8 +144,8 @@ class FleetSimulatorTests(unittest.TestCase):
 
     def test_review_never_boots_a_local_simulator(self):
         text = RELOAD.read_text()
-        review = text[text.index('if [[ "$REVIEW" -eq 1 ]]; then\n  review_resolve_phones'):]
-        self.assertIn('--device-only)', review.split('\n\n')[0] + review[:4000])
+        handoff = re.search(r'\nreview_fleet_handoff\(\) \{\n.*?\n\}\n', text, re.S).group(0)
+        self.assertIn('--device-only', handoff)
         self.assertNotIn('simctl boot', text[text.index('# --- --review'):text.index('# Keep the linked xcframework')])
         self.assertIn('RELOAD_SIMULATOR=0', text)
 
