@@ -5,7 +5,7 @@ import CmuxNextCompat
 /// The result list: an `NSTableView` with reused row views. Only visible
 /// rows exist. Results reload in place without animation (no flicker);
 /// selection and hover update just the affected row views.
-final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegate {
+final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableViewDelegate {
     enum DisplayRow {
         case header(String)
         case item(PaletteRow)

@@ -14,6 +14,14 @@ branch, not with the last FFI tag: runs 37551889292 and 38682698310 had the
 last tag's workflow tree, minted contents:write only and got HTTP 403. Only the
 release create uses that token.
 
+The xcframework holds one dynamic library, `libcmux_app_ffi.dylib` (install name
+`@rpath/libcmux_app_ffi.dylib`, ad hoc signed, with its dSYM). An app built
+against such a pin carries it at `Contents/Frameworks/libcmux_app_ffi.dylib`
+(Xcode embeds and signs a package's dynamic binary target), where the nightly's bundle signing signs
+it with the app, and `hot-apply.py` can swap a newer release in warm. The
+release also carries `libcmux_app_ffi-prelinked.a`, the same objects as one
+archive, for the size and parity checks.
+
 ## The pin, after a publish
 
 The run's `repin` job first pins its release straight on `feat-cmux-next`
@@ -61,8 +69,9 @@ suite. `base-autofix-push.sh` runs it on the final candidate immediately before 
 including a candidate rebuilt after the base moves. Build scripts and tests run without
 the publication token or injected Git authorization headers. Failure stops publication: neither an
 old green result nor regenerated files alone prove the candidate consistent. A re-pin whose
-`AWAITING_REPIN` or field/shortcut marker is stale needs that marker reconciled in a reviewed
-change; automation never filters out the disagreement.
+awaiting-repin marker (a file under `cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin/`)
+is stale needs that marker deleted in a reviewed change; automation never filters out the
+disagreement.
 
 This closes the partial-export failure in base-autofix run `43540827406`: the surface report
 acquired an action while the full catalog dump stayed old. Regression coverage executes the
@@ -147,6 +156,17 @@ release workflow's push paths, the router, `build_class.py` and
    not a finding. From the re-pin on, it needs its Swift caller, which is
    step B. A re-pin, the bot's or one by hand, is never refused by the
    check.
+
+   A step A that changes the action catalog marks what the pinned FFI does not
+   have yet with one file per entry under
+   `cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin/`: `actions/<id>`
+   for a new action, `shortcut/<id>` and `shortcut-removal/<id>` for a default
+   shortcut added or dropped, `fields/<id>` (one JSON pointer per line) for
+   changed fields of an existing action, `family/<family>/<id>` for a new palette
+   family member. Text after a `#` is a note. `swift_parity` names the file to
+   create when an export lacks a change, and the file to delete once the re-pin
+   carries it. One file per id means two pull requests that mark or clear
+   different ids never touch the same path, so they never conflict there.
 2. **Step B: the Swift change,** after the re-pin merges. Its FFI inputs then
    equal the pinned source, so the pin check passes.
 

@@ -1,5 +1,6 @@
 import { experimentArm } from "../../experiments/experiment";
 import { permissionCardHeight } from "./permissions/cardHeight";
+import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
 import { BUBBLE } from "./transcriptSpacing";
@@ -1497,6 +1498,8 @@ export type AcpmuxSnapshot = {
     error?: string;
     /// The start refusal's code, for the failed card's one-click way out (startRefusal.ts).
     code?: string;
+    /// `agent_session.sign_in_required` for a sign-in that expired (`errorKind` `auth.expired`).
+    signInExpired?: true;
   };
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
@@ -2531,13 +2534,18 @@ function preparedRow(cache: Map<string, PreparedRow>, id: string): PreparedRow {
 /// under prepare's `getSegmentBreakableFitAdvances`). Blink bounds its own word shape cache the same
 /// way (ShapeCache clears itself whole past its size cap): after PREPARED_TEXT_CHARS characters prepared
 /// since the last clear, the library's caches start over. Prepared text already made keeps its widths;
-/// the next prepare measures its words again.
+/// the next prepare measures its words again. Blink's own copy of every word the library measured,
+/// held by the canvas it measures on, goes with that canvas (measureContext.ts).
 export const PREPARED_TEXT_CHARS = 1_000_000;
 let preparedTextChars = 0;
+const clearMeasureCaches = () => {
+  clearTextCaches();
+  freshMeasureContext();
+};
 
 /// Counts `length` characters prepared, and clears the library's caches (`clear`) past
 /// PREPARED_TEXT_CHARS. True when it cleared.
-export function notePreparedText(length: number, clear: () => void = clearTextCaches): boolean {
+export function notePreparedText(length: number, clear: () => void = clearMeasureCaches): boolean {
   preparedTextChars += length;
   if (preparedTextChars <= PREPARED_TEXT_CHARS) return false;
   preparedTextChars = 0;

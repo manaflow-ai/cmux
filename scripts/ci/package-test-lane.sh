@@ -231,6 +231,10 @@ PY
   output "passed_packages=$directory"
 }
 
+# The packages this lane tests whole when a pull request changes one of their inputs. A Swift test
+# target no pull request check runs is listed with its reason in the swift-test-targets.json
+# registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxPhonePush
+# passed `suite` on an owned Mac at ccc9958672bf before they joined.
 select_packages() {
   PACKAGES=(
     CMUXAuthCore
@@ -239,6 +243,19 @@ select_packages() {
     CmuxIrxTransport
     CmuxUpdater
     CmuxPhonePush
+    CmuxComputerUseHelper
+    CmuxConnectivityTelemetry
+    CmuxDeviceHub
+    CmuxHomeCore
+    CmuxHomeRender
+    CmuxMobileBilling
+    CmuxMobileSupport
+    CmuxMobileTunnel
+    CmuxRemote
+    CmuxScreenKit
+    CmuxTabsKit
+    CmuxVNCWebRTC
+    GlassHost
   )
 
   changed="$work/changed-files.txt"
@@ -804,8 +821,11 @@ run_suite() {
     configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
+  case "$suite_package" in
+    Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
+      ensure_web_bundles ;;
+  esac
   if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
-    ensure_web_bundles
     ensure_cmux_tui_tree
   fi
   local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"

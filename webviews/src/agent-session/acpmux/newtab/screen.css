@@ -42,6 +42,10 @@
 .nt-row-favicon{border-radius:4px;box-shadow:none;object-fit:contain}
 .nt-row-title{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis}
 .nt-row-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+/* The ranked sections' headers (screenModel sectionHeader): a quiet label over its rows, its text on
+   the rows' title column so the eye runs down one edge; never an option (role presentation), so the
+   arrows and the pointer pass over it. */
+.nt-section{box-sizing:border-box;display:flex;align-items:center;padding-block:var(--ds-space-2) var(--ds-space-1);line-height:1.2;padding-inline:var(--ui-row-padding-inline);overflow:hidden;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap;text-overflow:ellipsis;cursor:default;user-select:none}
 .nt-row-action{flex:none;margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-1);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);opacity:0}
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action,.nt-row-host:hover .nt-row-action,.nt-row-host:has([data-popup-open]) .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:var(--text-caption)/1 var(--font-ui)}
@@ -570,6 +574,12 @@
   padding-inline-start: calc(
     var(--nt-composer-inset) + (var(--acpmux-composer-control, 28px) - var(--acpmux-composer-glyph, 16px)) / 2 -
       var(--ui-popup-padding, 4px)
+  );
+}
+.nt-popover .nt-rows > .nt-section {
+  padding-inline-start: calc(
+    var(--nt-composer-inset) + (var(--acpmux-composer-control, 28px) - var(--acpmux-composer-glyph, 16px)) / 2 -
+      var(--ui-popup-padding, 4px) + var(--acpmux-composer-glyph, 16px) + var(--ds-space-2)
   );
 }
 /* A project's picture centers where the folder glyph does: the ghost button's leading padding (its inset less its

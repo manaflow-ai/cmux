@@ -3571,8 +3571,8 @@ public struct TerminalChatFaces: Equatable, Hashable {
      */
     public var offered: Bool
     /**
-     * The face the tab opens on: chat for a Claude Code or Codex session (Leo's iOS
-     * default), else the tab's own kind.
+     * The face the tab opens on when the person chose none: the tab's own kind (a
+     * terminal on its terminal, a chat on its chat).
      */
     public var defaultFace: TabFace
     public var chatEnabled: Bool
@@ -3594,8 +3594,8 @@ public struct TerminalChatFaces: Equatable, Hashable {
          * The tab shows the Chat | Terminal control and its page menu's Toggle row.
          */offered: Bool, 
         /**
-         * The face the tab opens on: chat for a Claude Code or Codex session (Leo's iOS
-         * default), else the tab's own kind.
+         * The face the tab opens on when the person chose none: the tab's own kind (a
+         * terminal on its terminal, a chat on its chat).
          */defaultFace: TabFace, chatEnabled: Bool, terminalEnabled: Bool, 
         /**
          * Why a face is disabled, in the person's words; None when both are enabled.

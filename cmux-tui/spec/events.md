@@ -973,6 +973,29 @@ screens also emit `tree-changed` first. It carries no workspace revision.
 object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen,transaction?:string}
 ```
 
+### screen-device-changed
+
+| Field | Value |
+| --- | --- |
+| event | `screen-device-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-device-identity-v1` |
+
+Payload:
+
+```text
+object{event:"screen-device-changed",screen_device_id:string|null}
+```
+
+This is the authenticated cmux Remote worker's independently generated screen
+UUID. It is delivered only to the local owner app (Unix or authenticated owner
+WebSocket); page relays, paired clients, and other remote clients do not hear
+it. A client opts in by echoing `screen-device-identity-v1` in `set-client-info`.
+An opted-in subscription receives one current-value replay before live events.
+The replay and removal event use `null` when the worker is unavailable. Clients
+use the UUID as the screen-device identity and must not infer it from a machine
+id, joined id, or display name.
+
 ### selection-changed
 
 | Field | Value |
@@ -1716,6 +1739,42 @@ Example:
 
 ```json
 {"event":"output","surface":1,"data":"bHMNCg=="}
+```
+
+### agent-cli-frame
+
+| Field | Value |
+| --- | --- |
+| event | `agent-cli-frame` |
+| status | implemented |
+| since | protocol 12, capability `agent-cli-hybrid-v1` |
+
+Payload:
+
+```text
+object{event:"agent-cli-frame",surface:Id,stream:string,frame:uint64,base:uint64|null,cols:uint16,rows:uint16,data:Base64,cursor_x:uint16,cursor_y:uint16,cursor_visible:boolean}
+```
+
+Meaning: On a hybrid attach of an agent CLI's terminal (see `attach-surface`,
+`agent-cli-hybrid-v1`), one change of its screen in place of the `output` that
+made it. `data` is a `cmux_agent_cli_render::hybrid::Delta` encoding (varints:
+`seq`, `at_ms`, zigzag `shift`, then per-row spans: set `len` cells of one
+style, or clear `len` cells back to blank). It turns the screen the viewer shows
+after frame `base` into the screen after `frame`; `base: null` means over a
+blank screen of `cols` by `rows` (a keyframe: reset the viewer's screen first).
+`shift` scrolls the shown screen before the spans apply, up when positive (the
+rows that leave the top go to the viewer's scrollback). The cursor goes to
+`cursor_x`, `cursor_y` and shows when `cursor_visible`. Colors are as the
+program wrote them (default, a 256-color index or RGB), so the viewer's theme
+resolves them as it does PTY bytes. `cmux_agent_cli_render::vt::frame_bytes`
+turns a frame into terminal bytes for a viewer that draws with its own
+terminal. A viewer keeps `stream` and the newest `frame` it applied to resume
+with `hybrid_stream` and `hybrid_frame` after a drop.
+
+Example:
+
+```json
+{"event":"agent-cli-frame","surface":1,"stream":"9b1c…","frame":12,"base":11,"cols":100,"rows":32,"data":"AQAAAQ...","cursor_x":4,"cursor_y":30,"cursor_visible":true}
 ```
 
 ### resized
