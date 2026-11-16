@@ -3,7 +3,7 @@
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
 import { Input } from "../../../ui/Input";
 import { Button } from "../../../ui/Button";
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import type { BrowserProfile, DevicesHostState, HostListRow, HostLists, WireError } from "../ops";
@@ -11,6 +11,8 @@ import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { graphemePrefix } from "../../../ui/initials";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
+import { MachineLoadLine } from "../../../ui/MachineLoadLine";
+import { MACHINE_LOAD_REFRESH_MS, type MachineLoad, type MachineLoadSay } from "../../../ui/machineLoad";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -32,6 +34,7 @@ function ListRows({
   marks = false,
   trailing,
   below,
+  help,
 }: {
   rows: HostListRow[];
   empty: string;
@@ -40,6 +43,8 @@ function ListRows({
   trailing?: (row: HostListRow) => ReactNode;
   /** More of the row, under its title (a Cloud machine's switch). */
   below?: (row: HostListRow) => ReactNode;
+  /** A line under its subtitle (a machine's load line). */
+  help?: (row: HostListRow) => ReactNode;
 }) {
   if (rows.length === 0) {
     return (
@@ -59,6 +64,7 @@ function ListRows({
         <div className="row-label">
           <div className="row-title">{row.title}</div>
           {row.subtitle && <div className="row-help">{row.subtitle}</div>}
+          {help?.(row) && <div className="row-help">{help(row)}</div>}
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
         {trailing?.(row)}
@@ -66,6 +72,51 @@ function ListRows({
       {below?.(row)}
     </div>
   ));
+}
+
+/** A machine's load line in the Settings catalog's words (positional `%@`, in each key's order). */
+export const sayLoad: MachineLoadSay = (key, values = {}) => {
+  const args = key === "cores" ? [values.busy, values.cores] : [values.n ?? values.free ?? values.ago];
+  return t(`settingsWindow.machineLoad.${key}`, ...args.filter((arg) => arg !== undefined));
+};
+
+/** A Machines row's load row: acpmux names a peer as the row's name key (`color_key`) or title does. */
+function machineLoadFor(loads: Record<string, MachineLoad>, row: HostListRow): MachineLoad | undefined {
+  const key = row.color_key ?? row.title.trim().toLowerCase();
+  for (const [name, load] of Object.entries(loads)) if (name.trim().toLowerCase() === key) return load;
+  return undefined;
+}
+
+/**
+ * Settings > Machines' load rows (ui/machineLoad.ts), the same reading the composer's machine picker
+ * words: read when the card shows, then every MACHINE_LOAD_REFRESH_MS while it shows and the page is
+ * visible; nothing reads while the card is not drawn or the window is hidden.
+ */
+function useMachineLoads(shown: boolean, store: { machineLoads(): Promise<Record<string, MachineLoad>> }) {
+  const [loads, setLoads] = useState<Record<string, MachineLoad>>({});
+  useEffect(() => {
+    if (!shown) return;
+    let live = true;
+    let reading = false;
+    const read = () => {
+      if (reading || document.visibilityState === "hidden") return;
+      reading = true;
+      void store
+        .machineLoads()
+        .then((next) => live && setLoads(next))
+        .catch(() => undefined)
+        .finally(() => (reading = false));
+    };
+    read();
+    const timer = setInterval(read, MACHINE_LOAD_REFRESH_MS);
+    document.addEventListener("visibilitychange", read);
+    return () => {
+      live = false;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", read);
+    };
+  }, [shown, store]);
+  return loads;
 }
 
 /** Spaces (General): the active window's spaces, or why the host has none. */
@@ -105,6 +156,7 @@ export function MachinesSection({ title, reveal = false }: { title: string; reve
   const colors = useRowState(MACHINE_COLORS_KEY);
   const card = useRef<HTMLElement>(null);
   const drawn = host !== null;
+  const loads = useMachineLoads(drawn, store);
   useLayoutEffect(() => {
     if (drawn && reveal) card.current?.scrollIntoView?.({ block: "start" });
   }, [drawn, reveal]);
@@ -130,6 +182,10 @@ export function MachinesSection({ title, reveal = false }: { title: string; reve
               />
             )}
             below={(row) => <MachineVmHost row={row} />}
+            help={(row) => {
+              const load = machineLoadFor(loads, row);
+              return load && <MachineLoadLine load={load} say={sayLoad} />;
+            }}
           />
         </div>
         <div className="host-footer">

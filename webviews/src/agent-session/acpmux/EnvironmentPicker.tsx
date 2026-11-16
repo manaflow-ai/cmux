@@ -26,6 +26,8 @@ import { isCloudMachineRow } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
 import { useRowPresence } from "./rowPresence";
+import { MachineLoadLine } from "../../ui/MachineLoadLine";
+import type { MachineLoadSay } from "../../ui/machineLoad";
 import type { RunModeRows } from "./sandboxRun";
 import {
   SECTION_LABELS,
@@ -91,6 +93,9 @@ export type SavedEnvironmentRows = {
 /// Mac, Bring Back Local from a Cloud machine. A new chat with `runMode` (hq#3367) also offers
 /// Sandboxed as Cloud's other face, with no row of its own: shown while ⌥ is held and while it is
 /// the pick.
+/// A machine row's load line in the pane's words (ui/machineLoad.ts).
+const sayLoad: MachineLoadSay = (key, values) => t(`composer.machineLoad.${key}` as StringKey, values);
+
 export function EnvironmentPicker({
   label,
   menu,
@@ -819,18 +824,29 @@ export function EnvironmentPicker({
         </span>
         {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
             Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
-        {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
-        {ready && environment.loadWarning && (
-          <span className="acpmux-env-state" data-warning="true">
-            {environment.loadWarning}
-          </span>
-        )}
-        {ready && !environment.loadWarning && environment.kind !== "local" && environment.connected !== undefined && (
-          <span className="acpmux-env-status" data-connected={String(environment.connected)}>
-            <span className="acpmux-env-status-text">
-              {t(environment.connected ? "composer.envConnected" : "composer.envNotConnected")}
-            </span>
-          </span>
+        {/* A daemon that sends its load row draws it (MachineLoadLine, the same line Settings > Machines
+            shows): numbers and placement's verdict in place of the warning and the dot; offline, how long. */}
+        {environment.load && environment.kind !== "local" && (ready || environment.load.verdict === "offline") ? (
+          <MachineLoadLine load={environment.load} say={sayLoad} />
+        ) : (
+          <>
+            {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
+            {ready && environment.loadWarning && (
+              <span className="acpmux-env-state" data-warning="true">
+                {environment.loadWarning}
+              </span>
+            )}
+            {ready &&
+              !environment.loadWarning &&
+              environment.kind !== "local" &&
+              environment.connected !== undefined && (
+                <span className="acpmux-env-status" data-connected={String(environment.connected)}>
+                  <span className="acpmux-env-status-text">
+                    {t(environment.connected ? "composer.envConnected" : "composer.envNotConnected")}
+                  </span>
+                </span>
+              )}
+          </>
         )}
         {number !== undefined && digits && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
         <span className="acpmux-location-check" aria-hidden="true">

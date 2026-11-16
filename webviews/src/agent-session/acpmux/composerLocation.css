@@ -1917,3 +1917,19 @@
   width: calc(var(--ui-ghost-icon-size) * 1.25);
   height: var(--ui-ghost-icon-size);
 }
+/* A machine's load line (ui/MachineLoadLine.tsx) sits where the state, warning or dot did. The
+   machine's name keeps its width (up to half the row); the line takes the rest and its numbers give
+   up room first, cut with an ellipsis, while the verdict always shows. */
+.acpmux-env-row:has(.machine-load) .acpmux-location-name {
+  flex: 0 0 auto;
+  max-width: 50%;
+}
+.acpmux-env-row .machine-load {
+  flex: 1 1 0;
+  justify-content: flex-end;
+  overflow: hidden;
+  padding-left: var(--ds-space-3);
+  font-size: var(--text-caption);
+}
+.acpmux-env-row .machine-load + .acpmux-env-key,
+.acpmux-env-row .machine-load + .acpmux-location-check { margin-left: calc(var(--ds-space-1) * 1.5); }
