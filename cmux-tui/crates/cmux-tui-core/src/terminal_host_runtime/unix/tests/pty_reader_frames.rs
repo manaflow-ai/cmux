@@ -102,6 +102,84 @@ fn bytes_written_before_the_end_of_stream_all_reach_the_parser() {
     drop(drain_waker);
 }
 
+/// A PTY master that holds a burst the program already wrote, read as macOS
+/// reads one (at most 1 KiB a read), then drained (`WouldBlock`) once, then
+/// at end of stream.
+struct HeldBurst {
+    bytes: Vec<u8>,
+    at: usize,
+    drained: bool,
+}
+
+impl Read for HeldBurst {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let rest = self.bytes.get(self.at..).unwrap_or_default();
+        if !rest.is_empty() {
+            let count = rest.len().min(buffer.len()).min(1024);
+            buffer[..count].copy_from_slice(&rest[..count]);
+            self.at += count;
+            return Ok(count);
+        }
+        if !self.drained {
+            self.drained = true;
+            return Err(std::io::ErrorKind::WouldBlock.into());
+        }
+        Ok(0)
+    }
+}
+
+#[test]
+fn a_one_mib_burst_reaches_the_parser_in_at_most_eighteen_frames() {
+    // CMUX-571: the reader drains a flood into frames of up to 64 KiB, so
+    // 1 MiB is at most 16 full frames plus the first (16 KiB) and the tail.
+    // A 16 KiB buffer made it 64 frames: 64 parser hand-offs and daemon
+    // writes, each after sixteen poll-and-read pairs.
+    const MAX_FRAMES: usize = 18;
+    let burst: Vec<u8> = (0..1 << 20).map(|i| b'a' + (i % 26) as u8).collect();
+    let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    let (parser_commands, parsed) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
+    let host = host_fixture::test_host_shared_with_budget(
+        term,
+        parser_commands,
+        ClipboardReads::new(Arc::new(SystemClock)),
+        4 << 20,
+    );
+    // The poll side: a socket that stays readable for the whole burst.
+    let (poll_end, mut program) = UnixStream::pair().unwrap();
+    program.write_all(b"!").unwrap();
+    let poll_fd = poll_end.as_raw_fd();
+    let (drain_waker, drain_waiter) = HostStream::pair().unwrap();
+    let reader_burst = HeldBurst { bytes: burst.clone(), at: 0, drained: false };
+    let reader = thread::Builder::new()
+        .name("terminal-host-pty".into())
+        .spawn(move || {
+            host.mark_launch_owner_stream_ready();
+            read_pty_output(&host, Box::new(reader_burst), poll_fd, drain_waiter);
+            drop(poll_end);
+        })
+        .unwrap();
+    let mut got = Vec::new();
+    let mut frames = 0;
+    loop {
+        match parsed.recv_timeout(Duration::from_secs(10)).unwrap() {
+            ParserCommand::Output { frame, .. } if !frame.payload.is_empty() => {
+                frames += 1;
+                got.extend_from_slice(&frame.payload);
+            }
+            ParserCommand::Drain => break,
+            _ => {}
+        }
+    }
+    reader.join().unwrap();
+    drop((program, drain_waker));
+    assert_eq!(got.len(), burst.len());
+    assert!(got == burst, "the burst reached the parser changed");
+    assert!(
+        frames <= MAX_FRAMES,
+        "a 1 MiB burst reached the parser in {frames} frames (at most {MAX_FRAMES})"
+    );
+}
+
 /// The bench's terminal text (scripts/cmux-next/terminal-throughput-bench.py):
 /// plain lines, lines longer than the grid, 256-color SGR runs and UTF-8, as a
 /// PTY hands it over (`\r\n` line ends).
@@ -228,7 +306,7 @@ fn thread_cpu_seconds() -> f64 {
 
 /// The host parser's per-frame work, one step at a time, on the host-stage
 /// payload in `CMUX_HOST_FRAME_BYTES` frames (default 16 KiB, the PTY
-/// reader's flood frame): which of the steps the parser runs besides the
+/// reader's first flood frame): which of the steps the parser runs besides the
 /// ghostty-vt parse costs what. Each step runs over the whole payload on its
 /// own, so its MB/s is the cap it alone puts on the parser thread.
 #[test]
