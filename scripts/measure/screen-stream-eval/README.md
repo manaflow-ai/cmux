@@ -115,8 +115,8 @@ Today's targets:
   setup still requires an authorized connection. The adapter selects and checks
   the quality menu item, then requires a fresh source nonce in the selected window
   before its window workload starts. kbps is the Screen Sharing.app process's
-  received bytes from `nettop` (all its sockets, as `gui-viewer.sh` counts
-  Moonlight), read at each one-second bucket's end; a failed read, or no bytes
+  received bytes from `nettop` (all its sockets, as `gui-viewer.sh` counts a
+  third-party viewer), read at each one-second bucket's end; a failed read, or no bytes
   in the whole window, keeps every row's bytes null with `bytes_unavailable`
   rather than reporting zero. Decoded FPS and session time to first frame
   remain unavailable. The
