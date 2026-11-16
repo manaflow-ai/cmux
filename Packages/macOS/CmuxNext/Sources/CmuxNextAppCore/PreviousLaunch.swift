@@ -18,7 +18,7 @@ public struct PreviousLaunch: Equatable, Sendable {
     }
 
     /// What `registry`, the saved windows this launch restores now, left open; nil when nothing was saved.
-    public static func restoredNow(_ registry: WindowRegistry) -> PreviousLaunch? {
+    @MainActor public static func restoredNow(_ registry: WindowRegistry) -> PreviousLaunch? {
         registry.windows.isEmpty ? nil : PreviousLaunch(windowIDs: registry.openRecency, restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000)))
     }
 
