@@ -224,10 +224,25 @@ extension AppServices {
         }
     }
 
+    /// The acpmux daemon's share host (ShareHostDevice): its device channel is under this build's
+    /// acpmux home (`~/.acpmux` for NIGHTLY, the join's daemon; `~/.acpmux/builds/<key>` for others),
+    /// found from the user's password entry (`getpwuid`), never `HOME` or `ACPMUX_HOME`, as
+    /// JoinConsent+App.swift finds acpmux's consent folder.
+    func preferShareHostDevice() {
+        guard let home = getpwuid(geteuid())?.pointee.pw_dir else { return }
+        let root = URL(fileURLWithPath: String(cString: home), isDirectory: true).appending(path: ".acpmux", directoryHint: .isDirectory)
+        let auth = cloud.auth
+        ShareHostDevice.prefer(in: deviceHub, socketPath: ShareHostDevice.socketPath(acpmuxHome: environment.build.acpmuxHome(root: root)),
+                               bundleID: environment.launch.bundleID ?? "com.cmuxterm.app.next", loginKeychain: loginKeychain,
+                               tokens: { try await auth.tokens().access })
+    }
+
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.
     func startDeviceHub(_ settings: SettingsController) {
         // cmux Remote first: the hub it serves is made with its device identity.
         startCmuxRemote(settings)
+        // The acpmux daemon's share host before both, when it runs: it owns this Mac's device.
+        preferShareHostDevice()
         deviceHub.start(settings: settings)
         cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }
     }
