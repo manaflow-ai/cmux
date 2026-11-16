@@ -626,6 +626,7 @@ def main():
         # A second launch makes the session again: it starts only with more time left than the first one's start took.
         spent = max((launch["start_s"] for launch in report["launches"]), default=0)
         reason = f"no time left in the step for a second launch (the first one's start took {spent:.0f} s)" if spent and opts.deadline - time.monotonic() < spent + 240 else ""
+        reason = report.get("preflight_failed") or reason  # no launch form is left: no other launch, and each film has its row
         began = time.monotonic()
         try:
             while not reason:
@@ -649,8 +650,6 @@ def main():
             report["failures"].append(f"page mock {'on' if mock else 'off'}: {reason}")
         done = {row["id"] for row in report["films"]}
         report["films"] += [{"id": i, "status": "not_run", "agent_page_mock": mock, "reason": reason[:400]} for i in idents if i not in done]
-        if report.get("preflight_failed"):
-            break
     report["launch_form"] = forms[0]
     with open(os.path.join(opts.out, "films.json"), "w") as f:
         json.dump(report, f, indent=1)
