@@ -206,6 +206,30 @@ parts = {name: pct((span(f, a, b) for f in after_input), name in signed_parts) f
     ("encode_ms", "release_us", "encoded_us"))}
 # The same display-to-arrival offset over every frame, not only the first after an input.
 parts["sck_all_frames_ms"] = pct((span(f, "shown_us", "arrived_us") for f in frames), signed=True)
+# The marker's own draw commits (`commit COUNTER T_US`, protocol clock) split render in two: draw
+# (the input until the marker committed its redraw: event delivery and the app's draw) and
+# commit_to_vsync (signed: that commit until the frame's display time; negative when the frame
+# predates the commit, counted in frame_before_commit). Each input's commit is the first one after
+# it, within 100 ms.
+commits, refresh_hz = [], None
+marker_log = os.environ.get("EVAL_MARKER_LOG")
+if marker_log and os.path.exists(marker_log):
+    for line in open(marker_log, errors="replace"):
+        words = line.split()
+        if len(words) == 3 and words[0] == "commit" and words[2].isdigit():
+            commits.append(int(words[2]))
+        elif len(words) == 2 and words[0] == "refresh-hz" and words[1].isdigit():
+            refresh_hz = int(words[1])
+commits.sort()
+import bisect
+for f in after_input:
+    i = bisect.bisect_left(commits, f["input_us"])
+    if i < len(commits) and commits[i] - f["input_us"] <= 100_000:
+        f["commit_us"] = commits[i]
+parts["draw_ms"] = pct(span(f, "input_us", "commit_us") for f in after_input)
+parts["commit_to_vsync_ms"] = pct((span(f, "commit_us", "shown_us") for f in after_input), signed=True)
+parts["frame_before_commit"] = sum(1 for f in after_input if (span(f, "commit_us", "shown_us") or 0) < 0)
+parts["refresh_hz"] = refresh_hz
 g2g, cap, dec = raw.get("g2g_ms") or {}, raw.get("same_clock_capture_to_decoded_ms") or {}, raw.get("decode_ms") or {}
 encode = (raw.get("host_stats_last") or {}).get("encode_ms_p50")
 def p50(d): return d.get("p50") if d else None
