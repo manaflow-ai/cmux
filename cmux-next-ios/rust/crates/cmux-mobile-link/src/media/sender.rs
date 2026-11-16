@@ -65,7 +65,7 @@ impl Default for SenderConfig {
                 max_bps: 20_000_000,
                 start_bps: 2_500_000,
                 relay_max_bps: 20_000_000,
-                overuse_threshold_us: 2_000.0,
+                ..CcConfig::default()
             },
             ssrc: 0x636e_7876, // "cnxv"; the WebRTC carrier sets its own.
             payload_type: super::DEFAULT_PAYLOAD_TYPE,
