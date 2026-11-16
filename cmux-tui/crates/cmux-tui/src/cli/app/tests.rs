@@ -2301,3 +2301,55 @@ fn the_ping_gets_only_what_is_left_of_the_deadline() {
     assert_eq!(windows.len(), 1, "{windows:?}");
     assert!(windows.iter().all(|window| *window <= Duration::from_millis(110)), "{windows:?}");
 }
+
+/// `settings set tabs.newTabApp ID` is never silent when ID cannot draw a New Tab page: the write
+/// stands, and the note says why and how to get cmux's page back.
+#[test]
+fn a_new_tab_app_that_cannot_draw_gets_a_note_after_the_write() {
+    let set = |path: &str, value: Value| json!({ "path": path, "value": value });
+    assert_eq!(
+        settings::new_tab_app_written("settings.set", &set("tabs.newTabApp", json!("local/clock"))),
+        Some("local/clock".into())
+    );
+    assert_eq!(
+        settings::new_tab_app_written("settings.set", &set("tabs.newTabApp", json!(""))),
+        None
+    );
+    assert_eq!(
+        settings::new_tab_app_written("settings.reset", &set("tabs.newTabApp", json!("a/b"))),
+        None
+    );
+    assert_eq!(
+        settings::new_tab_app_written("settings.set", &set("tabs.other", json!("a/b"))),
+        None
+    );
+
+    let ready = json!({
+        "app": "local/clock",
+        "install": { "installed": true, "enabled": true, "hidden": false },
+        "implements": ["cmux.newtab/1"],
+    });
+    assert_eq!(settings::new_tab_app_note("local/clock", Ok(&ready)), None);
+
+    let note =
+        |detail: Result<&Value, &str>| settings::new_tab_app_note("local/clock", detail).unwrap();
+    assert!(note(Err("apps.unknown: no such app")).contains("no extension named local/clock"));
+    let mut preview = ready.clone();
+    preview["install"]["installed"] = json!(false);
+    assert!(note(Ok(&preview)).contains("is not installed"));
+    let mut off = ready.clone();
+    off["install"]["enabled"] = json!(false);
+    assert!(note(Ok(&off)).contains("is turned off"));
+    let mut hidden = ready;
+    hidden["install"]["hidden"] = json!(true);
+    assert!(note(Ok(&hidden)).contains("is hidden"));
+    let section = json!({
+        "install": { "installed": true, "enabled": true },
+        "implements": ["cmux.section/1"],
+    });
+    let text = note(Ok(&section));
+    assert!(text.contains("cmux.newtab/1"), "{text}");
+    assert!(text.contains("cmux settings reset tabs.newTabApp"), "{text}");
+    // The daemon could not answer: no guess.
+    assert_eq!(settings::new_tab_app_note("local/clock", Err("error: timed out")), None);
+}

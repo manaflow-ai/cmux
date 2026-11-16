@@ -169,6 +169,19 @@ Each kind loads as written, and a save to its `src/main.ts` is on screen within 
 the watch, the debounce, the bun build and the reload against a daemon that renders with the
 real app host).
 
+## The sandbox is not a browser
+
+An extension's script runs in cmux's app host, not in a web page. There is no `setInterval`,
+`setTimeout`, `requestAnimationFrame` or `Intl`. Tick with `cmux.timer.every(ms, fn)` and stop it with
+`cmux.timer.clear(id)` in `onCleanup`. Format dates and numbers yourself, as
+`examples/extensions/newtab-clock` does. Live data comes from `cmux.watch`, not a polling timer.
+
+A render that throws, or a first scene with nothing visible on it, never leaves a blank view. A New
+Tab page picked in `tabs.newTabApp` hands that tab to cmux's own page, with a note that names the
+extension and the error. The same happens when the page has not drawn within 2 s. `cmux settings set
+tabs.newTabApp ID` prints a note when ID is not loaded, not installed, off, hidden, or has no
+`cmux.newtab/1`.
+
 ## The SDK in a new extension
 
 `cmux ext new` writes `sdk/`: `cmux-extension-sdk` as the `cmux` that ran it was built with it

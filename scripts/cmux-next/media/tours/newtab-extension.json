@@ -1,0 +1,41 @@
+{
+  "title": "New Tab extension: a one-line page and the clock sample, picked in tabs.newTabApp, drawn in new tabs; then a broken one shows cmux's own page and why",
+  "steps": [
+    { "title": "Launch", "wait": 4, "shot": false },
+    { "title": "A cold New Tab before any extension (warms the spare pool)", "cmux": ["tab", "new-page"], "wait": 2, "shot": false },
+    { "title": "A workspace whose terminal writes the extension", "cmux": ["workspace", "new", "--name", "NewTabExt"], "wait": 3, "shot": false },
+    { "title": "Focus it", "cmux": ["workspace", "name:NewTabExt", "focus"], "wait": 1, "shot": false },
+    {
+      "title": "Save the one-line hello page as the customize app",
+      "daemon": true,
+      "cmux": ["workspace", "name:NewTabExt", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text",
+        "clear; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\"; printf '%s\\n' 'globalThis.__cmuxAppExports = { renderNewTab: () => VStack([Text(\"hello\")]) }' > \"$D/main.js\"; printf '%s\\n' '{\"manifestVersion\": 2, \"id\": \"local/customize\", \"name\": \"Hello\", \"version\": \"1.0.0\", \"description\": \"One line on every new tab.\", \"engines\": {\"cmux\": \"^2.0\"}, \"runtime\": {\"main\": \"main.js\"}, \"implements\": {\"cmux.newtab/1\": {\"export\": \"renderNewTab\", \"title\": \"Hello\", \"symbol\": \"clock\"}}}' > \"$D/cmux-app.json\"; echo saved hello\r"],
+      "wait": 3,
+      "shot": false
+    },
+    { "title": "Pick it: tabs.newTabApp = local/customize", "cmux": ["settings", "set", "tabs.newTabApp", "local/customize"], "wait": 1, "shot": false },
+    { "title": "New Tab 1: hello", "cmux": ["tab", "new-page"], "wait": 3, "shot": true },
+    { "title": "New Tab 2 (an adopted spare): hello", "cmux": ["tab", "new-page"], "wait": 3, "shot": true },
+    {
+      "title": "Save the clock sample (examples/extensions/newtab-clock) as the customize app",
+      "daemon": true,
+      "cmux": ["workspace", "name:NewTabExt", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text",
+        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts {repo}/examples/extensions/newtab-clock >/dev/null && cp {repo}/examples/extensions/newtab-clock/dist/main.js \"$D/main.js\" && sed -e 's#\"local/showcase-[a-z-]*\"#\"local/customize\"#' -e 's#\"dist/main.js\"#\"main.js\"#' -e 's#\"dist/\"#\"main.js\"#' {repo}/examples/extensions/newtab-clock/cmux-app.json > \"$D/cmux-app.json\" && echo saved clock\r"],
+      "wait": 4,
+      "shot": false
+    },
+    { "title": "Back to the workspace with tabs", "cmux": ["workspace", "name:NewTabExt", "focus"], "wait": 1, "shot": false },
+    { "title": "New Tab 3: the clock", "cmux": ["tab", "new-page"], "wait": 3, "shot": true },
+    { "title": "New Tab 4: the clock, a second later", "cmux": ["tab", "new-page"], "wait": 3, "shot": true },
+    {
+      "title": "Save a page whose render throws",
+      "daemon": true,
+      "cmux": ["workspace", "name:NewTabExt", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text",
+        "clear; printf '%s\\n' 'globalThis.__cmuxAppExports = { renderNewTab: () => { throw new Error(\"clock broke\") } }' > \"$D/main.js\"; echo saved broken\r"],
+      "wait": 4,
+      "shot": false
+    },
+    { "title": "Back to the workspace with tabs", "cmux": ["workspace", "name:NewTabExt", "focus"], "wait": 1, "shot": false },
+    { "title": "New Tab 5: cmux's own page, saying why", "cmux": ["tab", "new-page"], "wait": 4, "shot": true }
+  ]
+}

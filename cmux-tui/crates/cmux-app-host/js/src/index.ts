@@ -17,6 +17,9 @@ const exportsOf = (): Record<string, unknown> => (g.__cmuxAppExports as Record<s
 
 const describe = (e: unknown) => (e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e))
 
+/** Where in the app's script `e` was thrown: its first stack frame in a .js file (main.js:12:5). The runtime has no such file name. */
+const scriptLine = (e: unknown) => (e instanceof Error && typeof e.stack === "string" ? (/\(?([^\s()]+\.js:\d+(?::\d+)?)\)?/.exec(e.stack)?.[1] ?? "") : "")
+
 /** Every host entry point: run in a batch so all effects settle and ops leave in one message. */
 function entry<T>(name: string, fn: () => T, fallback: T): T {
   try {
@@ -91,7 +94,8 @@ function install() {
     } catch (e) {
       state.context = null
       unmount(mountId)
-      const message = describe(e)
+      const at = scriptLine(e)
+      const message = at ? `${describe(e)} (${at})` : describe(e)
       log("error", `mount ${exportName}: ${message}`)
       return message || "render failed"
     } finally {

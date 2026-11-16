@@ -3,7 +3,8 @@
 # apps pass their bun tests, the copies the Mac app bundles match their sources, and every
 # first-party app runs its own tests as a fork with only the public SDK
 # (first-party-apps/fork-check.ts, docs/app-store-platonic-ideal.md 5; known gaps in
-# first-party-apps/fork-check-gaps.json). Bun only: no Cargo, no app build, about 2 s of tests.
+# first-party-apps/fork-check-gaps.json). Then the example extensions run in the native host's QuickJS
+# VM with the shipped runtime (cmux-app-host tests/examples.rs): one small crate, no app build.
 # Any pull request, or a push to main or feat-cmux-next (changes land there by direct push), that
 # touches what the gate reads runs it. A push to a branch with no pull request starts nothing
 # (the 2026-10-27 push flood). A lane can dispatch it on any pushed ref:
@@ -17,6 +18,7 @@ on:
     paths:
       - cmux-tui/crates/cmux-app-host/**
       - samples/apps/**
+      - examples/extensions/**
       - first-party-apps/**
       - examples/extensions/**
       - Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/**
@@ -28,6 +30,7 @@ on:
     paths:
       - cmux-tui/crates/cmux-app-host/**
       - samples/apps/**
+      - examples/extensions/**
       - first-party-apps/**
       - examples/extensions/**
       - Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/**
@@ -51,7 +54,7 @@ jobs:
   check:
     name: app platform (runtime, SDK, samples, first-party forks)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -60,3 +63,16 @@ jobs:
         with:
           bun-version: "1.4.4"
       - run: bash scripts/cmux-next/check-app-platform.sh
+      # The bun tests run the examples in another engine; this mounts each one in QuickJS with
+      # js/dist/cmux-app-runtime.js, as cmux does (a clock calling its signal tuple passed bun and
+      # drew "TypeError: not a function" in cmux).
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+      - name: Example extensions in the native host
+        working-directory: cmux-tui
+        run: cargo test --locked -p cmux-app-host --test examples

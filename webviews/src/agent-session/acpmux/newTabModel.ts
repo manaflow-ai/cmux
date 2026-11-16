@@ -131,6 +131,15 @@ export function pickedNewTabApp(host: NewTabHost | undefined, goneAt: number | u
   return host && !host.history && host.app && goneAt !== adoptions ? host.app : undefined;
 }
 
+/// The React key of the app's page (newtab/NewTabAppPage.tsx) for one screen: a page whose app could
+/// not show (`goneAt`) is never the one the next adopt draws. A parked spare keeps its screen
+/// generation across Cmd-T, so a key of generation and app alone handed the new visit the page
+/// instance that had already given up (it draws nothing and keeps cmux's own page away): a blank
+/// New Tab on every Cmd-T after one failed mount.
+export function newTabAppPageKey(generation: number, app: string, goneAt: number | undefined) {
+  return `${generation}:${app}:${goneAt ?? "-"}`;
+}
+
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
 export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewTabHost | undefined {
   const value = handshake.newTab;

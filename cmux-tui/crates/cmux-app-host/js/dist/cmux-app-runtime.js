@@ -2711,6 +2711,7 @@
   var RUNTIME_VERSION = "1.2.0";
   var exportsOf2 = () => g.__cmuxAppExports ?? {};
   var describe2 = (e) => e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e);
+  var scriptLine = (e) => e instanceof Error && typeof e.stack === "string" ? /\(?([^\s()]+\.js:\d+(?::\d+)?)\)?/.exec(e.stack)?.[1] ?? "" : "";
   function entry(name, fn, fallback) {
     try {
       return batch(fn);
@@ -2775,7 +2776,8 @@
       } catch (e) {
         state.context = null;
         unmount(mountId);
-        const message = describe2(e);
+        const at = scriptLine(e);
+        const message = at ? `${describe2(e)} (${at})` : describe2(e);
         log("error", `mount ${exportName}: ${message}`);
         return message || "render failed";
       } finally {

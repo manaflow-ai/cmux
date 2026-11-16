@@ -457559,6 +457559,666 @@
           }
         }
       }
+    },
+    "newTab.appFailed.title": {
+      "comment": "Agent pane: New Tab notice title when the extension picked in the setting 'New Tab App' (tabs.newTabApp) could not draw the page; cmux draws its own page under it. {app} is the extension id, such as local/clock.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على {app} رسم صفحة علامة التبويب الجديدة هذه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} nije mogao iscrtati ovu stranicu nove kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} kunne ikke tegne denne Ny fane-side."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} konnte diese Neuer-Tab-Seite nicht zeichnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{app} could not draw this New Tab page."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} no pudo dibujar esta página de nueva pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} n’a pas pu afficher cette page Nouvel onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} non è riuscita a disegnare questa pagina Nuova scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} はこの新規タブページを描画できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} មិនអាចគូរទំព័រផ្ទាំងថ្មីនេះបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}이(가) 이 새 탭 페이지를 그리지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} kunne ikke tegne denne Ny fane-siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} nie mogło narysować tej strony nowej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} não conseguiu desenhar esta página de nova aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} не удалось отрисовать эту страницу новой вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} วาดหน้าแท็บใหม่นี้ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} bu Yeni Sekme sayfasını çizemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} не вдалося відобразити цю сторінку нової вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} không vẽ được trang Tab mới này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} 无法绘制此新标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} 無法繪製此新分頁頁面。"
+          }
+        }
+      }
+    },
+    "newTab.appFailed.slow": {
+      "comment": "Agent pane: New Tab notice reason: the picked extension did not draw its page in time. {seconds} is a whole number of seconds.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يرسم الصفحة خلال {seconds} ث."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije iscrtao stranicu u roku od {seconds} s."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den tegnede ikke inden for {seconds} s."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es hat nicht innerhalb von {seconds} s gezeichnet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It did not draw within {seconds} s."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No dibujó nada en {seconds} s."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rien n’a été affiché en {seconds} s."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non ha disegnato nulla entro {seconds} s."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{seconds} 秒以内に描画されませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វាមិនបានគូរក្នុងរយៈពេល {seconds} វិនាទីទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{seconds}초 안에 그리지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den tegnet ikke innen {seconds} s."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nic nie narysowało w ciągu {seconds} s."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não desenhou nada em {seconds} s."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не отрисовано за {seconds} с."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้วาดภายใน {seconds} วินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{seconds} sn içinde çizmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не відобразилося за {seconds} с."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không vẽ xong trong {seconds} giây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未在 {seconds} 秒内绘制。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未在 {seconds} 秒內繪製。"
+          }
+        }
+      }
+    },
+    "newTab.appFailed.empty": {
+      "comment": "Agent pane: New Tab notice reason: the picked extension's page drew nothing visible (no text, image or control).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رسم صفحة فارغة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iscrtao je praznu stranicu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den tegnede en tom side."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es hat eine leere Seite gezeichnet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It drew an empty page."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dibujó una página vacía."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La page affichée est vide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ha disegnato una pagina vuota."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "空のページが描画されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វាបានគូរទំព័រទទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "빈 페이지를 그렸습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den tegnet en tom side."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Narysowało pustą stronę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desenhou uma página vazia."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отрисована пустая страница."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วาดหน้าว่างเปล่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boş bir sayfa çizdi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відображено порожню сторінку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã vẽ một trang trống."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "绘制了一个空白页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "繪製了一個空白頁面。"
+          }
+        }
+      }
+    },
+    "newTab.appFailed.unknown": {
+      "comment": "Agent pane: New Tab notice reason when the extension's view failed and the host gave no reason.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فشل عرضه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Njegov prikaz nije uspio."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dens visning mislykkedes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seine Ansicht ist fehlgeschlagen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its view failed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Su vista falló."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sa vue a échoué."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sua vista non è riuscita."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ビューが失敗しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទិដ្ឋភាពរបស់វាបានបរាជ័យ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보기를 그리지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visningen mislyktes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jego widok zawiódł."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A visualização falhou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Представление не удалось."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มุมมองล้มเหลว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Görünümü başarısız oldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подання не вдалося."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chế độ xem bị lỗi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其视图失败。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其檢視失敗。"
+          }
+        }
+      }
+    },
+    "newTab.appFailed.hint": {
+      "comment": "Agent pane: New Tab notice, after the reason: how to see more and how to go back to cmux's own page. Keep the commands `cmux ext dev` and `cmux settings reset tabs.newTabApp` exactly as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شغّل `cmux ext dev` في مجلده لمعرفة السبب؛ ويُبقي `cmux settings reset tabs.newTabApp` هذه الصفحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokrenite `cmux ext dev` u njegovom folderu da vidite zašto; `cmux settings reset tabs.newTabApp` zadržava ovu stranicu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kør `cmux ext dev` i dens mappe for at se hvorfor; `cmux settings reset tabs.newTabApp` beholder denne side."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Führe `cmux ext dev` in seinem Ordner aus, um den Grund zu sehen; `cmux settings reset tabs.newTabApp` behält diese Seite."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run `cmux ext dev` in its folder to see why; `cmux settings reset tabs.newTabApp` keeps this page."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ejecuta `cmux ext dev` en su carpeta para ver por qué; `cmux settings reset tabs.newTabApp` conserva esta página."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lancez `cmux ext dev` dans son dossier pour voir pourquoi ; `cmux settings reset tabs.newTabApp` garde cette page."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esegui `cmux ext dev` nella sua cartella per capire perché; `cmux settings reset tabs.newTabApp` mantiene questa pagina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォルダで `cmux ext dev` を実行すると理由がわかります。`cmux settings reset tabs.newTabApp` でこのページのままにできます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំណើរការ `cmux ext dev` ក្នុងថតរបស់វា ដើម្បីមើលមូលហេតុ; `cmux settings reset tabs.newTabApp` រក្សាទំព័រនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "폴더에서 `cmux ext dev`를 실행하면 이유를 볼 수 있습니다. `cmux settings reset tabs.newTabApp`을 실행하면 이 페이지를 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kjør `cmux ext dev` i mappen for å se hvorfor; `cmux settings reset tabs.newTabApp` beholder denne siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom `cmux ext dev` w jego folderze, aby zobaczyć dlaczego; `cmux settings reset tabs.newTabApp` zachowuje tę stronę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Execute `cmux ext dev` na pasta dele para ver por quê; `cmux settings reset tabs.newTabApp` mantém esta página."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запустите `cmux ext dev` в его папке, чтобы узнать причину; `cmux settings reset tabs.newTabApp` оставит эту страницу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เรียก `cmux ext dev` ในโฟลเดอร์เพื่อดูสาเหตุ; `cmux settings reset tabs.newTabApp` จะคงหน้านี้ไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nedenini görmek için klasöründe `cmux ext dev` çalıştırın; `cmux settings reset tabs.newTabApp` bu sayfayı tutar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запустіть `cmux ext dev` у його теці, щоб побачити причину; `cmux settings reset tabs.newTabApp` залишить цю сторінку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chạy `cmux ext dev` trong thư mục của nó để xem lý do; `cmux settings reset tabs.newTabApp` giữ trang này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在其文件夹中运行 `cmux ext dev` 查看原因；`cmux settings reset tabs.newTabApp` 会保留此页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在其資料夾中執行 `cmux ext dev` 查看原因；`cmux settings reset tabs.newTabApp` 會保留此頁面。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
