@@ -102,6 +102,36 @@ counted the owned pool full while 20 of its runners sat idle. Without the
 token, or when the runners cannot be listed or none carries the pool label,
 the snapshot rules below decide.
 
+Sim-first runners. glaeda takes every SIM_LABEL runner of a mini offline
+while its capacity units are full, so a busy fleet reads "0 glaeda-ios-sim
+free" with simulators idle: on 2026-11-14 run 43600021760 (feat-cmux-next's
+reliability matrix) logged "0 owned runner(s) and 0 glaeda-ios-sim free, 1
+and 1 needed" and its phone cells waited 40 minutes on Blacksmith. glaeda#1983
+adds one sim-first runner per simulator mini (pr_runner_pool.SIM_FIRST_LABEL,
+`glaeda-sim-xcode-<version>`, without the pool label or SIM_LABEL) that stays
+online on a full mini, goes offline while the mini's one simulator token is
+taken, and takes only jobs glaeda classes as simulator or simulator-step; a
+job it takes may wait there for CPU units, with priority. On the live path,
+sim_first_free is the minis with an online idle sim-first runner that no
+running simulator job holds, less every simulator charged to in-flight runs
+(the same Hold.sims that SIM_LABEL's count loses, erring toward Blacksmith).
+When the usual route does not fit and the run's simulator jobs fit in it:
+a lane whose `runs_on` serves only simulator jobs (SIM_FIRST_LANES, the
+capture) takes the sim-first label alone; a test-ios.yml run whose build and
+package jobs fit in the pool keeps `runs_on` (the pool with SIM_LABEL) for
+ios-simulator-build and mobile-core-package's pool label, and its simulator
+matrix takes the label through `sim_runs_on`. ios-simulator-build stays off
+it: an isolated build holds no simulator token, and the sim-first runner,
+which exists for its mini's simulator job, refuses it. A job queued on the
+label counts as owned in hold() and takes no pool machine; the runners
+listing the live path already reads has the label, so this costs no request.
+While no runner carries the label (glaeda's simRunners not yet on in the
+fleet manifest) sim_first_free is 0 and nothing changes. The markers stay as
+they are: the SIM_LABEL marker charges the simulators, and the watch marker
+has ci-owned-pool-rescue.yml watch the jobs (owned_pool_rescue.job_pool()
+knows the label) and move one to retry_runs_on, unchanged, if no runner takes
+it.
+
 Simulator capacity. glaeda puts SIM_LABEL (`glaeda-ios-sim`) on the runners of
 minis that have an iOS simulator role and an iOS 26.x runtime, and runs one
 simulator job at a time on each such mini (a second is refused). Its count is
@@ -162,6 +192,7 @@ of the two iOS workflows and up to MARKER_PAGES pages of `owned-pool-watch`
 markers; on the live path, four pages of in-flight runs, the marker pages,
 one job listing for each run they and age leave open (at most MAX_JOB_READS),
 and one more marker page when a run read was picked after the first listing.
+The sim-first runners come from the same runners listing: no extra request.
 Anything uncertain keeps the default.
 """
 from __future__ import annotations
@@ -239,6 +270,11 @@ LANES = {
 }
 # The most simulator jobs any one iOS run holds: test-ios.yml's two families.
 MAX_SIM_JOBS = 2
+# The lanes whose `runs_on` serves only jobs glaeda classes as simulator or
+# simulator-step, the only jobs its sim-first runner takes (it refuses the
+# rest; see Sim-first runners): the capture. test-ios's `runs_on` serves
+# ios-simulator-build, so its simulator matrix reads `sim_runs_on` instead.
+SIM_FIRST_LANES = ("screenshots",)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -247,6 +283,8 @@ class LiveFree:
     # less the recent iOS runs' jobs (see Live capacity).
     pool: int
     sim: int
+    # Minis with an online idle sim-first runner, less the same charges (see Sim-first runners).
+    sim_first: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -264,11 +302,23 @@ class Route:
     label: str  # the pool label
     retry_label: str  # what every macOS job takes from attempt 2 on
     persistent: bool
+    # glaeda's sim-first label for the simulator jobs alone, when they take it (see Sim-first runners).
+    sim_label: str = ""
 
     @property
     def runs_on(self) -> str:
-        """runs-on as JSON for a job that needs the iOS runtime: an owned pool adds SIM_LABEL."""
+        """runs-on as JSON for a job that needs the iOS runtime: an owned pool adds SIM_LABEL.
+
+        The sim-first label stands alone: its runner carries neither the pool label nor SIM_LABEL.
+        """
+        if pr_runner_pool.sim_first(self.label):
+            return json.dumps([self.label])
         return json.dumps([self.label, SIM_LABEL] if self.persistent else self.label)
+
+    @property
+    def sim_runs_on(self) -> str:
+        """runs-on as JSON for test-ios.yml's simulator matrix: the sim-first label, else runs_on."""
+        return json.dumps([self.sim_label]) if self.sim_label else self.runs_on
 
     @property
     def package_runs_on(self) -> str:
@@ -417,8 +467,21 @@ def resolve(
             log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
                 f"{needed} needed -> {pools[0]} with {SIM_LABEL}")
             return Route(pools[0], retry_label(default), True)
+        sim_first = pr_runner_pool.sim_first_label(pr_xcode_app)
+        if needed and sim_first and pools and pools[0] in limits.order and load.live.sim_first >= needed:
+            # See Sim-first runners: the simulator jobs alone, on the sim-first runners of minis whose simulator is free.
+            if lane in SIM_FIRST_LANES:
+                log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
+                    f"{needed} needed; {load.live.sim_first} {sim_first} free -> {sim_first}")
+                return Route(sim_first, retry_label(default), True, sim_label=sim_first)
+            if lane == "test-ios" and load.live.pool >= jobs:
+                # The build and package jobs keep the pool; the simulator matrix takes the sim-first label.
+                log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
+                    f"{needed} needed; {load.live.sim_first} {sim_first} free -> {pools[0]} with {SIM_LABEL}, "
+                    f"simulator jobs on {sim_first}")
+                return Route(pools[0], retry_label(default), True, sim_label=sim_first)
         log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
-            f"{needed} needed; staying on {default}")
+            f"{needed} needed; {load.live.sim_first} {sim_first or 'sim-first'} free; staying on {default}")
         return ephemeral(default)
     # Simulator jobs take the first owned pool only, as the live path above
     # routes them, since SIM_LABEL is on that pool's runners. The replay of
@@ -604,7 +667,9 @@ def hold(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None, pool:
         age = pr_runner_pool.run_age_minutes(run, now)
         young = age is None or age < pr_runner_pool.LIVE_WINDOW_MINUTES
         return Hold(need.machines if young else 0, need.sims)
-    owned = [job for job in jobs if job_labels(job) & {pool, SIM_LABEL}]
+    # A job on the sim-first label (Sim-first runners) is owned too, but takes no pool machine.
+    owned = [job for job in jobs if job_labels(job) & {pool, SIM_LABEL}
+             or any(pr_runner_pool.sim_first(label) for label in job_labels(job))]
     if not owned:
         if any(hosted_macos(label) for job in jobs for label in job_labels(job)):
             # Its macOS jobs asked for a Blacksmith (or hosted) label.
@@ -627,23 +692,30 @@ def hold(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None, pool:
     # successful build, so none will come after a failed one.
     to_come = 0 if failed else max(0, need.sims - len(sims))
     waiting_sims = sum(1 for job in waiting if job in sims)
-    waiting_rest = sum(1 for job in waiting if job not in sims and job not in builds)
+    # Waiting on the sim-first label: a simulator, but no pool machine.
+    pooled = [job for job in waiting
+              if not any(pr_runner_pool.sim_first(label) for label in job_labels(job))]
+    waiting_rest = sum(1 for job in pooled if job not in sims and job not in builds)
     running_builds = sum(1 for job in builds if on_runner(job))
     # Now: every waiting job takes a machine. After the build: the rest still
     # waiting, the simulator jobs, less the machine the running build frees.
-    machines = max(len(waiting), waiting_rest + waiting_sims + to_come - running_builds, 0)
+    machines = max(len(pooled), waiting_rest + sum(1 for job in pooled if job in sims) + to_come - running_builds, 0)
     return Hold(machines=machines, sims=waiting_sims + to_come,
                 sim_hosts=frozenset(runner_host({"name": job["runner_name"]}) for job in sims if on_runner(job)))
 
 
 def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[Mapping[str, Any]], *,
               now: dt.datetime, capacity: int, placements: Placements | None = None,
-              jobs: Mapping[int, Sequence[Mapping[str, Any]]] | None = None) -> LiveFree:
+              jobs: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
+              sim_first_label: str = "") -> LiveFree:
     """The pool's idle runners and its free simulator minis, less what in-flight iOS runs will take.
 
     `recent` are the in-flight runs of the last SIM_WINDOW_MINUTES and `jobs`
     the jobs read for some of them (see Live capacity). Never negative.
     Raises when no runner carries `pool`, so the snapshot decides instead.
+    With `sim_first_label`, `sim_first` counts the minis whose runner with
+    that label is online and idle, less the same simulator charges (see
+    Sim-first runners); 0 when no runner carries it.
     """
     mine = [runner for runner in runners
             if pool in {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}]
@@ -656,8 +728,17 @@ def live_free(runners: Sequence[Mapping[str, Any]], pool: str, recent: Sequence[
     holds = [hold(run, (jobs or {}).get(run.get("id")), pool, placements, now) for run in recent]
     held = sim_hosts & frozenset().union(*(item.sim_hosts for item in holds))
     sim_room = max(0, min(len(sim_hosts - held), capacity - len(held)))
+    charged = sum(item.sims for item in holds)
+    # One sim-first runner per mini, offline while its simulator is taken; a
+    # running simulator job's mini is left out in case the listing lags it.
+    first_hosts = {runner_host(runner) for runner in runners
+                   if sim_first_label and runner.get("status") == "online" and not runner.get("busy")
+                   and sim_first_label in {str(item.get("name")) for item in runner.get("labels") or []
+                                           if isinstance(item, Mapping)}}
+    first_hosts -= frozenset().union(*(item.sim_hosts for item in holds))
     return LiveFree(pool=max(0, idle[pool] - sum(item.machines for item in holds)),
-                    sim=max(0, sim_room - sum(item.sims for item in holds)))
+                    sim=max(0, sim_room - charged),
+                    sim_first=max(0, len(first_hosts) - charged))
 
 
 def run_jobs_read(client: Any, runs: Sequence[Mapping[str, Any]], placements: Placements | None,
@@ -771,6 +852,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         lane_jobs = 1 if args.swift_package else (2 if args.lane == "test-ios" else 1)
         for key, value in {"label": label, "retry_label": label if not persistent else SMALL_RUNNER,
                            "runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
+                           "sim_runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
                            "package_runs_on": json.dumps(label), "retry_runs_on": json.dumps(SMALL_RUNNER if persistent else label),
                            "persistent": str(persistent).lower(), "jobs": str(lane_jobs),
                            "sim_jobs": str(1 if persistent else 0)}.items():
@@ -798,7 +880,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 capacity = pr_runner_pool.capability_slots(args.owned_slots).get(SIM_LABEL, 0)
                 jobs, placements = live_placements(client, recent, now)
                 return IOSLoad(None, live=live_free(runners, pools[0], recent, now=now, capacity=capacity,
-                                                    placements=placements, jobs=jobs))
+                                                    placements=placements, jobs=jobs,
+                                                    sim_first_label=pr_runner_pool.sim_first_label(args.pr_xcode_app)))
             except Exception as error:  # noqa: BLE001 - the snapshot path still decides
                 print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot",
                       file=sys.stderr)
@@ -828,6 +911,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     print(f"label={route.label}")
     print(f"retry_label={route.retry_label}")
     print(f"runs_on={route.runs_on}")
+    print(f"sim_runs_on={route.sim_runs_on}")
     print(f"package_runs_on={route.package_runs_on}")
     print(f"retry_runs_on={route.retry_runs_on}")
     print(f"persistent={'true' if route.persistent else 'false'}")
