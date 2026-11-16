@@ -718,10 +718,28 @@ def stop(proc: subprocess.Popen | None):
 # ---------------------------------------------------------------- build
 
 
+DEPS = ("build-essential", "pkg-config", "libssl-dev", "nasm", "curl", "iproute2", "ethtool", "xvfb", "x11-xkb-utils")
+
+
+def missing_deps() -> list[str]:
+    """The DEPS dpkg does not list as installed."""
+    out = run(["dpkg-query", "-W", "-f", "${Package} ${Status}\n", *DEPS], check=False).stdout
+    have = {line.split()[0] for line in out.splitlines() if line.endswith("install ok installed")}
+    return [p for p in DEPS if p not in have]
+
+
 def ensure_deps():
-    run(priv(["apt-get", "update", "-qq"]))
-    run(priv(["apt-get", "install", "-y", "-qq", "--no-install-recommends", "build-essential", "pkg-config",
-              "libssl-dev", "nasm", "curl", "iproute2", "ethtool", "xvfb", "x11-xkb-utils"]))
+    """apt-get only what is missing: a worker that already has every package never touches apt, so
+    an apt lock or a bad mirror on it cannot fail the run (2026-11-16: three runs died in apt)."""
+    missing = missing_deps()
+    if not missing:
+        return
+    run(priv(["apt-get", "update", "-qq"]), check=False)
+    done = run(priv(["apt-get", "install", "-y", "-qq", "--no-install-recommends", *missing]), check=False)
+    still = missing_deps()
+    if still:
+        raise SystemExit(f"rd-netem-linux: apt-get could not install {' '.join(still)} "
+                         f"(exit {done.returncode}): {done.stderr.strip()[-600:]}")
 
 
 def build(commit: str, work: Path, repo_url: str) -> Path:
