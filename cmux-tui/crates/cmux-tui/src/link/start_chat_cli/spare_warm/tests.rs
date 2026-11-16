@@ -786,3 +786,59 @@ fn a_changed_scope_waits_for_the_existing_guest_writer() {
         assert_ne!(next["copy"]["generation"], first["copy"]["generation"]);
     }
 }
+
+/// Leo's NIGHTLY, hourly app-chat probe, 13 of 13 spare hits on 2026-11-15/16: the App names its
+/// active team (the shared company team) in the scope, while its install token, minted with no team,
+/// names the person's personal team, where the spare, its claim and its copy are. Every installed
+/// copy was refused as a receipt, so each claimed start read the machine's login again
+/// (`login.machine` p50 1.4 s). The scope's team is the install token's own.
+#[test]
+fn a_receipt_scoped_by_the_active_team_counts_in_the_install_tokens_team() {
+    let dir = tempfile::tempdir().unwrap();
+    let scope = ReceiptScope {
+        team: "team_aaaaaaaaaaaaaaaaaaaa".into(),
+        install: install(Some(TEAM)),
+        ..scope()
+    };
+    let claim =
+        scoped_call(dir.path(), json!({"account":"user_a", "claimed":MACHINE}), 1_000_000, &scope);
+    let generation = claim["copy"]["generation"].clone();
+    assert!(generation.is_string(), "the claim hands the App a copy: {claim}");
+    let end = scoped_call(
+        dir.path(),
+        json!({"account":"user_a", "installed":MACHINE, "generation":generation}),
+        1_000_100,
+        &scope,
+    );
+    assert_eq!(end["finished"], true);
+    assert_eq!(
+        receipt_scoped(dir.path(), "user_a", MACHINE, "claude", Some(&scope), 1_000_200)["installed"],
+        true
+    );
+}
+
+/// The scope's team comes from its own install token, so a token minted for another team than the
+/// one the warm runs in (stdin's) still mints no receipt.
+#[test]
+fn a_scope_whose_install_token_names_another_team_mints_no_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let scope = ReceiptScope {
+        team: TEAM.into(),
+        install: install(Some("team_ffffffffffffffffffff")),
+        ..scope()
+    };
+    let claim =
+        scoped_call(dir.path(), json!({"account":"user_a", "claimed":MACHINE}), 1_000_000, &scope);
+    let end = scoped_call(
+        dir.path(),
+        json!({"account":"user_a", "installed":MACHINE,
+            "generation":claim["copy"]["generation"]}),
+        1_000_100,
+        &scope,
+    );
+    assert_eq!(end["finished"], true);
+    assert_eq!(
+        receipt_scoped(dir.path(), "user_a", MACHINE, "claude", Some(&scope), 1_000_200)["installed"],
+        false
+    );
+}

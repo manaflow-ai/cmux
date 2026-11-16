@@ -44,16 +44,15 @@ const FOLDED_TOOL: &str = "acpmux_bg_start";
 
 pub fn route(config: &Value) -> Option<Route> {
     let servers = config.get("mcpServers")?;
-    if servers.get(crate::acpmux_mcp::SERVER_NAME).is_some() {
+    if servers.get(crate::acpmux_mcp_names::SERVER_NAME).is_some() {
         return Some(Route::Direct);
     }
     let cmux = servers.get("cmux")?;
     let env = |k: &str| cmux.pointer("/env")?.get(k)?.as_str();
     let upstreams: Value = serde_json::from_str(env(crate::agent_tools::UPSTREAMS_ENV)?).ok()?;
-    let folded = upstreams
-        .as_array()?
-        .iter()
-        .any(|s| s.get("name").and_then(Value::as_str) == Some(crate::acpmux_mcp::SERVER_NAME));
+    let folded = upstreams.as_array()?.iter().any(|s| {
+        s.get("name").and_then(Value::as_str) == Some(crate::acpmux_mcp_names::SERVER_NAME)
+    });
     if !folded {
         return None;
     }
@@ -511,7 +510,7 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let mut text = String::new();
     let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text);
     let Ok(input) = serde_json::from_str::<Value>(&text) else { return Ok(()) };
-    let Ok(session) = std::env::var(crate::acpmux_mcp::SESSION_ENV) else { return Ok(()) };
+    let Ok(session) = std::env::var(crate::acpmux_mcp_names::SESSION_ENV) else { return Ok(()) };
     let home = home.unwrap_or_else(crate::config::home);
     match input.get("hook_event_name").and_then(Value::as_str) {
         Some("PostToolUse") => {
