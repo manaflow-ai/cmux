@@ -71,5 +71,7 @@ describe("local/reader-mode page key", () => {
 // `bun cmux-tui/crates/cmux-app-host/tools/pack.ts examples/extensions/reader-mode` and copy dist/main.js.
 test("the capture tour's packed copy is current", () => {
   const fixture = join(import.meta.dir, "../../../../../examples/extensions/reader-mode/test/packed/main.js")
-  expect(readFileSync(fixture, "utf8")).toBe(built)
+  // bun's `// path/to/module.js` lines depend on the folder it packs from; the code does not.
+  const code = (text: string) => text.replace(/^\s*\/\/ \S+\.(?:js|ts)$/gm, "")
+  expect(code(readFileSync(fixture, "utf8"))).toBe(code(built))
 })
