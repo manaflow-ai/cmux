@@ -29,6 +29,13 @@ struct DaemonDiagnosticKnobsTests {
         #expect(knobs.daemonEnvironment == ["CMUX_TUI_RDS_INPUT": "1"])
     }
 
+    /// CMUX-571: the client send buffer's override reaches the daemon (the app strips the daemon's own name), or the
+    /// throughput A/B's base arm (`0`, the OS default) measures the new buffer in both arms.
+    @Test func theClientSendBufferReachesTheDaemon() {
+        let knobs = DaemonDiagnosticKnobs(processEnvironment: ["CMUX_NEXT_TUI_CLIENT_SEND_BUFFER": "0"])
+        #expect(knobs.daemonEnvironment == ["CMUX_TUI_CLIENT_SEND_BUFFER": "0"])
+    }
+
     /// PERF FLAGS: the R-LIFECYCLE keepers switch is deleted, so an old `CMUX_NEXT_TUI_OWNER_KEEPERS=0` on the
     /// app's launch reaches neither the app's daemon nor the Chief owner: the keepers rule always runs.
     @Test func aStaleOwnerKeepersKnobReachesNoDaemon() {

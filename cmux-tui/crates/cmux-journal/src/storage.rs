@@ -172,7 +172,24 @@ impl StorageFile for FsFile {
     }
 
     fn sync(&mut self, level: SyncLevel) -> io::Result<()> {
+        #[cfg(debug_assertions)]
+        slow_disk_for_tests();
         sync_file(&self.file, level)
+    }
+}
+
+/// Debug builds only: `ACPMUX_TEST_SYNC_DELAY_MS` makes every log sync of a real journal take that
+/// long first, as a slow disk's fsync does (the `slow-disk` fault, hq
+/// `docs/design/remote-cloud-durability.md` F8). Read once; at most 30 s.
+#[cfg(debug_assertions)]
+fn slow_disk_for_tests() {
+    static DELAY: std::sync::OnceLock<Option<std::time::Duration>> = std::sync::OnceLock::new();
+    let delay = DELAY.get_or_init(|| {
+        let ms = std::env::var("ACPMUX_TEST_SYNC_DELAY_MS").ok()?.parse::<u64>().ok()?;
+        Some(std::time::Duration::from_millis(ms.min(30_000)))
+    });
+    if let Some(delay) = delay {
+        std::thread::sleep(*delay);
     }
 }
 

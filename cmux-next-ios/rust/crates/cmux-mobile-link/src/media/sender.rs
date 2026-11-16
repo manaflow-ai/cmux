@@ -58,14 +58,15 @@ pub struct SenderConfig {
 impl Default for SenderConfig {
     fn default() -> Self {
         Self {
-            // The phone's page: 804x1444 at up to 60 fps. Start where the rd
-            // stream's text pages sit and let feedback find the path.
+            // WireGuard may be a metered or shaped route. Start below the
+            // smallest useful path estimate so the first burst cannot fill a
+            // bottleneck queue before TWCC supplies a measurement.
             cc: CcConfig {
                 min_bps: 250_000,
                 max_bps: 20_000_000,
-                start_bps: 2_500_000,
+                start_bps: 1_000_000,
                 relay_max_bps: 20_000_000,
-                overuse_threshold_us: 2_000.0,
+                ..CcConfig::default()
             },
             ssrc: 0x636e_7876, // "cnxv"; the WebRTC carrier sets its own.
             payload_type: super::DEFAULT_PAYLOAD_TYPE,
@@ -217,7 +218,7 @@ impl SenderCore {
         self.twcc_seq = self.twcc_seq.wrapping_add(1);
         let _ = packet.header.set_extension(self.ext_id, Bytes::copy_from_slice(&seq.to_be_bytes()));
         let bytes = (packet.payload.len() + 32) as u64;
-        self.cc.on_sent(seq, now_us);
+        self.cc.on_sent_bytes(seq, now_us, bytes as usize);
         self.loss_meter.on_sent(seq);
         if let Some(old) = self.sent.insert(seq, Sent { bytes, at_us: now_us }) {
             self.in_flight = self.in_flight.saturating_sub(old.bytes);
@@ -547,7 +548,7 @@ mod tests {
     }
 
     /// A path that delivers about 1 Mbit/s: the receiver's TWCC feedback
-    /// drives the target down from its 2.5 Mbit/s start.
+    /// keeps the target at the low start instead of probing above capacity.
     #[test]
     fn twcc_feedback_from_a_slow_path_lowers_the_target() {
         let mut core = SenderCore::new(SenderConfig::default(), 1);

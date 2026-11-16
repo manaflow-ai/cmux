@@ -114,8 +114,10 @@ done
 [[ "$scene_marker" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: scene-marker= is 0 or 1" >&2; exit 2; }
 [[ "$presented_observer" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: presented-observer= is 0 or 1" >&2; exit 2; }
 if [[ "$presented_observer" == 1 ]]; then
-  [[ "$presented_pid" =~ ^[1-9][0-9]*$ && "$presented_window" =~ ^[1-9][0-9]*$ ]] || {
-    echo "screen-stream-eval.sh: presented observer needs numeric presented-pid= and presented-window=" >&2
+  # The Apple targets launch their own viewer and bind its pid and window, so both are optional;
+  # given, they must match what the target launched.
+  [[ "$presented_pid" =~ ^([1-9][0-9]*)?$ && "$presented_window" =~ ^([1-9][0-9]*)?$ ]] || {
+    echo "screen-stream-eval.sh: presented-pid= and presented-window= are numeric when given" >&2
     exit 2
   }
   [[ "$presented_marker_origin" =~ ^[0-9]+,[0-9]+$ && "$presented_cell_size" =~ ^([2-9]|[1-9][0-9]+)$ && "$presented_input_point" =~ ^[0-9]+,[0-9]+$ ]] || {

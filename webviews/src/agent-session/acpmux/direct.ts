@@ -1389,7 +1389,7 @@ export const REBUILD_WINDOW = 5_000;
 /// chat is long, there should be no percievable difference").
 export const HELD_KEPT = OLDER_PAGE_RECORDS;
 /// How many records a chat left open holds before its oldest are let go (`shedOlderHeld`): twice what a cut
-/// keeps, so it sheds at most once per `HELD_KEPT` records, one refold of what it keeps each time.
+/// keeps, so it sheds at most once per `HELD_KEPT` records, each time dropping what leaves in place (`dropHeldRun`).
 export const HELD_RECORDS = 2 * HELD_KEPT;
 /// How many more records a chat that could not shed past `HELD_RECORDS` takes before it tries again
 /// (`shedOlderHeld`): the try walks the newest `HELD_KEPT` records, so a refused one costs O(1) a record.
@@ -1991,25 +1991,40 @@ function drawShown(): void {
 /// (`emitInFrame` holds one waiting snapshot). Every page's waits share one listener, which goes
 /// with that show. The returned cancel stops it in any state, so a closed client leaves nothing
 /// waiting. A hidden page used to draw the shown chat's stream every 50 ms that nobody could see.
+/// Whichever of the frame and the 50 ms fallback comes first cancels the other: the fallback left
+/// waiting woke the page 50 ms after every drawn frame to do nothing (CMUX-571 idle wakeups).
 export const nextFrame = (run: () => void): (() => void) => {
   let done = false;
+  let stopPending: (() => void) | undefined;
   const frame = () => {
     if (done) return;
     if (!pageShown()) return waitForShow(frame);
     let ran = false;
+    let drawn: unknown;
+    let fallback: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => {
+      if (typeof cancelAnimationFrame === "function" && typeof drawn === "number") cancelAnimationFrame(drawn);
+      if (fallback !== undefined) clearTimeout(fallback);
+      stopPending = undefined;
+    };
     const once = () => {
       if (ran || done) return;
       ran = true;
+      stop();
       if (!pageShown()) return waitForShow(frame);
       done = true;
       run();
     };
-    requestAnimationFrame(once);
-    setTimeout(once, 50);
+    stopPending = stop;
+    drawn = requestAnimationFrame(once);
+    fallback = setTimeout(once, 50);
+    // A frame that came at once (a test's clock) leaves no fallback behind.
+    if (ran) stop();
   };
   frame();
   return () => {
     done = true;
+    stopPending?.();
     stopWaiting(frame);
   };
 };
@@ -2668,6 +2683,81 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       else high = middle;
     }
     return ordered.slice(low);
+  }
+
+  /// Drops the rows made at `from` and up to `before` (records' seqs; either end open), but the ones `keep` accepts and
+  /// the rows made without a record, with what the order and the change log kept of them, and the background turns
+  /// that lie wholly between: the rows a run of held records at one end of the held window drew leave with them, in
+  /// place (direct.ts `dropHeldRun`). Nothing is folded again and the rows left keep their objects and their order.
+  /// The rows left after the run move up its length in the kept order (an index each); the rows dropped and the
+  /// change log's entries for them cost O(what leaves). Returns the ids dropped.
+  dropMade(from: number, before: number, keep: (row: AcpmuxRow) => boolean): Set<string> {
+    this.inOrder();
+    const ordered = this.ordered!;
+    const firstAt = (seq: number) => {
+      let low = 0;
+      let high = ordered.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (this.orderOf(ordered[middle]!.id) < seq) low = middle + 1;
+        else high = middle;
+      }
+      return low;
+    };
+    const start = from === -Infinity ? 0 : firstAt(from);
+    const end = before === Infinity ? ordered.length : firstAt(before);
+    const gone = new Set<string>();
+    for (let index = start; index < end; index += 1) {
+      const row = ordered[index]!;
+      if (!this.local.has(row.id) && !keep(row)) gone.add(row.id);
+    }
+    if (gone.size > 0) {
+      // Not a later record's change: no record is being reduced.
+      const current = this.current;
+      this.current = undefined;
+      this.dropping = { from: Infinity };
+      try {
+        for (const id of gone) {
+          this.frames.delete(id);
+          this.delete(id);
+        }
+      } finally {
+        this.current = current;
+        this.dropping = undefined;
+      }
+      // The kept order closes over the run: one splice, the rows after it an index each.
+      let write = start;
+      for (let index = start; index < end; index += 1) {
+        const row = ordered[index]!;
+        if (gone.has(row.id)) this.orderedIndex.delete(row.id);
+        else ordered[write++] = row;
+      }
+      if (write < end) {
+        ordered.splice(write, end - write);
+        for (let index = start; index < ordered.length; index += 1) this.orderedIndex.set(ordered[index]!.id, index);
+      }
+      this.snapshot = undefined;
+      this.changedSlot = MANY_SLOTS;
+      this.changedFrom(start);
+    }
+    // The change log: the writes the records that left made, one splice (it is in record order). The caller's run is
+    // one no row spans, so no record kept wrote to a row that left.
+    const low = from === -Infinity ? 0 : this.changesFrom(from);
+    const high = before === Infinity ? this.changeSeqs.length : this.changesFrom(before);
+    if (low < high) {
+      this.changeSeqs.splice(low, high - low);
+      this.changeIds.splice(low, high - low);
+      this.changeOrders.splice(low, high - low);
+    }
+    // The background turns that began and ended in the run, and their replies.
+    this.backgroundSpans = this.backgroundSpans.filter((span) => {
+      const inside = span.from >= from && span.to !== undefined && span.to < before;
+      if (inside) this.backgroundReplies.delete(span.id);
+      return !inside;
+    });
+    for (const [id, end] of this.backgroundEnds)
+      if (end.seq >= from && end.seq < before) this.backgroundEnds.delete(id);
+    return gone;
   }
 
   private drop(rows: Iterable<AcpmuxRow>, keep: (row: AcpmuxRow) => boolean): void {
@@ -7830,8 +7920,10 @@ export class AcpmuxDirectClient {
   /// 2.1-2.4x the work per token). Only at a turn's end, while the view follows the latest row and no paging,
   /// replay or held snapshot is under way, and at a turn start (`rebuildCut`, which also keeps a subagent still
   /// running whole), so the rows kept are drawn as a fresh open of the same page draws them. The rows above the
-  /// cut leave the transcript; scrolling up reads them again as any older page (`loadOlder`). One full refold of
-  /// at most `HELD_RECORDS` records, keeping `HELD_KEPT`, once per `HELD_KEPT` records at most: O(1) per record.
+  /// cut leave the transcript; scrolling up reads them again as any older page (`loadOlder`). Nothing is folded
+  /// again: the records and rows that leave go in place (`dropHeldRun`), O(what leaves), once per `HELD_KEPT`
+  /// records at most, so a key typed while the chat streams never waits behind a refold of the held window
+  /// (19-39 ms at 1,500 rows under load, composer-typing bench).
   private shedOlderHeld(): void {
     if (this.events.length <= HELD_RECORDS || !this.following) return;
     if (this.replayThrough !== undefined || this.loadingOlder || this.snapshotHold) return;
@@ -7862,15 +7954,113 @@ export class AcpmuxDirectClient {
           }
       }
     }
+    // No row and no subagent is drawn from records on both sides of the cut (a call that runs on, a compaction whose
+    // end comes later, a subagent that goes on): the cut goes back to where it began, until none does, so the rows
+    // kept are what a fold of the records kept draws, and none is folded again.
+    const chosen = cut;
+    while (cut > 0) {
+      const { seq } = this.events[cut]!;
+      let from = this.rows.spanningFrom(seq);
+      for (const [id, first] of this.subagentFirstSeen)
+        if (first < seq && (this.subagentLastSeen.get(id) ?? -Infinity) >= seq) from = Math.min(from, first);
+      if (from >= seq) break;
+      cut = firstHeldFrom(this.events, from);
+    }
     if (cut <= 0) return;
+    // Moved, the cut starts a turn the one before it ended, or the kept rows open under their turn's prompt.
+    if (cut !== chosen) {
+      opener = undefined;
+      if (!(startsTurn(this.events[cut]!) && endsTurnBefore(this.events, cut))) {
+        opener = this.turnOpener;
+        for (let index = cut - 1; index >= 0; index -= 1)
+          if (startsTurn(this.events[index]!)) {
+            opener = this.events[index];
+            break;
+          }
+      }
+    }
     this.shedRetryAt = 0;
-    this.events = this.events.slice(cut);
+    // The opener's own rows stay: a page that starts inside its turn draws them first.
+    const openerSeq = opener?.seq;
+    this.dropHeldRun(0, cut, openerSeq === undefined ? undefined : (row) => this.rows.orderOf(row.id) === openerSeq);
     this.historyExhausted = false;
     this.turnOpener = opener;
     // An older page in flight, or read ahead, was read for the held history that just went.
     this.historyEpoch += 1;
     this.cancelOlderPaging();
-    this.rebuildKeepingLiveState();
+  }
+
+  /// Lets go of the held records `events[start, end)`, a run at one end of the held window (`start` 0 for the oldest,
+  /// `end` the held count for the newest), and of the rows only they drew, in place: no record is folded again, and
+  /// the rows left keep their objects, their order and what finds them (`OrderedRows.dropMade`). The caller picks a
+  /// run no row or subagent spans (`spanningFrom`, `subagentFirstSeen`/`subagentLastSeen`), so the rows left are the
+  /// ones a full rebuild of the records left draws; `keepRow` keeps rows of the run's records a rebuild draws too (a
+  /// page that starts inside a turn draws its prompt, `turnOpener`). What found a row that left (a call's row, a
+  /// message's rows, a steer's, an offer's, a reaction's) and the subagents only the run named go with it, so a later
+  /// record finds none of them, as after a rebuild. O(the records and rows that leave), an index for each row after
+  /// them and one look at each entry of the maps that find a row (a few a turn), and no fold: `shedOlderHeld` sheds on
+  /// it at the old end, and a shed of the newest records can on it at the new one.
+  private dropHeldRun(start: number, end: number, keepRow: (row: AcpmuxRow) => boolean = () => false): void {
+    const held = this.events.length;
+    if (start < 0 || end > held || start >= end || (start !== 0 && end !== held)) return;
+    const older = start === 0;
+    const from = older ? -Infinity : this.events[start]!.seq;
+    // Up to the first record kept: a row placed between two records goes with the older one.
+    const before = end === held ? Infinity : this.events[end]!.seq;
+    const gone = this.rows.dropMade(from, before, keepRow);
+    if (older) this.events = this.events.slice(end);
+    else this.events.length = start;
+    if (older) this.firstSeq = this.events[0]?.seq;
+    const inRun = (seq: number) => seq >= from && seq < before;
+    // What found a row that left.
+    if (gone.size > 0) {
+      for (const map of [this.toolRows, this.steerRows, this.inboxClaimRows, this.offerRows])
+        for (const [key, rowId] of map) if (gone.has(rowId)) map.delete(key);
+      for (const map of [this.messageRows, this.sourceLines])
+        for (const [key, rowIds] of map) {
+          const kept = rowIds.filter((rowId) => !gone.has(rowId));
+          if (kept.length === 0) map.delete(key);
+          else if (kept.length !== rowIds.length) map.set(key, kept);
+        }
+      for (const [key, reaction] of this.reactions)
+        if (reaction.row !== undefined && gone.has(reaction.row)) this.reactions.delete(key);
+      for (const rowId of gone) {
+        this.toolRowScopes.delete(rowId);
+        this.supersededRowIds.delete(rowId);
+        this.runChangeRows.delete(rowId);
+        this.compactionHeardAt.delete(rowId);
+      }
+      const left = (rowId: string | undefined) => rowId !== undefined && gone.has(rowId);
+      if (left(this.lastReplyRow)) this.lastReplyRow = undefined;
+      if (left(this.streamingAssistant)) {
+        this.streamingAssistant = undefined;
+        this.streamingAssistantMessageId = undefined;
+      }
+      if (left(this.streamingActivity)) this.streamingActivity = undefined;
+      if (left(this.streamingSegment?.row)) this.streamingSegment = undefined;
+      if (left(this.planRow)) this.planRow = undefined;
+      if (left(this.lastUnanswered?.rowId)) this.lastUnanswered = undefined;
+    }
+    this.runChanges = this.runChanges.filter((change) => !inRun(change.seq));
+    for (const [callId, output] of this.streamedOutputs)
+      if (inRun(output.first) && inRun(output.last ?? output.first)) this.streamedOutputs.delete(callId);
+    // The subagents only the run named: a fold of the records left never meets them.
+    const forgotten = new Set<string>();
+    for (const [id, first] of this.subagentFirstSeen) {
+      const last = this.subagentLastSeen.get(id) ?? first;
+      if (inRun(first) && inRun(last)) {
+        forgotten.add(id);
+        this.subagentFirstSeen.delete(id);
+        this.subagentLastSeen.delete(id);
+      }
+    }
+    this.subagents.forget(forgotten);
+    const frozen = this.frozenSubagentViews;
+    if (frozen && [...forgotten].some((id) => id in frozen)) {
+      const kept = { ...frozen };
+      for (const id of forgotten) delete kept[id];
+      this.frozenSubagentViews = kept;
+    }
   }
 
   /// A turn that just ended live is drawn from its stored records, not only from the ones that
@@ -8241,6 +8431,7 @@ export class AcpmuxDirectClient {
       this.rows.retain(keep);
       this.rows.forgetChanges();
       this.subagentFirstSeen.clear();
+      this.subagentLastSeen.clear();
     } else {
       this.rows.retainFrom(frozenBefore, keep);
       this.rows.forgetChangesFrom(frozenBefore);
@@ -9163,8 +9354,9 @@ export class AcpmuxDirectClient {
     this.rows.current = event.seq;
     // The chat's own thread is named in every turn (a Codex spawn's parent): it spans no cut.
     SubagentFold.namedIn(event, sessionUpdate(event), this.selectedSessionId, (id) => {
-      if (!this.subagents.isChatThread(id) && event.seq < (this.subagentFirstSeen.get(id) ?? Infinity))
-        this.subagentFirstSeen.set(id, event.seq);
+      if (this.subagents.isChatThread(id)) return;
+      if (event.seq < (this.subagentFirstSeen.get(id) ?? Infinity)) this.subagentFirstSeen.set(id, event.seq);
+      if (event.seq > (this.subagentLastSeen.get(id) ?? -Infinity)) this.subagentLastSeen.set(id, event.seq);
     });
     try {
       this.reduceEvent(event);
@@ -14126,6 +14318,9 @@ export class AcpmuxDirectClient {
   /// reads it again. A cut goes back to the first record of any subagent named on both sides of
   /// it, in records the fold read or a repair just brought (`rebuild`).
   private readonly subagentFirstSeen = new Map<string, number>();
+  /// The newest record that named each subagent id: with `subagentFirstSeen`, whether one spans a shed's cut
+  /// (`shedOlderHeld`), or only the records it lets go named it (`dropHeldRun`).
+  private readonly subagentLastSeen = new Map<string, number>();
   /// The subagents' views as a rebuild past a cut left them (`rebuild`), under the live fold's.
   private frozenSubagentViews: Record<string, AcpmuxRow[]> | undefined;
   private subagentViewsOf:
