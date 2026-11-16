@@ -299,7 +299,9 @@ fn views_scopes(customize: &Customize) -> BTreeSet<String> {
         .find(|path| path.is_file())
         .and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .and_then(|manifest| manifest["scopes"].as_object().map(|o| o.keys().cloned().collect()))
+        .and_then(|manifest| {
+            manifest.get("scopes")?.as_object().map(|o| o.keys().cloned().collect())
+        })
         .unwrap_or_default()
 }
 
