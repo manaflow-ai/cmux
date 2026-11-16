@@ -3,6 +3,8 @@ use crate::error::{DecodeError, Reader};
 /// Most arrivals in one feedback; with the other limits a feedback payload
 /// stays under 1,100 bytes, inside every session's `max_datagram`.
 pub const MAX_ARRIVALS: usize = 128;
+/// The most LTR tokens one feedback payload acknowledges.
+pub const MAX_LTR_TOKENS: usize = 16;
 /// Most frames with NACKs in one feedback.
 pub const MAX_NACK_FRAMES: usize = 4;
 /// Most shard indexes per NACKed frame.
@@ -46,13 +48,6 @@ impl Feedback {
         out.extend_from_slice(&self.acked_frame.to_le_bytes());
         out.extend_from_slice(&self.decode_us.to_le_bytes());
         out.push(u8::from(self.need_recovery));
-        let tokens = self.acked_ltr_tokens.get(..16).unwrap_or(&self.acked_ltr_tokens);
-        if !tokens.is_empty() {
-            out.push(0x80 | tokens.len() as u8);
-            for token in tokens {
-                out.extend_from_slice(&token.to_le_bytes());
-            }
-        }
         let arrivals = self.arrivals.get(..MAX_ARRIVALS).unwrap_or(&self.arrivals);
         out.extend_from_slice(&(arrivals.len() as u16).to_le_bytes());
         for a in arrivals {
@@ -69,6 +64,16 @@ impl Feedback {
                 out.extend_from_slice(&i.to_le_bytes());
             }
         }
+        // LTR tokens ride in an optional tail after the NACKs, so a payload without them is
+        // byte-for-byte the version-1 layout. A viewer only acknowledges tokens a host sent,
+        // and only an LTR-aware host sends them, so an older host never sees the tail.
+        let tokens = self.acked_ltr_tokens.get(..MAX_LTR_TOKENS).unwrap_or(&self.acked_ltr_tokens);
+        if !tokens.is_empty() {
+            out.push(tokens.len() as u8);
+            for token in tokens {
+                out.extend_from_slice(&token.to_le_bytes());
+            }
+        }
         out
     }
 
@@ -82,19 +87,7 @@ impl Feedback {
             1 => true,
             _ => return Err(DecodeError::Invalid("bool")),
         };
-        let marker_or_arrivals = r.u8()?;
-        let mut acked_ltr_tokens = Vec::new();
-        let n_arrivals = if marker_or_arrivals & 0x80 != 0 {
-            let n_tokens = (marker_or_arrivals & 0x7f) as usize;
-            acked_ltr_tokens.reserve(n_tokens.min(16));
-            for _ in 0..n_tokens {
-                acked_ltr_tokens.push(r.u64()?);
-            }
-            r.u16()? as usize
-        } else {
-            // Version-1 feedback omitted the token section entirely.
-            u16::from_le_bytes([marker_or_arrivals, r.u8()?]) as usize
-        };
+        let n_arrivals = r.u16()? as usize;
         let mut arrivals = Vec::with_capacity(n_arrivals.min(1024));
         for _ in 0..n_arrivals {
             arrivals.push(Arrival { transport_seq: r.u16()?, arrival_us: r.u32()? });
@@ -109,6 +102,17 @@ impl Feedback {
                 indexes.push(r.u16()?);
             }
             nacks.push(Nack { frame, indexes });
+        }
+        let mut acked_ltr_tokens = Vec::new();
+        if !r.is_empty() {
+            let n_tokens = r.u8()? as usize;
+            if n_tokens == 0 || n_tokens > MAX_LTR_TOKENS {
+                return Err(DecodeError::Invalid("ltr token count"));
+            }
+            acked_ltr_tokens.reserve(n_tokens);
+            for _ in 0..n_tokens {
+                acked_ltr_tokens.push(r.u64()?);
+            }
         }
         if !r.is_empty() {
             return Err(DecodeError::Invalid("trailing bytes"));
