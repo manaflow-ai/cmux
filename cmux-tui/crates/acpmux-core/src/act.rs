@@ -299,4 +299,5 @@ impl TypingTracker {
 }
 
 #[cfg(test)]
+#[path = "act_tests.rs"]
 mod act_tests;
