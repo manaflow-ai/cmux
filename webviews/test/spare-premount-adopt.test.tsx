@@ -1,11 +1,12 @@
 // l10n-allow-file: test fixture text, not shipped UI.
 // A prewarmed spare New Tab page that takes a released chat (`acpmux-session-adopt`,
-// AgentPaneView.adoptSession) builds the chat view before the event: the view is mounted hidden
-// under New Tab (`<Activity mode="hidden">`), so the adopt event's own task only shows it and draws
-// the chat's rows. Before, that task built the whole chat view (header, dock, composer, pickers) in
+// AgentPaneView.adoptSession) builds the chat view before the event: the view is parked under New
+// Tab, drawn but unseen and inert, its effects already run, so the adopt event's own task only shows
+// it and draws the chat's rows. Before, that task built the whole chat view (header, dock, composer, pickers) in
 // New Tab's place: one ~70 ms React pass at 10 turns (first-load-after-restart MODE=reopen-spare).
 // These hold:
-// - the spare holds the chat view, hidden, before any adopt, and the adopt shows those same nodes;
+// - the spare holds the chat view, unseen, before any adopt, and the adopt shows those same nodes;
+// - the parked view's effects ran before the adopt, and its menus and keys stay off while parked;
 // - the chat the spare took shows what the same chat opened directly shows: no state of the empty
 //   view (its composer text, its new chat's harness and model chips) carries into the chat.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
@@ -140,7 +141,9 @@ async function mount(kind: "spare" | "direct" | "new") {
 const rows = () => host.querySelectorAll(".acpmux-row[data-row-id]").length;
 const dock = () => host.querySelector<HTMLElement>(".acpmux-dock");
 const stage = () => host.querySelector<HTMLElement>(".acpmux-stage");
-const shown = (element: HTMLElement | null) => element !== null && element.style.display !== "none";
+/// Seen: not parked (App.tsx PARKED_STYLE, visibility: hidden) nor display: none.
+const shown = (element: HTMLElement | null) =>
+  element !== null && element.style.display !== "none" && element.style.visibility !== "hidden";
 const composerText = () =>
   (
     host.querySelector(".acpmux-composer-prompt") as { acpmuxMarkdownField?: { value(): string } } | null
@@ -232,33 +235,38 @@ test("a chat view that goes under a New Tab page (Cmd-T in the page) is built ag
   expect(shown(dock())).toBe(false);
 }, 60_000);
 
-test("a spare parked drawn but invisible has run its chat view's effects before the adopt", async () => {
-  // The visible park (App SPARE_PARK_VISIBLE): its effects run while parked, so the reveal runs none.
-  // The composer's editor is made in an effect: it exists before the adopt only if they ran.
-  Object.assign(dom.window, { __cmuxSparePark: "visible" });
-  try {
-    const session = await mount("spare");
-    await until(() => host.querySelector(".nt-field") !== null, "the spare draws its New Tab page");
-    await until(
-      () => host.querySelector(".acpmux-composer-prompt [contenteditable]") !== null,
-      "the parked composer's editor (made in an effect) exists before the adopt",
+test("a spare's parked chat view has run its effects before the adopt, and its menus and keys stay off", async () => {
+  // Its effects run while parked, so the reveal runs none. The composer's editor is made in an
+  // effect: it exists before the adopt only if they ran.
+  const session = await mount("spare");
+  await until(() => host.querySelector(".nt-field") !== null, "the spare draws its New Tab page");
+  await until(
+    () => host.querySelector(".acpmux-composer-prompt [contenteditable]") !== null,
+    "the parked composer's editor (made in an effect) exists before the adopt",
+  );
+  const editor = host.querySelector(".acpmux-composer-prompt [contenteditable]");
+  expect(stage()?.style.visibility, "parked unseen").toBe("hidden");
+  expect(stage()?.hasAttribute("inert"), "parked inert").toBe(true);
+  expect(dock()?.hasAttribute("inert"), "the dock parked inert").toBe(true);
+  // Its menus open from no palette pick or key: Cmd-Ctrl-M and every registered menu label go to
+  // the New Tab page's own composer menus, and the parked dock stays as it was.
+  await act(async () => {});
+  const parkedDock = dock()!.innerHTML;
+  const { openPicker, pickerLabels } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => {
+    dom.window.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, cancelable: true }),
     );
-    const editor = host.querySelector(".acpmux-composer-prompt [contenteditable]");
-    expect(stage()?.style.visibility, "parked invisible").toBe("hidden");
-    expect(stage()?.hasAttribute("inert"), "parked inert").toBe(true);
-    // Its window-wide keys stay off while parked: Cmd-Ctrl-M (the model picker) is not taken under New Tab.
-    const press = new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, cancelable: true });
-    await act(async () => void dom.window.dispatchEvent(press));
-    expect(press.defaultPrevented, "the parked model picker took Cmd-Ctrl-M").toBe(false);
-    const { SESSION_ADOPT_EVENT } = await import("../src/agent-session/acpmux/newtab/adoption");
-    await act(async () =>
-      dom.window.dispatchEvent(
-        new dom.window.CustomEvent(SESSION_ADOPT_EVENT, { detail: { sessionId: session, scrollAnchor: null } }),
-      ),
-    );
-    expect(stage()?.style.visibility).not.toBe("hidden");
-    expect(host.querySelector(".acpmux-composer-prompt [contenteditable]"), "the same editor").toBe(editor);
-  } finally {
-    delete (dom.window as unknown as { __cmuxSparePark?: unknown }).__cmuxSparePark;
-  }
+    for (const label of pickerLabels()) openPicker(label);
+  });
+  expect(dock()!.innerHTML, "no parked menu opened").toBe(parkedDock);
+  const { SESSION_ADOPT_EVENT } = await import("../src/agent-session/acpmux/newtab/adoption");
+  await act(async () =>
+    dom.window.dispatchEvent(
+      new dom.window.CustomEvent(SESSION_ADOPT_EVENT, { detail: { sessionId: session, scrollAnchor: null } }),
+    ),
+  );
+  expect(shown(stage()), "the adopt shows the parked stage").toBe(true);
+  expect(stage()?.hasAttribute("inert")).toBe(false);
+  expect(host.querySelector(".acpmux-composer-prompt [contenteditable]"), "the same editor").toBe(editor);
 }, 60_000);
