@@ -1,5 +1,6 @@
 //! Floating pane placement: unit tests of each rule, and a property test that mixes float, put back, move, raise,
-//! open and close against a second model of the rules. Its cases are fixed (`tests::property_config`).
+//! open and close against a second model of the rules. The seed is fixed and `PROPTEST_CASES` sets the case count
+//! (`tests::property_config`).
 
 use super::*;
 use proptest::prelude::*;

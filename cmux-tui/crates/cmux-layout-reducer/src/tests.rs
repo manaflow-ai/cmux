@@ -544,12 +544,13 @@ fn concrete(
     Some(LayoutOp { key, kind })
 }
 
-/// The configuration of each property test of this crate. Each run has the same cases: the seed, the
-/// generator and the case count are fixed here and are not read from the environment, and a failed case writes
-/// no file. For more cases or other cases, change the count or the seed here.
+/// The configuration of each property test of this crate. The seed and the generator are fixed here and are not
+/// read from the environment, and a failed case writes no file. `PROPTEST_CASES` sets the case count (default
+/// 256). So each run with one count has the same cases. For other cases, change the seed here.
 pub(crate) fn property_config() -> ProptestConfig {
+    let cases = std::env::var("PROPTEST_CASES").ok().and_then(|cases| cases.parse().ok());
     ProptestConfig {
-        cases: 256,
+        cases: cases.unwrap_or(256),
         rng_seed: RngSeed::Fixed(0x5EED_2026),
         rng_algorithm: RngAlgorithm::ChaCha,
         failure_persistence: None,

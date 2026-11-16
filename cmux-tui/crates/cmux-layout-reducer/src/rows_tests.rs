@@ -1,5 +1,6 @@
 //! Row ops (plans/cmux-next/rows.md): unit tests and a property test that
-//! mixes them with moves and closes. Its cases are fixed (`tests::property_config`).
+//! mixes them with moves and closes. The seed is fixed and `PROPTEST_CASES`
+//! sets the case count (`tests::property_config`).
 
 use super::*;
 use proptest::prelude::*;
