@@ -261,6 +261,8 @@ export type HostLists = {
     collection_title?: string;
     video?: boolean;
     downloaded?: boolean;
+    /** A macOS dynamic wallpaper (frames by sun position or clock): Switch Automatically's Sun. */
+    dynamic?: boolean;
   }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
