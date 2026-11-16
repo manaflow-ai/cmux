@@ -174,7 +174,7 @@ async fn keys_past_the_budget_are_rest_in_order_and_are_not_asked() {
     hub.set_page_relay(relay.clone());
     let asked = (0..100).map(key).collect::<Vec<_>>();
     // Room for some keys past the reserve a page keeps for one more row of the widest size.
-    let max = 6 * acpmux_book::index::MAX_INDEX_RECORD_BYTES + 8192 + 6_000;
+    let max = 6 * acpmux_book::index::MAX_INDEX_RECORD_BYTES + 3_000;
     let frame = sent(&hub, &keys_page(asked.clone(), max as u32)).answer().await.unwrap();
     assert!(frame.encoded_len() <= max);
     let page: PageResult<Summary> = frame.decode_json().unwrap();
@@ -191,9 +191,20 @@ async fn keys_past_the_budget_are_rest_in_order_and_are_not_asked() {
     order.retain(|id| rest.contains(id));
     assert_eq!(rest, order, "rest in the order asked");
     assert_eq!(rows.len() + rest.len(), 100);
-    // The keys past the plan's room are not carried to the origin.
+    // Only keys this hub lacks are carried, and none past the plan's own cut. The first held
+    // (even) key in `rest` is at the cut or just after it, so the key before it is carried
+    // only if the cut is that held key.
+    let held = page.rest.iter().find(|key| key.chat_id.ends_with(['0', '2', '4', '6', '8']));
+    let held = held.map_or(100, |key| asked.iter().position(|asked| asked == key).unwrap());
+    assert!(held < 100, "the plan cuts before the last key");
     let carried = relay.asked()[0].1.keys.clone().unwrap();
-    assert!(carried.len() < 50, "{} carried", carried.len());
+    let lacking = |below: usize| {
+        (1..below as u64)
+            .step_by(2)
+            .map(|n| PageKey::Summary(ListKey { origin: "local".into(), ..key(n) }))
+            .collect::<Vec<_>>()
+    };
+    assert!(carried == lacking(held - 1) || carried == lacking(held), "{} carried", carried.len());
 }
 
 #[tokio::test]
