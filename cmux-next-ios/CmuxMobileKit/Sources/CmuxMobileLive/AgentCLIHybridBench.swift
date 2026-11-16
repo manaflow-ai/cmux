@@ -302,6 +302,11 @@ struct BenchSession {
     /// frame (``attachLean``) and the rest.
     let leanFrames: [(atMs: Int, event: [String: Any])]
     let attachLean: [String: Any]
+    /// ``leanFrames`` for every pass of the energy bench's loop after the first: each style
+    /// definition is a reference to it instead. The attach's decoder keeps its style table from
+    /// pass to pass, so a definition played again names an index the table already has, is read
+    /// as a reference with stray bytes after it, and the frame fails (a fallback, not a draw).
+    let leanLoopFrames: [(atMs: Int, event: [String: Any])]
     let attachShown: String
     let moments: [Moment]
 
@@ -336,6 +341,17 @@ struct BenchSession {
             guard pair.count == 2, let at = pair[0] as? Int, let event = pair[1] as? [String: Any] else { return nil }
             return (at, event)
         }
+        var refs = LeanStyleRefs()
+        if let bytes = (attachLean["f"] as? String).flatMap({ Data(base64Encoded: $0) }) {
+            _ = refs.rewrite([UInt8](bytes))
+        }
+        leanLoopFrames = leanFrames.map { frame in
+            guard let bytes = (frame.event["f"] as? String).flatMap({ Data(base64Encoded: $0) }),
+                  let rewritten = refs.rewrite([UInt8](bytes)) else { return frame }
+            var event = frame.event
+            event["f"] = Data(rewritten).base64EncodedString()
+            return (frame.atMs, event)
+        }
         attachShown = attach["shown"] as? String ?? ""
         self.moments = moments.compactMap { object in
             guard let name = object["name"] as? String, let at = object["t_ms"] as? Int else { return nil }
@@ -359,6 +375,124 @@ struct BenchSession {
     }
 }
 
+/// Turns the style definitions of one attach's lean frames into references to them
+/// (``BenchSession/leanLoopFrames``), frame by frame in stream order. The layout is the one
+/// `AgentCLIHybridLeanDecoder` reads; a frame it cannot walk gives nil and is played as it is.
+struct LeanStyleRefs {
+    /// Styles the attach's table holds after the frames rewritten so far.
+    private(set) var styles = 0
+
+    mutating func rewrite(_ bytes: [UInt8]) -> [UInt8]? {
+        var walk = Walk(bytes: bytes, styles: styles)
+        guard let out = walk.frame() else { return nil }
+        styles = walk.styles
+        return out
+    }
+
+    private struct Walk {
+        let bytes: [UInt8]
+        var styles: Int
+        var position = 0
+        var out: [UInt8] = []
+
+        init(bytes: [UInt8], styles: Int) {
+            self.bytes = bytes
+            self.styles = styles
+            out.reserveCapacity(bytes.count)
+        }
+
+        mutating func frame() -> [UInt8]? {
+            guard let flags = copyVarint() else { return nil }
+            if flags & 2 != 0 {
+                guard let length = copyVarint().flatMap(Int.init(exactly:)), copy(length), copyVarint() != nil, copyVarint() != nil else { return nil }
+            }
+            if flags & 4 != 0 {
+                guard copyVarint() != nil else { return nil }
+                if flags & 1 == 0, copyVarint() == nil { return nil }
+            }
+            if flags & 8 != 0, copyVarint() == nil || copyVarint() == nil { return nil }
+            guard copyVarint() != nil, let count = copyVarint() else { return nil }
+            for _ in 0..<count {
+                guard copyVarint() != nil, copyVarint() != nil, let length = copyVarint() else { return nil }
+                guard length & 1 != 0 else { continue }
+                guard let index = copyVarint() else { return nil }
+                if index >= UInt64(styles) {
+                    // A definition: the table has it from the first pass, so the index alone.
+                    guard index == UInt64(styles), skipColor(), skipColor(), skipVarint() else { return nil }
+                    styles += 1
+                }
+                var cells = 0
+                let width = Int(length >> 1)
+                while cells < width {
+                    if position < bytes.count, bytes[position] == 2 {
+                        guard copy(1), let times = copyVarint().flatMap(Int.init(exactly:)), times > 0, copyText() else { return nil }
+                        cells += times
+                    } else {
+                        guard copyText() else { return nil }
+                        cells += 1
+                    }
+                }
+            }
+            return position == bytes.count ? out : nil
+        }
+
+        private mutating func copy(_ count: Int) -> Bool {
+            guard count >= 0, count <= bytes.count - position else { return false }
+            out.append(contentsOf: bytes[position..<position + count])
+            position += count
+            return true
+        }
+
+        private mutating func varint() -> UInt64? {
+            var value: UInt64 = 0
+            var shift: UInt64 = 0
+            while position < bytes.count, shift <= 63 {
+                let byte = bytes[position]
+                position += 1
+                value |= UInt64(byte & 0x7F) << shift
+                if byte & 0x80 == 0 { return value }
+                shift += 7
+            }
+            return nil
+        }
+
+        private mutating func copyVarint() -> UInt64? {
+            let start = position
+            guard let value = varint() else { return nil }
+            out.append(contentsOf: bytes[start..<position])
+            return value
+        }
+
+        private mutating func skipVarint() -> Bool { varint() != nil }
+
+        private mutating func skipColor() -> Bool {
+            guard position < bytes.count else { return false }
+            let tag = bytes[position]
+            let size = switch tag {
+            case 0: 1
+            case 1: 2
+            case 2: 4
+            default: 0
+            }
+            guard size > 0, position + size <= bytes.count else { return false }
+            position += size
+            return true
+        }
+
+        private mutating func copyText() -> Bool {
+            guard position < bytes.count else { return false }
+            let tag = bytes[position]
+            switch tag {
+            case 0, 0x20...0x7E: return copy(1)
+            case 1:
+                guard copy(1), let length = copyVarint().flatMap(Int.init(exactly:)) else { return false }
+                return copy(length)
+            default: return false
+            }
+        }
+    }
+}
+
 /// The fake Mac: a cmux-tui daemon for surface 1 that answers the attach with the session's
 /// screen at its attach moment, then plays the rest of it as `output` or `agent-cli-frame`
 /// events on the attach channel.
@@ -378,6 +512,8 @@ final class HybridBenchDaemon: @unchecked Sendable {
     /// Where the stream after the attach starts (``rewind()``).
     private var firstPTY = 0
     private var firstFrame = 0
+    /// Passes ``rewind()`` started: from the second on, lean frames are ``BenchSession/leanLoopFrames``.
+    private var passes = 0
     private var timer: DispatchSourceTimer?
 
     var attachAt: CFTimeInterval? { lock.withLock { _attachAt } }
@@ -401,7 +537,10 @@ final class HybridBenchDaemon: @unchecked Sendable {
 
     /// The stream after the attach plays again from its start (the energy bench's loop).
     func rewind() {
-        lock.withLock { (nextPTY, nextFrame) = (firstPTY, firstFrame) }
+        lock.withLock {
+            (nextPTY, nextFrame) = (firstPTY, firstFrame)
+            passes += 1
+        }
     }
 
     static func line(_ object: [String: Any]) -> Data {
@@ -454,7 +593,7 @@ final class HybridBenchDaemon: @unchecked Sendable {
         while true {
             let next: (atMs: Int, line: Data)? = lock.withLock {
                 if hybrid {
-                    let frames = lean ? session.leanFrames : session.frames
+                    let frames = lean ? (passes > 1 ? session.leanLoopFrames : session.leanFrames) : session.frames
                     guard nextFrame < frames.count, frames[nextFrame].atMs <= until else { return nil }
                     defer { nextFrame += 1 }
                     var event = frames[nextFrame].event
