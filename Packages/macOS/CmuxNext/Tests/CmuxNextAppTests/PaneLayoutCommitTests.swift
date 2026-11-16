@@ -419,7 +419,7 @@ import Testing
     }
 
     /// A close that changes no pane's size (a strip column between two columns that keep their widths) waits for no
-    /// frame tick: it shows in its own turn, and the closed pane is torn down in that turn.
+    /// frame tick: it shows in its own turn, and the closed pane is torn down after that turn's commit.
     @Test func aCloseThatResizesNoPaneShowsInItsOwnTurn() throws {
         func strip(_ panes: [Int]) -> [LayoutScreen] {
             [LayoutScreen(id: "s", name: "s", layout: .columns(panes.map { PaneMotionBench.column($0, rows: 1, width: 0.25) }))]
@@ -428,6 +428,8 @@ import Testing
         defer { harness.window.closeAfterTest() }
         // The columns that stay keep their widths (no setting of the Mac the test runs on resizes them).
         harness.model.newColumnWidthModeOverride = .matchCurrent
+        var afterCommit: [@MainActor () -> Void] = []
+        harness.root.context.afterCommit = { afterCommit.append($0) }
         Self.rest(harness)
         let screen = try #require(harness.screen)
         let closed = try #require(harness.root.context.hosts[PaneID("p1-0")])
@@ -436,7 +438,11 @@ import Testing
         let new = Rest(harness.model.screens, in: screen, style: harness.root.context.style)
         harness.root.syncWithModel()
         #expect(new.isShown(by: Self.shown(screen)), "a close that resizes nothing did not show in its own turn: \(Self.shown(screen).panes)")
-        #expect(harness.provider.released == [PaneID("p1-0")] && closed.superview == nil, "the closed pane was not torn down in that turn")
+        #expect(closed.isHidden && harness.provider.released.isEmpty, "the turn that shows the close did not hide the closed pane, or tore it down")
         #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "a close that showed asks for frames")
+        let work = afterCommit
+        afterCommit = []
+        for item in work { item() }
+        #expect(harness.provider.released == [PaneID("p1-0")] && closed.superview == nil, "the closed pane was not torn down after that turn's commit")
     }
 }

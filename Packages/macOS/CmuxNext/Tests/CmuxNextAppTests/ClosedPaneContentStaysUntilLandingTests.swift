@@ -114,11 +114,11 @@ import Testing
         try #require(app.cache.existingTerminal(closedTab) != nil, "fixture: pane 2's terminal exists")
 
         // The close's turn, as Cmd-W on pane 2's last tab runs it (`PaneController.prepareClose`): the tab leaves the
-        // strip (the pane withdraws its terminal), the pane leaves its window's layout and the close waits for its
-        // frame tick.
+        // strip (the pane withdraws its terminal) and the pane leaves its window's layout. The close shows in this turn
+        // when it resizes no pane, else at the next frame tick.
         let prepared = try #require(closing.prepareClose(closing.stripModel.orderedTabs.map(\.id)), "fixture: the close has a daemon tab")
         let screen = try #require(app.root.screenViews.values.first { !$0.isHidden })
-        try #require(screen.frameInput.snapWaitsForContent, "fixture: the close waits for its frame tick")
+        let waitsForTick = screen.frameInput.snapWaitsForContent
         // The next frame's content presentation (the scheduler runs it on the display link): the pane withdraws the tab
         // the strip no longer lists, so the cache has no presenter for it any more.
         closing.showSelected()
@@ -141,15 +141,18 @@ import Testing
         await prepared.finish(false, false) // the reply's release
         #expect(app.cache.existingTerminal(closedTab) != nil, "the reply's release ran at once (\(state()))")
 
-        // What the close's own turn queued for after its commit: nothing of it may take the closed terminal.
-        app.committed.run()
         #expect(app.cache.existingTerminal(closedTab) != nil, "the close's own turn tore the terminal down")
-        // The frame tick that shows the close: one frame, and it carries no teardown.
-        _ = app.root.advanceFrame(Self.dt)
-        await Self.drainMain()
-        #expect(!screen.frameInput.snapWaitsForContent, "the close did not show at its first frame tick")
-        #expect(app.cache.existingTerminal(closedTab) != nil, "the frame that shows the close tore the terminal down, before its commit")
-        app.committed.run() // that frame committed
+        if waitsForTick {
+            // What the close's own turn queued for after its commit: nothing of it may take the closed terminal.
+            app.committed.run()
+            #expect(app.cache.existingTerminal(closedTab) != nil, "the commit of the close's own turn tore the terminal down, before the close showed")
+            // The frame tick that shows the close: one frame, and it carries no teardown.
+            _ = app.root.advanceFrame(Self.dt)
+            await Self.drainMain()
+            #expect(!screen.frameInput.snapWaitsForContent, "the close did not show at its first frame tick")
+            #expect(app.cache.existingTerminal(closedTab) != nil, "the frame that shows the close tore the terminal down, before its commit")
+        }
+        app.committed.run() // the turn that showed the close committed
         #expect(app.cache.existingTerminal(closedTab) == nil, "the closed pane's terminal stayed after the commit of the frame that showed the close")
         #expect(app.cache.existingTerminal(kept) != nil, "a pane that stays lost its terminal")
     }
@@ -163,7 +166,6 @@ import Testing
         defer { app.close() }
         let closing = try app.pane(2), tab = try app.tab(2)
         let prepared = try #require(closing.prepareClose(closing.stripModel.orderedTabs.map(\.id)), "fixture: the close has a daemon tab")
-        try #require(app.root.screenViews.values.contains { !$0.isHidden && $0.frameInput.snapWaitsForContent }, "fixture: the close waits for its frame tick")
         // A release while it closes (the gone-tab watch or the reply): held for the pane's teardown.
         app.cache.release(tab)
         try #require(app.cache.existingTerminal(tab) != nil, "fixture: the release is held while the pane closes")
