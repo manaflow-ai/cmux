@@ -23,26 +23,26 @@ while [[ $# -gt 0 ]]; do
     *) echo "error: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-build="$repo/scripts/cmux-next/build-acpmux.sh"
-pin="$repo/scripts/cmux-next/pin-cmux-tui.sh"
-[[ -x "$build" ]] || { echo "error: $build is missing" >&2; exit 1; }
+# Each run names its script's path literally: the cmux-next route follows what the app build runs
+# (reload.sh, this, build-acpmux.sh, tailnet-go.sh) to keep those scripts on the Mac compile tiers.
+[[ -x "$repo/scripts/cmux-next/build-acpmux.sh" ]] || { echo "error: $repo/scripts/cmux-next/build-acpmux.sh is missing" >&2; exit 1; }
 
-cached() { (cd "$repo" && "$build" --cached-only --print-path 2>/dev/null); }
+cached() { (cd "$repo" && "$repo/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null); }
 
 if path="$(cached)"; then
   echo "acpmux: cached $path" >&2
   printf '%s\n' "$path"
   exit 0
 fi
-if (cd "$repo" && "$build" --check-build-allowed); then
-  (cd "$repo" && "$build") >&2
+if (cd "$repo" && "$repo/scripts/cmux-next/build-acpmux.sh" --check-build-allowed); then
+  (cd "$repo" && "$repo/scripts/cmux-next/build-acpmux.sh") >&2
   path="$(cached)" || { echo "error: build-acpmux.sh finished without a cached acpmux" >&2; exit 1; }
   echo "acpmux: built on this host $path" >&2
   printf '%s\n' "$path"
   exit 0
 fi
-if [[ -x "$pin" ]]; then
-  if (cd "$repo" && CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}" "$pin" fetch-acpmux) >&2; then
+if [[ -x "$repo/scripts/cmux-next/pin-cmux-tui.sh" ]]; then
+  if (cd "$repo" && CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}" "$repo/scripts/cmux-next/pin-cmux-tui.sh" fetch-acpmux) >&2; then
     if path="$(cached)"; then
       echo "acpmux: the published acpmux of this checkout's cmux-tui tree $path" >&2
       printf '%s\n' "$path"
