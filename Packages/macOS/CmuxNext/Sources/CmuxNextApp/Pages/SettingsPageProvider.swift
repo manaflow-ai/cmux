@@ -127,11 +127,7 @@ final class SettingsPageProvider: PageProvider {
     /// this page, spent once, then Touch ID or the password (``PageWideningGate``); an off takes any input.
     func widen(_ key: String, _ id: String, reason: String, on: Bool, _ context: PageCallContext,
                _ write: @escaping @MainActor (String, Bool) async -> String?) async throws -> String? {
-        let refusal = Self.personOnly
-        if on {
-            guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                  personBacksGesture?(event) == true, wideningGate.claimGesture(event) else { throw refusal }
-        }
+        if on { try requirePersonsGesture(context) }
         let confirm: (@MainActor () async -> Bool)?
         if let owner = ownerConfirm {
             let confirmReason = reason
@@ -139,10 +135,13 @@ final class SettingsPageProvider: PageProvider {
         } else {
             confirm = nil
         }
-        return try await wideningGate.set("\(key) \(id)", on: on, confirm: confirm, refusal: refusal) { on, _ in
+        return try await wideningGate.set("\(key) \(id)", on: on, confirm: confirm, refusal: Self.personOnly) { on, _ in
             return await write(id, on)
         }
     }
+
+    /// The person's own click or key in this page (HID-backed, ``PersonInputLedger``), spent once; else `personOnly`.
+    private func requirePersonsGesture(_ c: PageCallContext) throws { guard c.page == PageDescriptor.settings.id, c.userGesture, let event = c.gestureEvent, personBacksGesture?(event) == true, wideningGate.claimGesture(event) else { throw Self.personOnly } }
 
     /// A host the App wires in (nil in tests without an app), or the page's `cmux.page.unavailable`.
     private static func host<Host>(_ host: Host?, _ name: String) throws -> Host {
@@ -196,10 +195,7 @@ final class SettingsPageProvider: PageProvider {
             // agent with Control consent driving this page (the cmux-cua helper posts real-looking
             // clicks) never grants itself more, and the app's line to acpmux is the person's anyway.
             // Off only narrows, so it needs no gesture and takes any input.
-            if on {
-                guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                      personBacksGesture?(event) == true, wideningGate.claimGesture(event) else { throw Self.personOnly }
-            }
+            if on { try requirePersonsGesture(context) }
             let write = try Self.host(setJoinConsent, "devices")
             return try await wideningGate.setWithoutConfirmation(
                 "joinConsent \(surface)", on: on,
@@ -225,7 +221,10 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.shares.revoke":
             guard let id = params["share_id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("share_id") }
             return try await Self.host(sharesRevoke, "shares")(id)
-        case "cmux.settings.devices.run": return try await Self.host(devicesRun, "devices")(params)
+        case "cmux.settings.devices.run":
+            // SECURITY: agents-may-share on lets agents share with no dialog: the person's own click only, like join_consent.
+            if params["action"]?.stringValue == "setAgentsMayShare", params["on"]?.boolValue == true { try requirePersonsGesture(context) }
+            return try await Self.host(devicesRun, "devices")(params)
         case "cmux.settings.keys.list", "cmux.settings.keys.answer", "cmux.settings.keys.decline", "cmux.settings.keys.revoke":
             return try await Self.host(keys, "keys").call(op, params: params, context: context)
         case "cmux.settings.theme.set":
