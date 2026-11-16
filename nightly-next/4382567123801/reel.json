@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "build": "4382567123801",
+  "notes": "notes/4382567123801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44176,
+      "title": "Leo collection: the Leo look (dusk, daylight, neon) as opt-in customize profiles, and the collection's front door",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44176/leo-theme-on-off.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 44268,
+      "title": "Shared customize views get only their reads until you approve more",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43787,
+      "title": "Settings: the daemon's cmux-config is the only writer of cmux-next.json",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
