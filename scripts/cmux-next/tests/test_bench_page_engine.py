@@ -101,6 +101,91 @@ class RowRuleTests(unittest.TestCase):
         self.assertEqual(got["error"], "late; page engine webkit:own-host, asked: cef")
 
 
+    def test_the_frames_of_a_refused_row_go_with_its_times(self):
+        # A summary reads `frames.first_tick_ms` (first_frame_ms_p50): a refused row keeps no frame time either.
+        frames = {"first_tick_ms": 4.2, "intervals_ms": [8.3, 8.3]}
+        got = engine.judge(row("webkit:chromium-unavailable", frames=dict(frames)), "cef")
+        self.assertNotIn("frames", got)
+        self.assertEqual(got["other_engine"]["frames"], frames)
+        self.assertEqual(engine.judge(row("cef", frames=dict(frames)), "cef")["frames"], frames)
+
+    def test_a_row_that_always_opens_a_page_is_no_number_when_its_engine_was_not_read(self):
+        # Cmd-T always opens a page: with no ready time and no engine word, its visible time is still a page's.
+        got = engine.judge(row("unknown: timed out", ready_ms=None), "cef", page=True)
+        self.assertEqual(got["error"], "page engine not read (unknown: timed out), asked: cef")
+        self.assertIsNone(got.get("visible_ms"))
+        self.assertEqual(got["other_engine"]["visible_ms"], 9.0)
+        self.assertNotIn("error", engine.judge(row("unknown: timed out", ready_ms=None), "any", page=True))
+        self.assertNotIn("error", engine.judge(row("cef", ready_ms=None), "cef", page=True))
+
+
+def never(*_):
+    raise AssertionError("the engine was read for a row that needs no read")
+
+
+class CreatedRowTests(unittest.TestCase):
+    """The Cmd-T bench's rule for one row, by what the row's command opens (`judge_created`)."""
+
+    def page_row(self, name, **more):
+        return {"command": "link_right", "key_ms": 1.5, "visible_ms": 6.0, "page_ms": 40.0, "engine": name, **more}
+
+    def test_a_page_commands_row_takes_the_engine_that_the_row_names_and_is_judged(self):
+        got = engine.judge_created(self.page_row("webkit"), "cef", "page", never)
+        self.assertEqual(got["page_engine"], "webkit")
+        self.assertEqual(got["error"], "page engine webkit, asked: cef")
+        for name in ("key_ms", "visible_ms", "page_ms"):
+            self.assertIsNone(got.get(name), name)
+        self.assertEqual(got["other_engine"], {"key_ms": 1.5, "visible_ms": 6.0, "page_ms": 40.0})
+        kept = engine.judge_created(self.page_row("cef"), "cef", "page", never)
+        self.assertEqual((kept["page_engine"], kept["page_ms"]), ("cef", 40.0))
+        self.assertNotIn("error", kept)
+
+    def test_a_browser_workspaces_row_is_judged_by_its_chrome_time(self):
+        got = engine.judge_created({"command": "browser_workspace", "visible_ms": 7.0, "chrome_ms": 30.0, "page_ms": None,
+                                    "engine": "webkit"}, "cef", "page", never)
+        self.assertEqual(got["error"], "page engine webkit, asked: cef")
+        self.assertIsNone(got.get("chrome_ms"))
+
+    def test_a_page_commands_row_with_no_page_time_says_no_engine(self):
+        got = engine.judge_created(self.page_row("webkit", page_ms=None), "cef", "page", never)
+        self.assertNotIn("page_engine", got)
+        self.assertNotIn("error", got)
+        self.assertEqual(got["visible_ms"], 6.0)
+
+    def test_a_page_commands_row_whose_focused_pane_shows_no_browser_says_so_and_is_not_judged(self):
+        # The app's word `none`: a viewer's page, or a page in a pane that has no focus. The engine is not known.
+        got = engine.judge_created(self.page_row("none"), "cef", "page", never)
+        self.assertEqual(got["page_engine"], "none")
+        self.assertNotIn("error", got)
+        self.assertEqual(got["page_ms"], 40.0)
+        self.assertEqual(engine.judge_created(self.page_row(None), "cef", "page", never)["page_engine"],
+                         "unknown: the row named no engine")
+
+    def test_a_new_tab_row_reads_the_engine_one_time_after_its_times(self):
+        reads = []
+        got = engine.judge_created(row(None), "cef", "tab", lambda: reads.append(1) or "webkit:chromium-unavailable")
+        self.assertEqual(reads, [1])
+        self.assertEqual(got["page_engine"], "webkit:chromium-unavailable")
+        self.assertEqual(got["error"], "page engine webkit:chromium-unavailable, asked: cef")
+
+    def test_a_new_tab_row_whose_engine_was_not_read_is_no_number_also_with_no_ready_page(self):
+        got = engine.judge_created(row(None, ready_ms=None), "cef", "tab", lambda: "unknown: timed out")
+        self.assertEqual(got["error"], "page engine not read (unknown: timed out), asked: cef")
+        self.assertIsNone(got.get("visible_ms"))
+
+    def test_a_new_workspace_row_with_no_ready_page_and_no_engine_is_left_as_it_is(self):
+        # Cmd-N can open a terminal: no page, no engine, and its times are no page's.
+        got = engine.judge_created(row(None, ready_ms=None), "cef", "workspace", lambda: "unknown: pane p1 shows no agent tab")
+        self.assertNotIn("error", got)
+        self.assertEqual(got["visible_ms"], 9.0)
+
+    def test_a_row_that_showed_nothing_and_a_row_of_no_page_read_no_engine(self):
+        missed = engine.judge_created(row(None, visible_ms=None), "cef", "tab", never)
+        self.assertNotIn("page_engine", {k: v for k, v in missed.items() if v is not None})
+        plain = {"command": "split_right", "key_ms": 1.0, "visible_ms": 4.0}
+        self.assertEqual(engine.judge_created(dict(plain), "cef", None, never), plain)
+
+
 class LineTests(unittest.TestCase):
     def test_the_launch_line_says_the_apps_own_word_on_chromium(self):
         word = engine.chromium_word({"state": "ready", "default_engine": "chromium", "unavailable": None, "pump": {}})
@@ -117,6 +202,19 @@ class LineTests(unittest.TestCase):
         self.assertEqual(word, {"error": "no such method"})
         self.assertEqual(engine.chromium_line("b", word), "CHROMIUM b: the app gave no word (no such method)")
         self.assertEqual(engine.chromium_word(None), {"error": "no reply"})
+
+    def test_an_app_with_no_chromium_stops_a_measure_of_chromium_with_the_argument_for_webkit(self):
+        word = engine.chromium_word({"state": "idle", "default_engine": "chromium", "unavailable": "notBundled"})
+        stop = engine.no_chromium(word)
+        self.assertIn("unavailable=notBundled", stop)
+        self.assertIn("--page-engine=cef", stop)
+        self.assertIn("--allow-no-chromium", stop)
+        self.assertEqual(len(stop.splitlines()), 1)
+
+    def test_an_app_with_chromium_and_an_app_that_gave_no_word_stop_nothing(self):
+        self.assertIsNone(engine.no_chromium(engine.chromium_word({"state": "ready", "unavailable": None})))
+        self.assertIsNone(engine.no_chromium(engine.chromium_word({"error": "no such method"})))
+        self.assertIsNone(engine.no_chromium(engine.chromium_word(None)))
 
     def test_the_count_line_names_each_engine_and_the_rows_that_are_no_numbers(self):
         rows = [engine.judge(row("cef"), "cef"), engine.judge(row("cef"), "cef"),
@@ -153,6 +251,31 @@ class EntryHelperTests(unittest.TestCase):
     def test_allow_no_chromium_turns_the_requirement_off(self):
         self.assertEqual(bash('measure_chromium_required "$@"', "--runs=12", "--allow-no-chromium"), (0, "0", ""))
 
+    def test_an_entry_asks_its_bench_for_the_default_engine_by_default(self):
+        self.assertEqual(bash('measure_engine_asked "$@"'), (0, "1", ""))
+        self.assertEqual(bash('measure_engine_asked "$@"', "--runs=3", "--cases=click,click_again", "--config=bench"), (0, "1", ""))
+
+    def test_an_entry_asks_no_engine_with_allow_no_chromium(self):
+        self.assertEqual(bash('measure_engine_asked "$@"', "--runs=3", "--allow-no-chromium"), (0, "0", ""))
+
+    def test_an_entry_asks_no_engine_of_another_bench_that_has_no_such_argument(self):
+        # `--fork-open` hands the run to fork-open-bench.py and `--bench=` to another bench: neither takes
+        # --page-engine, and argparse ends such a run with exit 2 after the whole build.
+        self.assertEqual(bash('measure_engine_asked "$@"', "--fork-open"), (0, "0", ""))
+        self.assertEqual(bash('measure_engine_asked "$@"', "--runs=2", "--fork-open", "--config=bench"), (0, "0", ""))
+        self.assertEqual(bash('measure_engine_asked "$@"', "--bench=new-pane-start-state"), (0, "0", ""))
+        # The build's requirement does not change with them.
+        self.assertEqual(bash('measure_chromium_required "$@"', "--fork-open"), (0, "1", ""))
+
+    def test_a_build_with_no_chromium_credits_says_the_engine_and_the_argument(self):
+        log = self.log("note: x\nerror: no Chromium CREDITS.html for this CEF; a release must ship it\n** BUILD FAILED **\n")
+        status, out, err = bash('measure_chromium_failure "$@"', "cmd-t", log)
+        self.assertEqual((status, out), (0, ""))
+        self.assertEqual(len(err.splitlines()), 1)
+        self.assertTrue(err.startswith("cmd-t: the build requires the Chromium engine"), err)
+        self.assertIn("no Chromium CREDITS.html", err)
+        self.assertIn("--allow-no-chromium", err)
+
     def test_a_build_with_no_source_for_the_engine_names_the_four_sources_and_the_argument(self):
         log = self.log("note: x\nerror: could not download a verified cef.tar.xz (set CMUX_CEF_R2_* or "
                        "~/.secrets/cmux-cef.env, or log in with gh / set GH_TOKEN); see cmuxterm-hq REPAIR.md "
@@ -180,8 +303,26 @@ class EntryHelperTests(unittest.TestCase):
         self.assertEqual(bash('measure_chromium_failure "$@"', "cmd-t", "/nonexistent/reload.log"), (1, "", ""))
 
 
+def code_lines(path):
+    """The lines of a script that are no comment: a needle in a comment proves no wiring."""
+    return [line for line in Path(path).read_text().splitlines() if not line.lstrip().startswith("#")]
+
+
 class WiringTests(unittest.TestCase):
-    """By a read of the text: what an entry and a bench must call. A run of an entry needs a Mac build."""
+    """By a read of the text: what an entry and a bench must call. A run of an entry needs a Mac build. Each
+    needle is looked for in the lines that are no comment."""
+
+    def assert_entry_asks_the_engine(self, name):
+        lines = [line.strip() for line in code_lines(MEASURE / name)]
+        self.assertIn('ask_engine="$(measure_engine_asked "$@")"', lines, name)
+        asks = [index for index, line in enumerate(lines) if line == 'set -- --page-engine=cef "$@"']
+        self.assertEqual(len(asks), 1, f"{name}: the line that puts --page-engine=cef first")
+        # The line before it is its condition: only when the helper says so.
+        self.assertEqual(lines[asks[0] - 1], 'if [[ "$ask_engine" == 1 ]]; then', name)
+        # After the entry's own arguments are taken out, so the caller's --page-engine comes later and wins.
+        rest = [index for index, line in enumerate(lines) if line.startswith("set -- ${bench_args[@]")]
+        self.assertEqual(len(rest), 1, name)
+        self.assertLess(rest[0], asks[0], name)
 
     def test_each_entry_passes_the_requirement_to_its_build_and_says_the_engines_failure(self):
         for name in ("instant-new-surfaces.sh", "chat-open.sh"):
@@ -195,19 +336,22 @@ class WiringTests(unittest.TestCase):
             self.assertIn("--allow-no-chromium", text, name)
 
     def test_the_cmd_t_entry_asks_the_bench_for_the_default_engine_unless_webkit_is_allowed(self):
-        text = (MEASURE / "instant-new-surfaces.sh").read_text()
-        self.assertIn("--page-engine=cef", text)
+        self.assert_entry_asks_the_engine("instant-new-surfaces.sh")
 
     def test_the_chat_open_entry_asks_the_bench_for_the_default_engine_unless_webkit_is_allowed(self):
-        text = (MEASURE / "chat-open.sh").read_text()
-        self.assertIn("--page-engine=cef", text)
-        bench = (SCRIPTS / "chat-open-bench.py").read_text()
+        self.assert_entry_asks_the_engine("chat-open.sh")
+        bench = "\n".join(code_lines(SCRIPTS / "chat-open-bench.py"))
         for needle in ('"--page-engine"', "judge_engine(", '"page_engine_asked"'):
             self.assertIn(needle, bench, needle)
 
+    def test_the_chat_open_bench_stops_at_its_first_launch_when_the_app_has_no_chromium(self):
+        bench = "\n".join(code_lines(SCRIPTS / "chat-open-bench.py"))
+        for needle in ('"debug.cef"', "bench_page_engine.chromium_word(", "bench_page_engine.no_chromium("):
+            self.assertIn(needle, bench, needle)
+
     def test_the_cmd_t_bench_reads_judges_and_reports_the_engine(self):
-        text = (SCRIPTS / "instant-new-surfaces-bench.py").read_text()
-        for needle in ('"--page-engine"', "bench_page_engine.page_engine(", "bench_page_engine.judge(",
+        text = "\n".join(code_lines(SCRIPTS / "instant-new-surfaces-bench.py"))
+        for needle in ('"--page-engine"', "bench_page_engine.page_engine(", "bench_page_engine.judge_created(",
                        "bench_page_engine.chromium_line(", "bench_page_engine.counts_line(", '"page_engines"', '"chromium"'):
             self.assertIn(needle, text, needle)
 
