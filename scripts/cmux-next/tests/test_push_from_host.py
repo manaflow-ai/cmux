@@ -47,7 +47,10 @@ if host in os.environ.get("FAKE_UNREADABLE", "").split():
     sys.exit(2)
 print(f"{host}: free")
 """
+# The host clone's gate. push-from-host.sh pushes only from a clone whose cmux-git-hooks/pre-push runs prepush-gate
+# (#44254), so this stand-in names it, as the real hook does.
 HOOK = """#!/bin/bash
+# stands in for cmux's pre-push, which runs prepush-gate
 cat > /dev/null
 echo ran >> "$FAKE_HOST_HOME/hook.log"
 if [[ -f "$FAKE_HOST_HOME/refuse" ]]; then echo "pre-push: refused in fixture" >&2; exit 1; fi
@@ -88,7 +91,8 @@ class PushFromHostTests(unittest.TestCase):
         host_repo = self.host_home / "fun/cmux"
         host_repo.parent.mkdir(parents=True)
         self.run_ok("git", "clone", "--quiet", str(self.origin), str(host_repo))
-        hooks = self.host_home / "hooks"
+        # Where scripts/install-git-hooks.sh puts the clone's hooks, with core.hooksPath pointing at them.
+        hooks = host_repo / ".git" / "cmux-git-hooks"
         hooks.mkdir()
         (hooks / "pre-push").write_text(HOOK)
         (hooks / "pre-push").chmod(0o755)
