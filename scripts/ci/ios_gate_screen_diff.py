@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import io
 import json
 import os
 import re
@@ -58,8 +57,9 @@ RUNS_TO_SCAN = 15
 # Pixel comparison stops this many seconds in; the rest compare by bytes. A pure
 # Python decode of a 1179x2556 still takes about 1.2 s (no Pillow on the runner).
 TIME_BUDGET_S = 330
-# Every family's artifact download together ends by this; the workflow's timeout is 420 s.
-DOWNLOAD_BUDGET_S = 150
+# Every family's artifact download together ends by this (the iPad zip is over 1 GB); the
+# workflow's timeout is 420 s.
+DOWNLOAD_BUDGET_S = 180
 # Listing the runs and their artifacts, together.
 LISTING_BUDGET_S = 90
 
@@ -410,25 +410,40 @@ class Baseline:
     problem: str = ""
 
 
-def _api(url: str, token: str, deadline: "deadline_http.Deadline | None" = None) -> bytes:
+def _request(url: str, token: str) -> urllib.request.Request:
     request = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "cmux-ios-gate-screen-diff"})
     # Unredirected: the artifact zip redirects to blob storage, which refuses a GitHub token.
     request.add_unredirected_header("Authorization", f"Bearer {token}")
-    # A call ends by its deadline as a whole (deadline_http), a trickled artifact included:
-    # LISTING_BUDGET_S for the listings and DOWNLOAD_BUDGET_S for the artifact zips, each
-    # shared by every call of its kind.
-    _, body, _ = deadline_http.request(request, None if deadline else 60, deadline=deadline,
-                                       max_bytes=1 << 30, raise_errors=True)
+    return request
+
+
+def _api(url: str, token: str, deadline: "deadline_http.Deadline") -> bytes:
+    """A JSON listing. Every call ends by DEADLINE as a whole (deadline_http), shared by all listings."""
+    _, body, _ = deadline_http.request(_request(url, token), deadline=deadline, max_bytes=64 << 20,
+                                       raise_errors=True)
     return body
 
 
-def _extract_family(blob: bytes, family: str, dest: Path) -> Path | None:
+def _download(url: str, token: str, deadline: "deadline_http.Deadline", path: Path) -> Path:
+    """An artifact zip, streamed to PATH: the iPad leg's holds the agent pass too, over 1 GB."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with deadline_http.stream(_request(url, token), deadline=deadline, stall=60, raise_errors=True) as answer, \
+            path.open("wb") as out:
+        while True:
+            chunk = answer.read(1 << 20)
+            if not chunk:
+                break
+            out.write(chunk)
+    return path
+
+
+def _extract_family(archive_path: Path, family: str, dest: Path) -> Path | None:
     """Only screens/<family>/<file> members, by base name: nothing escapes dest."""
     out = dest / "screens" / family
     wrote = False
-    with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+    with zipfile.ZipFile(archive_path) as archive:
         for member in archive.infolist():
             parts = Path(member.filename).parts
             if member.is_dir() or len(parts) < 3 or parts[-3] != "screens" or parts[-2] != family:
@@ -489,8 +504,10 @@ def fetch_baselines(repo: str, lane: str, families: list[str], dest: Path, token
         baseline.sha = (run.get("head_sha") or "")[:8]
         baseline.conclusion = run.get("conclusion") or ""
         try:
-            blob = _api(f"{api}/repos/{repo}/actions/artifacts/{artifact['id']}/zip", token, downloads)
-            baseline.directory = _extract_family(blob, family, dest / family)
+            archive = _download(f"{api}/repos/{repo}/actions/artifacts/{artifact['id']}/zip", token, downloads,
+                                dest / f"{family}.zip")
+            baseline.directory = _extract_family(archive, family, dest / family)
+            archive.unlink()
             if baseline.directory is None:
                 baseline.problem = f"run {baseline.run_id}'s artifact has no screens/{family}"
         except Exception as error:  # noqa: BLE001 - warn only
