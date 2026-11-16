@@ -20,7 +20,9 @@ import SwiftUI
 ///
 /// Options (launch arguments, `-Key value`):
 /// - `-CmuxMobileHybridBenchFile /path`: the exported session (required).
-/// - `-CmuxMobileHybridBenchMode pty|hybrid`: how the fake Mac sends it (default pty).
+/// - `-CmuxMobileHybridBenchMode pty|hybrid|lean`: how the fake Mac sends it (default pty):
+///   PTY bytes, `agent-cli-frame` events (v1), or lean `agent-cli-lean` events (v2), which
+///   the phone declares too, so a Mac that knows them sends those.
 ///
 /// It attaches at the `working` moment (first frame: from the attach request until the screen
 /// shows the Mac's screen of that moment), then streams the rest at the recorded pace. At each
@@ -62,16 +64,19 @@ final class AgentCLIHybridBench {
     private let daemon: HybridBenchDaemon
     private let probe = TerminalBenchProbe()
     private let hybrid: Bool
+    private let mode: String
 
     init() {
         let defaults = UserDefaults.standard
-        hybrid = defaults.string(forKey: "CmuxMobileHybridBenchMode") == "hybrid"
+        let mode = defaults.string(forKey: "CmuxMobileHybridBenchMode") ?? "pty"
+        self.mode = mode
+        hybrid = mode == "hybrid" || mode == "lean"
         // The setting the session reads at attach (off unless this run is hybrid).
         defaults.set(hybrid, forKey: DaemonTerminalSession.agentCLIHybridDefaultsKey)
         let session = defaults.string(forKey: "CmuxMobileHybridBenchFile")
             .flatMap { FileManager.default.contents(atPath: $0) }
             .flatMap { BenchSession($0) }
-        daemon = HybridBenchDaemon(session: session, hybrid: hybrid)
+        daemon = HybridBenchDaemon(session: session, hybrid: hybrid, lean: mode == "lean")
         let daemon = daemon
         let terminal = DaemonTerminalSession(
             surface: 1,
@@ -90,7 +95,6 @@ final class AgentCLIHybridBench {
             finish(["error": "no session file (-CmuxMobileHybridBenchFile)"])
             return
         }
-        let mode = hybrid ? "hybrid" : "pty"
         // First frame: from the attach request to the first presented frame that shows the
         // Mac's screen of the attach moment.
         let want = hybrid ? session.attachShown : session.attachText
@@ -143,7 +147,7 @@ final class AgentCLIHybridBench {
             "streamedBytes": streamed,
             "streamedSeconds": seconds,
             "bytesPerSecond": (Double(streamed) / max(seconds, 0.001)).rounded(),
-            "wholeSessionBytesPerSecond": session.wholeSessionRate(hybrid: hybrid).rounded(),
+            "wholeSessionBytesPerSecond": session.wholeSessionRate(mode).rounded(),
             "parity": total.percent,
             "parityVsRealScreen": realTotal.percent,
             "moments": moments,
@@ -241,6 +245,10 @@ struct BenchSession {
     let attachPTY: Data
     let attachText: String
     let attachFrame: [String: Any]
+    /// The same frames as lean `agent-cli-lean` events of an attach at `attachMs`: its first
+    /// frame (``attachLean``) and the rest.
+    let leanFrames: [(atMs: Int, event: [String: Any])]
+    let attachLean: [String: Any]
     let attachShown: String
     let moments: [Moment]
 
@@ -270,6 +278,11 @@ struct BenchSession {
         self.attachPTY = attachPTY
         attachText = attach["text"] as? String ?? ""
         self.attachFrame = attachFrame
+        attachLean = attach["lean"] as? [String: Any] ?? [:]
+        leanFrames = (root["lean_frames"] as? [[Any]] ?? []).compactMap { pair in
+            guard pair.count == 2, let at = pair[0] as? Int, let event = pair[1] as? [String: Any] else { return nil }
+            return (at, event)
+        }
         attachShown = attach["shown"] as? String ?? ""
         self.moments = moments.compactMap { object in
             guard let name = object["name"] as? String, let at = object["t_ms"] as? Int else { return nil }
@@ -279,10 +292,16 @@ struct BenchSession {
 
     /// Wire bytes per second of the whole session as event lines (JSON, base64), as the
     /// daemon would send them from the start.
-    func wholeSessionRate(hybrid: Bool) -> Double {
-        let bytes = hybrid
-            ? frames.reduce(0) { $0 + HybridBenchDaemon.line($1.event).count }
-            : pty.reduce(0) { $0 + HybridBenchDaemon.outputLine($1.data).count }
+    /// (Lean: from the attach moment, the frames the export has.)
+    func wholeSessionRate(_ mode: String) -> Double {
+        let bytes = switch mode {
+        case "hybrid": frames.reduce(0) { $0 + HybridBenchDaemon.line($1.event).count }
+        case "lean": leanFrames.reduce(HybridBenchDaemon.line(attachLean).count) { $0 + HybridBenchDaemon.line($1.event).count }
+        default: pty.reduce(0) { $0 + HybridBenchDaemon.outputLine($1.data).count }
+        }
+        if mode == "lean" {
+            return Double(bytes) / max(Double(durationMs - attachMs) / 1000, 0.001)
+        }
         return Double(bytes) / max(Double(durationMs) / 1000, 0.001)
     }
 }
@@ -293,6 +312,7 @@ struct BenchSession {
 final class HybridBenchDaemon: @unchecked Sendable {
     let session: BenchSession?
     let hybrid: Bool
+    let lean: Bool
     let main = FloodChannel(id: 1)
     let lane = FloodChannel(id: 2)
     private let lock = NSLock()
@@ -309,15 +329,16 @@ final class HybridBenchDaemon: @unchecked Sendable {
     var streamedBytes: Int { lock.withLock { _streamed } }
     var declaredHybrid: Bool { lock.withLock { _declaredHybrid } }
 
-    init(session: BenchSession?, hybrid: Bool) {
+    init(session: BenchSession?, hybrid: Bool, lean: Bool) {
         self.session = session
         self.hybrid = hybrid
+        self.lean = lean
         main.onSend = { [weak self] line in self?.request(line, on: self?.main) }
         lane.onSend = { [weak self] line in self?.request(line, on: self?.lane) }
         if let session {
             let attachFrame = session.attachFrame["frame"] as? Int ?? 0
             nextPTY = session.pty.firstIndex { $0.atMs > session.attachMs } ?? session.pty.count
-            nextFrame = session.frames.firstIndex { ($0.event["frame"] as? Int ?? 0) > attachFrame } ?? session.frames.count
+            nextFrame = lean ? 0 : session.frames.firstIndex { ($0.event["frame"] as? Int ?? 0) > attachFrame } ?? session.frames.count
         }
     }
 
@@ -337,14 +358,15 @@ final class HybridBenchDaemon: @unchecked Sendable {
         let reply = Self.line(["id": id, "ok": true, "data": [String: Any]()])
         switch cmd {
         case "set-client-info":
-            let declared = (object["capabilities"] as? [String])?.contains(DaemonTerminalSession.agentCLIHybridCapability) ?? false
+            let wanted = lean ? DaemonTerminalSession.agentCLIHybridLeanCapability : DaemonTerminalSession.agentCLIHybridCapability
+            let declared = (object["capabilities"] as? [String])?.contains(wanted) ?? false
             lock.withLock { _declaredHybrid = declared }
             channel.push([reply])
         case "attach-surface":
             guard let session else { channel.push([reply]); return }
             let first: Data
             if hybrid {
-                var event = session.attachFrame
+                var event = lean ? session.attachLean : session.attachFrame
                 event["surface"] = 1
                 first = Self.line(event)
             } else {
@@ -370,11 +392,12 @@ final class HybridBenchDaemon: @unchecked Sendable {
         while true {
             let next: (atMs: Int, line: Data)? = lock.withLock {
                 if hybrid {
-                    guard nextFrame < session.frames.count, session.frames[nextFrame].atMs <= until else { return nil }
+                    let frames = lean ? session.leanFrames : session.frames
+                    guard nextFrame < frames.count, frames[nextFrame].atMs <= until else { return nil }
                     defer { nextFrame += 1 }
-                    var event = session.frames[nextFrame].event
+                    var event = frames[nextFrame].event
                     event["surface"] = 1
-                    return (session.frames[nextFrame].atMs, Self.line(event))
+                    return (frames[nextFrame].atMs, Self.line(event))
                 }
                 guard nextPTY < session.pty.count, session.pty[nextPTY].atMs <= until else { return nil }
                 defer { nextPTY += 1 }

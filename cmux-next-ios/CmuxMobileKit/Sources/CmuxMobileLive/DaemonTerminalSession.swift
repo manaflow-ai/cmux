@@ -1433,6 +1433,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The Mac's daemon sends an agent CLI's terminal (Claude Code, Codex, opencode) as the
     /// cells that changed instead of its PTY bytes (`agent-cli-frame` events).
     nonisolated static let agentCLIHybridCapability = "agent-cli-hybrid-v1"
+    /// The same frames packed (`agent-cli-lean`): a Mac that knows it sends those instead.
+    nonisolated static let agentCLIHybridLeanCapability = "agent-cli-hybrid-v2"
     /// Settings → Transport → Agent CLI Screen Changes (off by default), the
     /// `CmuxMobilePreferences.Key.agentCLIHybrid` key; read at each attach.
     nonisolated static let agentCLIHybridDefaultsKey = "cmuxMobile.settings.agentCLIHybrid"
@@ -1443,7 +1445,7 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// What `set-client-info` declares: the hybrid stream only with the setting on.
     static func capabilities(agentCLIHybrid: Bool) -> [String] {
-        agentCLIHybrid ? clientCapabilities + [agentCLIHybridCapability] : clientCapabilities
+        agentCLIHybrid ? clientCapabilities + [agentCLIHybridCapability, agentCLIHybridLeanCapability] : clientCapabilities
     }
 
     /// While the size is claimed and the daemon leases it: the same size

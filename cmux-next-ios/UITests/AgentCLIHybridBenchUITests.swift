@@ -3,7 +3,7 @@ import XCTest
 /// The agent CLI hybrid bench (`AgentCLIHybridBench`, DEBUG): each recorded session (Claude Code,
 /// Codex, opencode; `verify/agent-cli-hybrid/`, exported by cmux-tui's
 /// `export_sessions_for_the_phone_bench`) replayed into the real terminal screen as PTY bytes
-/// and as `agent-cli-frame` cell changes. Prints one `HYBRID_BENCH` line of JSON per run (wire
+/// as `agent-cli-frame` cell changes (v1) and as lean `agent-cli-lean` frames (v2). Prints one `HYBRID_BENCH` line of JSON per run (wire
 /// bytes per second, first frame on attach, cell parity with the Mac's screen) and keeps a
 /// screenshot of each run's attach and end.
 class AgentCLIHybridBenchUITests: XCTestCase {
@@ -14,8 +14,8 @@ class AgentCLIHybridBenchUITests: XCTestCase {
     /// Claude Code and opencode; Codex runs in its own suite (``AgentCLIHybridBenchCodexUITests``),
     /// so a recording of this one shows only these two.
     class var sessions: [String] { ["claude-code-2.1.310", "opencode-1.19.5"] }
-    /// How the fake Mac sends each session: today's PTY bytes, then cell changes.
-    class var modes: [String] { ["pty", "hybrid"] }
+    /// How the fake Mac sends each session: today's PTY bytes, cell changes, lean frames.
+    class var modes: [String] { ["pty", "hybrid", "lean"] }
 
     private func fixture(_ name: String) -> String {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -64,7 +64,7 @@ final class AgentCLIHybridBenchCodexUITests: AgentCLIHybridBenchUITests {
     override class var sessions: [String] { ["codex-0.164.0"] }
 }
 
-/// Claude Code and opencode as cell changes only: a short recording of the new path.
+/// Claude Code and opencode as lean frames only: a short recording of the new path.
 final class AgentCLIHybridBenchHybridOnlyUITests: AgentCLIHybridBenchUITests {
-    override class var modes: [String] { ["hybrid"] }
+    override class var modes: [String] { ["lean"] }
 }

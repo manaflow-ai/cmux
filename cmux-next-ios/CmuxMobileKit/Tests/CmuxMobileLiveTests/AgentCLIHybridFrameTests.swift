@@ -82,9 +82,84 @@ import Testing
     @Test func theCapabilityFollowsTheSetting() throws {
         #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains("agent-cli-hybrid-v1"))
         #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains("agent-cli-hybrid-v1"))
+        #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains("agent-cli-hybrid-v2"))
+        #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains("agent-cli-hybrid-v2"))
         let defaults = try #require(UserDefaults(suiteName: "AgentCLIHybridFrameTests-\(UUID().uuidString)"))
         #expect(!DaemonTerminalSession.agentCLIHybridEnabled(defaults), "off by default")
         defaults.set(true, forKey: DaemonTerminalSession.agentCLIHybridDefaultsKey)
         #expect(DaemonTerminalSession.agentCLIHybridEnabled(defaults))
+    }
+
+    // MARK: lean frames (`agent-cli-lean`, `agent-cli-hybrid-v2`)
+
+    /// The keyframe above as cmux-tui's `LeanEncoder` packs it for stream "s1" (20x4, cursor
+    /// 1,3 shown): flags 31 (keyframe, head, numbered, cursor, cursor shown), the head, frame 1,
+    /// the cursor, then the spans with the style as table entry 0 (palette 174, default, bold).
+    private let leanKeyframe = Data([31, 2, 0x73, 0x31, 20, 4, 1, 1, 3, 0, 2, 0, 2, 5, 0, 1, 174, 0, 1, 0x68, 0x69, 1, 0, 6])
+
+    private func leanLine(_ bytes: Data) -> Data {
+        line(["event": "agent-cli-lean", "surface": 7, "f": bytes.base64EncodedString()])
+    }
+
+    @Test func aLeanKeyframeDrawsWhatItsV1TwinDraws() throws {
+        var decoder = AgentCLIHybridLeanDecoder()
+        let lean = try #require(decoder.decode(leanKeyframe))
+        let v1 = try #require(AgentCLIHybridFrame(event(frame: 1, base: nil, data: keyframeData)))
+        #expect(lean == v1)
+        #expect(lean.terminalBytes == v1.terminalBytes)
+    }
+
+    @Test func aFollowingLeanFrameIsNumberedByTheOneBefore() throws {
+        var decoder = AgentCLIHybridLeanDecoder()
+        _ = try #require(decoder.decode(leanKeyframe))
+        // Flags 16 (cursor shown, unmoved), no shift, one span: row 2, 5 cells in style 0 as a run of "x".
+        let next = try #require(decoder.decode(Data([16, 0, 1, 2, 0, 11, 0, 2, 5, 0x78])))
+        #expect(next.frame == 2 && next.base == 1 && next.stream == "s1")
+        #expect(next.columns == 20 && next.rows == 4 && next.cursorX == 1 && next.cursorY == 3 && next.cursorVisible)
+        let style = AgentCLIHybridFrame.Style(fg: .palette(174), bg: .standard, attrs: 1)
+        #expect(next.delta?.spans == [.set(row: 2, column: 0, cells: Array(repeating: .init(text: "x", style: style), count: 5))])
+    }
+
+    @Test func aBadLeanFrameLeavesTheDecoderAsItWas() throws {
+        var decoder = AgentCLIHybridLeanDecoder()
+        #expect(decoder.decode(Data([16, 0, 0])) == nil, "no frame to follow yet")
+        _ = try #require(decoder.decode(leanKeyframe))
+        // Style 1 is not in the table yet and brings none: refused, frame 2 still follows 1.
+        #expect(decoder.decode(Data([16, 0, 1, 0, 0, 3, 1])) == nil)
+        #expect(decoder.decode(leanKeyframe + Data([0])) == nil, "trailing bytes")
+        #expect(try #require(decoder.decode(Data([16, 0, 0]))).frame == 2)
+    }
+
+    @Test func theParserDrawsLeanFramesLikeV1Ones() throws {
+        var lean = DaemonTerminalEventParser(surface: 7)
+        var v1 = DaemonTerminalEventParser(surface: 7)
+        #expect(lean.parse(leanLine(leanKeyframe)) == v1.parse(line(event(frame: 1, base: nil, data: keyframeData))))
+        #expect(lean.parse(leanLine(Data([16, 0, 0]))) == v1.parse(line(event(frame: 2, base: 1, data: Data([0, 0, 0, 0])))))
+    }
+
+    /// Every lean frame of a recorded Claude Code session (cmux-tui's
+    /// `export_sessions_for_the_phone_bench`) reads back as the `agent-cli-frame` it packs.
+    @Test func aRecordedSessionsLeanFramesMatchItsFrames() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("verify/agent-cli-hybrid/claude-code-2.1.310.json")
+        let root = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let attach = try #require(root["attach"] as? [String: Any])
+        let first = try #require(attach["hybrid"] as? [String: Any])
+        let firstNumber = try #require(first["frame"] as? Int)
+        let frames = try #require(root["frames"] as? [[Any]]).compactMap { $0.last as? [String: Any] }
+            .filter { ($0["frame"] as? Int ?? 0) > firstNumber }
+        let leanEvents = try #require(root["lean_frames"] as? [[Any]]).compactMap { $0.last as? [String: Any] }
+        let v1 = [first] + frames
+        let lean = [try #require(attach["lean"] as? [String: Any])] + leanEvents
+        #expect(v1.count == lean.count && v1.count > 50)
+        var decoder = AgentCLIHybridLeanDecoder()
+        for (frame, packed) in zip(v1, lean) {
+            let bytes = try #require((packed["f"] as? String).flatMap { Data(base64Encoded: $0) })
+            let decoded = try #require(decoder.decode(bytes))
+            let expected = try #require(AgentCLIHybridFrame(frame))
+            #expect(decoded.stream == expected.stream && decoded.frame == expected.frame && decoded.base == expected.base)
+            #expect(decoded.terminalBytes == expected.terminalBytes, "frame \(expected.frame)")
+        }
     }
 }

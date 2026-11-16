@@ -17,7 +17,8 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
     let base: Int?
     let columns: Int
     let rows: Int
-    let data: Data
+    /// The changed cells; nil when the event's `data` is not a delta.
+    let delta: Delta?
     let cursorX: Int
     let cursorY: Int
     let cursorVisible: Bool
@@ -34,16 +35,30 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
         base = object["base"] as? Int
         self.columns = columns
         self.rows = rows
-        self.data = data
+        delta = Delta(data)
         cursorX = object["cursor_x"] as? Int ?? 0
         cursorY = object["cursor_y"] as? Int ?? 0
         cursorVisible = object["cursor_visible"] as? Bool ?? false
     }
 
+    /// A frame read from another form (a lean `agent-cli-lean` frame, ``AgentCLIHybridLeanDecoder``).
+    init(stream: String, frame: Int, base: Int?, columns: Int, rows: Int, delta: Delta,
+         cursorX: Int, cursorY: Int, cursorVisible: Bool) {
+        self.stream = stream
+        self.frame = frame
+        self.base = base
+        self.columns = columns
+        self.rows = rows
+        self.delta = delta
+        self.cursorX = cursorX
+        self.cursorY = cursorY
+        self.cursorVisible = cursorVisible
+    }
+
     /// The bytes that draw this frame on a terminal showing frame ``base`` (a blank one for a
     /// keyframe); nil when `data` is not a delta.
     var terminalBytes: Data? {
-        guard let delta = Delta(data) else { return nil }
+        guard let delta else { return nil }
         var out = "\u{1b}[?2026h\u{1b}[?25l\u{1b}[0m"
         if base == nil { out += "\u{1b}[H\u{1b}[2J" }
         if delta.shift > 0 {
@@ -154,6 +169,13 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
         var shift: Int
         var spans: [Span]
 
+        init(shift: Int, spans: [Span]) {
+            seq = 0
+            atMs = 0
+            self.shift = shift
+            self.spans = spans
+        }
+
         init?(_ bytes: Data) {
             var reader = Reader(bytes: [UInt8](bytes))
             guard let seq = reader.varint(), let atMs = reader.varint(),
@@ -187,7 +209,7 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
         }
     }
 
-    private struct Reader {
+    struct Reader {
         let bytes: [UInt8]
         var position = 0
 
