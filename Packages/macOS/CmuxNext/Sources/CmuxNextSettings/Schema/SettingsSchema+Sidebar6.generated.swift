@@ -3,7 +3,7 @@
 
 public import CmuxNextDesign
 
-extension SidebarSettingsSchema {
+extension SidebarSettingsSchema2 {
     static var browserWorkspaceRows: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.workspaceRow.kind.browser", "Browser Workspaces")
         return [
@@ -159,7 +159,7 @@ extension SidebarSettingsSchema {
     }
 }
 
-extension SidebarSettingsSchema {
+extension SidebarSettingsSchema2 {
     static var mixedWorkspaceRows: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.workspaceRow.kind.mixed", "Mixed Workspaces")
         return [
@@ -313,4 +313,12 @@ extension SidebarSettingsSchema {
             ).hiddenFromSettingsPage("per-kind override: cmux.json only"),
         ]
     }
+}
+
+extension SidebarSettingsSchema {
+    /// The lists on the overflow types (SidebarSettingsSchema2).
+    static var terminalWorkspaceRows: [SettingDescriptor] { SidebarSettingsSchema2.terminalWorkspaceRows }
+    static var agentWorkspaceRows: [SettingDescriptor] { SidebarSettingsSchema2.agentWorkspaceRows }
+    static var browserWorkspaceRows: [SettingDescriptor] { SidebarSettingsSchema2.browserWorkspaceRows }
+    static var mixedWorkspaceRows: [SettingDescriptor] { SidebarSettingsSchema2.mixedWorkspaceRows }
 }

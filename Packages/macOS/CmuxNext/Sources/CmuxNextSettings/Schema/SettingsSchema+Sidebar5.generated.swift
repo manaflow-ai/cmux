@@ -3,7 +3,8 @@
 
 public import CmuxNextDesign
 
-extension SidebarSettingsSchema {
+/// More of `SidebarSettingsSchema`'s lists (its own type: the type's line budget).
+nonisolated enum SidebarSettingsSchema2 {
     static var terminalWorkspaceRows: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.workspaceRow.kind.terminal", "Terminal Workspaces")
         return [
@@ -159,7 +160,7 @@ extension SidebarSettingsSchema {
     }
 }
 
-extension SidebarSettingsSchema {
+extension SidebarSettingsSchema2 {
     static var agentWorkspaceRows: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.workspaceRow.kind.agent", "Agent Workspaces")
         return [
