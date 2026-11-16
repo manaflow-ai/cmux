@@ -22,8 +22,12 @@ pub const MAX_BATCH_BYTES: usize = 64 * 1024;
 pub const MAX_REPLY_BYTES: usize = 256 * 1024;
 /// Maximum wanted keys, including parent keys added by the v1 projection.
 pub const MAX_WANTED_KEYS: usize = 4_096;
+/// Maximum encoded page-driver request accepted at the ABI door.
+pub const MAX_REQUEST_BYTES: usize = 1 << 20;
 /// Maximum active page questions on one list handle.
 pub const MAX_QUESTIONS: usize = 16;
+/// Maximum open list subscriptions on one driver.
+pub const MAX_SIDS: usize = 16;
 /// Maximum rows in a head or question slot.
 pub const MAX_ROWS: usize = 200;
 pub const HEAD_WINDOW: u16 = 20;
@@ -64,6 +68,14 @@ pub struct NextRequest {
     pub id: String,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CloseRequest {
+    pub sid: String,
+    #[serde(default)]
+    pub id: Option<String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DriverError {
     Invalid(InvalidCode),
@@ -88,7 +100,7 @@ impl InvalidCode {
             Self::Request => "list.request".into(),
             Self::Page => "list.page".into(),
             Self::Unsupported => "list.unsupported".into(),
-            Self::Protocol(text) => text.clone(),
+            Self::Protocol(_) => "list.protocol".into(),
         }
     }
 }
@@ -283,11 +295,15 @@ impl ListDriver {
                 });
             }
         }
-        self.synthetic.extend(
-            self.slots
-                .keys()
-                .map(|sid| ListEvent::Off { sid: Some(sid.clone()), code: "lost".into() }),
-        );
+        for sid in self.slots.keys() {
+            let already_queued = self.synthetic.iter().any(|event| {
+                matches!(event, ListEvent::Off { sid: Some(queued), code } if queued == sid && code == "lost")
+            });
+            if !already_queued {
+                self.synthetic
+                    .push_back(ListEvent::Off { sid: Some(sid.clone()), code: "lost".into() });
+            }
+        }
     }
 
     pub fn is_fallback(&self) -> bool {
@@ -323,6 +339,9 @@ impl ListDriver {
             ListView::Folders => return Err(DriverError::Invalid(InvalidCode::Unsupported)),
         }
         .into();
+        if self.slots.len() >= MAX_SIDS {
+            return Err(DriverError::Limit("list.sids"));
+        }
         let sub = Sub::new(sid.clone(), Stream::new("list")).around(Anchor::End, HEAD_WINDOW);
         let mut sub = sub;
         sub.view = Some(request.view);
@@ -360,12 +379,23 @@ impl ListDriver {
             .map_err(|error| DriverError::Invalid(InvalidCode::Protocol(error.to_string())))
     }
 
+    pub fn close_question(&mut self, sid: &str, id: &str) -> Result<(), DriverError> {
+        let Some(question) = self.questions.get(id) else {
+            return Err(DriverError::MissingQuestion);
+        };
+        if question.sid != sid {
+            return Err(DriverError::Invalid(InvalidCode::Sid));
+        }
+        self.questions.remove(id);
+        Ok(())
+    }
+
     pub fn want(
         &mut self,
         sid: &str,
         keys: impl IntoIterator<Item = ListKey>,
     ) -> Result<(), DriverError> {
-        let keys: Vec<_> = keys.into_iter().collect();
+        let keys: Vec<_> = keys.into_iter().take(MAX_WANTED_KEYS + 1).collect();
         if keys.len() > MAX_WANTED_KEYS {
             return Err(DriverError::Limit("list.wants"));
         }
@@ -538,7 +568,25 @@ impl ListDriver {
         let mut changes = Vec::new();
         let mut events = Vec::new();
         let mut bytes = 0usize;
-        loop {
+        while let Some(event) = self.synthetic.front().cloned() {
+            let event_bytes = match serde_json::to_vec(&event) {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    self.synthetic.pop_front();
+                    continue;
+                }
+            };
+            if !events.is_empty() && bytes.saturating_add(event_bytes.len()) > MAX_BATCH_BYTES {
+                break;
+            }
+            self.synthetic.pop_front();
+            bytes = bytes.saturating_add(event_bytes.len());
+            events.push(event);
+            if bytes >= MAX_BATCH_BYTES {
+                break;
+            }
+        }
+        while bytes < MAX_BATCH_BYTES {
             let next = if let Some(deferred) = self.deferred.pop_front() {
                 Some((deferred.change, deferred.event))
             } else {
@@ -561,8 +609,18 @@ impl ListDriver {
                 }
             };
             let Some((change, event)) = next else { break };
-            let event_bytes = serde_json::to_vec(&event)
-                .map_err(|error| DriverError::Invalid(InvalidCode::Protocol(error.to_string())))?;
+            let event_bytes = match serde_json::to_vec(&event) {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    self.client.acknowledge_change(&change);
+                    self.synthetic.push_back(ListEvent::Error {
+                        sid: change_sid(&change.change),
+                        id: None,
+                        code: "list.protocol".into(),
+                    });
+                    break;
+                }
+            };
             if event_bytes.len() > MAX_REPLY_BYTES {
                 self.client.acknowledge_change(&change);
                 self.synthetic.push_back(ListEvent::Error {
@@ -582,12 +640,6 @@ impl ListDriver {
             if bytes >= MAX_BATCH_BYTES {
                 break;
             }
-        }
-        if let (true, Some(event)) = (events.is_empty(), self.synthetic.pop_front()) {
-            let batch = ListBatch { number: self.next_batch, events: vec![event] };
-            self.next_batch = self.next_batch.saturating_add(1);
-            self.held = Some(HeldBatch { number: batch.number, changes: Vec::new() });
-            return Ok(Some(batch));
         }
         if events.is_empty() {
             return Ok(None);
@@ -614,6 +666,9 @@ impl ListDriver {
     fn project(&mut self, change: Change<Value>) -> Result<Option<ListEvent>, DriverError> {
         let event = match change {
             Change::Window(window) => {
+                if !self.slots.contains_key(&window.sid) {
+                    return Ok(None);
+                }
                 if window.rows.len() > MAX_ROWS {
                     return Err(DriverError::Limit("list.rows"));
                 }
@@ -688,7 +743,8 @@ impl ListDriver {
                     fold: None,
                     turns: false,
                 });
-                question.complete = !overflow && !page.has_before && !page.has_after;
+                question.complete =
+                    !overflow && (!page.has_before || page.before_key.is_none()) && !page.has_after;
                 question.failed = false;
                 if let Some(next) = continuation {
                     question.request = next;
@@ -757,6 +813,9 @@ impl ListDriver {
                 return Ok(self.row_change(sid, seq, summary, true));
             }
             Change::Gone { sid, origin, chat_id, .. } => {
+                if !self.slots.contains_key(&sid) {
+                    return Ok(None);
+                }
                 let key = RowRef { origin, chat_id };
                 self.remove_member(&sid, &key);
                 let slot = self
@@ -1098,5 +1157,135 @@ mod tests {
         assert!(matches!(event, ListEvent::Error { id: Some(id), .. } if id == "q"));
         assert!(!driver.questions["q"].in_flight);
         assert!(driver.questions["q"].failed);
+    }
+
+    #[test]
+    fn reconnect_on_is_emitted_after_window_or_resume_end() {
+        let mut driver = ListDriver::new();
+        driver.slots.insert("s".into(), "all".into());
+        driver.heads.insert(
+            "s".into(),
+            Head {
+                slot: "all".into(),
+                before_key: None,
+                edition: 0,
+                rows: Vec::new(),
+                stopped: false,
+            },
+        );
+        driver.resuming.insert("s".into());
+        let window = crate::wire::Window {
+            sid: "s".into(),
+            cursor: 1,
+            rows: Vec::new(),
+            has_before: false,
+            has_after: false,
+            edition: 1,
+            origins: Vec::new(),
+            before_key: None,
+            after_key: None,
+        };
+        assert!(matches!(driver.project(Change::Window(window)), Ok(Some(ListEvent::Rows { .. }))));
+        assert!(matches!(driver.synthetic.pop_front(), Some(ListEvent::On { sid }) if sid == "s"));
+
+        driver.resuming.insert("s".into());
+        assert!(matches!(
+            driver.project(Change::ResumeEnd { sid: "s".into(), cursor: crate::wire::Cursor(2) }),
+            Ok(Some(ListEvent::On { sid })) if sid == "s"
+        ));
+    }
+
+    #[test]
+    fn deferred_events_cross_batch_without_reprojection() {
+        let mut driver = ListDriver::new();
+        let row = |chat_id: &str| ListEvent::Rows {
+            sid: "s".into(),
+            slot: "all".into(),
+            upserts: vec![json!({"chatId": chat_id, "body": "x".repeat(40_000)})],
+            remove: Vec::new(),
+            complete: false,
+        };
+        for chat_id in ["a", "b"] {
+            driver.deferred.push_back(DeferredChange {
+                change: QueuedChange {
+                    change: Change::Whole { sid: "s".into(), cursor: crate::wire::Cursor(1) },
+                    sid: Some("s".into()),
+                    bytes: 0,
+                    charge: false,
+                },
+                event: row(chat_id),
+            });
+        }
+        let first = driver.next_batch().unwrap().unwrap();
+        assert_eq!(first.events.len(), 1);
+        driver.taken(first.number).unwrap();
+        let second = driver.next_batch().unwrap().unwrap();
+        assert_eq!(second.events.len(), 1);
+    }
+
+    #[test]
+    fn older_head_stops_at_two_hundred_rows() {
+        let mut driver = ListDriver::new();
+        driver.slots.insert("s".into(), "all".into());
+        driver.heads.insert(
+            "s".into(),
+            Head {
+                slot: "all".into(),
+                before_key: Some(ListKey {
+                    last_activity: 1,
+                    chat_id: "head".into(),
+                    origin: "local".into(),
+                    past: false,
+                }),
+                edition: 0,
+                rows: Vec::new(),
+                stopped: false,
+            },
+        );
+        driver.questions.insert(
+            "q".into(),
+            Question {
+                sid: "s".into(),
+                kind: PageKind::Older,
+                request: Page::new("s", "list", crate::wire::PageSide::Before, 1),
+                in_flight: true,
+                complete: false,
+                failed: false,
+                rows: 0,
+                created: 1,
+            },
+        );
+        let rows = (0..200).map(|index| json!({"chatId": format!("c{index}"), "origin": "local", "updatedMs": index})).collect();
+        let page = crate::wire::PageResult {
+            sid: "s".into(),
+            rows,
+            has_before: true,
+            has_after: false,
+            cold_unread: false,
+            deeper: Vec::new(),
+            before_key: Some(ListKey {
+                last_activity: 0,
+                chat_id: "older".into(),
+                origin: "local".into(),
+                past: false,
+            }),
+            after_key: None,
+            missing: Vec::new(),
+            unknown: Vec::new(),
+            rest: Vec::new(),
+        };
+        let event = driver.project(Change::Page(page)).unwrap().unwrap();
+        assert!(matches!(event, ListEvent::Rows { complete: false, .. }));
+        assert!(driver.heads["s"].stopped);
+        assert_eq!(
+            driver.page(PageRequest {
+                sid: "s".into(),
+                kind: PageKind::Older,
+                key: None,
+                folder: None,
+                cold: false
+            }),
+            Err(DriverError::Limit("list.limit"))
+        );
     }
 }
