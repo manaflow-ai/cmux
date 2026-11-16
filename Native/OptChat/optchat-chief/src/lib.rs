@@ -21,6 +21,7 @@ pub mod audit;
 pub mod auto_resume;
 pub mod backup;
 pub mod brain;
+pub mod build_space;
 pub mod browse;
 pub mod chief_channel;
 pub mod chief_profile;
