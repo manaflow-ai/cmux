@@ -45,6 +45,7 @@ import kit_downloads  # noqa: E402
 
 STORE_EXTENSION = ("eimadpbcbfnmbkopoojfekhnkhdbieeh", "Dark Reader")  # MV3 on the store
 UBO_NAME = "uBlock Origin"
+UBO_ID = "cjpalhdlnbpafiamejdnhcphjbkeiagm"  # the Web Store id the built-in copy keeps
 # Public ad block score pages: informational only (third-party pages that can
 # change or stop running; d3ward's is archived and shows no score). The gating checks are the
 # local ad page and dynamic filtering.
@@ -573,7 +574,7 @@ def phase_ublock(args):
         if not ubo:
             return "stop"
         if not args.ubo:
-            job.row("builtin: the bundled copy keeps the Web Store id", ubo["id"] == "cjpalhdlnbpafiamejdnhcphjbkeiagm", ubo)
+            job.row("builtin: the bundled copy keeps the Web Store id", ubo["id"] == UBO_ID, ubo)
         ctx["id"] = ubo["id"]
         ctx["prefix"] = f"chrome-extension://{ubo['id']}/"
 
@@ -855,7 +856,7 @@ def phase_ublock(args):
 
     def menu_note():
         """The Extensions menu says the full uBlock Origin is built in (the Web Store
-        lists only uBlock Origin Lite)."""
+        lists only uBlock Origin Lite): the note is the uBlock Origin row's tooltip."""
         job.call("debug.extensions.click", {"button": "extensions"})
         state = {}
         deadline = time.monotonic() + 5
@@ -864,10 +865,11 @@ def phase_ublock(args):
             time.sleep(0.25)
         shot = job.window_shot("builtin-extensions-menu", popups=True)
         job.call("debug.extensions.menu", {"dismiss": True})
-        note = [i for i in state.get("items", []) if isinstance(i, dict) and str(i.get("identifier", "")).endswith(".builtInAdBlocker")]
+        rows = [i for i in state.get("items", []) if isinstance(i, dict) and i.get("extension") == UBO_ID]
+        note = [i for i in rows if i.get("tooltip")]
         want = getattr(main, "menu_note", None) or "present"
         job.row(f"menu: the built-in line is {want} (built-in copy {'loaded' if want == 'present' else 'skipped'})",
-                bool(state.get("open")) and bool(note) == (want == "present"), {"note": note, "shot": shot, "open": state.get("open")})
+                bool(state.get("open")) and bool(note) == (want == "present"), {"note": note, "rows": rows, "shot": shot, "open": state.get("open")})
 
     def dashboard():
         """Automation may not open extension pages as tabs; a person's tab is

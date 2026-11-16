@@ -500,10 +500,12 @@ public final class ComputerUseHelperDaemon {
             .appending(path: "state", directoryHint: .isDirectory)
     }
 
-    /// The cmux-cua folder every build shares with classic cmux; each build's
-    /// own items in it are named by its scope.
+    /// NEXT's own cmux-cua folder, under `cmux-next` (cmuxterm-hq goals/next-store-out-of-classic.md);
+    /// each build's items in it are named by its scope. Builds before staged their helper copies in classic's
+    /// `cmux/cmux-cua`; the launch moves them here once (`ClassicFolderItemsMove.moveComputerUseCopies`).
     nonisolated static func cuaRoot(home: URL) -> URL {
-        home.appending(path: "Library/Application Support/cmux/cmux-cua", directoryHint: .isDirectory)
+        NextSupport(applicationSupport: home.appending(path: "Library/Application Support", directoryHint: .isDirectory))
+            .folder.appending(path: "cmux-cua", directoryHint: .isDirectory)
     }
 
     /// A stable 16-hex scope for a bundle id (FNV-1a).

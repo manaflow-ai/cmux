@@ -476,14 +476,6 @@
           "group": "Announcements"
         },
         {
-          "key": "app.captureScreenshotGlobalHotKey",
-          "title": "Capture Screenshot to Chat from Any App",
-          "help": "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Window"
-        },
-        {
           "key": "app.confirmQuit",
           "title": "Ask Before Quitting Ends Agents or Terminals",
           "help": "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.",
@@ -2632,6 +2624,19 @@
             "tabs",
             "both",
             "none"
+          ]
+        },
+        {
+          "key": "appearance.fontSmoothing",
+          "title": "Text Smoothing",
+          "help": "How text draws. Auto keeps the Mac's own smoothing for tabs, the sidebar and other controls, and each page's own style. Thin draws lighter strokes everywhere. Smooth draws the heavier macOS smoothing everywhere. Pages change at once; other text changes after cmux restarts. Terminal text keeps its own setting.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Density and Motion",
+          "values": [
+            "auto",
+            "antialiased",
+            "subpixel"
           ]
         },
         {
