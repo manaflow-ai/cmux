@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43802020277",
+  "recorded_at": "2026-11-16T04:15:28Z",
+  "reason": "cmux-tui f6f07d9c7b45 changes the image's cmux-tui (pinned 13cd9ac8d5aa)",
+  "dry_run": false,
+  "cmux_tui": "f6f07d9c7b4539ae97a5aba5af852d684d3bb063",
+  "fixes": [
+    {
+      "sha": "f6f07d9c7b4539ae97a5aba5af852d684d3bb063",
+      "mergedAt": "2026-11-15T19:50:22-08:00",
+      "subject": "Changes sidebar: a live pull request list as an opt-in extension (github.changes, git.status github_repo) (#44129)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T04:15:28Z",
+    "snapshot_id": "sh-cdad67a27d124c11ab9c0ed65acf4fb1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43802020277): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9a94f7fa3b0db59c8ab26316096d7106e595cbb3",
+    "image": "cloud-native-auto-f6f07d9c-43802020277-1",
+    "revision": "ci-43802020277-1",
+    "at": "2026-11-16T04:15:28Z"
+  },
+  "rolled_back": false
+}
