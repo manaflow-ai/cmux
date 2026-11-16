@@ -43,8 +43,9 @@ pub struct FloatFrame {
 impl FloatFrame {
     /// The frame moved and resized into the screen (F3): the size first, then the corner.
     pub fn clamped(self) -> FloatFrame {
-        // Not written yet: the tests of this rule fail.
-        self
+        let w = self.w.clamp(MIN_EXTENT, UNIT);
+        let h = self.h.clamp(MIN_EXTENT, UNIT);
+        FloatFrame { x: self.x.min(UNIT - w), y: self.y.min(UNIT - h), w, h }
     }
 
     /// Whether the frame obeys F3 as it is.
@@ -139,9 +140,17 @@ pub enum FloatRefusal {
 /// dropped, frames are clamped, and the front panes become tiled until one pane of the screen is tiled. The order of
 /// the entries that stay is unchanged. `panes`: each pane of the screen once.
 pub fn normalized<P: Clone + PartialEq>(panes: &[P], list: &[Floating<P>]) -> Vec<Floating<P>> {
-    // Not written yet: the tests of this rule fail.
-    let _ = panes;
-    list.to_vec()
+    let mut kept: Vec<Floating<P>> = Vec::with_capacity(list.len());
+    for entry in list {
+        if !panes.contains(&entry.pane) || kept.iter().any(|seen| seen.pane == entry.pane) {
+            continue;
+        }
+        kept.push(Floating { pane: entry.pane.clone(), frame: entry.frame.clamped() });
+    }
+    while !kept.is_empty() && kept.len() >= panes.len() {
+        kept.pop();
+    }
+    kept
 }
 
 /// Whether the list obeys F1, F2 and F3 as it is.
@@ -152,9 +161,18 @@ pub fn is_normal<P: Clone + PartialEq>(panes: &[P], list: &[Floating<P>]) -> boo
 /// The frame of a new floating pane that brings none: [`NEW_EXTENT`] wide and high in the middle of the screen, moved
 /// right and down by [`CASCADE_STEP`] while a floating pane has its corner at that place.
 pub fn new_frame<P>(list: &[Floating<P>]) -> FloatFrame {
-    // Not written yet: the tests of this rule fail.
-    let _ = (list, CASCADE_STEP);
-    FloatFrame::centered(NEW_EXTENT, NEW_EXTENT)
+    let base = FloatFrame::centered(NEW_EXTENT, NEW_EXTENT);
+    let steps = (UNIT - NEW_EXTENT) / 2 / CASCADE_STEP;
+    for step in 0..=steps {
+        let offset = step * CASCADE_STEP;
+        let candidate = FloatFrame { x: base.x + offset, y: base.y + offset, ..base }.clamped();
+        let taken =
+            list.iter().any(|entry| entry.frame.x == candidate.x && entry.frame.y == candidate.y);
+        if !taken {
+            return candidate;
+        }
+    }
+    base
 }
 
 /// Floats `pane`, puts it back, or moves it, by `mode`; the next list, already [`normalized`].
@@ -169,9 +187,40 @@ pub fn place<P: Clone + PartialEq>(
     mode: FloatMode,
     frame: Option<FloatFrame>,
 ) -> Result<Vec<Floating<P>>, FloatRefusal> {
-    // Not written yet: the tests of this rule fail.
-    let _ = (panes, pane, mode, frame);
-    Ok(list.to_vec())
+    if !panes.contains(pane) {
+        return Err(FloatRefusal::UnknownPane);
+    }
+    let mut next = normalized(panes, list);
+    let at = next.iter().position(|entry| entry.pane == *pane);
+    let float = match mode {
+        FloatMode::Toggle => at.is_none(),
+        FloatMode::On => true,
+        FloatMode::Off => false,
+    };
+    match (at, float) {
+        (Some(index), true) => {
+            let mut entry = next.remove(index);
+            if let Some(frame) = frame {
+                entry.frame = frame.clamped();
+            }
+            next.push(entry);
+        }
+        (Some(index), false) => {
+            next.remove(index);
+        }
+        (None, true) => {
+            if panes.len().saturating_sub(next.len()) <= 1 {
+                return Err(FloatRefusal::LastTiledPane);
+            }
+            let frame = match frame {
+                Some(frame) => frame.clamped(),
+                None => new_frame(&next),
+            };
+            next.push(Floating { pane: pane.clone(), frame });
+        }
+        (None, false) => {}
+    }
+    Ok(next)
 }
 
 /// The list with `pane` as the front pane, [`normalized`]. A pane that does not float changes nothing.
@@ -180,9 +229,12 @@ pub fn raised<P: Clone + PartialEq>(
     list: &[Floating<P>],
     pane: &P,
 ) -> Vec<Floating<P>> {
-    // Not written yet: the tests of this rule fail.
-    let _ = (panes, pane);
-    list.to_vec()
+    let mut next = normalized(panes, list);
+    if let Some(index) = next.iter().position(|entry| entry.pane == *pane) {
+        let entry = next.remove(index);
+        next.push(entry);
+    }
+    next
 }
 
 /// The tiled panes of the screen, in the order of `panes`: the panes the [`normalized`] list does not name.
