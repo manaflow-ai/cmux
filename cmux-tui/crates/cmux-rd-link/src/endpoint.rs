@@ -45,6 +45,19 @@ pub const MAX_PATHS: usize = 16;
 /// look like a dead path.
 pub const SILENCE_FLOOR_US: u64 = 100_000;
 
+/// While a session is live, the longest the current path goes without a
+/// packet from this side: with nothing else to send (a still screen, no
+/// input), a sealed keep-awake packet goes out. A Wi-Fi station that hears
+/// nothing for a few tens of milliseconds dozes, and the access point then
+/// holds its packets until the next beacon (100 ms and more), so the first
+/// key press after a pause waited for the radio. Both sides send their own,
+/// so both radios stay up. 26 bytes sealed (54 with UDP/IPv4): at most
+/// 2.7 KB/s each way, and none while media or input already flows.
+pub const KEEP_AWAKE_US: u64 = 20_000;
+/// Keep-awake stops once no session traffic (rd datagrams or control) went
+/// either way for this long, and starts again with the next.
+pub const KEEP_AWAKE_IDLE_US: u64 = 300_000_000;
+
 /// How long the current path may stay silent (traffic out, nothing back),
 /// and then leave a probe unanswered, before the endpoint acts: four
 /// smoothed round trips, at least [`SILENCE_FLOOR_US`].
@@ -110,6 +123,14 @@ pub struct Endpoint {
     networks: Vec<LocalNetwork>,
     /// Probes that already made their path suspect.
     flagged: HashSet<u64>,
+    /// [`Endpoint::set_keep_awake`]: the longest gap between packets out.
+    keep_awake_us: Option<u64>,
+    /// The newest time the caller gave (`send_datagram` takes none).
+    clock_us: u64,
+    /// When this side last sent anything.
+    sent_us: u64,
+    /// When session traffic (datagrams, control) last went either way.
+    traffic_us: u64,
 }
 
 impl Endpoint {
@@ -131,7 +152,28 @@ impl Endpoint {
             events: Vec::new(),
             networks: Vec::new(),
             flagged: HashSet::new(),
+            keep_awake_us: None,
+            clock_us: now_us,
+            sent_us: now_us,
+            traffic_us: now_us,
         })
+    }
+
+    /// Sends a keep-awake packet on the current path whenever this side has
+    /// sent nothing for `every_us` ([`KEEP_AWAKE_US`]) while the session has
+    /// traffic; `None` (the default) sends none.
+    pub fn set_keep_awake(&mut self, every_us: Option<u64>) {
+        self.keep_awake_us = every_us.filter(|us| *us > 0);
+    }
+
+    /// When the next keep-awake packet is due: established, a path is
+    /// current, and the session was not idle for [`KEEP_AWAKE_IDLE_US`].
+    fn keep_awake_at(&self) -> Option<u64> {
+        let every = self.keep_awake_us?;
+        let active = self.link.is_established()
+            && self.selector.current().is_some_and(|id| self.paths.contains_key(&id));
+        let at = self.sent_us.saturating_add(every);
+        (active && at < self.traffic_us.saturating_add(KEEP_AWAKE_IDLE_US)).then_some(at)
     }
 
     pub fn link(&self) -> &Link {
@@ -227,8 +269,12 @@ impl Endpoint {
         packet: &[u8],
         now_us: u64,
     ) -> Result<Vec<EndpointEvent>, LinkError> {
+        self.clock_us = self.clock_us.max(now_us);
         let was_established = self.link.is_established();
         let events = self.link.on_packet(packet, now_us)?;
+        if events.iter().any(|e| matches!(e, Event::Datagram(_) | Event::Control(_))) {
+            self.traffic_us = now_us;
+        }
         // Learn the route once the packet authenticated: a sealed packet that
         // opened (any event), or the handshake moving on.
         let authenticated = !events.is_empty() || (!was_established && self.link.is_established());
@@ -287,6 +333,8 @@ impl Endpoint {
     /// Seals one rd datagram for the current path (every path while none answers).
     pub fn send_datagram(&mut self, datagram: &[u8]) -> Result<Vec<Transmit>, LinkError> {
         let packet = self.link.seal_datagram(datagram)?;
+        self.traffic_us = self.clock_us;
+        self.sent_us = self.clock_us;
         Ok(self
             .routes()
             .into_iter()
@@ -296,6 +344,8 @@ impl Endpoint {
 
     /// Queues one control record (ordered, reliable).
     pub fn send_control(&mut self, record: Vec<u8>, now_us: u64) -> Result<(), LinkError> {
+        self.clock_us = self.clock_us.max(now_us);
+        self.traffic_us = now_us;
         self.link.send_control(record, now_us)
     }
 
@@ -308,6 +358,7 @@ impl Endpoint {
         // and makes startup wait for the 250 ms handshake retry. Advance the handshake timer
         // without queueing another copy so a delayed candidate still gets the original packet
         // and a route-less session still reaches its normal timeout.
+        self.clock_us = self.clock_us.max(now_us);
         if self.paths.is_empty() {
             self.link.poll_handshake_timers(now_us)?;
             return Ok(Vec::new());
@@ -358,6 +409,16 @@ impl Endpoint {
                 self.probes.insert(id, (path, now_us));
                 out.push(Transmit { route: entry.route, packet });
             }
+        }
+        if !out.is_empty() {
+            self.sent_us = now_us;
+        } else if self.keep_awake_at().is_some_and(|at| at <= now_us)
+            && let Some(route) =
+                self.selector.current().and_then(|id| self.paths.get(&id)).map(|p| p.route)
+        {
+            // Not counted against the path's silence: it asks for no answer.
+            out.push(Transmit { route, packet: self.link.keep_awake()? });
+            self.sent_us = now_us;
         }
         Ok(out)
     }
@@ -417,7 +478,10 @@ impl Endpoint {
                 None => None,
             }
         });
-        [self.link.next_deadline_us(), probe, timeout, silence].into_iter().flatten().min()
+        [self.link.next_deadline_us(), probe, timeout, silence, self.keep_awake_at()]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     /// Tells the peer the session ends, on the current routes.
