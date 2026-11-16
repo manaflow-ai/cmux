@@ -89,6 +89,14 @@ export const SILENT_MS = 75_000;
 /** Close code for a socket closed for silence. Not terminal: the app reconnects. */
 export const SILENT_CLOSE = 4004;
 const PERMISSION_SCOPES: PermissionScope[] = ["none", "ask", "view", "full"];
+/**
+ * The permission a host gives a device with no stored row: Full Control. Every device in this
+ * Durable Object is signed in to the same account (one UserDO per user), so a session between them
+ * is the person reaching their own machine, and nobody clicks Allow on the host (Leo, 2026-11-16,
+ * ask-da398bba67). A permission the person set (`none`, `ask`, `view`) is stored and always wins.
+ * Narrow it to `view` here to keep control behind a prompt.
+ */
+export const OWN_DEVICE_DEFAULT: PermissionScope = "full";
 const RELAY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PING = JSON.stringify({ type: "ping" });
@@ -102,6 +110,12 @@ interface WireTicket {
   peer: { id: string; name: string; signingKey: string };
   role: "viewer" | "host";
   scope: Scope;
+  /**
+   * Whose devices the session joins, as this hub authenticated them: `user` is one account, both
+   * devices signed in to it. The host decides from this, never from anything the viewer sends,
+   * whether the session is the person's own; a later team or shared-access owner says otherwise.
+   */
+  ownerKind: "user";
   reattach?: boolean;
 }
 
@@ -250,7 +264,7 @@ export class UserDO extends DurableObject<Env> {
 
   private permission(hostId: string, viewerId: string): PermissionScope {
     const row = this.sql.exec("SELECT scope FROM permissions WHERE host_id = ? AND viewer_id = ?", hostId, viewerId).toArray()[0];
-    return (row?.scope as PermissionScope | undefined) ?? "ask";
+    return (row?.scope as PermissionScope | undefined) ?? OWN_DEVICE_DEFAULT;
   }
 
   /**
@@ -861,7 +875,7 @@ export class UserDO extends DurableObject<Env> {
     for (const [self, peer, role] of [[viewer, host, "viewer"], [host, viewer, "host"]] as const) {
       const ticket = await mintTicket(this.env, { sid: s.id, role, dev: self.id, peer: peer.id, peerKey: peer.signing_key, scope: s.scope, ...(reattach ? { reattach: true } : {}) }, Date.now(), ttlS);
       if (!this.stillOpen(s.id)) return null;
-      result.push({ sessionId: s.id, ticket, signalURL, ice, peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope });
+      result.push({ sessionId: s.id, ticket, signalURL, ice, peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope, ownerKind: "user" });
     }
     return result as [WireTicket, WireTicket];
   }
