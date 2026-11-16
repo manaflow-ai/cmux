@@ -470,7 +470,8 @@ extension CloudHandlers {
             guard let declared = CloudMachineSecrets.declared(status: await read(CloudMachineConfig.statusPath)) else {
                 throw ActionFailure(message: CloudStrings.machineConfigNotApplied)
             }
-            let indexURL = home.appendingPathComponent(".config/cmux/cloud-secrets.json")
+            // This build's index (BuildStatePaths: a DEV build's own), the file `cmux cloud secret` writes.
+            let indexURL = BuildStatePaths.cloudSecretsIndex(environment: ProcessInfo.processInfo.environment, home: home)
             // Never through a link, never waiting on a FIFO, bounded: the files lane is shared.
             let (index, ledgerFile) = try await work.run(.userBlocking, mayBlock: .files) {
                 (CloudMachineSecrets.read(indexURL.path), CloudMachineSecrets.read(ledgerURL.path))

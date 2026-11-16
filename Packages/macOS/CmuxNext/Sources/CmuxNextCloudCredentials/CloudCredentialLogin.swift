@@ -69,7 +69,8 @@ import Foundation
     }
 
     /// The Keychain service `cmux cloud secret set` stores under.
-    nonisolated static let service = "cmux-cloud-secret"
+    /// `cmux-cloud-secret`, or a DEV build's own (``BuildStatePaths/cloudSecretsService``).
+    nonisolated static var service: String { BuildStatePaths.cloudSecretsService(environment: ProcessInfo.processInfo.environment) }
     /// How long one Keychain read may take before the login counts as unreadable.
     nonisolated static let readTimeout: Duration = .seconds(30)
     /// `security find-generic-password`'s exit status for no such item (errSecItemNotFound).

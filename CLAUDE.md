@@ -433,6 +433,14 @@ What does not reach a dev build yet (each lands in nightly's space, because noth
 provider webhooks (GitHub, Slack, Linear, Google), OAuth completions from the web, invite links and their landing
 pages, and inbound texts and email. A dev build's Postgres projection rows go to Postgres only (as the primary, or as
 the shadow beside MySQL), never to MySQL; with no Postgres target a dev build's `home.search` finds nothing.
+On the Mac a dev build's settings and local state are its own too: `BuildStatePaths` (CmuxNextCompat) keeps its
+`cmux-next.json` (with the themes, keybindings, customize, automations and skills beside it), Cloud secrets index and
+Keychain service, keys audit, host budget, recovery drafts, agent home, chat uploads and caches under
+`~/Library/Application Support/cmux-next/builds/<key>` (caches: `~/Library/Caches/cmux-next/builds/<key>`), starts them
+empty (schema defaults plus `SettingsBuildDefaults`, never a copy of nightly's) and names them to its Rust children
+through its environment; nightly, stable and the other shipped builds keep `~/.config/cmux`. The gate's "Dev build state
+is its own" check (`scripts/cmux-next/check-dev-build-state.py`) refuses a new shared path without a reviewed row. The dev
+sign-in inputs `~/.config/cmux/dev-account` and `~/.secrets/cmuxterm-dev.env` stay shared on purpose.
 
 ## Settings on every surface
 
