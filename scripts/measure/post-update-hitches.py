@@ -11,7 +11,7 @@ try to iron out all the lag spikes". This measures them:
   2. seeds a home while FROM runs: WORKSPACES terminal workspaces (half print in a loop, each with a second tab),
      one long agent chat on the app's own acpmux (chat_open_agent.py's realistic turns, CHAT_TURNS of them, opened
      as its own workspace), a couple of New Tabs and a typing workspace with scrollback; lets it settle 30 s;
-  3. stages the update (palette.checkForUpdates until updates.status is "installing"), quits (action quit: Sparkle
+  3. stages the update (downloadAutomatically on in the home's cmux-next.json, palette.checkForUpdates until updates.status is "installing"), quits (action quit: Sparkle
      installs on quit), waits until the bundle's CFBundleVersion is TO, and never lets Sparkle relaunch it;
   4. measures launch A (the first of TO, from the same home) and launch B (TO again after a normal quit) for
      SECONDS each from the launch, with the same script:
@@ -744,7 +744,7 @@ def seed_chat(app: App, opts):
     if not sock or not os.access(cli, os.X_OK):
         return {"error": f"no acpmux socket ({sock}) or CLI"}
     env = dict(os.environ, ACPMUX_SOCKET=sock, HOME=str(app.root / "h"))
-    made = subprocess.run([str(cli), "acp", "new", "--json", "-d", "-m", TURNS_AGENT[0], "turn: 0"],
+    made = subprocess.run([str(cli), "new", "--json", "-d", "-m", TURNS_AGENT[0], "turn: 0"],
                           capture_output=True, text=True, timeout=180, env=env)
     try:
         session = json.loads(made.stdout)["sessionId"]
@@ -1111,7 +1111,10 @@ def run(opts, root: Path, report):
         home = root / "h"
         (home / ".config/cmux").mkdir(parents=True, exist_ok=True)
         (home / ".config/cmux/cmux-next.json").write_text(json.dumps(
-            {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True}}, indent=1))
+            # downloadAutomatically: a person who keeps automatic updates; it is user-only over the socket
+            # (setting_user_only), so it goes in the person's own file, before the launch.
+            {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "downloadAutomatically": True}},
+            indent=1))
         (home / ".zshrc").touch()
         # N: seed, settle, stage, quit -> install.
         app.launch(out / "N")

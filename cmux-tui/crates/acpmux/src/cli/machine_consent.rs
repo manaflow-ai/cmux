@@ -4,7 +4,7 @@
 //! enrollment writes this authority before redeem. Arbitrary branch-only old
 //! ACPMUX_HOME state has no cross-tag upgrade path and must rejoin; inspecting
 //! the current daemon's state below is defense in depth, not global discovery.
-use super::cloud_join::{Consent, ConsentState, HeldLock};
+use crate::machine_record::{Consent, ConsentState, HeldLock};
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -89,7 +89,7 @@ impl Authority {
             .and_then(|file| serde_json::from_reader::<_, Value>(file).ok())
             .is_some_and(|marker| {
                 marker.get("by").and_then(Value::as_str)
-                    == Some(super::cloud_join::JOINED_BY_SIGN_IN)
+                    == Some(crate::machine_record::JOINED_BY_SIGN_IN)
             })
     }
 
@@ -129,8 +129,8 @@ impl Authority {
     pub(super) fn retain_own_requirement(&self) -> Result<()> {
         if has_own_requirement(&self.legacy)? {
             let sign_in = !exists(&self.legacy.join("consent.json"))?
-                && super::cloud_join::load_at(&self.legacy)?.is_some_and(|record| {
-                    record.joined_by.as_deref() == Some(super::cloud_join::JOINED_BY_SIGN_IN)
+                && crate::machine_record::load_at(&self.legacy)?.is_some_and(|record| {
+                    record.joined_by.as_deref() == Some(crate::machine_record::JOINED_BY_SIGN_IN)
                 });
             self.enroll_as(sign_in)?;
         }
@@ -140,7 +140,7 @@ impl Authority {
     fn required(&self) -> Result<bool> {
         self.validate_namespace()?;
         self.retain_own_requirement()?;
-        super::cloud_join::load_at(&self.legacy)?;
+        crate::machine_record::load_at(&self.legacy)?;
         if exists(&self.root.join("enrolled.json"))? {
             self.validate_marker()?;
         }
@@ -171,8 +171,8 @@ impl Authority {
     }
 
     pub(super) fn set(&self, surface: &str, granted: bool) -> Result<Consent> {
-        let user = if surface == super::cloud_join::SIGNED_IN_MACHINES {
-            super::cloud_join::machine_user_id()
+        let user = if surface == crate::machine_record::SIGNED_IN_MACHINES {
+            crate::machine_record::machine_user_id()
         } else {
             None
         };
@@ -196,7 +196,7 @@ impl Authority {
         match surface {
             "screen" => consent.screen = state,
             "control" => consent.control = state,
-            super::cloud_join::SIGNED_IN_MACHINES => {
+            crate::machine_record::SIGNED_IN_MACHINES => {
                 anyhow::ensure!(
                     !granted || user.is_some(),
                     "this machine is not joined to an account"
@@ -237,7 +237,10 @@ impl Authority {
         from: Option<&str>,
         user: Option<&str>,
     ) -> Result<()> {
-        anyhow::ensure!(super::cloud_join::is_consent_surface(surface), "unknown consent surface");
+        anyhow::ensure!(
+            crate::machine_record::is_consent_surface(surface),
+            "unknown consent surface"
+        );
         self.prepare()?;
         let mut record = serde_json::Map::new();
         record.insert("event".into(), json!("consent_refused"));
@@ -278,7 +281,7 @@ impl Authority {
 /// switch nothing is granted, the app shows no old ask, and the next request is asked again.
 /// `signedInMachinesUser` is left as written. Screen and control are unchanged.
 pub(crate) fn for_account(mut status: Value, account: Option<&str>) -> Value {
-    let sim = super::cloud_join::SIGNED_IN_MACHINES;
+    let sim = crate::machine_record::SIGNED_IN_MACHINES;
     let mine = |user: Option<&Value>| account.is_some() && user.and_then(Value::as_str) == account;
     if let Some(consent) = status.get_mut("consent").and_then(Value::as_object_mut)
         && !mine(consent.get("signedInMachinesUser"))
