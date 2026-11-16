@@ -16,7 +16,11 @@ struct DeviceMachine: Sendable, Equatable {
     let id: String?
 
     /// This Mac's, read once.
-    static let current = DeviceMachine(hardwareUUID: Self.platformUUID(), secret: DeviceMachineSecret.load(at: DeviceMachineSecret.defaultURL))
+    /// Only a Mac names one: elsewhere there is no hardware UUID, so no secret is made either.
+    static let current: DeviceMachine = {
+        guard let uuid = platformUUID() else { return DeviceMachine(hardwareUUID: nil, secret: nil) }
+        return DeviceMachine(hardwareUUID: uuid, secret: DeviceMachineSecret.load(at: DeviceMachineSecret.defaultURL))
+    }()
 
     init(hardwareUUID: String?, secret: Data?) {
         guard let uuid = hardwareUUID?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(), !uuid.isEmpty,
@@ -50,7 +54,7 @@ enum DeviceMachineSecret {
     /// Not a build's state root (BuildIdentity) on purpose: the one key is what makes every build name the same Mac.
     static var defaultURL: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
         return support.appendingPathComponent("cmux-device-hub", isDirectory: true).appendingPathComponent("machine.key")
     }
 
