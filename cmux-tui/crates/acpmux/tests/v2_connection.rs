@@ -90,11 +90,13 @@ async fn daemon_hello(socket: &std::path::Path) {
 fn v2_pr09_listen_start() {
     const ROUNDS: usize = 5;
     const SAMPLES: usize = 20;
+    let fixture_started = Instant::now();
     let small_fixture = start_fixture(acpmux::god_fixture::Shape {
         chats: 1,
         ..acpmux::god_fixture::Shape::small()
     });
     let god_fixture = start_fixture(acpmux::god_fixture::Shape::god());
+    let fixture_build_seconds = fixture_started.elapsed().as_secs_f64();
     let mut small = Vec::with_capacity(ROUNDS);
     let mut god = Vec::with_capacity(ROUNDS);
     for round in 0..ROUNDS {
@@ -130,6 +132,7 @@ fn v2_pr09_listen_start() {
         "small_p95": small_p95,
         "god_p95": god_p95,
         "god_p95_all": all_p95(&god),
+        "fixture_build_seconds": fixture_build_seconds,
         "unit": "ns",
     })
     .to_string();
