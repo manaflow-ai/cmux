@@ -37,6 +37,7 @@ run() { # <configuration> -> out, rc
   out=$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" ARCHS=arm64 CONFIGURATION="$1" \
     TARGET_BUILD_DIR="$TMP/build" TARGET_TEMP_DIR="$TMP/build/tmp" WRAPPER_NAME=app.app \
     CMUX_NEXT_CUA_HELPER_PIN="$TMP/pin.json" CMUX_CUA_ASSET_CACHE_DIR="$TMP/cache" \
+    CMUX_NEXT_SKIP_CMUX_REMOTE=1 \
     CMUX_CEF_STORE_URL="file://$TMP/store" CMUX_CEF_R2_ENV_FILE=/dev/null \
     /bin/bash "$S/embed-cua-helper-dev.sh" 2>&1)
   rc=$?
