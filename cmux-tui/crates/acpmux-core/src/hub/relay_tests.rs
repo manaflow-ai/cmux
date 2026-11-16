@@ -426,6 +426,8 @@ async fn a_local_connection_gets_the_relayed_page_on_its_held_sub() {
     task.await.unwrap().unwrap();
 }
 
+use crate::conn::Source as ConnSource;
+
 /// A list source that also answers a chat's `page` through its later reply at once, and
 /// records the sids its connection ends.
 struct ChatAndList {
@@ -433,10 +435,10 @@ struct ChatAndList {
     ended: Mutex<Vec<String>>,
 }
 
-impl Source for ChatAndList {
+impl ConnSource for ChatAndList {
     fn subscribe(
         &self,
-        sub: &crate::wire::Sub,
+        sub: &Sub,
         person: Option<&[u8]>,
         sink: Arc<dyn crate::conn::OfferSink>,
     ) -> Result<(), crate::conn::ConnError> {
