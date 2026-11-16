@@ -251,7 +251,7 @@ public final class MacScreenDevicesSettings {
                         checking: checking.contains(relay.id), check: checks[relay.id])
         }
         return State(available: true, status: Self.status(hub), signIn: nil, error: error ?? hubHost.lastError, labels: labels,
-                     thisDevice: this, others: hub.otherDevices.map { device(for: $0, hub: hub, me: me) }, sharing: sharing,
+                     thisDevice: this, others: others(hub, me: me), sharing: sharing,
                      relays: relays, history: hub.audit.map { Self.historyRow($0, names: names, me: me) })
     }
 
@@ -271,7 +271,7 @@ public final class MacScreenDevicesSettings {
         }
     }
 
-    private func device(for device: HubDevice, hub: DeviceHub, me: String) -> State.Device {
+    func device(for device: HubDevice, hub: DeviceHub, me: String) -> State.Device {
         let isMe = device.id == me
         let presence: String
         if isMe || device.online {
