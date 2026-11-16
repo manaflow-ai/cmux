@@ -14,33 +14,36 @@ public struct LaunchRecordImage: Sendable {
     }
 }
 
-/// The app supplies live state; the adapter owns persistence and never reads launch files.
-@MainActor
-public protocol LaunchRecordHost: AnyObject {
-    var launchRecordBundleID: String? { get }
-    var launchRecordWork: BackgroundWork { get }
-    var launchRecordRestored: Bool { get }
-    var launchRecordSocketPath: String? { get async }
-    func launchRecordSnapshot(images: [String: LaunchRecordImage], socketPath: String) -> LaunchRecordSnapshot
-}
-
 /// Debounced launch-record persistence shared by the app's window-record owner.
 @MainActor
 public final class AppLaunchRecord {
-    private weak var host: (any LaunchRecordHost)?
+    private let bundleID: String?
+    private let work: BackgroundWork
+    private let restored: @MainActor () -> Bool
+    private let socketPath: @MainActor () async -> String?
+    private let snapshot: @MainActor ([String: LaunchRecordImage], String) -> LaunchRecordSnapshot
     private var images: [String: LaunchRecordImage] = [:]
     private lazy var writer: LaunchRecordWriter? = {
-        guard let host, let bundleID = host.launchRecordBundleID else { return nil }
+        guard let bundleID else { return nil }
         let url = LaunchTimesFile.supportDirectory(bundleID: bundleID)
             .appending(path: "launch-record.bin", directoryHint: .notDirectory)
-        return LaunchRecordWriter(url: url, work: host.launchRecordWork) { [weak self] in
-            guard let self, let host = self.host else { return nil }
-            let socket = await host.launchRecordSocketPath ?? ""
-            return host.launchRecordSnapshot(images: self.images, socketPath: socket)
+        return LaunchRecordWriter(url: url, work: work) { [weak self] in
+            guard let self else { return nil }
+            let socket = await self.socketPath() ?? ""
+            return self.snapshot(self.images, socket)
         }
     }()
 
-    public init(host: any LaunchRecordHost) { self.host = host }
+    public init(bundleID: String?, work: BackgroundWork,
+                restored: @escaping @MainActor () -> Bool,
+                socketPath: @escaping @MainActor () async -> String?,
+                snapshot: @escaping @MainActor ([String: LaunchRecordImage], String) -> LaunchRecordSnapshot) {
+        self.bundleID = bundleID
+        self.work = work
+        self.restored = restored
+        self.socketPath = socketPath
+        self.snapshot = snapshot
+    }
 
     public func setImage(_ image: LaunchRecordImage?, forWindow id: String) {
         images[id] = image
@@ -48,12 +51,12 @@ public final class AppLaunchRecord {
     }
 
     public func schedule() {
-        guard let host, host.launchRecordRestored else { return }
+        guard restored() else { return }
         writer?.schedule()
     }
 
     public func flush() async {
-        guard let host, host.launchRecordRestored else { return }
+        guard restored() else { return }
         await writer?.flush()
     }
 }

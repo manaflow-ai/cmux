@@ -43,7 +43,14 @@ final class WindowRecordSaver {
     var saves = WindowRecordSaves()
     /// The daemon's window records of this install (`window-records-v1`).
     private let recordMirror = WindowRecordMirror()
-    private(set) lazy var launchRecord = AppLaunchRecord(host: self)
+    private(set) lazy var launchRecord = AppLaunchRecord(
+        bundleID: host?.environment.launch.bundleID,
+        work: work,
+        restored: { [weak self] in self?.host?.windows.restored ?? false },
+        socketPath: { [weak self] in await self?.host?.launchRecordSocketPath },
+        snapshot: { [weak self] images, socketPath in
+            self?.host?.launchRecordSnapshot(images: images, socketPath: socketPath) ?? LaunchRecordSnapshot()
+        })
     private var selectedTabsCache: [String: TabSelectionRecord] = [:]
     /// Panes whose remembered tab a record build read on the main thread (`SpaceSwitchRecordSaveTests`).
     var paneReads: Int { selectedTabsCache.values.reduce(0) { $0 + $1.paneReads } }
@@ -246,27 +253,7 @@ final class WindowRecordSaver {
 }
 
 @MainActor
-extension WindowRecordSaver: LaunchRecordHost {
-    var launchRecordBundleID: String? { host?.environment.launch.bundleID }
-    var launchRecordWork: BackgroundWork { work }
-    var launchRecordRestored: Bool { host?.windows.restored ?? false }
-    var launchRecordSocketPath: String? {
-        get async {
-            guard let host else { return nil }
-            return await host.launchRecordSocketPath
-        }
-    }
-
-    func launchRecordSnapshot(images: [String: LaunchRecordImage], socketPath: String) -> LaunchRecordSnapshot {
-        host?.launchRecordSnapshot(images: images, socketPath: socketPath) ?? LaunchRecordSnapshot()
-    }
-}
-
-@MainActor
-extension AppServices: LaunchRecordHost {
-    var launchRecordBundleID: String? { environment.launch.bundleID }
-    var launchRecordWork: BackgroundWork { work }
-    var launchRecordRestored: Bool { windows.restored }
+extension AppServices {
     var launchRecordSocketPath: String? {
         get async { await daemon.connection?.endpoint?.socketPath }
     }
