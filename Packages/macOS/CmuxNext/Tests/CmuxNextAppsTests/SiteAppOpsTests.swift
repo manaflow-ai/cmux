@@ -111,7 +111,7 @@ struct SiteAppOpsTests {
         // Everything dropped (a new daemon connection that names nothing): each held pair is removed.
         let cleared = snapshot.replace(with: ["styles": []])
         #expect(cleared.map { [$0.app, $0.origin] } == [["local/y", "https://a.test"]])
-        #expect(cleared.allSatisfy(\.isRemoval))
+        #expect(cleared.allSatisfy { $0.isRemoval })
         #expect(snapshot.entries.isEmpty)
         #expect(snapshot.replace(with: ["styles": []]).isEmpty, "nothing held, nothing to remove")
     }
