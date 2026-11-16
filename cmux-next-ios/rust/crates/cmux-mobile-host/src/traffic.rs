@@ -149,7 +149,7 @@ impl Traffic {
 
     /// The meter `kind`'s channels count into.
     pub fn meter(&self, kind: Kind) -> Arc<ByteMeter> {
-        Arc::clone(&self.meters[kind.index()])
+        self.meters.get(kind.index()).map(Arc::clone).unwrap_or_default()
     }
 
     fn totals(&self) -> Totals {
@@ -194,23 +194,28 @@ impl Traffic {
                 .collect()
         };
         let row = |name: &str, now: (u64, u64), bases: &[(f64, (u64, u64))]| {
-            let mut row = json!({"service": name, "in_bytes": now.0, "out_bytes": now.1});
+            let mut row = serde_json::Map::new();
+            row.insert("service".into(), json!(name));
+            row.insert("in_bytes".into(), json!(now.0));
+            row.insert("out_bytes".into(), json!(now.1));
             for ((_, label), (span, base)) in WINDOWS.iter().zip(bases) {
                 let rate = |a: u64, b: u64| {
                     if *span > 0.0 { (a.saturating_sub(b) as f64 / span).round() as u64 } else { 0 }
                 };
-                row[format!("in_per_s_{label}")] = json!(rate(now.0, base.0));
-                row[format!("out_per_s_{label}")] = json!(rate(now.1, base.1));
+                row.insert(format!("in_per_s_{label}"), json!(rate(now.0, base.0)));
+                row.insert(format!("out_per_s_{label}"), json!(rate(now.1, base.1)));
             }
-            row
+            Value::Object(row)
         };
         let mut services = Vec::new();
         let mut sum = (0u64, 0u64);
         let mut sum_bases: Vec<(f64, (u64, u64))> = bases.iter().map(|(span, _)| (*span, (0, 0))).collect();
         for (index, kind) in Kind::ALL.iter().enumerate() {
-            let now_kind = totals[index];
-            let kind_bases: Vec<(f64, (u64, u64))> =
-                bases.iter().map(|(span, base)| (*span, base[index])).collect();
+            let now_kind = totals.get(index).copied().unwrap_or_default();
+            let kind_bases: Vec<(f64, (u64, u64))> = bases
+                .iter()
+                .map(|(span, base)| (*span, base.get(index).copied().unwrap_or_default()))
+                .collect();
             sum = (sum.0 + now_kind.0, sum.1 + now_kind.1);
             for (total, (_, base)) in sum_bases.iter_mut().zip(&kind_bases) {
                 total.1 = (total.1.0 + base.0, total.1.1 + base.1);
@@ -240,19 +245,19 @@ pub async fn run_sampler() {
         seconds += 1;
         if seconds.is_multiple_of(60) {
             let report = TRAFFIC.report(now);
-            let busy: Vec<String> = report["services"]
-                .as_array()
+            let number = |row: &Value, key: &str| row.get(key).and_then(Value::as_u64).unwrap_or(0);
+            let busy: Vec<String> = report
+                .get("services")
+                .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
-                .filter(|row| {
-                    row["in_per_s_60s"].as_u64().unwrap_or(0) + row["out_per_s_60s"].as_u64().unwrap_or(0) > 0
-                })
+                .filter(|row| number(row, "in_per_s_60s") + number(row, "out_per_s_60s") > 0)
                 .map(|row| {
                     format!(
                         "{} in {}B/s out {}B/s",
-                        row["service"].as_str().unwrap_or_default(),
-                        row["in_per_s_60s"],
-                        row["out_per_s_60s"]
+                        row.get("service").and_then(Value::as_str).unwrap_or_default(),
+                        number(row, "in_per_s_60s"),
+                        number(row, "out_per_s_60s")
                     )
                 })
                 .collect();

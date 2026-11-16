@@ -139,8 +139,10 @@ async fn handle(stream: UnixStream, dialer: Arc<Dialer>) -> Result<()> {
 /// `{"op":"traffic"}`: this host's bytes in and out per service (`traffic.rs`).
 fn traffic_reply(now: Instant) -> Value {
     let mut answer = crate::traffic::TRAFFIC.report(now);
-    answer["ok"] = json!(true);
-    answer["pid"] = json!(std::process::id());
+    if let Some(fields) = answer.as_object_mut() {
+        fields.insert("ok".into(), json!(true));
+        fields.insert("pid".into(), json!(std::process::id()));
+    }
     answer
 }
 
