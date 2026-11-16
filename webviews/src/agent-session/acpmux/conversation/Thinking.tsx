@@ -57,34 +57,40 @@ function useQuiet(
   const [quiet, setQuiet] = useState(() => key === undefined || age() >= ms);
   // The key the line mounted with: only that one is timed from `since`; a later key just moved.
   const mounted = useRef(key);
+  // The newest key the line has heard, from its props or the pulse, and when its window ends. A draw
+  // that brings a key the pulse already brought (the frame drew for its place, long after the chunk)
+  // keeps that window: it is no new chunk.
+  const latest = useRef<{ key: string; until: number } | undefined>(undefined);
   // The first streamed assistant chunk inserts the answer and changes `key` in the same commit.
   // The line reads "Writing" before that commit paints; an effect would leave one frame of
   // "Thinking" under the first token. The timer remains an ordinary effect so it never blocks layout.
   useLayoutEffect(() => {
     if (key === undefined) {
+      latest.current = undefined;
       setQuiet(true);
       return;
     }
     // When the window ends: `ms` after the key last moved. The timer looks again when it fires, so a
     // chunk heard in between only moves this, never a timer.
-    let until = now() + (key === mounted.current ? ms - age() : ms);
+    if (latest.current?.key !== key)
+      latest.current = { key, until: now() + (key === mounted.current ? ms - age() : ms) };
+    const span = latest.current;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const settle = () => {
-      const left = until - now();
+      const left = span.until - now();
       timer = left > 0 ? setTimeout(settle, left) : undefined;
       if (left <= 0) setQuiet(true);
     };
-    if (until <= now()) setQuiet(true);
+    if (span.until <= now()) setQuiet(true);
     else {
       setQuiet(false);
-      timer = setTimeout(settle, until - now());
+      timer = setTimeout(settle, span.until - now());
     }
-    let last = key;
     const off = pulse?.subscribe(() => {
       const moved = pulse.line()?.quietKey;
-      if (moved === undefined || moved === last) return;
-      last = moved;
-      until = now() + ms;
+      if (moved === undefined || moved === span.key) return;
+      span.key = moved;
+      span.until = now() + ms;
       setQuiet(false);
       timer ??= setTimeout(settle, ms);
     });
@@ -109,10 +115,17 @@ const noSubscription = () => () => {};
 /// When `key` last changed while the line was mounted (on `now`'s clock), or undefined while it is
 /// still the key the line mounted with: the moment the line saw a new event or a new state, for
 /// what carries no time of its own (a streamed reply's chunks, a state the line itself derives).
-function useChangedAt(key: string | undefined, now: () => number): number | undefined {
+/// `earlier` says when a key was already heard without a draw (the live line's pulse): a draw that
+/// brings it late takes that time, or none, never the draw's.
+function useChangedAt(
+  key: string | undefined,
+  now: () => number,
+  earlier?: (key: string | undefined) => number | null | undefined,
+): number | undefined {
   const [seen, setSeen] = useState<{ key: string | undefined; at?: number }>({ key });
   if (seen.key === key) return seen.at;
-  const next = { key, at: now() };
+  const before = earlier?.(key);
+  const next = { key, at: before === undefined ? now() : (before ?? undefined) };
   setSeen(next);
   return next.at;
 }
@@ -449,7 +462,11 @@ export function Thinking({
   // it says "Waiting" with the time since it last heard, never a stale "Thinking 683ms" (Leo,
   // 2026-11-12: "the whatever ms gets stuck and becomes false really quickly.... or else gets
   // stale?"). It last heard at the rows' latest dated moment, or when a new event reached the line.
-  const heardChanged = useChangedAt(heardKey, now);
+  const heardChanged = useChangedAt(
+    heardKey,
+    now,
+    pulse && ((key) => (key !== undefined && pulse.line()?.heardKey === key ? (pulse.heard() ?? null) : undefined)),
+  );
   const heardPulse = useHeardPulse(pulse);
   const heard = heardAt === undefined ? undefined : Math.max(heardAt, heardChanged ?? heardAt, heardPulse ?? heardAt);
   const thinkingNow = doing === undefined && !waitsOnAgents && !writing && !compacting;
