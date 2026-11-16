@@ -8,5 +8,5 @@
     {"title": "Previous Space: the first window's space, in this window too", "rpc": {"method": "debug.key", "params": {"key": "h", "modifiers": ["control", "option", "command"]}}, "wait": 2.5, "clip": true},
     {"title": "End", "wait": 0.5, "clip": true}
   ],
-  "crop": [0, 0, 1, 1]
+  "crop": [0, 0, 0.7, 0.6]
 }
