@@ -14,8 +14,10 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod accept_errors;
 pub mod acp_todo_plan;
 pub mod acpmux_mcp;
+pub mod acpmux_mcp_names;
 pub mod adopt;
 pub mod adopt_live;
 pub mod adopt_replay;
@@ -48,6 +50,7 @@ pub mod cli;
 pub mod cli_caller;
 pub mod client;
 pub mod clock;
+pub(crate) mod clock_text;
 pub mod cloud_host;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
@@ -61,6 +64,7 @@ mod codex_cloud_auth;
 pub mod codex_desktop;
 pub mod complete;
 pub mod config;
+pub mod conn_origin;
 pub mod context_inventory;
 pub mod cpu_class;
 pub mod cua_socket;
@@ -152,6 +156,8 @@ pub mod mcp_hint;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_http;
+pub mod mesh_relay_config;
+pub mod meta_fields;
 pub mod model_copies;
 pub mod name_match;
 #[cfg(target_os = "macos")]
@@ -176,6 +182,7 @@ pub mod peer_link;
 pub mod peer_mirror;
 pub mod peer_paths;
 pub mod peer_states;
+pub mod person_proof;
 pub mod placement;
 #[cfg(not(unix))]
 mod platform;
@@ -189,6 +196,7 @@ pub mod prompt_provenance;
 pub mod prompt_uploads;
 pub mod protected_folders;
 pub mod protocol;
+pub mod provenance_keys;
 mod provider_cloud_auth;
 pub mod qos;
 pub mod question_answer;
@@ -220,6 +228,7 @@ pub mod session_env;
 pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;
+pub mod session_order;
 mod session_scope;
 pub mod session_search;
 /// A workspace here for the person's other machines, over the hub carrier (`session_service.rs`).
@@ -234,6 +243,7 @@ pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
+pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
 #[cfg(all(test, unix))]
 mod single_shot_list_tests;
@@ -283,6 +293,7 @@ pub mod workflow_runs;
 pub mod worktree_sessions;
 pub mod wrap_up_suggestion;
 pub mod write_journal;
+pub mod ws_auth;
 pub mod xhost_audit;
 
 pub mod model_catalog;

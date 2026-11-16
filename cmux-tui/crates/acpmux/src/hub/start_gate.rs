@@ -19,8 +19,7 @@ pub const CALLER_SOCKET_ENV: &str = "ACPMUX_SESSION_TOKEN_SOCKET";
 /// The env vars `caller_env` sets: acpmux's alone, never a profile's,
 /// preset's or request's (`agent/command.rs` drops them from those).
 pub const CALLER_ENV_KEYS: [&str; 2] = [CALLER_TOKEN_ENV, CALLER_SOCKET_ENV];
-/// `_meta.acpmux` field of a first `initialize`: `{sessionId, token}`.
-pub const CALLER_FIELD: &str = "callerSession";
+pub use crate::meta_fields::CALLER_FIELD;
 /// `_meta.acpmux` field of `session/new`: the mode the session starts in.
 pub const START_MODE_FIELD: &str = "mode";
 
