@@ -174,8 +174,15 @@ struct DensityControlsProportionTests {
                     try #require(!close.isHidden && !more.isHidden)
                     let label = "\(preset)/\(density)/\(text)"
                     if spot.atEnd {
-                        #expect(abs((view.bounds.maxX - close.frame.maxX) / close.frame.width - 3 / 20.0) < 0.01,
-                                "\(label): the trailing inset scales with the square")
+                        let proportionalInset = close.frame.width * 3 / 20
+                        let resizeInset = SidebarStyle.trailingClearanceEdge + SidebarResizeBand.contentInset - SidebarStyle.rowEdgeGap
+                        let largestHit = max(close.frame.width, SidebarStyle.searchHeight)
+                        let expectedInset = max(proportionalInset, resizeInset + (largestHit - close.frame.width) / 2)
+                        #expect(abs((view.bounds.maxX - close.frame.maxX - expectedInset) / close.frame.width) < 0.01,
+                                "\(label): the proportional inset also clears the largest trailing hit target")
+                        let column = SidebarStyle.trailingColumnCenterX(rowWidth: view.bounds.width)
+                        #expect(abs((close.frame.midX - column) / close.frame.width) < 0.01,
+                                "\(label): the close button stays on the shared trailing column")
                     }
                     #expect(!close.frame.intersects(more.frame), "\(label): \(close.frame), \(more.frame)")
                     #expect(abs(close.frame.minX - more.frame.maxX - close.frame.width / 10) < 0.01,

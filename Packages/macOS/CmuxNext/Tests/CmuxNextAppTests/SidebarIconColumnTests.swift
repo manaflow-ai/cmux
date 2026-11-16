@@ -151,7 +151,8 @@ import Testing
         }
     }
 
-    /// The unread dot, an error mark and Home's dot share one trailing center x, each on its row's center line.
+    /// Workspace marks share the content column, one slot before visible Share Screen. The screen action
+    /// keeps Home's trailing column; every mark stays on its row's center line.
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
     func trailingMarksShareOneCenterX(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
@@ -163,7 +164,18 @@ import Testing
             let dot = try Self.markCenter(list, unreadRow.rowBadge), error = try Self.markCenter(list, errorRow.rowBadge)
             let homeDot = try Self.markCenter(list, home.rowBadge)
             #expect(abs(dot.x - error.x) <= Self.tolerance, "\(c.testDescription): the unread dot centers at \(dot.x), the error at \(error.x)")
-            #expect(abs(homeDot.x - error.x) <= Self.tolerance, "\(c.testDescription): Home's dot centers at \(homeDot.x), the error at \(error.x)")
+            for (id, mark, row) in [(Self.unread, dot, unreadRow), (Self.failed, error, errorRow)] {
+                let screen = try #require(row.screenSlot.made, "the local workspace has Share Screen")
+                #expect(!screen.isHidden && screen.isEnabled)
+                #expect(screen.accessibilityIdentifier() == "cmux.sidebar.workspace.\(id.rawValue).screen")
+                #expect(screen.accessibilityLabel() == Strings.shareScreen)
+                let screenCenter = Self.center(list, screen.bounds, in: screen)
+                let column = list.convert(CGPoint(x: SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width), y: 0), from: row).x
+                #expect(abs(screenCenter.x - column) <= Self.tolerance, "Share Screen stays on the full row's trailing column")
+                #expect(abs(screenCenter.x - homeDot.x) <= Self.tolerance, "Share Screen shares Home's trailing column")
+                #expect(abs(mark.x - (screenCenter.x - SidebarStyle.trailingSlotPitch)) <= Self.tolerance,
+                        "\(c.testDescription): the status mark reserves one control slot before Share Screen")
+            }
             let rows: [(String, CGPoint, NSView)] = [("unread", dot, unreadRow), ("error", error, errorRow), ("Home", homeDot, home)]
             for (name, mark, row) in rows {
                 let rowMidY = Self.center(list, row.bounds, in: row).y
