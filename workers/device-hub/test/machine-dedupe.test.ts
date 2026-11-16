@@ -68,8 +68,8 @@ describe("one record per machine", () => {
   it("a second build of one Mac takes the first one's place, and the first comes back when it talks again", async () => {
     const account = await signIn();
     const phone = await build(account, "Phone", null, "ios");
-    const nightly = await build(account, "cosmic-gray", "machine-cosmic-gray-0001");
-    const dev = await build(account, "cosmic-gray", "machine-cosmic-gray-0001");
+    const nightly = await build(account, "Studio", "machine-studio-mac-0001");
+    const dev = await build(account, "Studio", "machine-studio-mac-0001");
     expect(await ids(phone)).toEqual([phone.id, dev.id].sort());
     expect((await list(phone)).find((d) => d.id === dev.id).machine).toMatch(/^[0-9a-f]{32}$/);
 
@@ -85,18 +85,18 @@ describe("one record per machine", () => {
   it("never supersedes an online build; the list shows the machine once and each build sees itself", async () => {
     const account = await signIn();
     const phone = await build(account, "Phone", null, "ios");
-    const nightly = await build(account, "cosmic-gray", "machine-cosmic-gray-0002");
+    const nightly = await build(account, "Studio", "machine-studio-mac-0002");
     await nightly.connect();
-    const dev = await build(account, "cosmic-gray", "machine-cosmic-gray-0002");
+    const dev = await build(account, "Studio", "machine-studio-mac-0002");
     await dev.connect();
     // Both are live records; the other devices see the Mac once, each build sees itself.
-    expect((await list(phone)).filter((d) => d.name === "cosmic-gray")).toHaveLength(1);
+    expect((await list(phone)).filter((d) => d.name === "Studio")).toHaveLength(1);
     expect(await ids(nightly)).toEqual([phone.id, nightly.id].sort());
     expect(await ids(dev)).toEqual([phone.id, dev.id].sort());
     // DEV quits: the phone sees NIGHTLY, the one online.
     dev.user!.ws.close(1000, "quit");
     await waitFor(() => list(phone), (l) => l.some((d) => d.id === nightly.id && d.online));
-    expect((await list(phone)).filter((d) => d.name === "cosmic-gray").map((d) => d.id)).toEqual([nightly.id]);
+    expect((await list(phone)).filter((d) => d.name === "Studio").map((d) => d.id)).toEqual([nightly.id]);
     await expectOneRecordPerMachine([phone, nightly]);
   });
 
@@ -145,10 +145,10 @@ describe("one record per machine", () => {
   it("cleans up records from before machine ids: same name and platform, offline past the threshold, never one online", async () => {
     const account = await signIn();
     const phone = await build(account, "Phone", null, "ios");
-    // Leo's air-blue listed cosmic-gray three times: three builds, no machine id.
-    const old1 = await build(account, "cosmic-gray", null);
+    // One account listed one Mac three times: three builds, no machine id.
+    const old1 = await build(account, "Studio", null);
     const old2 = await build(account, "Cosmic Gray", null);
-    const live = await build(account, "cosmic-gray", null);
+    const live = await build(account, "Studio", null);
     await live.connect();
     await phone.connect();
     // Within the threshold nothing folds: a name alone is a weak hint.
@@ -158,7 +158,7 @@ describe("one record per machine", () => {
     await refreshSession(account);
     expect(await ids(phone)).toEqual([phone.id, live.id].sort());
     // Another platform with the same name is another device.
-    const ipad = await build(account, "cosmic-gray", null, "ios");
+    const ipad = await build(account, "Studio", null, "ios");
     expect(await ids(phone)).toEqual([phone.id, live.id, ipad.id].sort());
     // A legacy record that comes back is listed again; the next stale one steps aside then.
     expect((await old1.call("GET", "/v1/me")).status).toBe(200);
@@ -169,10 +169,10 @@ describe("one record per machine", () => {
   it("a record from a newer build folds the same Mac's legacy records once they are stale", async () => {
     const account = await signIn();
     const phone = await build(account, "Phone", null, "ios");
-    const legacy = await build(account, "cosmic-gray", null);
+    const legacy = await build(account, "Studio", null);
     vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + LEGACY_DUPLICATE_MS + 1000 });
     await refreshSession(account);
-    const current = await build(account, "cosmic-gray", "machine-cosmic-gray-0004");
+    const current = await build(account, "Studio", "machine-studio-mac-0004");
     expect(await ids(phone)).toEqual([phone.id, current.id].sort());
     await expectOneRecordPerMachine([phone, current]);
   });
