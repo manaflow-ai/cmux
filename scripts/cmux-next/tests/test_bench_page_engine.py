@@ -198,6 +198,13 @@ class WiringTests(unittest.TestCase):
         text = (MEASURE / "instant-new-surfaces.sh").read_text()
         self.assertIn("--page-engine=cef", text)
 
+    def test_the_chat_open_entry_asks_the_bench_for_the_default_engine_unless_webkit_is_allowed(self):
+        text = (MEASURE / "chat-open.sh").read_text()
+        self.assertIn("--page-engine=cef", text)
+        bench = (SCRIPTS / "chat-open-bench.py").read_text()
+        for needle in ('"--page-engine"', "judge_engine(", '"page_engine_asked"'):
+            self.assertIn(needle, bench, needle)
+
     def test_the_cmd_t_bench_reads_judges_and_reports_the_engine(self):
         text = (SCRIPTS / "instant-new-surfaces-bench.py").read_text()
         for needle in ('"--page-engine"', "bench_page_engine.page_engine(", "bench_page_engine.judge(",
