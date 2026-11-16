@@ -8,6 +8,8 @@
 //! Foundation (module `mediafoundation`, Windows only).
 
 mod codec;
+/// Slice QPs read from an H.264 stream (VideoToolbox reports none).
+pub mod h264_qp;
 mod picture;
 
 #[cfg(any(feature = "openh264-source", feature = "openh264-runtime"))]
