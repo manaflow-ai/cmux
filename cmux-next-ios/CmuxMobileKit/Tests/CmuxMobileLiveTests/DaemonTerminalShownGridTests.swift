@@ -136,9 +136,10 @@ import Testing
         try await waitUntil { session.isAttached }
         #expect(commands(daemon, "attach-surface").last?["cols"] as? Int == 54)
         // The fake Mac replays 80x24; a grid change after the attach lands here too.
+        let before = session.reclaimsSent
+        // claimAgain() runs in the same turn as the grid it answers.
         session.handle(grid("resized", 80, 24, Data("old".utf8)))
-        try await Task.sleep(for: .milliseconds(150))
-        #expect(commands(daemon, "resize-surface").isEmpty, "a claim went out for the attach's own replay")
+        #expect(session.reclaimsSent == before, "a claim went out for the attach's own replay")
     }
 
     @Test func shownAndHiddenAgainInOneTurnSendsNoClaim() async throws {
@@ -156,8 +157,13 @@ import Testing
         // no release after it.
         session.setClaimsSize(true)
         session.setClaimsSize(false)
-        try await Task.sleep(for: .milliseconds(150))
-        #expect(commands(daemon, "resize-surface").count == 1, "a claim went out for a page that was hidden again")
+        // Shown again for real at a new grid (measured while hidden): its claim
+        // goes through the same serial outbox, after any stale 54x42 claim.
+        session.resize(columns: 60, rows: 40)
+        session.setClaimsSize(true)
+        try await waitUntil { commands(daemon, "resize-surface").contains { $0["cols"] as? Int == 60 } }
+        let sizes = commands(daemon, "resize-surface").compactMap { $0["cols"] as? Int }
+        #expect(sizes == [54, 60], "a claim went out for a page that was hidden again: \(sizes)")
     }
 
     @Test func theChannelListsTheShortLeaseAndRefreshesOnItsInterval() async throws {

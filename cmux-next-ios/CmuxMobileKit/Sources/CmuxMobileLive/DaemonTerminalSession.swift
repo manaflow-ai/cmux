@@ -238,6 +238,9 @@ public final class DaemonTerminalSession: TerminalSession {
     private var lastClaimAt: ContinuousClock.Instant?
     /// How long a claim is still being answered (tests shorten it).
     var claimAnswerWindow: Duration = .milliseconds(1500)
+    /// Claims ``claimAgain()`` sent (tests read it synchronously: it is set
+    /// in the same turn as the grid that caused it).
+    private(set) var reclaimsSent = 0
     private var leaseTask: Task<Void, Never>?
     private var draining = false
     /// The request `drain()` has on its way (while `draining`) is a size.
@@ -1033,6 +1036,7 @@ public final class DaemonTerminalSession: TerminalSession {
         startLeaseRefresh()
         let surface = surface
         lastClaimAt = .now
+        reclaimsSent += 1
         Task { _ = try? await client.request("resize-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows]) }
     }
 
