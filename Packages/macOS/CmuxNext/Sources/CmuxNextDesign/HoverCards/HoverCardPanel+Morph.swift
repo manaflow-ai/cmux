@@ -108,6 +108,11 @@ extension HoverCardPanel {
             guard let self, self.activeMorph?.generation == generation else { return }
             self.finishMorph(generation)
             self.endLeaving()
+            // What changed while it ran (a resources row, a picture) takes its place now.
+            if let animated = self.pendingRefit {
+                self.pendingRefit = nil
+                self.refit(animated: animated)
+            }
         }
         Motion.hoverCards.set(mask, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: rest.size)), spring: spring, from: NSValue(rect: shownFrom))
         // The shadow and its cutout follow the visible card (host coordinates, before the slide).

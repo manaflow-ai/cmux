@@ -282,6 +282,8 @@ import CmuxNextWakeupsTestSupport
         previews.release()
         try await Self.settle(until: { s.strip.hoverCard.shownThumbnail != nil })
         try #require(s.strip.hoverCard.shownThumbnail != nil, "the picture never landed")
+        // A growth still running when it lands (the first show's) ends first; the picture's follows it.
+        try await Self.settle(until: { HoverCardPanel.morphGeneration > before })
         #expect(HoverCardPanel.morphGeneration > before, "the card took the picture's height at once")
     }
 

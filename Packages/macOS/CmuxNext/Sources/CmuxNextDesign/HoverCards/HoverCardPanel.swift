@@ -72,6 +72,9 @@ final class HoverCardPanel: NSPanel {
     var leavingBody: NSView?
     /// How the last show moved (`debug.hover_cards` `last_present`): flags only, formatted when read.
     private(set) var lastPresent = HoverCardPresentNote()
+    /// A refit asked for while a morph runs (nil: none; true: it animates): it runs when the morph
+    /// ends, so a resources sample landing mid-glide never cuts the glide's window (msg 34360).
+    var pendingRefit: Bool?
     /// The card takes clicks and scrolls (the update highlights' "See all changes").
     private(set) var isInteractive = false
     /// The current press began in the clear band around the card: it and its drags and release
@@ -186,6 +189,8 @@ final class HoverCardPanel: NSPanel {
         // snapshot of the card stretched over the next card's size (msg 34360).
         let fadesBodies = glides && body != nil && body !== newBody && Motion.hoverCards.animatesMovement(in: self)
         lastPresentAt = time
+        let sameBody = body === newBody
+        pendingRefit = nil
         isDismissing = false
         dismissCompletion = nil
         // A morph still running lays its card out at rest first: the next one starts from what
@@ -254,7 +259,7 @@ final class HoverCardPanel: NSPanel {
         host?.cornerRadius = cornerRadius ?? Self.cornerRadius
         place()
         lastPresent = HoverCardPresentNote(onScreen: previous != nil, glides: glides, sweeping: sweeping, fadesBodies: fadesBodies,
-                                           sameBody: body === newBody, moves: Motion.hoverCards.animatesMovement(in: self),
+                                           sameBody: sameBody, moves: Motion.hoverCards.animatesMovement(in: self),
                                            liveResize: Motion.isLiveResizing(self))
         if sweeping {
             snapToRest()
@@ -352,6 +357,12 @@ final class HoverCardPanel: NSPanel {
     /// The body's size changed (a resources row appeared).
     func refit(animated: Bool = false) {
         guard isShowingCard else { return }
+        // A morph in flight (a glide or a growth) lays the card out at rest when it ends: the refit
+        // runs then, from the size it reached. Ended now, its window lost the room the card glides in.
+        if activeMorph != nil {
+            pendingRefit = (pendingRefit ?? false) || animated
+            return
+        }
         // What is drawn now, read before a morph in flight lays its card out at rest (as `present` does).
         let previous = animated ? presentedCardFrame : nil
         finishMorph()
