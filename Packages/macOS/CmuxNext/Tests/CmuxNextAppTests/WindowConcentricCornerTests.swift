@@ -94,21 +94,19 @@ import Testing
         #expect(Metrics.tabCornerRadius == min(max(0, card - Metrics.tabStripCardInset), Metrics.tabHeight / 2))
     }
 
-    /// The ⋮ in the card's top-trailing corner is concentric with it: the card's radius less the
-    /// button's inset (it was the 4 pt item radius).
-    @Test func theMoreButtonIsConcentricWithItsCorner() {
+    /// The pane's "…" rounds as a tab and the + do (Lucas 2026-11-13: "match the rest like the + for new workspace");
+    /// only an outer radius the person set makes it concentric with the card's top-trailing corner.
+    @Test func theMoreButtonRoundsAsATab() {
         defer { load() }
         load()
-        let card = Metrics.mainPaneCornerRadius(windowCornerRadius: Metrics.standardWindowCornerRadius)
-        let inset = PaneToolbarView.trailingGap
-        let side = TitlebarBandButton.side
-        #expect(PaneToolbarView.moreCornerRadius(inset: inset) == min(max(0, card - inset), side / 2))
+        #expect(!Metrics.cornerRadiusIsSet)
+        #expect(PaneToolbarView.moreCornerRadius(inset: PaneToolbarView.trailingGap) == Metrics.buttonCornerRadius)
         let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 160, height: Metrics.tabStripHeight))
         toolbar.moreButton.hoverStyle = .plate
         toolbar.show([], more: true, lit: false)
         toolbar.layoutSubtreeIfNeeded()
         toolbar.moreButton.updateLayer()
-        #expect(toolbar.moreButton.layer?.cornerRadius == min(max(0, card - inset), side / 2))
+        #expect(toolbar.moreButton.layer?.cornerRadius == Metrics.buttonCornerRadius)
     }
 
     /// The default top row keeps the gutter at the card's top as at its sides (an even inset), and

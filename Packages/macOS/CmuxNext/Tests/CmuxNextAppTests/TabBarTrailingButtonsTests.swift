@@ -87,15 +87,20 @@ import Testing
         #expect(filledLayers(layer).isEmpty, "no fill once the menu closes and the pointer is away")
     }
 
-    @Test func thePaneMoreDrawsNoPlateWhileItsMenuIsOpen() throws {
+    /// While its menu is open the pane's "…" shows one plate over its whole frame at the tabs' corner, as the ⌄ does
+    /// in the default split look (`tabs.trailingButtons`).
+    @Test func thePaneMoreShowsOnePlateWhileItsMenuIsOpen() throws {
         let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 80, height: TabStripView.preferredHeight))
         toolbar.show(more: true, lit: false)
         toolbar.layoutSubtreeIfNeeded()
         toolbar.moreButton.showsMenu = true
         toolbar.moreButton.updateLayer()
         let layer = try #require(toolbar.moreButton.layer)
-        let blocks = filledLayers(layer).filter { abs($0.bounds.width - $0.bounds.height) > 0.5 || $0.cornerRadius < $0.bounds.width / 2 - 0.5 }
-        #expect(blocks.isEmpty, "the ⋮ paints a plate: \(blocks.map { "\($0.bounds.size) r\($0.cornerRadius)" })")
+        let fills = filledLayers(layer)
+        #expect(fills.count == 1, "one plate: \(fills.map { "\($0.bounds.size)" })")
+        let plate = try #require(fills.first)
+        #expect(plate.bounds.size == toolbar.moreButton.bounds.size)
+        #expect(plate.cornerRadius == PaneToolbarView.moreCornerRadius(inset: PaneToolbarView.trailingGap))
     }
 
     @Test func theChevronIsDrawnAtThePlusStrokeWeight() throws {

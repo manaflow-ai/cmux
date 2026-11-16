@@ -170,10 +170,9 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         }
     }
 
-    /// The bug: a zoom added a toolbar button, which took its width from the strip, so every tab
-    /// moved and moved back. A zoom keeps the toolbar's width; "…" is lit, and its menu still offers
-    /// Toggle Pane Zoom.
-    @Test func aZoomKeepsTheToolbarsWidth() throws {
+    /// A zoom adds no pinned button: the bar's one Exit Zoom shows left of "…", which is lit, and "…"'s menu
+    /// still offers Toggle Pane Zoom.
+    @Test func aZoomShowsExitZoomLeftOfALitMore() throws {
         let harness = Toolbar()
         let toolbar = harness.toolbar
         toolbar.update(target: "tab0", kind: .terminal, paneKinds: [.terminal])
@@ -183,7 +182,8 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
         #expect(toolbar.view.buttons.isEmpty, "the indicator is the pane's, not a toolbar button")
         #expect(toolbar.view.reservedCount == 1)
-        #expect(toolbar.view.intrinsicContentSize.width == width, "the strip keeps its width")
+        #expect(!toolbar.view.zoomButton.isHidden)
+        #expect(toolbar.view.intrinsicContentSize.width == width + TitlebarBandButton.side, "Exit Zoom's slot only")
         #expect(toolbar.view.lit)
         let menu = try #require(toolbar.view.moreMenu?())
         #expect(menu.items.contains { ActionRegistry.menuRun(of: $0)?.id == "toggleSplitZoom" })
