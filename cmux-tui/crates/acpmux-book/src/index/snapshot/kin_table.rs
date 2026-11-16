@@ -244,7 +244,7 @@ pub(crate) fn key_fingerprint(key: &RowKey, kind: u8) -> (u64, u32) {
     (hash, crc.finalize())
 }
 
-fn invalid(message: &'static str) -> io::Error {
+pub(super) fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 fn read_u32(bytes: &[u8]) -> io::Result<u32> {
