@@ -2,9 +2,10 @@
 //! off by default). Leo: "A chat starts in a few seconds: ready spare, harness login attached in
 //! advance, ...". A Cloud spare never ran a harness, so it has no spare of its own
 //! (`spare.rs`), and an agent started before the person's login is there would never be served:
-//! the login is part of the pool key (`auth.rs`). So the moment a login install names a cmux
-//! account (`~/.config/cmux/agent-auth/claude.login`, written by the warm's copy on the person's
-//! intent, ahead of the chat) and the image's launcher uses that login (`claude` holds `own`),
+//! the login is part of the pool key (`auth.rs`). So the moment a login install lands
+//! (`~/.config/cmux/agent-auth/claude.login`, the login's digest and cmux account, written by the
+//! warm's copy on the person's intent, ahead of the chat) and the image's launcher uses that login
+//! (`claude` holds `own`),
 //! this daemon starts a Claude spare in the home folder, on the model a plain new chat starts on.
 //! The chat that claims the machine then takes a started agent.
 //!
@@ -31,17 +32,18 @@ fn marks(home: &Path) -> PathBuf {
     home.join(super::auth::CMUX_AGENT_AUTH)
 }
 
-/// Whether `home` holds an installed login the launcher uses: the mark names an account and the
-/// choice is `own`. Blocking (two small reads).
+/// Whether `home` holds an installed login the launcher uses: the mark names a login (its digest;
+/// the cmux account is there too when the app knew it) and the choice is `own`. Blocking (two
+/// small reads).
 pub(super) fn installed(home: &Path) -> bool {
     let dir = marks(home);
     let own = std::fs::read_to_string(dir.join(HARNESS)).is_ok_and(|s| s.trim() == "own");
-    let account = std::fs::read(dir.join(format!("{HARNESS}.login")))
+    let login = std::fs::read(dir.join(format!("{HARNESS}.login")))
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        .and_then(|v| v.get("account").and_then(Value::as_str).map(str::to_owned))
-        .is_some_and(|a| !a.is_empty());
-    own && account
+        .and_then(|v| v.get("digest").and_then(Value::as_str).map(str::to_owned))
+        .is_some_and(|d| !d.is_empty());
+    own && login
 }
 
 impl Hub {
@@ -113,7 +115,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_an_own_login_that_names_an_account_counts() {
+    fn only_an_installed_own_login_counts() {
         let home = std::env::temp_dir().join(format!("login-spare-{}", uuid::Uuid::now_v7()));
         let dir = marks(&home);
         std::fs::create_dir_all(&dir).unwrap();
@@ -124,8 +126,11 @@ mod tests {
         assert!(!installed(&home), "the team login");
         std::fs::write(dir.join("claude"), "own\n").unwrap();
         assert!(installed(&home));
+        // The app passes the account when it knows it; the login's digest is always there.
         std::fs::write(dir.join("claude.login"), r#"{"account":"","digest":"d"}"#).unwrap();
-        assert!(!installed(&home), "no account");
+        assert!(installed(&home), "an install with no account named");
+        std::fs::write(dir.join("claude.login"), r#"{"account":"user_a","digest":""}"#).unwrap();
+        assert!(!installed(&home), "no login");
         let _ = std::fs::remove_dir_all(&home);
     }
 }
