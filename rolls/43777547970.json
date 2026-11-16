@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43777547970",
+  "recorded_at": "2026-11-16T00:12:35Z",
+  "reason": "cmux-tui 5d3ddf3f4e91 changes the image's cmux-tui (pinned 39e72e287e2d)",
+  "dry_run": false,
+  "cmux_tui": "5d3ddf3f4e911bdb8d09284ede02534a65761563",
+  "fixes": [
+    {
+      "sha": "5d3ddf3f4e911bdb8d09284ede02534a65761563",
+      "mergedAt": "2026-11-15T15:41:32-08:00",
+      "subject": "acpmux-cgu-sweep.sh: print acpmux's front-end and codegen time (#43961)"
+    },
+    {
+      "sha": "2ab4b66c0b675bdac0dd08a84c16500ecf121316",
+      "mergedAt": "2026-11-15T15:40:32-08:00",
+      "subject": "acpmux: the hub carrier's register asks show in the daemon log at info (#43952)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T00:12:35Z",
+    "snapshot_id": "sh-e051456fbcca49f888949c6af83668e1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43777547970): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "03aff5c402e24aa3c547c2b0ece7ce8fdec23bbc",
+    "image": "cloud-native-auto-5d3ddf3f-43777547970-1",
+    "revision": "ci-43777547970-1",
+    "at": "2026-11-16T00:12:35Z"
+  },
+  "rolled_back": false
+}
