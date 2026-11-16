@@ -203,6 +203,17 @@ process's command line and its kill never leave the machine.
 | `_acpmux/process/background` (request, built) | `{sessionId, toolCallId?}` (none: every foreground task) | `{backgrounded: bool}`; false when no turn runs or nothing ran in the foreground. Claude Code (a claude-stdio harness, whatever its name) only: any other chat is refused with invalid params (Codex moves long commands to the background itself). Every session summary says which chats it takes (`backgroundsWork`). Claude Code's error is the request's error. What moved arrives as `process_update`s, origin `user_backgrounded` |
 | `_acpmux/process_update` (notification, built) | `{process: Process}` | |
 
+If a recent list's running rows cannot all fit its reply budget, or one row's identity cannot fit
+even as a stub, the request fails with `message.too_large`; it never reports a partial running set
+as a successful recent list. The agent pane then uses its existing `limit`/`cursor` fallback.
+Each fallback reply stays bounded, but the client reads and temporarily retains the full history
+before its registry keeps only running rows and the recent ended window. This preserves running
+process visibility; it does not provide history-independent heap or wire cost on that overflow path.
+The regression detectors are `a_recent_reply_refuses_running_rows_that_only_fit_individually`,
+`a_recent_reply_keeps_every_running_row_when_ended_rows_exceed_the_budget`, and
+`a_recent_reply_refuses_a_running_identity_that_cannot_fit_as_a_stub` in
+`src/hub/processes_page_tests.rs`.
+
 **Migration:**
 
 - `process_update` replaces the non-spec `background_task_update` session

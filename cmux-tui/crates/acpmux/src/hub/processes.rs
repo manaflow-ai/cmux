@@ -427,29 +427,33 @@ fn process_values(processes: Vec<Process>, length: impl Fn(&str) -> u64) -> Vec<
         .collect()
 }
 
-/// A process row too large for a reply alone: its identity and state, with its size, as a
-/// page's oversized row goes.
 /// [`Hub::list_recent_processes`]'s reply: of PROCESSES (start order), every running one before
 /// any ended one, then the newest ended, while they fit BUDGET; in start order. A reply cut to its
 /// size drops the oldest ended rows, never a process still running (a long-lived server is the
-/// oldest row of all). `omitted`: OLDER plus what the budget left out.
+/// oldest row of all). If the running rows cannot fit, refuse the recent read so the client can
+/// fall back to bounded history pages. `omitted`: OLDER plus the ended rows the budget left out.
 fn recent_values(
     processes: Vec<Process>,
     older: usize,
     recent: usize,
     budget: usize,
     length: impl Fn(&str) -> u64,
-) -> Value {
+) -> Result<Value, RpcError> {
     let total = processes.len();
     let mut rows: Vec<(bool, Value, usize)> = Vec::with_capacity(total);
     for mut process in processes {
         let running = process.state == ProcessState::Running;
         process.output_bytes = process.output_file.as_deref().map(&length);
-        let Ok(mut row) = serde_json::to_value(process) else { continue };
+        let mut row = serde_json::to_value(process)
+            .map_err(|e| RpcError::internal(format!("cannot encode process row: {e}")))?;
         let mut bytes = row.to_string().len();
-        if bytes.saturating_add(64) > budget {
-            row = process_stub(&row, bytes);
+        if bytes.saturating_add(97) > budget {
+            let full_bytes = bytes;
+            row = process_stub(&row, full_bytes);
             bytes = row.to_string().len();
+            if bytes.saturating_add(97) > budget {
+                return Err(RpcError::too_large(full_bytes));
+            }
         }
         rows.push((running, row, bytes));
     }
@@ -461,6 +465,9 @@ fn recent_values(
                 continue;
             }
             if used.saturating_add(*bytes).saturating_add(1) > budget {
+                if *running {
+                    return Err(RpcError::too_large(used.saturating_add(*bytes).saturating_add(1)));
+                }
                 continue;
             }
             used = used.saturating_add(*bytes).saturating_add(1);
@@ -478,7 +485,7 @@ fn recent_values(
     if omitted > 0 {
         reply.insert("omitted".to_owned(), json!(omitted));
     }
-    Value::Object(reply)
+    Ok(Value::Object(reply))
 }
 
 fn process_stub(row: &Value, full_bytes: usize) -> Value {
@@ -830,8 +837,13 @@ impl Hub {
     /// reply by [`recent_values`] (the running ones first), with `omitted` counting every older one
     /// left out and `recent` echoed, so a client knows this acpmux read it (an older one ignores the
     /// key and answers its unpaged list). A god chat's tens of thousands of ended shells stay in the
-    /// daemon, not in the page's heap.
-    pub(crate) fn list_recent_processes(&self, session: &Session, recent: usize) -> Value {
+    /// daemon, not in the page's heap, unless the running rows cannot fit: that recent read fails
+    /// and the client's bounded-page fallback reads and temporarily retains the full history.
+    pub(crate) fn list_recent_processes(
+        &self,
+        session: &Session,
+        recent: usize,
+    ) -> Result<Value, RpcError> {
         let (processes, older) = self.process_table(session).recent_snapshot(recent);
         recent_values(processes, older, recent, PROCESS_PAGE_BUDGET, output_len)
     }

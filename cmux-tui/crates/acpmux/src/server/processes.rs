@@ -67,7 +67,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
                     .ok_or_else(|| RpcError::invalid_params("sessionId must be a string"))?;
                 let session = hub.resolve(key)?;
                 if let Some(recent) = recent {
-                    return Ok(hub.list_recent_processes(&session, recent));
+                    return hub.list_recent_processes(&session, recent);
                 }
                 match paging {
                     Some((limit, cursor)) => hub.list_processes_page(&session, limit, cursor),

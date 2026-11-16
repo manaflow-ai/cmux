@@ -160,7 +160,7 @@ fn recent_keeps_every_running_process_and_the_newest_ended_ones() {
     assert_eq!(ids.last(), Some(&"session/task-9999"));
     assert_eq!(ids[4], "session/task-9900", "the ended window follows the older running ones");
     assert_eq!(older + kept.len(), 10_000);
-    let reply = recent_values(kept, older, 100, PROCESS_PAGE_BUDGET, |_| 0);
+    let reply = recent_values(kept, older, 100, PROCESS_PAGE_BUDGET, |_| 0).unwrap();
     assert_eq!(reply["processes"].as_array().unwrap().len(), 104);
     assert_eq!(reply["recent"], 100);
     assert_eq!(reply["omitted"], 10_000 - 104);
@@ -184,10 +184,61 @@ fn a_recent_reply_cut_to_size_keeps_the_oldest_running_process() {
         table.upsert(make(index, "x".repeat(3_000)));
     }
     let (kept, older) = table.recent_snapshot(500);
-    let reply = recent_values(kept, older, 500, 200_000, |_| 0);
+    let reply = recent_values(kept, older, 500, 200_000, |_| 0).unwrap();
     let rows = reply["processes"].as_array().unwrap();
     assert!(reply.to_string().len() < 200_000);
     assert_eq!(rows[0]["id"], "session/task-0", "the running server is kept, first in start order");
     assert_eq!(rows.last().unwrap()["id"], "session/task-399");
     assert_eq!(reply["omitted"].as_u64().unwrap() as usize, 400 - rows.len());
+}
+
+#[test]
+fn a_recent_reply_refuses_running_rows_that_only_fit_individually() {
+    let budget = 4_096;
+    let mut table = ProcessTable::default();
+    for index in 0..8 {
+        let mut process = make(index, "x".repeat(600));
+        process.state = ProcessState::Running;
+        let single = recent_values(vec![process.clone()], 0, 100, budget, |_| 0).unwrap();
+        assert!(single.to_string().len() <= budget);
+        assert_eq!(single["processes"][0]["id"], process.id);
+        table.upsert(process);
+    }
+    let (kept, older) = table.recent_snapshot(100);
+    let error = recent_values(kept, older, 100, budget, |_| 0).unwrap_err();
+    assert_eq!(error.data.as_ref().unwrap()["reason"], "message.too_large");
+    assert!(error.data.as_ref().unwrap()["bytes"].as_u64().unwrap() > budget as u64);
+}
+
+#[test]
+fn a_recent_reply_keeps_every_running_row_when_ended_rows_exceed_the_budget() {
+    let mut table = ProcessTable::default();
+    for index in 0..100 {
+        let mut process = make(index, "x".repeat(600));
+        if [0, 40, 80].contains(&index) {
+            process.state = ProcessState::Running;
+        }
+        table.upsert(process);
+    }
+    let (kept, older) = table.recent_snapshot(100);
+    let reply = recent_values(kept, older, 100, 4_096, |_| 0).unwrap();
+    assert!(reply.to_string().len() <= 4_096);
+    let rows = reply["processes"].as_array().unwrap();
+    let running: Vec<&str> = rows
+        .iter()
+        .filter(|row| row["state"] == "running")
+        .map(|row| row["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(running, ["session/task-0", "session/task-40", "session/task-80"]);
+    assert_eq!(rows.last().unwrap()["id"], "session/task-99");
+    assert_eq!(reply["omitted"].as_u64().unwrap() as usize, 100 - rows.len());
+}
+
+#[test]
+fn a_recent_reply_refuses_a_running_identity_that_cannot_fit_as_a_stub() {
+    let mut process = make(0, "serve".to_owned());
+    process.state = ProcessState::Running;
+    process.id = format!("session/{}", "x".repeat(4_096));
+    let error = recent_values(vec![process], 0, 100, 1_000, |_| 0).unwrap_err();
+    assert_eq!(error.data.as_ref().unwrap()["reason"], "message.too_large");
 }

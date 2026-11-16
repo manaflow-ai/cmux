@@ -160,6 +160,14 @@ export function useProcessRegistry(
   const running = state.sessionId === sessionId && state.processes.some((process) => process.state === "running");
   const on = live || running;
   useEffect(() => {
+    // Closing the history releases its older rows even when an idle chat needs no subscription.
+    if (!all) {
+      setState((known) => {
+        if (known.sessionId !== sessionId) return known;
+        const processes = recentProcesses(known.processes);
+        return processes === known.processes ? known : { ...known, processes };
+      });
+    }
     if (!source || !sessionId || !on) return;
     let current = true;
     // This subscription's updates: newer than the list's records.
