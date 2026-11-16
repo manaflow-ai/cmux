@@ -41,7 +41,7 @@ public final class VerificationInbox {
     public func tabNavigated(_ tab: BrowserTabID, to url: URL) {
         let site = policy.site(of: url)
         if let signal = waiting[tab], site == nil || policy.site(of: signal.pageURL) != site { waiting[tab] = nil }
-        if let offer = offers[tab], site != offer.senderSite { offers[tab] = nil }
+        if let offer = offers[tab], site != offer.pageSite { offers[tab] = nil }
     }
 
     /// The tab closed: its wait and offer end.
@@ -102,7 +102,7 @@ public final class VerificationInbox {
     public func take(for tab: BrowserTabID, emailID: String? = nil, currentURL: URL, now: Date) -> VerificationOffer? {
         guard let current = offers[tab], emailID == nil || current.emailID == emailID else { return nil }
         guard let offer = offers.removeValue(forKey: tab) else { return nil }
-        guard now <= offer.expiresAt, policy.site(of: currentURL) == offer.senderSite else { return nil }
+        guard now <= offer.expiresAt, policy.site(of: currentURL) == offer.pageSite else { return nil }
         use(offer.emailID)
         waiting[tab] = nil
         return offer
