@@ -340,6 +340,10 @@ path = "tests/test_layout_grid.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_linux_runner_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_list_macho_candidates.py"
 lane = "linux-guard"
 

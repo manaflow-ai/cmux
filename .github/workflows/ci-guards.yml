@@ -986,6 +986,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_runs_on_labels.py
 
+      - name: Lint Linux runner labels come from runners.json pools
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_linux_runner_labels.py && python3 scripts/ci/linux_runner_labels.py
+
       - name: Validate agent pane frame pacing summary
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_summary.py
