@@ -209,10 +209,9 @@ const MachineRowView = memo(function MachineRowView({
           <span className="machines-name">{row.name}</span>
           <HealthMark health={row.health} />
         </span>
-        {stateLine && <span className="machines-state">{state}</span>}
+        {stateLine && state && <span className="machines-state">{state}</span>}
       </span>
       {trailingState && <span className="machines-state machines-state-trailing">{state}</span>}
-      {row.isConnecting && <Spinner size={SMALL_ICON} className="machines-spinner" loading />}
       <button
         type="button"
         className="machines-action"

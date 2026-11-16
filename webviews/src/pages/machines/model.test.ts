@@ -107,7 +107,7 @@ describe("groups", () => {
 
 describe("words", () => {
   test("a row's state follows its link and its server", () => {
-    expect(stateText(machine("c", "cloud", { isConnecting: true }), strings)).toBe(t("machines.connecting"));
+    expect(stateText(machine("c", "cloud", { isConnecting: true }), strings)).toBe("");
     expect(stateText(machine("c", "cloud", { isConnected: true }), strings)).toBe(t("machines.connected"));
     expect(stateText(machine("o", "ssh"), strings)).toBe(t("machines.offline"));
     const states: MachineServerState[] = ["paused", "resuming", "failed", "deleted"];
@@ -179,7 +179,7 @@ describe("shown lines", () => {
     expect(shownLines(snapshot("flat"), strings)).toEqual([
       `This Mac · ${t("machines.connected")}`,
       `atlas-web · ${t("machines.connected")}`,
-      `gpu-box · ${t("machines.connecting")}`,
+      "gpu-box",
       `build-host · ${t("machines.offline")}`,
       t("machines.addMachine"),
     ]);

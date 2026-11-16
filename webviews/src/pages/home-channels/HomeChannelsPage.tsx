@@ -4,7 +4,6 @@
 // create popover, the inline editor, the keyboard's current message and a short notice.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
-import { useLasting } from "../../ui/lasting";
 import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
@@ -171,9 +170,6 @@ export function HomeChannelsPage({
   );
   const mentionable = useMemo(() => others(open, me), [open, me]);
   const online = snap.connection === "online";
-  // The header says the page is offline or connecting only once that has lasted past the grace
-  // (ui/lasting.ts): a daemon restart or a dropped link that comes back shows nothing.
-  const offlineLasting = useLasting(!online);
   const name = open ? conversationName(open, me) : "";
   const channel = open ? channels.has(open.id) : false;
   const place = channel ? `#${name}` : name;
@@ -639,11 +635,6 @@ export function HomeChannelsPage({
                         >
                           <HomeIcon name="bulletList" size={16} />
                         </button>
-                      )}
-                      {offlineLasting && (
-                        <output className="lg-connection">
-                          {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
-                        </output>
                       )}
                       {notice && <output className="lg-notice">{notice}</output>}
                       {/* Who else has the chat open: the agent chat's faces (multiplayer/Faces.tsx). */}

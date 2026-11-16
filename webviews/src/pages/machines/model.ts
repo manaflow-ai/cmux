@@ -81,7 +81,7 @@ export function groupTitle(kind: MachineKind | undefined, strings: Strings): str
 export function stateText(row: MachineRow, strings: Strings): string {
   if (row.isConnected) return strings.t("machines.connected");
   if (row.serverState) return strings.t(`machines.${row.serverState}`);
-  return strings.t(row.isConnecting ? "machines.connecting" : "machines.offline");
+  return row.isConnecting ? "" : strings.t("machines.offline");
 }
 
 /** A check step's line, keyed by its name in camelCase (`peer-back` is `addMachine.step.peerBack`); a step
@@ -204,6 +204,6 @@ export function shownLines(snapshot: MachinesSnapshot, strings: Strings): string
     const { row } = item;
     if (row.joined) return [row.name, joinedCaption(row.joined, snapshot.failed[row.joined.id], strings)].join(" · ");
     const showsState = state || (!row.isConnected && !row.isConnecting);
-    return showsState ? `${row.name} · ${stateText(row, strings)}` : row.name;
+    return showsState && stateText(row, strings) ? `${row.name} · ${stateText(row, strings)}` : row.name;
   });
 }

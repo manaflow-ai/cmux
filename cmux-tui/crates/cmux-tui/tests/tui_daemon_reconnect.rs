@@ -232,6 +232,8 @@ fn tui_daemon_reconnect_follows_restart_and_exits_on_stop() {
         fixture.has_tui_client()
     });
     assert!(client.running(), "the client exited after reconnecting:\n{}", client.stderr());
+    assert!(!client.printed("reconnecting to session"), "automatic reconnect must stay quiet");
+    assert!(!client.printed("reconnected to session"), "automatic recovery needs no success line");
 
     fixture.server("stop", &["--end-terminals"]);
     let status = client.wait(DEADLINE).unwrap_or_else(|| {

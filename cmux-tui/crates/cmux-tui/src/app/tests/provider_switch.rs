@@ -4,6 +4,69 @@
 use super::*;
 
 #[test]
+fn short_machine_reconnect_keeps_the_frame_and_renders_no_line() {
+    let (mux, surface) = test_mux("quiet-machine-reconnect", None);
+    surface.with_terminal(|terminal| terminal.vt_write(b"cached frame"));
+    let mut app = test_app(Session::Local(mux.clone()));
+    app.replace_tree(app.session.tree());
+    let machine = MachineKey(9);
+    app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+        machines: vec![MachineDescriptor {
+            key: machine,
+            id: "vm-9".into(),
+            name: "maple".into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+            platform: None,
+            capabilities: Vec::new(),
+        }],
+        active: Some(machine),
+        capabilities: MachineCapabilities::default(),
+    }));
+    app.machine_presented = Some(machine);
+    app.machine_selection_intent = Some(machine);
+    let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    app.draw_terminal(&mut terminal, RenderAction::Draw).unwrap();
+    let before = buffer_text(terminal.backend().buffer());
+    assert!(before.contains("cached frame"));
+
+    assert!(app.request_current_machine_session());
+    let ui = app.machine_ui.as_mut().unwrap();
+    ui.session_available = false;
+    ui.set_connection_phase(machine, MachineConnectionPhase::Connecting);
+    app.apply_connection_progress(
+        "vm-9".into(),
+        Arc::new(Mutex::new(Some("waiting for sshd".into()))),
+    );
+    assert!(app.machine_transition().is_none());
+    app.draw_terminal(&mut terminal, RenderAction::Draw).unwrap();
+    assert_eq!(buffer_text(terminal.backend().buffer()), before);
+    assert!(app.status_message.is_none());
+    assert!(!app.session_available(), "cached presentation must not enable stale input");
+
+    app.fail_machine_action(Some(&MachineRequest::Switch(machine)));
+    app.report_machine_action_failure(
+        Some(&MachineRequest::Switch(machine)),
+        None,
+        "offline".into(),
+    );
+    let deadline = app.machine_recovery_notice_deadline().unwrap();
+    assert_eq!(
+        app.show_machine_recovery_failure(deadline - Duration::from_millis(1)),
+        RenderAction::None
+    );
+    app.draw_terminal(&mut terminal, RenderAction::Draw).unwrap();
+    assert_eq!(buffer_text(terminal.backend().buffer()), before);
+
+    assert_eq!(app.show_machine_recovery_failure(deadline), RenderAction::Draw);
+    assert_eq!(app.status_message, Some(localization::catalog().runtime.session_transport_lost()));
+    assert!(app.machine_recovery_notice_deadline().is_none(), "one notice ends the timer");
+    app.clear_machine_recovery();
+    assert!(app.status_message.is_none());
+    mux.close_surface(surface.id).unwrap();
+}
+
+#[test]
 fn switching_away_from_a_dead_machine_keeps_interstitial_and_input_safe() {
     let mux = Mux::new("machine-dead-switch-test", SurfaceOptions::default());
     let mut app = test_app(Session::Local(mux));
@@ -1145,6 +1208,17 @@ fn failed_provider_reconnect_remains_pending_for_retry() {
     );
     assert_eq!(requests.lock().unwrap().as_slice(), &[MachineRequest::ReconnectProvider]);
     assert_eq!(app.machine_provider_reconnect_attempts, 1);
+    assert!(app.status_message.is_none(), "a brief provider reconnect renders no line");
+    assert!(
+        app.machine_recovery_notice_deadline().is_none(),
+        "automatic retry has no notice deadline"
+    );
+    assert_eq!(
+        app.show_machine_recovery_failure(Instant::now() + Duration::from_secs(60)),
+        RenderAction::None,
+        "a retryable failure stays quiet even after the presentation bound"
+    );
+    assert!(app.status_message.is_none());
     assert!(app.machine_provider_reconnect_retry_at.is_some());
     assert_eq!(app.process_machine_requests(), RenderAction::None);
     assert_eq!(requests.lock().unwrap().len(), 1);
@@ -1158,6 +1232,8 @@ fn failed_provider_reconnect_remains_pending_for_retry() {
     );
     assert_eq!(app.machine_provider_reconnect_attempts, 0);
     assert!(app.machine_provider_reconnect_retry_at.is_none());
+    assert!(app.machine_recovery.is_none());
+    assert!(app.status_message.is_none(), "successful automatic recovery renders no line");
 }
 
 #[test]

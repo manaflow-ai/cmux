@@ -32,16 +32,14 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
     /// A Cloud machine's desktop, reached only over the app's own Cloud tunnel: the state card
     /// says so instead of the phase-1 development note.
     public var viaCloudTunnel = false
-    /// Connecting again after a session that showed frames: the card says "Reconnecting" over
-    /// the last frame. Cleared by the next frame shown.
+    /// Connecting again after a session that showed frames: keep that last frame with no card.
+    /// Cleared by the next frame shown.
     public var reconnecting = false
-    /// When the current reconnect started (nil while not reconnecting): under
-    /// ``reconnectNoticeDelay`` the last frame stays and no card shows.
+    /// When the current reconnect started (nil while not reconnecting), for elapsed diagnostics.
     public var reconnectingSince: ContinuousClock.Instant?
-    /// The reconnect has run for ``reconnectNoticeDelay``: the "Reconnecting" card shows now.
+    /// The reconnect has run for ``reconnectNoticeDelay``. Duration alone never shows a card.
     public var reconnectNoticeDue = false
-    /// How long a reconnect over the last frame stays silent (the conn-quiet bound for an
-    /// open view): a reconnect, Take over or Hand back usually lands well under it.
+    /// The elapsed reconnect diagnostic threshold. Crossing it does not show a notice.
     public static let reconnectNoticeDelay: Duration = .seconds(10)
     /// The toggle, or Take over / Hand back.
     public var modeControl = RemoteModeControl.toggle
@@ -83,8 +81,8 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
         }
     }
 
-    /// Reconnecting over the last frame, under the notice bound: nothing to say yet.
-    public var quietReconnect: Bool { reconnecting && !reconnectNoticeDue }
+    /// Automatic reconnect keeps the last frame until recovery or an actionable ended state.
+    public var quietReconnect: Bool { reconnecting }
 
     /// The "View only: high latency" banner with "Control Anyway".
     public var showsLatencyBanner: Bool {

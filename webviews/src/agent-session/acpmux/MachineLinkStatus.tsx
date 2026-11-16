@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useLinkDownSaid } from "./afterDelay";
-import { Spinner } from "./conversation/icons";
 import { useT, type Translate } from "./i18n";
 import type { PeerLink } from "./peerLink";
 import "./machineLinkStatus.css";
@@ -27,9 +26,8 @@ export function linkWords(link: PeerLink, t: Translate): string {
 
 /// The link of the machine a chat on another machine runs on, in the composer's quiet row (Leo,
 /// 2026-10-28: "you just get a little green dot ... as if you were working on your own computer,
-/// but now it's remote"). Connected is the dot alone; connecting or reconnecting turns the dot into
-/// a spinner in the dot's own box and names the machine and its state; down names them in the
-/// danger ink with Reconnect. A chat on this Mac draws nothing (`link` null).
+/// but now it's remote"). Connected, connecting and reconnecting keep the dot alone; a lasting
+/// offline failure names the machine with Reconnect. A chat on this Mac draws nothing (`link` null).
 ///
 /// One element from the first frame to the last, after the mode chip: the words grow from the
 /// dot and fade in, so the model chip and the ring (anchored at the row's end) never move, and
@@ -51,13 +49,11 @@ export function MachineLinkStatus({
   // The link a Reconnect was pressed on: it reads as in flight until it answers or the link moves on
   // its own (another state or machine), whichever comes first.
   const [pressed, setPressed] = useState<string>();
-  // A link that is not up and needs no person stays the plain dot until it has been down past the
-  // bound (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"): a drop that
-  // heals within it draws nothing, one that lasts is said once, here. A refused sign-in or an update
-  // the machine needs is said at once.
-  const waits = link !== null && link.link !== "connected" && !link.stuck;
+  // Automatic connecting/reconnecting never needs a progress line. An offline link with a
+  // recovery action, sign-in or update is said only after the existing ten-second bound.
+  const waits = link !== null && link.link !== "connected";
   const due = useLinkDownSaid(waits, link?.since, quietMs);
-  const quiet = waits && !due;
+  const quiet = waits && (!due || (link.link === "connecting" && !link.stuck));
   // The last words said, kept while they fold away on a link that came back, so the fold-out shows
   // what was said rather than "Connected" (state derived during render, not in an effect).
   const words = link ? linkWords(link, t) : "";
@@ -69,7 +65,7 @@ export function MachineLinkStatus({
   const down = link.link === "offline";
   const at = `${link.machine}\n${link.link}`;
   const busy = pressed === at;
-  const label = `${name} · ${words}`;
+  const label = quiet ? name : `${name} · ${words}`;
   return (
     <output
       className="acpmux-machine-link"
@@ -84,7 +80,6 @@ export function MachineLinkStatus({
     >
       <span className="acpmux-machine-link-mark" aria-hidden="true">
         <span className="acpmux-machine-link-dot" />
-        {link.link === "connecting" && !quiet && <Spinner size={12} loading className="acpmux-machine-link-spinner" />}
       </span>
       {look !== "dot" && (
         // Folds open from the dot and closed into it (grid track 0fr to 1fr) while it fades.
@@ -94,7 +89,7 @@ export function MachineLinkStatus({
               {look === "named" && <span className="acpmux-machine-link-name">{shown.name}</span>}
               <span className="acpmux-machine-link-state">{shown.words}</span>
             </span>
-            {down && !link.stuck && onReconnect && (
+            {said && down && !link.stuck && onReconnect && (
               <button
                 type="button"
                 className="acpmux-machine-link-reconnect"

@@ -9,7 +9,7 @@
 // dot on the avatar's corner, its line the tooltip; `hidden` shows nothing (the popover still opens from
 // the "Restoring sessions…" card's Details). In every variant but `before`, the row's boxes are identical in
 // both copies. The states are the same five in each: a page that is only slow (the case Leo saw: nothing
-// shows now), one not responding, one the app is repairing, one whose repairs ran out, and a queued action.
+// shows now), a transient reconnect (quiet), an automatic repair (quiet), one whose repairs ran out, and a queued action.
 import { componentEntry } from "../gallery/format";
 import type { ComponentVariant } from "../gallery/format";
 import type { HealthPart, HealthSnapshot } from "./types";
@@ -39,11 +39,11 @@ const STATES: Record<string, { note: string; snapshot: HealthSnapshot }> = {
     snapshot: { worst: "slow", parts: [part("slow", "Not answering for 6 s.")], receipts: [] },
   },
   "2-not-responding": {
-    note: "Stuck for 10 s: names the part; the click opens Repair now.",
+    note: "A short reconnect is quiet; the cached frame stays in place.",
     snapshot: { worst: "stuck", parts: [part("stuck", "Not answering for 12 s.", "reloadPage")], receipts: [] },
   },
   "3-repairing": {
-    note: "The app reloads it on its own, keeping the draft.",
+    note: "The app reloads it on its own, keeping the draft; the indicator stays quiet.",
     snapshot: {
       worst: "repairing",
       parts: [

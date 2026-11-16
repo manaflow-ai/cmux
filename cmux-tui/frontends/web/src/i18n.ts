@@ -9,7 +9,8 @@ const messages = {
     pairingPrompt: "Confirm this code in the cmux TUI",
     pairingExpires: "Expires in {seconds} seconds",
     waitingForApproval: "Waiting for approval…",
-    reconnecting: "Connection lost. Reconnecting in {seconds}s (attempt {attempt})…",
+    reconnectFailed: "The session service is still unavailable. Check it, then try again.",
+    retryConnection: "Try again",
     workspaces: "Workspaces",
     screens: "screens",
     shell: "shell",
@@ -49,7 +50,8 @@ const messages = {
     unknownError: "Unable to connect.",
     wrongApp: "Expected a cmux-tui server, but received {app}.",
     wrongProtocol: "Protocol {required} is required; the server reported protocol {protocol}.",
-    attachOverflowRecoveryFailed: "Terminal output overflowed repeatedly. Reconnect to resume safely.",
+    attachOverflowRecoveryFailed:
+      "Terminal output overflowed repeatedly. Reconnect to resume safely.",
     openWorkspaces: "Open workspaces",
     closeWorkspaces: "Close workspaces",
     extraKeys: "Terminal extra keys",
@@ -84,7 +86,8 @@ const messages = {
     pairingPrompt: "cmux TUI でこのコードを確認してください",
     pairingExpires: "{seconds}秒後に期限切れになります",
     waitingForApproval: "承認を待っています…",
-    reconnecting: "接続が切れました。{seconds}秒後に再接続します（{attempt}回目）…",
+    reconnectFailed: "セッションサービスを利用できません。確認してから、もう一度お試しください。",
+    retryConnection: "再試行",
     workspaces: "ワークスペース",
     screens: "スクリーン",
     shell: "シェル",
@@ -157,7 +160,9 @@ type MessageKey = keyof typeof messages.en;
 type Params = Record<string, string | number>;
 
 export function locale(): Locale {
-  return typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("ja") ? "ja" : "en";
+  return typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("ja")
+    ? "ja"
+    : "en";
 }
 
 export function t(key: MessageKey, params: Params = {}): string {

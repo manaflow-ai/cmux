@@ -61,17 +61,14 @@ export function headline(
   return pending ? { tone: "muted", text: pendingLine(pending.label, strings), part: null } : null;
 }
 
-/** The indicator's line for one part: what is wrong with it, in a sentence the person can act on ("Agent
- * chat isn't responding": the click opens Repair now; "Repairing Agent chat…": the app is on it). Null for
- * a part that is only slow or healthy: it still answers, and if it stops the model makes it stuck and
- * repairs it, so a "Slow" line named nothing the person could do (Leo, 2026-11-11: "slow indicator on the
- * bottom left is uselsss"). */
+/** The indicator's line for one part. Automatic stuck and repairing states stay quiet because the model
+ * owns the retry and the last frame remains visible; only the failed state asks the person to act. Null
+ * also covers slow and healthy parts (Leo, 2026-11-11: "slow indicator on the bottom left is uselsss"). */
 export function indicatorLine(part: HealthPart, strings: Strings): string | null {
   switch (part.state) {
     case "stuck":
-      return strings.format("appHealth.line.stuck", part.label);
     case "repairing":
-      return strings.format("appHealth.line.repairing", part.label);
+      return null;
     case "failed":
       return strings.format("appHealth.line.failed", part.label);
     default:
@@ -79,8 +76,7 @@ export function indicatorLine(part: HealthPart, strings: Strings): string | null
   }
 }
 
-/** What the sidebar's indicator shows, or null: the worst part past slow, else the newest queued action.
- * The native footer line says the same (AppHealthStrings.line, AppHealth.headline(of:)). */
+/** What the sidebar's indicator shows, or null: a failed part that needs the person. The native footer line says the same (AppHealthStrings.line, AppHealth.headline(of:)). */
 export function indicatorHeadline(
   snapshot: HealthSnapshot | null | undefined,
   strings: Strings,
@@ -89,6 +85,5 @@ export function indicatorHeadline(
   const part = worstPart({ ...snapshot, parts: snapshot.parts.filter((each) => RANK[each.state] > RANK.slow) });
   const text = part && indicatorLine(part, strings);
   if (part && text) return { tone: toneOf(part.state), text, part };
-  const pending = snapshot.pending?.[0];
-  return pending ? { tone: "muted", text: pendingLine(pending.label, strings), part: null } : null;
+  return null;
 }

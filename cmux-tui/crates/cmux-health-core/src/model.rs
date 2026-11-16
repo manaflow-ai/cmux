@@ -21,7 +21,8 @@
 //! repair that loads a page again) passes without the part's signal
 //! coming back (a `repairResult` with `ok: false` makes it due at once).
 //! Past [`policy::MAX_REPAIRS`] attempts in [`policy::REPAIR_WINDOW_MS`] the
-//! part is `failed` and waits for the user's click, which clears the cap and
+//! part is `failed` once its episode has lasted [`policy::FAILURE_MIN_MS`],
+//! and waits for the user's click, which clears the cap and
 //! starts again at step 1. The episode ends only when the signal comes back
 //! (a beat, `responsive`, `connected`, `loaded`), never on a result alone.
 
@@ -111,6 +112,8 @@ struct Signals {
 /// The repair episode of a part.
 #[derive(Debug, Default)]
 struct Repair {
+    /// When this stuck episode began, including time before its first repair tick.
+    started_at: Option<u64>,
     /// Attempts in this episode (0: none yet).
     attempt: u32,
     /// Attempt times inside the cap's window.
@@ -121,6 +124,7 @@ struct Repair {
     action: RepairAction,
     /// Actions sent to this part, never reset (each [`Action::token`]).
     sent: u64,
+    /// The ladder is exhausted; its visible failure still waits for FAILURE_MIN_MS.
     failed: bool,
     /// `holdReplace` was sent for the current daemon process.
     held: bool,
@@ -670,8 +674,9 @@ impl Health {
         let mut deadline = cond.next;
         let kind = part.kind;
         let r = &mut part.repair;
-        let state = match (cond.level, cond.mode) {
+        let mut state = match (cond.level, cond.mode) {
             (State::Stuck, Mode::Ladder(ladder)) => {
+                r.started_at.get_or_insert(now);
                 let due = r.attempt == 0 || r.next_at.is_some_and(|at| at <= now);
                 if r.failed {
                     State::Failed
@@ -721,6 +726,7 @@ impl Health {
             }
             (level, _) => {
                 // Not a stuck the model repairs: any episode is over.
+                r.started_at = None;
                 if r.attempt > 0 || r.failed {
                     if level == State::Healthy {
                         receipts.push((r.action, Outcome::Ok, detail::receipt_recovered(kind)));
@@ -731,6 +737,15 @@ impl Health {
                 level
             }
         };
+        if state == State::Failed
+            && let Some(at) = r.started_at.map(|at| at.saturating_add(policy::FAILURE_MIN_MS))
+            && now < at
+        {
+            // Exhausted attempts cannot turn a brief reconnect into an alert.
+            // Reuse this part's one deadline; recovery invalidates it normally.
+            state = State::Repairing;
+            deadline = earliest(deadline, Some(at));
+        }
         if state == State::Repairing {
             deadline = earliest(deadline, r.next_at);
         }

@@ -7,8 +7,6 @@ pub(crate) struct RuntimeMessages {
     pub(super) renderer_panicked: &'static str,
     pub(super) host_input_failed: &'static str,
     pub(super) session_transport_lost: &'static str,
-    pub(super) session_reconnecting: &'static str,
-    pub(super) session_reconnected: &'static str,
     pub(super) session_reconnect_failed: &'static str,
     pub(super) session_stopped: &'static str,
     pub(super) signal_handlers_failed: &'static str,
@@ -26,16 +24,6 @@ impl RuntimeMessages {
 
     pub(crate) fn session_transport_lost(&self) -> String {
         self.session_transport_lost.to_owned()
-    }
-
-    /// The status line while the client reconnects after its daemon left.
-    pub(crate) fn session_reconnecting(&self, session: &str) -> String {
-        self.session_reconnecting.replace("{session}", session)
-    }
-
-    /// The status line once the client is attached to the new daemon.
-    pub(crate) fn session_reconnected(&self, session: &str) -> String {
-        self.session_reconnected.replace("{session}", session)
     }
 
     /// The exit error when no daemon came back within `seconds`.
@@ -73,8 +61,6 @@ pub(super) const ENGLISH: RuntimeMessages = RuntimeMessages {
     renderer_panicked: "terminal renderer panicked: {message}",
     host_input_failed: "host terminal input failed: {error}",
     session_transport_lost: "session connection lost. Reconnect and retry.",
-    session_reconnecting: "reconnecting to session {session}…",
-    session_reconnected: "reconnected to session {session}",
     session_reconnect_failed: "session {session} did not come back within {seconds} s ({error}). Run `cmux daemon status --session {session}`, then attach again.",
     session_stopped: "session {session} stopped. Its daemon was stopped; run `cmux-tui --session {session}` to start it again.",
     signal_handlers_failed: "failed to install signal handlers: {error}",
@@ -87,8 +73,6 @@ pub(super) const JAPANESE: RuntimeMessages = RuntimeMessages {
     renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
     host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
     session_transport_lost: "セッションへの接続が失われました。再接続して再試行してください。",
-    session_reconnecting: "セッション {session} に再接続しています…",
-    session_reconnected: "セッション {session} に再接続しました",
     session_reconnect_failed: "セッション {session} が {seconds} 秒以内に戻りませんでした（{error}）。`cmux daemon status --session {session}` を実行してから、もう一度接続してください。",
     session_stopped: "セッション {session} は停止しました。デーモンが停止されました。`cmux-tui --session {session}` で再び起動できます。",
     signal_handlers_failed: "シグナルハンドラーの設定に失敗しました: {error}",

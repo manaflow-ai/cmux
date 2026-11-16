@@ -97,25 +97,21 @@ struct AppHealthStrings {
         }
     }
 
-    /// The footer line, as the web's indicator says it: what is wrong with which part, in a sentence the
-    /// person can act on ("Agent chat isn't responding": the click opens Repair now; "Reloading Agent chat…":
-    /// the app is on it), or with no unhealthy part the newest queued action ("Reconnecting; will close
-    /// Background task when back"). A part that is only slow has no line (``AppHealth/headline(of:)``).
+    /// The footer line, as the web's indicator says it: a calm sentence only when the person needs to act
+    /// ("Agent chat needs a repair"). Automatic recovery and queued actions have no line because
+    /// the app owns its retry and keeps the last frame visible. A part that is only slow has no line.
     static func line(_ headline: AppHealth.Headline) -> String? {
         if let label = headline.label, let state = headline.state {
             switch state {
             case .healthy, .slow: break
-            case .stuck:
-                return String(format: String(localized: "appHealth.line.stuck", defaultValue: "%@ isn’t responding", table: "AppHealth", bundle: .module), label)
-            case .repairing:
-                return String(format: String(localized: "appHealth.line.repairing", defaultValue: "Repairing %@…", table: "AppHealth", bundle: .module), label)
+            case .stuck, .repairing:
+                // Automatic repair is bounded by the health model. Keep transient drops quiet.
+                return nil
             case .failed:
                 return String(format: String(localized: "appHealth.line.failed", defaultValue: "%@ needs a repair", table: "AppHealth", bundle: .module), label)
             }
         }
-        return headline.pending.map {
-            String(format: String(localized: "appHealth.pending", defaultValue: "Reconnecting; will %@ when back", table: "AppHealth", bundle: .module), $0)
-        }
+        return nil
     }
 
     static func state(_ state: AppHealth.State) -> String? {

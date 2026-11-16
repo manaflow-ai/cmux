@@ -4,8 +4,8 @@ public import CmuxNextDesign
 
 /// App health's entry at the sidebar's bottom-left (design/app-health.md): nothing while every part is
 /// healthy and no action waits, nothing for a part that is only slow (the app is still answering, and the
-/// next step, stuck, repairs it on its own), otherwise a dot and one line that names the part and what is
-/// happening to it ("Agent chat isn't responding", "Reloading Agent chat…", "Agent chat needs a repair");
+/// next step, stuck, repairs it on its own), otherwise a dot and one calm line when a repair needs the
+/// person ("Agent chat needs a repair");
 /// a click opens the popover, whose Repair now is the person's way out.
 ///
 /// It never takes room from its neighbors (Leo, 2026-11-11: "slow indicator on the bottom left is

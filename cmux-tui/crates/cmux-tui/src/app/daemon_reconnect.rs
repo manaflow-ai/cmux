@@ -3,8 +3,8 @@
 //! `cmux daemon restart` (and an update or app handoff) replaces the daemon
 //! of a session: the old daemon sends `daemon-shutdown`, closes every client
 //! and exits, and a new daemon adopts the same terminals on the same socket.
-//! A plain session client keeps its view, shows "reconnecting" in the status
-//! line, and connects again with a bounded backoff; the new session is
+//! A plain session client keeps its view and reconnects quietly with a
+//! bounded backoff; the new session is
 //! installed in place the way a machine switch installs one. After
 //! `cmux daemon stop` (the notice says `restart: false`) the client exits
 //! with a message instead.
@@ -313,16 +313,11 @@ impl App {
                     crate::client_log::error("reconnect", &format!("{error:#}"));
                     return None;
                 }
-                Some(self.show_reconnecting())
+                // The current tree and surfaces remain paintable while the
+                // replacement starts. Automatic recovery needs no status line.
+                Some(RenderAction::None)
             }
         }
-    }
-
-    /// Puts "reconnecting" back on the status line.
-    pub(super) fn show_reconnecting(&mut self) -> RenderAction {
-        self.status_message =
-            Some(localization::catalog().runtime.session_reconnecting(&self.session_label));
-        RenderAction::Draw
     }
 
     /// Whether input for the departed daemon is dropped: keys, pastes and
@@ -350,7 +345,6 @@ impl App {
                 preserve_client_view(&self.tree, &mut prepared.tree);
                 self.install_prepared_machine_session(prepared, true);
                 crate::client_log::info("reconnect", "reconnected to the session daemon");
-                self.status_message = Some(runtime.session_reconnected(&self.session_label));
                 Ok(RenderAction::Draw)
             }
             ReconnectOutcome::Failed { window, error } => {

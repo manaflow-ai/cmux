@@ -69,7 +69,7 @@ export function ChatUnavailableState({
   // shifts nothing when it appears.
   const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
   const resumeSlow = useAfterDelay(resuming, noteDelayMs);
-  // A machine whose link just dropped: "Reconnecting…" shows only once the drop has lasted past
+  // A machine whose link just dropped: its offline line with Reconnect shows only after
   // LINK_DOWN_SAID_MS, the time acpmux takes to notice a dead link and redial it, so a link back on
   // its own never shows the state (Leo, 2026-11-14: "i also want all our connectivity stuff to shut
   // the fuck up").
@@ -133,7 +133,7 @@ export function ChatUnavailableState({
     title = t("unavailable.notFound.title");
     detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
   } else {
-    title = `${t("header.reconnecting")}…`;
+    title = named ? t("unavailable.offline.titleOn", { machine: named }) : t("unavailable.offline.title");
     detail =
       unavailable.lastSeen !== undefined
         ? t("unavailable.offline.lastSeen", {
@@ -169,7 +169,7 @@ export function ChatUnavailableState({
       )}
     </div>
   );
-  if (line)
+  if (line || unavailable.reason === "offline")
     return (
       <div
         className="acpmux-link-missing acpmux-unavailable-line"
@@ -178,9 +178,7 @@ export function ChatUnavailableState({
         data-enter="top"
       >
         <p className="acpmux-peer-copy-title">
-          {(unavailable.reason === "offline" || resuming) && (
-            <Spinner size={12} loading className="acpmux-peer-copy-spinner" />
-          )}
+          {resuming && <Spinner size={12} loading className="acpmux-peer-copy-spinner" />}
           {title}
         </p>
         {error && (
