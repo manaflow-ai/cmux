@@ -117,7 +117,7 @@ import Testing
     @Test func aRestingPointerOnAWorkspaceRowWakesItsPagesAndTheGraceSendsThemBack() async throws {
         let rig = try Rig(freezes: false)
         defer { rig.close() }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false, wakesOnHover: true))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, wakesOnHover: true))
         let keys = try await rig.pages(["a", "b", "c"])
         for key in keys { #expect(rig.hibernation.hibernateForWorkspace(key) == nil) }
         try await rig.until("the workspace's pages hibernate") { keys.allSatisfy { rig.services.cache.phase(of: $0) == .hibernated } }
@@ -167,7 +167,7 @@ import Testing
     @Test func aWorkspaceThePersonHibernatedDoesNotWakeOnHover() async throws {
         let rig = try Rig(freezes: false)
         defer { rig.close() }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false, wakesOnHover: true))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, wakesOnHover: true))
         let keys = try await rig.pages(["a", "b"])
         for key in keys { #expect(rig.hibernation.hibernateForWorkspace(key, byPerson: true) == nil) }
         try await rig.until("the workspace's pages hibernate") { keys.allSatisfy { rig.services.cache.phase(of: $0) == .hibernated } }
@@ -187,7 +187,7 @@ import Testing
     @Test func aNewerWorkspaceIntentSendsTheOlderOnesPagesBack() async throws {
         let rig = try Rig(freezes: false)
         defer { rig.close() }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false, wakesOnHover: true))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, wakesOnHover: true))
         let keys = try await rig.pages(["a", "b", "c", "d"])
         for key in keys { #expect(rig.hibernation.hibernateForWorkspace(key) == nil) }
         try await rig.until("the pages hibernate") { keys.allSatisfy { rig.services.cache.phase(of: $0) == .hibernated } }
@@ -209,7 +209,7 @@ import Testing
     @Test func hoverPreloadIsOffByDefault() async throws {
         let rig = try Rig(freezes: false)
         defer { rig.close() }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil))
         let keys = try await rig.pages(["a", "b"])
         for key in keys { #expect(rig.hibernation.hibernateForWorkspace(key) == nil) }
         try await rig.until("the workspace's pages hibernate") { keys.allSatisfy { rig.services.cache.phase(of: $0) == .hibernated } }

@@ -106,7 +106,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     /// Replans run (tests: a turn of a chat that is not hidden replans nothing).
     package private(set) var replans = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hibernation")
-    package private(set) var setting: BrowserHibernationSetting = .fallback
+    package private(set) var setting: BrowserHibernationSetting = .unset
     package private(set) var pressure: MemoryPressureLevel = .normal
     /// When each hidden page was last visible.
     private var hiddenAt: [String: ContinuousClock.Instant] = [:]
@@ -224,9 +224,10 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         }
     }
 
-    /// The browser setting's own wait for a chat that it lets go on its own (auto discard), nil when it does not.
+    /// The browser setting's own wait for a chat that it lets go on its own, nil when it does not: only once
+    /// cmux.json writes `browser.hibernation` (`isWritten`); its unset default discards browser tabs, not chats.
     private var settingThreshold: Double? {
-        setting.isEnabled && setting.discardsAutomatically ? HibernationPlanner.threshold(setting, pressure: pressure) : nil
+        setting.isEnabled && setting.isWritten ? HibernationPlanner.threshold(setting, pressure: pressure) : nil
     }
 
     /// Tab `key` is a hidden untouched New Tab beyond the warm-page cap (it follows `browser.hibernation` alone).
@@ -361,7 +362,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         let bySetting = settingThreshold.map { hidden >= max($0, Self.minimumHidden) } ?? false
         // The idle release (or the archive) made it due, not `browser.hibernation`: no first frame is needed.
         let byIdle = !forWorkspace && !bySetting && !newTab
-        let requiresFrame = !forWorkspace && !byIdle && !setting.discardsAutomatically
+        let requiresFrame = !forWorkspace && !byIdle && !setting.isWritten
         var cause = forWorkspace ? "workspace-idle hidden=\(hiddenFor)s" : pressure == .normal ? "timeout hidden=\(hiddenFor)s" : "memory-pressure=\(pressure.rawValue) hidden=\(hiddenFor)s"
         if byIdle { cause = (archived ? "archived-chat " : "idle-chat ") + cause }
         return (hiddenFor, forWorkspace, cause, requiresFrame)

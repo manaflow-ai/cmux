@@ -1,14 +1,19 @@
+import CCmuxAppFFI
 package import CmuxNextCompat
 package import CmuxNextSettings
 import Foundation
 
-/// Which hidden pages hibernate now, and when to look again
-/// (plans/cmux-next/tab-lifecycle.md). Pure: the App feeds it facts and a
-/// clock reading; `BrowserHibernation` performs the result.
+/// Which hidden pages are discarded or freeze now, and when to look again
+/// (plans/cmux-next/tab-lifecycle.md). The rules live in Rust, with their tests
+/// (cmux-tui/crates/cmux-tab-discard: the ranking, the pacing, the keep rules and the default), asked
+/// over the app FFI's JSON channel (`cmux_layout_reducer_json`, ops `tab_discard_*`). Swift only
+/// reports the facts (each hidden page's `Candidate`, its probe's answer) and `BrowserHibernation`
+/// applies the result. Swift cannot hold the rules: they are product rules, and a product rule lives
+/// once, in Rust (cmux CLAUDE.md, "New logic in Rust").
 package struct HibernationPlanner {
     package init() {}
-    /// One hidden page that could hibernate.
-    package struct Candidate: Hashable {
+    /// One hidden page that could hibernate: the facts the rules read.
+    package struct Candidate: Hashable, Encodable {
         package var key: String
         /// Seconds since the page was last visible.
         package var hiddenFor: Double
@@ -28,11 +33,9 @@ package struct HibernationPlanner {
         package var isDownloading = false
         /// An agent holds the page's browser lease (its cursor is on it).
         package var hasAgentLease = false
-        /// The probe kept the page lately (it played or held form input): under pressure it
-        /// ranks after the others, so it does not hold up the relief of the rest.
+        /// The probe kept the page lately (it played or held form input).
         package var recentlyKept = false
-        /// The page's site may show notifications (its permission is Allow): the timeout keeps it,
-        /// memory pressure does not (Chrome's kNotificationsEnabled, proactive discards only).
+        /// The page's site may show notifications (its permission is Allow).
         package var allowsNotifications = false
 
         package init(key: String, hiddenFor: Double, host: String? = nil, isPinned: Bool = false, hasDevTools: Bool = false,
@@ -54,45 +57,31 @@ package struct HibernationPlanner {
             self.recentlyKept = recentlyKept
             self.allowsNotifications = allowsNotifications
         }
-    }
 
-    /// How many pages one pass hibernates and how soon the next pass runs while more are due,
-    /// so pages never all close at once (a page that wakes meanwhile drops out of the queue).
-    package struct Pace: Equatable {
-        package var perPass: Int
-        package var interval: Double
-        /// Pages hidden less than this never go (the person just left them). Without pressure
-        /// the timeout alone decides.
-        package var minimumHidden: Double
-
-        package static let normal = Pace(perPass: 2, interval: 5, minimumHidden: 0)
-        package static let warning = Pace(perPass: 1, interval: 15, minimumHidden: 60)
-        package static let critical = Pace(perPass: 3, interval: 3, minimumHidden: 10)
-
-        package static func at(_ pressure: MemoryPressureLevel) -> Pace {
-            switch pressure {
-            case .normal: .normal
-            case .warning: .warning
-            case .critical: .critical
-            }
+        enum CodingKeys: String, CodingKey {
+            case key, host
+            case hiddenFor = "hidden_for", isPinned = "is_pinned", hasDevTools = "has_dev_tools", isCapturing = "is_capturing"
+            case canRestore = "can_restore", showsFormSubmission = "shows_form_submission"
+            case recentFocusCount = "recent_focus_count", memoryBytes = "memory_bytes", isDownloading = "is_downloading"
+            case hasAgentLease = "has_agent_lease", recentlyKept = "recently_kept", allowsNotifications = "allows_notifications"
         }
     }
 
-    /// Why a page does not hibernate (reported by `debug.surfaces`).
-    package enum Exemption: String, Hashable {
+    /// Why a page does not hibernate (reported by `debug.surfaces`). The rules answer the ones they
+    /// decide; the app adds its own (`neighbor`, `agentDriving`, `agentBusy`, ...).
+    package enum Exemption: String, Hashable, Decodable {
         case disabled, excluded, pinned, devTools = "devtools", capturing, unsupported
         /// Found by the probe right before hibernating.
         case audio, formInput = "form_input"
         /// A running Web Audio context, at every memory pressure.
         case webAudio = "web_audio"
-        /// The page would ask before it unloads (a `beforeunload` that cancels, after the person
-        /// used the page or a child frame with a handler that the person used).
+        /// The page would ask before it unloads.
         case beforeUnload = "before_unload"
         /// A connected WebRTC peer connection.
         case webRTC = "web_rtc"
         /// An open USB, HID or serial device, or a connected Bluetooth GATT server.
         case connectedDevice = "connected_device"
-        /// The person moved into a child frame whose fields cannot be read (Chromium's cross-origin frames).
+        /// The person moved into a child frame whose fields cannot be read.
         case unreadableFrame = "unreadable_frame"
         /// The page's site may show notifications; kept from the timeout, not from memory pressure.
         case notifications
@@ -101,150 +90,144 @@ package struct HibernationPlanner {
         /// The acpmux turn watch is down, so no chat's turn is known: every chat counts as busy.
         case agentTurnsUnknown = "agent_turns_unknown"
         case formSubmission = "form_submission"  // the page shows a form result (BR-R1)
-        /// An agent called the page within `BrowserHibernation.agentGrace` (`cmux browser`, MCP, the REPL).
+        /// An agent called the page within `BrowserHibernation.agentGrace`.
         case agentDriving = "agent_driving"
         /// Beside a pane's shown tab, or hovered (`browser.keepNeighborTabsAwake`).
         case neighbor
-        /// The page did not answer the probe: kept for `PageProbeHistory.unansweredLimit`
-        /// probes in a row, then until memory pressure (its form edits are unknown). A page whose
-        /// last answer kept it stays for as long as it does not answer.
+        /// The page did not answer the probe and still gets the benefit of the doubt.
         case unanswered
         /// A download the page started still runs.
         case downloading
         /// An agent holds the page's browser lease.
         case agentLease = "agent_lease"
-        /// cmux.json does not set `browser.hibernation`: hidden pages only freeze, so they keep their
-        /// state, and are never discarded on their own (`BrowserHibernationSetting.discardsAutomatically`).
+        /// A chat page held awake by its own rule (HiddenChatPages).
         case keepsState = "keeps_state"
     }
 
-    package struct Plan: Equatable {
-        /// Keys to hibernate now (after the probe).
+    package struct Plan: Equatable, Decodable {
+        /// Keys to hibernate now (after the probe), or to freeze.
         package var due: [String] = []
         /// Seconds until the next page reaches its deadline; nil when none will.
         package var nextCheck: Double?
         package var exemptions: [String: Exemption] = [:]
+
+        package init(due: [String] = [], nextCheck: Double? = nil, exemptions: [String: Exemption] = [:]) {
+            self.due = due
+            self.nextCheck = nextCheck
+            self.exemptions = exemptions
+        }
+
+        enum CodingKeys: String, CodingKey { case due, nextCheck = "next_check", exemptions }
+
+        package init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            due = try container.decode([String].self, forKey: .due)
+            nextCheck = try container.decodeIfPresent(Double.self, forKey: .nextCheck)
+            // A reason this build does not know is dropped, not the whole plan.
+            let raw = try container.decodeIfPresent([String: String].self, forKey: .exemptions) ?? [:]
+            exemptions = raw.compactMapValues(Exemption.init(rawValue:))
+        }
     }
 
-    /// Seconds hidden before a page hibernates; nil means never.
+    /// Seconds hidden before a page hibernates; nil means never (or the rules did not answer).
     package static func threshold(_ setting: BrowserHibernationSetting, pressure: MemoryPressureLevel) -> Double? {
-        guard let minutes = setting.hiddenMinutes else { return nil }
-        switch pressure {
-        case .normal: return minutes * 60
-        case .warning: return setting.mode == .aggressive ? 0 : min(minutes, 10) * 60
-        case .critical: return 0
-        }
+        struct Reply: Decodable { var seconds: Double? }
+        return TabDiscardRules.call("tab_discard_threshold", Request(setting: setting, pressure: pressure), as: Reply.self)?.seconds
     }
 
+    /// Why `candidate` never hibernates by the timeout or pressure, before its page is asked. A rules
+    /// call that does not answer keeps the page (`unsupported`): nothing is discarded unasked.
     package static func exemption(_ candidate: Candidate, setting: BrowserHibernationSetting) -> Exemption? {
-        if !setting.isEnabled { return .disabled }
-        if !candidate.canRestore { return .unsupported }
-        if candidate.hasAgentLease { return .agentLease }
-        if candidate.isDownloading { return .downloading }
-        if candidate.showsFormSubmission { return .formSubmission }
-        if candidate.hasDevTools { return .devTools }
-        if candidate.isCapturing { return .capturing }
-        if candidate.isPinned, !setting.includesPinnedTabs { return .pinned }
-        if setting.excludes(host: candidate.host) { return .excluded }
-        return nil
+        struct Reply: Decodable { var exemption: Exemption? }
+        let request = Request(setting: setting, candidate: candidate)
+        guard let reply = TabDiscardRules.call("tab_discard_exemption", request, as: Reply.self) else { return .unsupported }
+        return reply.exemption
     }
 
-    /// Which hidden pages freeze now, and when the next one will: after
-    /// `freezeSeconds` hidden, whatever the hibernation mode, except pinned
-    /// tabs (unless they hibernate too), excluded hosts, open DevTools and capture.
+    /// Which hidden pages freeze now, and when the next one will (`tab_discard_freeze_plan`).
     package static func freezePlan(_ setting: BrowserHibernationSetting, candidates: [Candidate]) -> Plan {
-        var plan = Plan()
-        guard let threshold = setting.freezeSeconds else { return plan }
-        for candidate in candidates {
-            if candidate.hasDevTools || candidate.isCapturing || candidate.hasAgentLease || setting.excludes(host: candidate.host)
-                || (candidate.isPinned && !setting.includesPinnedTabs) { continue }
-            let remaining = threshold - candidate.hiddenFor
-            if remaining <= 0 {
-                plan.due.append(candidate.key)
-            } else {
-                plan.nextCheck = min(plan.nextCheck ?? remaining, remaining)
-            }
-        }
-        return plan
+        TabDiscardRules.call("tab_discard_freeze_plan", Request(setting: setting, candidates: candidates), as: Plan.self) ?? Plan()
     }
 
-    /// The share of the timeout each doubling of recent focus buys: at the 30 minute default a
-    /// tab shown 15 times in the last hour (4 doublings) hibernates 20 minutes later than one
-    /// never shown. A share, not a fixed time, so a short timeout stays short.
-    package static let focusCreditPerDoubling: Double = 1.0 / 6
-    /// Seconds a page's memory counts as extra idleness under memory pressure: one minute per
-    /// 100 MB, at most 10. Without pressure memory is not scarce, so it does not count.
-    package static func memoryCredit(_ bytes: UInt64?) -> Double {
-        guard let bytes else { return 0 }
-        return min(Double(bytes) / Double(100 << 20), 10) * 60
-    }
-
-    /// How idle a page counts as: seconds hidden, plus its memory under pressure, less its
-    /// recent focus (a share of `timeout`, the seconds before a page is due). Larger is less valuable: it hibernates first and sooner.
-    package static func idleness(_ candidate: Candidate, pressure: MemoryPressureLevel, timeout: Double) -> Double {
-        let focus = log2(1 + Double(min(max(candidate.recentFocusCount, 0), 63))) * focusCreditPerDoubling * timeout
-        let memory = pressure == .normal ? 0 : memoryCredit(candidate.memoryBytes)
-        return candidate.hiddenFor + memory - focus
-    }
-
-    /// The pages to hibernate now, least valuable first, and when to look again.
-    ///
-    /// A page is due once its idleness reaches the timeout (`browser.hibernation`; 10 minutes at
-    /// most under pressure). Under memory pressure, when no page is due, the least valuable page
-    /// hidden at least `Pace.minimumHidden` goes anyway, to relieve it. Each pass takes at most
-    /// `Pace.perPass` pages and looks again after `Pace.interval` while more are waiting.
-    ///
-    /// Without `discardsAutomatically` no page is due, at any memory pressure: a discarded page
-    /// reloads when it wakes, which the person did not ask for.
+    /// The pages to hibernate now, least valuable first, and when to look again (`tab_discard_plan`).
+    /// A rules call that does not answer discards nothing.
     package static func plan(_ setting: BrowserHibernationSetting, pressure: MemoryPressureLevel, candidates: [Candidate]) -> Plan {
-        var plan = Plan()
-        if setting.isEnabled, !setting.discardsAutomatically {
-            for candidate in candidates { plan.exemptions[candidate.key] = exemption(candidate, setting: setting) ?? .keepsState }
-            return plan
+        let request = Request(setting: setting, pressure: pressure, candidates: candidates)
+        return TabDiscardRules.call("tab_discard_plan", request, as: Plan.self) ?? Plan()
+    }
+
+    /// One request of the rules: the setting's values, and what the op reads.
+    private struct Request: Encodable {
+        var setting: BrowserHibernationSetting.Wire
+        var pressure: MemoryPressureLevel?
+        var candidates: [Candidate]?
+        var candidate: Candidate?
+
+        init(setting: BrowserHibernationSetting, pressure: MemoryPressureLevel? = nil, candidates: [Candidate]? = nil,
+             candidate: Candidate? = nil) {
+            self.setting = setting.wire
+            self.pressure = pressure
+            self.candidates = candidates
+            self.candidate = candidate
         }
-        guard let threshold = threshold(setting, pressure: pressure == .critical ? .warning : pressure) else {
-            for candidate in candidates { plan.exemptions[candidate.key] = .disabled }
-            return plan
+    }
+}
+
+extension BrowserHibernationSetting {
+    /// The values the rules read (cmux-tab-discard `Setting`).
+    struct Wire: Encodable {
+        var mode: JSONValue
+        var exclusions: [String]
+        var includesPinnedTabs: Bool
+        var freezeSeconds: Double?
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(mode, forKey: .mode)
+            try container.encode(exclusions, forKey: .exclusions)
+            try container.encode(includesPinnedTabs, forKey: .includesPinnedTabs)
+            // Null, not absent: an absent value is the rules' default (30 s), "off" is null.
+            try container.encode(freezeSeconds, forKey: .freezeSeconds)
         }
-        let pace = Pace.at(pressure)
-        var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool)] = []
-        for candidate in candidates {
-            if let exemption = exemption(candidate, setting: setting) {
-                plan.exemptions[candidate.key] = exemption
+
+        enum CodingKeys: String, CodingKey { case mode, exclusions, includesPinnedTabs = "includes_pinned_tabs", freezeSeconds = "freeze_seconds" }
+    }
+
+    var wire: Wire { Wire(mode: configValue, exclusions: exclusions, includesPinnedTabs: includesPinnedTabs, freezeSeconds: freezeSeconds) }
+}
+
+/// The app FFI's JSON channel for the tab discard rules (`tab_discard_*`). Every type it sends or reads names its snake_case keys itself: a key strategy would rewrite the page keys of `Plan.exemptions` too.
+package struct TabDiscardRules {
+    package init() {}
+
+    /// One JSON call; nil when the rules do not answer.
+    package static func call<Request: Encodable, Reply: Decodable>(_ operation: String, _ request: Request, as: Reply.Type) -> Reply? {
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(request), let reply = callData(operation, data) else { return nil }
+        let decoder = JSONDecoder()
+        return try? decoder.decode(Reply.self, from: reply)
+    }
+
+    private static func callData(_ operation: String, _ data: Data) -> Data? {
+        var capacity = max(4096, data.count * 2)
+        for _ in 0..<2 {
+            var output = [UInt8](repeating: 0, count: capacity)
+            var outputLength = 0
+            let code: Int32 = data.withUnsafeBytes { request in
+                operation.withCString { op in
+                    output.withUnsafeMutableBytes { out in
+                        cmux_layout_reducer_json(request.bindMemory(to: UInt8.self).baseAddress, data.count, op,
+                                                 out.bindMemory(to: UInt8.self).baseAddress, out.count, &outputLength)
+                    }
+                }
+            }
+            if code == CMUX_LAYOUT_REDUCER_ERR_BUFFER, outputLength > capacity {
+                capacity = outputLength
                 continue
             }
-            // Only memory pressure takes a page that may show notifications (Chrome: urgent discards only).
-            if candidate.allowsNotifications, pressure == .normal {
-                plan.exemptions[candidate.key] = .notifications
-                continue
-            }
-            ranked.append((candidate.key, idleness(candidate, pressure: pressure, timeout: threshold), candidate.hiddenFor,
-                           pressure != .normal && candidate.recentlyKept))
+            guard code == CMUX_LAYOUT_REDUCER_OK, outputLength <= capacity else { return nil }
+            return Data(output.prefix(outputLength))
         }
-        ranked.sort {
-            if $0.kept != $1.kept { return !$0.kept }
-            return $0.idleness != $1.idleness ? $0.idleness > $1.idleness : $0.key < $1.key
-        }
-        // A page the person just left never goes, whatever its memory or the mode.
-        let oldEnough = ranked.filter { $0.hiddenFor >= pace.minimumHidden }
-        // Pages the probe just kept come last: only when no other page can go.
-        let fresh = oldEnough.filter { !$0.kept }
-        var due = fresh.filter { $0.idleness >= threshold }
-        if due.isEmpty, pressure != .normal { due = fresh }
-        if due.isEmpty { due = oldEnough.filter { $0.idleness >= threshold } }
-        if due.isEmpty, pressure != .normal { due = oldEnough }
-        plan.due = due.prefix(pace.perPass).map(\.key)
-        if due.count > plan.due.count || (pressure != .normal && !plan.due.isEmpty) {
-            plan.nextCheck = pace.interval
-        }
-        let dueKeys = Set(due.map(\.key))
-        for page in ranked where !dueKeys.contains(page.key) {
-            let young = pace.minimumHidden - page.hiddenFor
-            var wait = max(threshold - page.idleness, young)
-            // Under pressure any page old enough is relief: look again once this one is.
-            if pressure != .normal { wait = min(wait, max(young, pace.interval)) }
-            plan.nextCheck = min(plan.nextCheck ?? .infinity, max(wait, 0.001))
-        }
-        return plan
+        return nil
     }
 }

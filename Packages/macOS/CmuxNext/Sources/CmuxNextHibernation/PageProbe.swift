@@ -1,38 +1,32 @@
 package import CmuxNextCompat
 
-/// What the page says right before it freezes or hibernates.
-///
-/// Keep rules (Lawrence 2026-10-24, CLAUDE.md "Copy Chrome's performance model"): a page with
-/// audio, capture, the person's form input (also in a child frame it cannot read), a `beforeunload`
-/// that asks, a WebRTC connection or an open device is never discarded, at any memory pressure. Chrome lets an urgent discard take a page with form
-/// interaction; cmux does not.
-package struct PageProbe: Hashable, Sendable {
+/// What the page says right before it freezes or hibernates: facts only. What they keep (audio,
+/// capture, the person's form input, a `beforeunload` that asks, a WebRTC connection, an open device,
+/// at every memory pressure) and the benefit of the doubt a page that does not answer keeps are the
+/// rules of cmux-tui/crates/cmux-tab-discard (`probe`), asked through `PageProbe.keepReason` and
+/// `PageProbe.keepsAwake` below. The rules hold each page's recent answers; the app tells them when
+/// a page shows (`shown`) and closes (`forget`).
+package struct PageProbe: Hashable, Sendable, Encodable {
     /// Unmuted media playing, media the tab's mute silences, or Picture in Picture.
     package var playingMedia = false
     /// The person's form edits in the tab's frames (`BrowserPageBusy.editedForm`).
     package var editedForm = false
     /// Camera, microphone or screen capture the page started (`BrowserPageBusy`).
     package var capturing = false
-    /// A running Web Audio context. It may be silent (a chat app's notification sounds, a game);
-    /// only the page knows whether it is heard, so it counts as audio at every pressure.
+    /// A running Web Audio context.
     package var webAudio = false
-    /// The page would ask before it unloads (a child frame's `BrowserPageBusy.beforeUnload`): it says
-    /// it cannot be unloaded now, for example a half filled out form.
+    /// The page would ask before it unloads (a child frame's `BrowserPageBusy.beforeUnload`).
     package var beforeUnload = false
-    /// The person used the top document and it has a `beforeunload` handler
-    /// (`BrowserPageBusy.unloadHandler`): it may ask. Not a keep reason by itself; the hibernation
-    /// runs the handlers only right before the discard, once nothing else keeps the page.
+    /// The person used the top document and it has a `beforeunload` handler: it may ask. Not a keep
+    /// reason by itself; the hibernation runs the handlers only right before the discard.
     package var unloadHandler = false
-    /// A connected WebRTC peer connection: a discard would end the call; a freeze would stall it.
+    /// A connected WebRTC peer connection.
     package var webRTC = false
-    /// An open USB, HID or serial device, or a connected Bluetooth GATT server (Chrome's
-    /// kConnectedToUSB and kConnectedToBluetooth): a discard drops the connection.
+    /// An open USB, HID or serial device, or a connected Bluetooth GATT server.
     package var connectedDevice = false
-    /// The person moved into a child frame whose fields cannot be read (Chromium's cross-origin
-    /// frames have no recorder): its edits are unknown, so they count as the person's input.
+    /// The person moved into a child frame whose fields cannot be read.
     package var unreadableFrame = false
-    /// False when the page did not answer (a script error, or no reply within the deadline):
-    /// only what the tab reported on its own (`BrowserTabState.media`) is known.
+    /// False when the page did not answer (a script error, or no reply within the deadline).
     package var answered = true
 
     package init(playingMedia: Bool = false, editedForm: Bool = false, capturing: Bool = false, webAudio: Bool = false,
@@ -50,34 +44,42 @@ package struct PageProbe: Hashable, Sendable {
         self.answered = answered
     }
 
-    /// Why the answer keeps the page loaded, or nil when nothing it said does.
-    package var exemption: HibernationPlanner.Exemption? {
-        if capturing { return .capturing }
-        if playingMedia { return .audio }
-        if editedForm { return .formInput }
-        if unreadableFrame { return .unreadableFrame }
-        if beforeUnload { return .beforeUnload }
-        if webRTC { return .webRTC }
-        if connectedDevice { return .connectedDevice }
-        return webAudio ? .webAudio : nil
+    enum CodingKeys: String, CodingKey {
+        case playingMedia = "playing_media", editedForm = "edited_form", capturing, webAudio = "web_audio"
+        case beforeUnload = "before_unload", unloadHandler = "unload_handler", webRTC = "web_rtc"
+        case connectedDevice = "connected_device", unreadableFrame = "unreadable_frame", answered
     }
 
-    /// The page does something a freeze stops (it keeps memory and state, so form input and a
-    /// `beforeunload` do not count).
-    package var stopsWhenFrozen: Bool { playingMedia || capturing || webAudio || webRTC || connectedDevice }
+    /// Why page `key` stays loaded now that it gave this answer right before a discard, or nil when it
+    /// may go (`tab_discard_probe`; the rules record an answer). Rules that do not answer keep it.
+    package func keepReason(_ key: String, pressure: MemoryPressureLevel, showsFormSubmission: Bool) -> HibernationPlanner.Exemption? {
+        struct Request: Encodable {
+            var key: String, probe: PageProbe, pressure: MemoryPressureLevel, showsFormSubmission: Bool
+            enum CodingKeys: String, CodingKey { case key, probe, pressure, showsFormSubmission = "shows_form_submission" }
+        }
+        struct Reply: Decodable { var exemption: String? }
+        let request = Request(key: key, probe: self, pressure: pressure, showsFormSubmission: showsFormSubmission)
+        guard let reply = TabDiscardRules.call("tab_discard_probe", request, as: Reply.self) else { return .unanswered }
+        return reply.exemption.map { HibernationPlanner.Exemption(rawValue: $0) ?? .unanswered }
+    }
 
-    /// Why the probed page stays loaded now, or nil when it may hibernate.
-    ///
-    /// What the page said keeps it at every pressure, and so does a form result (BR-R1). A page
-    /// that did not answer stays while it gets the benefit of the doubt (`PageProbeHistory`), and
-    /// without memory pressure always: its form edits are unknown.
-    /// - Parameters:
-    ///   - pressure: The system memory pressure now.
-    ///   - doubted: The page still gets the benefit of the doubt (`PageProbeHistory.doubted`).
-    ///   - showsFormSubmission: The shown document came from a POST.
-    package func keepReason(pressure: MemoryPressureLevel, doubted: Bool, showsFormSubmission: Bool) -> HibernationPlanner.Exemption? {
-        if let exemption { return exemption }
-        if showsFormSubmission { return .formSubmission }
-        return !answered && (doubted || pressure == .normal) ? .unanswered : nil
+    /// Whether page `key` stays awake now that it gave this answer right before a freeze
+    /// (`tab_discard_freeze_probe`; the rules record it). Rules that do not answer keep it awake.
+    package func keepsAwake(_ key: String) -> Bool {
+        struct Request: Encodable { var key: String, probe: PageProbe }
+        struct Reply: Decodable { var keep: Bool }
+        return TabDiscardRules.call("tab_discard_freeze_probe", Request(key: key, probe: self), as: Reply.self)?.keep ?? true
+    }
+
+    /// Page `key` showed: its missed probes start again (what it last said still holds).
+    package static func shown(_ key: String) {
+        struct Reply: Decodable {}
+        _ = TabDiscardRules.call("tab_discard_shown", ["key": key], as: Reply.self)
+    }
+
+    /// Page `key` closed: the rules forget its answers.
+    package static func forget(_ key: String) {
+        struct Reply: Decodable {}
+        _ = TabDiscardRules.call("tab_discard_forget", ["key": key], as: Reply.self)
     }
 }

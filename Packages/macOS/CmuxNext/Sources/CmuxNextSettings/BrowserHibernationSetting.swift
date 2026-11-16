@@ -15,12 +15,12 @@
 ///
 /// "off" disables it completely, including under memory pressure.
 ///
-/// A discard reloads the page when it wakes: it loses its scroll, form state and script state,
-/// and a page behind a login or a sudo prompt can come back signed out ("why does cmux-next's
-/// browser keep refreshing and reloading?", Leo 2026-10-26). So hidden pages only freeze by
-/// default; they are discarded on their own (after the timeout or under memory pressure) only
-/// once cmux.json sets `browser.hibernation` (`discardsAutomatically`). The person's Hibernate
-/// Tab discards whatever the setting.
+/// A discard reloads the page when it is shown again (at its URL and scroll position, its last
+/// picture over the pane until it paints). Hidden pages are discarded by default, after 30 minutes
+/// hidden and sooner under memory pressure (Leo, 2026-11-14, "4 yes": hidden browser tabs
+/// discarded by default and reloaded when shown, keeping tabs that play audio, have an unsaved
+/// form, or are pinned); "off" keeps them loaded. The rules are cmux-tui/crates/cmux-tab-discard.
+/// The person's Hibernate Tab discards whatever the setting.
 ///
 /// `freezeHiddenTabs` is separate: a hidden Chromium page freezes (its timers,
 /// tasks and rendering stop; it keeps its memory and state) after that many
@@ -56,10 +56,11 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     public var neighborRadius: Int
     /// The whole numbers `browser.keepNeighborTabsAwake` accepts (`neighborRadiusRange`).
     public static let neighborRadii = Int(neighborRadiusRange.lowerBound)...Int(neighborRadiusRange.upperBound)
-    /// Hidden pages are discarded on their own (the timeout, memory pressure). False unless
-    /// cmux.json sets `browser.hibernation`: a discarded page reloads when it wakes, so by
-    /// default hidden pages only freeze, which keeps their state.
-    public var discardsAutomatically: Bool
+    /// cmux.json writes `browser.hibernation` (a fact, not a rule). Browser tabs do not read it: unset
+    /// discards as `moderate` does. Hidden agent chat pages (HiddenChatPages) still follow the
+    /// setting's timeout only once it is written, as before: their discard is not part of the
+    /// 2026-11-14 change, which is about browser tabs.
+    public var isWritten: Bool
     /// A rest on a tab or a workspace row wakes the pages its click would show (hover preload).
     public var wakesOnHover: Bool
 
@@ -68,18 +69,24 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
                 includesPinnedTabs: Bool = BrowserHibernationSetting.includesPinnedTabsDefault,
                 freezeSeconds: Double? = BrowserHibernationSetting.freezeSecondsDefault,
                 neighborRadius: Int = Int(BrowserHibernationSetting.neighborRadiusDefault),
-                discardsAutomatically: Bool = true, wakesOnHover: Bool = BrowserHibernationSetting.wakesOnHoverDefault) {
+                isWritten: Bool = true, wakesOnHover: Bool = BrowserHibernationSetting.wakesOnHoverDefault) {
         self.mode = mode
         self.wakesOnHover = wakesOnHover
-        self.discardsAutomatically = discardsAutomatically
+        self.isWritten = isWritten
         self.exclusions = exclusions
         self.includesPinnedTabs = includesPinnedTabs
         self.freezeSeconds = freezeSeconds
         self.neighborRadius = neighborRadius
     }
 
-    /// No `browser.hibernation` in cmux.json: hidden pages freeze and are never discarded on their own.
-    public static let fallback = BrowserHibernationSetting(mode: .moderate, discardsAutomatically: false)
+    /// No `browser.hibernation` in cmux.json: the schema's default, `fallback` (`moderate`: hidden
+    /// browser tabs are discarded after 30 minutes).
+    public static let unset = BrowserHibernationSetting(mode: mode(named: fallback) ?? .moderate, isWritten: false)
+
+    /// The mode a `browser.hibernation` string names, or nil.
+    static func mode(named text: String) -> Mode? {
+        [("off", Mode.off), ("moderate", .moderate), ("aggressive", .aggressive)].first(where: { $0.0 == text })?.1
+    }
 
     public var isEnabled: Bool { mode != .off }
 
@@ -125,17 +132,16 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     /// Parses the `browser` section. Missing keys are defaults with no
     /// diagnostic; bad values are defaults plus a diagnostic.
     static func parse(_ root: JSONValue) -> (BrowserHibernationSetting, [SettingsDiagnostic]) {
-        var setting = fallback
+        var setting = unset
         var diagnostics: [SettingsDiagnostic] = []
         guard case .object(let browser)? = root["browser"] else { return (setting, diagnostics) }
         if let value = browser["hibernation"] {
             if let number = value.doubleValue, number > 0 {
                 setting.mode = .minutes(number)
-                setting.discardsAutomatically = true
-            } else if let text = value.stringValue, let mode = [("off", Mode.off), ("moderate", .moderate), ("aggressive", .aggressive)]
-                .first(where: { $0.0 == text })?.1 {
+                setting.isWritten = true
+            } else if let text = value.stringValue, let mode = mode(named: text) {
                 setting.mode = mode
-                setting.discardsAutomatically = true
+                setting.isWritten = true
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "browser.hibernation",
                                                       message: "expected \"off\", \"moderate\", \"aggressive\" or a number of minutes > 0"))

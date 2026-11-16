@@ -58,7 +58,7 @@ struct AgentPageFreezeTests {
     @Test func aHiddenChatFreezesAfterFreezeSecondsAndThawsWhenShown() throws {
         let rig = Self.rig()
         // The default: no `browser.hibernation` written, so pages are never released, but hidden ones freeze.
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         let view = try rig.hiddenChat("tab_quiet", session: "s-quiet")
         #expect(rig.hibernation.hasFreezeDeadline, "the hide armed no freeze deadline")
 
@@ -80,7 +80,7 @@ struct AgentPageFreezeTests {
 
     @Test func aBusyChatStaysAwakeAndAFrozenChatThawsWhenItsTurnStarts() async throws {
         let rig = Self.rig()
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         _ = try rig.hiddenChat("tab_busy", session: "s-busy")
         _ = try rig.hiddenChat("tab_idle", session: "s-idle")
         rig.turns.setState(.working, session: "s-busy")
@@ -104,7 +104,7 @@ struct AgentPageFreezeTests {
         #expect(page(rig, "tab_off")?.frozen != true, "hibernation off froze a chat")
         #expect(rig.hibernation.keepsAwake("tab_off") == .disabled)
 
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         rig.hibernation.isPinned = { $0 == "tab_pinned" }
         _ = try rig.hiddenChat("tab_pinned", session: "s-pinned")
         advance(rig, seconds: 60)
@@ -119,7 +119,7 @@ struct AgentPageFreezeTests {
     /// `freezeHiddenTabs` later, as a browser tab is.
     @Test func aRefusedFreezeIsAskedAgainLater() throws {
         let rig = Self.rig()
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         _ = try rig.hiddenChat("tab_refused", session: "s-refused")
         let control = try #require(page(rig, "tab_refused"))
         control.refuses = true
@@ -139,7 +139,7 @@ struct AgentPageFreezeTests {
     /// so it never froze; now its hidden clock starts at the next plan.
     @Test func aChatBuiltInTheBackgroundFreezesToo() throws {
         let rig = Self.rig()
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         rig.hibernation.isRendering = { rig.rendering.contains($0) }
         // As the App wires the store (`AgentTabStore.onPageBuilt`).
         rig.tabs.onPageBuilt = { rig.hibernation.pageBuilt($0) }
@@ -155,7 +155,7 @@ struct AgentPageFreezeTests {
     /// backlog): a frozen page thaws before the push goes, and freezes again once idle that long.
     @Test func aPushForAFrozenChatThawsItFirst() throws {
         let rig = Self.rig()
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         let view = try rig.hiddenChat("tab_push", session: "s-push")
         advance(rig, seconds: 31)
         let control = try #require(page(rig, "tab_push"))
@@ -178,7 +178,7 @@ struct AgentPageFreezeTests {
         let control = Page()
         rig.hibernation.freezer = { _ in attached ? control : nil }
         rig.hibernation.waitsForFreezer = { _ in !attached }
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         _ = try rig.hiddenChat("tab_slow", session: "s-slow")
         #expect(rig.hibernation.hasFreezeDeadline, "a page still making its browser armed no freeze deadline")
         advance(rig, seconds: 31)
@@ -193,7 +193,7 @@ struct AgentPageFreezeTests {
     /// frozen page thaws first and none freezes until that ends.
     @Test func theQuitsRelaunchStateThawsFrozenChatsAndKeepsThemAwake() throws {
         let rig = Self.rig()
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         _ = try rig.hiddenChat("tab_quit", session: "s-quit")
         _ = try rig.hiddenChat("tab_later", session: "s-later")
         advance(rig, seconds: 31)
@@ -213,7 +213,7 @@ struct AgentPageFreezeTests {
     /// being forgotten frozen, freezes again under its new key, and a turn or the quit still reaches it.
     @Test func aFrozenChatWhoseTabGetsItsRealKeyIsNotLostFrozen() throws {
         let rig = Self.rig()
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         rig.hibernation.isRendering = { rig.rendering.contains($0) }
         let view = try rig.hiddenChat("tab_provisional", session: "s-rekey")
         advance(rig, seconds: 31)
@@ -244,7 +244,7 @@ struct AgentPageFreezeTests {
     /// page what it holds, so the page thaws first even though its frozen entry has the old key.
     @Test func aRekeyedFrozenChatThawsBeforeItsWorkspaceReleasesIt() throws {
         let rig = Self.rig()
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         let view = try rig.hiddenChat("tab_provisional", session: "s-rekey-release")
         advance(rig, seconds: 31)
         let control = try #require(page(rig, "tab_provisional"))
@@ -263,7 +263,7 @@ struct AgentPageFreezeTests {
     /// must not freeze it again under the provisional key.
     @Test func aPageBeingReleasedUnderOneKeyDoesNotFreezeUnderTheOther() throws {
         let rig = Self.rig()
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         rig.hibernation.wakeState = { _ in try? await Task.sleep(for: .seconds(30)); return nil }
         _ = try rig.hiddenChat("tab_provisional", session: "s-both")
         advance(rig, seconds: 31)
@@ -282,7 +282,7 @@ struct AgentPageFreezeTests {
     /// Work for it thaws it, and the plan that follows must not freeze it again under the other key.
     @Test func workForAPageUnderTwoKeysDoesNotRefreezeItUnderTheOther() throws {
         let rig = Self.rig()
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         rig.hibernation.isRendering = { rig.rendering.contains($0) }
         let view = try rig.hiddenChat("tab_provisional", session: "s-two-keys")
         advance(rig, seconds: 31)
@@ -308,7 +308,7 @@ struct AgentPageFreezeTests {
     /// Debug and automation actions call the page's scripts directly: a frozen page wakes first.
     @Test func aScriptCallOrPictureWakesAFrozenChat() async throws {
         let rig = Self.rig()
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         let view = try rig.hiddenChat("tab_script", session: "s-script")
         advance(rig, seconds: 31)
         let control = try #require(page(rig, "tab_script"))

@@ -95,7 +95,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `labs.liveCode`: a live code build applies Swift patches from ~/Library/Caches/cmux-next/live-code (read at launch); off when unset.
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
-    public var browserHibernation: BrowserHibernationSetting = .fallback
+    public var browserHibernation: BrowserHibernationSetting = .unset
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
     public var browserLinkClicks: BrowserLinkClickSetting = .fallback
     /// `browser.openLinksInCmuxBrowser` (classic: `.openTerminalLinksInCmuxBrowser`), `.hostsToOpenInEmbeddedBrowser`, `.urlsToAlwaysOpenExternally`.

@@ -14,8 +14,8 @@ import Testing
     }
 
     @Test func aHiddenPageFreezesAfterThirtySecondsByDefault() {
-        #expect(BrowserHibernationSetting.fallback.freezeSeconds == 30)
-        let plan = HibernationPlanner.freezePlan(.fallback, candidates: [
+        #expect(BrowserHibernationSetting.unset.freezeSeconds == 30)
+        let plan = HibernationPlanner.freezePlan(.unset, candidates: [
             candidate("long", hiddenFor: 31), candidate("short", hiddenFor: 10),
         ])
         #expect(plan.due == ["long"])
@@ -25,7 +25,7 @@ import Testing
     /// Freezing stops a page's timers and sockets, so the pages a person keeps live for
     /// notifications (pinned tabs, excluded hosts) stay awake as they do for hibernation.
     @Test func pinnedAndExcludedPagesStayAwake() {
-        var setting = BrowserHibernationSetting.fallback
+        var setting = BrowserHibernationSetting.unset
         setting.exclusions = ["mail.google.com"]
         let plan = HibernationPlanner.freezePlan(setting, candidates: [
             candidate("pinned", hiddenFor: 100, pinned: true),
@@ -36,7 +36,7 @@ import Testing
     }
 
     @Test func offNeverFreezes() {
-        var setting = BrowserHibernationSetting.fallback
+        var setting = BrowserHibernationSetting.unset
         setting.freezeSeconds = nil
         let plan = HibernationPlanner.freezePlan(setting, candidates: [candidate("a", hiddenFor: 1_000)])
         #expect(plan.due.isEmpty)

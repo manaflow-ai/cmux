@@ -80,7 +80,7 @@ import Testing
     }
 
     @Test func oneOnEachSideByDefault() {
-        #expect(BrowserHibernationSetting.fallback.neighborRadius == 1)
+        #expect(BrowserHibernationSetting.unset.neighborRadius == 1)
         let (setting, diagnostics) = BrowserHibernationSetting.parse(.object(["browser": .object([:])]))
         #expect(diagnostics.isEmpty)
         #expect(setting.neighborRadius == 1)

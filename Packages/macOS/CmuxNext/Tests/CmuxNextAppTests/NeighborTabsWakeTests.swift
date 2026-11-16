@@ -105,12 +105,11 @@ import Testing
     }
 
     /// A restore loads the page again. A page the person hibernated (Hibernate Tab) never restores
-    /// as a neighbor or a hovered tab, whatever the setting, and with no `browser.hibernation`
-    /// written no hibernated page restores early: only a show or a wake brings it back.
+    /// as a neighbor or a hovered tab, whatever the setting: only a show or a wake brings it back.
     @Test func aPageThePersonHibernatedRestoresOnlyWhenShownOrWoken() async throws {
         let rig = try Rig(freezes: false)
         defer { rig.close() }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false, wakesOnHover: true))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, wakesOnHover: true))
         let keys = try await rig.pages(["a", "b", "c", "d", "e"])
         let asleep = Array(keys.dropFirst())
         for key in asleep { #expect(rig.hibernation.hibernateNow(key) == nil) }

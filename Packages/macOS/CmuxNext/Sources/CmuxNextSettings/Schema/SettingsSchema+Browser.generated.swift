@@ -79,8 +79,9 @@ extension BuiltInAdBlockerSetting {
 }
 
 extension BrowserHibernationSetting {
-    /// `browser.hibernation`: Unset is its own behaviour, not moderate: hidden pages only freeze and are never discarded on their own (BrowserHibernationSetting.fallback). Any written value, moderate included, turns automatic discards on, so it shows as customized and Reset returns to unset.
+    /// `browser.hibernation`: Moderate by default (Leo, 2026-11-14, "4 yes": hidden browser tabs discarded by default and reloaded when shown, keeping tabs that play audio, have an unsaved form, or are pinned; the rules are cmux-tui/crates/cmux-tab-discard). Never turns it off. Hidden agent chat pages follow it only once it is written (BrowserHibernationSetting.isWritten).
     public nonisolated static let configPath = ["browser", "hibernation"]
+    public nonisolated static let fallback = "moderate"
     public nonisolated static let range: ClosedRange<Double> = 1...1440
     public nonisolated static let placeholder: Double = 30
     public nonisolated static let values = ["moderate", "aggressive", "off"]

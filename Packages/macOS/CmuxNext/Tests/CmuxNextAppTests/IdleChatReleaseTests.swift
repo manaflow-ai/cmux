@@ -74,7 +74,7 @@ import Testing
         func cancel() { isScheduled = false }
     }
 
-    static func make(setting: BrowserHibernationSetting = .fallback, pressure: MemoryPressureLevel = .normal) -> (HiddenChatPages<Host>, Host) {
+    static func make(setting: BrowserHibernationSetting = .unset, pressure: MemoryPressureLevel = .normal) -> (HiddenChatPages<Host>, Host) {
         let host = Host()
         let planner = HiddenChatPages(host: host, deadline: Deadline(), freezeDeadline: Deadline())
         host.planner = planner
@@ -198,7 +198,7 @@ import Testing
         #expect(host.released == ["tab_warned"], "warning pressure waited the full idle wait")
 
         // Critical: at once, past the composer's short wait.
-        planner.update(setting: .fallback, pressure: .critical)
+        planner.update(setting: .unset, pressure: .critical)
         Self.hide("tab_pressed", planner, host)
         Self.advance(HiddenChatPages<Host>.minimumHidden / 2, planner, host)
         #expect(!host.released.contains("tab_pressed"), "released before the composer's last keystrokes reached acpmux")

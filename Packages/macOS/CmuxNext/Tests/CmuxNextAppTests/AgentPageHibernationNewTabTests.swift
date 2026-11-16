@@ -161,7 +161,7 @@ struct AgentPageHibernationNewTabTests {
         let rig = rig()
         defer { rig.window.closeAfterTest() }
         _ = try rig.hiddenChat("tab_chat", session: "same-session")
-        rig.hibernation.update(setting: .fallback, pressure: .critical)
+        rig.hibernation.update(setting: .unset, pressure: .critical)
         #expect(!rig.hibernation.pages.newTabIsExcess("tab_chat"))
         rig.advance(minutes: 120)
         await rig.settle { rig.tabs.existingView("tab_chat") == nil }

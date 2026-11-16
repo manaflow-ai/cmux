@@ -76,8 +76,7 @@ extension BrowserSettingsSchema {
                     SettingChoice("aggressive", SettingsText.keyed("settings.choice.aggressive", "After 10 Minutes")),
                     SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
                 ], SettingNumber(BrowserHibernationSetting.range, step: 5, unit: .minutes, placeholder: BrowserHibernationSetting.placeholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.neverDiscard", "Never Discard"),
+                default: .string(BrowserHibernationSetting.fallback),
                 keywords: ["memory saver", "sleep", "discard", "freeze", "reload"]
             ),
             SettingDescriptor(

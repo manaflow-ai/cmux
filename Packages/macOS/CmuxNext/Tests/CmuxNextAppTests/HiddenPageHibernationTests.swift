@@ -17,6 +17,9 @@ import CmuxNextTestSupport
 /// placeholder's own full-size snapshot, outside the 32 MB preview cache. Real WebKit pages,
 /// hidden from a pane, through the app's hibernation.
 @MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct HiddenPageHibernationTests {
+    /// Seconds a page must be hidden before critical pressure takes it (cmux-tab-discard `Pace::CRITICAL`).
+    static let criticalMinimumHidden: Double = 10
+
     @Test func aPageWhoseScriptFillsItsFormHibernates() async throws {
         let rig = try Rig()
         defer { rig.close() }
@@ -196,7 +199,7 @@ import CmuxNextTestSupport
         cache.pageThumbnails.insert(leave, for: key)
         cache.pageThumbnailVersions[key] = current ? page.state.pictureVersion : page.state.pictureVersion &+ 1
         rig.hibernation.pressureDidChange(.critical)
-        rig.skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
+        rig.skipped += .seconds(HiddenPageHibernationTests.criticalMinimumHidden)
         rig.hibernation.replan()
         try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
         try #require(rig.isHibernated(key))
@@ -420,12 +423,12 @@ import CmuxNextTestSupport
             try #require(services.cache.phase(of: key) == .mountedVisible)
             services.cache.withdraw(key, by: pane)
             try #require(services.cache.phase(of: key) == .mountedHidden)
-            // Critical pressure takes only a page hidden `Pace.critical.minimumHidden` (10 s; the
+            // Critical pressure takes only a page hidden 10 s (cmux-tab-discard `Pace::CRITICAL`; the
             // person may come straight back). Waiting that out on the wall clock put a 10 s timer
             // inside every 15 s wait for a hibernation, which a starved parallel run overran:
             // the page is that old now, and planned at once.
             if hibernation.pressure == .critical {
-                skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
+                skipped += .seconds(HiddenPageHibernationTests.criticalMinimumHidden)
                 hibernation.replan()
             }
             return key

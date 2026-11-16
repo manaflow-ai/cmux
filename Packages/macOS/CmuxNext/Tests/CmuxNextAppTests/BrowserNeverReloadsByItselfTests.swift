@@ -7,85 +7,86 @@ import CmuxNextHibernation
 import Foundation
 import Testing
 
-/// "why does cmux-next's browser keep refreshing and reloading? this happened before with austin
-/// using google maps" (Leo, 2026-10-26). A hidden page was discarded (after 30 minutes hidden, or
-/// 10 seconds under memory pressure) and reloaded from its saved history when shown: a GitHub
-/// settings page came back at the sign-in page, a map lost its place. A page never reloads unless
-/// the person asks: by default hidden pages only freeze (they keep their state) and nothing is
-/// discarded on its own; a timeout written to cmux.json still discards, as the person asked.
+/// Leo, 2026-11-14, approving process-sharing row 4 ("4 yes"): hidden browser tabs are discarded by
+/// default and reloaded when shown, keeping tabs that play audio, have an unsaved form, or are pinned.
+/// Before, with no `browser.hibernation` in cmux.json, hidden pages only froze and kept their
+/// renderers (Leo, 2026-10-26: "why does cmux-next's browser keep refreshing and reloading?" made
+/// that the default; the 2026-11-14 approval takes it back for browser tabs). The rules are Rust
+/// (cmux-tui/crates/cmux-tab-discard, with their own tests); these check the app asks them.
 @Suite struct BrowserNeverReloadsByItselfPlanTests {
     private func page(_ key: String, minutes: Double) -> HibernationPlanner.Candidate {
         HibernationPlanner.Candidate(key: key, hiddenFor: minutes * 60)
     }
 
-    /// No `browser.hibernation` in cmux.json: no hidden page is discarded, however long it has been
-    /// hidden and at every memory pressure, and no deadline is armed for one.
+    /// No `browser.hibernation` in cmux.json: a hidden page past the 30 minute timeout is discarded,
+    /// and under memory pressure one hidden past the pace's minimum goes too. Red before: unset kept
+    /// every page (`keeps_state`).
     @Test(arguments: [MemoryPressureLevel.normal, .warning, .critical])
-    func theDefaultNeverDiscards(pressure: MemoryPressureLevel) {
-        let plan = HibernationPlanner.plan(.fallback, pressure: pressure, candidates: [
-            page("github-settings", minutes: 600), page("maps", minutes: 45), page("docs", minutes: 1),
-        ])
-        #expect(plan.due.isEmpty, "a hidden page was discarded by default (it reloads when shown)")
-        #expect(plan.nextCheck == nil)
-        #expect(plan.exemptions == ["github-settings": .keepsState, "maps": .keepsState, "docs": .keepsState])
+    func theDefaultDiscardsAHiddenTabPastTheTimeout(pressure: MemoryPressureLevel) {
+        let plan = HibernationPlanner.plan(.unset, pressure: pressure, candidates: [page("github-settings", minutes: 600)])
+        #expect(plan.due == ["github-settings"], "a hidden tab past the timeout was kept by default")
+        #expect(plan.exemptions.isEmpty)
     }
 
-    /// A page's own reason to stay is still the one reported (`debug.surfaces`).
-    @Test func aPinnedPageReportsPinned() {
+    /// A pinned tab is kept by default, at every pressure, and reports why (`debug.surfaces`).
+    @Test(arguments: [MemoryPressureLevel.normal, .warning, .critical])
+    func aPinnedTabIsKept(pressure: MemoryPressureLevel) {
         var pinned = page("pinned", minutes: 90)
         pinned.isPinned = true
-        let plan = HibernationPlanner.plan(.fallback, pressure: .critical, candidates: [pinned])
+        let plan = HibernationPlanner.plan(.unset, pressure: pressure, candidates: [pinned])
+        #expect(plan.due.isEmpty)
         #expect(plan.exemptions["pinned"] == .pinned)
+    }
+
+    /// A tab playing audio or holding the person's unsaved form input is kept by its probe, at every pressure.
+    @Test(arguments: [MemoryPressureLevel.normal, .warning, .critical])
+    func audioAndUnsavedFormInputKeepTheTab(pressure: MemoryPressureLevel) {
+        #expect(PageProbe(playingMedia: true).keepReason("plan-audio", pressure: pressure, showsFormSubmission: false) == .audio)
+        #expect(PageProbe(editedForm: true).keepReason("plan-form", pressure: pressure, showsFormSubmission: false) == .formInput)
+        #expect(PageProbe(beforeUnload: true).keepReason("plan-unload", pressure: pressure, showsFormSubmission: false) == .beforeUnload)
+        #expect(PageProbe().keepReason("plan-plain", pressure: pressure, showsFormSubmission: false) == nil)
+    }
+
+    /// "Never" still turns it off at every pressure.
+    @Test(arguments: [MemoryPressureLevel.normal, .warning, .critical])
+    func offNeverDiscards(pressure: MemoryPressureLevel) {
+        let plan = HibernationPlanner.plan(BrowserHibernationSetting(mode: .off), pressure: pressure, candidates: [page("old", minutes: 600)])
+        #expect(plan.due.isEmpty)
+        #expect(plan.exemptions["old"] == .disabled)
     }
 
     /// Freezing (power, not memory: the page keeps its state) still applies by default.
     @Test func theDefaultStillFreezes() {
-        let plan = HibernationPlanner.freezePlan(.fallback, candidates: [page("maps", minutes: 1)])
+        let plan = HibernationPlanner.freezePlan(.unset, candidates: [page("maps", minutes: 1)])
         #expect(plan.due == ["maps"])
     }
 
-    /// A timeout the person set still discards, as before.
-    @Test func anExplicitTimeoutStillDiscards() throws {
-        let (setting, diagnostics) = BrowserHibernationSetting.parse(.object(["browser": .object(["hibernation": .string("moderate")])]))
-        #expect(diagnostics.isEmpty)
-        #expect(setting.discardsAutomatically)
-        let plan = HibernationPlanner.plan(setting, pressure: .normal, candidates: [page("old", minutes: 31)])
-        #expect(plan.due == ["old"])
-    }
-
-    @Test func onlyAWrittenSettingOptsIn() {
-        #expect(!BrowserHibernationSetting.fallback.discardsAutomatically)
-        #expect(!BrowserHibernationSetting.parse(.object([:])).0.discardsAutomatically)
-        #expect(!BrowserHibernationSetting.parse(.object(["browser": .object(["freezeHiddenTabs": .number(60)])])).0.discardsAutomatically)
-        #expect(!BrowserHibernationSetting.parse(.object(["browser": .object(["hibernation": .string("sometimes")])])).0.discardsAutomatically)
-        #expect(BrowserHibernationSetting.parse(.object(["browser": .object(["hibernation": .number(45)])])).0.discardsAutomatically)
-        #expect(BrowserHibernationSetting.parse(.object(["browser": .object(["hibernation": .string("aggressive")])])).0.discardsAutomatically)
+    /// Whether cmux.json writes the setting is still known (hidden chat pages follow only a written one).
+    @Test func onlyAWrittenSettingIsWritten() {
+        #expect(!BrowserHibernationSetting.unset.isWritten)
+        #expect(!BrowserHibernationSetting.parse(.object([:])).0.isWritten)
+        #expect(BrowserHibernationSetting.parse(.object(["browser": .object(["hibernation": .number(45)])])).0.isWritten)
+        #expect(BrowserHibernationSetting.unset.hiddenMinutes == 30)
     }
 }
 
-/// Real WebKit pages through the app's tab content cache and hibernation under critical memory
-/// pressure (where a hidden page used to be discarded after 10 seconds): switching tabs,
-/// workspaces and panes (a page hidden by one presenter and shown by another) never reloads it.
+/// Real WebKit pages through the app's tab content cache and hibernation, with no
+/// `browser.hibernation` in cmux.json.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct BrowserNeverReloadsByItselfTests {
+    /// Switching tabs, workspaces and panes (a page hidden by one presenter and shown by another)
+    /// well inside the timeout never reloads a page: only a page hidden past it is discarded.
     @Test func switchingAwayAndBackNeverReloadsAPage() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
-        // The default: no `browser.hibernation` in cmux.json.
-        rig.hibernation.apply(.fallback)
-        rig.hibernation.pressureDidChange(.critical)
+        rig.hibernation.apply(.unset)
+        rig.hibernation.pressureDidChange(.normal)
         let page = try await rig.page("signed-in", body: "<input id='q'><script>window.loadedAt = performance.timeOrigin;</script>")
         let loadedAt = try await page.evaluate("window.loadedAt", world: .page, gesture: .agent)
         _ = try await page.evaluate("window.mark = 'still here'; true", world: .page, gesture: .agent)
         let key = try await rig.hide(page)
-
-        // Past the 10 s under critical pressure after which a hidden page used to be discarded.
-        try await Task.sleep(for: .seconds(12))
         rig.hibernation.replan()
-        #expect(!rig.isHibernated(key), "a hidden page was discarded by default (it reloads when shown)")
-        #expect(rig.exemption(key) == .keepsState)
+        #expect(!rig.isHibernated(key), "a page hidden a moment was discarded")
 
-        // Tab and workspace switches (the same pane shows and hides it), then a pane move (another
-        // pane shows it).
         let other = HiddenPageHibernationTests.Pane()
         for presenter in [rig.pane, rig.pane, other, rig.pane] {
             rig.services.cache.present(key, by: presenter, presence: .visible)
@@ -97,6 +98,32 @@ import Testing
         #expect(shown === page, "the page was recreated")
         #expect(try await shown.evaluate("window.loadedAt", world: .page, gesture: .agent) == loadedAt, "the page loaded again")
         #expect(try await shown.evaluate("window.mark", world: .page, gesture: .agent) == .string("still here"), "the page lost its state")
+        rig.services.cache.withdraw(key, by: rig.pane)
+    }
+
+    /// By default a hidden page past the pace's minimum under critical memory pressure is discarded
+    /// (its engine page closes), and showing it again reloads it at its URL. Red before: unset kept it
+    /// (`keeps_state`).
+    @Test func theDefaultDiscardsAHiddenPageAndShowingItReloadsItAtItsURL() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        rig.hibernation.apply(.unset)
+        rig.hibernation.pressureDidChange(.critical)
+        let page = try await rig.page("plain", body: "<p>plain</p><script>window.loadedAt = performance.timeOrigin;</script>")
+        let url = try #require(page.state.url)
+        let loadedAt = try await page.evaluate("window.loadedAt", world: .page, gesture: .agent)
+        let key = try await rig.hide(page)
+        try await rig.until("the default discarded the hidden page") { rig.isHibernated(key) }
+
+        rig.hibernation.pressureDidChange(.normal)
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        try await rig.until("the shown page is back") { rig.services.cache.browsers[key]?.tab is WebKitTab }
+        let back = try #require(rig.services.cache.browsers[key]?.tab as? WebKitTab)
+        try await rig.until("the shown page loaded") {
+            (try? await back.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)) == .string("plain")
+        }
+        #expect(back.state.url == url, "the page came back elsewhere")
+        #expect(try await back.evaluate("window.loadedAt", world: .page, gesture: .agent) != loadedAt, "the page did not reload")
         rig.services.cache.withdraw(key, by: rig.pane)
     }
 
@@ -183,7 +210,7 @@ import Testing
     @Test func aPageShownAndHiddenDuringItsFreezeProbeFreezesAgain() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: 0.2, discardsAutomatically: false))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: 0.2))
         rig.hibernation.pressureDidChange(.normal)
         let recorder = NeighborTabsWakeTests.Recorder()
         var freezes = false

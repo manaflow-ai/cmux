@@ -192,7 +192,7 @@ struct AgentPageHibernationTests {
     func theDefaultLetsAHiddenIdleChatGo(_ pressure: MemoryPressureLevel) async throws {
         let rig = Rig()
         defer { rig.window.closeAfterTest() }
-        rig.hibernation.update(setting: .fallback, pressure: pressure)
+        rig.hibernation.update(setting: .unset, pressure: pressure)
         let page = try rig.hiddenChat("tab_default", session: "s-default")
         #expect(rig.hibernation.hasDeadline, "the hide armed no deadline")
         rig.advance(minutes: (AgentPageHibernation.minimumHidden - 1) / 60)
@@ -211,7 +211,7 @@ struct AgentPageHibernationTests {
     @Test func anArchivedChatLetsItsPageGoAtOnce() async throws {
         let rig = Rig()
         defer { rig.window.closeAfterTest() }
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         let archived = try rig.hiddenChat("tab_archived", session: "s-archived")
         let other = try rig.hiddenChat("tab_other", session: "s-other")
         await rig.settle { false }
@@ -229,7 +229,7 @@ struct AgentPageHibernationTests {
     func aHiddenWorkingChatKeepsItsPage(_ work: String) async throws {
         let rig = Rig()
         defer { rig.window.closeAfterTest() }
-        rig.hibernation.update(setting: .fallback, pressure: .critical)
+        rig.hibernation.update(setting: .unset, pressure: .critical)
         let session = "s-\(work)"
         let state: AgentTurnState? = work == "turn" ? .working : work == "permission" ? .needsInput : nil
         let detail = AgentChatDetail(subagentsRunning: work == "subagent" ? 1 : 0, commandsRunning: work == "command" ? 1 : 0)
@@ -260,7 +260,7 @@ struct AgentPageHibernationTests {
             // First asked: an unsaved send is still going out. Then it is saved.
             return unsaved.count == 1 ? AgentPaneWakeState(holdsEdits: true) : left
         }
-        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.update(setting: .unset, pressure: .normal)
         let page = try rig.hiddenChat("tab_draft", session: "s-draft")
         rig.advance(minutes: HiddenChatPages<AgentPageHibernation>.idleRelease / 60 + 0.1)
         await rig.settle { unsaved.count > 0 }
