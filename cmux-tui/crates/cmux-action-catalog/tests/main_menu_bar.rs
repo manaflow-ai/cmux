@@ -175,7 +175,9 @@ fn every_main_menu_placement_is_shown_or_palette_only_by_reason() {
                 )),
                 Some(_) => {}
             }
-            shown.insert(id.clone());
+            if !shown.insert(id.clone()) {
+                problems.push(format!("compactActionIDs lists {id} twice: the bar shows it twice"));
+            }
         }
     }
     shown.extend(hand.iter().cloned());
