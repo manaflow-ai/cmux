@@ -86,6 +86,8 @@
 }
 .cmux-app-scene-node[data-hover]:hover:not([data-disabled]) {
   background-color: var(--app-hover);
+  /* A gradient background is an inline image; the hover wash replaces it, as on AppKit. */
+  background-image: none !important;
 }
 .cmux-app-scene-node:is(button, [role="button"]):not([data-disabled]) {
   cursor: default;

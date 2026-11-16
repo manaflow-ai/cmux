@@ -69,7 +69,9 @@
     Toggle: () => Toggle,
     VStack: () => VStack,
     ViewNode: () => ViewNode,
-    ZStack: () => ZStack
+    ZStack: () => ZStack,
+    linearGradient: () => linearGradient,
+    radialGradient: () => radialGradient
   });
   var currentComputation = null;
   var currentOwner = null;
@@ -720,6 +722,36 @@
       this.menu = items;
       return this;
     }
+    symbolRendering(mode, colors) {
+      if (!SYMBOL_RENDERINGS.includes(mode))
+        throw new TypeError(`symbolRendering: unknown mode ${JSON.stringify(mode)}`);
+      this.set("symbolRendering", mode);
+      if (colors === undefined)
+        return this;
+      if (!Array.isArray(colors) || colors.length < 1 || colors.length > 3 || !colors.every(isSceneColor))
+        throw new TypeError(`symbolRendering: colors must be 1 to 3 color tokens or #RRGGBB[AA], got ${JSON.stringify(colors)}`);
+      return this.set("symbolColors", [...colors]);
+    }
+  }
+  var SCENE_COLOR_TOKENS = ["primary", "secondary", "tertiary", "accent", "separator", "success", "warning", "danger", "hover", "selected", "badge", "clear"];
+  var HEX_COLOR = /^#[\da-f]{6}([\da-f]{2})?$/i;
+  var isSceneColor = (value) => typeof value === "string" && (SCENE_COLOR_TOKENS.includes(value) || HEX_COLOR.test(value));
+  var SYMBOL_RENDERINGS = ["monochrome", "hierarchical", "palette", "multicolor"];
+  function gradientStops(name, colors) {
+    if (!Array.isArray(colors) || colors.length < 2 || colors.length > 8 || !colors.every(isSceneColor))
+      throw new TypeError(`${name}: colors must be 2 to 8 color tokens or #RRGGBB[AA], got ${JSON.stringify(colors)}`);
+    return [...colors];
+  }
+  function linearGradient(colors, angle) {
+    const stops = gradientStops("linearGradient", colors);
+    if (angle === undefined)
+      return { linear: { colors: stops } };
+    if (typeof angle !== "number" || !Number.isFinite(angle))
+      throw new TypeError("linearGradient: angle must be a finite number of degrees");
+    return { linear: { colors: stops, angle } };
+  }
+  function radialGradient(colors) {
+    return { radial: { colors: gradientStops("radialGradient", colors) } };
   }
   var clean = (children) => children.filter((c) => !!c);
   function container(type) {
