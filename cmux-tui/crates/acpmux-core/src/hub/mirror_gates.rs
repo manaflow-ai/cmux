@@ -291,11 +291,11 @@ fn origins() -> usize {
 /// origins, then a local row. Two clocks start at the local row's submit: one
 /// stops at the end of the writer turn that publishes it, the other when that
 /// turn publishes it. The turns after it, which write the units the cap left,
-/// are not timed.
-fn thirty_sample(fixture: &mut Fixture) -> (u128, u128) {
+/// are not timed. The origins' queued units are counted before the clocks start.
+fn thirty_sample(fixture: &mut Fixture, origins: usize) -> ThirtySample {
     let cursor = fixture.next;
     fixture.next += 1;
-    for origin in 0..origins() {
+    for origin in 0..origins {
         let name = format!("peer-{origin:02}");
         let changes = (0..MAX_UNIT_CHANGES)
             .map(|n| UnitChange::Summary(Box::new(row(&name, format!("big-{n:05}"), cursor))))
@@ -311,24 +311,31 @@ fn thirty_sample(fixture: &mut Fixture) -> (u128, u128) {
     let key = RowKey::new("local", format!("local-{:05}", cursor % 20));
     let published =
         |hub: &Hub| hub.snapshot().get_row(&key).is_some_and(|row| row.last_activity == cursor);
+    let queued = fixture.hub.updates.pending.lock().map_or(0, |pending| pending.controls.len());
+    assert_eq!(queued, origins, "each origin's unit is queued before the clocks start");
     let started = Instant::now();
     fixture.hub.submit(row("local", key.chat_id.to_string(), cursor)).expect("local row");
     while !published(&fixture.hub) {
         fixture.writer.process_batch();
     }
-    let elapsed = started.elapsed().as_nanos().max(1);
-    let publish = fixture
-        .writer
-        .turn_measure
-        .local_published
-        .map_or(elapsed, |at| at.duration_since(started).as_nanos().max(1));
-    while (0..origins()).any(|origin| {
+    let turn_end = started.elapsed().as_nanos().max(1);
+    let turn = fixture.writer.turn_measure;
+    let publish =
+        turn.local_published.map_or(turn_end, |at| at.duration_since(started).as_nanos().max(1));
+    while (0..origins).any(|origin| {
         fixture.hub.mirror_mark(&format!("peer-{origin:02}")).map(|mark| mark.cursor)
             != Some(cursor)
     }) {
         fixture.writer.process_batch();
     }
-    (elapsed, publish)
+    ThirtySample { turn_end, publish, turn }
+}
+
+/// A thirty sample's two clocks and the split of the turn that published the local row.
+struct ThirtySample {
+    turn_end: u128,
+    publish: u128,
+    turn: disk::TurnMeasure,
 }
 
 /// A local row's submit-to-publish while 30 origins (or `V2_THIRTY_ORIGINS`) each queue the largest
@@ -337,7 +344,7 @@ fn thirty_sample(fixture: &mut Fixture) -> (u128, u128) {
 #[ignore = "release measurement; run with --ignored --release --nocapture"]
 fn pr08_mirror_local_row_thirty() {
     let mut god = fixture(11_000, origins(), 16_000);
-    thirty_sample(&mut god);
+    thirty_sample(&mut god, origins());
     let mut capped_rounds = Vec::new();
     let mut lifted_rounds = Vec::new();
     let (mut capped_kept, mut lifted_kept) = (Vec::new(), Vec::new());
@@ -345,15 +352,17 @@ fn pr08_mirror_local_row_thirty() {
     let mut publish_rounds = Vec::new();
     for _ in 0..LOCAL_ROUNDS {
         god.writer.mirror.turn_changes = MAX_TURN_UNIT_CHANGES;
-        let (mut samples, mut published): (Vec<u128>, Vec<u128>) =
-            (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god)).unzip();
+        let (mut samples, mut published): (Vec<u128>, Vec<u128>) = (0..LOCAL_SAMPLES)
+            .map(|_| thirty_sample(&mut god, origins()))
+            .map(|sample| (sample.turn_end, sample.publish))
+            .unzip();
         publish_rounds.push(p95(&mut published));
         pooled.extend_from_slice(&samples);
         capped_kept.push(samples.clone());
         capped_rounds.push(p95(&mut samples));
         god.writer.mirror.turn_changes = usize::MAX;
         let mut samples: Vec<u128> =
-            (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god).0).collect();
+            (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god, origins()).turn_end).collect();
         lifted_kept.push(samples.clone());
         lifted_rounds.push(p95(&mut samples));
     }
@@ -378,6 +387,53 @@ fn pr08_mirror_local_row_thirty() {
         let _ = writeln!(file, "{line}");
     }
     assert!(capped_p95 <= 10_000_000, "local row p95 under 30 units over 10 ms: {capped_p95} ns");
+}
+
+/// Decision 451 (c): the turn that publishes the local row, split into taking the batch,
+/// rows, origin slots (units) and the sync, with its index publishes, under both orders in
+/// one build: units first (the order before decision 300) and rows first. One line for
+/// each order and size, at 30 and at 256 origins.
+#[test]
+#[ignore = "release measurement; run with --ignored --release --nocapture"]
+fn pr08_mirror_turn_split() {
+    const ROUNDS: usize = 3;
+    for origins in [30, 256] {
+        let mut god = fixture(11_000, origins, 16_000);
+        thirty_sample(&mut god, origins);
+        let mut sides: [Vec<ThirtySample>; 2] = [Vec::new(), Vec::new()];
+        for round in 0..ROUNDS {
+            // Alternate which order goes first each round.
+            for step in 0..2 {
+                let units_first = (round + step) % 2 == 0;
+                god.hub.updates.units_first.store(units_first, Ordering::Relaxed);
+                let side = &mut sides[usize::from(!units_first)];
+                side.extend((0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god, origins)));
+            }
+        }
+        god.hub.updates.units_first.store(false, Ordering::Relaxed);
+        for (order, samples) in ["units_first", "rows_first"].iter().zip(&sides) {
+            let mut pick = |f: &dyn Fn(&ThirtySample) -> u128| {
+                let mut values: Vec<u128> = samples.iter().map(f).collect();
+                p95(&mut values)
+            };
+            let publish = pick(&|s| s.publish);
+            let turn_end = pick(&|s| s.turn_end);
+            let take = pick(&|s| s.turn.take_ns);
+            let rows = pick(&|s| s.turn.kind_ns[0]);
+            let units = pick(&|s| s.turn.kind_ns[1]);
+            let records = pick(&|s| s.turn.kind_ns[2]);
+            let sync = pick(&|s| s.turn.sync_ns);
+            let mut publishes: Vec<usize> = samples.iter().map(|s| s.turn.publishes).collect();
+            publishes.sort_unstable();
+            let (least, most) =
+                (publishes.first().copied().unwrap_or(0), publishes.last().copied().unwrap_or(0));
+            let line = format!(
+                "{{\"name\":\"v2.pr08.mirror_turn_split\",\"order\":\"{order}\",\"origins\":{origins},\"publish_p95\":{publish},\"turn_end_p95\":{turn_end},\"take_p95\":{take},\"rows_p95\":{rows},\"units_p95\":{units},\"records_p95\":{records},\"sync_p95\":{sync},\"publishes_min\":{least},\"publishes_max\":{most},\"samples\":{},\"unit\":\"ns\"}}",
+                samples.len()
+            );
+            eprintln!("{line}");
+        }
+    }
 }
 
 /// One drain: a unit of [`MAX_UNIT_CHANGES`] changes queued for each of the 30 origins, and
@@ -416,7 +472,7 @@ fn drain_sample(fixture: &mut Fixture) -> u128 {
 #[ignore = "release measurement; run with --ignored --release --nocapture"]
 fn turn_cap_compare() {
     let mut god = fixture(11_000, origins(), 16_000);
-    thirty_sample(&mut god);
+    thirty_sample(&mut god, origins());
     let caps = [4 * MAX_UNIT_CHANGES, MAX_TURN_UNIT_CHANGES];
     let mut capped: [Vec<u128>; 2] = Default::default();
     let mut drains: [Vec<u128>; 2] = Default::default();
@@ -424,7 +480,7 @@ fn turn_cap_compare() {
         for (side, cap) in caps.iter().enumerate() {
             god.writer.mirror.turn_changes = *cap;
             let mut samples: Vec<u128> =
-                (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god).0).collect();
+                (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god, origins()).turn_end).collect();
             capped[side].push(p95(&mut samples));
             drains[side].extend((0..10).map(|_| drain_sample(&mut god)));
         }

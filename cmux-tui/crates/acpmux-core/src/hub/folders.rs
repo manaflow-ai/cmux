@@ -379,6 +379,8 @@ impl HubWriter {
     }
 
     fn publish_folder_update(&self, next: SummaryIndex, ops: &[FolderOp], origin: Option<Origin>) {
+        #[cfg(test)]
+        self.publishes.set(self.publishes.get() + 1);
         let mut state = match self.folder_state.lock() {
             Ok(state) => state,
             Err(_) => {

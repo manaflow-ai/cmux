@@ -523,11 +523,12 @@ fn a_turn_takes_units_up_to_the_cap_and_the_local_row() {
     assert_eq!(hub.snapshot().len(), origins * MAX_UNIT_CHANGES + 1);
 }
 
-/// Decision 300: a turn writes its rows before its units. A local row queued behind thirty
+/// Decisions 300 and 451: a turn writes its rows before its units, but an origin's rows stay
+/// behind its own queued unit or takeover. A local row queued behind thirty
 /// full units is published before the first change of any unit in that turn, and the turn
 /// still takes the cap's units (decision 279's count).
 #[test]
-fn a_row_queued_behind_thirty_units_is_published_before_any_unit_of_its_turn() {
+fn a_local_row_goes_before_thirty_queued_units_and_a_queued_origins_rows_stay_behind_its_unit() {
     const ORIGINS: usize = 30;
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     for origin in 0..ORIGINS {

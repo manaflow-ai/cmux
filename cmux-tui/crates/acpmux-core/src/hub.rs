@@ -126,6 +126,9 @@ struct UpdateQueue {
     pending: Mutex<Pending>,
     notify: Notify,
     closed: AtomicBool,
+    /// Test only: take a turn's units before its rows, the order before decision 300.
+    #[cfg(test)]
+    units_first: AtomicBool,
 }
 
 impl UpdateQueue {
@@ -134,6 +137,8 @@ impl UpdateQueue {
             pending: Mutex::new(Pending::default()),
             notify: Notify::new(),
             closed: AtomicBool::new(false),
+            #[cfg(test)]
+            units_first: AtomicBool::new(false),
         }
     }
 
@@ -230,7 +235,9 @@ impl UpdateQueue {
     /// its slot, with what queued behind it, for the next turn. Origin records
     /// go first, then the rows of origins with no unit or takeover queued, so
     /// a local row waits on no unit (decision 300), then the origins' slots and
-    /// the rest of the rows. The slots start after the one whose unit the last
+    /// the rest of the rows: a unit and what queued behind it keep their order,
+    /// so an origin's rows stay behind its queued unit or takeover (decision
+    /// 451). The slots start after the one whose unit the last
     /// turn took last, so a unit the cap passed over is taken before any unit
     /// queued after it (decision 279), and once the cap passes over a unit no
     /// later unit is taken in that turn.
@@ -301,8 +308,16 @@ impl UpdateQueue {
                 pending.rows.remove(&key).map(|value| (UpdateKey::Row(key.0), value))
             }));
         };
-        take_rows(false, &mut batch);
-        take_controls(sources, &mut batch);
+        #[cfg(test)]
+        let units_first = self.units_first.load(Ordering::Relaxed);
+        #[cfg(not(test))]
+        let units_first = false;
+        if units_first {
+            take_controls(sources, &mut batch);
+        } else {
+            take_rows(false, &mut batch);
+            take_controls(sources, &mut batch);
+        }
         take_rows(true, &mut batch);
         if last.is_some() {
             pending.turn_after = last;
@@ -616,6 +631,9 @@ pub struct HubWriter {
     hydrated: tokio::sync::watch::Sender<disk::HydrationState>,
     #[cfg(test)]
     turn_measure: disk::TurnMeasure,
+    /// Index publishes since the turn began (`TurnMeasure::publishes`).
+    #[cfg(test)]
+    publishes: std::cell::Cell<usize>,
     /// Runs in a turn after the index is published and before its op is in
     /// the histories: where a wake can reach a reader first.
     #[cfg(test)]
@@ -873,6 +891,8 @@ impl Hub {
             hydrated: hydrated_tx,
             #[cfg(test)]
             turn_measure: disk::TurnMeasure::default(),
+            #[cfg(test)]
+            publishes: std::cell::Cell::new(0),
             #[cfg(test)]
             before_record: Mutex::new(None),
             compaction: None,

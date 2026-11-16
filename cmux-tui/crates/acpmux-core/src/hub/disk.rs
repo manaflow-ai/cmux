@@ -19,6 +19,12 @@ pub(super) struct TurnMeasure {
     pub unit_ns: [u128; 4],
     /// When the turn published a local row: the thirty line's publish clock.
     pub local_published: Option<std::time::Instant>,
+    /// Dispatch time by kind: rows, origin slots (units and takeovers), origin records.
+    pub kind_ns: [u128; 3],
+    /// Taking the batch from the queue.
+    pub take_ns: u128,
+    /// Index publishes in the turn.
+    pub publishes: usize,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -245,6 +251,7 @@ impl HubWriter {
         #[cfg(test)]
         {
             self.turn_measure = TurnMeasure::default();
+            self.publishes.set(0);
         }
         self.rebuild_if_requested();
         // Installation and releasing the old maps stay off runtime workers.
@@ -257,14 +264,37 @@ impl HubWriter {
         let retry_budget = (self.origins.retry.len() + self.retry_log.len()).min(128);
         let arrival_budget = 256 - retry_budget;
         let used = self.advance_origins(if queued { arrival_budget / 2 } else { arrival_budget });
+        #[cfg(test)]
+        let took = std::time::Instant::now();
         let batch = self
             .updates
             .take_batch_limit(arrival_budget.saturating_sub(used), self.mirror.turn_changes);
+        #[cfg(test)]
+        {
+            self.turn_measure.take_ns = took.elapsed().as_nanos();
+        }
         for (key, update) in batch {
+            #[cfg(test)]
+            let (began, kind) = (
+                std::time::Instant::now(),
+                match key {
+                    UpdateKey::Row(_) => 0,
+                    UpdateKey::Source(_) => 1,
+                    UpdateKey::Origin(_) => 2,
+                },
+            );
             // A refusal has its own counter; only storage counts here.
             if let Err(HubError::Log(_)) = self.dispatch_update(key, update) {
                 self.log_errors.fetch_add(1, Ordering::Relaxed);
             }
+            #[cfg(test)]
+            if let Some(slot) = self.turn_measure.kind_ns.get_mut(kind) {
+                *slot += began.elapsed().as_nanos();
+            }
+        }
+        #[cfg(test)]
+        {
+            self.turn_measure.publishes = self.publishes.replace(0);
         }
         if self.sync_batch_limit(retry_budget).is_err() {
             self.log_errors.fetch_add(1, Ordering::Relaxed);
