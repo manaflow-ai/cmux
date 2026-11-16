@@ -3,7 +3,7 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift": {
   "unsetenv": 1,
   "setenv": 1,
-  "reason": "stripInheritedEnvironment, inside ProcessEnvironmentGuard.write: the first step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread, the guard's freeze, and ghostty_init; drops cmux variables inherited from another cmux, then sets this build's own CMUX_BUILD_SPACE (a tagged dev build only), so every Rust child that inherits the app's environment sends the build's X-Cmux-Build-Space."
+  "reason": "stripInheritedEnvironment, inside ProcessEnvironmentGuard.write: the first step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread, the guard's freeze, and ghostty_init; drops cmux variables inherited from another cmux, then sets this build's own values: CMUX_BUILD_SPACE (a dev build only), so every Rust child that inherits the app's environment sends the build's X-Cmux-Build-Space, and for a DEV build its own settings file, cloud secrets index, keys audit, host budget, automations and customize folders (BuildStatePaths; nothing for NIGHTLY or stable)."
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/LaunchMarkSink.swift": {
   "unsetenv": 1,
@@ -14,8 +14,8 @@
   "reason": "prepareProcessEnvironment, inside ProcessEnvironmentGuard.write: the second step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread and the guard's freeze; GhosttyRuntime.init calls it again only when nothing froze the environment (tests), then freezes before ghostty_init."
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxNextApp+LaunchEnvironment.swift": {
-  "setenv": 2,
-  "reason": "applyBuildStatePaths (a DEV build's own settings file, cloud secrets index, keys audit, host budget, automations and customize folders, BuildStatePaths; nothing for NIGHTLY or stable) and applyConfigFileArgument (DEBUG only), inside ProcessEnvironmentGuard.write: the step after stripInheritedEnvironment in CmuxNextApp.prepareLaunchEnvironment, before any thread, the guard's freeze, and ghostty_init; `--config-file PATH` sets CMUX_NEXT_CONFIG_FILE so a capture slot's app, daemon and agents read the slot's own settings."
+  "setenv": 1,
+  "reason": "applyConfigFileArgument (DEBUG only), inside ProcessEnvironmentGuard.write: the step after stripInheritedEnvironment in CmuxNextApp.prepareLaunchEnvironment, before any thread, the guard's freeze, and ghostty_init; `--config-file PATH` sets CMUX_NEXT_CONFIG_FILE so a capture slot's app, daemon and agents read the slot's own settings."
  },
  "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefBrainWatchShutdownTests.swift": {
   "setenv": 3,

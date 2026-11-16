@@ -207,6 +207,7 @@ public struct LaunchIdentity: Sendable, Equatable {
     @discardableResult
     public static func stripInheritedEnvironment(
         bundle: Bundle = .main,
+        statePaths: BuildStatePaths = .current,
         environmentGuard: ProcessEnvironmentGuard = .process
     ) -> [String] {
         let bundled = bundledEnvironment(bundle)
@@ -217,7 +218,12 @@ public struct LaunchIdentity: Sendable, Equatable {
         let space = childBuildSpace(BuildIdentity(bundleID: bundle.bundleIdentifier, bundledTag: bundled["CMUX_TAG"]))
         environmentGuard.write("LaunchIdentity.stripInheritedEnvironment") {
             for key in keys { unsetenv(key) }
-            if let space { setenv(buildSpaceKey, space, 1) }
+            // Then this build's own values: its space, and for a DEV build its own settings file and the
+            // files beside it (``BuildStatePaths``; nothing for NIGHTLY or stable), read over what is left, so an
+            // explicit override the launch passed (a harness's CMUX_NEXT_CONFIG_FILE) still wins.
+            var values = statePaths.launchEnvironment(over: ProcessInfo.processInfo.environment)
+            if let space { values[buildSpaceKey] = space }
+            for (key, value) in values { setenv(key, value, 1) }
         }
         return keys.sorted()
     }

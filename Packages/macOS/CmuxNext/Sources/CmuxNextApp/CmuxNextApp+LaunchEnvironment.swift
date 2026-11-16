@@ -15,7 +15,8 @@ import Foundation
 extension CmuxNextApp {
     static func prepareLaunchEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) {
         // Cmux variables inherited from a shell inside another cmux, so they
-        // cannot pick this app's socket, tag, or daemon session.
+        // cannot pick this app's socket, tag, or daemon session; then this build's own
+        // space and, for a DEV build, its own settings and state files (BuildStatePaths).
         let stripped = LaunchIdentity.stripInheritedEnvironment(environmentGuard: environmentGuard)
         // The names only (never values), so a launch knob lost to another
         // cmux's terminal shows in the app's log.
@@ -25,23 +26,9 @@ extension CmuxNextApp {
 #if DEBUG
         applyConfigFileArgument(environmentGuard: environmentGuard)
 #endif
-        applyBuildStatePaths(environmentGuard: environmentGuard)
         GhosttyRuntime.prepareProcessEnvironment(environmentGuard: environmentGuard)
         LaunchMarkSink.dropInheritedDescriptor(environmentGuard: environmentGuard)
         environmentGuard.freeze()
-    }
-
-    /// A DEV build's own settings file and the files beside it (``BuildStatePaths``): set for this
-    /// process, so the app's own readers (`CmuxConfigFile.defaultURL`, `HostBudgetFile`, `CustomizeFolder`) and
-    /// every child that inherits its environment (the daemon, acpmux, the `cmux` CLI in its terminals) use
-    /// them. NIGHTLY and every other shared build set nothing. The folder starts empty (the settings owner
-    /// makes it on its first write): a fresh DEV build starts from the schema's defaults, never from another build's file.
-    static func applyBuildStatePaths(_ paths: BuildStatePaths = .current, environmentGuard: ProcessEnvironmentGuard) {
-        let values = paths.launchEnvironment(over: ProcessInfo.processInfo.environment)
-        guard !values.isEmpty else { return }
-        environmentGuard.write("CmuxNextApp.applyBuildStatePaths") {
-            for (key, value) in values { setenv(key, value, 1) }
-        }
     }
 
 #if DEBUG
