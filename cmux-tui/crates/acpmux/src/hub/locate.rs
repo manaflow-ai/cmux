@@ -335,15 +335,22 @@ impl Hub {
         }
         let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
         let shown = names_hosts.then_some(own.as_str());
-        let summaries = self.located_summaries_for(&|_| true, true, true);
-        let summary = summaries
-            .iter()
-            .find(|summary| summary["sessionId"].as_str() == Some(query))
+        let session = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(query)
+            .cloned()
             .ok_or_else(|| {
-                RpcError::not_found(self.unfound(query, None, shown))
-                    .with_data(json!({"owner": true, "state": "missing"}))
-            })?;
-        let reply = json!({"session": card(summary, shown)});
+            RpcError::not_found(self.unfound(query, None, shown))
+                .with_data(json!({"owner": true, "state": "missing"}))
+        })?;
+        let summary = if session.status() == SessionStatus::Closed {
+            self.cached_closed_summary(&session, true)
+        } else {
+            self.session_summary(&session)
+        };
+        let reply = json!({"session": card(&summary, shown)});
         enforce_owner_reply(&reply)?;
         Ok(reply)
     }
@@ -925,5 +932,43 @@ mod tests {
             enforce_owner_reply(&json!({"matches": ["x".repeat(OWNER_REPLY_BYTES)]})).unwrap_err();
         assert_eq!(error.code, -32602);
         assert_eq!(error.data.unwrap()["state"], "ambiguous");
+    }
+
+    #[test]
+    fn exact_owner_reads_one_session_without_building_other_summaries() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        for i in 0..1_000 {
+            let meta = serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA,
+                "id": format!("other-{i}"),
+                "name": format!("other-{i}"),
+                "harness": "claude",
+                "family": "claude",
+                "cwd": "/tmp",
+                "status": "idle",
+                "createdAt": i + 1,
+                "updatedAt": i + 1
+            }))
+            .unwrap();
+            hub.insert_test_session(meta);
+        }
+        let target = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "target",
+            "name": "target",
+            "harness": "claude",
+            "family": "claude",
+            "cwd": "/tmp",
+            "status": "idle",
+            "createdAt": 2_000,
+            "updatedAt": 2_000
+        }))
+        .unwrap();
+        hub.insert_test_session(target);
+        let before = hub.summaries_built.load(std::sync::atomic::Ordering::SeqCst);
+        let reply = hub.locate_owner("target", false, true, false).unwrap();
+        let after = hub.summaries_built.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(reply["session"]["sessionId"], "target");
+        assert_eq!(after - before, 1, "exact owner lookup built unrelated summaries");
     }
 }
