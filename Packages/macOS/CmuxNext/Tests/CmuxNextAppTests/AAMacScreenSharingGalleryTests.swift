@@ -121,12 +121,16 @@ import Testing
         let out = AANestedGroupsGalleryTests.packageRoot.appending(path: "mac-screen-device-setup-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        for placement in MacScreenSetupPlacement.allCases {
+        // Each placement on the classic rows, then the quiet rows (the page's default look) with the offline
+        // Macs listed, where Start cmux is an offline row's one button and Set Up cmux is in More.
+        let variants: [(name: String, look: MacScreenDevicesLook, placement: MacScreenSetupPlacement)] =
+            MacScreenSetupPlacement.allCases.map { ($0.rawValue, .classic, $0) } + [("quiet", .offlineLines, .standard)]
+        for variant in variants {
             for (mode, theme, dark) in [("light", "Soft Blue Light", false), ("dark", "Soft Blue", true)] {
-                var snapshot = MacScreenHomeSnapshot(devices: .list(Self.setupDevices), sharingLook: .list)
-                snapshot.setupPlacement = placement
+                var snapshot = MacScreenHomeSnapshot(devices: .list(Self.setupDevices), sharingLook: .list, devicesLook: variant.look)
+                snapshot.setupPlacement = variant.placement
                 let image = try Self.render(snapshot, theme: theme, dark: dark)
-                let url = out.appending(path: "\(placement.rawValue)-\(mode).png")
+                let url = out.appending(path: "\(variant.name)-\(mode).png")
                 let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
                 CGImageDestinationAddImage(dest, image, nil)
                 #expect(CGImageDestinationFinalize(dest))
