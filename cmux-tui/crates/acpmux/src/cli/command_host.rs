@@ -6,6 +6,24 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum PeerCmd {
+    /// Run the unattended remote spin-up acceptance scenario.
+    ///
+    /// The scenario is a tab-separated file with `step`, `actions`, and a shell
+    /// command on each line. Commands are run in order and the result is one
+    /// JSON table suitable for CI summaries. Keeping the fleet-specific driver
+    /// in the scenario lets this command reuse the same check on Linux VMs and
+    /// an owned GUI Mac without putting provider credentials in acpmux.
+    Selftest {
+        /// Scenario file. Defaults to `$CMUX_MACHINE_SELFTEST_SCENARIO`.
+        #[arg(long)]
+        scenario: Option<PathBuf>,
+        /// Maximum person-equivalent actions for the run.
+        #[arg(long, default_value_t = 2)]
+        max_actions: u32,
+        /// Maximum elapsed seconds for the run.
+        #[arg(long, default_value_t = 30)]
+        max_seconds: u64,
+    },
     /// Add a peer. URL is ws://host:port, wss://…, or ssh://host (tunnel
     /// opened by acpmux; token read from the remote config). Sessions appear
     /// as NAME/session.
