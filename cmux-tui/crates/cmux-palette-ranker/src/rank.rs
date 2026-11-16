@@ -488,7 +488,7 @@ pub(crate) fn rank(
     if !aliased.is_empty() || prepared.aliases.iter().any(|aliases| !aliases.is_empty()) {
         let mut present: HashSet<&str> = scored
             .iter()
-            .filter_map(|item| entries[item.index].action_id.as_deref())
+            .filter_map(|item| entries.get(item.index)?.action_id.as_deref())
             .filter(|id| !id.is_empty())
             .collect();
         let mut present_rows: HashSet<usize> = scored.iter().map(|item| item.index).collect();

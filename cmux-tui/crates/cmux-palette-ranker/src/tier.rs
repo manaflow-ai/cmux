@@ -316,8 +316,13 @@ const MINIMUM_STEM: usize = 3;
 
 /// Whether `word` ends with the ASCII `suffix` and keeps at least [`MINIMUM_STEM`] letters before it.
 fn ends_with(word: &[char], suffix: &str) -> bool {
-    word.len() >= suffix.len() + MINIMUM_STEM
-        && word[word.len() - suffix.len()..].iter().copied().eq(suffix.chars())
+    word.len().saturating_sub(suffix.len()) >= MINIMUM_STEM
+        && word.iter().rev().copied().take(suffix.len()).eq(suffix.chars().rev())
+}
+
+/// `word` without its last `count` letters.
+fn cut(word: &[char], count: usize) -> &[char] {
+    word.get(..word.len().saturating_sub(count)).unwrap_or(word)
 }
 
 /// A folded word without one English inflection: a plural `s` or `es`, then one of `ing`,
@@ -325,23 +330,26 @@ fn ends_with(word: &[char], suffix: &str) -> bool {
 fn stem(word: &[char]) -> &[char] {
     let mut word = word;
     if ends_with(word, "es") && !ends_with(word, "ses") {
-        word = &word[..word.len() - 2];
+        word = cut(word, 2);
     } else if ends_with(word, "s") && !ends_with(word, "ss") {
-        word = &word[..word.len() - 1];
+        word = cut(word, 1);
     }
     for suffix in ["ing", "ion", "ed", "er", "e"] {
         if ends_with(word, suffix) {
-            return &word[..word.len() - suffix.len()];
+            return cut(word, suffix.len());
         }
     }
     word
 }
 
-/// Whether `head` starts a word of `text`.
+/// Whether `head` (not empty) starts a word of `text`.
 fn starts_a_word(head: &[char], text: &FoldedText) -> bool {
-    head.len() <= text.folded.len()
-        && (0..=text.folded.len() - head.len())
-            .any(|start| text.bonus[start] >= 7 && text.folded[start..start + head.len()] == *head)
+    !head.is_empty()
+        && text
+            .folded
+            .windows(head.len())
+            .zip(&text.bonus)
+            .any(|(window, &bonus)| bonus >= 7 && window == head)
 }
 
 /// The title word that shares `token`'s stem, if any ([`FoldedText::words`] without allocating).
@@ -354,8 +362,9 @@ fn stem_word<'t>(token: &[char], title: &'t FoldedText) -> Option<&'t [char]> {
         match (start, delimiter) {
             (None, false) => start = Some(index),
             (Some(from), true) => {
-                let word = &title.folded[from..index];
-                if stem(word) == want {
+                if let Some(word) = title.folded.get(from..index)
+                    && stem(word) == want
+                {
                     return Some(word);
                 }
                 start = None;
@@ -376,7 +385,7 @@ fn stem_correction(query: &Query, title: &FoldedText) -> Option<Query> {
         // Either way the token's first letters start a title word: a token that starts a word
         // does, and a shared stem keeps at least MINIMUM_STEM letters. Most rows fail here, before
         // any substring search.
-        let head = &token[..token.len().min(MINIMUM_STEM)];
+        let head = token.get(..MINIMUM_STEM).unwrap_or(token);
         let head_mask = mask_of(head);
         if title.mask & head_mask != head_mask
             || !token.first().is_some_and(|first| title.initials.contains(first))
@@ -410,7 +419,7 @@ fn stem_correction(query: &Query, title: &FoldedText) -> Option<Query> {
 /// The stem-corrected query when every corrected token starts a title word: such a row reaches
 /// [`match_tier::TITLE_WORDS`], never more, so a stem match never passes the typed words.
 fn stem_match(entry: &Entry, query: &Query, fields: &[Field]) -> Option<Query> {
-    let corrected = stem_correction(query, &fields[0].text)?;
+    let corrected = stem_correction(query, &fields.first()?.text)?;
     let tier = text_tier(entry, &corrected, fields, false, false)?.tier;
     (tier >= match_tier::TITLE_WORDS).then_some(corrected)
 }
