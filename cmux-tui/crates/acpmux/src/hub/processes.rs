@@ -346,6 +346,31 @@ impl ProcessTable {
         self.processes.clone()
     }
 
+    /// The rows a chat's page holds (`_acpmux/process/list {recent}`): every process still running
+    /// and the newest `recent` others, in the order they started, and how many older ended ones it
+    /// left out. Reads only those slots (`running` indexes the live ones), so its cost is the reply's,
+    /// however long the chat's history.
+    fn recent_snapshot(&self, recent: usize) -> (Vec<Process>, usize) {
+        let mut slots: Vec<usize> = Vec::new();
+        let mut ended = 0_usize;
+        for (at, process) in self.processes.iter().enumerate().rev() {
+            if ended == recent {
+                break;
+            }
+            if process.state != ProcessState::Running {
+                ended += 1;
+            }
+            slots.push(at);
+        }
+        let start = slots.last().copied().unwrap_or(self.processes.len());
+        // The running ones older than that window, oldest first, then the window itself.
+        let mut kept: Vec<Process> =
+            self.running.range(..start).map(|&at| self.processes[at].clone()).collect();
+        let older = start - kept.len();
+        kept.extend(slots.into_iter().rev().map(|at| self.processes[at].clone()));
+        (kept, older)
+    }
+
     /// A narrow append-order window from the same table the full list reads.
     /// The id cursor survives status updates, because process slots never move.
     fn page_snapshot(
@@ -746,6 +771,20 @@ impl Hub {
             processes.sort_by_key(|p| p.started_at);
         }
         process_window_values(processes, PROCESS_PAGE_BUDGET, output_len)
+    }
+
+    /// `_acpmux/process/list {sessionId, recent}`, what a chat's page holds: every process still
+    /// running and the newest `recent` that ended ([`ProcessTable::recent_snapshot`]), cut to one
+    /// reply like [`Self::list_processes_reply`], with `omitted` counting every older one left out.
+    /// A god chat's tens of thousands of ended shells stay in the daemon, not in the page's heap.
+    pub(crate) fn list_recent_processes(&self, session: &Session, recent: usize) -> Value {
+        let (processes, older) = self.process_table(session).recent_snapshot(recent);
+        let mut reply = process_window_values(processes, PROCESS_PAGE_BUDGET, output_len);
+        let omitted = reply.get("omitted").and_then(Value::as_u64).unwrap_or(0) + older as u64;
+        if omitted > 0 {
+            reply["omitted"] = json!(omitted);
+        }
+        reply
     }
 
     /// Optional byte-bounded process-list pages, scoped to one session. The caller

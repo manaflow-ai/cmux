@@ -134,3 +134,37 @@ fn an_unpaged_list_that_fits_is_whole() {
     let reply = process_window_values(processes, PROCESS_PAGE_BUDGET, output_len);
     assert_eq!(reply, json!({"processes": full}));
 }
+
+/// What a chat's page holds (`recent`): every running process, however old, and the newest ended
+/// ones, in start order, with every older ended one counted in `omitted`. A god chat (56,000
+/// shells) gave its page all of them, 66 MB of JSON parsed into the renderer (2026-11-16).
+#[test]
+fn recent_keeps_every_running_process_and_the_newest_ended_ones() {
+    let mut table = ProcessTable::default();
+    for index in 0..10_000 {
+        let mut process = make(index, format!("step {index}"));
+        if index % 2_500 == 7 {
+            process.state = ProcessState::Running;
+        }
+        table.upsert(process);
+    }
+    let (kept, older) = table.recent_snapshot(100);
+    let ids: Vec<&str> = kept.iter().map(|p| p.id.as_str()).collect();
+    let running: Vec<&str> =
+        kept.iter().filter(|p| p.state == ProcessState::Running).map(|p| p.id.as_str()).collect();
+    assert_eq!(
+        running,
+        ["session/task-7", "session/task-2507", "session/task-5007", "session/task-7507"]
+    );
+    assert_eq!(kept.iter().filter(|p| p.state != ProcessState::Running).count(), 100);
+    assert_eq!(ids.last(), Some(&"session/task-9999"));
+    assert_eq!(ids[4], "session/task-9900", "the ended window follows the older running ones");
+    assert_eq!(older + kept.len(), 10_000);
+    let reply = process_window_values(kept, PROCESS_PAGE_BUDGET, |_| 0);
+    assert_eq!(reply["processes"].as_array().unwrap().len(), 104);
+
+    let (all, none) = table.recent_snapshot(1_000_000);
+    assert_eq!((all.len(), none), (10_000, 0));
+    let (empty, zero) = ProcessTable::default().recent_snapshot(10);
+    assert!(empty.is_empty() && zero == 0);
+}
