@@ -38,6 +38,9 @@ nonisolated extension AcpmuxPaneMethods {
             "peers": .list(.object([
                 "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
                 "state": .string, "lastSeen": .number, "attempts": .number,
+                // Whether the peer runs an agent's own login (acpmux `agentLogin`): the sign-in
+                // card of a chat on that peer (cloudAgentLogin.ts `agentLoginSupported`).
+                "agentLogin": .bool,
                 // The same cached, one-minute health reading the native remote-machine sidebar
                 // displays. Keep only values needed for a warning and the budget verdict;
                 // URLs, host labels, disk readings and session counts stay out of the page.
@@ -64,6 +67,7 @@ nonisolated extension AcpmuxPaneMethods {
             "peers": .list(.object([
                 "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
                 "state": .string, "lastSeen": .number, "attempts": .number, "error": .string,
+                "agentLogin": .bool,
             ])),
         ]),
     ]
