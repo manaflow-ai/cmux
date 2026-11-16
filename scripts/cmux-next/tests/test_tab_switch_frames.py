@@ -89,6 +89,68 @@ class AgentsSetup(unittest.TestCase):
         self.assertEqual(agents.cli, "/bundle/acpmux")
 
 
+class SessionCommands(unittest.TestCase):
+    NEW_HELP = "Usage: acpmux [OPTIONS] [COMMAND]\n\nCommands:\n  new     Create a session\n  send    Send a prompt\n  race    x\n"
+    OLD_HELP = "Usage: acpmux [OPTIONS] [COMMAND]\n\nCommands:\n  acp     ACP verbs\n  send    Send a prompt\n"
+
+    def test_a_build_without_acp_creates_with_new(self):
+        self.assertEqual(tsf.new_session_argvs(self.NEW_HELP), [["--json", "new"]])
+
+    def test_an_older_build_creates_with_acp_new(self):
+        self.assertEqual(tsf.new_session_argvs(self.OLD_HELP), [["--json", "acp", "new"]])
+
+    def test_no_help_tries_both(self):
+        self.assertEqual(tsf.new_session_argvs(""), [["--json", "new"], ["--json", "acp", "new"]])
+
+    def test_session_id_from_any_shape(self):
+        sid = "01a1e1cc-16d3-71d1-9d19-cd23eb5fa32d"
+        self.assertEqual(tsf.session_id(json.dumps({"sessionId": sid})), sid)
+        self.assertEqual(tsf.session_id(json.dumps({"session": {"id": sid}})), sid)
+        self.assertEqual(tsf.session_id(f"created {sid}\n"), sid)
+        self.assertIsNone(tsf.session_id('{"error": {"code": "usage"}}'))
+
+
+class MarkerSync(unittest.TestCase):
+    def test_transitions_are_the_flips_in_order(self):
+        import tab_switch_capture as cap
+        series = [[0.0, 10], [0.5, 12], [1.0, 240], [1.2, 241], [2.0, 9], [3.0, 250]]
+        self.assertEqual(cap.transitions(series), [1.0, 2.0, 3.0])
+        self.assertEqual(cap.transitions([]), [])
+
+
+class SettleBlock(unittest.TestCase):
+    """A block's pending switches judged on its frames: the leave flip's frame is the reference, the mark flip is t0."""
+
+    def test_a_return_with_a_blank_frame_and_a_clean_return(self):
+        import random
+        import tab_switch_judge as judge
+        w, h = 20, 10
+
+        def tex(seed):
+            rng = random.Random(seed)
+            return bytes(rng.randrange(256) for _ in range(w * h))
+        chat, term, blank = tex(1), tex(2), bytes([128]) * (w * h)
+        frames = [(0.0, chat), (1.1, term), (2.004, blank), (2.012, chat),  # round 1: one blank frame, then the chat
+                  (4.1, term), (5.003, chat)]                                # round 2: the chat on the first frame
+        flips = {"a:leave": 1.0, "a:mark": 2.0, "a:end": 3.0, "b:leave": 4.0, "b:mark": 5.0, "b:end": 6.0}
+        h_ = self.harness(w, h)
+        judged = h_.settle_block([{"label": "a", "kind": "return", "shown": "chat"},
+                                  {"label": "b", "kind": "return", "shown": "chat"}], frames, flips)
+        (a, sa), (b, sb) = judged
+        self.assertEqual(sa["blank_frames"], 1)
+        self.assertEqual(sa["to_content_ms"], 12.0)
+        self.assertIn("sheet", sa)
+        self.assertEqual((sb["blank_frames"], sb["wrong_frames"], sb["to_content_ms"]), (0, 0, 3.0))
+        self.assertEqual(judge.budget_fails(sb, "b"), [])
+
+    def harness(self, w, h):
+        rec = types.SimpleNamespace(w=w, h=h, frame_ms=1000 / 120, scale=1.0)
+        args = types.SimpleNamespace(out=tempfile.mkdtemp(prefix="tsw-out-"), tolerance=0.002)
+        hh = tsf.Harness(args, types.SimpleNamespace(control=None), rec, tempfile.mkdtemp(prefix="tsw-root-"))
+        hh.content, hh.strip = (0, 0, w, h), None
+        return hh
+
+
 class SetupFaultRows(unittest.TestCase):
     def harness(self):
         args = types.SimpleNamespace(out=tempfile.mkdtemp(prefix="tsw-out-"))

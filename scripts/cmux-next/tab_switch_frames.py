@@ -8,8 +8,10 @@ transcript, content and composer jumping as rows arrive, and a new tab not knowi
 
 Runs on a Mac with a console session (scripts/measure/tab-switch.sh build=nightly|SHA, through `cmux-ci run
 --display`), against a shipped NIGHTLY (no debug.* commands: only the public control socket's snapshot.get and
-action.run) or a built app. The frames come from outside the app (scripts/measure/tab-switch-frames/recorder.swift:
-ScreenCaptureKit on the window's region at display rate), so the same harness measures both.
+action.run) or a built app. The frames come from outside the app, so the same harness measures both: CuaDriver records
+the display under the fleet's Screen Recording grant, a marker window flipped before each action syncs the video to
+the actions, and the video is decoded into frames (tab_switch_capture.py, scripts/measure/tab-switch-frames/tools.swift).
+A mark is the display frame that showed the marker's flip, so a time counts from there, not from the input itself.
 
 Workload, in one pane of a fresh workspace: a terminal, a long chat (a session on the app's own acpmux written by
 chat_open_agent.py, --chat-turns answered turns with thoughts, tool calls and Markdown), and a Chromium page.
@@ -31,7 +33,8 @@ Budgets: content within one display frame, 0 blank, 0 wrong, 0 px shift, insert 
 Writes OUT/report.json (schema tab-switch/v1) and, for every failing switch, a contact sheet OUT/sheets/*.png (the
 frame before the switch, the frames after it, the expected end frame last). Exit 0 when every budget holds, 1 when
 one fails (0 with --no-gate), 3 when it could not measure (no capture, no window, no workload).
-Kills only what it started: the app copy it launched (its bundle's processes), its spinners and its recorder.
+Kills only what it started: the app copy it launched (its bundle's processes), its spinners, its marker window and
+its CuaDriver session.
 """
 from __future__ import annotations
 
@@ -39,7 +42,7 @@ import argparse
 import importlib.util
 import json
 import os
-import select
+import re
 import shlex
 import shutil
 import signal
@@ -53,6 +56,7 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+import tab_switch_capture as capture  # noqa: E402
 import tab_switch_judge as judge  # noqa: E402
 
 
@@ -190,61 +194,6 @@ class App:
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# The recorder.
-
-class Recorder:
-    def __init__(self, binary, pid, width):
-        self.process = subprocess.Popen([binary, str(pid), str(width)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE, text=True, bufsize=1, start_new_session=True)
-        self.ready = self.reply(30)
-        if not self.ready or not self.ready.get("ready"):
-            err = self.process.stderr.read(2000) if self.process.poll() is not None else ""
-            raise Unmeasurable(f"recorder: {self.ready or 'no answer'} {err}".strip())
-        if not self.ready.get("first_frame"):
-            raise Unmeasurable(f"recorder: no frame came in 5 s (Screen Recording grant? {self.ready})")
-        self.w, self.h = self.ready["w"], self.ready["h"]
-        self.scale = self.ready["px_per_point"]
-        self.hz = self.ready["display_hz"]
-        self.frame_ms = 1000.0 / self.hz
-
-    def reply(self, timeout):
-        ready, _, _ = select.select([self.process.stdout], [], [], timeout)
-        if not ready:
-            return None
-        line = self.process.stdout.readline()
-        try:
-            return json.loads(line)
-        except ValueError:
-            return {"error": line.strip()[:300]}
-
-    def send(self, line):
-        self.process.stdin.write(line + "\n")
-        self.process.stdin.flush()
-
-    def begin(self, path):
-        self.send(f"begin {path}")
-        answer = self.reply(10)
-        if not answer or not answer.get("begun"):
-            raise Unmeasurable(f"recorder begin: {answer}")
-
-    def mark(self, name):
-        self.send(f"mark {name}")
-
-    def end(self):
-        self.send("end")
-        answer = self.reply(30) or {}
-        return {name: t for name, t in answer.get("marks") or []}
-
-    def quit(self):
-        if self.process.poll() is None:
-            try:
-                self.send("quit")
-                self.process.wait(timeout=10)
-            except (OSError, subprocess.TimeoutExpired):
-                os.killpg(self.process.pid, signal.SIGKILL)  # this run's own recorder, by its own process group
-
-
-# ---------------------------------------------------------------------------------------------------------------
 # Loads.
 
 class CpuLoad:
@@ -272,6 +221,42 @@ class CpuLoad:
         self.children = []
 
 
+def new_session_argvs(help_text):
+    """The acpmux argv prefixes that create a session, best first, from `acpmux --help`: `new` (feat-cmux-next since
+    acpmux dropped `acp new`; the NIGHTLY of 2026-11-16 answered "unrecognized subcommand 'acp'"), then `acp new` for an
+    older build. Each with --json before the subcommand (a top-level flag)."""
+    commands = set(re.findall(r"^\s{2,}([a-z][a-z0-9-]*)\b", help_text or "", re.M))
+    out = []
+    if "new" in commands or not commands:
+        out.append(["--json", "new"])
+    if "acp" in commands or not commands:
+        out.append(["--json", "acp", "new"])
+    return out or [["--json", "new"], ["--json", "acp", "new"]]
+
+
+def session_id(stdout):
+    """The new session's id from a creation command's output: a JSON object's sessionId (or id / session), searched at
+    any depth, else the first UUID in the text; None when there is none."""
+    text = (stdout or "").strip()
+    for line in [text] + text.splitlines()[::-1]:
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        stack = [value]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, dict):
+                for key in ("sessionId", "session_id", "id", "session"):
+                    if isinstance(node.get(key), str) and node[key]:
+                        return node[key]
+                stack.extend(node.values())
+            elif isinstance(node, list):
+                stack.extend(node)
+    found = re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", text)
+    return found.group(0) if found else None
+
+
 class Agents:
     """Chats on the app's own acpmux (the test agents registered as harnesses of the app)."""
 
@@ -289,14 +274,27 @@ class Agents:
                 time.sleep(5)  # test script: the app is still starting; the add goes on, try again
         self.env = dict(os.environ, ACPMUX_SOCKET=bm.FakeChats.acpmux_socket(bundle))
         self.streaming = []
+        self.new_argvs = new_session_argvs(self.help_text())
+
+    def help_text(self):
+        try:
+            shown = subprocess.run([self.cli, "--help"], capture_output=True, text=True, timeout=60, env=self.env)
+        except (OSError, subprocess.TimeoutExpired):
+            return ""  # no help: every creation command is tried in turn
+        return shown.stdout + shown.stderr
 
     def new(self, agent_id, text):
-        made = subprocess.run([self.cli, "acp", "new", "--json", "-d", "-m", agent_id, text], capture_output=True,
-                              text=True, timeout=180, env=self.env)
-        try:
-            return json.loads(made.stdout)["sessionId"]
-        except (ValueError, KeyError):
-            raise Unmeasurable(f"acp new {agent_id}: {(made.stdout + made.stderr).strip()[-600:]}")
+        """A detached session on `agent_id` with `text` as its first prompt, by whichever creation command this build's
+        acpmux has (new_session_argvs), each tried in turn."""
+        tried = []
+        for argv in self.new_argvs:
+            made = subprocess.run([self.cli, *argv, "-d", "-m", agent_id, text], capture_output=True, text=True,
+                                  timeout=180, env=self.env)
+            session = session_id(made.stdout)
+            if made.returncode == 0 and session:
+                return session
+            tried.append(f"`acpmux {' '.join(argv)}`: {(made.stdout + made.stderr).strip()[-300:]}")
+        raise Unmeasurable(f"new session on {agent_id}: " + " | ".join(tried))
 
     def long_chat(self, turns):
         started = time.monotonic()
@@ -340,26 +338,22 @@ class Harness:
         self.refs = {}
         self.index = {}
         self.chat_note = None  # why the chat scenario is unmeasured, when it is
-        self.seq = 0
 
-    def segment(self):
-        self.seq += 1
-        return os.path.join(self.root, f"seg-{self.seq:04d}.bin")
 
     def select(self, name):
         return self.c.action("selectSurfaceByNumber", index=self.index[name])
 
-    def grab(self):
-        """The picture on screen now (full gray frame)."""
-        path = self.segment()
-        self.rec.begin(path)
-        time.sleep(0.12)  # test script: the recorder writes the frame on screen at begin
-        self.rec.end()
-        frames = judge.read_segment(path, self.rec.w, self.rec.h)
-        os.remove(path)
-        if not frames:
-            raise Unmeasurable("the recorder wrote no frame")
-        return frames[-1][1]
+    @staticmethod
+    def at(frames, t):
+        """The frame on screen at time t (the last one presented at or before it)."""
+        shown = [f for f in frames if f[0] <= t]
+        return (shown or frames[:1])[-1][1]
+
+    @staticmethod
+    def between(frames, t0, t1):
+        """The frame on screen at t0, then every frame presented after t0 up to t1."""
+        before = [f for f in frames if f[0] <= t0][-1:]
+        return before + [f for f in frames if t0 < f[0] <= t1]
 
     def wait_tabs(self, count, limit=60):
         deadline = time.monotonic() + limit
@@ -399,13 +393,17 @@ class Harness:
             raise Unmeasurable(f"the workspace's pane has {len(tabs)} tabs, want {len(order)} ({', '.join(order)}): {json.dumps(tabs)[:600]}")
         self.index = {name: i + 1 for i, name in enumerate(order)}
         time.sleep(2)  # test script: the page loads
+        # Each tab's picture, from one recorded block: a flip once the tab settled marks the frame that shows it.
+        self.rec.begin()
+        for name in self.index:
+            self.select(name)
+            time.sleep(1.5)  # test script: the tab settles
+            self.rec.flip(f"ref-{name}")
+        time.sleep(0.3)
+        frames, flips = self.rec.end()
+        shown = {name: self.at(frames, flips[f"ref-{name}"]) for name in self.index}
+        terminal, page_frame = shown["terminal"], shown["chromium"]
         # The content area: pane_chrome on a build with debug commands, else the pixels of two tabs.
-        self.select("terminal")
-        time.sleep(1)
-        terminal = self.grab()
-        self.select("chromium")
-        time.sleep(1)
-        page_frame = self.grab()
         self.content = self.chrome_rect() or judge.content_rect(terminal, page_frame, self.rec.w, self.rec.h)
         if self.content is None:
             raise Unmeasurable("the capture shows no difference between a terminal and a Chromium page (no page pixels: "
@@ -413,11 +411,9 @@ class Harness:
         self.strip = judge.strip_rect(self.content, self.rec.scale, self.rec.h)
         self.refs = {"terminal": terminal, "chromium": page_frame}
         if "chat" in self.index:
-            self.select("chat")
-            time.sleep(1.5)
-            chat = self.grab()
+            chat = shown["chat"]
             cterm, cchat = (judge.crop(f, self.rec.w, self.content) for f in (terminal, chat))
-            if judge.diff_share(cterm, cchat) <= judge.TOLERANCE:
+            if judge.diff_share(cterm, cchat) <= self.args.tolerance:
                 # Its tab stays in the pane (the indexes hold); its scenario is reported unmeasured.
                 self.chat_note = "the chat tab shows the same pixels as the terminal (its page not in the capture?)"
             else:
@@ -441,7 +437,7 @@ class Harness:
 
     def judge(self, frames, mark, reference=None, strip=None):
         return judge.judge_switch(frames, mark, self.rec.w, self.content, self.rec.frame_ms, reference=reference,
-                                  strip=strip, px_per_point=self.rec.scale)
+                                  strip=strip, px_per_point=self.rec.scale, tolerance=self.args.tolerance)
 
     def keep_sheet(self, switch, frames, mark, label, reference=None):
         if not judge.budget_fails(switch, label):
@@ -456,73 +452,72 @@ class Harness:
             switch["sheet"] = os.path.relpath(path, self.args.out)
             switch["sheet_tiles_ms"] = tiles
 
+    # Drive, then judge: a scenario only selects tabs and flips the marker (`<label>:leave`, `:mark`, `:end`), and returns
+    # what to judge; settle_block judges every pending switch once the block's recording is decoded.
+
     def returning(self, shown, via, label):
         self.select(shown)
         time.sleep(self.args.settle)
-        path = self.segment()
-        self.rec.begin(path)
-        time.sleep(0.25)
-        self.rec.mark("leave")
+        self.rec.flip(f"{label}:leave")
         self.select(via)
         time.sleep(self.args.away)
-        self.rec.mark("return")
+        self.rec.flip(f"{label}:mark")
         self.select(shown)
         time.sleep(self.args.record)
-        marks = self.rec.end()
-        frames = judge.read_segment(path, self.rec.w, self.rec.h)
-        os.remove(path)
-        leave, back = marks.get("leave"), marks.get("return")
-        if leave is None or back is None:
-            return {"error": "the recorder lost a mark"}
-        last = [f for f in frames if f[0] <= leave]
-        reference = last[-1][1] if last else self.refs.get(shown)
-        self.refs[shown] = reference
-        tail = [f for f in frames if f[0] > leave]
-        switch = self.judge(tail, back, reference=reference)
-        self.keep_sheet(switch, tail, back, label, reference)
-        return switch
+        self.rec.flip(f"{label}:end")
+        return {"label": label, "kind": "return", "shown": shown}
 
     def new_and_close(self, label_new, label_close):
         self.select("terminal")
         time.sleep(self.args.settle)
-        out = []
-        path = self.segment()
-        self.rec.begin(path)
-        time.sleep(0.25)
-        self.rec.mark("new")
+        self.rec.flip(f"{label_new}:leave")
+        self.rec.flip(f"{label_new}:mark")
         reply = self.c.action("newSurface")
         time.sleep(self.args.record + 0.3)
-        marks = self.rec.end()
-        frames = judge.read_segment(path, self.rec.w, self.rec.h)
-        os.remove(path)
-        if reply.get("error"):
-            return [{"error": f"newSurface: {reply['error']}"}], None
-        switch = self.judge(frames, marks.get("new", 0), strip=self.strip)
-        self.keep_sheet(switch, frames, marks.get("new", 0), label_new)
-        out.append(switch)
+        self.rec.flip(f"{label_new}:end")
+        new = {"label": label_new, "kind": "new", "error": f"newSurface: {reply['error']}" if reply.get("error") else None}
+        if new["error"]:
+            return new, None
         time.sleep(0.5)
-        path = self.segment()
-        self.rec.begin(path)
-        time.sleep(0.25)
-        self.rec.mark("close")
+        self.rec.flip(f"{label_close}:leave")
+        self.rec.flip(f"{label_close}:mark")
         reply = self.c.action("closeTab")
         time.sleep(self.args.record + 0.3)
-        marks = self.rec.end()
-        frames = judge.read_segment(path, self.rec.w, self.rec.h)
-        os.remove(path)
-        if reply.get("error"):
-            return out, {"error": f"closeTab: {reply['error']}"}
+        self.rec.flip(f"{label_close}:end")
+        close = {"label": label_close, "kind": "close", "error": f"closeTab: {reply['error']}" if reply.get("error") else None}
         tabs, pane = self.c.focused_tabs()
         selected = next((i + 1 for i, t in enumerate(tabs) if t.get("selected") or (pane and t.get("id") == pane.get("selected_tab"))), None)
-        neighbor = {i: name for name, i in self.index.items()}.get(selected)
-        reference = self.refs.get(neighbor) if neighbor else None
-        if len(tabs) != len(self.index):
-            close = {"error": f"the pane has {len(tabs)} tabs after the close, want {len(self.index)}"}
-        else:
-            close = self.judge(frames, marks.get("close", 0), reference=reference, strip=self.strip)
-            close["neighbor"] = neighbor
-            self.keep_sheet(close, frames, marks.get("close", 0), label_close, reference)
-        return out, close
+        close["neighbor"] = {i: name for name, i in self.index.items()}.get(selected)
+        if not close["error"] and len(tabs) != len(self.index):
+            close["error"] = f"the pane has {len(tabs)} tabs after the close, want {len(self.index)}"
+        return new, close
+
+    def settle_block(self, pending, frames, flips):
+        """Each pending switch of a block, judged on the block's frames: the window from its leave flip to its end flip,
+        the switch's mark at its mark flip. A return is judged against the shown tab's frame at its leave flip (its last
+        frame before it was left); a close against the neighbor's newest such frame; a new tab against its settled one."""
+        judged = []
+        for item in pending:
+            label = item["label"]
+            if item.get("error"):
+                judged.append((item, {"error": item["error"]}))
+                continue
+            leave, mark, end = (flips[f"{label}:{k}"] for k in ("leave", "mark", "end"))
+            window = self.between(frames, leave, end)
+            if item["kind"] == "return":
+                reference = self.at(frames, leave)
+                self.refs[item["shown"]] = reference
+                switch = self.judge(window, mark, reference=reference)
+            elif item["kind"] == "new":
+                reference = None
+                switch = self.judge(window, mark, strip=self.strip)
+            else:
+                reference = self.refs.get(item.get("neighbor"))
+                switch = self.judge(window, mark, reference=reference, strip=self.strip)
+                switch["neighbor"] = item.get("neighbor")
+            self.keep_sheet(switch, window, mark, label, reference)
+            judged.append((item, switch))
+        return judged
 
     def run(self, loads, rounds, scenarios, agents, sessions, load_notes=None):
         """The scenario rows. A load in `load_notes` (its setup failed) and the chat scenario without a measurable chat
@@ -544,25 +539,36 @@ class Harness:
             elif load == "agents":
                 agents.start(sessions, seconds=rounds * 40 + 120, rate=self.args.stream_rate)
             time.sleep(self.args.load_settle if load != "idle" else 0)
+            pending = []  # (scenario name, what to judge), in the order driven
             try:
+                self.rec.begin()
                 for r in range(1, rounds + 1):
                     for name, (shown, via) in (("chat-long-return", ("chat", "terminal")),
                                                ("terminal-return", ("terminal", "chromium")),
                                                ("chromium-return", ("chromium", "terminal"))):
                         if name in scenarios:
-                            rows.setdefault((name, load), []).append(self.returning(shown, via, f"{name}/{load} round {r}"))
+                            pending.append((name, self.returning(shown, via, f"{name}/{load} round {r}")))
                     if "new-tab" in scenarios or "close-tab" in scenarios:
-                        news, close = self.new_and_close(f"new-tab/{load} round {r}", f"close-tab/{load} round {r}")
-                        if "new-tab" in scenarios:
-                            rows.setdefault(("new-tab", load), []).extend(news)
-                        if "close-tab" in scenarios and close is not None:
-                            rows.setdefault(("close-tab", load), []).append(close)
-                    say(f"  round {r} done")
+                        new, close = self.new_and_close(f"new-tab/{load} round {r}", f"close-tab/{load} round {r}")
+                        pending.append(("new-tab", new))
+                        if close is not None:
+                            pending.append(("close-tab", close))
+                    say(f"  round {r} driven")
             finally:
                 if load == "cpu":
                     agents_cpu.stop()
                 elif load == "agents":
                     agents.stop()
+            try:
+                frames, flips = self.rec.end()
+            except Exception as error:  # noqa: BLE001 - this load's rows say why; the next load still records
+                for name, _item in pending:
+                    notes.setdefault((name, load), f"recording: {type(error).__name__}: {error}"[:600])
+                continue
+            for (name, _), (_item, switch) in zip(pending, self.settle_block([p for _, p in pending], frames, flips)):
+                if name in scenarios:
+                    rows.setdefault((name, load), []).append(switch)
+            say(f"load {load}: {len(pending)} switches judged on {len(frames)} frames")
         out = [judge.scenario_row(name, load, switches) for (name, load), switches in rows.items()]
         return out + [judge.scenario_row(name, load, [], notes=note) for (name, load), note in notes.items()]
 
@@ -572,7 +578,9 @@ def main(argv=None):
     parser.add_argument("--app", help="an app bundle to launch (a copy of it is not made)")
     parser.add_argument("--dmg", help="a DMG whose app is copied out and launched (a NIGHTLY)")
     parser.add_argument("--build", default="unknown", help="the report's build: a version or a commit")
-    parser.add_argument("--recorder", required=True, help="the compiled recorder.swift")
+    parser.add_argument("--tools", required=True, help="the compiled scripts/measure/tab-switch-frames/tools.swift")
+    parser.add_argument("--tolerance", type=float, default=0.01,
+                        help="share of the content area that may differ for two decoded video frames to be one picture")
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--loads", default="idle,cpu,agents")
     parser.add_argument("--scenarios", default=",".join(judge.SCENARIOS))
@@ -587,6 +595,8 @@ def main(argv=None):
     parser.add_argument("--out", default=os.path.join(os.getcwd(), ".build/tab-switch"))
     parser.add_argument("--no-gate", action="store_true", help="exit 0 when the report is written, budgets or not")
     args = parser.parse_args(argv)
+    # Decoded h264 frames of one picture differ in the low bits: 16 gray levels, not 32, so noise is not a change.
+    judge.QUANT = bytes(v >> 4 for v in range(256))
     loads = [x for x in args.loads.split(",") if x]
     scenarios = [x for x in args.scenarios.split(",") if x]
     bad = [x for x in loads if x not in judge.LOADS] + [x for x in scenarios if x not in judge.SCENARIOS]
@@ -629,10 +639,11 @@ def main(argv=None):
                 load_notes["agents"] = f"agents setup: {type(error).__name__}: {error}"[:600]
                 say(load_notes["agents"])
         extra["setup_errors"] = {**setup, **load_notes}
-        recorder = Recorder(args.recorder, app.process.pid, args.width)
+        recorder = capture.Capture(args.tools, app.process.pid, args.width, os.path.join(root, "capture"))
         hz = recorder.hz
-        extra["capture"] = recorder.ready
-        say(f"capture {json.dumps(recorder.ready)}")
+        extra["capture"] = {"window": recorder.window, "display": recorder.display, "display_hz": recorder.hz,
+                            "permissions": recorder.permissions, "recorder": "CuaDriver"}
+        say(f"capture {json.dumps(extra['capture'])}")
         harness = Harness(args, app, recorder, root)
         harness.chat_note = setup.get("chat")
         harness.build(session)
@@ -649,7 +660,7 @@ def main(argv=None):
         extra["error"] = f"{type(error).__name__}: {error}"
     finally:
         if recorder is not None:
-            recorder.quit()
+            recorder.close()
         if app is not None:
             app.end()
         shutil.rmtree(root, ignore_errors=True)

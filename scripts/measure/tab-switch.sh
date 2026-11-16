@@ -4,7 +4,7 @@
 # 1. key=value arguments: the frame-judged harness (scripts/cmux-next/tab_switch_frames.py, through
 #    bench_tab_switch.py --frames) on a display Mac. A long chat, a terminal and a Chromium page switched away and
 #    back, a new tab and a close, idle, under CPU load and with agents streaming; every switch judged from the
-#    screen's own frames (scripts/measure/tab-switch-frames/recorder.swift, ScreenCaptureKit at display rate) against
+#    screen's own frames (CuaDriver's display recording, synced by a marker window: tab_switch_capture.py) against
 #    the frame it must end on, with budgets (content within one display frame, 0 blank, 0 wrong, 0 px shift, the new
 #    tab's insert and its animation's end right). Works on a shipped NIGHTLY (no debug.* commands needed):
 #      cmux-ci run --class exclusive --measurement --label measure --display --key KEY \
@@ -80,11 +80,13 @@ frames_main() {
   local root="$PWD" out="$PWD/.build/tab-switch" tmp
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   tmp="$(mktemp -d)"
-  chmod 0755 "$tmp" # the harness runs as the console user (console-session.sh): it reads the recorder and the DMG here
+  chmod 0755 "$tmp" # the harness runs as the console user (console-session.sh): it reads the tools and the DMG here
   echo "TSW host chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername) load=\"$(sysctl -n vm.loadavg)\""
-  swiftc -O -o "$tmp/tab-switch-recorder" scripts/measure/tab-switch-frames/recorder.swift 2>&1 | tail -n 40 \
-    || true
-  [ -x "$tmp/tab-switch-recorder" ] || { echo "TSW the recorder did not compile"; exit 3; }
+  # The pixels come from CuaDriver, the recorder the fleet grants Screen Recording to (a binary compiled here never holds
+  # that grant); the marker and the decoder below need none.
+  [ -x /Applications/CuaDriver.app/Contents/MacOS/cua-driver ] || { echo "TSW no CuaDriver on this Mac: cannot record"; exit 3; }
+  swiftc -O -o "$tmp/tab-switch-tools" scripts/measure/tab-switch-frames/tools.swift 2>&1 | tail -n 40 || true
+  [ -x "$tmp/tab-switch-tools" ] || { echo "TSW the marker and decoder did not compile"; exit 3; }
   local app_args=() label=""
   if [[ "$build" == nightly ]]; then
     if [[ -z "$dmg" ]]; then
@@ -131,7 +133,7 @@ frames_main() {
   local rc=0
   set +e
   GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/bench_tab_switch.py" \
-    --frames "${app_args[@]}" --build "$label" --recorder "$tmp/tab-switch-recorder" --rounds "$rounds" --loads "$load" \
+    --frames "${app_args[@]}" --build "$label" --tools "$tmp/tab-switch-tools" --rounds "$rounds" --loads "$load" \
     --chat-turns "$turns" --agents "$agents" --out "$out" ${scenario_args[@]+"${scenario_args[@]}"} \
     ${gate_args[@]+"${gate_args[@]}"} 2>&1 | tee "$out/run.log"
   rc=${PIPESTATUS[0]}
