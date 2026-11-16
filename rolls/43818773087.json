@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43818773087",
+  "recorded_at": "2026-11-16T06:58:50Z",
+  "reason": "cmux-tui 732989aa09a0 changes the image's cmux-tui (pinned 414a21f34731)",
+  "dry_run": false,
+  "cmux_tui": "732989aa09a0a2415cb145464b81bd62143384fc",
+  "fixes": [
+    {
+      "sha": "732989aa09a0a2415cb145464b81bd62143384fc",
+      "mergedAt": "2026-11-15T22:25:18-08:00",
+      "subject": "Screen Sharing: a two-Mac harness against macOS Screen Sharing (first frame, key-to-frame, fps) with cmux's key-to-frame breakdown (#44065)"
+    },
+    {
+      "sha": "e933d21235a95b98dab765417082ff659ea8ec55",
+      "mergedAt": "2026-11-16T06:24:46Z",
+      "subject": "cmux-tab-discard: hidden browser tab rules in Rust, discarded by default (row 4, step A) (#43241)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T06:58:50Z",
+    "snapshot_id": "sh-b4bad43eeac043e79072695a20c9425f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43818773087): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a1a006912b69407143578ee06fcf6a3dd24b0078",
+    "image": "cloud-native-auto-732989aa-43818773087-1",
+    "revision": "ci-43818773087-1",
+    "at": "2026-11-16T06:58:50Z"
+  },
+  "rolled_back": false
+}
