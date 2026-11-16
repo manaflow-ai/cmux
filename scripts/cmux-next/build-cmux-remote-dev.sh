@@ -76,6 +76,22 @@ chmod 755 "$app/Contents/Frameworks/libWebRTC.dylib"
 install_name_tool -id "@rpath/libWebRTC.dylib" "$app/Contents/Frameworks/libWebRTC.dylib"
 install_name_tool -change "@rpath/WebRTC.framework/WebRTC" "@rpath/libWebRTC.dylib" "$app/Contents/MacOS/$EXECUTABLE"
 otool -L "$app/Contents/MacOS/$EXECUTABLE" | grep -q "@rpath/libWebRTC.dylib" || { echo "error: cmux-remote does not load libWebRTC.dylib" >&2; exit 1; }
+# SwiftPM links the toolchain's back-deployment directory as an LC_RPATH
+# (/Applications/Xcode_*.app/.../usr/lib/swift-6.2/macosx). The signed-app checks
+# (verify-bundle-load-commands.sh) refuse a load path outside the app and the system,
+# and on a Mac with that Xcode it would load toolchain code: nightly-next run
+# 43864670865 failed on it. Remove every such rpath before signing, as build-cmux-cua.sh
+# does. Only a Swift back-deployment library loaded through @rpath would need that
+# directory; cmux Remote ships none (the signer takes exactly the two dylibs), so
+# naming one is an error here rather than a launch failure on macOS 14.
+if otool -L "$app/Contents/MacOS/$EXECUTABLE" | awk '{print $1}' | grep -E '^@rpath/libswift'; then
+  echo "error: cmux-remote loads a Swift back-deployment library through @rpath; raise its floor or ship it" >&2; exit 1
+fi
+"$repo_root/scripts/strip-cmux-cua-rpaths.sh" "$app/Contents/MacOS/$EXECUTABLE" \
+  "$app/Contents/Frameworks/libWebRTC.dylib" "$app/Contents/Frameworks/libcua_driver_sdk.dylib"
+if otool -l "$app/Contents/MacOS/$EXECUTABLE" "$app"/Contents/Frameworks/*.dylib | grep -A2 LC_RPATH | grep -E '^ +path /' | grep -v ' /usr/lib/swift '; then
+  echo "error: an absolute rpath outside the system is left in cmux Remote" >&2; exit 1
+fi
 cp "$sdk/licenses/"* "$app/Contents/Resources/Licenses/"
 
 # The icon: Icon Composer document -> iconset -> icns.
