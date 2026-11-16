@@ -26,10 +26,11 @@ def percentile(values, fraction):
 
 def verdict(report, expected, dispatch=None):
     samples = report.get("samples", [])
-    finite = len(samples) == len(expected) and all(
+    finite = bool(expected) and len(samples) == len(expected) and all(
         isinstance(s, dict) and all(type(s.get(k)) in (int, float) and math.isfinite(s[k]) and s[k] >= 0
                                    for k in ("frame", "paint", "listener", "work")) for s in samples)
-    ordered = "".join(s.get("key", "") for s in samples) == expected
+    ordered = all(isinstance(s, dict) and isinstance(s.get("key"), str) for s in samples) and (
+        "".join(s["key"] for s in samples) == expected)
     intact = report.get("composer_text") == expected
     paints = [s["paint"] for s in samples] if finite else []
     p95, p99 = percentile(paints, .95), percentile(paints, .99)
@@ -68,10 +69,13 @@ def run_loads(rpc, pane, open_chat, wait, modes, keys, gap_ms):
         return reply
 
     def new_pane():
-        checked(rpc("action.run", {"action": "splitRight"}))
+        checked(rpc("action.run", {"action": "splitRight", "focus": True, "origin": "script"}))
         checked(open_chat())
         checked(pane("select_session", session="mock-session"))
-        return checked(pane("engine"))["pane"]
+        target = checked(pane("engine"))["pane"]
+        if not wait(lambda: pane("readiness", pane=target).get("composer_visible"), 20):
+            raise RuntimeError(f"composer did not become visible in {target}")
+        return target
 
     def stream(target, delay=0):
         if delay:
