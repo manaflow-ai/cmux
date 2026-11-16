@@ -231,3 +231,30 @@ test("a chat view that goes under a New Tab page (Cmd-T in the page) is built ag
   expect(dock()).not.toBe(chatDock);
   expect(shown(dock())).toBe(false);
 }, 60_000);
+
+test("a spare parked drawn but invisible has run its chat view's effects before the adopt", async () => {
+  // The visible park (App SPARE_PARK_VISIBLE): its effects run while parked, so the reveal runs none.
+  // The composer's editor is made in an effect: it exists before the adopt only if they ran.
+  Object.assign(dom.window, { __cmuxSparePark: "visible" });
+  try {
+    const session = await mount("spare");
+    await until(() => host.querySelector(".nt-field") !== null, "the spare draws its New Tab page");
+    await until(
+      () => host.querySelector(".acpmux-composer-prompt [contenteditable]") !== null,
+      "the parked composer's editor (made in an effect) exists before the adopt",
+    );
+    const editor = host.querySelector(".acpmux-composer-prompt [contenteditable]");
+    expect(stage()?.style.visibility, "parked invisible").toBe("hidden");
+    expect(stage()?.hasAttribute("inert"), "parked inert").toBe(true);
+    const { SESSION_ADOPT_EVENT } = await import("../src/agent-session/acpmux/newtab/adoption");
+    await act(async () =>
+      dom.window.dispatchEvent(
+        new dom.window.CustomEvent(SESSION_ADOPT_EVENT, { detail: { sessionId: session, scrollAnchor: null } }),
+      ),
+    );
+    expect(stage()?.style.visibility).not.toBe("hidden");
+    expect(host.querySelector(".acpmux-composer-prompt [contenteditable]"), "the same editor").toBe(editor);
+  } finally {
+    delete (dom.window as unknown as { __cmuxSparePark?: unknown }).__cmuxSparePark;
+  }
+}, 60_000);
