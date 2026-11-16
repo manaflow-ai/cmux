@@ -13,7 +13,8 @@
 //! `mode-mismatch`), later `dropped`.
 //!
 //! What acpmux does, in three layers:
-//! - Off at the source: every Claude Code the daemon starts gets [`SWITCH_ENV`]`=0`: an agent
+//! - Off at the source: every Claude Code the daemon starts gets
+//!   [`SWITCH_ENV`](crate::claude_stdio::native_messaging::SWITCH_ENV)`=0`: an agent
 //!   (`agent/command.rs`) and the model probe that reads a Claude harness's models
 //!   (`live_models/mod.rs`, its own spawn path). Claude Code's switch for cross-session
 //!   messaging; measured on 2.1.322:
@@ -45,11 +46,7 @@
 
 use super::*;
 
-/// Claude Code's switch for its cross-session messaging (`0`: off, both ways).
-pub const SWITCH_ENV: &str = "CLAUDE_CODE_HARBOR_KITE";
-
-/// The ACP `sessionUpdate` the Claude Code backend sends for a `system/peer_message_hold` line.
-pub const HOLD_UPDATE: &str = "peer_message_hold";
+pub use crate::claude_stdio::native_messaging::HOLD_UPDATE;
 
 /// The most holds one session keeps (Claude Code itself holds at most 100).
 const MAX_HELD: usize = 100;
