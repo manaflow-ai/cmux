@@ -214,8 +214,6 @@ struct AgentChatsScreen: View {
             .confirmationDialog(stopAllTitle, isPresented: $confirmingStopAll, titleVisibility: .visible) {
                 Button("Stop All Agents", role: .destructive) { Task { await model.stopAll() } }
                 Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Each agent stops its current turn. Its chat stays.")
             }
             .alert(model.stopResult?.summary ?? "", isPresented: Binding(get: { model.stopResult != nil }, set: { if !$0 { model.stopResult = nil } })) {
                 Button("OK", role: .cancel) {}
@@ -285,8 +283,6 @@ struct AgentChatsScreen: View {
                     }
                     .disabled(model.loadingMore)
                     .accessibilityIdentifier("agentChats.more")
-                } footer: {
-                    if !model.query.isEmpty { Text("Search covers the chats shown so far.") }
                 }
             }
         }
@@ -304,11 +300,9 @@ struct AgentChatsScreen: View {
         if !model.query.trimmingCharacters(in: .whitespaces).isEmpty {
             ContentUnavailableView.search(text: model.query)
         } else if model.scope == .archived {
-            ContentUnavailableView("No Archived Chats", systemImage: "archivebox",
-                                   description: Text("Chats you archive show here."))
+            ContentUnavailableView("No Archived Chats", systemImage: "archivebox")
         } else {
-            ContentUnavailableView("No Agent Chats", systemImage: "bubble.left.and.text.bubble.right",
-                                   description: Text("Chats you start on \(source.macName) show here."))
+            ContentUnavailableView("No Agent Chats", systemImage: "bubble.left.and.text.bubble.right")
         }
     }
 

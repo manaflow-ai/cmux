@@ -143,8 +143,6 @@ struct CloudChatsConnectMac: View {
     var body: some View {
         ContentUnavailableView {
             Label("Connect your Mac", systemImage: "desktopcomputer")
-        } description: {
-            Text("Cloud chats open through a Mac signed in to this account.")
         } actions: {
             PrimaryCapsule("Connect a Mac", size: .inline, action: connect)
                 .accessibilityIdentifier("cloudChats.connectMac")
@@ -226,8 +224,7 @@ private struct CloudMachineChatsScreen: View {
             } else if let relay, relay.hub.isReady {
                 // Until the whole list is read (it comes in pages, CMUX-563) an older chat may still be on its way.
                 if let preferredSession, !openedPreferred, relay.hub.listWhole, relay.hub.sessions[preferredSession] == nil {
-                    ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
-                                           description: Text("This chat is no longer listed on this Cloud machine."))
+                    ContentUnavailableView("Chat unavailable", systemImage: "bubble.left")
                 } else {
                     let listed = CloudChatList.newest(relay.hub.sessions.values, shown: shown)
                     List {
@@ -250,8 +247,7 @@ private struct CloudMachineChatsScreen: View {
                     }
                     .overlay {
                         if relay.hub.sessions.isEmpty {
-                            ContentUnavailableView("No chats", systemImage: "bubble.left",
-                                                   description: Text("Tap New Chat to start one on this Cloud machine."))
+                            ContentUnavailableView("No chats", systemImage: "bubble.left")
                         }
                     }
                 }

@@ -197,20 +197,6 @@
         "ja": {"stringUnit": {"state": "translated", "value": "リセット"}}
       }
     },
-    "mobile.chief.colors.footer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Only this chat changes, on this iPhone."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Nur dieser Chat ändert sich, auf diesem iPhone."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Seule cette discussion change, sur cet iPhone."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تتغير هذه الدردشة فقط، على هذا الـiPhone."}},
-        "es": {"stringUnit": {"state": "translated", "value": "Solo cambia este chat, en este iPhone."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "只有此聊天會改變，僅在此 iPhone 上。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "只有此聊天会改变，仅在此 iPhone 上。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "이 iPhone에서 이 채팅만 바뀝니다."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "このiPhoneのこのチャットだけが変わります。"}}
-      }
-    },
     "mobile.chief.menu.more": {
       "extractionState": "manual",
       "localizations": {
@@ -475,20 +461,6 @@
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "正在重新连接…"}},
         "ko": {"stringUnit": {"state": "translated", "value": "다시 연결 중…"}},
         "ja": {"stringUnit": {"state": "translated", "value": "再接続中…"}}
-      }
-    },
-    "mobile.chief.notificationsFooter": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "These settings apply to this iPhone."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Diese Einstellungen gelten für dieses iPhone."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Ces réglages s’appliquent à cet iPhone."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تنطبق هذه الإعدادات على هذا الـ iPhone."}},
-        "es": {"stringUnit": {"state": "translated", "value": "Estos ajustes se aplican a este iPhone."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "這些設定適用於此 iPhone。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "这些设置适用于此 iPhone。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "이 설정은 이 iPhone에 적용됩니다."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "これらの設定はこの iPhone に適用されます。"}}
       }
     },
     "mobile.chief.busy": {

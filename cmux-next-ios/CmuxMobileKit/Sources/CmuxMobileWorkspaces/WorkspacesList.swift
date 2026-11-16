@@ -251,8 +251,6 @@ public struct WorkspacesList: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Create") { creator.newGroup(on: macID, name: groupNameText) }
                     .keyboardShortcut(.defaultAction)
-            } message: { (macID: String) in
-                Text("An empty group on \(mac(macID).map(displayName) ?? "the Mac"). Add workspaces with New Workspace in Group or Move Workspace to Group.")
             }
             .alert("Rename Group", isPresented: isPresented($renamingGroup), presenting: renamingGroup) { (target: GroupTarget) in
                 TextField("Name", text: $groupNameText)

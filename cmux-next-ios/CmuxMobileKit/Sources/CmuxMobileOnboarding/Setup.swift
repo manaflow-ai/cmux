@@ -108,8 +108,6 @@ public struct SetupFlow: View {
                 signOut()
             }
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("You can sign in again with this or another account.")
         }
     }
 

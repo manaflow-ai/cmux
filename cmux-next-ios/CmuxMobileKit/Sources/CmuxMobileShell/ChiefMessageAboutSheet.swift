@@ -36,8 +36,6 @@ struct ChiefMessageAboutSheet: View {
                             .lineLimit(2)
                             .accessibilityLabel(Text("About \(subject.title)"))
                             .accessibilityIdentifier("chief.messageAbout.subject")
-                    } footer: {
-                        Text("Chief gets a link to it with your message.")
                     }
                 }
                 Section {

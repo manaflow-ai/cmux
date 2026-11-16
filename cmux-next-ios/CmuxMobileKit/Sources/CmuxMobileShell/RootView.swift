@@ -627,8 +627,6 @@ struct ShellView: View {
                 inviteEmail = ""
             }
                 .keyboardShortcut(.defaultAction)
-        } message: {
-            Text("They'll get an email invitation to join.")
         }
         .onChange(of: shell.live?.followed) { _, followed in
             guard let followed else { return }

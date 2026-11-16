@@ -163,8 +163,6 @@ struct SessionInfoScreen: View {
                 Text(actionError).foregroundStyle(Color.cmuxMobileDanger)
             } else if case .failed(let message) = permissions {
                 Text(message)
-            } else {
-                Text("Allow for This Chat is given on the Mac. Revoke it here and the agent asks again before each change.")
             }
         }
         .tint(.primary)
@@ -268,8 +266,7 @@ struct EventInspectorScreen: View {
                 }
                 .overlay {
                     if journal.events.isEmpty {
-                        ContentUnavailableView("No events yet", systemImage: "list.bullet.rectangle",
-                                               description: Text("Records from the Mac show here as they arrive."))
+                        ContentUnavailableView("No events yet", systemImage: "list.bullet.rectangle")
                     }
                 }
                 .toolbar {
@@ -292,8 +289,7 @@ struct EventInspectorScreen: View {
                     }
                 }
             } else {
-                ContentUnavailableView("No events for this chat", systemImage: "list.bullet.rectangle",
-                                       description: Text("This chat's records don't come from a Mac."))
+                ContentUnavailableView("No events for this chat", systemImage: "list.bullet.rectangle")
             }
         }
         .searchable(text: $filter, prompt: "Filter")

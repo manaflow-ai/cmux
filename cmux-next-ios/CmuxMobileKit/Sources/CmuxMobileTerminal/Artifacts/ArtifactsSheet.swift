@@ -72,8 +72,7 @@ struct ArtifactsSheet: View {
                 .listStyle(.plain)
                 .overlay {
                     if shown.isEmpty {
-                        ContentUnavailableView(filter.emptyTitle, systemImage: "doc.text.magnifyingglass",
-                                               description: Text("Files, folders and links that appear in the terminal show up here."))
+                        ContentUnavailableView(filter.emptyTitle, systemImage: "doc.text.magnifyingglass")
                     }
                 }
             }

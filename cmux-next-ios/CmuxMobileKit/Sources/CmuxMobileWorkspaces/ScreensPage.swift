@@ -70,9 +70,6 @@ struct ScreensPage: View {
                         header(screen, index: index, count: screens.count)
                     }
                 }
-                Section {} footer: {
-                    Text("New tabs from this iPhone open on the current screen.")
-                }
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)

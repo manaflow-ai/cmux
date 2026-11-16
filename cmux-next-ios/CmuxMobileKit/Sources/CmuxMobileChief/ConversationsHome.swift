@@ -493,7 +493,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             .accessibilityIdentifier("home.delete.confirm")
             Button(String(localized: "Cancel"), role: .cancel) {}
         } message: { _ in
-            Text("It leaves your Home list on this iPhone. A new message brings it back, and Show Hidden Conversations lists it again.")
+            Text("It leaves your Home list on this iPhone.")
         }
         // Back on Home: read the Cloud Chiefs again (one may be archived or deleted elsewhere), and the Mac's list.
         .task {
@@ -520,8 +520,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     }
                     .accessibilityIdentifier("home.chief.newCreate")
                     .keyboardShortcut(.defaultAction)
-                } message: {
-                    Text("A new Cloud Chief with its own conversation and memory.")
                 }
                 .tint(nil)
         }

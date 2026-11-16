@@ -164,8 +164,6 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     }
                 } header: {
                     Text("Privacy & notifications")
-                } footer: {
-                    Text("Require Face ID or passcode to open cmux on this device.")
                 }
                 Section {
                     NavigationLink(value: SettingsRoute.transport) {

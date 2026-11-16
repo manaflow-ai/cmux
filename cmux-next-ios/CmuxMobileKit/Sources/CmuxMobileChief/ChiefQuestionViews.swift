@@ -127,7 +127,6 @@ struct ChiefQuestionBar: View {
                 Image(systemName: "icloud").font(.body).foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(reason).font(.footnote.weight(.semibold)).lineLimit(2)
-                    Text("Messages wait for your Mac.").font(.footnote).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Spacer(minLength: 4)
                 Text("Ask Cloud Chief").font(.footnote.weight(.semibold)).foregroundStyle(.tint)

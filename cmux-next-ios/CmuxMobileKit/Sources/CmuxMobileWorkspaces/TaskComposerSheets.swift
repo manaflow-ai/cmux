@@ -182,8 +182,6 @@ struct TaskComposerDraftsSheet: View {
                 } else if drafts.isEmpty {
                     ContentUnavailableView {
                         Label("No Other Drafts", systemImage: "tray")
-                    } description: {
-                        Text("Leave New Task with a task you haven't started and it's saved here.")
                     }
                     .accessibilityIdentifier("taskComposer.drafts.empty")
                 } else {

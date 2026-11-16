@@ -21,8 +21,6 @@ struct AccentColorPage: View {
                         accents.accent = accent
                     }
                 }
-            } footer: {
-                Text("Colors Send, armed keys, the Unlock button and other highlights.")
             }
         }
         .settingsPage("Accent color")

@@ -49,8 +49,6 @@ struct LongPressMenusPage: View {
                 }
                 .disabled(hidden.isEmpty)
                 .accessibilityIdentifier("settings.menus.reset")
-            } footer: {
-                Text("Items you turn off leave the long-press menu on this iPhone. The Mac's menus stay as they are.")
             }
         }
         .settingsPage("Long-Press Menus")

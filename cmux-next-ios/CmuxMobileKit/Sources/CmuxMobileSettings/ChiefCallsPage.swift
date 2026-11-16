@@ -41,7 +41,7 @@ struct ChiefCallsPage: View {
             } header: {
                 Text("OpenAI API key")
             } footer: {
-                Text("Calls go from this iPhone straight to OpenAI with your key, and OpenAI bills your account. The key stays in this iPhone’s Keychain, for this cmux account only.")
+                Text("Calls go from this iPhone straight to OpenAI with your key, and OpenAI bills your account.")
             }
 
             if keys.hasKey, !replacing, let callChief {
@@ -82,8 +82,6 @@ struct ChiefCallsPage: View {
                 .accessibilityIdentifier("settings.chiefCalls.voice")
             } header: {
                 Text("Voice")
-            } footer: {
-                Text("Changes apply to the next call.")
             }
 
             Section {
