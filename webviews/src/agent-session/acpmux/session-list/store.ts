@@ -32,6 +32,7 @@ export type SessionListSnapshot = {
   readonly origins: ReadonlyMap<string, SessionListOrigin>;
   readonly ready: boolean;
   readonly off?: string;
+  readonly error?: string;
 };
 
 export type SessionListBatch = { batch: number; changes: readonly unknown[] };
@@ -73,6 +74,15 @@ const keyOf = (row: SessionListRow): string =>
   `${typeof row.origin === "string" ? row.origin : "local"}\u0000${row.sessionId}`;
 const refOf = (ref: SessionListKey): string => `${ref.origin}\u0000${ref.chatId}`;
 
+/** Stable newest-first order shared by the driver projection and page slots. */
+export function sessionListOrder(row: SessionListRow): [number, string, string] {
+  const activity =
+    typeof row.updatedMs === "number" ? row.updatedMs : typeof row.lastActivity === "number" ? row.lastActivity : 0;
+  const origin = typeof row.origin === "string" ? row.origin : "local";
+  const id = typeof row.chatId === "string" ? row.chatId : row.sessionId;
+  return [activity, origin, id];
+}
+
 function normalizeRow(value: SessionListRow): SessionListRow | null {
   const id =
     typeof value.sessionId === "string" && value.sessionId
@@ -94,6 +104,7 @@ class SidList {
   private changed = false;
   private ready = false;
   private off: string | undefined;
+  private error: string | undefined;
   private pendingPages = new Map<string, Extract<SessionListChange, { kind: "page" }>>();
   private questionRows = new Map<string, Set<string>>();
 
@@ -149,10 +160,11 @@ class SidList {
       this.questionOrder.delete(from);
       this.questions.set(to, { ...question, id: to });
     }
-    const pending = this.pendingPages.get(to);
+    const pending = this.pendingPages.get(from) ?? this.pendingPages.get(to);
     if (pending) {
+      this.pendingPages.delete(from);
       this.pendingPages.delete(to);
-      this.applyPage(pending);
+      this.applyPage({ ...pending, id: to });
     }
   }
 
@@ -160,8 +172,16 @@ class SidList {
     const question = this.questions.get(id);
     if (question?.state === "pending") {
       this.questions.set(id, { ...question, state: "closed", complete: false });
+      this.releaseQuestionRows(id);
       this.changed = true;
     }
+  }
+
+  private releaseQuestionRows(id: string): void {
+    const keys = this.questionRows.get(id);
+    if (!keys) return;
+    this.releaseKeys(keys);
+    this.questionRows.delete(id);
   }
 
   apply(change: SessionListChange): void {
@@ -171,7 +191,11 @@ class SidList {
         this.applyRows(change);
         return;
       case "page": {
-        if (change.rows.length > LIST_MAX_ROWS) throw new Error("list.rows");
+        if (change.rows.length > LIST_MAX_ROWS) {
+          this.error = "list.rows";
+          this.changed = true;
+          return;
+        }
         if (!this.questions.has(change.id)) {
           this.pendingPages.set(change.id, change);
           return;
@@ -206,8 +230,11 @@ class SidList {
       .filter((row): row is SessionListRow => row !== null)
       .map(keyOf)
       .filter((key) => !slot.has(key));
-    if (change.slot !== "live" && slot.size - removals.length + additions.length > LIST_MAX_ROWS)
-      throw new Error("list.rows");
+    if (change.slot !== "live" && slot.size - removals.length + additions.length > LIST_MAX_ROWS) {
+      this.error = "list.rows";
+      this.changed = true;
+      return;
+    }
     for (const key of removals) {
       slot.delete(key);
       const count = (this.holders.get(key) ?? 1) - 1;
@@ -242,11 +269,14 @@ class SidList {
         return normalized ? [normalized] : [];
       }),
     );
+    const previous = this.questionRows.get(change.id);
+    if (previous) this.releaseKeys(previous);
     const keys = new Set<string>();
     for (const row of rows) {
       const key = keyOf(row);
       this.rows.set(key, row);
       keys.add(key);
+      this.holders.set(key, (this.holders.get(key) ?? 0) + 1);
     }
     this.questionRows.set(change.id, keys);
     this.questions.set(change.id, {
@@ -277,11 +307,13 @@ class SidList {
       }
     this.slots.clear();
     this.slotComplete.clear();
+    for (const keys of this.questionRows.values()) this.releaseKeys(keys);
     this.questions.clear();
     this.questionOrder.clear();
     this.questionRows.clear();
     this.origins.clear();
     this.pendingPages.clear();
+    this.error = undefined;
     this.snapshot = this.build();
     this.changed = false;
   }
@@ -289,10 +321,12 @@ class SidList {
   private build(): SessionListSnapshot {
     const slots = new Map<string, readonly SessionListRow[]>();
     for (const [name, keys] of this.slots) {
-      const values = [...keys.keys()].flatMap((key) => {
-        const row = this.rows.get(key);
-        return row ? [row] : [];
-      });
+      const values = [...keys.keys()]
+        .flatMap((key) => {
+          const row = this.rows.get(key);
+          return row ? [row] : [];
+        })
+        .sort((a, b) => compareOrder(sessionListOrder(a), sessionListOrder(b)));
       slots.set(name, Object.freeze(values) as readonly SessionListRow[]);
     }
     return {
@@ -305,10 +339,12 @@ class SidList {
           {
             ...question,
             rows: Object.freeze(
-              [...(this.questionRows.get(id) ?? [])].flatMap((key) => {
-                const row = this.rows.get(key);
-                return row ? [row] : [];
-              }),
+              [...(this.questionRows.get(id) ?? [])]
+                .flatMap((key) => {
+                  const row = this.rows.get(key);
+                  return row ? [row] : [];
+                })
+                .sort((a, b) => compareOrder(sessionListOrder(a), sessionListOrder(b))),
             ),
           },
         ]),
@@ -316,8 +352,35 @@ class SidList {
       origins: new Map(this.origins),
       ready: this.ready,
       ...(this.off ? { off: this.off } : {}),
+      ...(this.error ? { error: this.error } : {}),
     };
   }
+
+  holds(key: string): boolean {
+    return (
+      [...this.slots.values()].some((slot) => slot.has(key)) ||
+      [...this.questionRows.values()].some((rows) => rows.has(key))
+    );
+  }
+
+  refresh(): void {
+    this.changed = true;
+  }
+
+  private releaseKeys(keys: ReadonlySet<string>): void {
+    for (const key of keys) {
+      const count = (this.holders.get(key) ?? 1) - 1;
+      if (count > 0) this.holders.set(key, count);
+      else {
+        this.holders.delete(key);
+        this.rows.delete(key);
+      }
+    }
+  }
+}
+
+function compareOrder(a: [number, string, string], b: [number, string, string]): number {
+  return b[0] - a[0] || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2]);
 }
 
 type Listener = (snapshot: SessionListSnapshot) => void;
@@ -366,7 +429,23 @@ export class SessionListStore {
       const list = this.sids.get(change.sid);
       if (!list) return [];
       list.apply(change);
-      return [change.sid];
+      const touched = new Set([change.sid]);
+      if (change.kind === "rows") {
+        const keys = [
+          ...change.upserts
+            .map((row) => normalizeRow(row))
+            .filter((row): row is SessionListRow => row !== null)
+            .map(keyOf),
+          ...change.remove.map(refOf),
+        ];
+        for (const [sid, other] of this.sids) {
+          if (sid !== change.sid && keys.some((key) => other.holds(key))) {
+            other.refresh();
+            touched.add(sid);
+          }
+        }
+      }
+      return [...touched];
     }
     const touched: string[] = [];
     for (const [sid, list] of this.sids) {
@@ -403,7 +482,30 @@ export function parseSessionListChange(value: unknown): SessionListChange | null
     }
   }
   if (!parsed || typeof parsed !== "object" || typeof (parsed as { kind?: unknown }).kind !== "string") return null;
-  const change = parsed as SessionListChange;
-  if (typeof (change as { sid?: unknown }).sid !== "string" && change.kind !== "off") return null;
-  return change;
+  const change = parsed as Record<string, unknown>;
+  const kind = change.kind;
+  if (kind !== "rows" && kind !== "page" && kind !== "origin" && kind !== "off" && kind !== "error") return null;
+  if (kind !== "off" && typeof change.sid !== "string") return null;
+  if (kind === "rows") {
+    if (
+      typeof change.slot !== "string" ||
+      !Array.isArray(change.upserts) ||
+      !Array.isArray(change.remove) ||
+      typeof change.complete !== "boolean"
+    )
+      return null;
+  }
+  if (kind === "page") {
+    if (
+      typeof change.id !== "string" ||
+      !Array.isArray(change.rows) ||
+      typeof change.hasBefore !== "boolean" ||
+      typeof change.hasAfter !== "boolean" ||
+      typeof change.complete !== "boolean"
+    )
+      return null;
+  }
+  if (kind === "origin" && (typeof change.origin !== "string" || typeof change.state !== "string")) return null;
+  if ((kind === "off" || kind === "error") && typeof change.code !== "string") return null;
+  return change as SessionListChange;
 }

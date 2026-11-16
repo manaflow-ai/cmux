@@ -1,5 +1,5 @@
 import { postNative } from "../native";
-import { listenForSessionList, removeSessionListHost } from "./receiver";
+import { listenForSessionList } from "./receiver";
 import { SessionListHost, type SessionListOpen, type SessionListPost } from "./host";
 import type { SessionListBatch, SessionListSnapshot } from "./store";
 
@@ -12,6 +12,7 @@ export class SessionListSource {
   readonly host: SessionListHost;
   private sid: string | undefined;
   private stop: (() => void) | undefined;
+  private opening: string | undefined;
 
   constructor(
     private readonly hooks: SessionListSourceHooks,
@@ -21,17 +22,22 @@ export class SessionListSource {
   }
 
   async open(view: "live" | "all" | "folders" = "all"): Promise<boolean> {
-    if (this.sid) this.close();
+    this.close();
     listenForSessionList();
+    const opening = `${Date.now()}.${Math.random()}`;
+    this.opening = opening;
     const opened: SessionListOpen = await this.host.open(view);
+    if (this.opening !== opening) {
+      if (!("fallen" in opened)) this.host.close(opened.sid);
+      return false;
+    }
+    this.opening = undefined;
     if ("fallen" in opened) {
       this.hooks.fell(opened.fallen);
       return false;
     }
     this.sid = opened.sid;
     this.stop = this.host.store.subscribe(opened.sid, (snapshot) => this.hooks.changed(snapshot));
-    const first = this.host.store.snapshot(opened.sid);
-    if (first?.ready) this.hooks.changed(first);
     return true;
   }
 
@@ -40,6 +46,7 @@ export class SessionListSource {
   }
 
   close(): void {
+    this.opening = undefined;
     this.stop?.();
     this.stop = undefined;
     if (this.sid) this.host.close(this.sid);
@@ -48,6 +55,6 @@ export class SessionListSource {
 
   dispose(): void {
     this.close();
-    removeSessionListHost(this.host);
+    this.host.dispose();
   }
 }

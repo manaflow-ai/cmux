@@ -1,8 +1,10 @@
 import { SessionListStore, LIST_MAX_WANTS, type SessionListBatch, type SessionListKey } from "./store";
 import { receiveSessionList, addSessionListHost, removeSessionListHost } from "./receiver";
+import { chatRowsNamer } from "../rows/host";
 
 export type SessionListPost = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 export type SessionListOpen = { sid: string } | { fallen: string };
+export type SessionListResult = { ok: true } | { ok: false; code: string };
 export type SessionListPageRequest = {
   kind: "older" | "family" | "forks" | "folder";
   key?: SessionListKey;
@@ -15,13 +17,7 @@ export const SESSION_LIST_LOST = "list.lost";
 export const SESSION_LIST_LATE = "list.late";
 export const SESSION_LIST_OPEN_MS = 250;
 
-export function sessionListNamer(): () => string {
-  const bits = new Uint32Array(2);
-  crypto.getRandomValues(bits);
-  const prefix = Array.from(bits, (word) => word.toString(16).padStart(8, "0")).join("");
-  let next = 0;
-  return () => `${prefix}.${++next}`;
-}
+export const sessionListNamer = chatRowsNamer;
 
 function refusalCode(error: unknown): string {
   const known = error as { code?: unknown; details?: { protocol?: unknown } } | null;
@@ -90,36 +86,41 @@ export class SessionListHost {
     void this.post("list.close", { sid }).catch(() => {});
   }
 
-  want(sid: string, keys: readonly SessionListKey[]): Promise<boolean> {
-    if (keys.length > LIST_MAX_WANTS || !this.store.has(sid)) return Promise.resolve(false);
+  want(sid: string, keys: readonly SessionListKey[]): Promise<SessionListResult> {
+    if (keys.length > LIST_MAX_WANTS || !this.store.has(sid)) return Promise.resolve({ ok: false, code: "list.limit" });
     return this.post("list.want", { sid, keys }).then(
-      () => true,
-      () => false,
+      () => ({ ok: true }),
+      (error) => ({ ok: false, code: refusalCode(error) }),
     );
   }
 
-  unwant(sid: string, keys: readonly SessionListKey[]): void {
-    if (keys.length > LIST_MAX_WANTS || !this.store.has(sid)) return;
-    void this.post("list.unwant", { sid, keys }).catch(() => {});
+  unwant(sid: string, keys: readonly SessionListKey[]): Promise<SessionListResult> {
+    if (keys.length > LIST_MAX_WANTS || !this.store.has(sid)) return Promise.resolve({ ok: false, code: "list.limit" });
+    return this.post("list.unwant", { sid, keys }).then(
+      () => ({ ok: true }),
+      (error) => ({ ok: false, code: refusalCode(error) }),
+    );
   }
 
-  visible(shown: boolean): Promise<boolean> {
+  visible(shown: boolean): Promise<SessionListResult> {
     return this.post("list.visible", { shown }).then(
-      () => true,
-      () => false,
+      () => ({ ok: true }),
+      (error) => ({ ok: false, code: refusalCode(error) }),
     );
   }
 
   /** Starts a page operation; wire continuation and question ids never enter this request. */
-  page(sid: string, request: Record<string, unknown>, kind = "all"): Promise<string | null> {
+  page(sid: string, request: Record<string, unknown>, kind = "all"): Promise<string | SessionListResult> {
     const requestedKind = typeof request.kind === "string" ? request.kind : kind;
-    if (!["older", "family", "forks", "folder"].includes(requestedKind)) return Promise.resolve(null);
+    if (!["older", "family", "forks", "folder"].includes(requestedKind))
+      return Promise.resolve({ ok: false, code: "list.request" });
+    if (!this.store.has(sid)) return Promise.resolve({ ok: false, code: "list.sid" });
     const allowedKind = requestedKind as SessionListPageRequest["kind"];
     const id = this.name();
     try {
       this.store.questionAsked(sid, id, allowedKind);
     } catch {
-      return Promise.resolve(null);
+      return Promise.resolve({ ok: false, code: "list.busy" });
     }
     const fields = pageFields(request, allowedKind);
     return this.post("list.page", { sid, ...fields }).then(
@@ -132,15 +133,15 @@ export class SessionListHost {
       (error) => {
         this.store.apply({ kind: "error", sid, id, code: refusalCode(error) });
         this.store.commit(sid);
-        return null;
+        return { ok: false, code: refusalCode(error) };
       },
     );
   }
 
-  next(sid: string, id: string): Promise<boolean> {
+  next(sid: string, id: string): Promise<SessionListResult> {
     return this.post("list.next", { sid, id }).then(
-      () => true,
-      () => false,
+      () => ({ ok: true }),
+      (error) => ({ ok: false, code: refusalCode(error) }),
     );
   }
 
@@ -149,7 +150,7 @@ export class SessionListHost {
   }
 
   dispose(): void {
-    for (const sid of [...this.openSids]) this.close(sid);
+    for (const sid of this.openSids) this.close(sid);
     removeSessionListHost(this);
   }
 }
