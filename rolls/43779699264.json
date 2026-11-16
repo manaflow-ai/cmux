@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43779699264",
+  "recorded_at": "2026-11-16T00:27:21Z",
+  "reason": "cmux-tui e721c6a3945c changes the image's cmux-tui (pinned 5d3ddf3f4e91)",
+  "dry_run": false,
+  "cmux_tui": "e721c6a3945ce45757cf5d5c290571cb4f89f74d",
+  "fixes": [
+    {
+      "sha": "e721c6a3945ce45757cf5d5c290571cb4f89f74d",
+      "mergedAt": "2026-11-15T16:01:43-08:00",
+      "subject": "refactor(acpmux): move cloud_join enroll tests to enroll_tests.rs (#44001)"
+    },
+    {
+      "sha": "8912382be956ebd66d1a23b7f498080504dcc94e",
+      "mergedAt": "2026-11-15T16:01:02-08:00",
+      "subject": "cmux-tui: screen detector does not read ended terminals it does not know (#43955)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T00:27:21Z",
+    "snapshot_id": "sh-829e02aad48941969072ac3506da4e5f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43779699264): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1ad6a3c1ab4f88eb0630bb84e924b61c50d68ab3",
+    "image": "cloud-native-auto-e721c6a3-43779699264-1",
+    "revision": "ci-43779699264-1",
+    "at": "2026-11-16T00:27:21Z"
+  },
+  "rolled_back": false
+}
