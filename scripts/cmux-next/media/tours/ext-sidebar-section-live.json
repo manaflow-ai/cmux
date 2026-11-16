@@ -44,7 +44,7 @@
         "current",
         "write",
         "--text",
-        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; D=\"$CMUX_CUSTOMIZE_DIR\"; echo \"customize folder: $D\"; ls -A \"$D\"\r"
+        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; D=\"${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}\"; mkdir -p \"$D\"; echo \"customize folder: $D\"; ls -A \"$D\"\r"
       ],
       "wait": 2,
       "shot": true
