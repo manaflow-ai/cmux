@@ -2150,6 +2150,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private published: AcpmuxRow[] | undefined;
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
+  /// Each row's pull request key as `set` last worked it out, by id, with the row it was for: the next
+  /// `set` of that id asks about the row it replaces, so a stream's row is read once per change, not
+  /// twice for each of the two versions below.
+  private pullRequestKeys = new Map<string, { row: AcpmuxRow; key: string }>();
   private transcriptSummaryVersion = {};
   private readonly artifactUpdates = new RowUpdates((id) => this.get(id));
   /// The turns the agent ran on its own (acpmux `background_turn`): each one's started record's
@@ -2326,10 +2330,19 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;
-    if (!unchanged && pullRequestRowKey(previous) !== pullRequestRowKey(row))
-      this.pullRequestActivityVersion = Symbol();
-    if (!unchanged && row.kind === "activity" && pullRequestRowKey(previous) !== pullRequestRowKey(row))
-      this.pullRequestCommandVersion = Symbol();
+    if (!unchanged) {
+      const kept = this.pullRequestKeys.get(id);
+      const before = kept && kept.row === previous ? kept.key : pullRequestRowKey(previous);
+      const after = pullRequestRowKey(row, true, previous);
+      if (kept) {
+        kept.row = row;
+        kept.key = after;
+      } else this.pullRequestKeys.set(id, { row, key: after });
+      if (before !== after) {
+        this.pullRequestActivityVersion = Symbol();
+        if (row.kind === "activity") this.pullRequestCommandVersion = Symbol();
+      }
+    }
     if (!unchanged && (!known || summaryChanged)) this.transcriptSummaryVersion = {};
     if (!unchanged) this.snapshot = undefined;
     if (!known) {
@@ -2560,6 +2573,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   override delete(id: string): boolean {
     // Every text delta drops the typing row, which is usually gone already.
     if (!this.has(id)) return false;
+    this.pullRequestKeys.delete(id);
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
     this.transcriptSummaryVersion = {};
@@ -2577,6 +2591,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   }
 
   override clear(): void {
+    this.pullRequestKeys.clear();
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
     this.transcriptSummaryVersion = {};
