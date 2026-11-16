@@ -13,6 +13,10 @@ public enum VMClientError: Error, CustomStringConvertible {
     case cloudMachinesDisabled
     /// The control plane answered 501 to `pause`/`resume`: this provider has no such operation.
     case lifecycleUnsupported(action: String)
+    /// The control plane has no legacy SSH credential endpoint
+    /// (`POST /api/vm/:id/ssh-endpoint` answered a route-level 404): managed
+    /// machines are opened through the cmux-remote route instead.
+    case sshEndpointUnsupported
 
     public var description: String {
         switch self {
@@ -52,6 +56,14 @@ public enum VMClientError: Error, CustomStringConvertible {
                 What to do:
                   Machines here stay available until you delete them; `cmux vm rm <id>` when the work is done.
                 """
+        case .sshEndpointUnsupported:
+            return """
+                Cloud machines do not expose SSH credentials, so `cmux vm ssh-info` has nothing to print.
+
+                What to do:
+                  Open the machine with `cmux vm ssh <id>` or `cmux vm shell <id>`.
+                  Run a single command with `cmux vm exec <id> -- <command>`.
+                """
         case .disabledByManagedPolicy:
             return String(
                 localized: "cloud.managed.disabled",
@@ -78,6 +90,23 @@ public enum VMClientError: Error, CustomStringConvertible {
 }
 
 extension VMClientError {
+    /// Classifies the answer to `POST /api/vm/:id/ssh-endpoint`. The backend
+    /// removed that route, so a 404 there is the route itself missing, not the
+    /// machine; only a body naming `vm_not_found` keeps the not-found meaning.
+    static func classifySSHEndpointAnswer(status: Int, body: String) -> VMClientError? {
+        guard status == 404,
+              VMClientError.httpStatus(status, body).serverErrorCode != "vm_not_found" else { return nil }
+        return .sshEndpointUnsupported
+    }
+
+    /// The backend code a refused legacy `vm.ssh_info` carries over the socket.
+    /// The CLI treats it as "use the managed cmux-remote route"
+    /// (`shouldFallbackFromForcedSSH`), so `cmux vm ssh` keeps working.
+    public var fallbackBackendCode: String? {
+        guard case .sshEndpointUnsupported = self else { return nil }
+        return "vm_attach_transport_unsupported"
+    }
+
     /// The wait the control plane asked for before the same request is sent
     /// again, from a retryable answer's `retryAfterSeconds`; nil when the
     /// answer named none. Bounded so a malformed answer cannot park a retry.

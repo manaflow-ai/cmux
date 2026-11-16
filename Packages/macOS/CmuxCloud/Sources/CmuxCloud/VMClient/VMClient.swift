@@ -2132,6 +2132,12 @@ public actor VMClient {
         return try await withOperation(.open, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "vm id")
             let (data, http) = try await request("POST", path: "/api/vm/\(encodedID)/ssh-endpoint", jsonBody: [:])
+            if let unsupported = VMClientError.classifySSHEndpointAnswer(
+                status: http.statusCode,
+                body: String(data: data, encoding: .utf8) ?? ""
+            ) {
+                throw unsupported
+            }
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
             return try decodeSSHEndpoint(obj)
@@ -2767,7 +2773,7 @@ public actor VMClient {
         case .sessionRefreshFailed: return .sessionRefreshFailed
         case .backendUnreachable: return .backendUnreachable
         case .malformedResponse: return .malformedResponse
-        case .httpStatus, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled: return .unknown
+        case .httpStatus, .lifecycleUnsupported, .sshEndpointUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled: return .unknown
         }
     }
 
@@ -2775,7 +2781,7 @@ public actor VMClient {
         switch error {
         case .backendUnreachable(let url, let detail): return "\(url): \(detail)"
         case .malformedResponse(let message): return message
-        case .notSignedIn, .sessionRefreshFailed, .httpStatus, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled: return ""
+        case .notSignedIn, .sessionRefreshFailed, .httpStatus, .lifecycleUnsupported, .sshEndpointUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled: return ""
         }
     }
 
