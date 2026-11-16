@@ -140,12 +140,13 @@ impl LocalConsent {
     }
 
     /// The consent that applies to one viewer: the owner's own devices may control unless the
-    /// owner keeps them view only; anyone else gets this desktop's consent as is.
+    /// owner keeps them view only; anyone else gets this desktop's consent as is. A desktop
+    /// that serves nothing (`view` off) gives its own account nothing either.
     pub fn for_viewer(self, own_account: bool) -> Self {
         if !own_account {
             return self;
         }
-        Self { full: self.own_access() != OwnAccess::View, ..self }
+        Self { full: self.view && self.own_access() != OwnAccess::View, ..self }
     }
 
     /// How a ticket with `scope` is served: `Some(view_only)`, or None when this desktop does
