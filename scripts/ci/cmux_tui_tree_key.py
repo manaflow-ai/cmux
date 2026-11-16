@@ -11,7 +11,8 @@ from pathlib import Path
 
 REPAIR = "cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
 ROOT = Path(__file__).resolve().parents[2]
-INPUTS = ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt"
+INPUTS_PATH = "scripts/cmux-next/cmux-tui-tree-inputs.txt"
+INPUTS = ROOT / INPUTS_PATH
 # v2 excludes the classic ghostty gitlink and non-runtime cmux-tui/docs.
 # v2-legacy preserves the pre-docs v2 algorithm; v1 also hashes ghostty.
 # Consumers read v2, v2-legacy, then v1 so immutable old artifacts stay valid.
@@ -36,6 +37,21 @@ def git(*args: str) -> str:
     ).strip()
 
 
+def inputs_text(revision: str) -> str:
+    """The inputs list a revision is keyed by: the revision's own, as CI keys it (cmux-tui-artifacts.yml runs
+    this script in a checkout of the commit it publishes). A checkout's newer list gave every older commit
+    another key, one nothing was published under: #43477 added an input, and hot-apply then found no
+    build for any commit before it. A revision without the file, or an INPUTS a caller set (a test's
+    fixture), reads INPUTS."""
+    if INPUTS == ROOT / INPUTS_PATH:
+        try:
+            return subprocess.check_output(["git", "-C", str(ROOT), "show", f"{revision}:{INPUTS_PATH}"], text=True,
+                                           stderr=subprocess.DEVNULL, env=GIT_ENV, timeout=GIT_TIMEOUT_SECONDS)
+        except subprocess.CalledProcessError:
+            pass
+    return INPUTS.read_text(encoding="utf-8")
+
+
 def tree_key(revision: str, version: str = "v2") -> str:
     if version not in KEY_VERSIONS:
         raise RuntimeError(f"unknown cmux-tui tree key version {version!r}")
@@ -44,7 +60,7 @@ def tree_key(revision: str, version: str = "v2") -> str:
     except subprocess.CalledProcessError:
         raise RuntimeError(f"{revision} is not a commit in this checkout; fetch it first") from None
     entries: dict[tuple[str, ...], tuple[str, str, str]] = {}
-    for raw in INPUTS.read_text(encoding="utf-8").splitlines():
+    for raw in inputs_text(revision).splitlines():
         raw = raw.strip()
         if not raw or raw.startswith("#"):
             continue

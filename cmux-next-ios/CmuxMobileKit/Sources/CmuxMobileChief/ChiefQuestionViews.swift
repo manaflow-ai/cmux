@@ -109,7 +109,7 @@ struct ChiefQuestionBar: View {
             .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: 20, style: .continuous))
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .padding(.horizontal, 16)
         .accessibilityIdentifier("chief.failure.bar")
         .accessibilityHint("Sends your last message to Chief again")
@@ -140,7 +140,7 @@ struct ChiefQuestionBar: View {
             .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: 20, style: .continuous))
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .padding(.horizontal, 16)
         .accessibilityIdentifier("chief.askCloudChief")
         .accessibilityHint("Sends your message to Cloud Chief with this chat's recent messages")

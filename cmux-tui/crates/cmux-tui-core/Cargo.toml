@@ -20,6 +20,8 @@ cmux-json.workspace = true
 # Locks that unlock before they close (a forked child keeps none).
 cmux-file-lock.workspace = true
 cmux-agent-pane-policy.workspace = true
+# The hybrid stream of agent CLI terminals (server/agent_cli_hybrid.rs).
+cmux-agent-cli-render = { path = "../cmux-agent-cli-render" }
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
@@ -59,9 +61,12 @@ cmux-kitty-media.workspace = true
 cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
+# This machine's device kind for `identify` (`machine_device`, `machine_symbol`).
+cmux-device-kind.workspace = true
 serde.workspace = true
 subsecond = { workspace = true, optional = true }
 serde_json.workspace = true
+uuid.workspace = true
 toml.workspace = true
 anyhow.workspace = true
 base64.workspace = true
