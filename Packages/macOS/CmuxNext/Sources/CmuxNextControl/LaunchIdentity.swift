@@ -60,8 +60,13 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// `cmux-build-space`): `dev:<slug>` for a tagged dev build, unset for nightly and stable.
     public static let buildSpaceKey = "CMUX_BUILD_SPACE"
 
-    /// This build's `X-Cmux-Build-Space` value (``BuildIdentity/devTag``), nil without one.
-    public var buildSpaceValue: String? { CMUXBuildSpace(devTag: build.devTag)?.headerValue }
+    /// This build's `CMUX_BUILD_SPACE` for its children (``CMUXBuildSpaceState/childEnvironmentValue``): its space
+    /// for a tagged dev build, nil for nightly and stable, and a refusing value for a dev build with no usable tag.
+    public var buildSpaceValue: String? { Self.childBuildSpace(build) }
+
+    static func childBuildSpace(_ build: BuildIdentity) -> String? {
+        CMUXBuildSpaceState(devBuild: build.needsBuildSpace, devTag: build.devTag).childEnvironmentValue
+    }
 
     /// Pure resolution. `bundledEnvironment` is the bundle's own
     /// `Info.plist` `LSEnvironment`; `processEnvironment` is consulted only
@@ -206,8 +211,7 @@ public struct LaunchIdentity: Sendable, Equatable {
                                  bundledEnvironment: bundled, bundleID: bundle.bundleIdentifier)
         // This build's own space replaces any inherited one, so every Rust child that inherits
         // this environment (the `cmux` CLI runs, `cmux link`, the Codex holder, acpmux) sends it.
-        let space = BuildIdentity(bundleID: bundle.bundleIdentifier, bundledTag: bundled["CMUX_TAG"]).devTag
-            .flatMap { CMUXBuildSpace(devTag: $0)?.headerValue }
+        let space = childBuildSpace(BuildIdentity(bundleID: bundle.bundleIdentifier, bundledTag: bundled["CMUX_TAG"]))
         environmentGuard.write("LaunchIdentity.stripInheritedEnvironment") {
             for key in keys { unsetenv(key) }
             if let space { setenv(buildSpaceKey, space, 1) }

@@ -62,6 +62,21 @@ public enum CMUXBuildSpaceState: Sendable, Hashable {
         return space?.headers ?? [:]
     }
 
+    /// The value of `CMUX_BUILD_SPACE` for every process this build launches (cmux-tui `cmux-build-space`): the
+    /// space for a dev build, nil (unset) for nightly, and for a misconfigured dev build a value that is not a space
+    /// (``unusableChildValue``), which every Rust cloud client refuses. A child never falls back to nightly's data,
+    /// also one launched with a filtered environment that keeps only this variable (the Chief owner).
+    public var childEnvironmentValue: String? {
+        switch self {
+        case .nightly: nil
+        case let .dev(space): space.headerValue
+        case .misconfiguredDev: Self.unusableChildValue
+        }
+    }
+
+    /// What a misconfigured dev build's children get: not `dev:<slug>`, so they refuse their cloud calls.
+    public static let unusableChildValue = "unusable"
+
     /// The header's value (`dev:<slug>`), nil for nightly; throws for a misconfigured dev build.
     public func headerValue() throws -> String? {
         try check()
