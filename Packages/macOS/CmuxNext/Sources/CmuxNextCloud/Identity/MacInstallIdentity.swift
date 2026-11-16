@@ -1,4 +1,6 @@
 public import CmuxInstallAuthCore
+import CmuxNextCompat
+public import CmuxNextDaemon
 import CryptoKit
 public import Foundation
 import os
@@ -20,6 +22,8 @@ public actor MacInstallIdentity {
     public enum Failure: Error, Equatable {
         /// No user is signed in.
         case signedOut
+        /// Three rounds of the lease neither answered nor named a stall (a token that lapsed as it arrived).
+        case mintUnsettled
     }
 
     private let store: MacInstallStore
@@ -35,8 +39,21 @@ public actor MacInstallIdentity {
     /// Callers of ``installToken(awaitingBind:)`` waiting for the first bind (or a drop) of this launch.
     private var bindWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.install")
+    private let now: @Sendable () -> Date
+    /// Waits out a span of `now`'s time: a mint waiter's deadline (tests move their clock instead).
+    private let sleep: @Sendable (TimeInterval) async -> Void
+    /// The lease Rust's `signin::lease` decides on: the token held, the one mint in flight, the last failed mint.
+    private var held: Held?
+    private var mint: RunningMint?
+    private var failedMint: (id: UUID, error: any Error)?
+    /// Callers of ``installToken()`` waiting on the running mint, each until its answer or Rust's bound.
+    private var mintWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
-    public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?) {
+    public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?,
+                now: @escaping @Sendable () -> Date = Date.init,
+                sleep: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(for: .seconds($0)) }) {
+        self.now = now
+        self.sleep = sleep
         self.store = store
         self.transport = transport
         self.deviceName = deviceName
@@ -63,10 +80,134 @@ public actor MacInstallIdentity {
         return CloudStartCore().call("cloud_identity_token", ["token": token], as: Claims.self)?.team
     }
 
-    /// A valid install token for the signed-in user.
+    /// A valid install token for the signed-in user. Rust's lease (cmux-cloud-config `signin`, op
+    /// `cloud_auth_install_token_lease`) decides: the held token answers and is renewed beside it at 2/3 of its
+    /// life, so a stalled renewal never holds a Cloud call; with no usable token a caller waits on one mint at
+    /// most its bound, then gets ``MintStalled`` naming the step, never "the cmux API did not answer".
     public func installToken() async throws -> String {
         guard let client else { throw Failure.signedOut }
-        return try await client.installToken()
+        // Each round answers or waits on one mint at most Rust's bound, so the second round has a token, the mint's
+        // error or the stall refusal; the third covers a token that lapsed in between.
+        for _ in 0..<3 {
+            guard let decision = leaseDecision() else { return try await client.installToken() }
+            if decision.cancelMint {
+                mint?.task.cancel()
+                mint = nil
+            }
+            if decision.startMint { startMint(client) }
+            if decision.useHeld, let held { return held.value }
+            if let refusal = decision.refusal {
+                logger.error("install token: \(refusal["message"]?.stringValue ?? "mint stalled", privacy: .public)")
+                throw MintStalled(refusal: refusal)
+            }
+            guard let until = decision.waitUntilMs, let running = mint else { throw Failure.signedOut }
+            await waitForMint(until: Date(timeIntervalSince1970: Double(until) / 1000))
+            guard self.client === client else { throw Failure.signedOut }
+            // The mint this caller waited on failed: its own error, at once.
+            if let failed = failedMint, failed.id == running.id { throw failed.error }
+        }
+        throw Failure.mintUnsettled
+    }
+
+    /// A caller waited the whole bound on a mint (Rust's `signin::lease`): ``refusal`` is Rust's answer
+    /// `{code: "credential.minting", message, retryable, details: {mint: {step, waited_seconds, bound_seconds}}}`;
+    /// the credential relay sends it as is.
+    public struct MintStalled: Error, Sendable, Equatable, CredentialRelayRefusal, CustomStringConvertible {
+        public let refusal: JSONValue
+        public var relayRefusal: JSONValue { refusal }
+        public var description: String { refusal["message"]?.stringValue ?? "the install token mint stalled" }
+    }
+
+    private struct Held { var value: String; var mintedAt: Date; var expiresAt: Date }
+    private struct RunningMint { var id: UUID; var task: Task<String, Error>; var startedAt: Date; var step: MintStep }
+
+    /// The step a running mint is in; written from the mint's task, read by callers.
+    private final class MintStep: Sendable {
+        private let state = Mutex("starting the mint")
+        var name: String { state.withLock { $0 } }
+        func set(_ name: String) { state.withLock { $0 = name } }
+    }
+
+    private struct LeaseDecision: Decodable {
+        var useHeld: Bool
+        var startMint: Bool
+        var cancelMint: Bool
+        var waitUntilMs: UInt64?
+        var refusal: JSONValue?
+    }
+
+    private func leaseDecision() -> LeaseDecision? {
+        struct HeldFacts: Encodable { var mintedMs: UInt64; var expiresMs: UInt64 }
+        struct MintFacts: Encodable { var startedMs: UInt64; var step: String }
+        struct Facts: Encodable { var nowMs: UInt64; var held: HeldFacts?; var mint: MintFacts? }
+        func ms(_ date: Date) -> UInt64 { UInt64(max(0, date.timeIntervalSince1970 * 1000)) }
+        let facts = Facts(nowMs: ms(now()),
+                          held: held.map { HeldFacts(mintedMs: ms($0.mintedAt), expiresMs: ms($0.expiresAt)) },
+                          mint: mint.map { MintFacts(startedMs: ms($0.startedAt), step: $0.step.name) })
+        return CloudStartCore().call("cloud_auth_install_token_lease", facts, as: LeaseDecision.self)
+    }
+
+    private func startMint(_ client: InstallAuthClient) {
+        let id = UUID(), step = MintStep()
+        // task-owner: one mint of this lease; it ends with its answer, a cancel by a stalled lease, or drop().
+        let task = Task { [weak self] in
+            do {
+                let minted = try await client.mintFresh(step: { step.set($0) })
+                await self?.minted(id, minted)
+                return minted.value
+            } catch {
+                await self?.mintFailed(id, error)
+                throw error
+            }
+        }
+        mint = RunningMint(id: id, task: task, startedAt: now(), step: step)
+    }
+
+    private func minted(_ id: UUID, _ token: (value: String, expiresAt: Date)) {
+        guard mint?.id == id else { return }
+        held = Held(value: token.value, mintedAt: now(), expiresAt: token.expiresAt)
+        mint = nil
+        wakeMintWaiters()
+    }
+
+    private func mintFailed(_ id: UUID, _ error: any Error) {
+        guard mint?.id == id else { return }
+        failedMint = (id, error)
+        mint = nil
+        wakeMintWaiters()
+    }
+
+    /// Waits until the running mint answers or `until`, whichever is first. A stalled mint's task is never
+    /// awaited (awaiting a task ignores the waiter's cancel), so the bound holds.
+    private func waitForMint(until: Date) async {
+        let remaining = max(0, until.timeIntervalSince(now()))
+        let id = UUID()
+        await withCheckedContinuation { continuation in
+            mintWaiters[id] = continuation
+            // task-owner: one bounded wait per waiter; the mint's answer, a drop or this deadline resumes it once.
+            Task { [weak self, sleep] in
+                // wakeup-allow: the one deadline of this wait (Rust's mint bound); the mint's answer ends it earlier.
+                await sleep(remaining)
+                await self?.wakeMintWaiter(id)
+            }
+        }
+    }
+
+    private func wakeMintWaiter(_ id: UUID) { mintWaiters.removeValue(forKey: id)?.resume() }
+
+    private func wakeMintWaiters() {
+        let waiters = mintWaiters
+        mintWaiters = [:]
+        for waiter in waiters.values { waiter.resume() }
+    }
+
+    /// Forgets the lease: the held token and the mint in flight (a 401, a sign-out, another user).
+    private func forgetLease() {
+        mint?.task.cancel()
+        mint = nil
+        held = nil
+        failedMint = nil
+        wakeMintWaiters()
     }
 
     /// ``installToken()`` for a caller that knows the app is signed in: when the user is not bound yet (the first
@@ -119,7 +260,10 @@ public actor MacInstallIdentity {
     }
 
     /// The owner refused the current token (401): the next call mints again.
-    public func invalidate() async { await client?.invalidate() }
+    public func invalidate() async {
+        forgetLease()
+        await client?.invalidate()
+    }
 
     /// The registered install's id (`inst_…`), or nil before the first
     /// registration of the signed-in user. `cmux link` runs as this install.
@@ -155,6 +299,7 @@ public actor MacInstallIdentity {
         let dropped = client
         client = nil
         user = nil
+        forgetLease()
         wakeAll()
         await dropped?.reset()
     }
@@ -193,8 +338,10 @@ public actor MacInstallIdentity {
         client = InstallAuthClient(
             transport: transport, signer: store.signer(for: stackUser), sessionToken: session, stackUser: stackUser,
             deviceName: deviceName, clientVersion: clientVersion, record: store.record(for: stackUser),
-            profile: .mac, onRecord: { [weak self] record in await self?.recordChanged(record, for: stackUser, generation: bound) }
+            profile: .mac, onRecord: { [weak self] record in await self?.recordChanged(record, for: stackUser, generation: bound) },
+            now: now
         )
+        forgetLease()
         wakeAll()
     }
 
