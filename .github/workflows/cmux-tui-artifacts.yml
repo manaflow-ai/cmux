@@ -2414,14 +2414,26 @@ jobs:
             # transfer that crawls there is cut and retried. R2 reads a 31 MB
             # binary in seconds, so two 90 s attempts per file keep the
             # fallback well inside the job's 15 minutes.
-            fetch_published() {
+            # With "optional", a name R2 answers 404 for is left out: a
+            # commit prefix adopt-commit-manifest wrote from its published
+            # tree has only the binaries and manifest.json, no checksums
+            # file (run 43877937618 failed reading cmux-tui-checksums.txt
+            # from one). Any other failed read still goes to the CDN and,
+            # failing there too, fails the step.
+            fetch_published() { # <name> [optional]
+              local status=0
               CMUX_R2_UPLOAD_ATTEMPTS=2 CMUX_R2_UPLOAD_RETRY_DELAY=5 CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS=90 \
               python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
-                --key "$prefix/$1" --download-to "$directory/$1" ||
-                { curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 300 \
-                    --speed-limit 102400 --speed-time 30 \
-                    -o "$directory/$1.partial" "https://files.cmux.com/$prefix/$1?adopt=$GITHUB_RUN_ID" &&
-                  mv "$directory/$1.partial" "$directory/$1"; }
+                --key "$prefix/$1" --download-to "$directory/$1" || status=$?
+              [[ "$status" == 0 ]] && return 0
+              if [[ "$status" == 22 && "${2:-}" == optional ]]; then
+                echo "https://files.cmux.com/$prefix/ has no $1; keeping the publication without it."
+                return 0
+              fi
+              curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 300 \
+                  --speed-limit 102400 --speed-time 30 \
+                  -o "$directory/$1.partial" "https://files.cmux.com/$prefix/$1?adopt=$GITHUB_RUN_ID" &&
+                mv "$directory/$1.partial" "$directory/$1"
             }
             for name in "$directory"/*-checksums.txt; do
               [[ -f "$name" ]] && checksums="$checksums $(basename "$name")"
@@ -2442,11 +2454,18 @@ jobs:
             # checksums file, and two reads of one name would race on the
             # same file and its .partial. A string, not an associative array: macOS
             # runners have Bash 3.2, which has no associative arrays.
+            # The manifest's names are required; this run's checksums file
+            # names are not, since the publication may never have had one.
             local seen=" "
-            for name in $checksums $names; do
+            for name in $names; do
               [[ "$name" == manifest.json || "$seen" == *" $name "* ]] && continue
               seen="$seen$name "
               pool_run fetch_published "$name"
+            done
+            for name in $checksums; do
+              [[ "$seen" == *" $name "* ]] && continue
+              seen="$seen$name "
+              pool_run fetch_published "$name" optional
             done
             pool_wait
           }
