@@ -929,6 +929,60 @@ impl Enc {
         }
         Ok((std::mem::take(&mut *self.out.lock().unwrap()), ms))
     }
+
+    /// Output delay: submits `n` frames without CompleteFrames, each one frame interval after
+    /// the last, and returns for each how many later submissions passed before its output
+    /// arrived (0 = within its own interval), plus the ms from submit to callback.
+    fn output_delay(&mut self, n: usize, fps: u32) -> (Vec<usize>, Vec<f64>) {
+        let interval = std::time::Duration::from_micros(1_000_000 / u64::from(fps));
+        let (mut lag, mut ms) = (vec![], vec![]);
+        let mut pending: std::collections::VecDeque<(usize, Instant)> = Default::default();
+        let mut seen = 0usize;
+        for i in 0..n {
+            let t = Instant::now();
+            let st = unsafe {
+                let mut info = 0u32;
+                VTCompressionSessionEncodeFrame(
+                    self.s,
+                    self.pb,
+                    micros(i as i64 * 16_667),
+                    INVALID,
+                    null(),
+                    null_mut(),
+                    &mut info,
+                )
+            };
+            if st != 0 {
+                break;
+            }
+            pending.push_back((i, t));
+            while t.elapsed() < interval {
+                let got = std::mem::take(&mut *self.out.lock().unwrap());
+                for s in got {
+                    if !s.sb.is_null() {
+                        unsafe { CFRelease(s.sb) };
+                    }
+                    seen += 1;
+                    if let Some((j, tj)) = pending.pop_front() {
+                        lag.push(i - j);
+                        ms.push(tj.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_micros(200));
+            }
+        }
+        unsafe { VTCompressionSessionCompleteFrames(self.s, INVALID) };
+        for s in std::mem::take(&mut *self.out.lock().unwrap()) {
+            if !s.sb.is_null() {
+                unsafe { CFRelease(s.sb) };
+            }
+            if pending.pop_front().is_some() {
+                lag.push(usize::MAX);
+            }
+        }
+        let _ = seen;
+        (lag, ms)
+    }
 }
 
 impl Drop for Enc {
@@ -1054,6 +1108,55 @@ struct Run {
     sps: String,
     profile_readback: String,
     qp_readback: String,
+}
+
+/// `run`, and when a low-latency session refuses the config (-12902 on the first encode in
+/// the first Mac run, for the default profile and High at a 1 Gbps target), the same with
+/// each profile and a lower average rate in turn. Returns the run and which combination
+/// it was, so a row says what the encoder accepted.
+fn run_ladder(
+    cfg: &Cfg,
+    src: &mut dyn Source,
+    still: usize,
+    moving: usize,
+    decode: bool,
+) -> (Result<Run, String>, String) {
+    let first = run(cfg, src, still, moving, decode);
+    if first.is_ok() || !cfg.low_latency {
+        return (first, format!("profile={} avg={:?}kbps", cfg.profile_name, cfg.avg_kbps));
+    }
+    let mut tried = vec![format!(
+        "{}@{:?}:{}",
+        cfg.profile_name,
+        cfg.avg_kbps,
+        first.err().unwrap_or_default()
+    )];
+    let profiles: &[&str] = if cfg.codec == H264 {
+        &["H264_High_AutoLevel", "H264_ConstrainedHigh_AutoLevel", "H264_Main_AutoLevel"]
+    } else {
+        &["HEVC_Main_AutoLevel", "HEVC_Main10_AutoLevel"]
+    };
+    for avg in [cfg.avg_kbps, Some(400_000), Some(200_000), Some(100_000), Some(50_000)] {
+        for p in profiles {
+            let mut c = cfg.clone();
+            c.profile = k(&format!("kVTProfileLevel_{p}"));
+            c.profile_name = (*p).into();
+            c.avg_kbps = avg;
+            match run(&c, src, still, moving, decode) {
+                Ok(r) => {
+                    return (
+                        Ok(r),
+                        format!(
+                            "profile={p} avg={avg:?}kbps (refused before: {})",
+                            tried.join("; ")
+                        ),
+                    );
+                }
+                Err(e) => tried.push(format!("{p}@{avg:?}:{e}")),
+            }
+        }
+    }
+    (Err(format!("every combination refused: {}", tried.join("; "))), String::new())
 }
 
 fn run(
@@ -1188,10 +1291,10 @@ fn q1(log: &mut Log) {
     }
     let hw = k("kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder");
     let ll = k("kVTVideoEncoderSpecification_EnableLowLatencyRateControl");
-    let mut profiles: Vec<(u32, Vec<(String, Ref)>)> = vec![];
+    let mut profiles: Vec<(u32, bool, Vec<(String, Ref)>)> = vec![];
     for codec in [H264, HEVC] {
-        let mut found = vec![];
         for low_latency in [true, false] {
+            let mut found = vec![];
             let spec =
                 if low_latency { dict(&[(hw, yes()), (ll, yes())]) } else { dict(&[(hw, yes())]) };
             let (mut id, mut props): (Ref, Ref) = (null(), null());
@@ -1213,14 +1316,51 @@ fn q1(log: &mut Log) {
                 !key.is_null() && CFDictionaryContainsKey(props, key) != 0
             };
             log.line(format!(
-                "Q1 {} ll={low_latency} encoder={} MaxAllowedFrameQP={} MinAllowedFrameQP={} DataRateLimits={} ConstantBitRate={}",
+                "Q1 {} ll={low_latency} encoder={} MaxAllowedFrameQP={} MinAllowedFrameQP={} DataRateLimits={} ConstantBitRate={} EnableLTR={} MaxFrameDelayCount={} PrioritizeEncodingSpeedOverQuality={} RealTime={}",
                 name(codec),
                 string(id),
                 has("MaxAllowedFrameQP"),
                 has("MinAllowedFrameQP"),
                 has("DataRateLimits"),
-                has("ConstantBitRate")
+                has("ConstantBitRate"),
+                has("EnableLTR"),
+                has("MaxFrameDelayCount"),
+                has("PrioritizeEncodingSpeedOverQuality"),
+                has("RealTime")
             ));
+            // Output delay of a session built the way the bench builds it (1080p60).
+            let mut cfg = Cfg::new(codec, 1920, 1080, 60);
+            cfg.low_latency = low_latency;
+            cfg.avg_kbps = Some(40_000);
+            cfg.profile = k(if codec == H264 {
+                "kVTProfileLevel_H264_High_AutoLevel"
+            } else {
+                "kVTProfileLevel_HEVC_Main_AutoLevel"
+            });
+            match Enc::new(&cfg) {
+                Ok(mut enc) => {
+                    let mut src = TextPage::new(1920, 1080, 31, 24, false);
+                    src.prepare(0);
+                    write(enc.pb, &src, 1080, true);
+                    let (lag, ms) = enc.output_delay(30, 60);
+                    let late = lag.iter().filter(|&&l| l > 0).count();
+                    let msf: Vec<f64> = ms.clone();
+                    log.line(format!(
+                        "Q1 {} ll={low_latency} output delay (30 frames, no CompleteFrames, 1 interval each): frames out within their own interval={}/{} later={late} lags={:?} submit-to-output ms p50={:.2} max={:.2} notes=[{}]",
+                        name(codec),
+                        lag.iter().filter(|&&l| l == 0).count(),
+                        lag.len(),
+                        lag.iter().map(|&l| if l == usize::MAX { "end".to_string() } else { l.to_string() }).collect::<Vec<_>>().join(","),
+                        pct(&msf, 0.5),
+                        pct(&msf, 1.0),
+                        enc.notes.join(",")
+                    ));
+                }
+                Err(e) => log.line(format!(
+                    "Q1 {} ll={low_latency} output delay: session error {e}",
+                    name(codec)
+                )),
+            }
             unsafe {
                 let pl = CFDictionaryGetValue(props, k("kVTCompressionPropertyKey_ProfileLevel"));
                 let values = if pl.is_null() {
@@ -1233,7 +1373,14 @@ fn q1(log: &mut Log) {
                     for i in 0..CFArrayGetCount(values) {
                         let v = CFArrayGetValueAtIndex(values, i);
                         let s = string(v);
-                        if low_latency && (s.contains("AutoLevel") || s.ends_with("_Auto")) {
+                        // Only this codec's own AutoLevel profiles (the low-latency HEVC
+                        // encoder listed H.264's in the first run).
+                        let own = if codec == H264 {
+                            s.starts_with("H264_")
+                        } else {
+                            s.starts_with("HEVC_")
+                        };
+                        if own && (s.contains("AutoLevel") || s.ends_with("_Auto")) {
                             CFRetain(v);
                             found.push((s.clone(), v));
                         }
@@ -1250,11 +1397,12 @@ fn q1(log: &mut Log) {
                     CFRelease(id);
                 }
             }
+            profiles.push((codec, low_latency, found));
         }
-        profiles.push((codec, found));
     }
-    // Every AutoLevel profile the encoder lists, plus no profile, for each input format.
-    for (codec, list) in &profiles {
+    // Every AutoLevel profile each encoder lists, plus no profile, for each input format,
+    // under both rate controls (4:4:4 profiles are listed only without low latency).
+    for (codec, low_latency, list) in &profiles {
         let mut candidates: Vec<(String, Ref)> = vec![("default".into(), null())];
         candidates.extend(list.iter().cloned());
         for fmt in [F420V, F444V, X444] {
@@ -1264,12 +1412,14 @@ fn q1(log: &mut Log) {
                 cfg.profile = *p;
                 cfg.profile_name = pname.clone();
                 cfg.max_qp = Some(18);
+                cfg.low_latency = *low_latency;
+                cfg.avg_kbps = Some(200_000);
                 let mut src = TextPage::new(1920, 1080, 6, 24, true);
                 match run(&cfg, &mut src, 2, 6, true) {
                     Ok(r) => {
                         let e = r.errs.last().copied().unwrap_or_default();
                         log.line(format!(
-                            "Q1 {} in={} profile={} readback={} {} idr={}B enc_ms={:.2} decode={} y_psnr={:.1} cb_psnr={:.1} cr_psnr={:.1} notes=[{}]",
+                            "Q1 {} ll={low_latency} in={} profile={} readback={} {} idr={}B enc_ms={:.2} decode={} y_psnr={:.1} cb_psnr={:.1} cr_psnr={:.1} notes=[{}]",
                             name(*codec),
                             fourcc(fmt),
                             pname,
@@ -1285,7 +1435,7 @@ fn q1(log: &mut Log) {
                         ));
                     }
                     Err(e) => log.line(format!(
-                        "Q1 {} in={} profile={pname} error={e}",
+                        "Q1 {} ll={low_latency} in={} profile={pname} error={e}",
                         name(*codec),
                         fourcc(fmt)
                     )),
@@ -1301,17 +1451,19 @@ fn q2(log: &mut Log) {
         let mut src = TextPage::new(w, h, moving + 1, 24, false);
         for codec in [H264, HEVC] {
             for low_latency in [true, false] {
-                if !low_latency && w > 1920 {
-                    continue;
-                }
                 for (mode, pin) in [("max", false), ("min=max", true)] {
                     for qp in [18, 20, 22] {
                         let mut cfg = Cfg::new(codec, w, h, 60);
                         cfg.max_qp = Some(qp);
                         cfg.min_qp = pin.then_some(qp);
                         cfg.low_latency = low_latency;
-                        match run(&cfg, &mut src, 10, moving, true) {
+                        let (result, label) = run_ladder(&cfg, &mut src, 10, moving, true);
+                        match result {
                             Ok(r) => {
+                                log.line(format!(
+                                    "Q2 {w}x{h} {} ll={low_latency} qp {mode}={qp} config: {label}",
+                                    name(codec)
+                                ));
                                 let b: Vec<f64> = r.bytes.iter().map(|&b| b as f64).collect();
                                 let yp: Vec<f64> = r.errs.iter().map(|e| e.y_psnr).collect();
                                 let ymax = r.errs.iter().map(|e| e.y_max).max().unwrap_or(0);
@@ -1346,17 +1498,22 @@ fn q3(log: &mut Log) {
     for content in ["bars", "text"] {
         for codec in [H264, HEVC] {
             for fps in [60u32, 120] {
-                for qp in [Some(18), Some(20), Some(22), None] {
+                for (qp, low_latency) in [Some(18), Some(20), Some(22), None]
+                    .into_iter()
+                    .flat_map(|q| [(q, true), (q, false)])
+                {
                     let mut cfg = Cfg::new(codec, w, h, fps);
                     cfg.max_qp = qp;
+                    cfg.low_latency = low_latency;
                     let src: &mut dyn Source =
                         if content == "bars" { &mut bars } else { &mut text };
                     let t = Instant::now();
-                    match run(&cfg, src, 5, moving, false) {
+                    let (result, label) = run_ladder(&cfg, src, 5, moving, false);
+                    match result {
                         Ok(r) => {
                             let b: Vec<f64> = r.bytes.iter().map(|&b| b as f64).collect();
                             log.line(format!(
-                                "Q3 {content} 4K{fps} {} maxqp={} | {:.1} Mbps (mean {:.0}B p95 {:.0}B max {:.0}B, idr {}B) | enc_ms mean={:.2} p50={:.2} p95={:.2} max={:.2} (budget {:.2}) | drops={}/{} | wall {:.1}s notes=[{}]",
+                                "Q3 {content} 4K{fps} {} ll={low_latency} maxqp={} | {:.1} Mbps (mean {:.0}B p95 {:.0}B max {:.0}B, idr {}B) | enc_ms mean={:.2} p50={:.2} p95={:.2} max={:.2} (budget {:.2}) | drops={}/{} | wall {:.1}s | {label} notes=[{}]",
                                 name(codec),
                                 qp.map_or("none".into(), |q| q.to_string()),
                                 mean(&b) * 8.0 * f64::from(fps) / 1e6,
@@ -1367,9 +1524,10 @@ fn q3(log: &mut Log) {
                                 t.elapsed().as_secs_f64(), r.notes.join(",")
                             ));
                         }
-                        Err(e) => {
-                            log.line(format!("Q3 {content} 4K{fps} {} error={e}", name(codec)))
-                        }
+                        Err(e) => log.line(format!(
+                            "Q3 {content} 4K{fps} {} ll={low_latency} maxqp={qp:?} error={e}",
+                            name(codec)
+                        )),
                     }
                 }
             }
@@ -1899,6 +2057,7 @@ mod q0 {
         limits: bool,
         speed: bool,
         max_qp: Option<i32>,
+        min_qp: Option<i32>,
         avg: bool,
     }
     const VARIANTS: &[Variant] = &[
@@ -1908,6 +2067,7 @@ mod q0 {
             limits: true,
             speed: true,
             max_qp: None,
+            min_qp: None,
             avg: true,
         },
         Variant {
@@ -1916,6 +2076,7 @@ mod q0 {
             limits: false,
             speed: true,
             max_qp: None,
+            min_qp: None,
             avg: true,
         },
         Variant {
@@ -1924,6 +2085,7 @@ mod q0 {
             limits: true,
             speed: false,
             max_qp: None,
+            min_qp: None,
             avg: true,
         },
         Variant {
@@ -1932,6 +2094,7 @@ mod q0 {
             limits: true,
             speed: true,
             max_qp: None,
+            min_qp: None,
             avg: true,
         },
         Variant {
@@ -1940,6 +2103,7 @@ mod q0 {
             limits: false,
             speed: false,
             max_qp: None,
+            min_qp: None,
             avg: true,
         },
         Variant {
@@ -1948,6 +2112,55 @@ mod q0 {
             limits: true,
             speed: true,
             max_qp: Some(20),
+            min_qp: None,
+            avg: true,
+        },
+        // Can MinAllowedFrameQP lower the low-latency encoder's QP-16 floor (first run)?
+        Variant {
+            name: "merged+minQP10",
+            low_latency: true,
+            limits: true,
+            speed: true,
+            max_qp: None,
+            min_qp: Some(10),
+            avg: true,
+        },
+        Variant {
+            name: "merged+QP12-pinned",
+            low_latency: true,
+            limits: true,
+            speed: true,
+            max_qp: Some(12),
+            min_qp: Some(12),
+            avg: true,
+        },
+        Variant {
+            name: "no-ll+minQP10",
+            low_latency: false,
+            limits: false,
+            speed: false,
+            max_qp: None,
+            min_qp: Some(10),
+            avg: true,
+        },
+        // The non-low-latency encoder (ave.avc) as the live path would build it: per-frame
+        // DataRateLimits, speed off, a QP floor; MaxFrameDelayCount 0 and RealTime as always.
+        Variant {
+            name: "no-ll+DRL+minQP10",
+            low_latency: false,
+            limits: true,
+            speed: false,
+            max_qp: None,
+            min_qp: Some(10),
+            avg: true,
+        },
+        Variant {
+            name: "no-ll+DRL+speed",
+            low_latency: false,
+            limits: true,
+            speed: true,
+            max_qp: None,
+            min_qp: None,
             avg: true,
         },
     ];
@@ -1976,6 +2189,7 @@ mod q0 {
         cfg.low_latency = v.low_latency;
         cfg.speed = v.speed;
         cfg.max_qp = v.max_qp;
+        cfg.min_qp = v.min_qp;
         cfg.avg_kbps = v.avg.then_some(kbps);
         cfg.limits = v
             .limits
@@ -2068,7 +2282,9 @@ mod q0 {
         for kbps in [40_000u32, 8_000] {
             for scene in ["bars", "text", "noise", "churn", "scroll"] {
                 for v in VARIANTS {
-                    if kbps != 40_000 && !v.name.starts_with("merged(") {
+                    if kbps != 40_000
+                        && !(v.name.starts_with("merged(") || v.name.starts_with("no-ll+DRL"))
+                    {
                         continue;
                     }
                     match scene {
