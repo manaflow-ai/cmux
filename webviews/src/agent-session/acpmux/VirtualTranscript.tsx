@@ -1843,6 +1843,7 @@ function TranscriptView({
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
+  if (acpmuxPerf.enabled) acpmuxPerf.render("transcript");
   const scrollRef = useRef({ top: 0, delta: 0 });
   /// Where the warm rows were built from (warmAnchor), held while a fast scroll outruns them (below).
   const heldWarmAt = useRef<string | undefined>(undefined);
