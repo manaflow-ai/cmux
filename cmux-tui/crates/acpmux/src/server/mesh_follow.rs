@@ -38,8 +38,10 @@ const PAGE_LIMIT: u64 = 500;
 /// Where a hub-only chat's records come from.
 pub(crate) trait Feed: Send + Sync {
     /// The records of chat `id` on `host` after seq `after`: an `_acpmux/events` page
-    /// (`events`, `hasMore`).
-    fn next<'a>(
+    /// (`events`, `hasMore`). Not named `next`: `home_writers_by_path_tests.rs` resolves a
+    /// method by its name, and this one's return (read through the hub) would taint every
+    /// iterator's `.next()` in the crate.
+    fn page_after<'a>(
         &'a self,
         host: &'a str,
         id: &'a str,
@@ -51,7 +53,7 @@ pub(crate) trait Feed: Send + Sync {
 pub(crate) struct ReadFeed(pub Arc<dyn MeshHub>);
 
 impl Feed for ReadFeed {
-    fn next<'a>(
+    fn page_after<'a>(
         &'a self,
         host: &'a str,
         id: &'a str,
@@ -151,7 +153,7 @@ async fn run(
             return;
         }
         let mut more = false;
-        match feed.next(host, remote, after).await {
+        match feed.page_after(host, remote, after).await {
             Ok(page) => {
                 failures = 0;
                 let events = page.get("events").and_then(Value::as_array);
