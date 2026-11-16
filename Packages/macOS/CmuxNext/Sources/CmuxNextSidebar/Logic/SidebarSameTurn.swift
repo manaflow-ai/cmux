@@ -51,22 +51,33 @@ public final class SidebarSameTurn {
     private var passes: [(listsRows: Bool, run: @MainActor () -> Void)] = []
     private var changes: [Change] = []
     private var tasks: [Task<Void, Never>] = []
+    /// True from an `observe` with `showsFirstRunAtOnce` to the first run of that pass.
+    private var showsNextRunAtOnce = false
 
     public init(view: SidebarView) {
         self.view = view
     }
 
     /// Observes `compute`, handing each value to `apply`; `syncNow` runs it too. `listsRows`
-    /// marks the rows pass, which walks every workspace.
-    public func observe<Value: Sendable>(listsRows: Bool = false, _ compute: @escaping @MainActor @Sendable () -> Value,
+    /// marks the rows pass, which walks every workspace. `showsFirstRunAtOnce` is the bridge's word for the
+    /// rows pass of a window with no saved spaces, whose seed wrote the window's space from the store: the
+    /// first run of that pass is part of the window's making, so the view shows its rows in that turn, one
+    /// time (`SidebarView.showRowsOfTheMaking`, decision of 2026-11-16). That run uses the word up also when
+    /// it changes no row; each later run draws as before.
+    public func observe<Value: Sendable>(listsRows: Bool = false, showsFirstRunAtOnce: Bool = false,
+                                  _ compute: @escaping @MainActor @Sendable () -> Value,
                                   apply: @escaping @MainActor @Sendable (Value) -> Void,
                                   fileID: StaticString = #fileID, line: UInt = #line) {
         // One registration armed at a time: a run while it has not fired reads what the last run read, untracked.
         let tracking = SingleArmedTracking(), change = Change()
-        let run: @MainActor @Sendable () -> Void = {
+        if showsFirstRunAtOnce { showsNextRunAtOnce = true }
+        let run: @MainActor @Sendable () -> Void = { [weak self] in
             change.clear()
             // Every run applies: `apply` compares with what it applied.
             apply(tracking.track(shape: [], { compute() }, onChange: { change.mark() }, fileID: fileID, line: line))
+            guard showsFirstRunAtOnce, let self, self.showsNextRunAtOnce else { return }
+            self.showsNextRunAtOnce = false
+            self.view.showRowsOfTheMaking()
         }
         passes.append((listsRows, run))
         changes.append(change)
