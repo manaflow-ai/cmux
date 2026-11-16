@@ -1769,7 +1769,37 @@
     });
     return rows.filter((r) => r.state === "open" || merged && r.state === "merged").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
-  var READERS = { "github.pulls": githubPulls, "github.changes": githubChanges };
+  var num = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  var add = (a, b) => b === null ? a : (a ?? 0) + b;
+  var ms = (v) => {
+    const n = typeof v === "string" ? Number(v) : v;
+    return typeof n === "number" && Number.isFinite(n) ? n : null;
+  };
+  async function usageMeter(_params, call) {
+    const rows = await call("chat.list", {}) ?? [];
+    const by = new Map;
+    for (const r of rows) {
+      const provider = String(r.family || r.harness || "other");
+      let p = by.get(provider);
+      if (!p)
+        by.set(provider, p = { provider, chats: 0, working: 0, tokens24h: null, costUsd24h: null, calls24h: null, limits: null });
+      p.chats++;
+      if (r.state === "working")
+        p.working++;
+      p.tokens24h = add(p.tokens24h, num(r.usage?.tokens_24h));
+      p.costUsd24h = add(p.costUsd24h, num(r.usage?.cost_usd_24h));
+      p.calls24h = add(p.calls24h, num(r.usage?.calls_24h));
+      const windows = (Array.isArray(r.limits?.windows) ? r.limits.windows : []).filter((w) => typeof w?.id === "string" && num(w.used_percent) !== null).map((w) => ({ id: w.id, usedPercent: num(w.used_percent), resetsAtMs: num(w.resets_at) === null ? null : num(w.resets_at) * 1000 }));
+      const at = ms(r.updated_ms);
+      if (windows.length && (!p.limits || (at ?? 0) > (p.limits.reportedAtMs ?? 0))) {
+        p.limits = { plan: typeof r.limits?.plan === "string" ? r.limits.plan : null, windows, chat: String(r.id), reportedAtMs: at };
+      }
+    }
+    const providers = [...by.values()].sort((a, b) => (b.tokens24h ?? -1) - (a.tokens24h ?? -1) || a.provider.localeCompare(b.provider));
+    const totals = providers.reduce((t, p) => ({ chats: t.chats + p.chats, working: t.working + p.working, tokens24h: add(t.tokens24h, p.tokens24h), costUsd24h: add(t.costUsd24h, p.costUsd24h), calls24h: add(t.calls24h, p.calls24h) }), { chats: 0, working: 0, tokens24h: null, costUsd24h: null, calls24h: null });
+    return { providers, totals };
+  }
+  var READERS = { "github.pulls": githubPulls, "github.changes": githubChanges, "usage.meter": usageMeter };
   var pointer = (base, key) => `${base}/${String(key).replace(/~/g, "~0").replace(/\//g, "~1")}`;
   var typeOf = (v) => {
     if (v === null)
@@ -2309,6 +2339,187 @@
         pollFloorSeconds: 60,
         staleAfterSeconds: 300,
         safetyPollSeconds: 900
+      },
+      "usage.meter": {
+        docs: "Usage per provider (claude, codex, ...) over every chat acpmux lists, here and on peers: tokens, list-price dollars and model calls of the last 24 hours as the harnesses recorded them, and the 5-hour and weekly windows of the account the newest reporting chat runs on. Folded from chat.list, so chat.changed pushes it; never polled. No credential, email or account label. Closed and archived chats are not counted; harnesses other than Claude Code and Codex record no usage (null counts).",
+        scopes: [
+          "chat:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {}
+        },
+        value: {
+          type: "object",
+          required: [
+            "providers",
+            "totals"
+          ],
+          properties: {
+            providers: {
+              type: "array",
+              items: {
+                type: "object",
+                required: [
+                  "provider",
+                  "chats",
+                  "working",
+                  "tokens24h",
+                  "costUsd24h",
+                  "calls24h",
+                  "limits"
+                ],
+                properties: {
+                  provider: {
+                    type: "string",
+                    description: "The agent family (claude, codex, gemini, ...), else the harness name."
+                  },
+                  chats: {
+                    type: "integer",
+                    description: "Listed chats of this provider."
+                  },
+                  working: {
+                    type: "integer",
+                    description: "Of those, the ones working now."
+                  },
+                  tokens24h: {
+                    type: [
+                      "number",
+                      "null"
+                    ],
+                    description: "Tokens of the last 24 hours (input, output, cache read and write); null when no chat recorded any."
+                  },
+                  costUsd24h: {
+                    type: [
+                      "number",
+                      "null"
+                    ],
+                    description: "Those tokens at the model catalog's list prices, USD; null when none is priced."
+                  },
+                  calls24h: {
+                    type: [
+                      "number",
+                      "null"
+                    ],
+                    description: "Model calls of the last 24 hours."
+                  },
+                  limits: {
+                    type: [
+                      "object",
+                      "null"
+                    ],
+                    description: "The plan limits the newest reporting chat carries; null before any chat of this provider reported them (an API key reports none).",
+                    required: [
+                      "plan",
+                      "windows",
+                      "chat",
+                      "reportedAtMs"
+                    ],
+                    properties: {
+                      plan: {
+                        type: [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      windows: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          required: [
+                            "id",
+                            "usedPercent",
+                            "resetsAtMs"
+                          ],
+                          properties: {
+                            id: {
+                              type: "string",
+                              description: "session (5 hours), weekly, weekly_opus, weekly_sonnet, or a length such as 60m."
+                            },
+                            usedPercent: {
+                              type: "number",
+                              description: "0 to 100."
+                            },
+                            resetsAtMs: {
+                              type: [
+                                "number",
+                                "null"
+                              ],
+                              description: "Unix ms of the reset, when the harness gave one."
+                            }
+                          }
+                        }
+                      },
+                      chat: {
+                        type: "string",
+                        description: "The chat whose report this is."
+                      },
+                      reportedAtMs: {
+                        type: [
+                          "number",
+                          "null"
+                        ],
+                        description: "Unix ms of that chat's last output."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            totals: {
+              type: "object",
+              required: [
+                "chats",
+                "working",
+                "tokens24h",
+                "costUsd24h",
+                "calls24h"
+              ],
+              properties: {
+                chats: {
+                  type: "integer"
+                },
+                working: {
+                  type: "integer"
+                },
+                tokens24h: {
+                  type: [
+                    "number",
+                    "null"
+                  ]
+                },
+                costUsd24h: {
+                  type: [
+                    "number",
+                    "null"
+                  ]
+                },
+                calls24h: {
+                  type: [
+                    "number",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        read: {
+          reader: "usage.meter",
+          ops: [
+            {
+              op: "chat.list",
+              scope: "chat:read",
+              docs: "Every listed chat with its usage and its account's plan limits, folded per provider."
+            }
+          ]
+        },
+        push: [
+          "chat.changed"
+        ],
+        pollFloorSeconds: 5,
+        staleAfterSeconds: 60
       },
       "workspace.list": {
         docs: "The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it.",

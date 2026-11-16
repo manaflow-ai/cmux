@@ -15499,6 +15499,67 @@
       },
       "extra": false
     },
+    "ChatLimitWindow": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "session (the 5-hour window), weekly, weekly_opus, weekly_sonnet, or a length such as 60m."
+        },
+        "used_percent": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "Percent of the window used, 0 to 100."
+        },
+        "resets_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64"
+            }
+          },
+          "description": "Unix seconds of the window's reset, when the harness gave one."
+        }
+      },
+      "extra": false
+    },
+    "ChatLimits": {
+      "kind": "object",
+      "fields": {
+        "plan": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The plan the harness named (Codex does; Claude Code does not)."
+        },
+        "windows": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ChatLimitWindow"
+            }
+          },
+          "description": "Each limit window, at least one."
+        }
+      },
+      "extra": false
+    },
     "ChatState": {
       "kind": "enum",
       "values": [
@@ -15508,6 +15569,67 @@
         "failed",
         "lost"
       ]
+    },
+    "ChatUsage": {
+      "kind": "object",
+      "fields": {
+        "tokens_24h": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64"
+            }
+          },
+          "description": "Tokens of the last 24 hours, subagents included: input, output, cache read and cache write; null when acpmux could not read the whole day."
+        },
+        "cost_usd_24h": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64"
+            }
+          },
+          "description": "Those tokens at the model catalog's list prices, USD; null when no model they ran on has a price."
+        },
+        "calls_24h": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64"
+            }
+          },
+          "description": "Model calls of the last 24 hours, subagents included."
+        },
+        "context_tokens": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64"
+            }
+          },
+          "description": "The last call's context: input, cache read and cache write tokens."
+        },
+        "context_window": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64"
+            }
+          },
+          "description": "The model's context window."
+        }
+      },
+      "extra": false
     },
     "ChatSummary": {
       "kind": "object",
@@ -15704,6 +15826,39 @@
             }
           },
           "description": "The pull request URLs it opened, oldest first."
+        },
+        "family": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The agent family its harness belongs to (claude, codex, gemini, ...), which names the provider whose plan it spends; null when acpmux does not know."
+        },
+        "usage": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "ChatUsage"
+            }
+          },
+          "description": "Its spend as its harness recorded it, subagents included; null until acpmux found the harness's records (Claude Code and Codex only)."
+        },
+        "limits": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "ChatLimits"
+            }
+          },
+          "description": "The plan limits of the account it runs on, as its harness last reported them; null before the harness reported any (an API key reports none)."
         }
       },
       "extra": false

@@ -168,6 +168,72 @@
       "push": ["chat.changed"],
       "pollFloorSeconds": 5,
       "staleAfterSeconds": 60
+    },
+    "usage.meter": {
+      "docs": "Usage per provider (claude, codex, ...) over every chat acpmux lists, here and on peers: tokens, list-price dollars and model calls of the last 24 hours as the harnesses recorded them, and the 5-hour and weekly windows of the account the newest reporting chat runs on. Folded from chat.list, so chat.changed pushes it; never polled. No credential, email or account label. Closed and archived chats are not counted; harnesses other than Claude Code and Codex record no usage (null counts).",
+      "scopes": ["chat:read"],
+      "params": { "type": "object", "additionalProperties": false, "properties": {} },
+      "value": {
+        "type": "object",
+        "required": ["providers", "totals"],
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["provider", "chats", "working", "tokens24h", "costUsd24h", "calls24h", "limits"],
+              "properties": {
+                "provider": { "type": "string", "description": "The agent family (claude, codex, gemini, ...), else the harness name." },
+                "chats": { "type": "integer", "description": "Listed chats of this provider." },
+                "working": { "type": "integer", "description": "Of those, the ones working now." },
+                "tokens24h": { "type": ["number", "null"], "description": "Tokens of the last 24 hours (input, output, cache read and write); null when no chat recorded any." },
+                "costUsd24h": { "type": ["number", "null"], "description": "Those tokens at the model catalog's list prices, USD; null when none is priced." },
+                "calls24h": { "type": ["number", "null"], "description": "Model calls of the last 24 hours." },
+                "limits": {
+                  "type": ["object", "null"],
+                  "description": "The plan limits the newest reporting chat carries; null before any chat of this provider reported them (an API key reports none).",
+                  "required": ["plan", "windows", "chat", "reportedAtMs"],
+                  "properties": {
+                    "plan": { "type": ["string", "null"] },
+                    "windows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "usedPercent", "resetsAtMs"],
+                        "properties": {
+                          "id": { "type": "string", "description": "session (5 hours), weekly, weekly_opus, weekly_sonnet, or a length such as 60m." },
+                          "usedPercent": { "type": "number", "description": "0 to 100." },
+                          "resetsAtMs": { "type": ["number", "null"], "description": "Unix ms of the reset, when the harness gave one." }
+                        }
+                      }
+                    },
+                    "chat": { "type": "string", "description": "The chat whose report this is." },
+                    "reportedAtMs": { "type": ["number", "null"], "description": "Unix ms of that chat's last output." }
+                  }
+                }
+              }
+            }
+          },
+          "totals": {
+            "type": "object",
+            "required": ["chats", "working", "tokens24h", "costUsd24h", "calls24h"],
+            "properties": {
+              "chats": { "type": "integer" },
+              "working": { "type": "integer" },
+              "tokens24h": { "type": ["number", "null"] },
+              "costUsd24h": { "type": ["number", "null"] },
+              "calls24h": { "type": ["number", "null"] }
+            }
+          }
+        }
+      },
+      "read": {
+        "reader": "usage.meter",
+        "ops": [{ "op": "chat.list", "scope": "chat:read", "docs": "Every listed chat with its usage and its account's plan limits, folded per provider." }]
+      },
+      "push": ["chat.changed"],
+      "pollFloorSeconds": 5,
+      "staleAfterSeconds": 60
     }
   }
 }
