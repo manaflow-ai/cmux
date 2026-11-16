@@ -50,7 +50,7 @@ final class SettingsPageProvider: PageProvider {
     var devicesWatching: (@MainActor (Bool) -> Void)?
     /// Settings > Models (`SettingsModels`, cmux-tui/docs/model-connections.md); nil in tests without an app.
     var models: (any PageProvider)?
-    /// Parts another package serves whole, by op (Agent integrations, try on); empty in tests without an app.
+    /// Parts another package serves whole, by op (Agent integrations, try on, Customization Library); empty in tests without an app.
     var parts: [String: any PageProvider] = [:]
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?

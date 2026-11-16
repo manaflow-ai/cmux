@@ -46,6 +46,7 @@ import type {
   SharesState,
   TailnetState,
   ModelsState,
+  LibraryListing,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -67,6 +68,10 @@ export type SettingsPageVariant = VariantBase & {
   environments?: CloudEnvironmentsState;
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
+  /** Personalization > Customization Library fixture state; default the mock's few entries. */
+  library?: LibraryListing;
+  /** The CLI refuses every library change with this text (a preview is open). */
+  libraryRefusal?: string;
   /** Settings > Keys fixture state (requests and keys); default the mock's. */
   keys?: KeysState;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
