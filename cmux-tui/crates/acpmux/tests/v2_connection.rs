@@ -169,6 +169,10 @@ fn v2_pr09_listen_start() {
             .and_then(|mut file| writeln!(file, "{line}"))
             .expect("gate output");
     }
+    assert!(
+        god_p95.saturating_mul(10) <= small_p95.saturating_mul(12),
+        "god/small startup ratio exceeded 1.2x: small_p95={small_p95}ns god_p95={god_p95}ns"
+    );
     assert!(small_p95 > 0);
     assert!(god_p95 <= 100_000_000, "god listener startup exceeded 100 ms");
     assert!(god_p95_all <= 100_000_000, "all god listener samples exceeded 100 ms");

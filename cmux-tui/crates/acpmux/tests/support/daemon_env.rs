@@ -402,6 +402,10 @@ impl ReadyDaemon {
         if self.reaped {
             return false;
         }
+        if let Ok(Some(_)) = self.child.try_wait() {
+            self.reaped = true;
+            return false;
+        }
         #[cfg(unix)]
         {
             // SAFETY: this is the pid returned by the child we spawned.
