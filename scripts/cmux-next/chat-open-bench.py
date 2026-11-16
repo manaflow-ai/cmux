@@ -107,7 +107,7 @@ import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
 import chat_open_frames as cof  # noqa: E402
-from chat_open_summary import cell, invalid_reason, spare_pool, summarize  # noqa: E402
+from chat_open_summary import cell, invalid_reason, page_engines, spare_pool, summarize  # noqa: E402
 import chat_open_seed_cache as seed_cache  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -853,6 +853,12 @@ def frame_click(run, key, label, keep=False):
     return record
 
 
+# What a click's record keeps of its trace. `engine`: the engine of the chat's page (decision 2026-11-16: a
+# measure says its engine).
+CLICK_TRACE_KEYS = ("marks_ms", "order", "frames", "first_content_ms", "longest_empty_ms", "timed_out", "page_timing",
+                    "engine")
+
+
 def measure_click(run, case, session, base, label, index=0):
     """One click case: the chat's workspace made in the background (`click`), or shown once and left
     (`click_again`), or made in the background and its row hovered for --hover-ms (`click_hover`), then a click on
@@ -891,8 +897,7 @@ def measure_click(run, case, session, base, label, index=0):
     if armed is not None:
         trace = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 5000, "settle_ms": 100,
                                                   "page_timing": True}, timeout=30) or {}
-        record["trace"] = {k: trace.get(k) for k in ("marks_ms", "order", "frames", "first_content_ms",
-                                                      "longest_empty_ms", "timed_out", "page_timing")}
+        record["trace"] = {k: trace.get(k) for k in CLICK_TRACE_KEYS}
         record["trace"]["armed"] = armed if armed.get("error") else None
     # Back to the workspace with no chat, so the next click starts from the same picture.
     run.app.action("goToWorkspace", focus=True, workspace=base)
@@ -1111,6 +1116,9 @@ def markdown(results):
             pool = spare_pool(records) if isinstance(records, list) else None
             if pool:
                 lines.append(f"spare pool, {case} {condition}: {pool}")
+            engines = page_engines(records) if isinstance(records, list) else None
+            if engines:
+                lines.append(f"page engine, {case} {condition}: {engines}")
     for condition, cases in results.get("memory", {}).items():
         lines.append(f"memory per kept chat page ({condition}): " + ", ".join(
             f"{case} {m['per_kept_page_mb']} MB over {m['kept_pages']} pages" for case, m in cases.items()))

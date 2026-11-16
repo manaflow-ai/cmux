@@ -4,8 +4,14 @@
 # (key to visible frame and to daemon confirm, idle and under load). Runs alone on the worker
 # because it launches an app and loads every core:
 #   cmux-ci run --class exclusive --label measure --script scripts/measure/instant-new-surfaces.sh --ref <sha> [--arg=--runs=12]
+# The engine (decision 2026-11-16: each measure says its engine): the build requires Chromium, the default engine
+# of a page, so a host with no engine fails at its build and gives no WebKit time by accident; the bench is asked
+# for Chromium pages (`--page-engine=cef`: a New Tab page in another engine is an error of its row, not a number).
+# `--allow-no-chromium` turns both off for a measure of WebKit (scripts/measure/require-chromium.sh).
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+. scripts/measure/require-chromium.sh
+require_chromium="$(measure_chromium_required "$@")"
 # A fleet checkout has no submodules or GhosttyKit yet (as scripts/measure/tab-switch.sh).
 for sub in ghostty ghostty-next; do
   [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
@@ -21,15 +27,32 @@ tag="instantnew"
 out="$(mktemp -d)"
 # --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
 # debug.* control commands kept); every other argument goes to the bench.
-reload_config=() bench_args=()
+reload_config=() bench_args=() other_bench=0
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
+    --allow-no-chromium) ;;
+    --bench=*) other_bench=1; bench_args+=("$arg") ;;
     *) bench_args+=("$arg") ;;
   esac
 done
 set -- ${bench_args[@]+"${bench_args[@]}"}
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
+# Before the step's own arguments, so `--arg=--page-engine=webkit` wins over it. `--bench=` runs another bench on
+# the same app, and that bench has no `--page-engine`.
+if [[ "$require_chromium" == 1 && "$other_bench" == 0 ]]; then
+  set -- --page-engine=cef "$@"
+fi
+if [[ "$require_chromium" == 1 ]]; then
+  echo "instant-new-surfaces: the build requires the Chromium engine (CMUX_NEXT_REQUIRE_CEF=1)"
+else
+  echo "instant-new-surfaces: --allow-no-chromium: the build may have no Chromium engine; each row says its page's engine"
+fi
+reload_status=0
+CMUX_NEXT_REQUIRE_CEF="$require_chromium" CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" || reload_status=$?
+if [[ "$reload_status" -ne 0 ]]; then
+  measure_chromium_failure instant-new-surfaces "$out/reload.log" || true
+  exit "$reload_status"
+fi
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "instant-new-surfaces: the tagged reload printed no app path" >&2

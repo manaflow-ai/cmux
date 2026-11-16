@@ -89,6 +89,23 @@ def cell(summary, case):
 SPARE_MARKS = ("spare_adopted", "spare_empty", "spare_unready", "spare_refused")
 
 
+def page_engines(records):
+    """The page engine of a case's opens (the trace's `engine`: `cef`, or `webkit:<reason>`), as
+    `cef 5/6, not said 1/6`, or None when no open has a trace. Decision 2026-11-16: a measure says its
+    engine. A build with no Chromium shows each chat in WebKit, and only this line says so."""
+    counts = {}
+    for record in records:
+        trace = record.get("trace") if isinstance(record.get("trace"), dict) else record
+        if not any(key in trace for key in ("engine", "marks_ms", "frames", "first_content_ms")):
+            continue  # an open that never ran (an error before the trace)
+        name = trace.get("engine") if isinstance(trace.get("engine"), str) and trace.get("engine") else "not said"
+        counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return None
+    total = sum(counts.values())
+    return ", ".join(f"{name} {n}/{total}" for name, n in sorted(counts.items(), key=lambda item: (item[0] == "not said", item[0])))
+
+
 def spare_pool(records):
     """What a case's opens found in the prewarmed page pool (AgentPaneSpareAdoption.swift's trace marks),
     as `adopted 4/6, refused 2/6 (touched by featureTips)`, or None when no open's trace has a pool mark
