@@ -28,16 +28,15 @@ public final class AppLanguageApplier {
         self.pages = pages ?? Self.pushToPages
     }
 
-    /// Applies every loaded snapshot's `app.language` (Observation, once per change).
+    /// Applies every loaded snapshot's `app.language` (Observation, once per change). The
+    /// observation holds this applier: the app makes one when its settings controller is set and
+    /// keeps no other reference.
     public func follow(_ settings: SettingsController) {
         observation?.cancel()
-        // task-owner: lives as long as the app's settings; a new controller replaces it.
-        observation = Task { [weak self] in
+        // task-owner: lives as long as the app's settings controller (app lifetime).
+        observation = Task { [self] in
             await settings.waitForLoad(atLeast: 1)
-            for await code in ObservationStream({ settings.snapshot.appLanguage }) {
-                guard let self else { return }
-                self.apply(code)
-            }
+            for await code in ObservationStream({ settings.snapshot.appLanguage }) { apply(code) }
         }
     }
 
