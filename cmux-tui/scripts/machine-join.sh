@@ -544,7 +544,13 @@ fi
 printf '%s\n' "Screen sharing and control are off on this machine. To allow them, run here: acpmux host consent grant --screen (or --control). Your team's machines cannot turn them on."
 
 # 9. Last: the agents' own sign-in, on this machine.
+# FUTURE_HOOK: cmux-share-prepare-json
+# The share-host-helper-process lane will replace this named no-op with one
+# best-effort `cmux share prepare --json` call once that verb lands. Keep it
+# after sign-in so it runs once at the end of a join.
+prepare_share_hook() { :; }
 if [ "$is_joined" = 1 ]; then
   signin_step
+  prepare_share_hook
 fi
 exit "$rc"
