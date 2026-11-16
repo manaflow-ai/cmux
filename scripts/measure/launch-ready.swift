@@ -16,7 +16,8 @@
 //   request_to_start    the open request to the process start (LaunchServices' own part, before exec)
 // and `marks`: the app's launch marks (CMUX_NEXT_LAUNCH_MARKS_PATH, a FIFO read here), the ones every build has.
 // After the window shows it waits SETTLE_S (default 6) and ends the app with SIGTERM ("Quit, keep sessions"), so
-// the next launch with the same HOME_ROOT is a person's relaunch. Exit 0: a window showed; 1: none in 30 s.
+// the next launch with the same HOME_ROOT is a person's relaunch. An app that quits itself first (launch-ready.sh
+// session=stress3's seed launch) ends the run then. Exit 0: a window showed; 1: none in 30 s.
 import AppKit
 import Darwin
 
@@ -142,6 +143,7 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
     if window == nil, ownWindowOnScreen(pid) { window = t; windowSeenAt = t }
     if let seen = windowSeenAt, quitSent == nil, t - seen >= settle * 1000 { quitSent = t; kill(pid, SIGTERM) }
     if window == nil, quitSent == nil, t - requested > 30_000 { failure = "no window in 30 s"; quitSent = t; kill(pid, SIGTERM) }
+    if quitSent == nil, windowSeenAt != nil, app.isTerminated { quitSent = t }
     if let sent = quitSent {
         if app.isTerminated || kill(pid, 0) != 0 { done = true }
         else if t - sent > 30_000 { kill(pid, SIGKILL); done = true }
@@ -156,6 +158,7 @@ let keep = ["main_start", "main.warmup_started", "main.environment", "main.state
             "main.nsapp_made", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "did_finish_launching_start",
             "dfl.settings_read", "dfl.theme", "services.crash_reporting", "dfl.services", "dfl.bind", "dfl.menu", "dfl.home_history",
             "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",
+            "deferred_windows_restored",
             // The bare launch's marks (piece 8): Home's composer takes keys; a terminal's shell printed its first output.
             "window_usable", "first_shell_live"]
 var row: [String: Any] = [
