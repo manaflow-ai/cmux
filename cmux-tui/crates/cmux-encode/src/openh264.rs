@@ -180,6 +180,56 @@ pub struct OpenH264 {
     info: Box<SFrameBSInfo>,
     kbps: u32,
     name: String,
+    cfg: EncCfg,
+    opts: OpenH264Options,
+    /// The instance codes with screen usage now (else camera usage).
+    screen: bool,
+    motion: MotionGuard,
+}
+
+/// Screen usage turns OpenH264's scene-change detection on whatever the settings say
+/// (v2.6.0 ParamValidation), and with no long-term references every frame that moves 80 %
+/// of its blocks is an IDR (DecideFrameType): full-screen motion was all IDRs, about
+/// 4.7 fps on a Linux host. Camera usage honors "no scene-change IDR" but codes a text
+/// scroll far worse. So screen content starts in screen usage; after an IDR the encoder
+/// made on its own, a next picture that changed more than [`MOTION_CHANGE`] of its samples
+/// moves it to camera usage before that picture is coded (the IDR the move costs replaces
+/// the one screen usage would have made), and [`CALM_FRAMES_TO_SCREEN`] pictures in a row
+/// that changed less than [`CALM_CHANGE`] move it back. A move rebuilds the encoder, so its
+/// next frame is an IDR. One page flip or a scroll stays in screen usage.
+pub const MOTION_CHANGE: f32 = 0.5;
+pub const CALM_CHANGE: f32 = 0.25;
+pub const CALM_FRAMES_TO_SCREEN: u32 = 30;
+/// Luma rows and columns between samples of the change check.
+const SAMPLE_STEP: usize = 16;
+
+/// The state behind the usage moves (see [`MOTION_CHANGE`]).
+#[derive(Default)]
+struct MotionGuard {
+    /// The last coded frame was an IDR the encoder made on its own (screen usage).
+    self_idr: bool,
+    /// The instance has coded no frame yet (its first is an IDR).
+    fresh: bool,
+    /// Pictures in a row that changed little (camera usage).
+    calm: u32,
+    /// Every [`SAMPLE_STEP`]th luma sample of the previous picture.
+    samples: Vec<u8>,
+}
+
+impl MotionGuard {
+    /// The share of sampled luma that changed since the previous picture (1 for the first).
+    fn changed(&mut self, pic: &I420) -> f32 {
+        let rows = pic.y.chunks_exact(pic.width.max(1)).step_by(SAMPLE_STEP);
+        let now: Vec<u8> = rows.flat_map(|row| row.iter().step_by(SAMPLE_STEP).copied()).collect();
+        let changed = if now.len() == self.samples.len() && !now.is_empty() {
+            let n = now.iter().zip(&self.samples).filter(|(a, b)| a.abs_diff(**b) > 2).count();
+            n as f32 / now.len() as f32
+        } else {
+            1.0
+        };
+        self.samples = now;
+        changed
+    }
 }
 
 // SAFETY: the encoder instance is used from one thread at a time (owned by the media loop).
@@ -203,7 +253,27 @@ pub struct OpenH264Options {
     pub max_qp: Option<u8>,
     pub adaptive_quant: bool,
     pub background_detection: bool,
+    /// How screen content is coded (camera content always codes in camera usage).
+    pub usage: Usage,
+    /// Long-term references (0 off, at most 4). In screen usage a scene change then
+    /// codes a P-frame marked long-term instead of an IDR until all are taken.
+    pub ltr: u8,
 }
+
+/// The usage OpenH264 codes screen content in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Usage {
+    /// Screen usage throughout.
+    Screen,
+    /// Camera usage throughout.
+    Camera,
+    /// Screen usage, camera usage while most of the picture moves (see [`MOTION_CHANGE`]).
+    Switch,
+}
+
+/// The shipped usage and long-term references for screen content.
+pub const SHIPPED_USAGE: Usage = Usage::Switch;
+pub const SHIPPED_LTR: u8 = 0;
 
 impl Default for OpenH264Options {
     fn default() -> Self {
@@ -215,6 +285,8 @@ impl Default for OpenH264Options {
             max_qp: None,
             adaptive_quant: false,
             background_detection: false,
+            usage: SHIPPED_USAGE,
+            ltr: SHIPPED_LTR,
         }
     }
 }
@@ -235,6 +307,15 @@ impl OpenH264Options {
                 "maxqp" => o.max_qp = Some(num()?.min(51) as u8),
                 "aq" => o.adaptive_quant = num()? != 0,
                 "bgd" => o.background_detection = num()? != 0,
+                "usage" => {
+                    o.usage = match v {
+                        "screen" => Usage::Screen,
+                        "camera" => Usage::Camera,
+                        "switch" => Usage::Switch,
+                        _ => return Err(format!("openh264 options usage: {v}").into()),
+                    }
+                }
+                "ltr" => o.ltr = num()?.min(4) as u8,
                 _ => return Err(format!("openh264 options: unknown key {k}").into()),
             }
         }
@@ -263,6 +344,12 @@ impl OpenH264Options {
         if self.background_detection {
             s.push("bgd=on".into());
         }
+        if self.usage != d.usage {
+            s.push(format!("usage={:?}", self.usage).to_lowercase());
+        }
+        if self.ltr != d.ltr {
+            s.push(format!("ltr={}", self.ltr));
+        }
         s.join(" ")
     }
 }
@@ -276,103 +363,100 @@ impl OpenH264 {
 
     /// [`OpenH264::new`] with `opts` in place of the shipped settings.
     pub fn with_options(cfg: &EncCfg, api: OpenH264Api, opts: &OpenH264Options) -> Res<Self> {
+        let mut this = Self {
+            api,
+            enc: std::ptr::null_mut(),
+            info: Box::default(),
+            kbps: cfg.kbps.max(100),
+            name: String::new(),
+            cfg: *cfg,
+            opts: opts.clone(),
+            screen: cfg.screen_content && opts.usage != Usage::Camera,
+            motion: MotionGuard::default(),
+        };
+        this.rebuild(this.screen)?;
+        Ok(this)
+    }
+
+    /// Replaces the encoder instance with a new one in screen or camera usage, at the
+    /// current bitrate; its next frame is an IDR. On failure the old instance stays.
+    fn rebuild(&mut self, screen: bool) -> Res<()> {
         let mut enc: *mut ISVCEncoder = std::ptr::null_mut();
         // SAFETY: the API fills `enc` with a new encoder instance or fails.
-        ok(unsafe { api.0.WelsCreateSVCEncoder(&mut enc) }, "create")?;
+        ok(unsafe { self.api.0.WelsCreateSVCEncoder(&mut enc) }, "create")?;
         if enc.is_null() {
             return Err("openh264 create returned null".into());
         }
+        // SAFETY: `enc` is the live instance created above.
+        if let Err(e) = unsafe { init(enc, &self.cfg, &self.opts, self.kbps, screen) } {
+            // SAFETY: uninitialize and destroy the new instance exactly once (openh264
+            // checks its state, so a failed InitializeExt is safe to uninitialize).
+            unsafe {
+                if let Some(uninit) = (**enc).Uninitialize {
+                    uninit(enc);
+                }
+                self.api.0.WelsDestroySVCEncoder(enc);
+            }
+            return Err(e);
+        }
+        self.release();
+        self.enc = enc;
+        self.screen = screen;
+        self.motion.self_idr = false;
+        self.motion.fresh = true;
+        self.motion.calm = 0;
         // SAFETY: plain version query.
-        let v = unsafe { api.0.WelsGetCodecVersion() };
-        let name = format!(
+        let v = unsafe { self.api.0.WelsGetCodecVersion() };
+        self.name = format!(
             "openh264 {}.{}.{} {} baseline rc=bitrate frameskip={} gop=inf {}",
             v.uMajor,
             v.uMinor,
             v.uRevision,
-            if cfg.screen_content { "screen-realtime" } else { "camera-realtime" },
-            if opts.frame_skip { "on" } else { "off" },
-            opts.describe()
+            match (self.cfg.screen_content, screen, self.opts.usage) {
+                (true, true, _) => "screen-realtime",
+                (true, false, Usage::Switch) => "screen-realtime(camera-for-motion)",
+                _ => "camera-realtime",
+            },
+            if self.opts.frame_skip { "on" } else { "off" },
+            self.opts.describe()
         )
         .trim_end()
         .to_owned();
-        let this = Self { api, enc, info: Box::default(), kbps: cfg.kbps.max(100), name };
-        let vt = this.vtbl();
-        let mut p = SEncParamExt::default();
-        // SAFETY: vtable functions of a live encoder, called with valid pointers.
-        unsafe { ok(vt.GetDefaultParams.ok_or("no GetDefaultParams")?(enc, &mut p), "defaults")? };
-        let threads = opts.threads.unwrap_or(cfg.threads).max(1);
-        let bitrate = (this.kbps * 1000) as c_int;
-        // Camera usage honors "no scene-change IDR"; screen usage forces one on large changes
-        // but is the only mode that codes a text scroll cheaply (prototype: 73x less).
-        p.iUsageType =
-            if cfg.screen_content { SCREEN_CONTENT_REAL_TIME } else { CAMERA_VIDEO_REAL_TIME };
-        p.iPicWidth = cfg.width as c_int;
-        p.iPicHeight = cfg.height as c_int;
-        p.fMaxFrameRate = cfg.fps as f32;
-        p.iTemporalLayerNum = 1;
-        p.iSpatialLayerNum = 1;
-        p.iComplexityMode = match opts.complexity {
-            0 => LOW_COMPLEXITY,
-            1 => MEDIUM_COMPLEXITY,
-            _ => HIGH_COMPLEXITY,
-        };
-        p.uiIntraPeriod = 0;
-        p.iNumRefFrame = 1;
-        p.eSpsPpsIdStrategy = CONSTANT_ID;
-        p.bPrefixNalAddingCtrl = false;
-        p.bEnableSSEI = false;
-        p.iEntropyCodingModeFlag = 0;
-        // Frame skipping lets the rate controller hold the target (measured: without it the
-        // target overshot 6x); a skipped frame sends nothing and the next damage retries.
-        p.bEnableFrameSkip = opts.frame_skip;
-        p.bEnableLongTermReference = false;
-        p.iMultipleThreadIdc = threads;
-        p.bUseLoadBalancing = false;
-        p.iLoopFilterDisableIdc = 0;
-        p.bEnableDenoise = false;
-        p.bEnableBackgroundDetection = opts.background_detection;
-        p.bEnableAdaptiveQuant = opts.adaptive_quant;
-        if let Some(q) = opts.min_qp {
-            p.iMinQp = c_int::from(q);
+        Ok(())
+    }
+
+    /// Uninitializes and destroys the current instance, if there is one.
+    fn release(&mut self) {
+        if self.enc.is_null() {
+            return;
         }
-        if let Some(q) = opts.max_qp {
-            p.iMaxQp = c_int::from(q);
-        }
-        p.bEnableSceneChangeDetect = false;
-        p.iRCMode = RC_BITRATE_MODE;
-        p.iTargetBitrate = bitrate;
-        p.iMaxBitrate = bitrate;
-        let l = &mut p.sSpatialLayers[0];
-        l.iVideoWidth = cfg.width as c_int;
-        l.iVideoHeight = cfg.height as c_int;
-        l.fFrameRate = cfg.fps as f32;
-        l.iSpatialBitrate = bitrate;
-        l.iMaxSpatialBitrate = bitrate;
-        l.uiProfileIdc = PRO_BASELINE;
-        l.uiLevelIdc = LEVEL_UNKNOWN;
-        if threads > 1 {
-            l.sSliceArgument.uiSliceMode = SM_FIXEDSLCNUM_SLICE;
-            l.sSliceArgument.uiSliceNum = u32::from(threads);
-        } else {
-            l.sSliceArgument.uiSliceMode = SM_SINGLE_SLICE;
-            l.sSliceArgument.uiSliceNum = 1;
-        }
-        let mut trace: c_int = WELS_LOG_QUIET as c_int;
-        let mut fmt: c_int = videoFormatI420 as c_int;
-        // SAFETY: as above; option payloads are valid pointers for the call.
+        // SAFETY: uninitialize and destroy a live encoder exactly once; `enc` is cleared.
         unsafe {
-            ok(vt.InitializeExt.ok_or("no InitializeExt")?(enc, &p), "initialize")?;
-            let set = vt.SetOption.ok_or("no SetOption")?;
-            ok(
-                set(enc, ENCODER_OPTION_TRACE_LEVEL, (&mut trace as *mut c_int).cast::<c_void>()),
-                "trace level",
-            )?;
-            ok(
-                set(enc, ENCODER_OPTION_DATAFORMAT, (&mut fmt as *mut c_int).cast::<c_void>()),
-                "data format",
-            )?;
+            if let Some(uninit) = self.vtbl().Uninitialize {
+                uninit(self.enc);
+            }
+            self.api.0.WelsDestroySVCEncoder(self.enc);
         }
-        Ok(this)
+        self.enc = std::ptr::null_mut();
+    }
+
+    /// Moves between screen and camera usage before `pic` is coded (see [`MOTION_CHANGE`]).
+    fn pick_usage(&mut self, pic: &I420) {
+        if !self.cfg.screen_content || self.opts.usage != Usage::Switch {
+            return;
+        }
+        let changed = self.motion.changed(pic);
+        if self.screen {
+            if self.motion.self_idr && changed > MOTION_CHANGE {
+                // A failed rebuild keeps screen usage; the next IDR tries again.
+                let _ = self.rebuild(false);
+            }
+            return;
+        }
+        self.motion.calm = if changed < CALM_CHANGE { self.motion.calm + 1 } else { 0 };
+        if self.motion.calm >= CALM_FRAMES_TO_SCREEN {
+            let _ = self.rebuild(true);
+        }
     }
 
     fn vtbl(&self) -> &ISVCEncoderVtbl {
@@ -381,9 +465,104 @@ impl OpenH264 {
     }
 }
 
+/// Initializes the new instance `enc` with the shipped settings over `opts`.
+///
+/// # Safety
+/// `enc` is a live, uninitialized encoder instance.
+unsafe fn init(
+    enc: *mut ISVCEncoder,
+    cfg: &EncCfg,
+    opts: &OpenH264Options,
+    kbps: u32,
+    screen: bool,
+) -> Res<()> {
+    // SAFETY: the caller's live instance; its first field is its vtable pointer.
+    let vt = unsafe { &**enc };
+    let mut p = SEncParamExt::default();
+    // SAFETY: vtable functions of a live encoder, called with valid pointers.
+    unsafe { ok(vt.GetDefaultParams.ok_or("no GetDefaultParams")?(enc, &mut p), "defaults")? };
+    let threads = opts.threads.unwrap_or(cfg.threads).max(1);
+    let bitrate = (kbps * 1000) as c_int;
+    // Camera usage honors "no scene-change IDR"; screen usage forces one on large changes
+    // but is the only mode that codes a text scroll cheaply (prototype: 73x less).
+    p.iUsageType = if screen { SCREEN_CONTENT_REAL_TIME } else { CAMERA_VIDEO_REAL_TIME };
+    p.iPicWidth = cfg.width as c_int;
+    p.iPicHeight = cfg.height as c_int;
+    p.fMaxFrameRate = cfg.fps as f32;
+    p.iTemporalLayerNum = 1;
+    p.iSpatialLayerNum = 1;
+    p.iComplexityMode = match opts.complexity {
+        0 => LOW_COMPLEXITY,
+        1 => MEDIUM_COMPLEXITY,
+        _ => HIGH_COMPLEXITY,
+    };
+    p.uiIntraPeriod = 0;
+    // Screen usage keeps long-term references only on a link it calls lossless; ours
+    // recovers a lost reference with a keyframe the viewer asks for.
+    p.iNumRefFrame = 1 + c_int::from(opts.ltr);
+    p.bIsLosslessLink = opts.ltr > 0;
+    p.iLTRRefNum = c_int::from(opts.ltr);
+    p.eSpsPpsIdStrategy = CONSTANT_ID;
+    p.bPrefixNalAddingCtrl = false;
+    p.bEnableSSEI = false;
+    p.iEntropyCodingModeFlag = 0;
+    // Frame skipping lets the rate controller hold the target (measured: without it the
+    // target overshot 6x); a skipped frame sends nothing and the next damage retries.
+    p.bEnableFrameSkip = opts.frame_skip;
+    p.bEnableLongTermReference = opts.ltr > 0;
+    p.iMultipleThreadIdc = threads;
+    p.bUseLoadBalancing = false;
+    p.iLoopFilterDisableIdc = 0;
+    p.bEnableDenoise = false;
+    p.bEnableBackgroundDetection = opts.background_detection;
+    p.bEnableAdaptiveQuant = opts.adaptive_quant;
+    if let Some(q) = opts.min_qp {
+        p.iMinQp = c_int::from(q);
+    }
+    if let Some(q) = opts.max_qp {
+        p.iMaxQp = c_int::from(q);
+    }
+    p.bEnableSceneChangeDetect = false;
+    p.iRCMode = RC_BITRATE_MODE;
+    p.iTargetBitrate = bitrate;
+    p.iMaxBitrate = bitrate;
+    let l = &mut p.sSpatialLayers[0];
+    l.iVideoWidth = cfg.width as c_int;
+    l.iVideoHeight = cfg.height as c_int;
+    l.fFrameRate = cfg.fps as f32;
+    l.iSpatialBitrate = bitrate;
+    l.iMaxSpatialBitrate = bitrate;
+    l.uiProfileIdc = PRO_BASELINE;
+    l.uiLevelIdc = LEVEL_UNKNOWN;
+    if threads > 1 {
+        l.sSliceArgument.uiSliceMode = SM_FIXEDSLCNUM_SLICE;
+        l.sSliceArgument.uiSliceNum = u32::from(threads);
+    } else {
+        l.sSliceArgument.uiSliceMode = SM_SINGLE_SLICE;
+        l.sSliceArgument.uiSliceNum = 1;
+    }
+    let mut trace: c_int = WELS_LOG_QUIET as c_int;
+    let mut fmt: c_int = videoFormatI420 as c_int;
+    // SAFETY: as above; option payloads are valid pointers for the call.
+    unsafe {
+        ok(vt.InitializeExt.ok_or("no InitializeExt")?(enc, &p), "initialize")?;
+        let set = vt.SetOption.ok_or("no SetOption")?;
+        ok(
+            set(enc, ENCODER_OPTION_TRACE_LEVEL, (&mut trace as *mut c_int).cast::<c_void>()),
+            "trace level",
+        )?;
+        ok(
+            set(enc, ENCODER_OPTION_DATAFORMAT, (&mut fmt as *mut c_int).cast::<c_void>()),
+            "data format",
+        )?;
+    }
+    Ok(())
+}
+
 impl H264Encoder for OpenH264 {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
         out.clear();
+        self.pick_usage(pic);
         let vt = self.vtbl();
         let force = vt.ForceIntraFrame.ok_or("no ForceIntraFrame")?;
         let encode = vt.EncodeFrame.ok_or("no EncodeFrame")?;
@@ -425,7 +604,11 @@ impl H264Encoder for OpenH264 {
                 offset += len;
             }
         }
-        Ok(info.eFrameType == videoFrameTypeIDR)
+        let idr = info.eFrameType == videoFrameTypeIDR;
+        // A new instance's first IDR is the move's, not a scene change's.
+        self.motion.self_idr = self.screen && idr && !force_idr && !self.motion.fresh;
+        self.motion.fresh = false;
+        Ok(idr)
     }
 
     fn set_bitrate(&mut self, kbps: u32) {
@@ -489,15 +672,8 @@ impl H264Encoder for OpenH264 {
 }
 
 impl Drop for OpenH264 {
-    /// Uninitialize is safe on an encoder whose InitializeExt failed (openh264 checks its state).
     fn drop(&mut self) {
-        // SAFETY: uninitialize and destroy a live encoder exactly once.
-        unsafe {
-            if let Some(uninit) = self.vtbl().Uninitialize {
-                uninit(self.enc);
-            }
-            self.api.0.WelsDestroySVCEncoder(self.enc);
-        }
+        self.release();
     }
 }
 
