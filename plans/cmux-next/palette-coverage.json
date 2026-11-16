@@ -702,11 +702,11 @@
     },
     {
       "verb": "closed clear",
-      "palette": "history.clear"
+      "palette": "closed.clear"
     },
     {
       "verb": "closed delete",
-      "reason": "keep: deletes closed groups by the ids `closed list` prints; a person removes a closed item in Show History (history.show)"
+      "palette": "closed.delete"
     },
     {
       "verb": "closed list",
@@ -899,10 +899,12 @@
       "palette": "remote.forget"
     },
     {
-      "verb": "device revoke"
+      "verb": "device revoke",
+      "palette": "machine.joined.revoke"
     },
     {
-      "verb": "device rotate"
+      "verb": "device rotate",
+      "palette": "machine.joined.rotate"
     },
     {
       "verb": "device show",
@@ -918,7 +920,7 @@
     },
     {
       "verb": "errors clear",
-      "reason": "keep: clears entries of the error journal `cmux errors` reads, for agents and scripts diagnosing the app"
+      "palette": "errors.clear"
     },
     {
       "verb": "events",
@@ -1130,7 +1132,8 @@
       "reason": "keep: removes entries by the ids `history list` prints; a person removes entries in Show History (history.show)"
     },
     {
-      "verb": "history remove-site"
+      "verb": "history remove-site",
+      "palette": "history.removeSite"
     },
     {
       "verb": "history restore",
@@ -1281,10 +1284,12 @@
       "reason": "keep: a read for scripts and agents (the machine catalog); the app shows the same state on screen"
     },
     {
-      "verb": "machine revoke"
+      "verb": "machine revoke",
+      "palette": "machine.joined.revoke"
     },
     {
-      "verb": "machine rotate"
+      "verb": "machine rotate",
+      "palette": "machine.joined.rotate"
     },
     {
       "verb": "machine show",
@@ -1482,7 +1487,8 @@
       "palette": "workspace.moveToSpace"
     },
     {
-      "verb": "room unpin"
+      "verb": "room unpin",
+      "palette": "workspace.unpinFromSpace"
     },
     {
       "verb": "room update",
