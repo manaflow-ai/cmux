@@ -8,7 +8,7 @@ import type { Lanes } from "../schedule";
 const pump = createDocumentPump<ChatRowsBatch, NonNullable<ReturnType<typeof parseChange>>, ChatRowsHost, StorePart>({
   frameKey: "chat-rows",
   globalKey: "cmuxChatRows",
-  parse: (value) => parseChange(value),
+  parse: (value) => (typeof value === "string" ? parseChange(value) : null),
   makePart: () => new StorePart(),
   route: (change, hosts, parts) => {
     const sid = changeSid(change);
