@@ -110,7 +110,7 @@ import Testing
             let pinned = toolbar.view.buttons
             #expect(pinned.count == pins.count)
             #expect(pinned.allSatisfy { !$0.isHidden })
-            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden }
+            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden } + [toolbar.view.moreButton]
             for (left, right) in zip(visible, visible.dropFirst()) {
                 #expect(left.frame.maxX <= right.frame.minX, "controls must never overlap at \(width) points")
             }
@@ -121,7 +121,7 @@ import Testing
     }
 
     @Test(arguments: [false, true])
-    func narrowBrowserBandKeepsTabsAndHiddenPinsAccessible(inSplit: Bool) throws {
+    func narrowBrowserBandKeepsTabsAndOverflowActionsAccessible(inSplit: Bool) throws {
         let density = DesignSettings.shared.density
         DesignSettings.shared.density = .comfortable
         defer { DesignSettings.shared.density = density }
@@ -152,12 +152,12 @@ import Testing
             #expect(tab.pane.isBandActive)
             #expect(toolbar.view.frame.width <= width / 2)
             #expect(tab.pane.stripView.tabAvailableWidth > 0, "the browser band must retain a tab viewport")
-            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden }
+            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden } + [toolbar.view.moreButton]
             for (left, right) in zip(visible, visible.dropFirst()) {
                 #expect(left.frame.maxX <= right.frame.minX)
             }
-            // A pin the narrow pane hid stays in the tab bar's right-click (the pane's "…" is gone).
-            let menuActions = toolbar.tabBarMenuRows().joined().compactMap { ActionRegistry.menuRun(of: $0)?.id }
+            let menu = try #require(toolbar.view.moreMenu?())
+            let menuActions = menu.items.compactMap { ActionRegistry.menuRun(of: $0)?.id }
             for (item, button) in zip(toolbar.view.items, toolbar.view.buttons) where button.isHidden && pins.contains(item.id) {
                 #expect(menuActions.contains(ActionID(rawValue: item.id)), "overflowed pins must remain actionable")
             }
