@@ -215,6 +215,20 @@ import Testing
         #expect(Set(host.pages.keys) == ["tab_busy"], "the warm set outlived the idle wait: \(host.pages.keys.sorted())")
     }
 
+    /// A chat due at once (archived) takes no place in the warm set: the two newest idle chats it would have
+    /// pushed out keep their page for the idle wait.
+    @Test func aChatDueAtOnceTakesNoWarmPlace() {
+        let (planner, host) = Self.make()
+        for key in ["tab_old", "tab_warm_a", "tab_warm_b", "tab_archived"] {
+            if key == "tab_archived" { host.archived = [key] }
+            Self.hide(key, planner, host)
+            host.elapsed += .seconds(1)
+        }
+        Self.advance(HiddenChatPages<Host>.minimumHidden, planner, host)
+        #expect(Set(host.released) == ["tab_old", "tab_archived"], "released: \(host.released)")
+        #expect(Set(host.pages.keys) == ["tab_warm_a", "tab_warm_b"], "an archived chat took a warm place: \(host.pages.keys.sorted())")
+    }
+
     @Test func theLeastRecentlySeenChatGoesFirst() {
         let (planner, host) = Self.make()
         let order = ["tab_c", "tab_a", "tab_e", "tab_b", "tab_f", "tab_d"]
