@@ -3,6 +3,46 @@
 
 use super::*;
 
+/// The v1 adapter borrows the Session's existing locks for one table call.
+/// No state is copied into a second holder; the actor supplies the core Context
+/// directly in its own path.
+struct SessionRecordState<'a> {
+    session: &'a Session,
+    awaiting_first_delta: &'a AtomicBool,
+}
+
+impl acpmux_core::chat::record::RecordState for SessionRecordState<'_> {
+    fn idle(&self) -> bool {
+        self.session.status() == SessionStatus::Idle
+    }
+    fn closed(&self) -> bool {
+        self.session.status() == SessionStatus::Closed
+    }
+    fn hibernate(&self) -> bool {
+        self.session.hibernated_at.load(Ordering::Acquire) != 0
+    }
+    fn loading(&self) -> bool {
+        self.session.loading.load(Ordering::Acquire)
+    }
+    fn with_awaiting_first_delta<R>(&mut self, f: impl FnOnce(&AtomicBool) -> R) -> R {
+        f(self.awaiting_first_delta)
+    }
+    fn with_logged_init<R>(
+        &mut self,
+        f: impl FnOnce(&mut acpmux_core::chat::record::logged_init::LoggedInit) -> R,
+    ) -> R {
+        let mut guard = self.session.logged_init.lock().unwrap_or_else(|e| e.into_inner());
+        f(&mut guard)
+    }
+    fn with_update_repeats<R>(
+        &mut self,
+        f: impl FnOnce(&mut acpmux_core::chat::record::update_repeats::UpdateRepeats) -> R,
+    ) -> R {
+        let mut guard = self.session.update_repeats.lock().unwrap_or_else(|e| e.into_inner());
+        f(&mut guard)
+    }
+}
+
 /// Raw Claude `stream_event` lines (text and tool-input deltas) are mostly not logged: the
 /// translated `session/update` records that follow carry their content. They were most of a
 /// Claude chat's log (44,000 of 54,000 records in 24 minutes on huge-blue, 2026-10-21), and each
@@ -294,13 +334,28 @@ impl Hub {
                 (Direction::Out, Message::Notification { method, params })
                     if method == "claude.stdin" =>
                 {
-                    let mut line = params.clone().unwrap_or(Value::Null);
-                    crate::model_copies::scrub_logged(&mut line);
-                    // A prompt's long text is in its `user_message` already (`logged_bodies.rs`).
-                    crate::claude_stdio::leave_out_prompt_bodies("claude.stdin", &mut line);
-                    return tap_hub
-                        .append_logged(&tap_session, "out", "claude.stdin", line, host_seq)
-                        .1;
+                    let mut state = SessionRecordState {
+                        session: &tap_session,
+                        awaiting_first_delta: &awaiting_first_delta,
+                    };
+                    let before = acpmux_core::chat::stage::before(
+                        acpmux_core::chat::record::Entry::Notification {
+                            direction: acpmux_core::chat::record::Direction::Out,
+                            method: "claude.stdin",
+                            value: msg.to_value(),
+                        },
+                        &mut state,
+                        acpmux_core::chat::stage::Call {
+                            eligible_update: false,
+                            mask: crate::secret_scan::mask,
+                        },
+                    );
+                    let Some((dir, kind, line)) = before.record_parts() else {
+                        return false;
+                    };
+                    let logged = tap_hub.append_logged(&tap_session, dir, &kind, line, host_seq).1;
+                    let _ = acpmux_core::chat::stage::after(before, &mut state, logged);
+                    return logged;
                 }
                 (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
                 (Direction::Out, Message::Response { .. }) => ("out", "response".to_owned()),

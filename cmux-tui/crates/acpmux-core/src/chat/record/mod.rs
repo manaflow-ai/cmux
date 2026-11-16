@@ -11,7 +11,7 @@ mod table;
 pub mod update_repeats;
 pub use display::drop_display_lines;
 pub use selection::{is_context_answer, times_request};
-pub use table::{Context, ContextState, Direction, Entry, Record, record_of};
+pub use table::{Context, ContextState, Direction, Entry, Record, RecordState, record_of};
 
 pub const SESSION_PROMPT: &str = "session/prompt";
 

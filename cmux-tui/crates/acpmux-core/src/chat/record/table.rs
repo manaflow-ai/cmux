@@ -27,6 +27,18 @@ pub enum Entry<'a> {
     Exit { code: Value },
 }
 
+/// Scoped state used while translating one wire entry. Implementations keep
+/// each closure's lock scope local; closures may not append or call a hub.
+pub trait RecordState {
+    fn idle(&self) -> bool;
+    fn closed(&self) -> bool;
+    fn hibernate(&self) -> bool;
+    fn loading(&self) -> bool;
+    fn with_awaiting_first_delta<R>(&mut self, f: impl FnOnce(&AtomicBool) -> R) -> R;
+    fn with_logged_init<R>(&mut self, f: impl FnOnce(&mut LoggedInit) -> R) -> R;
+    fn with_update_repeats<R>(&mut self, f: impl FnOnce(&mut UpdateRepeats) -> R) -> R;
+}
+
 /// A chat's record context. Repeat hashes start empty at daemon start, as in v1.
 /// The registry must retain them across actor retirement and harness restarts in that run.
 /// The timing flag is reset at every harness start, including re-adoption.
@@ -53,6 +65,30 @@ pub struct Context {
 impl Context {
     pub fn harness_started(&mut self) {
         self.awaiting_first_delta.store(false, Ordering::Relaxed);
+    }
+}
+
+impl RecordState for Context {
+    fn idle(&self) -> bool {
+        self.idle
+    }
+    fn closed(&self) -> bool {
+        self.closed
+    }
+    fn hibernate(&self) -> bool {
+        self.hibernate
+    }
+    fn loading(&self) -> bool {
+        self.loading
+    }
+    fn with_awaiting_first_delta<R>(&mut self, f: impl FnOnce(&AtomicBool) -> R) -> R {
+        f(&self.awaiting_first_delta)
+    }
+    fn with_logged_init<R>(&mut self, f: impl FnOnce(&mut LoggedInit) -> R) -> R {
+        f(&mut self.logged_init)
+    }
+    fn with_update_repeats<R>(&mut self, f: impl FnOnce(&mut UpdateRepeats) -> R) -> R {
+        f(&mut self.update_repeats)
     }
 }
 
@@ -86,7 +122,7 @@ impl Record {
     /// Called by the stateful stage with its live-update repeat eligibility decision.
     /// The live-update branch precedes the response-kind fallback, exactly as in v1.
     /// Returns false when the eligible update has nothing left to log.
-    pub fn trim_live_update(&mut self, context: &Context, eligible: bool) -> bool {
+    pub fn trim_live_update<S: RecordState>(&mut self, context: &mut S, eligible: bool) -> bool {
         if self.dir != "in"
             || self.msg.get("method").and_then(Value::as_str) != Some("session/update")
         {
@@ -96,36 +132,37 @@ impl Record {
             .then(|| self.msg.pointer_mut("/params/update"))
             .flatten();
         if let Some(update) = update {
-            let repeats = context.update_repeats.leave_out_repeats(&self.kind, update);
+            let repeats = context.with_update_repeats(|r| r.leave_out_repeats(&self.kind, update));
             if repeats.nothing_left {
                 return false;
             }
             self.repeats = Some(repeats);
         } else if self.kind == "response" {
-            self.repeats =
-                Some(context.update_repeats.leave_out_repeats(&self.kind, &mut self.msg));
+            self.repeats = Some(
+                context.with_update_repeats(|r| r.leave_out_repeats(&self.kind, &mut self.msg)),
+            );
         }
         true
     }
 
-    pub fn note_logged(self, context: &mut Context) {
+    pub fn note_logged<S: RecordState>(self, context: &mut S) {
         if let Some(sections) = self.init {
-            context.logged_init.note_logged(sections);
+            context.with_logged_init(|i| i.note_logged(sections));
         }
         if let Some(sections) = self.repeats {
-            context.update_repeats.note_logged(sections);
+            context.with_update_repeats(|r| r.note_logged(sections));
         }
     }
 }
 
 /// The pure record table. None means kept nowhere and acknowledged without an append.
 /// Hub effects and stateful body normalization belong to the caller's separate stage.
-pub fn record_of(entry: Entry<'_>, context: &mut Context) -> Option<Record> {
+pub fn record_of<S: RecordState>(entry: Entry<'_>, context: &mut S) -> Option<Record> {
     let (direction, mut kind, mut value, notification) = match entry {
         Entry::Stderr { text } => return Some(Record::new("mux", "stderr", json!({"text": text}))),
         Entry::Exit { code } => {
-            let hibernating = context.hibernate && !context.closed;
-            let intentional = hibernating || context.idle || context.closed;
+            let hibernating = context.hibernate() && !context.closed();
+            let intentional = hibernating || context.idle() || context.closed();
             let body = if hibernating {
                 json!({"code": code, "hibernated": true})
             } else {
@@ -146,7 +183,7 @@ pub fn record_of(entry: Entry<'_>, context: &mut Context) -> Option<Record> {
     if notification && direction == Direction::In {
         let params = value.get("params");
         if kind == "claude.stream_event"
-            && !params.is_some_and(|p| times_request(p, &context.awaiting_first_delta))
+            && !params.is_some_and(|p| context.with_awaiting_first_delta(|a| times_request(p, a)))
         {
             return None;
         }
@@ -157,9 +194,9 @@ pub fn record_of(entry: Entry<'_>, context: &mut Context) -> Option<Record> {
             let mut line = value.get_mut("params").map(Value::take).unwrap_or(Value::Null);
             model_copy::scrub_logged(&mut line);
             logged_bodies::leave_out_bodies(&kind, &mut line);
-            let init = Some(context.logged_init.leave_out_repeats(&kind, &mut line));
+            let init = Some(context.with_logged_init(|i| i.leave_out_repeats(&kind, &mut line)));
             let repeats = (kind == "claude.control_response")
-                .then(|| context.update_repeats.leave_out_repeats(&kind, &mut line));
+                .then(|| context.with_update_repeats(|r| r.leave_out_repeats(&kind, &mut line)));
             return Some(Record { dir, kind, msg: line, init, repeats });
         }
         if kind == "session/update" {
@@ -168,7 +205,7 @@ pub fn record_of(entry: Entry<'_>, context: &mut Context) -> Option<Record> {
             {
                 kind = update_kind.to_owned();
             }
-            if context.loading {
+            if context.loading() {
                 kind.push_str(".replay");
             }
         }
@@ -183,7 +220,7 @@ pub fn record_of(entry: Entry<'_>, context: &mut Context) -> Option<Record> {
         drop_display_lines(params);
     }
     let repeats = (direction == Direction::In && kind == "response" && !session_update)
-        .then(|| context.update_repeats.leave_out_repeats(&kind, &mut value));
+        .then(|| context.with_update_repeats(|r| r.leave_out_repeats(&kind, &mut value)));
     Some(Record { dir, kind, msg: value, init: None, repeats })
 }
 

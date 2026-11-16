@@ -4,7 +4,7 @@
 //! caller-side steps, the caller appends that record, then `after` commits repeat state and
 //! returns post-write steps. No step performs I/O or invokes a hub.
 
-use super::record::{Context, Entry, Record};
+use super::record::{Entry, Record, RecordState};
 
 /// Read-only values supplied by the caller for one harness entry.
 #[derive(Clone, Copy, Debug, Default)]
@@ -33,7 +33,7 @@ pub struct After {
 }
 
 /// Build the record and pre-write steps. The caller owns append/ack and all hub effects.
-pub fn before(entry: Entry<'_>, context: &mut Context, call: Call) -> Before {
+pub fn before<S: RecordState>(entry: Entry<'_>, context: &mut S, call: Call) -> Before {
     let mut record = super::record::record_of(entry, context);
     let mut steps = Vec::new();
     if let Some(candidate) = record.as_mut()
@@ -48,7 +48,7 @@ pub fn before(entry: Entry<'_>, context: &mut Context, call: Call) -> Before {
 }
 
 /// Commit state only after the caller's append succeeds.
-pub fn after(mut before: Before, context: &mut Context, logged: bool) -> After {
+pub fn after<S: RecordState>(mut before: Before, context: &mut S, logged: bool) -> After {
     if logged {
         if let Some(record) = before.record.take() {
             record.note_logged(context);
