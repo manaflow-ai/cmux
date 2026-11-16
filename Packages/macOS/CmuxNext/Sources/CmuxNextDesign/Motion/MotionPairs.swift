@@ -33,9 +33,10 @@ public nonisolated struct MotionPair: Sendable, Equatable {
 
     /// A split's new pane growing in while its chain makes room; a closing pane's neighbours growing
     /// over it (`PaneMotionVariant.splitSpring`, `closeSpring`).
-    public static let pane = MotionPair("pane split and close", enter: .spring(.split), exit: .spring(.split))
-    /// A pane zooming to fill its screen; the same pane going back (`PaneMotionVariant.expandSpring`).
-    public static let zoom = MotionPair("pane zoom and unzoom", enter: .spring(.zoom), exit: .spring(.zoom))
+    public static let pane = MotionPair("pane split and close", enter: .spring(.split), exit: .spring(.paneClose))
+    /// A pane zooming to fill its screen; the same pane going back (`PaneMotionVariant.expandSpring`,
+    /// `restoreSpring`).
+    public static let zoom = MotionPair("pane zoom and unzoom", enter: .spring(.zoom), exit: .spring(.unzoom))
     /// A row, a group, a sidebar or a tab's title showing; the same thing hiding.
     public static let appear = MotionPair("appear and disappear", enter: .spring(.appear), exit: .spring(.disappear))
     /// A popup growing out of its control; the same popup shrinking back.
