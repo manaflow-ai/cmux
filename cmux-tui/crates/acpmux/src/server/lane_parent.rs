@@ -64,7 +64,8 @@ pub(super) fn report_remote_created(
     let Some(to) = to else { return Ok(()) };
     let key = format!("{peer}/{id}");
     hub.watches.add(Watch {
-        id: format!("remote-start-{id}"),
+        // Session ids are scoped to their owning daemon, not globally unique.
+        id: format!("remote-start-{}", uuid::Uuid::now_v7()),
         to,
         sessions: vec![key.clone()],
         // Normal turns and permission prompts must not consume the failure report.

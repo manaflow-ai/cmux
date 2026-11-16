@@ -435,12 +435,16 @@ async fn approve_all_at_a_remote_start_passes_exactly_when_host_ls_shows_served_
 #[tokio::test]
 async fn a_remote_start_keeps_its_report_to_watch_on_the_starters_daemon() {
     let root = scratch("report-to");
-    let (a, _b) = pair("report-to", true, &root).await;
+    let (a, b) = pair("report-to", true, &root).await;
     let mut ca = C::open(&a, Origin::Local);
     let parent = ca
         .call(method::SESSION_NEW, new(json!({"harness": "fake", "name": "starter"}), Some(&root)))
         .await;
     let parent = parent["result"]["sessionId"].as_str().unwrap().to_owned();
+    let before = b.sessions().len();
+    let refused = ca.call(method::SESSION_NEW, new(json!({"peer": "b", "harness": "fake", "name": "orphan", "reportTo": "missing-recipient"}), Some(&root))).await;
+    assert!(refused["error"].is_object(), "{refused}");
+    assert_eq!(b.sessions().len(), before, "an invalid recipient must not create an orphan");
     let child = ca
         .call(
             method::SESSION_NEW,

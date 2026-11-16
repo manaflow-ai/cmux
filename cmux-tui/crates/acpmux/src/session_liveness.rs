@@ -83,6 +83,11 @@ mod blocked_reply_tests {
             blocked_reply("Blocked: broker unavailable\nNext step: retry"),
             Some("broker unavailable")
         );
+        let mut row = serde_json::json!({"status": "idle", "preview": "BLOCKED: cannot write .git", "lastTurn": {"status": "completed"}});
+        assert_eq!(crate::hub::views::status_indicator(&row), Some("failed"));
+        assert_eq!(crate::hub::views::lane(&row)["error"], "cannot write .git");
+        row["status"] = serde_json::json!("running");
+        assert_eq!(crate::hub::views::status_indicator(&row), Some("working"));
         for reply in [
             "Fixed the blocked request",
             "Not blocked: ready",

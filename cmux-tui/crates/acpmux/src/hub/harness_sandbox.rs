@@ -77,9 +77,10 @@ impl Hub {
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness_sandbox.clone();
         if !failing.failing {
             let meta = session.meta();
-            let remote = meta.remote_origin && !meta.vm_boundary;
+            let harness_error = refusal(update);
+            let remote = harness_error.is_none() && meta.remote_origin && !meta.vm_boundary;
             let Some(error) =
-                refusal(update).or_else(|| remote.then(|| remote_refusal(update)).flatten())
+                harness_error.or_else(|| remote.then(|| remote_refusal(update)).flatten())
             else {
                 return;
             };
@@ -212,14 +213,6 @@ mod tests {
         m.remote_origin = true;
         let (hub, session) = restored(m, &[]);
         hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
-        let denied = "fatal: Unable to create '/tmp/work/.git/index.lock': Permission denied";
-        hub.note_harness_sandbox(&session, &result("failed", denied));
-        let summary = hub.session_summary(&session);
-        assert_eq!(summary["indicator"], "failed");
-        assert_eq!(summary["lane"]["state"], "failed");
-        assert!(summary["lane"]["error"].as_str().unwrap().contains("index.lock"));
-        assert!(summary["lane"]["error"].as_str().unwrap().contains("Full access"));
-
         let mut watch = super::super::watches::Watch {
             id: "starter-report".into(),
             to: "starter".into(),
@@ -232,6 +225,27 @@ mod tests {
             cursors: [(session.id.clone(), Default::default())].into_iter().collect(),
             offline: Default::default(),
         };
+        hub.append(
+            &session,
+            "mux",
+            "turn_result",
+            json!({"turnId": "early-progress", "status": "completed"}),
+        );
+        assert!(
+            super::super::watch_events::collect(&hub, &mut watch, &session.id)
+                .await
+                .unwrap()
+                .0
+                .is_empty()
+        );
+        let denied = "fatal: Unable to create '/tmp/work/.git/index.lock': Permission denied";
+        hub.note_harness_sandbox(&session, &result("failed", denied));
+        let summary = hub.session_summary(&session);
+        assert_eq!(summary["indicator"], "failed");
+        assert_eq!(summary["lane"]["state"], "failed");
+        assert!(summary["lane"]["error"].as_str().unwrap().contains("index.lock"));
+        assert!(summary["lane"]["error"].as_str().unwrap().contains("Full access"));
+
         let (rows, _) =
             super::super::watch_events::collect(&hub, &mut watch, &session.id).await.unwrap();
         assert_eq!(rows.len(), 1, "{rows:?}");
@@ -249,6 +263,17 @@ mod tests {
         hub.note_harness_sandbox(&session, &done("unrelated-command", "completed"));
         assert_eq!(hub.session_summary(&session)["harnessSandboxFailing"], true);
         hub.harness_sandbox_recovered(&session, "respawn");
+        assert_eq!(hub.session_summary(&session)["harnessSandboxFailing"], false);
+    }
+
+    #[tokio::test]
+    async fn remote_harness_sandbox_recovers_after_its_command_succeeds() {
+        let mut m = meta("remote-harness-recovery");
+        m.remote_origin = true;
+        let (hub, session) = restored(m, &[]);
+        hub.note_harness_sandbox(&session, &result("failed", REFUSED));
+        hub.note_harness_sandbox(&session, &execute("recovered-command"));
+        hub.note_harness_sandbox(&session, &done("recovered-command", "completed"));
         assert_eq!(hub.session_summary(&session)["harnessSandboxFailing"], false);
     }
 
