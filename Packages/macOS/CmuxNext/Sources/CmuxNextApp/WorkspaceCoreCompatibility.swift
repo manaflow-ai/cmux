@@ -57,7 +57,7 @@ extension AppServices: WindowAccessProviding {
     }
 
     func ownerWindowID(workspaceID: String) -> String? {
-        windows.registry.value.owner(of: workspaceID)
+        windows.actingWindow(for: workspaceID)
     }
 }
 

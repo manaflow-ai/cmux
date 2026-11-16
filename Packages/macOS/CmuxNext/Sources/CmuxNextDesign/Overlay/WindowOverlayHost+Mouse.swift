@@ -36,8 +36,30 @@ extension WindowOverlayHost {
     func routeMouse(at screenPoint: NSPoint) {
         let point = panel.frame.isEmpty ? screenPoint : panel.convertPoint(fromScreen: screenPoint)
         let accepts = acceptsMouse(at: point)
-        if panel.ignoresMouseEvents == accepts { panel.ignoresMouseEvents = !accepts }
+        if panel.ignoresMouseEvents == accepts {
+            panel.ignoresMouseEvents = !accepts
+            // The pointer came onto an overlay: a cursor that the window under it set (a divider's resize cursor, a
+            // terminal's I-beam) does not stay on the overlay.
+            if accepts { NSCursor.arrow.set() }
+        }
         hoverAgentCursorTag(at: point)
+    }
+
+    /// Whether an overlay of `window` takes the mouse at `windowPoint` (a toast, a dialog, an agent's cursor tag).
+    ///
+    /// The overlay panel is above everything of the window there, so nothing of the window may follow the pointer
+    /// at that point: no hover, no cursor, no moves. The window server gives the panel the pointer only after its
+    /// mouse routing switched it on, one move late, and a window's own tracking reads where the pointer is, not
+    /// which window has it: each pointer follower of the window asks this.
+    ///
+    /// - Parameters:
+    ///   - window: The window whose overlays are asked.
+    ///   - windowPoint: A point in `window`'s coordinates.
+    /// - Returns: True when an overlay of the window shows and takes the mouse at the point.
+    public static func overlayTakesMouse(in window: NSWindow, atWindowPoint windowPoint: NSPoint) -> Bool {
+        guard let host = existingHost(for: window), !host.isAppHost, host.panel.parent === window, host.panel.isVisible
+        else { return false }
+        return host.acceptsMouse(at: host.panel.convertPoint(fromScreen: window.convertPoint(toScreen: windowPoint)))
     }
 
     /// A tab dialog takes the keyboard when a click lands on it; a click

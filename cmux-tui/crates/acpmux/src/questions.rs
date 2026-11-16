@@ -25,7 +25,7 @@ use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 /// The normalized question of a request, when it carries one.
-pub(super) fn question(request: &Value) -> Option<&Value> {
+pub(crate) fn question(request: &Value) -> Option<&Value> {
     request.pointer("/toolCall/_meta/acpmux/question").filter(|q| q["items"].is_array())
 }
 
@@ -33,13 +33,13 @@ pub(super) fn question(request: &Value) -> Option<&Value> {
 /// session that wants to start a sub-session in a folder nobody answered for. It renders as a
 /// choice question (`question` with the `acp` harness: the answer is the picked option, no
 /// `answers`), and only a person answers it, never a policy.
-pub(super) fn trust_cwd(request: &Value) -> Option<&str> {
+pub(crate) fn trust_cwd(request: &Value) -> Option<&str> {
     request.pointer("/toolCall/_meta/acpmux/trust/cwd").and_then(Value::as_str)
 }
 
 /// True when policy and batches must not answer the request: a question.
 /// Other interactive requests (plan approval) keep their policy behavior.
-pub(super) fn needs_person(request: &Value) -> bool {
+pub(crate) fn needs_person(request: &Value) -> bool {
     question(request).is_some()
         || matches!(
             request.pointer("/toolCall/_meta/claude/tool").and_then(Value::as_str),
@@ -57,7 +57,7 @@ pub(super) fn needs_person(request: &Value) -> bool {
 /// `questions` (an MCP tool, ExitPlanMode), a writer's own
 /// `_meta.acpmux.question`, a Codex user-input request (its adapter's
 /// shape is unverified) and the folder-trust card (`trust_cwd`) stay the person's.
-pub(super) fn ancestor_answerable(request: &Value, from_agent: bool) -> bool {
+pub(crate) fn ancestor_answerable(request: &Value, from_agent: bool) -> bool {
     let asks = question(request).is_some()
         && trust_cwd(request).is_none()
         && (!from_agent
@@ -72,7 +72,7 @@ pub(super) fn ancestor_answerable(request: &Value, from_agent: bool) -> bool {
 /// Checks a reply to `request`: answers go only with an allow option, and a
 /// question is allowed only with answers (an empty allow would hand the
 /// agent a blank answer nobody gave). A reject or a cancel needs none.
-pub(super) fn check_reply(
+pub(crate) fn check_reply(
     request: &Value,
     option_id: Option<&str>,
     answers: Option<&Value>,
@@ -96,7 +96,7 @@ pub(super) fn check_reply(
 /// The normalized items of Claude-shaped `questions` (`{question, header?,
 /// options: [{label, description?, preview?}], multiSelect?}`), answered by
 /// question text: the shape Grok's `x.ai/ask_user_question` also uses.
-pub(super) fn items_by_text(questions: &[Value]) -> Vec<Value> {
+pub(crate) fn items_by_text(questions: &[Value]) -> Vec<Value> {
     questions
         .iter()
         .enumerate()
@@ -108,7 +108,7 @@ pub(super) fn items_by_text(questions: &[Value]) -> Vec<Value> {
 /// options: [{label, description?}], multiSelect?, isOther?}`), answered by
 /// item id with `{answers: [labels]}`: the shape Cursor's
 /// `cursor/ask_question` maps onto.
-pub(super) fn items_by_id(questions: &[Value]) -> Vec<Value> {
+pub(crate) fn items_by_id(questions: &[Value]) -> Vec<Value> {
     questions
         .iter()
         .enumerate()
@@ -141,7 +141,7 @@ impl PreviewFormat {
         }
     }
 
-    pub(super) fn from_flag(html: bool) -> Self {
+    pub(crate) fn from_flag(html: bool) -> Self {
         if html { Self::Html } else { Self::Monospace }
     }
 
@@ -164,7 +164,7 @@ impl PreviewFormat {
 /// Adds `toolCall._meta.acpmux.question` when the tool input holds
 /// questions and no writer added one yet. `previews` is how the asking
 /// agent writes previews; a Codex-shaped ask has none, so it never matters there.
-pub(super) fn normalize(request: &mut Value, previews: PreviewFormat) {
+pub(crate) fn normalize(request: &mut Value, previews: PreviewFormat) {
     if question(request).is_some() {
         return;
     }
@@ -249,11 +249,11 @@ fn item(q: &Value, index: usize, codex: bool, previews: PreviewFormat) -> Option
 }
 
 /// The most items one answer may hold.
-pub(super) const MAX_ANSWER_ITEMS: usize = 64;
+pub(crate) const MAX_ANSWER_ITEMS: usize = 64;
 /// The most strings one item's list may hold.
-pub(super) const MAX_ANSWER_LIST_STRINGS: usize = 64;
+pub(crate) const MAX_ANSWER_LIST_STRINGS: usize = 64;
 /// The most UTF-8 bytes of one item key, and of each string of an item's value.
-pub(super) const MAX_ANSWER_BYTES: usize = 4096;
+pub(crate) const MAX_ANSWER_BYTES: usize = 4096;
 
 /// Checks a client's `answers` for `request`. Answers are accepted only for
 /// a question, in the asking harness's shape: Claude Code (and the Chief) by
@@ -263,7 +263,7 @@ pub(super) const MAX_ANSWER_BYTES: usize = 4096;
 /// most [`MAX_ANSWER_ITEMS`] items, [`MAX_ANSWER_LIST_STRINGS`] strings per
 /// list and [`MAX_ANSWER_BYTES`] bytes per key or string, the limits of the
 /// Swift pane relay (`AcpmuxPaneMethods+Answers`).
-pub(super) fn check_answers(request: &Value, answers: &Value) -> Result<(), RpcError> {
+pub(crate) fn check_answers(request: &Value, answers: &Value) -> Result<(), RpcError> {
     let invalid = |why: &str| Err(RpcError::invalid_params(format!("answers {why}")));
     let Some(question) = question(request) else {
         return invalid("are accepted only for a question");
@@ -344,7 +344,7 @@ pub(super) fn check_answers(request: &Value, answers: &Value) -> Result<(), RpcE
 }
 
 /// The most UTF-8 bytes of one answer's notes (Claude Code's own limit is 8192 characters).
-pub(super) const MAX_NOTES_BYTES: usize = 8192;
+pub(crate) const MAX_NOTES_BYTES: usize = 8192;
 
 /// Checks a client's `annotations` and returns what goes into the tool input beside `answers`.
 /// They are Claude Code's AskUserQuestion answer field (question text -> `{preview?, notes?}`):
@@ -356,7 +356,7 @@ pub(super) const MAX_NOTES_BYTES: usize = 8192;
 /// previews as the card shows it (trimmed, `normalize`), and the agent's own text goes back,
 /// since Claude Code refuses a preview it did not write; `notes` is free text of at most
 /// [`MAX_NOTES_BYTES`] bytes. Nothing else rides along.
-pub(super) fn check_annotations(
+pub(crate) fn check_annotations(
     request: &Value,
     annotations: &Value,
 ) -> Result<Option<Value>, RpcError> {

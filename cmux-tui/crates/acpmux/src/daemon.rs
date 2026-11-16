@@ -934,7 +934,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             {
                 let _phase = gauges.phase("list order");
                 let sorting = hub.clone();
-                let _ = tokio::task::spawn_blocking(move || sorting.sort_list_order()).await;
+                if let Err(e) = tokio::task::spawn_blocking(move || sorting.sort_list_order()).await
+                {
+                    tracing::error!("sorting the list order failed: {e}");
+                }
             }
             #[cfg(debug_assertions)]
             test_panic_in("startup");
