@@ -20,6 +20,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { MOTION_SEND_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 /// One frame after the send: the bubble's clip from the left (% of its width), the opacity of its
 /// text, of its row and of the thinking row, and how far the thread is drawn back (px).
@@ -63,11 +64,11 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
     });
     const port = (pane!.httpServer!.address() as { port: number }).port;
     await page.goto(`http://127.0.0.1:${port}/`);
-    await page.locator('.acpmux-composer-prompt [contenteditable="true"]').waitFor();
+    await page.locator(COMPOSER_EDITOR).waitFor();
   };
 
   const send = async (page: Page, line: string) => {
-    await page.locator('.acpmux-composer-prompt [contenteditable="true"]').click();
+    await page.locator(COMPOSER_EDITOR).click();
     await page.keyboard.type(line);
     await page.keyboard.press("Enter");
   };
