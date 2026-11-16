@@ -242,6 +242,34 @@ struct TerminalKeyboardCopyModeResolverTests {
             ) == .searchNext
         )
     }
+
+    @Test func controlCExitsLikeEscape() {
+        for hasSelection in [false, true] {
+            #expect(
+                terminalKeyboardCopyModeAction(
+                    keyCode: 8,
+                    charactersIgnoringModifiers: "c",
+                    modifiers: [.control],
+                    hasSelection: hasSelection
+                ) == .exit
+            )
+        }
+    }
+
+    @Test func controlCExitsAndClearsPendingInput() {
+        var state = TerminalKeyboardCopyModeInputState(countPrefix: 3, pendingG: true)
+
+        #expect(
+            terminalKeyboardCopyModeResolve(
+                keyCode: 8,
+                charactersIgnoringModifiers: "c",
+                modifiers: [.control],
+                hasSelection: false,
+                state: &state
+            ) == .perform(.exit, count: 1)
+        )
+        #expect(state == TerminalKeyboardCopyModeInputState())
+    }
 }
 
 @Suite("Terminal keyboard copy mode cursor")
