@@ -1586,15 +1586,14 @@ async fn dispatch_request_with_identity(
             {
                 let Some(peer) = hub.peer_by_name(peer_name) else {
                     // A machine of this person that only the mesh hub reaches (`mesh_start.rs`).
-                    if let Some(reply) =
-                        super::mesh_relay::start::new_on(
-                            hub,
-                            conn,
-                            &params,
-                            peer_name,
-                            created_by_stamp(hub, conn, &params),
-                        )
-                        .await
+                    if let Some(reply) = super::mesh_relay::start::new_on(
+                        hub,
+                        conn,
+                        &params,
+                        peer_name,
+                        created_by_stamp(hub, conn, &params),
+                    )
+                    .await
                     {
                         return reply;
                     }

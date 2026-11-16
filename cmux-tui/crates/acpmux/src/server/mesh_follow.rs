@@ -110,9 +110,10 @@ pub(crate) fn follow_with(
         running.insert(id.clone(), nudge.clone());
         nudge
     };
-    let (hub, conn) = (hub.clone(), conn.clone());
-    tokio::spawn(async move {
-        run(&hub, &conn, &chat, after, feed.as_ref(), &nudge).await;
+    let (owner, conn) = (hub.clone(), conn.clone());
+    // The hub owns the follower: it ends with the chat's stream, or with the daemon.
+    hub.scope.spawn_named("hub-chat-follow", async move {
+        run(&owner, &conn, &chat, after, feed.as_ref(), &nudge).await;
         RUNNING.lock_or_recover().remove(&id);
     });
 }

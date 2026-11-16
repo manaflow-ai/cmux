@@ -33,8 +33,8 @@
 //!
 //! A marked start goes as control body version 2 (`mesh_control::MARKED_START_VERSION`): a
 //! machine takes it only if it keeps that gate. One on an older cmux refuses the version before
-//! anything runs, and the pane hears `mesh.trust_unsupported`: update cmux on that machine. The
-//! hub's book carries no feature list, so the start itself is the probe.
+//! anything runs, and the pane hears `mesh.trust_unsupported`: Check for Updates on that
+//! machine. The hub's book carries no feature list, so the start itself is the probe.
 
 use super::*;
 use crate::mesh::{HubError, Sender};
@@ -80,8 +80,8 @@ async fn start(
     // there), a full-access starter's policy or the person's own start level
     // (`hub/full_access_children.rs`), and who creates it.
     super::super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut start);
-    // let person = super::super::requests::person_start(conn, params);
-    // hub.forward_start_policy(person, conn.caller(), &mut start).await;
+    let person = super::super::requests::person_start(conn, params);
+    hub.forward_start_policy(person, conn.caller(), &mut start).await;
     crate::hub::merge_mux_meta(&mut start, created_by);
     let start = start
         .as_object()
@@ -123,7 +123,8 @@ async fn start(
                         -32003,
                         format!(
                             "{host} runs an older cmux that cannot keep this chat behind its \
-                             folder-trust gate: update cmux on {host}"
+                             folder-trust gate: on {host}, choose Check for Updates in the \
+                             cmux app, then start the chat again"
                         ),
                     )
                     .with_data(json!({"reason": "mesh.trust_unsupported", "peer": host})));

@@ -189,8 +189,10 @@ impl Client {
         let id = self.2;
         self.0.send(crate::rpc::Message::request(id, m, params).to_line()).await.unwrap();
         loop {
-            let line =
-                tokio::time::timeout(Duration::from_secs(120), self.1.recv()).await.unwrap().unwrap();
+            let line = tokio::time::timeout(Duration::from_secs(120), self.1.recv())
+                .await
+                .unwrap()
+                .unwrap();
             let value: Value = serde_json::from_str(&line).unwrap();
             if value.get("id") == Some(&json!(id)) {
                 return value;
@@ -442,7 +444,7 @@ async fn a_pane_start_to_a_machine_on_an_older_cmux_is_refused_with_update_advic
         .await;
     assert_eq!(refused["error"]["data"]["reason"], "mesh.trust_unsupported", "{refused}");
     let said = refused["error"]["message"].as_str().unwrap_or_default();
-    assert!(said.contains("update cmux on machine-b"), "{said}");
+    assert!(said.contains("on machine-b, choose Check for Updates"), "{said}");
     assert!(b.resolve("older").is_err(), "a chat started on a machine that cannot gate it");
     b.shutdown_all().await;
 }
