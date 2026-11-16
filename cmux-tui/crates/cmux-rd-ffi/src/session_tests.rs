@@ -390,7 +390,7 @@ fn the_stage_ledger_joins_host_times_with_decode_and_present_notes() {
     // SAFETY: live session; a zero-capacity buffer only reports the size.
     assert_eq!(
         unsafe { cmux_rd_session_stage_ledger(s.0, std::ptr::null_mut(), 0, &mut len) },
-        crate::CMUX_RD_ERR_BUFFER
+        CMUX_RD_ERR_BUFFER
     );
     let mut buf = vec![0u8; len];
     // SAFETY: live session, writable buffer of `len` bytes.
