@@ -531,6 +531,9 @@ fn process_frame(
     let value: serde_json::Value = frame.decode_json()?;
     validate_identifiers(&value)?;
     let request: Request = frame.decode_json()?;
+    if let Request::Act(act) = &request {
+        act.validate().map_err(|message| ConnError::InvalidRequest(message.into()))?;
+    }
     if role == Role::Peer {
         validate_peer_request(&request)?;
     }
@@ -541,6 +544,7 @@ fn process_frame(
         Request::Sub(sub) => require_surface(&sub.stream, surfaces)?,
         Request::Page(page) => require_surface(&page.stream, surfaces)?,
         Request::Blob(blob) => require_surface(&blob.stream, surfaces)?,
+        Request::Act(act) => require_surface(&act.chat, surfaces)?,
         _ => {}
     }
     match request {
@@ -658,6 +662,11 @@ fn process_frame(
                 ));
             }
         }
+        // The wire shape is additive, but execution remains explicitly
+        // default-off until the action surface is wired to a daemon writer.
+        Request::Act(_) => {
+            return Err(ConnError::InvalidRequest("act is disabled".into()));
+        }
     }
     Ok(())
 }
@@ -687,6 +696,9 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
             Ok(())
         }
         Request::Blob(_) => {
+            Err(ConnError::InvalidRequest("request is not allowed on a peer link".into()))
+        }
+        Request::Act(_) => {
             Err(ConnError::InvalidRequest("request is not allowed on a peer link".into()))
         }
         // Decision 266: the mirror's `live` walk, or this machine's rows by `all` or `keys`.
