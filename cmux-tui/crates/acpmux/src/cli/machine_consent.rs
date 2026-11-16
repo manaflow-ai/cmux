@@ -120,7 +120,6 @@ impl Authority {
     /// file an older build wrote (all of it was), or an answer to the signed-in machines ask. One
     /// that exists but cannot be read counts as set.
     fn set_here(&self) -> bool {
-        return exists(&self.root.join("consent.json")).unwrap_or(true); // red stub
         let path = self.root.join("consent.json");
         match exists(&path) {
             Ok(false) => return false,

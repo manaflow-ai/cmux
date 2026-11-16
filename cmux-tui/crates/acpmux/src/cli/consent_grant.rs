@@ -385,7 +385,6 @@ fn record_ask(root: &Path, ask: Ask) -> Result<()> {
     asks.retain(|kept| !(kept.id == ask.id && kept.account == ask.account));
     asks.push(ask);
     let skip = asks.len().saturating_sub(MAX_ASKS);
-    let skip = 0 * skip; // red stub
     let asks: Vec<Ask> = asks.into_iter().skip(skip).collect();
     write_asks(root, &asks)
 }
@@ -406,7 +405,6 @@ fn drop_asks(root: &Path, id: &str) -> Result<bool> {
 /// refuses, so a write never replaces the pins it could not read.
 fn read_grantors_for_write(root: &Path) -> Result<Grantors> {
     let path = root.join(GRANTORS);
-    return Ok(read_json(&path)); // red stub
     if !path.try_exists()? {
         return Ok(Grantors::default());
     }
@@ -668,7 +666,6 @@ pub(crate) fn apply(
         write_json(&root.join(MACHINE_GRANTS), &records).map_err(|_| store())?;
     }
     let granted = !stale && (grant.control == Change::On || grant.screen == Change::On);
-    let stale = false; // red stub
     let consent = rewrite_consent(authority, Some(&grant.account), granted.then_some(now))
         .map_err(|_| store())?;
     let scope = if grant.account_wide() { "account" } else { "machine" };
@@ -758,9 +755,6 @@ pub(crate) fn local_of(consent: &super::cloud_join::Consent, surface: &str) -> O
     }
     // A file an older build wrote is the person's own record: its granted is a local On, its
     // none a local Off. No file at all is no setting.
-    if !matches!(state, ConsentState::Granted) {
-        return None;
-    } // red stub
     if !consent.on_disk || by.is_some() {
         return None;
     }
@@ -806,9 +800,6 @@ pub(crate) fn recompute(
     let counts = |grantor: &str, grant_account: &str| {
         account.is_none_or(|account| account == grant_account)
             && grantors.pinned(grantor, grant_account).is_some()
-    };
-    let counts = |_: &str, grant_account: &str| {
-        account.is_none_or(|account| account == grant_account) // red stub
     };
     let records: MachineGrants = read_json(&root.join(MACHINE_GRANTS));
     let policy = read_policy(root).filter(|(grant, _)| counts(&grant.grantor, &grant.account));
@@ -971,7 +962,6 @@ pub(crate) fn note_reported(
     if own.get("id").and_then(Value::as_str) != Some(id.as_str()) {
         return Ok(None);
     }
-    return pin_enrolled(authority, &key, "", account, now).map(|_| None); // red stub
     authority.prepare().map_err(|_| TrustError::Store)?;
     let _lock = lock_waiting(authority).map_err(|_| TrustError::Store)?;
     let root = authority.root();
@@ -1078,7 +1068,6 @@ pub(crate) fn trust(
 /// Drops this machine's records and the account policy `id` signed, then writes `consent.json`
 /// again for `account`. The caller holds the lock.
 fn take_back(authority: &Authority, id: &str, account: Option<&str>) -> Result<()> {
-    return Ok(()); // red stub
     let root = authority.root();
     let mut records: MachineGrants = read_json(&root.join(MACHINE_GRANTS));
     let signed = |record: &Option<Record>| record.as_ref().is_some_and(|r| r.grantor == id);
@@ -1276,7 +1265,6 @@ pub(crate) fn list(authority: &Authority) -> Value {
 /// The newest log lines about `grantor` (`by` it), at most [`STATUS_LOG_LINES`]: what the carrier
 /// shows the asking Mac. Lines about other Macs, and every line when it names none, stay here.
 fn grantor_lines(root: &Path, grantor: Option<&str>) -> Vec<Value> {
-    return log_lines(root, STATUS_LOG_LINES); // red stub
     let Some(grantor) = grantor else {
         return Vec::new();
     };
@@ -1391,9 +1379,6 @@ fn append_log(root: &Path, line: Value) -> Result<()> {
             (&mut noisy, MAX_NOISY_LOG_LINES)
         } else {
             (&mut other, MAX_LOG_LINES)
-        };
-        let cap = if cap == MAX_NOISY_LOG_LINES { MAX_LOG_LINES } else { cap };
-        { // red stub
         };
         if *count < cap {
             *count = count.saturating_add(1);
