@@ -355,6 +355,12 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
     # not its own. The change is what it adds to feat-cmux-next (own fork..head); the commits between the app and
     # that fork are noted, and the web ABI check still compares the head with the app.
     own = git(repo, "merge-base", head, base_tip(repo), check=False)
+    if own == head and head != base:
+        # HEAD is itself on feat-cmux-next (a PR's merge commit, looked at after it landed): its change is its own
+        # first-parent diff, and everything between the app and that parent is lag, as for a PR branched later.
+        # Without this, own == head made `behind` false and every commit merged since the nightly counted as the
+        # change. A root commit keeps own == head.
+        own = git(repo, "rev-parse", "--verify", "-q", f"{head}^1", check=False) or head
     # fork == base: the app's commit is an ancestor of the head; own != base: the change forked later.
     behind = (fork == base and SHA.fullmatch(own or "") is not None and own not in (base, head)
               and subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", base, own],
