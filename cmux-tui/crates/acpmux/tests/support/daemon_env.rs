@@ -54,18 +54,25 @@ pub struct Process {
     keep: &'static [&'static str],
     inject: &'static [(&'static str, &'static str)],
     tools: &'static [&'static str],
+    only_test: Option<&'static str>,
 }
 
 impl Process {
     /// No agent starts in this process or in a daemon it starts without a
     /// choice of its own.
     pub const fn deny() -> Self {
-        Self { agents: Agents::Deny, keep: &[], inject: &[], tools: &[] }
+        Self { agents: Agents::Deny, keep: &[], inject: &[], tools: &[], only_test: None }
     }
 
     /// The process starts its own stand-in agents (a hub run in process).
     pub const fn stand_in() -> Self {
-        Self { agents: Agents::StandIn, keep: &[], inject: &[], tools: &[] }
+        Self { agents: Agents::StandIn, keep: &[], inject: &[], tools: &[], only_test: None }
+    }
+
+    /// A unit-test module may share this helper without changing unrelated unit tests'
+    /// process environment. Its ignored capture is invoked with this exact test filter.
+    pub const fn only_test(self, filter: &'static str) -> Self {
+        Self { only_test: Some(filter), ..self }
     }
 
     /// Host variables this process truly needs, kept as they are (each one
@@ -168,6 +175,11 @@ const _: Process = super::HERMETIC;
 /// environment, unless it already runs with it.
 #[cfg(unix)]
 pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
+    if let Some(filter) = process.only_test
+        && !args.iter().any(|arg| arg.to_str() == Some(filter))
+    {
+        return;
+    }
     use std::os::unix::process::CommandExt;
     // The daemon refuses a state folder that group or others may write (`config.rs`), so a test's
     // folders are private whatever umask its caller has (a lane VM's shell has 002). Before the

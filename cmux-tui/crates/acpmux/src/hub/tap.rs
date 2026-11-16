@@ -115,6 +115,11 @@ impl Hub {
         // This tap's number: once a Stop ended its agent, nothing it logs is a sign of work.
         let tap_number = session.taps.fetch_add(1, Ordering::SeqCst) + 1;
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            #[cfg(all(test, unix))]
+            record_capture_tests::before(
+                &tap_session.id,
+                awaiting_first_delta.load(Ordering::SeqCst),
+            );
             let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
@@ -515,3 +520,7 @@ use acpmux_core::chat::record::times_request;
 #[cfg(test)]
 #[path = "tap_bodies_tests.rs"]
 mod bodies_tests;
+
+#[cfg(all(test, unix))]
+#[path = "tap_record_capture_tests.rs"]
+mod record_capture_tests;
