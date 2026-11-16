@@ -77,7 +77,7 @@ import Testing
         }
         // Install an Earlier Nightly… (Leo 2026-11-02); one Quit (CMUX-630, Leo 2026-11-15).
         #expect(counts[.app] == 9)
-        #expect(counts[.file] == 15)
+        #expect(counts[.file] == 16) // Screen Sharing, beside Connect to Machine… and Add Device…
         #expect(counts[.edit] == 7)
         #expect(counts[.view] == 10) // the right sidebar and Feed rows left with #41025
         #expect(counts[.server] == 2)
