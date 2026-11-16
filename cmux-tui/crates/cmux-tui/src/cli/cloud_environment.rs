@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use cmux_cloud_environment::{Environment, Resolver, check_create_capabilities, launch_backend};
+use cmux_cloud_environment::{Environment, Resolver, launch_backend};
 use cmux_json::JsonSet as _;
 use serde_json::Value;
 
@@ -178,13 +178,8 @@ fn run(command: Command, global: &GlobalArgs, cache_first: bool) -> Result<Value
         .enable_all()
         .build()
         .map_err(|error| format!("create client-config runtime: {error}"))?;
-    let selection = if cache_first && reads {
-        runtime.block_on(resolver.client_config_cache_first(selection))?
-    } else {
-        runtime.block_on(resolver.client_config(selection))?
-    };
     if let Some((_, params)) = check_create {
-        check_create_capabilities(&selection, &params)?;
+        let selection = runtime.block_on(resolver.check_create(selection, &params))?;
         return Ok(serde_json::json!({
             "check_create": true,
             "ok": true,
@@ -192,6 +187,11 @@ fn run(command: Command, global: &GlobalArgs, cache_first: bool) -> Result<Value
             "config_source": selection.config_source,
         }));
     }
+    let selection = if cache_first && reads {
+        runtime.block_on(resolver.client_config_cache_first(selection))?
+    } else {
+        runtime.block_on(resolver.client_config(selection))?
+    };
     let scheduled = if switching { apply(global, &selection)? } else { false };
     let changed = switching
         && previous.is_none_or(|previous| previous.auth_namespace != selection.auth_namespace);

@@ -1940,6 +1940,7 @@ jobs:
             python3 scripts/cmux-next/tests/test_swift_logic_lines.py
             python3 scripts/cmux-next/tests/test_tab_switch_frames.py
             python3 scripts/cmux-next/tests/test_tab_switch_judge.py
+            python3 scripts/cmux-next/tests/test_tab_switch_settle.py
             python3 scripts/cmux-next/tests/test_tag_teardown.py
             python3 scripts/cmux-next/tests/test_teardown_clone_cleanup.py
             python3 scripts/cmux-next/tests/test_terminal_throughput_bench.py

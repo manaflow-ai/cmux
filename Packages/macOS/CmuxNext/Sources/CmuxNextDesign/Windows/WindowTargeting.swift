@@ -1,22 +1,26 @@
-import AppKit
+public import AppKit
 
 /// The cmux window a window action (Zoom, Select Next/Previous Window, Close
 /// All Windows) acts on: the key window, else the frontmost cmux window,
 /// never simply the first window opened (nxdog47: Zoom hit the first window
 /// while the app was in the background).
-struct WindowTargeting {
-    var keyWindow: NSWindow?
+public struct WindowTargeting {
+    public var keyWindow: NSWindow?
     /// Every app window, front to back (`NSApp.orderedWindows`).
-    var ordered: [NSWindow]
+    public var ordered: [NSWindow]
     /// The cmux shell windows, in the order they were opened.
-    var shells: [NSWindow]
+    public var shells: [NSWindow]
+
+    public init(keyWindow: NSWindow?, ordered: [NSWindow], shells: [NSWindow]) {
+        (self.keyWindow, self.ordered, self.shells) = (keyWindow, ordered, shells)
+    }
 
     @MainActor
-    static func current(_ shells: [NSWindow]) -> WindowTargeting {
+    public static func current(_ shells: [NSWindow]) -> WindowTargeting {
         WindowTargeting(keyWindow: NSApp.keyWindow, ordered: NSApp.orderedWindows, shells: shells)
     }
 
-    var target: NSWindow? {
+    public var target: NSWindow? {
         if let keyWindow, shells.contains(where: { $0 === keyWindow }) { return keyWindow }
         return frontToBack.first
     }
@@ -30,7 +34,7 @@ struct WindowTargeting {
     /// The shell window `offset` places from the target in the order of `shells`, wrapping; nil with fewer
     /// than two windows. That order does not change when a window comes to the front, so repeated presses
     /// reach each window; front to back, the window a press leaves is next again and a third is not reached.
-    func cycled(_ offset: Int) -> NSWindow? {
+    public func cycled(_ offset: Int) -> NSWindow? {
         guard shells.count > 1 else { return nil }
         let current = target.flatMap { window in shells.firstIndex { $0 === window } } ?? 0
         return shells[((current + offset) % shells.count + shells.count) % shells.count]
@@ -39,7 +43,7 @@ struct WindowTargeting {
     /// Closes `window` the way its close button would (its delegate's
     /// `windowShouldClose` decides), also when the window has no close button.
     @MainActor
-    static func close(_ window: NSWindow) {
+    public static func close(_ window: NSWindow) {
         guard window.delegate?.windowShouldClose?(window) ?? true else { return }
         window.close()
     }
