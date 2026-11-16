@@ -21,6 +21,8 @@ use std::thread::JoinHandle;
 /// One request for the encode thread.
 struct Job {
     req: EncodeRequest,
+    /// When the engine's gate released the request (protocol clock, µs).
+    released_us: u64,
     /// Halve the encoder's bitrate before this frame's target is set (the engine dropped a
     /// frame too large to send).
     halve_first: bool,
@@ -38,7 +40,11 @@ pub struct Frame {
     pub idr: bool,
     /// When the capture ended, on the protocol clock in µs (the frame's timestamp).
     pub t_capture_us: u64,
-    /// When the encode ended, on the protocol clock in µs.
+    /// When the engine's gate released this frame's request, on the protocol clock in µs.
+    pub released_us: u64,
+    /// When the encoder was handed the picture, on the protocol clock in µs.
+    pub encode_start_us: u64,
+    /// When the encode ended (the bitstream was ready), on the protocol clock in µs.
     pub encoded_us: u64,
     /// The source's display and arrival times of the picture (measurement only).
     pub picked_times: Option<(u64, u64)>,
@@ -95,7 +101,7 @@ pub struct EncodeThread {
     /// The thread has a job.
     busy: bool,
     /// Requests the engine released while the thread was busy, oldest first.
-    queue: VecDeque<EncodeRequest>,
+    queue: VecDeque<(EncodeRequest, u64)>,
     halve_next: bool,
     name: String,
     kbps: u32,
@@ -153,7 +159,7 @@ impl EncodeThread {
 
     /// Encodes `req` after the frames already handed over; never waits.
     pub fn submit(&mut self, req: EncodeRequest) {
-        self.queue.push_back(req);
+        self.queue.push_back((req, now_ns() / 1000));
         self.start_next();
     }
 
@@ -183,8 +189,8 @@ impl EncodeThread {
         if self.busy {
             return;
         }
-        let Some(req) = self.queue.pop_front() else { return };
-        let job = Job { req, halve_first: std::mem::take(&mut self.halve_next) };
+        let Some((req, released_us)) = self.queue.pop_front() else { return };
+        let job = Job { req, released_us, halve_first: std::mem::take(&mut self.halve_next) };
         // The thread has no job (busy is false), so the one slot is free: this never waits.
         // A send error means the thread ended; take_done reports it.
         if let Some(jobs) = &self.jobs {
@@ -230,6 +236,8 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
         access_unit,
         idr,
         t_capture_us,
+        released_us: job.released_us,
+        encode_start_us: t0 / 1000,
         encoded_us: t1 / 1000,
         picked_times: source.picked_times(),
         encode_ms: (t1 - t0) as f64 / 1e6,

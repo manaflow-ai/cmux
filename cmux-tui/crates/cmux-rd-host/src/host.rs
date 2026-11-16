@@ -504,6 +504,8 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
+    // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
+    host_caps.extend([caps::CLOCK, caps::LEDGER]);
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
