@@ -21,7 +21,7 @@ name: cmux-next hot verify
 #     build-fleet/pr_capture/fleet-step-hot-verify.sh (a display worker copies the NEXT nightly, applies the
 #     change with the engine from the feat-cmux-next tip, shoots, clicks, records) and reads its out.tar. It
 #     does not wait for web (the worker serves the head's web from its own checkout), but a rust look waits for
-#     the rust job: a pr: source has no cargo build on the worker, so the daemon comes only from the published
+#     the rust job: the worker looks at a sha: source, which gets no cargo build, so the daemon comes only from the published
 #     tree, and 6 of 8 looks that failed on a worker (2026-11-15/16) had started before it was published.
 #   - publish: the pr-media environment (it admits only the protected branches) checks every file with the
 #     shared pr-media privacy check (the worker's own text reader's lines too), uploads through
