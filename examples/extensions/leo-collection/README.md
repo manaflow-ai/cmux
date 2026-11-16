@@ -4,13 +4,16 @@ A riced-up set of cmux extensions, and a look that ties them together. Every pie
 example on the public SDK: read one, copy it, make your own. None of it is in the app by default;
 you put it on live and take it off with one command.
 
-| Piece | What it is | On its own |
-| --- | --- | --- |
-| [Clock](../leo-clock) | A big animated clock and the world's time zones | `cmux ext dev examples/extensions/leo-clock` |
-| [Weather](../leo-weather) | Live, animated conditions where you are | `cmux ext dev examples/extensions/leo-weather` |
-| [Gacha](../leo-gacha) | Pull a Chief: rarity glow, confetti, a collection log | `cmux ext dev examples/extensions/leo-gacha` |
-| [Usage](../leo-usage) | Tokens and spend across all your agents | `cmux ext dev examples/extensions/leo-usage` |
-| [Theme](../../customize/leo) | The look: dusk, daylight or neon | `cmux customize use examples/customize/leo/dusk.json` |
+| Piece | What it is | On its own | Source |
+| --- | --- | --- | --- |
+| [Clock](../leo-clock) | A big animated clock and the world's time zones | `cmux ext dev examples/extensions/leo-clock` | [#44206](https://github.com/manaflow-ai/cmux/pull/44206) |
+| [Weather](../leo-weather) | Live, animated conditions where you are | `cmux ext dev examples/extensions/leo-weather` | [#44224](https://github.com/manaflow-ai/cmux/pull/44224) |
+| [Gacha](../leo-gacha) | Pull a Chief: rarity glow, confetti, a collection log | `cmux ext dev examples/extensions/leo-gacha` | [#44199](https://github.com/manaflow-ai/cmux/pull/44199) |
+| [Usage](../leo-usage) | Tokens and spend across all your agents | `cmux ext dev examples/extensions/leo-usage` | signal [#44145](https://github.com/manaflow-ai/cmux/pull/44145) |
+| [Theme](../../customize/leo) | The look: dusk, daylight or neon | `cmux customize use examples/customize/leo/dusk.json` | [#44176](https://github.com/manaflow-ai/cmux/pull/44176) |
+
+A piece whose PR has not merged yet is skipped by `install.sh`; until then, try it from its own
+branch: `cmux customize use pr:N`.
 
 ## All of it, one command
 
