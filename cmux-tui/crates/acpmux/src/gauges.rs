@@ -67,7 +67,7 @@ impl ThreadStats {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn thread_stats() -> ThreadStats {
     // SAFETY: both structures are plain integer outputs fully initialized by libc.
     let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
@@ -92,7 +92,7 @@ fn thread_stats() -> ThreadStats {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(not(target_os = "linux"))]
 fn thread_stats() -> ThreadStats {
     ThreadStats::default()
 }
