@@ -34,6 +34,7 @@ fn repo() -> PathBuf {
 /// - `fields/<id>`: fields of an existing action this crate changed, one JSON pointer into the
 ///   action's catalog row per line (`/surfacePlan/palette`); the dump keeps the old value of each.
 /// - `family/<family>/<id>`: a palette family member the dump does not have yet.
+/// - `removed/<id>`: an action this crate dropped that the exports still have; both leave its row out.
 ///
 /// Text after a `#` is a note (which pull request, why). Only `fields/` reads its lines; the
 /// other files may be empty. Each marker fails once the export has what it waits for, naming the
@@ -115,6 +116,34 @@ fn check_awaiting_repin(export: &[Value], file: &str) {
          (step A, docs/ci/app-ffi-release.md) waits for the re-pin: create each file (empty, or a \
          `# why` note): {missing:?}"
     );
+}
+
+/// Actions this crate dropped and the pinned app FFI still has: `awaiting-repin/removed/<id>`. The
+/// exports are written from the pinned catalog, so they keep these rows until the re-pin, which
+/// deletes the markers. Leo, 2026-11-16, on merging Screen Sharing's duplicate stop rows: "you
+/// can absolutely just do the reasonable/recommended thing in that case".
+static REMOVAL_AWAITING_REPIN: LazyLock<Vec<String>> = LazyLock::new(|| marked("removed"));
+
+/// `export` (one of the exports' action lists) without the rows on [`REMOVAL_AWAITING_REPIN`].
+/// Each marked id must be gone from this crate and still in `export`: one that is an action again,
+/// or that the export no longer has (the re-pin landed), names the marker to delete.
+fn without_removed(export: &[Value], file: &str) -> Vec<Value> {
+    for id in REMOVAL_AWAITING_REPIN.iter() {
+        let path = marker("removed", id);
+        assert!(
+            cmux_action_catalog::find(id).is_none(),
+            "{id} is awaiting a removal re-pin but is an action: delete {path}"
+        );
+        assert!(
+            export.iter().any(|row| row["id"] == *id),
+            "{file} no longer has {id}: the re-pin landed, so delete {path}"
+        );
+    }
+    export
+        .iter()
+        .filter(|row| !row["id"].as_str().is_some_and(|id| listed(&REMOVAL_AWAITING_REPIN, id)))
+        .cloned()
+        .collect()
 }
 
 /// Actions whose default shortcut this crate has and the pinned app FFI does not yet:
@@ -257,6 +286,9 @@ fn first_difference(path: &str, a: &Value, b: &Value) -> Option<String> {
 #[test]
 fn english_catalog_equals_the_swift_dump() {
     let mut swift = read_json(&repo().join("plans/cmux-next/action-catalog.json"));
+    if let Some(actions) = swift.get_mut("actions").and_then(Value::as_array_mut) {
+        *actions = without_removed(actions, "action-catalog.json");
+    }
     // The Swift dump reflects each binding's parsed `when` clause too; the catalog keeps its text.
     if let Some(defaults) = swift.get_mut("key_binding_defaults").and_then(Value::as_object_mut) {
         for list in defaults.values_mut() {
@@ -422,7 +454,9 @@ fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
 #[test]
 fn action_list_export_matches() {
     let export = read_json(&repo().join("plans/cmux-next/action-surfaces.json"));
-    let rows = export["actions"].as_array().expect("actions");
+    let rows =
+        without_removed(export["actions"].as_array().expect("actions"), "action-surfaces.json");
+    let rows = &rows;
     check_awaiting_repin(rows, "action-surfaces.json");
     let rust: Vec<_> =
         cmux_action_catalog::actions().filter(|a| !listed(&AWAITING_REPIN, a.id)).collect();
