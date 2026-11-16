@@ -186,8 +186,8 @@ struct ComputerUseHelperStagingTests {
         let legacy = ComputerUseHelperStaging.legacy(bundleID: "com.cmuxterm.app.nightly", home: home)
         let upstream = ComputerUseHelperStaging.upstream(bundleID: "com.cmuxterm.app.nightly", home: home)
         let scope = ComputerUseHelperDaemon.scope("com.cmuxterm.app.nightly")
-        #expect(legacy.folder.path == "/Users/someone/Library/Application Support/cmux/cmux-cua/helper/next-\(scope)")
-        #expect(upstream.folder.path == "/Users/someone/Library/Application Support/cmux/cmux-cua/helper/next-v2-\(scope)")
+        #expect(legacy.folder.path == "/Users/someone/Library/Application Support/cmux-next/cmux-cua/helper/next-\(scope)")
+        #expect(upstream.folder.path == "/Users/someone/Library/Application Support/cmux-next/cmux-cua/helper/next-v2-\(scope)")
         #expect(!legacy.folder.path.contains(".app"))
     }
 }
@@ -340,7 +340,7 @@ private struct StagingFixture {
         // A short real path (no /var -> /private/var link in the way).
         root = URL(fileURLWithPath: "/private/tmp/cua-staging-\(UUID().uuidString.prefix(8))", isDirectory: true)
         source = root.appending(path: "cmux NIGHTLY.app/Contents/Library/\(Self.appName)", directoryHint: .isDirectory)
-        folder = root.appending(path: "Library/Application Support/cmux/cmux-cua/helper/next-0123456789abcdef", directoryHint: .isDirectory)
+        folder = root.appending(path: "Library/Application Support/cmux-next/cmux-cua/helper/next-0123456789abcdef", directoryHint: .isDirectory)
         let recorder = recorder
         staging = ComputerUseHelperStaging(folder: folder, home: root, operations: .init(
             copy: { source, destination in
