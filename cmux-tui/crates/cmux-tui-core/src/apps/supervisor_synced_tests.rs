@@ -20,6 +20,7 @@ struct FakeCloud {
     sent: Mutex<Vec<PendingOp>>,
     revision: AtomicU64,
     subscribes: AtomicU64,
+    listed: Mutex<Vec<AppKvRow>>,
 }
 
 impl AppKvCloud for FakeCloud {
@@ -40,6 +41,15 @@ impl AppKvCloud for FakeCloud {
     }
 
     fn resync(&self) {}
+
+    /// `listed`, one row a page, read at head revision 9.
+    fn list(&self, after: u64) -> Result<(Vec<AppKvRow>, Option<u64>, u64), SendError> {
+        let listed = self.listed.lock().unwrap().clone();
+        let page: Vec<AppKvRow> =
+            listed.into_iter().filter(|r| r.revision > after).take(1).collect();
+        let next = page.last().map(|r| r.revision);
+        Ok((page, next, 9))
+    }
 }
 
 fn until(what: &str, done: impl Fn() -> bool) {
@@ -179,4 +189,43 @@ fn uninstall_clears_the_synced_replica_and_its_queued_writes() {
     let storage = f.supervisor.storage();
     assert!(!storage.as_ref().unwrap().has_replica(LOCAL));
     assert!(storage.as_ref().unwrap().pending(10).is_empty());
+}
+
+fn upserted(write: AppKvWrite) -> AppKvRow {
+    match write {
+        AppKvWrite::Upsert(row) => row,
+        AppKvWrite::Delete { .. } => unreachable!(),
+    }
+}
+
+/// A snapshot with only the owner's newest rows (its head counts more) pages
+/// `appkv.list` before a row absent from it is removed.
+#[test]
+fn a_partial_snapshot_pages_the_list_before_removing_rows() {
+    let (f, cloud) = synced_fixture();
+    *cloud.account.lock().unwrap() = Some("user_1".into());
+    let event =
+        |writes| CloudEvent::AppKvChanged { seq: 1, writes, account: Some("user_1".into()) };
+    f.supervisor.on_appkv_event(&event(vec![
+        row(TODO, "old", json!(1), 1),
+        row(TODO, "gone", json!(2), 2),
+    ]));
+    let newest = upserted(row(TODO, "new", json!(3), 8));
+    *cloud.listed.lock().unwrap() = vec![upserted(row(TODO, "old", json!(1), 1)), newest.clone()];
+    f.supervisor.on_appkv_event(&CloudEvent::AppKvReset {
+        seq: 2,
+        rows: Some(vec![newest]),
+        revision: 9,
+        complete: false,
+        account: Some("user_1".into()),
+    });
+    // The part alone removes nothing.
+    assert_eq!(
+        f.call("t", "app.storage.get", json!({ "key": "gone" }), false)["body"]["value"],
+        json!(2)
+    );
+    f.supervisor.appkv_wrote();
+    until("the list to page", || {
+        f.call("t", "app.storage.keys", json!({}), false)["body"]["value"] == json!(["new", "old"])
+    });
 }

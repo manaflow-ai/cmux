@@ -828,6 +828,22 @@ impl CloudConversations {
         mutation_data(self.post("/v1/ops", &body)?)
     }
 
+    /// One page of the person's synced storage rows (`appkv.list`) after
+    /// `after_revision`: the rows past a snapshot's newest ones.
+    pub fn appkv_list(&self, after_revision: u64, limit: u32) -> Result<Value, CloudError> {
+        if !(1..=500).contains(&limit) {
+            return Err(CloudError::BadRequest("limit must be 1-500".into()));
+        }
+        let params = json!({"after_revision": after_revision, "limit": limit});
+        let reply = self.post("/v1/read", &contract::read_body("appkv.list", params))?;
+        // The head revision the page was read at comes beside the value.
+        let (mut value, revision) = read_value(reply)?;
+        if value.get("revision").is_none() {
+            value.set("revision", revision);
+        }
+        Ok(value)
+    }
+
     /// Asks `target`'s owner for a snapshot once its socket is live (a
     /// subscriber that needs every row again). Nothing without a subscription.
     pub fn resync(&self, target: &Target) {

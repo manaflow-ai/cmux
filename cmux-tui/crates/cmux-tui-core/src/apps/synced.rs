@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 
 use super::storage::{Changed, PendingOp, SYNCED_SCOPE};
 use super::supervisor::{HostKey, Inner, Supervisor};
-use crate::cloud_conversations::{CloudError, CloudEvent, Target};
+use crate::cloud_conversations::{AppKvRow, AppKvWrite, CloudError, CloudEvent, Target};
 
 /// The event an app hears when another device changed its synced keys.
 pub(crate) const STORAGE_CHANGED: &str = "app.storage.changed";
@@ -58,6 +58,9 @@ pub(crate) trait AppKvCloud: Send + Sync {
     fn subscribe(&self);
     /// Asks the stream for a snapshot (an app started syncing here).
     fn resync(&self);
+    /// One `appkv.list` page after `after_revision`: its rows, the next
+    /// page's `after_revision` (`None` on the last) and the head revision.
+    fn list(&self, after_revision: u64) -> Result<(Vec<AppKvRow>, Option<u64>, u64), SendError>;
 }
 
 /// The flusher's wake signal.
@@ -90,6 +93,9 @@ pub(crate) struct SyncState {
     cloud: OnceLock<Arc<dyn AppKvCloud>>,
     signal: Arc<Signal>,
     started: AtomicBool,
+    /// A snapshot held only the newest rows: page `appkv.list` before the
+    /// next send.
+    needs_list: AtomicBool,
 }
 
 impl SyncState {
@@ -193,7 +199,17 @@ impl Supervisor {
         }
         let synced = |app: &str| Self::synced_locked(&inner, app);
         let applied = match event {
-            CloudEvent::AppKvReset { rows: Some(rows), .. } => storage.apply_snapshot(rows, synced),
+            CloudEvent::AppKvReset { rows: Some(rows), revision, complete: true, .. } => {
+                storage.apply_snapshot(rows, *revision, synced)
+            }
+            // Only the owner's newest rows: they apply, and `appkv.list`
+            // pages every row before anything absent is removed.
+            CloudEvent::AppKvReset { rows, .. } => {
+                self.synced.needs_list.store(true, Ordering::SeqCst);
+                let writes: Vec<AppKvWrite> =
+                    rows.iter().flatten().cloned().map(AppKvWrite::Upsert).collect();
+                storage.apply_writes(&writes, synced)
+            }
             CloudEvent::AppKvChanged { writes, .. } => storage.apply_writes(writes, synced),
             _ => Ok(Changed::new()),
         };
@@ -232,6 +248,10 @@ impl Supervisor {
     fn flush_once(&self) -> Flush {
         let Some(cloud) = self.synced.cloud.get().cloned() else { return Flush::Idle };
         let Some(account) = cloud.account() else { return Flush::Idle };
+        if self.synced.needs_list.swap(false, Ordering::SeqCst) && !self.list_all(cloud.as_ref()) {
+            self.synced.needs_list.store(true, Ordering::SeqCst);
+            return Flush::Retry;
+        }
         let ops = {
             let storage = self.storage();
             let Some(storage) = storage.as_ref() else { return Flush::Idle };
@@ -272,6 +292,39 @@ impl Supervisor {
             }
         }
         if full { Flush::More } else { Flush::Idle }
+    }
+
+    /// Pages every row (`appkv.list`) and applies them as one snapshot read
+    /// at the first page's head revision; `false` when the cloud did not answer.
+    fn list_all(&self, cloud: &dyn AppKvCloud) -> bool {
+        /// 500 rows a page: past this many pages the account is not one a
+        /// person's devices could have written (4 MiB per app, 256 apps).
+        const MAX_PAGES: usize = 10_000;
+        let (mut rows, mut after, mut head) = (Vec::new(), 0, None);
+        for _ in 0..MAX_PAGES {
+            let Ok((page, next, revision)) = cloud.list(after) else { return false };
+            head.get_or_insert(revision);
+            rows.extend(page);
+            match next {
+                Some(next) if next > after => after = next,
+                _ => break,
+            }
+        }
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let changed = {
+            let storage = self.storage();
+            let Some(storage) = storage.as_ref() else { return true };
+            let synced = |app: &str| Self::synced_locked(&inner, app);
+            match storage.apply_snapshot(&rows, head.unwrap_or(0), synced) {
+                Ok(changed) => changed,
+                Err(error) => {
+                    eprintln!("cmux-tui: synced app storage: {}", error.message);
+                    return true;
+                }
+            }
+        };
+        Self::publish_storage_changed_locked(&inner, &changed);
+        true
     }
 }
 
@@ -355,5 +408,14 @@ impl AppKvCloud for MuxCloud {
 
     fn resync(&self) {
         self.with(|service| service.resync(&Target::AppKv));
+    }
+
+    fn list(&self, after_revision: u64) -> Result<(Vec<AppKvRow>, Option<u64>, u64), SendError> {
+        let listed = self
+            .with(|service| service.appkv_list(after_revision, 500))
+            .ok_or_else(|| SendError::Retry("no cloud link".into()))?
+            .map_err(|error| SendError::Retry(error.to_string()))?;
+        crate::cloud_conversations::appkv_list_page(&listed)
+            .map_err(|error| SendError::Retry(error.to_string()))
     }
 }

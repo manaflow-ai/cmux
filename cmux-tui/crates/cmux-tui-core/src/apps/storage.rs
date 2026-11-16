@@ -76,6 +76,14 @@ fn replica(app: &str) -> String {
     hashed("kvs", app)
 }
 
+/// The owner's row key of `(app, key)`: base64url(sha256(app NUL key)),
+/// unpadded; a row that comes without one (an `appkv.list` page) gets it here.
+pub fn row_key(app: &str, key: &str) -> String {
+    use base64::Engine as _;
+    let digest = Sha256::digest(format!("{app}\0{key}").as_bytes());
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)
+}
+
 fn mint_key() -> String {
     let mut bytes = [0u8; 12];
     let _ = getrandom::fill(&mut bytes);
@@ -406,10 +414,12 @@ impl Storage {
     /// One stream row for an app that syncs here.
     fn apply_row(&self, row: &AppKvRow, changed: &mut Changed) -> Result<(), StorageError> {
         let table = self.ensure_replica(&row.app)?;
+        let row_key =
+            if row.row_key.is_empty() { row_key(&row.app, &row.key) } else { row.row_key.clone() };
         self.db
             .execute(
                 "INSERT OR REPLACE INTO appkv_rows (row_key, app, key) VALUES (?1, ?2, ?3)",
-                params![row.row_key, row.app, row.key],
+                params![row_key, row.app, row.key],
             )
             .map_err(failed)?;
         let value = serde_json::to_string(&row.value).map_err(failed)?;
@@ -507,17 +517,18 @@ impl Storage {
         Ok(changed)
     }
 
-    /// A stream snapshot: every row of the person's synced storage. A clean
-    /// row the snapshot does not hold is gone; a dirty one waits for its ack.
+    /// A snapshot (or a full `appkv.list`) read at head revision `upto`: every
+    /// row of the person's synced storage then. A clean row it does not hold
+    /// and no later event wrote is gone; a dirty one waits for its ack.
     pub fn apply_snapshot(
         &self,
         rows: &[AppKvRow],
+        upto: u64,
         synced: impl Fn(&str) -> bool,
     ) -> Result<Changed, StorageError> {
         let mut changed = Changed::new();
         let mut apps: BTreeSet<String> = self.replica_apps().into_iter().collect();
         apps.extend(rows.iter().map(|row| row.app.clone()));
-        let _ = self.db.execute("DELETE FROM appkv_rows", []);
         for app in apps.iter().filter(|app| synced(app)) {
             let table = self.ensure_replica(app)?;
             let held: BTreeSet<&str> =
@@ -525,10 +536,10 @@ impl Storage {
             let clean: Vec<String> = {
                 let mut statement = self
                     .db
-                    .prepare(&format!("SELECT key FROM {table} WHERE dirty = 0"))
+                    .prepare(&format!("SELECT key FROM {table} WHERE dirty = 0 AND revision <= ?1"))
                     .map_err(failed)?;
                 statement
-                    .query_map([], |row| row.get::<_, String>(0))
+                    .query_map(params![upto as i64], |row| row.get::<_, String>(0))
                     .map_err(failed)?
                     .filter_map(Result::ok)
                     .collect()

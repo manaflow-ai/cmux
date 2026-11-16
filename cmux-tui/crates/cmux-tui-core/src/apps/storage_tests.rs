@@ -56,10 +56,6 @@ struct Cloud {
     keys_seen: BTreeSet<String>,
 }
 
-fn row_key(app: &str, key: &str) -> String {
-    format!("{app}\u{1f}{key}")
-}
-
 impl Cloud {
     /// `POST /v1/ops`: a key it decided before answers again, unchanged.
     fn send(&mut self, op: &PendingOp) -> u64 {
@@ -252,7 +248,7 @@ fn a_stale_stream_row_does_not_undo_a_local_write() {
     let mut before = cloud.snapshot();
     before[0].value = json!("old");
     before[0].revision = 1;
-    assert!(mac.storage.apply_snapshot(&before, synced).unwrap().is_empty());
+    assert!(mac.storage.apply_snapshot(&before, cloud.revision, synced).unwrap().is_empty());
     assert_eq!(mac.get("k"), json!("new"));
 }
 
@@ -301,13 +297,13 @@ fn a_snapshot_replaces_clean_rows_and_keeps_pending_ones() {
     // Rows the mac never heard deleted (it missed the events) go with the snapshot.
     cloud.rows.remove(&(APP.to_string(), "a".to_string()));
     mac.set("mine", json!(true));
-    let changed = mac.storage.apply_snapshot(&cloud.snapshot(), synced).unwrap();
+    let changed = mac.storage.apply_snapshot(&cloud.snapshot(), cloud.revision, synced).unwrap();
     assert_eq!(changed[APP], BTreeSet::from(["a".to_string()]));
     assert_eq!(mac.keys(), json!(["b", "mine"]));
     // An app that does not sync here keeps nothing.
     let mut rows = cloud.snapshot();
     rows.push(AppKvRow { app: "cmux/other".into(), ..rows[0].clone() });
-    assert!(mac.storage.apply_snapshot(&rows, synced).unwrap().is_empty());
+    assert!(mac.storage.apply_snapshot(&rows, cloud.revision, synced).unwrap().is_empty());
     assert!(!mac.storage.has_replica("cmux/other"));
     assert_eq!(mac.keys(), json!(["b", "mine"]));
 }
@@ -366,4 +362,29 @@ fn another_account_drops_the_previous_accounts_replica() {
     assert!(changed[APP].contains("k"));
     assert_eq!(device.keys(), json!([]));
     assert!(device.storage.pending(10).is_empty(), "user_a's writes never go to user_b");
+}
+
+#[test]
+fn a_snapshot_never_removes_a_row_written_after_it() {
+    let mut cloud = Cloud::default();
+    let (mut mac, mut laptop) = (Device::new(), Device::new());
+    laptop.set("a", json!(1));
+    laptop.flush(&mut cloud);
+    let (old, at) = (cloud.snapshot(), cloud.revision);
+    laptop.set("b", json!(2));
+    laptop.flush(&mut cloud);
+    mac.read_stream(&cloud);
+    // A snapshot (or an `appkv.list` read) from before `b` was written.
+    assert!(mac.storage.apply_snapshot(&old, at, synced).unwrap().is_empty());
+    assert_eq!(mac.keys(), json!(["a", "b"]));
+    // Rows without the owner's row key (a list page) still map deletes back.
+    let mut listed = cloud.snapshot();
+    for row in &mut listed {
+        row.row_key.clear();
+    }
+    mac.storage.apply_snapshot(&listed, cloud.revision, synced).unwrap();
+    laptop.delete("b");
+    laptop.flush(&mut cloud);
+    mac.read_stream(&cloud);
+    assert_eq!(mac.keys(), json!(["a"]));
 }

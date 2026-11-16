@@ -590,6 +590,42 @@ pub(crate) fn appkv_snapshot_rows(frame: &Value) -> Option<Vec<AppKvRow>> {
     )
 }
 
+/// An `appkv` snapshot's head: `(revision, complete)`. The owner sends only
+/// its newest rows (by revision); the head's `apps[*].keys` count every row,
+/// so a snapshot with fewer rows than that is a part and `appkv.list` pages
+/// the rest.
+pub(crate) fn appkv_snapshot_head(frame: &Value, rows: usize) -> (u64, bool) {
+    let state = frame.get("state");
+    let revision = state.and_then(|s| s.get("revision")).and_then(Value::as_u64).unwrap_or(0);
+    let keys: u64 = state
+        .and_then(|s| s.get("apps"))
+        .and_then(Value::as_object)
+        .map(|apps| apps.values().filter_map(|app| app.get("keys")?.as_u64()).sum())
+        .unwrap_or(0);
+    (revision, keys <= rows as u64)
+}
+
+/// One `appkv.list` page: its rows, the `after_revision` of the next page
+/// (`None` on the last) and the head revision the page was read at. A row
+/// without its row key has an empty one (the replica derives it).
+pub fn appkv_list_page(value: &Value) -> Result<(Vec<AppKvRow>, Option<u64>, u64), CloudError> {
+    let rows = value
+        .get("rows")
+        .and_then(Value::as_array)
+        .ok_or_else(|| CloudError::Unavailable("appkv.list without rows".into()))?;
+    let rows = rows
+        .iter()
+        .filter_map(|entry| {
+            // `{key, row}` like a snapshot's, or the row itself.
+            let row_key = entry.get("row").and(entry.get("key")).and_then(Value::as_str);
+            appkv_row(row_key.unwrap_or_default(), entry.get("row").unwrap_or(entry))
+        })
+        .collect();
+    let next = value.get("next_after_revision").and_then(Value::as_u64);
+    let revision = value.get("revision").and_then(Value::as_u64).unwrap_or(0);
+    Ok((rows, next, revision))
+}
+
 /// The row writes of an `appkv` event frame, in order; `None` without effects.
 pub(crate) fn appkv_writes(frame: &Value) -> Option<Vec<AppKvWrite>> {
     let writes = frame.get("effects")?.get("writes")?.as_array()?;
@@ -666,6 +702,15 @@ mod appkv_tests {
         let delete = appkv_op_body("a", "k", None, "key2").unwrap();
         assert_eq!(delete["op"], "appkv.delete");
         assert!(appkv_op_body("a", "k", None, "").is_err());
+        // The head counts every row: a snapshot with fewer is a part.
+        let head = json!({"state":{"revision":12,"apps":{"cmux/todo":{"bytes":9,"keys":2}}}});
+        assert_eq!(appkv_snapshot_head(&head, 1), (12, false));
+        assert_eq!(appkv_snapshot_head(&head, 2), (12, true));
+        let page = json!({"rows":[{"app":"a","key":"k","value":1,"revision":3}],
+                          "next_after_revision":3,"revision":12});
+        let (rows, next, revision) = appkv_list_page(&page).unwrap();
+        assert_eq!((rows[0].row_key.as_str(), next, revision), ("", Some(3), 12));
+        assert!(appkv_list_page(&json!({})).is_err());
     }
 }
 

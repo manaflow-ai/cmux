@@ -14,8 +14,8 @@ use cmux_cloud_wire::{
 use serde_json::{Value, json};
 
 use super::contract::{
-    AppKvRow, AppKvWrite, Target, appkv_snapshot_rows, appkv_writes, conversation_change,
-    inbox_entries, mux_pending, mux_wakes, snapshot_parts,
+    AppKvRow, AppKvWrite, Target, appkv_snapshot_head, appkv_snapshot_rows, appkv_writes,
+    conversation_change, inbox_entries, mux_pending, mux_wakes, snapshot_parts,
 };
 use cmux_json::JsonSet as _;
 
@@ -58,6 +58,11 @@ pub enum CloudEvent {
     AppKvReset {
         seq: u64,
         rows: Option<Vec<AppKvRow>>,
+        /// The head revision the snapshot was taken at.
+        revision: u64,
+        /// Every row is here; `false`: the owner sent only its newest rows
+        /// and `appkv.list` pages the rest.
+        complete: bool,
         account: Option<String>,
     },
     /// One committed change of the `appkv:<user>` stream.
@@ -689,11 +694,18 @@ impl StreamState {
                     Target::Inbox => {
                         Translated::Emit(CloudEvent::InboxReset { seq, account: None })
                     }
-                    Target::AppKv => Translated::Emit(CloudEvent::AppKvReset {
-                        seq,
-                        rows: appkv_snapshot_rows(&frame),
-                        account: None,
-                    }),
+                    Target::AppKv => {
+                        let rows = appkv_snapshot_rows(&frame);
+                        let held = rows.as_ref().map_or(0, Vec::len);
+                        let (revision, complete) = appkv_snapshot_head(&frame, held);
+                        Translated::Emit(CloudEvent::AppKvReset {
+                            seq,
+                            complete: complete && rows.is_some(),
+                            rows,
+                            revision,
+                            account: None,
+                        })
+                    }
                     Target::Mux(_) => Translated::Emit(CloudEvent::MuxResynced {
                         seq,
                         pending: mux_pending(&frame),
