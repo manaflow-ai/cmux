@@ -34,7 +34,9 @@ pub(crate) fn with_watch<R>(session: &str, f: impl FnOnce(&mut Option<Watch>) ->
     let mut watch = watches.remove(session);
     let result = f(&mut watch);
     if watch.as_ref().is_some_and(|w| !w.is_empty()) {
-        watches.insert(session.to_owned(), watch.expect("watch present"));
+        if let Some(watch) = watch {
+            watches.insert(session.to_owned(), watch);
+        }
     }
     result
 }
