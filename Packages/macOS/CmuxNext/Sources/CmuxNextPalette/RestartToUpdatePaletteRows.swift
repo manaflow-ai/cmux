@@ -37,12 +37,28 @@ public struct RestartToUpdatePaletteRows {
 
     /// The catalog rows to leave out of this palette open.
     @MainActor func hiddenActionIDs() -> Set<ActionID> {
-        []
+        staged() == nil ? [] : Self.replacedWhileStaged
     }
 
     /// The row while an update waits, else none; `perform` runs the install.
     @MainActor func rows(perform: @escaping @MainActor (ActionInvocation) -> Void) -> [PaletteItem] {
-        []
+        guard let update = staged() else { return [] }
+        var item = PaletteItem(
+            id: Self.rowID,
+            title: update.title,
+            subtitle: update.version,
+            symbol: "arrow.clockwise.circle",
+            section: RegistryPaletteProvider.section(for: .settings),
+            keywords: Self.keywords,
+            primary: PaletteCommand(id: "restart", title: update.title, symbol: "return", effect: .perform {
+                perform(ActionInvocation(origin: .user))
+            }),
+            frecencyKey: Self.rowID,
+            // Ahead of an equal match while typing, as a daily catalog row is.
+            rankBias: RegistryPaletteProvider.dailyRankBias
+        )
+        item.aliases = ["restart to update", "update and restart", "install update"]
+        return [item]
     }
 
     /// Lists the row in `palette` (Cmd-Shift-P, Search) and hides the rows it stands in for while an update waits.
