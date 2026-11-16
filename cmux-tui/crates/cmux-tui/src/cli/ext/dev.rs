@@ -1212,7 +1212,26 @@ impl Session {
         let asked = self.daemon.send(json!({ "cmd": "apps-reload-local" }))?;
         self.daemon.wait(Instant::now() + PICKUP_DEADLINE, |value| {
             if value.get("id").and_then(Value::as_str) == Some(asked.as_str()) {
-                return (value.field("ok").as_bool() == Some(true)).then_some(Ok(()));
+                if value.field("ok").as_bool() != Some(true) {
+                    return None;
+                }
+                let data = value.field("data");
+                if data.field("safeMode").as_bool() == Some(true) {
+                    return Some(Err(Problem::message(
+                        "cmux is in safe mode: it reloads no extension until safe mode ends",
+                    )));
+                }
+                let refused =
+                    data.field("rejected").as_array().into_iter().flatten().find_map(|r| {
+                        (r.field("dir").as_str() == Some(folder.as_str()))
+                            .then(|| r.field("issue").as_str().unwrap_or("refused").to_owned())
+                    });
+                return Some(match refused {
+                    Some(issue) => {
+                        Err(Problem { file: Some(V1.into()), ..Problem::message(issue) })
+                    }
+                    None => Ok(()),
+                });
             }
             let event = value.get("event").and_then(Value::as_str)?;
             let app = value.get("app").and_then(Value::as_str);

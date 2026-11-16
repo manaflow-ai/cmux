@@ -32,7 +32,7 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, PoisonError, Weak};
 
 use notify::event::{AccessKind, AccessMode, EventKind};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::catalog::{self, CUSTOMIZE_APP, Package};
 use super::mirror::{self, Op, Source};
@@ -80,10 +80,31 @@ impl Supervisor {
     /// just saved), so it runs at user-initiated QoS, as acpmux's reads for a
     /// chat opened on screen do (`qos::on_screen`), ahead of default-priority
     /// builds; then the thread's own QoS comes back.
-    pub(crate) fn reload_local_apps_now(&self) {
+    ///
+    /// Answers what an asker cannot read from the pass's events: safe mode
+    /// held the pass (`safeMode`), and the watched folders the catalog
+    /// refused (`rejected`, each `{dir, issue}`; a refused new folder makes
+    /// no event, since it never had a print).
+    pub(crate) fn reload_local_apps_now(&self) -> Value {
+        self.reload_local_apps_now_with(|_| {})
+    }
+
+    /// `reload_local_apps_now` from the last pass's prints as `adjust` leaves
+    /// them: a rollback drops its app's print so it reads as changed.
+    pub(crate) fn reload_local_apps_now_with(&self, adjust: impl FnOnce(&mut Prints)) -> Value {
         let _pass = self.local_reload_pass.lock().unwrap_or_else(PoisonError::into_inner);
-        let prints = self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_prints.clone();
-        on_screen(|| self.reload_local_apps(&prints));
+        let mut prints =
+            self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_prints.clone();
+        adjust(&mut prints);
+        if self.safe_mode_on() {
+            return json!({ "safeMode": true, "rejected": [] });
+        }
+        let (_, rejected) = on_screen(|| self.pass(&prints, catalog::load));
+        let rejected: Vec<Value> = rejected
+            .into_iter()
+            .map(|(dir, issue)| json!({ "dir": dir.display().to_string(), "issue": issue }))
+            .collect();
+        json!({ "safeMode": false, "rejected": rejected })
     }
 
     /// Reads the catalog again and applies what changed in local apps since
@@ -99,14 +120,30 @@ impl Supervisor {
         prints: &Prints,
         load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
     ) -> Prints {
+        self.pass(prints, load).0
+    }
+
+    /// One pass: the new fingerprints, and the watched folders the catalog
+    /// refused with why.
+    fn pass(
+        &self,
+        prints: &Prints,
+        load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
+    ) -> (Prints, Vec<(PathBuf, String)>) {
         // Safe mode: nothing reloads. The prints stay as they were, so the
         // saves made meanwhile apply when it ends (`safe_mode.rs`).
         if self.safe_mode_on() {
-            return prints.clone();
+            return (prints.clone(), Vec::new());
         }
         let before = PrintsBefore::take(&self.config.sources);
         let catalog = load(&self.config.sources);
         let next = before.of(&self.config.sources, &catalog);
+        let rejected: Vec<(PathBuf, String)> = catalog
+            .rejected
+            .iter()
+            .filter(|(dir, _)| is_watched_dir(&self.config.sources, dir))
+            .cloned()
+            .collect();
         let changed: Vec<String> = next
             .iter()
             .filter(|(id, print)| prints.get(*id) != Some(*print))
@@ -115,7 +152,7 @@ impl Supervisor {
         let removed: Vec<String> =
             prints.keys().filter(|id| !next.contains_key(*id)).cloned().collect();
         if changed.is_empty() && removed.is_empty() {
-            return next;
+            return (next, rejected);
         }
         let refused = self.refused_saves(&changed, &catalog);
         let outs = {
@@ -178,7 +215,7 @@ impl Supervisor {
             outs
         };
         self.emit(outs);
-        next
+        (next, rejected)
     }
 
     /// The changed apps whose live host serves views and whose saved script
@@ -499,7 +536,7 @@ fn watch(me: &Weak<Supervisor>, dirs: Vec<PathBuf>) {
     // between (a loaded machine, an app saved as cmux starts) had no event
     // and was never read. Read once more now that the watch is on.
     match me.upgrade() {
-        Some(supervisor) => supervisor.reload_local_apps_now(),
+        Some(supervisor) => drop(supervisor.reload_local_apps_now()),
         None => return,
     }
     loop {

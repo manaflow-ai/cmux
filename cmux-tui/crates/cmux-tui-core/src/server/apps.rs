@@ -447,10 +447,7 @@ pub(super) fn try_handle(
     let user = origin == crate::apps::Origin::User;
     let result = match command {
         Command::List => Ok(supervisor.list()),
-        Command::ReloadLocal => {
-            supervisor.reload_local_apps_now();
-            Ok(json!({}))
-        }
+        Command::ReloadLocal => Ok(supervisor.reload_local_apps_now()),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),

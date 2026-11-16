@@ -212,3 +212,23 @@ fn an_asked_pass_applies_a_save_once() {
     let again: Vec<Value> = f.events.try_iter().filter(|e| e["event"] == "apps-changed").collect();
     assert!(again.is_empty(), "{again:?}");
 }
+
+/// An asked pass says what its events cannot: a new folder the catalog
+/// refuses makes no event (it never had a print), so the answer names it
+/// with why; a pass held by safe mode says so (review of cmux#44062: an `ok`
+/// with nothing applied read as "reloaded").
+#[test]
+fn an_asked_pass_names_a_refused_folder() {
+    let f = fixture();
+    f.supervisor.reload_local_apps_now();
+    let bad = f.state.join("apps/local/bad");
+    std::fs::create_dir_all(&bad).unwrap();
+    std::fs::write(bad.join("cmux-app.json"), "{ not json").unwrap();
+    let answer = f.supervisor.reload_local_apps_now();
+    assert_eq!(answer["safeMode"], false, "{answer}");
+    let rejected = answer["rejected"].as_array().unwrap();
+    assert!(
+        rejected.iter().any(|r| r["dir"] == bad.display().to_string() && r["issue"].is_string()),
+        "{answer}"
+    );
+}
