@@ -50,13 +50,15 @@ impl FrameBody {
         let t_capture_us = r.u64()?;
         let ref_frame = r.u32()?;
         let rest = r.rest();
-        let (ltr_token, access_unit) = if rest.len() >= len + 8
-            && rest.get(8..12).is_some_and(|p| p.starts_with(&[0, 0, 0, 1]))
-        {
-            let token = u64::from_le_bytes(
-                rest[..8].try_into().map_err(|_| DecodeError::Invalid("token"))?,
-            );
-            (Some(token), rest[8..8 + len].to_vec())
+        let with_token = len.checked_add(8).and_then(|end| {
+            let token = rest.get(..8)?;
+            let access = rest.get(8..end)?;
+            rest.get(8..12)?.starts_with(&[0, 0, 0, 1]).then_some((token, access))
+        });
+        let (ltr_token, access_unit) = if let Some((token, access)) = with_token {
+            let token =
+                u64::from_le_bytes(token.try_into().map_err(|_| DecodeError::Invalid("token"))?);
+            (Some(token), access.to_vec())
         } else {
             let access =
                 rest.get(..len).ok_or(DecodeError::Truncated { need: len, have: rest.len() })?;
