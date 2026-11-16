@@ -214,6 +214,12 @@ extension PaletteRankingSetting {
     public nonisolated static let searchHistoryDefault = true
 }
 
+extension ConfigActionsSetting {
+    /// `actions`: Commands of one's own by id (ConfigActionParser; ConfigActionsController registers each as cmuxConfig.<id> in the palette, shortcuts and the CLI). A profile carries one action per key (actions.<id>), so two palette packs stack; the person applies it, as an action runs a shell command.
+    public nonisolated static let configPath = ["actions"]
+    public nonisolated static let fallback: JSONValue = .object([:])
+}
+
 extension ContextMenusSetting {
     /// `contextMenus.showCustomizeItem`.
     public nonisolated static let showCustomizeItemPath = ["contextMenus", "showCustomizeItem"]

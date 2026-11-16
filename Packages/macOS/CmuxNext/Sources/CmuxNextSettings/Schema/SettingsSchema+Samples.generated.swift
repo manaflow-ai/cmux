@@ -277,6 +277,30 @@ extension SettingsSchemaSamples {
                 .string("a/"), .string("-a/b"), .string("a b/c"), .string(""), .number(1), .bool(true),
             ]
         ),
+        "domain:config_actions": SampleSet(
+            accept: [
+                .object([:]),
+                .object(["deploy": .object(["title": .string("Deploy"), "command": .string("make deploy")])]),
+                .object(["review": .object(["type": .string("agent"), "agent": .string("claude"), "args": .string("-p review"), "icon": .string("sparkles"), "target": .string("currentTerminal")]), "logs": .object(["command": .string("tail -f log"), "icon": .object(["type": .string("symbol"), "name": .string("doc.text")]), "tooltip": .string("Logs")])]),
+            ],
+            refuse: [
+                .array([]), .string("make deploy"), .object(["deploy": .string("make deploy")]),
+                .object(["deploy": .object(["title": .string("Deploy")])]),
+                .object(["deploy": .object(["command": .string(" ")])]),
+                .object(["deploy": .object(["type": .string("workspace"), "command": .string("x")])]),
+                .object(["review": .object(["agent": .string("claude --yolo")])]),
+                .object(["deploy": .object(["command": .string("x"), "target": .string("elsewhere")])]),
+            ]
+        ),
+        "domain:sidebar_section_ids": SampleSet(
+            accept: [
+                .array([]), .array([.string("recents")]), .array([.string("projects"), .string("pinned")]),
+            ],
+            refuse: [
+                .string("recents"), .array([.string("")]), .array([.string("pinned"), .string("pinned")]),
+                .array([.number(1)]), .object(["hidden": .array([.string("recents")])]),
+            ]
+        ),
         "domain:search_template": SampleSet(
             accept: [
                 .string(""), .string("https://search.example/?q=%s"),

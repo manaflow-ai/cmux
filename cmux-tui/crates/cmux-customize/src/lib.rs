@@ -20,6 +20,7 @@
 mod brief;
 mod diff;
 mod engine;
+mod keyed;
 pub mod library;
 mod paths;
 pub mod profile;

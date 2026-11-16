@@ -173,6 +173,26 @@ extension SidebarSettingsSchema {
                 default: .bool(SidebarNavigationSetting.steppingWrapsDefault),
                 keywords: ["sidebar", "next", "previous", "wrap"]
             ),
+            SettingDescriptor(
+                SidebarSectionIDsSetting.sectionsHiddenPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.sections.hidden", "Hidden Sections"),
+                help: SettingsText.keyed("settings.sidebar.sections.hidden.help", "Sidebar sections to hide, by id. The section of the selected workspace always shows."),
+                kind: .stringList,
+                default: .array(SidebarSectionIDsSetting.sectionsHiddenDefault.map { .string($0) }),
+                keywords: ["sidebar", "section", "hide", "hidden"]
+            ).hiddenFromSettingsPage("section ids; cmux.json only"),
+            SettingDescriptor(
+                SidebarSectionIDsSetting.sectionsOrderPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.sections.order", "Section Order"),
+                help: SettingsText.keyed("settings.sidebar.sections.order.help", "Sidebar sections to show first in their part of the sidebar, in this order, by id."),
+                kind: .stringList,
+                default: .array(SidebarSectionIDsSetting.sectionsOrderDefault.map { .string($0) }),
+                keywords: ["sidebar", "section", "order", "sort"]
+            ).hiddenFromSettingsPage("section ids; cmux.json only"),
         ]
     }
 }

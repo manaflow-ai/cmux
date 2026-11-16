@@ -35,6 +35,8 @@ extension SettingsSchema {
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window under the user's Return.
         "palette.aliases": .userOnly, "palette.pins": .userOnly,
+        // An action runs a shell command when it is picked: an agent could put any command under a title the person trusts. A profile the person applies may carry them, one per key (actions.<id>).
+        "actions": .userOnly,
         // Whether the palette records what the person runs.
         "palette.searchHistory": .privacy,
         "history.terminalCommands": .privacy, "history.commandRetentionDays": .privacy,

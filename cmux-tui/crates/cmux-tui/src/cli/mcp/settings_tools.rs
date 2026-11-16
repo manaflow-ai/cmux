@@ -345,6 +345,23 @@ fn project_value(row: &Row, value: &Value) -> Value {
             None => value.clone(),
         };
     }
+    if row.validation == Validation::Domain(DomainKind::ConfigActions) {
+        return match value.as_object() {
+            Some(actions) => Value::Object(
+                actions
+                    .iter()
+                    .map(|(id, action)| {
+                        let read = [
+                            "type", "title", "tooltip", "command", "agent", "args", "icon",
+                            "target",
+                        ];
+                        (id.clone(), fields(action, &read))
+                    })
+                    .collect(),
+            ),
+            None => value.clone(),
+        };
+    }
     if matches!(row.kind, Kind::TimeRange) {
         return fields(value, &["start", "end"]);
     }

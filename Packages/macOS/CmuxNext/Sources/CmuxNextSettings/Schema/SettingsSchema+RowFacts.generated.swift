@@ -12,6 +12,7 @@ extension SettingsSchema {
     /// (the app theme and the terminal font), which each row still resets.
     public static let keptOnResetAll: Set<[String]> = [
         ["appearance", "theme"], ["appearance", "appTheme"], ["terminal", "fontFamily"], ["terminal", "fontSize"],
+        ["actions"],
     ]
 
     /// How another validator checks a row's value (the export's `validation`): by key first, then
@@ -22,6 +23,8 @@ extension SettingsSchema {
         "agentPane.display.commandLabels": "domain:command_labels",
         "browser.customSearchEngine.search": "domain:search_template",
         "browser.customSearchEngine.suggest": "domain:search_template", "tabs.newTabApp": "domain:app_id",
+        "actions": "domain:config_actions", "sidebar.sections.hidden": "domain:sidebar_section_ids",
+        "sidebar.sections.order": "domain:sidebar_section_ids",
     ]
     static let validationByKind: [String: String] = [
         "theme": "domain:theme", "font_family": "domain:font_family", "sound": "domain:sound",

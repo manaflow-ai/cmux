@@ -36,15 +36,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cmux_app_manifest::hidden;
-use cmux_config::{Schema, jsonc};
+use cmux_config::jsonc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::engine::AGENT_ORIGIN;
 use crate::profile::{Profile, shareable_settings, valid_name};
 use crate::redact::find_secret;
 use crate::store::{Draft, Generation, Kind};
 use crate::tree::{self, Part, SETTINGS, Tree};
-use crate::{Customize, Error, validate};
+use crate::{Customize, Error, keyed, validate};
 
 pub mod code;
 pub mod overlay;
@@ -577,7 +578,7 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Imported, Error> {
-        self.check_collection(collection)?;
+        self.check_collection(collection, origin)?;
         let mut added = Vec::new();
         let mut already = Vec::new();
         let mut renamed = Vec::new();
@@ -695,7 +696,7 @@ impl Customize {
 
     /// Every entry of `collection` is one `use` would take, and the set is
     /// one a library can hold.
-    fn check_collection(&self, collection: &Collection) -> Result<(), Error> {
+    fn check_collection(&self, collection: &Collection, origin: &str) -> Result<(), Error> {
         if collection.version != COLLECTION_VERSION {
             return Err(Error::Library(format!(
                 "this collection is format {}; this cmux reads format {COLLECTION_VERSION}",
@@ -714,7 +715,7 @@ impl Customize {
                     "{which}: a name is lowercase letters, digits, '-' and '_'"
                 )));
             }
-            self.check_profile(&entry.profile)
+            self.check_profile(&entry.profile, origin)
                 .map_err(|error| Error::Library(format!("{which}: {error}")))?;
             for word in &entry.words {
                 if let Some(mark) = hidden::first_hidden(word, hidden::Context::ManifestString) {
@@ -766,7 +767,6 @@ impl Customize {
             )));
         }
         let web_moves = web_was != web_will;
-        let schema = Schema::embedded();
         let live_text = tree::read(self.roots(), SETTINGS)?
             .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
         let live_settings = live_text
@@ -818,13 +818,27 @@ impl Customize {
             if text.trim().is_empty() {
                 text = "{}\n".to_owned();
             }
+            // An agent turns on or off only what it may set: an entry that
+            // brings the person's own commands is theirs to switch.
+            if origin == AGENT_ORIGIN {
+                let protected: Vec<String> = settings
+                    .iter()
+                    .filter(|(key, _)| {
+                        keyed::resolve(key).is_some_and(|key| !key.row.agent_settable)
+                    })
+                    .map(|(key, _)| (*key).clone())
+                    .collect();
+                if !protected.is_empty() {
+                    return Err(Error::Protected(protected));
+                }
+            }
             for (key, value) in &settings {
-                let row = schema.row(key).ok_or_else(|| {
+                let resolved = keyed::resolve(key).ok_or_else(|| {
                     Error::Library(format!("the setting {key} is not one this cmux has"))
                 })?;
                 text = match value {
-                    Some(value) => jsonc::set(&text, &row.path, value),
-                    None => jsonc::remove(&text, &row.path),
+                    Some(value) => jsonc::set(&text, &resolved.path, value),
+                    None => jsonc::remove(&text, &resolved.path),
                 }
                 .map_err(|_| {
                     Error::Library(format!(
@@ -1022,8 +1036,7 @@ impl Customize {
 
 /// The value of setting `key` in a parsed settings file.
 fn setting_value(file: &Value, key: &str) -> Option<Value> {
-    let row = Schema::embedded().row(key)?;
-    cmux_config::value::value_at(file, &row.path).cloned()
+    keyed::value_in(file, key)
 }
 
 /// The highest entry that is on with a web part: the layer web-dev.json serves.
