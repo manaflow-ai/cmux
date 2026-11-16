@@ -397,15 +397,14 @@ final class AppServices {
     let notifications = NotificationCenterService()
     /// Agents' `cmux keys request`s waiting for the person in Settings > Keys, each behind one banner (CmuxNextKeys).
     private(set) lazy var keyRequests = KeyRequests().postBanners(on: notifications.desktop)
-    /// Email verification AutoFill (`browser.verificationAutofill.enabled`, off by default): a code
-    /// or link from Mail.app offered in the prompt bar of a page of the sender's own site
-    /// (plans/cmux-next/email-verification-autofill/DESIGN.md). Built on the first page that waits,
-    /// so the Public Suffix List is read only then. Turning the setting off withdraws offers at
-    /// the next read (within `pollInterval`).
-    private(set) lazy var verificationAutofill = VerificationAutofillCoordinator(
-        inbox: VerificationInbox(policy: VerificationOfferPolicy(publicSuffixes: PublicSuffixList.bundled() ?? PublicSuffixList(listText: ""))),
-        source: MailAppVerificationSource(),
-        isEnabled: { [weak self] in self?.settings.map { BrowserVerificationAutofillSetting.current($0).enabled } ?? false }
+    /// Email verification AutoFill (`browser.verificationAutofill.enabled` and `.accounts`, off and empty by
+    /// default): a code from an opted-in mailbox (Gmail signed in to cmux's browser, Mail.app), offered at the
+    /// code field of a page of the sender's own site (plans/cmux-next/email-verification-autofill/DESIGN.md).
+    /// Built on the first page that waits, so the Public Suffix List is read only then. Turning the setting
+    /// off withdraws offers at the next read (within `pollInterval`).
+    private(set) lazy var verificationAutofill = VerificationAutofillCoordinator.standard(
+        isEnabled: { [weak self] in self?.settings.map { BrowserVerificationAutofillSetting.current($0).enabled } ?? false },
+        accounts: { [weak self] in Set(self?.settings.map { BrowserVerificationAutofillSetting.current($0).accounts } ?? []) }
     )
     /// Design mode in browser panes: highlights become cards in an agent chat
     /// (plans/cmux-next/design-mode-DESIGN.md).
