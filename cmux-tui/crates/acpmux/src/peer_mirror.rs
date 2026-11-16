@@ -61,8 +61,6 @@ pub struct DialCounters {
     /// Mirrors ended because the link's frames waiting for them passed
     /// [`MIRROR_INBOX_BYTES`]: a peer that sent past its credit.
     pub inbox_overflows: AtomicU64,
-    /// Frame bytes read off the link and not yet handed to the client.
-    pub inbox_bytes: AtomicU64,
     /// Origins handed back to v1's tee: a takeover as v1 applied over the mirror's.
     pub hand_backs: AtomicU64,
 }
@@ -205,15 +203,21 @@ impl<'a> Dial<'a> {
 
     /// The keys of the origin's rows as the peer names them, for the walk's
     /// reconcile.
+    ///
+    /// Read from the origin's own range of the index: a dial costs what the
+    /// origin holds, not what the index holds. The client needs the set at
+    /// subscribe even for a resume: a resume answered with a window walks on
+    /// the same subscription, and the walk's end (`finish_mirror_walk`) finds
+    /// the rows to drop among these keys.
     fn held_keys(&self) -> Vec<ListKey> {
         self.hub
             .snapshot()
-            .iter()
-            .filter(|row| row.origin == self.origin)
+            .origin_rows(self.origin)
             .map(|row| ListKey {
                 last_activity: row.last_activity,
                 chat_id: row.chat_id.clone(),
                 origin: PEER_LOCAL.to_owned(),
+                past: false,
             })
             .collect()
     }
@@ -370,7 +374,14 @@ impl<'a> Dial<'a> {
             // with the origin. A takeover of another source queued right
             // behind replaces this one and applies in its place.
             self.hub.wait_mirror_until(|hub| hub.takeover_turns(origin) != before).await;
-            if self.hub.takeover_turns(origin).applied == before.applied {
+            let after = self.hub.takeover_turns(origin);
+            if after.refused != before.refused {
+                // Past the bound on origins: no takeover of this origin
+                // applies, and the mirror ends (its link then hands the origin
+                // back to v1's tee).
+                return Err(DialEnd::Refused(HubError::OriginLimit));
+            }
+            if after.applied == before.applied {
                 // Held: the origin is leaving, or its record waits for the
                 // storage retry. The start again waits that out, then takes
                 // over or resumes as the mark says then.

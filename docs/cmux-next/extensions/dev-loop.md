@@ -9,7 +9,8 @@ save, so cmux changes as you work. `cmux apps ...` keeps working; `ext` is the a
 ## For a person
 
 ```sh
-cmux ext new my-prs          # ./my-prs: cmux-app.json, src/main.ts, dist/main.js, README.md, cmux-app.d.ts
+cmux ext new my-prs          # ./my-prs: cmux-app.json, src/main.ts, dist/main.js, sdk/, README.md, cmux-app.d.ts
+                             # --kind sidebar (default), session-info, pane, newtab or command
 cd my-prs
 cmux ext dev                 # validate, build, load; then one line per save
 ```
@@ -124,3 +125,50 @@ from your checkout without `ext dev`: start cmux with `CMUX_APPS_DIRS` naming th
 the app's folder. Every `CMUX_APPS_DIRS` folder is watched like the local apps folder, so a save of
 an app there (its built `dist/main.js` or its manifest) reloads it and remounts its open views.
 These apps keep no rollback copy: they are your files.
+
+## Reload on request
+
+A save reloads by itself. To reload when you choose (a file written where the watch did not see it, a
+folder on a network volume, a script you want to start over), ask for it with one command:
+
+```sh
+cmux ext reload my-prs        # local/my-prs: read its folder again and rerun it
+cmux ext reload               # every extension in a local folder, the customize folder too
+cmux ext reload --json        # {"reloaded": [...], "refused": [{"app", "reason"}], "removed": [...]}
+cmux reload-config            # cmux-next.json and the Ghostty config, then every local extension
+```
+
+The daemon reads the folder again and restarts the app whether or not its files changed; its open
+views draw again in place (a sidebar section keeps its place, its region and its row). A script
+that does not load keeps the last good view on screen, and the command names the file and line and
+exits 1. In the app the same reload is **Reload Custom Views** in the command palette (`cmux apps
+reload`), and **Reload Configuration** (Cmd-Shift-,) reads the settings and Ghostty files.
+
+A reload never places a section: a section you removed from the sidebar stays removed until you
+place it again (`cmux apps place local/my-prs#cmux.section/1 --region bottom`, or the sidebar's edit
+mode). To take one back out, remove the section in the sidebar's edit mode, turn the extension off in
+Settings > Apps, or `cmux ext remove local/my-prs`.
+
+## Kinds
+
+| `--kind` | What it adds | Interface |
+|---|---|---|
+| `sidebar` (default; `section` too) | a sidebar section | `cmux.section/1` |
+| `session-info` | a section in an agent chat's Session Info panel; its context is that chat's session | `cmux.session.info.section/1` |
+| `pane` | a view in a tab, opened from the command palette by its title | `cmux.pane/1` |
+| `newtab` | a whole New Tab page, shown once picked: `cmux settings set tabs.newTabApp local/NAME` | `cmux.newtab/1` |
+| `command` | a command in the palette, `cmux NAME hello` in a terminal, and a tool for agents | `catalog.json` |
+| `menu` | refused until cmux has context-menu contributions (`cmux.context_menu/1`); the error says what to make meanwhile | |
+
+Each kind loads as written, and a save to its `src/main.ts` is on screen within a second
+(`cmux-tui` test `every_kind_is_new_loads_then_shows_an_edit_within_a_second`, which runs
+the watch, the debounce, the bun build and the reload against a daemon that renders with the
+real app host).
+
+## The SDK in a new extension
+
+`cmux ext new` writes `sdk/`: `cmux-extension-sdk` as the `cmux` that ran it was built with it
+(its TypeScript source and the runtime's event and scope tables, embedded in the binary).
+`tsconfig.json` points `import … from "cmux-extension-sdk"` there and `package.json` names it as
+`file:./sdk`, so a new extension builds with no npm account, no registry and no network, and its
+`API_VERSION` is that cmux's. `cmux ext new` in a newer cmux gives a newer copy.

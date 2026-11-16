@@ -213,6 +213,10 @@ class TerminalClipboardLocation(str, Enum):
     SELECTION = 'selection'
     PRIMARY = 'primary'
 
+class TerminalCommandContextIntent(str, Enum):
+    CONTEXT = 'context'
+    FIX = 'fix'
+
 class TerminalKey(str, Enum):
     UNIDENTIFIED = 'unidentified'
     BACKQUOTE = 'backquote'
@@ -1027,6 +1031,7 @@ class IdentifyResult:
     machine_platform: Union[MachinePlatform, MissingType] = field(default=MISSING)
     machine_symbol: Union[str, MissingType] = field(default=MISSING)
     min_api_revision: Union[int, None, MissingType] = field(default=MISSING)
+    screen_device_id: Union[str, None, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
     update_command: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -2163,6 +2168,23 @@ class TerminalColors:
 
 
 @dataclass(frozen=True)
+class TerminalCommandContext:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalCommandContext'
+    command: Union[str, None]
+    cwd: Union[str, None]
+    exit_code: Union[int, None]
+    output: str
+    text: str
+    truncated: bool
+
+
+@dataclass(frozen=True)
+class TerminalCommandContextResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalCommandContextResult'
+    context: Union[TerminalCommandContext, None]
+
+
+@dataclass(frozen=True)
 class TerminalCommandDeleteResult:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalCommandDeleteResult'
     deleted: int
@@ -2541,6 +2563,8 @@ class AttachSurfaceRequest:
     cols: Union[int, None, MissingType] = field(default=MISSING)
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     expected_terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    hybrid_frame: Union[int, None, MissingType] = field(default=MISSING)
+    hybrid_stream: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
     output_coalesce_ms: Union[int, None, MissingType] = field(default=MISSING)
     replay_history_rows: Union[int, None, MissingType] = field(default=MISSING)
@@ -5215,6 +5239,13 @@ class TerminalClipboardSubscribeRequest:
 
 
 @dataclass(frozen=True)
+class TerminalCommandContextRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-command-context/request'
+    surface: Id
+    intent: Union[TerminalCommandContextIntent, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class TerminalEventsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-events/request'
     after_revision: Union[int, MissingType] = field(default=MISSING)
@@ -5498,6 +5529,23 @@ class AgentChangedEvent(EventBase):
     agent_session_id: Union[str, None, MissingType] = field(default=MISSING)
     last_prompt: Union[str, None, MissingType] = field(default=MISSING)
     since_ms: Union[int, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class AgentCliFrameEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/agent-cli-frame/payload'
+    surface: Id
+    base: Union[int, None]
+    cols: int
+    cursor_visible: bool
+    cursor_x: int
+    cursor_y: int
+    data: Base64
+    event: Literal['agent-cli-frame']
+    frame: int
+    rows: int
+    stream: str
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6148,6 +6196,14 @@ class ScreenClosedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class ScreenDeviceChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/screen-device-changed/payload'
+    event: Literal['screen-device-changed']
+    screen_device_id: Union[str, None]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class ScreenRenamedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/screen-renamed/payload'
     screen: Id
@@ -6508,7 +6564,7 @@ TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 WorkspaceFirstTab = Union[WorkspaceFirstTabBrowser]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FeedReportsChangedEvent, FeedViewChangedEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentCliFrameEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FeedReportsChangedEvent, FeedViewChangedEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenDeviceChangedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -6550,6 +6606,7 @@ __all__ = [
     'SplitDirection',
     'TerminalClipboardHostKind',
     'TerminalClipboardLocation',
+    'TerminalCommandContextIntent',
     'TerminalKey',
     'TerminalKeyAction',
     'TerminalLifecycle',
@@ -6732,6 +6789,8 @@ __all__ = [
     'TerminalClipboardSubscribeResult',
     'TerminalColorOverrides',
     'TerminalColors',
+    'TerminalCommandContext',
+    'TerminalCommandContextResult',
     'TerminalCommandDeleteResult',
     'TerminalCommandHistoryResult',
     'TerminalCommandList',
@@ -7087,6 +7146,7 @@ __all__ = [
     'SwapPaneRequest',
     'TerminalClipboardReplyRequest',
     'TerminalClipboardSubscribeRequest',
+    'TerminalCommandContextRequest',
     'TerminalEventsRequest',
     'TerminalHistoryRequest',
     'TerminalLastCommandRequest',
@@ -7122,6 +7182,7 @@ __all__ = [
     'ZoomPaneRequest',
     'ActivityChangedEvent',
     'AgentChangedEvent',
+    'AgentCliFrameEvent',
     'AgentInventoryChangedEvent',
     'AgentInventoryWatchEndedEvent',
     'AgentPresenceChangedEvent',
@@ -7182,6 +7243,7 @@ __all__ = [
     'ScreenAddedEvent',
     'ScreenChangedEvent',
     'ScreenClosedEvent',
+    'ScreenDeviceChangedEvent',
     'ScreenRenamedEvent',
     'ScrollChangedEvent',
     'SelectionChangedEvent',

@@ -38,8 +38,8 @@ class FixtureTests(unittest.TestCase):
         for kind in matrix.WORKSPACES:
             if kind == "big-plain":
                 continue  # 128 MiB of random blobs; its shape is the plain folder's
-            if kind in matrix.REFUSED_CELLS:
-                continue  # refused before any copy: no manifest is compared, and 21 GiB of zeros is no fixture to hash
+            if kind in matrix.FIRST_PASS_CELLS:
+                continue  # a first pass: no manifest is compared, and 21 GiB of zeros is no fixture to hash
             folder, note = matrix.build_fixture(kind, self.root, self.args, "cmxcanarytest")
             if folder is None:
                 self.assertTrue(note.startswith("skipped"), kind)
@@ -55,7 +55,20 @@ class FixtureTests(unittest.TestCase):
             for name in matrix.PARENT_REPOS:
                 self.assertTrue((folder / name / ".git").is_dir(), (kind, name))
         self.assertEqual((self.root / "huge-parent-repos/disk.img").stat().st_size, matrix.HUGE_PLAIN_BYTES)
-        self.assertEqual(set(matrix.REFUSED_CELLS), {"huge-plain", "huge-parent-repos"})
+        self.assertEqual(set(matrix.FIRST_PASS_CELLS), {"huge-plain", "huge-repo", "huge-parent-repos"})
+
+    def test_a_huge_repo_is_one_repository_with_its_big_file_untracked(self):
+        folder, _ = matrix.build_fixture("huge-repo", self.root, self.args, "")
+        self.assertTrue((folder / ".git").is_dir())
+        self.assertEqual((folder / matrix.FIRST_PASS_LEFT).stat().st_size, matrix.HUGE_PLAIN_BYTES)
+
+    def test_a_first_pass_cell_must_leave_its_big_file_on_the_mac(self):
+        cell = {"workspace": "huge-repo", "agent": "claude", "start_exit": 0, "hash_match": True,
+                "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False, "text": "MATRIX_OK"},
+                "create_to_reply_s": 20, "machine_killed": True, "left_on_mac": 0}
+        self.assertIn("nothing left on the Mac", matrix.verdict(cell, "c"))
+        cell["left_on_mac"] = 1
+        self.assertEqual(matrix.verdict(cell, "c"), "pass")
 
     def test_secrets_are_left_out_and_the_canary_is_found_where_it_is(self):
         folder, _ = matrix.build_fixture("secrets", self.root, self.args, "cmxcanarytest")

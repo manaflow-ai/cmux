@@ -23,6 +23,8 @@ to BASE nothing can be found, so the check is never red on the base.
 Usage: settings-export-key-drift.py --repo DIR --base REV --head REV
 Prints `drift: <export>: ...` per finding and exits 1 when it finds any, 0 when it finds none, 2 on error.
 """
+from __future__ import annotations  # PEP 604 annotations on macOS's /usr/bin/python3 3.9
+
 import argparse
 import json
 import plistlib

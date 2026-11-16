@@ -2148,6 +2148,21 @@ RULES = (
          line_rule(r"\bGridItem\(.*\)\s*,\s*count:\s*\d|\[\s*GridItem\(\.flexible\b[^\]]*\bGridItem\(\.flexible\b"
                    r"|\bwidth:\s*(375|390|393|402|414|428|430|440)\b", "width-allow:"),
          scope=IOS_SOURCES),
+    Rule("plus-button", "A + button drawn by hand (the pack's `.actionAdd`, an SF Symbol `plus`, or the bare + path)",
+         "every + is the tab bar's New Tab + (Lawrence 2026-11-15: \"make the new tab plus button the standard for all "
+         "plus buttons (abstract it into a component)\"): a hand-built one drifts in size, weight, ink and hover "
+         "(the sidebar's group + was the pack's 7 pt + beside the tab bar's 9 pt one)",
+         "CmuxNextDesign's `PlusButtonLook` in the control's own view (as `NewTabButtonView` hosts it), "
+         "`SidebarIconButton(plus:)` in the sidebar, `PlusButton(label:)` for a plain button, or "
+         "`PlusButtonLook.drawGlyph(in:center:ink:)` in a `draw(_:)`",
+         "// plus-button-allow: <why this + is not a control (a menu row, a prototype)>",
+         matcher_rule(Matcher(re.compile(
+             r"\.actionAdd\b|\bCGPath\.addGlyph\(|\bNSImage\.addGlyph\("
+             r"|systemSymbolName:\s*\"plus(\.circle|\.square)?(\.fill)?\""
+             r"|\b(TitlebarBandButton|SidebarIconButton|OverflowButton|ClickableButton)\(symbol:\s*\"plus(\.circle)?(\.fill)?\""
+             r"|\.setSymbol\(\"plus(\.circle)?(\.fill)?\"\)|\bImage\(systemName:\s*\"plus(\.circle)?(\.fill)?\"\)"),
+             re.compile(r"//\s*plus-button-allow:\s*\S"),
+             code=lambda line: "" if COMMENT_LINE.match(line) else line.split(" //")[0]))),
     Rule("undo-text-write", "Undo turned on for a text view (`allowsUndo = true`)",
          "AppKit's `string` setter replaces the text without telling the undo manager: a typing action keeps its "
          "range into the old text and Cmd-Z raises NSRangeException (#24912)",

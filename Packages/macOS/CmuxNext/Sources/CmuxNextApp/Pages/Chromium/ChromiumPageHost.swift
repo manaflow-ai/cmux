@@ -74,6 +74,7 @@ final class ChromiumPageHost: PageChromiumHosting {
         for mark in cef.startReport.launchMarks(now: DebugTimings.millisecondsSinceProcessStart() / 1_000) { DebugTimings.markLaunch(mark.name, at: Date(timeIntervalSinceNow: mark.offset)) }
         guard let tab = made as? CEFTab else { made.close(); throw Failure.notChromium }
         (tab.pageThemeSurface, tab.keyRouter) = (.internalPage, keyRouter)
+        tab.onReadyForKeys = { [weak keyRouter] in keyRouter?.creationInputCoordinator.pageArrived(nil) } // its grant ends a key hold that waited for it
         let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id)
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()

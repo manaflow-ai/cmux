@@ -1,0 +1,27 @@
+{
+  "family": "{{NS}}",
+  "operations": [
+    {
+      "name": "{{NS}}.hello",
+      "owner": "app:local/{{NAME}}",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "docs": "Says hello in a toast and returns the greeting.",
+      "since": "0.1.0",
+      "export": "hello",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "name": { "type": "string", "description": "Who to greet." } }
+      },
+      "output": {
+        "type": "object",
+        "properties": { "greeting": { "type": "string" } }
+      },
+      "cli": { "path": "hello", "positional": ["name"] },
+      "mcp": { "expose": "default" },
+      "palette": { "title": "{{TITLE}}: Say hello" }
+    }
+  ]
+}

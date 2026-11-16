@@ -56,7 +56,7 @@ pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
     let source = state.source.as_str();
     let (text, applied_edits) = match op {
         Op::Set { target, value, meta } => {
-            (set_text(state, source, &target, canonical(value), &meta)?, Vec::new())
+            (set_text(state, source, &target, canonical(value), &meta, true)?, Vec::new())
         }
         Op::Reset { target, meta } => (reset_text(state, source, &target, &meta)?, Vec::new()),
         Op::ResetAll { meta } => (reset_all_text(state, &meta)?, Vec::new()),
@@ -154,7 +154,7 @@ fn edit_text(
     let mut applied = Vec::new();
     for (index, edit) in edits.iter().enumerate() {
         let holds = match &edit.kind {
-            EditKind::Set(_) | EditKind::Reset => true,
+            EditKind::Set(_) | EditKind::SetExact(_) | EditKind::Reset => true,
             EditKind::SetUnset(_) => file_value(&text, &edit.target)?.is_none(),
             EditKind::ResetUnchanged(expected) => {
                 file_value(&text, &edit.target)?.map(canonical) == Some(canonical(expected.clone()))
@@ -165,7 +165,10 @@ fn edit_text(
         }
         text = match &edit.kind {
             EditKind::Set(value) | EditKind::SetUnset(value) => {
-                set_text(state, &text, &edit.target, canonical(value.clone()), meta)?
+                set_text(state, &text, &edit.target, canonical(value.clone()), meta, true)?
+            }
+            EditKind::SetExact(value) => {
+                set_text(state, &text, &edit.target, canonical(value.clone()), meta, false)?
             }
             EditKind::Reset | EditKind::ResetUnchanged(_) => {
                 reset_text(state, &text, &edit.target, meta)?
@@ -182,12 +185,15 @@ fn file_value(text: &str, target: &Target) -> Result<Option<Value>, Refusal> {
     Ok(value_at(&root, &target.path()).cloned())
 }
 
+/// `remove_default`: a schema row set to its default loses its key
+/// (`settings.set`); `set_exact` passes false and keeps it.
 fn set_text(
     state: &State,
     source: &str,
     target: &Target,
     value: Value,
     meta: &WriteMeta,
+    remove_default: bool,
 ) -> Result<String, Refusal> {
     let path = writable_path(state, target)?;
     if let Some(reason) = retired_reason(&path) {
@@ -203,7 +209,7 @@ fn set_text(
         let below = state.managed.recommended.contains_key(&row.key)
             || state.team.defaults.contains_key(&row.key)
             || UNSET_IS_NOT_DEFAULT.contains(&row.key.as_str());
-        if row.default.clone().map(canonical).as_ref() == Some(&value) && !below {
+        if remove_default && !below && row.default.clone().map(canonical).as_ref() == Some(&value) {
             return remove_pruning(without_replaced(source.to_string(), &path)?, &path);
         }
     }

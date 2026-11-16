@@ -1568,6 +1568,7 @@ fn commit(paths: &Paths, pending: &Pending) {
     state.applied_committed_at = pending.committed_at;
     let took = now().saturating_sub(pending.started_at);
     state.last = Some(format!("updated to {} (serving {took} s after the flip)", pending.commit));
+    state.look = Some(settled_look(state.look.take(), pending, super::look::Settle::Updated));
     state.last_at = now();
     clear_pending(paths);
     disarm_guard();
@@ -1578,6 +1579,22 @@ fn commit(paths: &Paths, pending: &Pending) {
         "updated to {} (profile {}, serving {took} s after the flip); removed profiles {profiles:?}",
         pending.commit, pending.to
     ));
+}
+
+/// The look once `pending`'s flip ended as `how`, for the Cloud report: the
+/// census reads whether a build stayed on its first machine from it.
+pub(super) fn settled_look(
+    look: Option<super::look::Look>,
+    pending: &Pending,
+    how: super::look::Settle,
+) -> super::look::Look {
+    super::look::Look::settle(
+        look,
+        &pending.commit,
+        pending.started_at.saturating_mul(1000),
+        how,
+        wall_ms(),
+    )
 }
 
 /// Flips back to the previous profile and restarts what runs the new build.
@@ -1602,6 +1619,8 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
         let mut state = load_state(paths);
         record_rollback(&mut state, pending);
         state.last = Some(format!("rolled back {}: {why}", pending.commit));
+        state.look =
+            Some(settled_look(state.look.take(), pending, super::look::Settle::RolledBack));
         state.last_at = now();
         let _ = save_state(paths, &state);
         clear_pending(paths);
@@ -1682,14 +1701,51 @@ pub(super) fn disarm_guard() {
 /// acpmux, the other `cmux-*` system services, and last `cmux-host.service`.
 /// First it tells the Cloud the machine is stopping, within
 /// [`crate::cloud::role::STOPPING_REPORT_BOUND`] ([`report_then_restart`]).
-fn restart_after_flip(paths: &Paths, old: &Path) {
+pub(super) fn restart_after_flip(paths: &Paths, old: &Path) {
     report_then_restart(
-        || crate::cloud::role::report_stopping(paths, crate::cloud::role::STOPPING_REPORT_BOUND),
-        || {
-            restart_others(old);
-            let _ = systemctl(&["restart", "--no-block", HOST_UNIT]);
-        },
+        || after_flip::report_stopping(paths),
+        || after_flip::restart_services(old),
     );
+}
+
+/// [`restart_after_flip`]'s two effects. Tests swap them for a record of the calls, so a test
+/// drives the real `restart_after_flip` and never restarts a unit or reaches the Cloud.
+#[cfg(not(test))]
+mod after_flip {
+    use std::path::Path;
+
+    use crate::config::Paths;
+
+    pub(super) fn report_stopping(paths: &Paths) -> Result<(), String> {
+        crate::cloud::role::report_stopping(paths, crate::cloud::role::STOPPING_REPORT_BOUND)
+    }
+
+    pub(super) fn restart_services(old: &Path) {
+        super::restart_others(old);
+        let _ = super::systemctl(&["restart", "--no-block", super::HOST_UNIT]);
+    }
+}
+
+#[cfg(test)]
+pub(super) mod after_flip {
+    use std::cell::RefCell;
+    use std::path::Path;
+
+    use crate::config::Paths;
+
+    thread_local! {
+        /// What [`super::restart_after_flip`] did on this thread, in order.
+        pub(in crate::updater) static CALLS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+
+    pub(super) fn report_stopping(paths: &Paths) -> Result<(), String> {
+        CALLS.with(|c| c.borrow_mut().push(format!("stopping {}", paths.at("/").display())));
+        Ok(())
+    }
+
+    pub(super) fn restart_services(old: &Path) {
+        CALLS.with(|c| c.borrow_mut().push(format!("restart {}", old.display())));
+    }
 }
 
 /// A restart of the services after a flip: `report` (the bounded `stopping` report, so the Cloud
