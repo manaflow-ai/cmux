@@ -76,10 +76,12 @@ export function normalizeRows(rows: readonly PerfRow[], factor: number): PerfRow
 // compute-bound). bench/web-ui-suite.ts stamps the bench's time rows with the canary's ms (`speed`), and the perf
 // cron judges a row only against values measured at about that speed: no one factor fits every row (the same slow
 // host cost one row 1.17x and another 1.9x), so a row from an off-speed host is not scaled, it is not judged.
+// On the shared runner the walk is what tells the hosts apart (2026-11-16, 4 runners): 4.4 to 5.1 ms on two of them
+// and 33 to 41 ms on the other two, whose pure benches ran 1.2x to 1.4x slower; the work half moved 1.18x.
 const WALK_CELLS = 1 << 23; // 32 MB of Uint32
 const WALK_STEPS = 300_000;
 const WORK_ITEMS = 3000;
-const SPEED_SAMPLES = 5;
+const SPEED_SAMPLES = 3;
 let walkTable: Uint32Array | undefined;
 
 /// A full-period LCG over the table's cells: every step lands on a cell the caches have not seen.

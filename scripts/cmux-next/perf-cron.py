@@ -787,7 +787,11 @@ def refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms):
 # times a fixed piece of work around each bench; a row whose canary differs from its baseline's by more than
 # SPEED_TOLERANCE is measured, not judged. No one factor fits every row (the same slow host cost one row 1.17x and
 # another 1.9x), so such a row is not scaled.
-SPEED_TOLERANCE = 0.10
+# Measured on 4 runners, 8 readings each (2026-11-16, cmux#44255): the hosts are two kinds, a canary of 5.0 to 5.7 ms
+# on two and 34 to 42 ms on the other two (one reading 23), with agent_activity.groups.snapshot.1000 at 0.15 to 0.18
+# ms on the first kind and 0.18 to 0.24 ms on the second. Readings of one kind are within 1.25x of each other and
+# the kinds are over 4x apart, so 1.5x tells them apart from either side.
+SPEED_TOLERANCE = 0.5
 
 
 def known_speed(value):
@@ -2101,11 +2105,12 @@ def issue_body(state, repo, now):
                           f"their last good value ({', '.join(last['refresh_skipped'][:8])}"
                           + (", ..." if len(last["refresh_skipped"]) > 8 else "") + ")."]
         if last.get("speed_skipped"):
-            lines += ["", f"Not compared: {len(last['speed_skipped'])} time row(s) ran on a runner more than "
-                          f"{round(SPEED_TOLERANCE * 100)} % faster or slower than their baseline's, by the host-speed "
+            lines += ["", f"Not compared: {len(last['speed_skipped'])} time row(s) ran on a runner over "
+                          f"{1 + SPEED_TOLERANCE:g}x faster or slower than their baseline's, by the host-speed "
                           f"canary ({', '.join(last['speed_skipped'][:8])}"
                           + (", ..." if len(last["speed_skipped"]) > 8 else "") + "). They open and clear nothing and "
-                          f"stay out of the baseline; {REF_RUNS} such tip measurements in a row rebase a row."]
+                          f"stay out of the baseline; {REF_RUNS} such tip measurements in a row rebase a row with no "
+                          "regression open."]
     rebases = [x for x in state.get("rebases") or [] if isinstance(x, dict)][-5:]
     if rebases:
         lines += ["", "Rebases (a row measured another way starts a new reference and is not compared; a regression open "
@@ -2347,12 +2352,14 @@ def rebase_faster_rows(state, part_rows, skipped, refresh_ms, t):
     return rebase_rows(state, part_rows, faster, t)
 
 
-def rebase_shifted_rows(state, part_rows, off_speed, sha, t):
+def rebase_shifted_rows(state, part_rows, off_speed, sha, t, keep=()):
     """Count each off-speed row's tip measurement (state['off_speed'], consecutive: finish_measurement ends a row's
     streak when it is judged again) and rebase (rebase_rows) each row not judged for REF_RUNS tip measurements in a
     row that all ran at this one's speed: the fleet moved, the old reference will never be measured again, and a row
     nothing judges is a regression nothing sees. Its history restarts from those REF_RUNS values. Returns the rebased
-    names."""
+    names. A row in keep (an open regression's) is never rebased: on a fleet of two kinds of host REF_RUNS runs in a
+    row on the other kind happen by chance, and that must not close a regression unjudged; it stays open, listed as
+    not measured again, until a runner of its baseline's speed measures it."""
     held = state.setdefault("off_speed", {})
     shifted = []
     for name in sorted(off_speed):
@@ -2362,7 +2369,7 @@ def rebase_shifted_rows(state, part_rows, off_speed, sha, t):
         streak = [v for v in held.get(name) or [] if isinstance(v, dict)][-(REF_RUNS - 1):]
         streak.append({"at": iso(t), "p95": r["p95"], "speed": r.get("speed"), **({"sha": sha} if is_sha(sha) else {})})
         held[name] = streak
-        if len(streak) >= REF_RUNS and all(known_speed(v.get("speed")) and same_speed(v["speed"], r.get("speed"))
+        if name not in keep and len(streak) >= REF_RUNS and all(known_speed(v.get("speed")) and same_speed(v["speed"], r.get("speed"))
                                            for v in streak):
             shifted.append(name)
     rebased = rebase_rows(state, part_rows, shifted, t)
@@ -2608,13 +2615,10 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
             notes.append(note_list("rebased on a macOS change, not judged", sorted(set(closed) - set(by_version))))
     for name in [n for n in state.get("off_speed") or {} if n in judged]:
         state["off_speed"].pop(name)
-    shifted = rebase_shifted_rows(state, part_rows, off_speed, cur["sha"], t)
+    shifted = rebase_shifted_rows(state, part_rows, off_speed, cur["sha"], t, keep=open_names)
     if shifted:
         record["speed_rebased"] = shifted
         record["speed_skipped"] = sorted(off_speed - set(shifted))
-        closed = sorted(n for n in shifted if n in open_names)
-        if closed:
-            notes.append(note_list("rebased on a runner speed change, not judged", closed))
     all_rebased = set(rebased) | set(os_rebased) | set(shifted)
     if all_rebased:
         # Every rebase goes into the issue (lead 2026-10-24), also one of an incomplete measurement (not `last`).
