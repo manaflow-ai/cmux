@@ -13,7 +13,7 @@ LEDGER = {'schema': 'cmux.rd-stage-ledger/1', 'stages': []}
 
 class ParseTests(unittest.TestCase):
     def test_profiles_are_the_four_asked_for(self):
-        self.assertEqual(list(rdnl.PROFILES), ['clean', 'jitter-5', 'jitter-15-burst', 'jitter-30-loss2'])
+        self.assertEqual(list(rdnl.PROFILES), ['clean', 'jitter-5', 'jitter-15-burst', 'jitter-30-loss2', 'stall'])
         self.assertEqual(rdnl.netem_args('jitter-5'), ['netem', 'delay', '5ms', '5ms', 'limit', '100000'])
         self.assertIn('gemodel', rdnl.netem_args('jitter-15-burst'))
         self.assertEqual(rdnl.netem_args('jitter-30-loss2')[1:7], ['delay', '30ms', '30ms', 'loss', 'random', '2%'])
@@ -76,6 +76,30 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(w['down_mbps_per_s'], [10.0, 12.0])
         self.assertEqual(w['up_mbps_per_s'], [0.1, 0.0])
         self.assertEqual(rdnl.wire_summary([(0.0, 5, 5)])['down_mbps_per_s'], [])
+
+    def test_stall_metrics(self):
+        # One stall from 10.0 s to 10.6 s on the monotonic clock, wall 100_000..100_600 ms.
+        stall = {'start_us': 10_000_000, 'end_us': 10_600_000, 'start_ms': 100_000, 'end_ms': 100_600}
+        records = ([{'release_us': 9_000_000 + i * 100_000, 'decoded_us': 9_020_000 + i * 100_000} for i in range(11)]
+                   # held frames, captured during the hold, decoded in the burst
+                   + [{'release_us': 10_100_000, 'decoded_us': 10_610_000},
+                      {'release_us': 10_200_000, 'decoded_us': 10_612_000},
+                      # the first fresh frame: captured at the release, decoded 30 ms after it
+                      {'release_us': 10_600_000, 'decoded_us': 10_630_000},
+                      {'release_us': 10_700_000, 'decoded_us': 10_720_000}])
+        series = [{'unix_ms': 99_500, 'host_stats': {'kbps': 20000}},
+                  {'unix_ms': 100_500, 'host_stats': {'kbps': 19000}},
+                  {'unix_ms': 101_500, 'host_stats': {'kbps': 12000}},
+                  {'unix_ms': 102_500, 'host_stats': {'kbps': 15000}}]
+        [m] = rdnl.stall_metrics({'decode_records': records, 'series': series}, [stall])
+        self.assertEqual((m['target_before_kbps'], m['target_after_kbps'], m['target_min_within_3s_kbps']),
+                         (20000, 15000, 12000))
+        self.assertEqual(m['fresh_frame_ms'], 30.0)
+        self.assertEqual(m['fps_second_after'], 4)
+        self.assertEqual((m['decoded_during_hold'], m['decoded_in_100ms_after']), (0, 3))
+        self.assertIn('| 1 | 20000 → 15000 (12000) | 30.0 | 4 | 0 / 3 |',
+                      rdnl.stall_table([{'commit': 'd' * 40, 'stalls': [m]}]))
+        self.assertEqual(rdnl.stall_table([{'commit': 'd' * 40}]), '')
 
     def test_seconds_to_level(self):
         self.assertEqual(rdnl.seconds_to([None, 9, 15, 20], 15), 3)

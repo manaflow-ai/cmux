@@ -19,6 +19,10 @@ see it; jitter is netem's default distribution, which reorders packets):
   jitter-5         delay 5ms 5ms
   jitter-15-burst  delay 15ms 15ms, Gilbert-Elliott loss averaging 1 % in bursts of ~4 packets
   jitter-30-loss2  delay 30ms 30ms, 2 % random loss
+  stall            delay 4ms, and every 5 s every packet held 0.6 s, then released at once (a Wi-Fi
+                   leg). It runs host and viewer in the host namespace over its own `lo`, so the
+                   bench's --eval-local decode records give, per stall, the first frame captured
+                   after the release and when it decoded; it runs the passive session only.
 
 Each profile starts a fresh host and runs two viewer sessions against it:
   passive  `bench --input none --duration-s N`: received Mbps per second and the host's target
@@ -62,12 +66,17 @@ PROFILES = {
     # packet lost in the bad state and none in the good one: p/(p+r) = 0.99 % lost on average.
     "jitter-15-burst": "delay 15ms 15ms loss gemodel 0.25% 25% 100% 0%",
     "jitter-30-loss2": "delay 30ms 30ms loss random 2%",
+    # A Wi-Fi leg: 4 ms steady, then every STALL_PERIOD_S every packet is held for STALL_HOLD_S and
+    # released as one burst (StallDriver). Runs on the host namespace's own `lo` (below).
+    "stall": "delay 4ms",
 }
+STALL_PERIOD_S, STALL_HOLD_S = 5.0, 0.6
 PROFILE_LABELS = {
     "clean": "clean",
     "jitter-5": "5±5 ms",
     "jitter-15-burst": "15±15 ms, 1% burst loss",
     "jitter-30-loss2": "30±30 ms, 2% loss",
+    "stall": "4 ms, 0.6 s hold every 5 s",
 }
 
 
@@ -178,6 +187,55 @@ def wire_summary(samples: list[tuple[float, int, int]]) -> dict:
             up.append(round((x1 - x0) * 8 / dt / 1e6, 3))
     return {"down_mbps_per_s": down, "up_mbps_per_s": up,
             "source": "viewer veth rx/tx bytes (all datagram kinds, with headers)"}
+
+
+def stall_metrics(report: dict | None, stalls: list[dict]) -> list[dict]:
+    """Per stall: the host target just before and after, the first fresh decoded frame, fps after.
+
+    `stalls` are {"start_us", "end_us"} on CLOCK_MONOTONIC and {"start_ms", "end_ms"} on the wall
+    clock. The bench's `decode_records` ({"release_us": host capture time, "decoded_us"}) and its
+    per-second `series` ({"unix_ms": the second's end, "host_stats": {"kbps"}}) give the rest.
+    A frame is fresh when the host captured it at or after the stall's end."""
+    report = report or {}
+    records = sorted((r for r in report.get("decode_records") or []
+                      if _num(r.get("release_us")) is not None and _num(r.get("decoded_us")) is not None),
+                     key=lambda r: r["decoded_us"])
+    series = [r for r in report.get("series") or [] if _num(r.get("unix_ms")) is not None]
+    def target_at_or_before(ms):
+        rows = [r for r in series if r["unix_ms"] <= ms]
+        return _num((rows[-1].get("host_stats") or {}).get("kbps")) if rows else None
+    def targets_between(a, b):
+        return [_num((r.get("host_stats") or {}).get("kbps")) for r in series if a < r["unix_ms"] <= b]
+    out = []
+    for st in stalls:
+        start, end = st["start_us"], st["end_us"]
+        fresh = next((r for r in records if r["release_us"] >= end), None)
+        after = [t for t in targets_between(st["end_ms"] + 1000, st["end_ms"] + 2000) if t is not None]
+        window = [t for t in targets_between(st["start_ms"], st["end_ms"] + 3000) if t is not None]
+        out.append({
+            "start_us": start, "end_us": end,
+            "target_before_kbps": target_at_or_before(st["start_ms"]),
+            "target_after_kbps": after[0] if after else None,
+            "target_min_within_3s_kbps": min(window) if window else None,
+            "fresh_frame_ms": round((fresh["decoded_us"] - end) / 1000, 2) if fresh else None,
+            "fps_second_after": sum(end <= r["decoded_us"] < end + 1_000_000 for r in records),
+            # Evidence the hold happened: decodes inside the hold (after its first 50 ms) and the burst.
+            "decoded_during_hold": sum(start + 50_000 <= r["decoded_us"] < end for r in records),
+            "decoded_in_100ms_after": sum(end <= r["decoded_us"] < end + 100_000 for r in records),
+        })
+    return out
+
+
+def stall_table(rows: list[dict]) -> str:
+    out = ["| cmux-rd | stall | target kbps before → after (min in 3 s) | first fresh frame ms after release "
+           "| fps in the second after | decodes during hold / in 100 ms after |", "|" + "---|" * 6]
+    for r in rows:
+        for i, st in enumerate(r.get("stalls") or [], 1):
+            out.append(f"| `{r['commit'][:12]}` | {i} | {_fmt(st.get('target_before_kbps'))} → "
+                       f"{_fmt(st.get('target_after_kbps'))} ({_fmt(st.get('target_min_within_3s_kbps'))}) "
+                       f"| {_fmt(st.get('fresh_frame_ms'))} | {_fmt(st.get('fps_second_after'))} "
+                       f"| {_fmt(st.get('decoded_during_hold'))} / {_fmt(st.get('decoded_in_100ms_after'))} |")
+    return "\n".join(out) + "\n" if len(out) > 2 else ""
 
 
 def count_idrs(timing_text: str) -> dict:
@@ -298,7 +356,9 @@ class Rig:
 
     def shape(self, profile: str) -> list[str]:
         lines = []
-        for ns, dev in ((self.host_ns, self.host_dev), (self.view_ns, self.view_dev)):
+        links = (((self.host_ns, "lo"),) if profile == "stall"
+                 else ((self.host_ns, self.host_dev), (self.view_ns, self.view_dev)))
+        for ns, dev in links:
             run(priv(["ip", "netns", "exec", ns, "tc", "qdisc", "replace", "dev", dev, "root", *netem_args(profile)]))
             lines.append(run(priv(["ip", "netns", "exec", ns, "tc", "qdisc", "show", "dev", dev])).stdout.strip())
         return lines
@@ -306,6 +366,9 @@ class Rig:
     def down(self):
         for ns in (self.host_ns, self.view_ns):
             run(priv(["ip", "netns", "del", ns]), check=False)
+
+    def unshape_lo(self):
+        run(priv(["ip", "netns", "exec", self.host_ns, "tc", "qdisc", "del", "dev", "lo", "root"]), check=False)
 
     def spawn(self, ns: str, argv: list[str], env: dict | None = None, token: Path | None = None,
               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) -> subprocess.Popen:
@@ -316,6 +379,47 @@ class Rig:
             inner += ["bash", "-c", 'exec "$@" 3< <(cat "$0")', str(token)]
         return subprocess.Popen(priv(["ip", "netns", "exec", ns, *inner, *argv]),
                                 stdout=stdout, stderr=stderr, start_new_session=True)
+
+
+class StallDriver:
+    """Holds every packet on the host namespace's `lo` for STALL_HOLD_S every STALL_PERIOD_S, then
+    releases them at once, by toggling netem's delay: during a hold it lowers the delay every
+    10 ms to (hold end - now) + 4 ms, so each held packet is due at the hold's end. One
+    `tc -batch -` process takes the changes. Each hold's times land in `stalls`."""
+
+    def __init__(self, rig: "Rig"):
+        self.rig, self.stalls, self.done = rig, [], threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True)
+        self.tc = None
+
+    def set_delay(self, ms: float):
+        self.tc.stdin.write(f"qdisc change dev lo root netem delay {ms:.1f}ms limit 100000\n".encode())
+        self.tc.stdin.flush()
+
+    def run(self):
+        self.tc = subprocess.Popen(priv(["ip", "netns", "exec", self.rig.host_ns, "tc", "-force", "-batch", "-"]),
+                                   stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            while not self.done.wait(STALL_PERIOD_S):
+                start_ns, start_ms = time.monotonic_ns(), time.time() * 1000
+                end_ns = start_ns + int(STALL_HOLD_S * 1e9)
+                while (left := end_ns - time.monotonic_ns()) > 0:
+                    self.set_delay(4 + left / 1e6)
+                    time.sleep(0.01)
+                self.set_delay(4)
+                self.stalls.append({"start_us": start_ns // 1000, "end_us": end_ns // 1000,
+                                    "start_ms": start_ms, "end_ms": start_ms + STALL_HOLD_S * 1000})
+        finally:
+            self.tc.stdin.close()
+            self.tc.wait(timeout=10)
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.done.set()
+        if self.thread.ident is not None:
+            self.thread.join(timeout=10)
 
 
 class WireSampler:
@@ -421,10 +525,13 @@ def wait_for(path: Path, needle: str, proc: subprocess.Popen, seconds: float) ->
     return False
 
 
-def bench(rig: Rig, binary: Path, token: Path, args: list[str], timeout: float) -> tuple[dict | None, str]:
-    argv = [str(binary), "bench", "--addr", f"{HOST_IP}:{PORT}", "--carrier", "udp", "--user", "owner",
-            "--token-fd", "3", *args]
-    proc = rig.spawn(rig.view_ns, argv, token=token, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def bench(rig: Rig, binary: Path, token: Path, args: list[str], timeout: float,
+          loopback: bool = False) -> tuple[dict | None, str]:
+    addr = f"127.0.0.1:{PORT}" if loopback else f"{HOST_IP}:{PORT}"
+    argv = [str(binary), "bench", "--addr", addr, "--carrier", "udp", "--user", "owner",
+            "--token-fd", "3", *(["--eval-local", "1"] if loopback else []), *args]
+    proc = rig.spawn(rig.host_ns if loopback else rig.view_ns, argv, token=token,
+                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         out, err = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -439,6 +546,8 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
     row = {"schema": SCHEMA, "commit": commit, "profile": profile, "netem_each_direction": PROFILES[profile],
            "workload": "motion", "carrier": "udp"}
     row["qdisc"] = rig.shape(profile)
+    if profile == "stall":
+        return measure_stall(rig, binary, row, scratch, display, passive_s)
     # The token lives in the private 0700 scratch, never under --out (an uploaded artifact).
     token = scratch / "token"
     token.write_text(os.urandom(32).hex())
@@ -478,6 +587,47 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
     finally:
         stop(host)
         time.sleep(0.5)  # the next host binds the same port
+
+
+def measure_stall(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, passive_s: int) -> dict:
+    """The stall profile: host and viewer in the host namespace over its own `lo` (netem there
+    delays each direction once, 4 ms), so the bench's `--eval-local` decode records share the
+    host's clock and the first fresh frame after each release is measured, not inferred."""
+    row["topology"] = "host namespace lo (one netem qdisc; each direction crosses it once)"
+    token = scratch / "token"
+    token.write_text(os.urandom(32).hex())
+    token.chmod(0o600)
+    timing, host_log = scratch / "timing-stall.jsonl", scratch / "host-stall.log"
+    timing.touch()
+    with open(host_log, "wb") as log:
+        host = rig.spawn(rig.host_ns, [str(binary), "host", "--owner", "owner", "--bind", "127.0.0.1",
+                                       "--display", display, "--port", str(PORT), "--profile", "baseline",
+                                       "--token-fd", "3"],
+                         env={"CMUX_RD_TIMING_LOG": str(timing)}, token=token, stdout=log, stderr=log)
+    driver = StallDriver(rig)
+    try:
+        if not wait_for(host_log, "listening", host, 20):
+            row["error"] = "host did not listen: " + host_log.read_text(errors="replace")[-600:]
+            return row
+        seconds = max(passive_s, 32)
+        driver.start()
+        passive, perr = bench(rig, binary, token, ["--input", "none", "--duration-s", str(seconds)],
+                              seconds + 60, loopback=True)
+        driver.stop()
+        row["passive"] = summarize_passive(passive)
+        if not row["passive"]["ok"]:
+            row["passive"]["stderr"] = perr
+        row["stall_period_s"], row["stall_hold_s"] = STALL_PERIOD_S, STALL_HOLD_S
+        row["stall_method"] = "netem delay lowered every 10 ms to (hold end - now) + 4 ms: held, then one burst"
+        row["stalls"] = stall_metrics(passive, driver.stalls)
+        row["idr_passive"] = count_idrs(timing.read_bytes().decode(errors="replace"))
+        row["key"] = {"skipped": "the stall profile measures the passive session only"}
+        return row
+    finally:
+        driver.stop()
+        stop(host)
+        rig.unshape_lo()
+        time.sleep(0.5)
 
 
 def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, args) -> list[dict]:
@@ -533,12 +683,13 @@ def main(argv: list[str]) -> int:
     if argv[:1] == ["table"]:
         if len(argv) != 2:
             raise SystemExit("usage: rd-netem-linux.py table RESULTS.jsonl")
-        sys.stdout.write(markdown_table(read_rows(Path(argv[1]))))
+        rows = read_rows(Path(argv[1]))
+        sys.stdout.write(markdown_table(rows) + "\n" + stall_table(rows))
         return 0
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--commit", action="append", default=[], help="full cmux commit to build and measure")
     ap.add_argument("--bin", action="append", default=[], metavar="COMMIT=PATH", help="a prebuilt cmux-rd")
-    ap.add_argument("--profile", action="append", choices=sorted(PROFILES), help="default: all four")
+    ap.add_argument("--profile", action="append", choices=sorted(PROFILES), help="default: all five")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--repo-url", default=REPO_URL)
     ap.add_argument("--passive-s", type=int, default=20)
@@ -580,10 +731,11 @@ def main(argv: list[str]) -> int:
                     rows.append(row)
                 continue
             rows += measure_binary(binary, commit, profiles, args.out, args)
-            print(markdown_table([r for r in rows if r["commit"] == commit]), file=sys.stderr, flush=True)
+            mine = [r for r in rows if r["commit"] == commit]
+            print(markdown_table(mine) + "\n" + stall_table(mine), file=sys.stderr, flush=True)
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    table = markdown_table(rows)
+    table = markdown_table(rows) + "\n" + stall_table(rows)
     (args.out / "results.md").write_text(table)
     print(table)
     return 0 if rows and not any(r.get("error") for r in rows) else 1
