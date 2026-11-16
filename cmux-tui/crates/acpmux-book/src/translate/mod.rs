@@ -484,14 +484,6 @@ pub fn translate(
     bytes: &[u8],
 ) -> Result<Vec<Op>, Error> {
     let mut out = input::Output::new(bytes);
-    if serde_json::from_slice::<serde_json::Value>(bytes)
-        .ok()
-        .and_then(|value| value.get("k").and_then(serde_json::Value::as_str).map(str::to_owned))
-        .as_deref()
-        == Some("act")
-    {
-        return state.apply_act(bytes, place, span);
-    }
     let valid = match harness {
         Harness::V1 => v1::validate(bytes),
         Harness::Claude => claude::validate(bytes),
@@ -538,7 +530,9 @@ impl State {
     }
 
     /// Apply a durable `k:"act"` line into the translator's queue. Only
-    /// `prompt` and `retract` are action transitions in this row.
+    /// `prompt` and `retract` are action transitions in this row. For a
+    /// followed chat, `place` and `span` are offsets in `raw/acts.ndjson`;
+    /// the actor gives that file to queue readers as their `RawSource`.
     pub fn apply_act(&mut self, bytes: &[u8], place: u64, span: u64) -> Result<Vec<Op>, Error> {
         let mut out = input::Output::new(bytes);
         #[derive(Deserialize)]

@@ -370,30 +370,29 @@ pub struct QueueReceipt {
 /// carry `{promptId}`. The queue never stores a second body map.
 pub struct ActorQueue {
     writer: FollowedChatWriter,
-    state: acpmux_book::translate::State,
     ids: ActIdRing,
 }
 
 impl ActorQueue {
     pub fn new(writer: FollowedChatWriter) -> Self {
         let ids = ActIdRing::empty(&writer.chat_path);
-        Self { writer, state: Default::default(), ids }
+        Self { writer, ids }
     }
 
     pub fn with_ids(writer: FollowedChatWriter, ids: ActIdRing) -> Self {
-        Self { writer, state: Default::default(), ids }
+        Self { writer, ids }
     }
-    pub fn len(&self) -> usize {
-        self.state.queue_len()
+    pub fn len(&self, state: &acpmux_book::translate::State) -> usize {
+        state.queue_len()
     }
 
-    pub fn apply(&mut self, envelope: ActEnvelope) -> Result<QueueReceipt, QueueError> {
-        let after = envelope.after;
-        self.apply_at(envelope, after)
+    pub fn is_empty(&self, state: &acpmux_book::translate::State) -> bool {
+        self.len(state) == 0
     }
 
     pub fn apply_at(
         &mut self,
+        state: &mut acpmux_book::translate::State,
         envelope: ActEnvelope,
         transcript_after: u64,
     ) -> Result<QueueReceipt, QueueError> {
@@ -421,14 +420,14 @@ impl ActorQueue {
             ActIdLookup::IdUnknown => return Err(QueueError::Invalid("id_unknown".into())),
             ActIdLookup::New => {}
         }
-        if envelope.op == "prompt" && self.state.act_queue_full() {
+        if envelope.op == "prompt" && state.act_queue_full() {
             return Err(QueueError::Full);
         }
         let stored = envelope.with_after(transcript_after);
         let line = stored.line().map_err(QueueError::from)?;
-        self.state.validate_act(&line).map_err(|error| QueueError::Invalid(error.to_string()))?;
+        state.validate_act(&line).map_err(|error| QueueError::Invalid(error.to_string()))?;
         let receipt = self.writer.append(&stored)?;
-        self.state
+        state
             .apply_act(&line, receipt.place, line.len() as u64)
             .map_err(|error| QueueError::Invalid(error.to_string()))?;
         self.ids
@@ -451,9 +450,16 @@ fn allowed_op(op: &str) -> bool {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::indexing_slicing, clippy::expect_used)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    clippy::expect_used,
+    reason = "fault injection and test assertions"
+)]
 mod tests {
     use super::*;
+    use crate::chat::source::FileSource;
+    use acpmux_book::translate::prompt_hash;
     use tempfile::tempdir;
 
     fn writer(dir: &Path) -> FollowedChatWriter {
@@ -514,6 +520,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let first_writer = writer(dir.path());
         let mut queue = ActorQueue::new(first_writer);
+        let mut state = acpmux_book::translate::State::default();
         for n in 0..MAX_QUEUE_ENTRIES {
             let line = ActEnvelope::new(
                 "prompt",
@@ -525,10 +532,14 @@ mod tests {
             )
             .line()
             .unwrap();
-            queue.state.apply_act(&line, n as u64, line.len() as u64).unwrap();
+            state.apply_act(&line, n as u64, line.len() as u64).unwrap();
         }
         let error = queue
-            .apply(ActEnvelope::new("prompt", "new", 1, "person", None, Value::Null))
+            .apply_at(
+                &mut state,
+                ActEnvelope::new("prompt", "new", 1, "person", None, Value::Null),
+                0,
+            )
             .unwrap_err();
         assert_eq!(error, QueueError::Full);
         assert_eq!(fs::metadata(dir.path().join("raw/acts.ndjson")).unwrap().len(), 0);
@@ -536,9 +547,10 @@ mod tests {
         let first = writer(dir2.path());
         let path = first.acts_path.clone();
         let mut q = ActorQueue::new(first);
+        let mut state = acpmux_book::translate::State::default();
         let request =
             ActEnvelope::new("prompt", "p", 1, "person", None, serde_json::json!({"promptId":"p"}));
-        let receipt = q.apply(request).unwrap();
+        let receipt = q.apply_at(&mut state, request, 0).unwrap();
         drop(q);
         let reopened = writer(dir2.path());
         let replay = replay_from(&path, 0, DEFAULT_REPLAY_BYTES).unwrap();
@@ -546,5 +558,29 @@ mod tests {
         assert_eq!(replay.next, receipt.receipt.after);
         assert_eq!(replay.entries[0].k, "act");
         drop(reopened);
+    }
+
+    #[test]
+    fn action_queue_entry_reads_its_head_from_the_action_source() {
+        let dir = tempdir().unwrap();
+        let first = writer(dir.path());
+        let path = first.acts_path.clone();
+        let mut queue = ActorQueue::new(first);
+        let mut state = acpmux_book::translate::State::default();
+        let request = ActEnvelope::new(
+            "prompt",
+            "act-1",
+            7,
+            "person",
+            None,
+            serde_json::json!({"promptId":"p","text":"hello","textLen":5}),
+        );
+        queue.apply_at(&mut state, request, 0).unwrap();
+        let entry = state.queued(prompt_hash("p")).unwrap();
+        let mut source = FileSource::open(&path).unwrap();
+        let item = crate::chat::queue::head(&mut source, &entry).unwrap();
+        assert_eq!(item.id, "p");
+        assert_eq!(item.text, "hello");
+        assert_eq!(item.len, 5);
     }
 }
