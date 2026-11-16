@@ -59,15 +59,9 @@ fn marker_files(list: &str) -> Vec<(String, Vec<String>)> {
         .map(|entry| entry.unwrap_or_else(|e| panic!("{}: {e}", dir.display())))
         .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
         .map(|entry| {
-            let name = entry
-                .file_name()
-                .into_string()
-                .expect("a UTF-8 marker name");
+            let name = entry.file_name().into_string().expect("a UTF-8 marker name");
             let path = entry.path();
-            assert!(
-                path.is_file(),
-                "{MARKERS}/{list}/{name}: a marker is a file named by its id"
-            );
+            assert!(path.is_file(), "{MARKERS}/{list}/{name}: a marker is a file named by its id");
             let text = std::fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
             let lines = text
@@ -219,9 +213,7 @@ fn arguments_await_repin(id: &str) -> bool {
 
 /// Whether `id`'s FIELD is on [`FIELDS_AWAITING_REPIN`].
 fn field_awaits_repin(id: &str, field: &str) -> bool {
-    FIELDS_AWAITING_REPIN
-        .iter()
-        .any(|(i, fields)| i == id && listed(fields, field))
+    FIELDS_AWAITING_REPIN.iter().any(|(i, fields)| i == id && listed(fields, field))
 }
 
 fn read_json(path: &Path) -> Value {
@@ -234,10 +226,8 @@ fn first_difference(path: &str, a: &Value, b: &Value) -> Option<String> {
     match (a, b) {
         (Value::Object(x), Value::Object(y)) => {
             for key in x.keys().chain(y.keys()) {
-                let (l, r) = (
-                    x.get(key).unwrap_or(&Value::Null),
-                    y.get(key).unwrap_or(&Value::Null),
-                );
+                let (l, r) =
+                    (x.get(key).unwrap_or(&Value::Null), y.get(key).unwrap_or(&Value::Null));
                 if x.contains_key(key) != y.contains_key(key) {
                     return Some(format!(
                         "{path}.{key}: present on one side only (rust {l}, swift {r})"
@@ -251,11 +241,7 @@ fn first_difference(path: &str, a: &Value, b: &Value) -> Option<String> {
         }
         (Value::Array(x), Value::Array(y)) => {
             if x.len() != y.len() {
-                return Some(format!(
-                    "{path}: {} items in rust, {} in swift",
-                    x.len(),
-                    y.len()
-                ));
+                return Some(format!("{path}: {} items in rust, {} in swift", x.len(), y.len()));
             }
             x.iter().zip(y).enumerate().find_map(|(i, (l, r))| {
                 let label = l
@@ -273,10 +259,7 @@ fn first_difference(path: &str, a: &Value, b: &Value) -> Option<String> {
 fn english_catalog_equals_the_swift_dump() {
     let mut swift = read_json(&repo().join("plans/cmux-next/action-catalog.json"));
     // The Swift dump reflects each binding's parsed `when` clause too; the catalog keeps its text.
-    if let Some(defaults) = swift
-        .get_mut("key_binding_defaults")
-        .and_then(Value::as_object_mut)
-    {
+    if let Some(defaults) = swift.get_mut("key_binding_defaults").and_then(Value::as_object_mut) {
         for list in defaults.values_mut() {
             for entry in list.as_array_mut().into_iter().flatten() {
                 if let Some(entry) = entry.as_object_mut() {
@@ -330,10 +313,7 @@ fn english_catalog_equals_the_swift_dump() {
     let sort = |v: &mut Value| {
         if let Some(keys) = v["key_binding_defaults"]["text_input_keys"].as_array_mut() {
             keys.sort_by_key(|k| {
-                (
-                    k["key"].as_str().unwrap_or("").to_owned(),
-                    k["modifiers"].to_string(),
-                )
+                (k["key"].as_str().unwrap_or("").to_owned(), k["modifiers"].to_string())
             });
         }
     };
@@ -349,11 +329,8 @@ fn english_catalog_equals_the_swift_dump() {
         "action-catalog.json",
     );
     if let Some(actions) = object.get_mut("actions").and_then(Value::as_array_mut) {
-        actions.retain(|action| {
-            !action["id"]
-                .as_str()
-                .is_some_and(|id| listed(&AWAITING_REPIN, id))
-        });
+        actions
+            .retain(|action| !action["id"].as_str().is_some_and(|id| listed(&AWAITING_REPIN, id)));
     }
     awaiting_family_repin(&mut rust, &swift);
     awaiting_duplicate_repin(&mut rust, &swift);
@@ -362,11 +339,7 @@ fn english_catalog_equals_the_swift_dump() {
         let Some(id) = action["id"].as_str().map(str::to_owned) else {
             continue;
         };
-        let dumped = swift["actions"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|a| a["id"] == *id);
+        let dumped = swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == *id);
         if dumped.is_some_and(|d| shortcut_awaits_repin(&id, &d["defaultShortcut"])) {
             action["defaultShortcut"] = Value::Null;
         }
@@ -397,10 +370,7 @@ static FAMILY_AWAITING_REPIN: LazyLock<Vec<(String, Vec<String>)>> = LazyLock::n
         .map(|entry| entry.unwrap_or_else(|e| panic!("{}: {e}", dir.display())))
         .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
         .map(|entry| {
-            let family = entry
-                .file_name()
-                .into_string()
-                .expect("a UTF-8 family name");
+            let family = entry.file_name().into_string().expect("a UTF-8 family name");
             assert!(
                 entry.path().is_dir(),
                 "{MARKERS}/family/{family}: a family is a directory of member markers"
@@ -432,10 +402,7 @@ fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
                 marker(&format!("family/{family}"), id)
             );
         }
-        let families = rust["palette"]["families"]
-            .as_array_mut()
-            .into_iter()
-            .flatten();
+        let families = rust["palette"]["families"].as_array_mut().into_iter().flatten();
         for f in families.filter(|f| f["id"] == *family) {
             if let Some(list) = f["members"].as_array_mut() {
                 list.retain(|m| !m.as_str().is_some_and(|m| listed(ids, m)));
@@ -444,12 +411,7 @@ fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
         // A member's row derives its family and its tier (a family member is niche) from the
         // list: those two take the dump's values, every other field is still compared.
         let dump = |id: &str| {
-            swift["actions"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|a| a["id"] == id)
-                .cloned()
+            swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == id).cloned()
         };
         let actions = rust["actions"].as_array_mut().into_iter().flatten();
         for action in actions.filter(|a| a["id"].as_str().is_some_and(|id| listed(ids, id))) {
@@ -475,9 +437,7 @@ fn awaiting_duplicate_repin(rust: &mut Value, swift: &Value) {
             swift["palette"]["duplicates"].get(id.as_str()).is_none(),
             "action-catalog.json's palette duplicates have {id}: the re-pin landed, so delete {path}"
         );
-        let duplicates = rust["palette"]["duplicates"]
-            .as_object_mut()
-            .expect("palette duplicates");
+        let duplicates = rust["palette"]["duplicates"].as_object_mut().expect("palette duplicates");
         assert!(
             duplicates.remove(id.as_str()).is_some(),
             "{id} is awaiting a duplicate re-pin but not in palette::DUPLICATES: delete {path}"
@@ -490,9 +450,8 @@ fn action_list_export_matches() {
     let export = read_json(&repo().join("plans/cmux-next/action-surfaces.json"));
     let rows = export["actions"].as_array().expect("actions");
     check_awaiting_repin(rows, "action-surfaces.json");
-    let rust: Vec<_> = cmux_action_catalog::actions()
-        .filter(|a| !listed(&AWAITING_REPIN, a.id))
-        .collect();
+    let rust: Vec<_> =
+        cmux_action_catalog::actions().filter(|a| !listed(&AWAITING_REPIN, a.id)).collect();
     assert_eq!(rows.len(), rust.len(), "action count");
     for (row, action) in rows.iter().zip(&rust) {
         let id = action.id;
@@ -508,17 +467,10 @@ fn action_list_export_matches() {
         } else {
             assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
         }
-        assert_eq!(
-            row["cli"],
-            action.surface_plan.cli.map_or("undeclared", |d| d.wire()),
-            "{id}"
-        );
+        assert_eq!(row["cli"], action.surface_plan.cli.map_or("undeclared", |d| d.wire()), "{id}");
         assert_eq!(
             row["context_menu"],
-            action
-                .surface_plan
-                .context_menu()
-                .map_or("undeclared", |d| d.wire()),
+            action.surface_plan.context_menu().map_or("undeclared", |d| d.wire()),
             "{id}"
         );
         assert_eq!(
@@ -526,11 +478,7 @@ fn action_list_export_matches() {
             action.surface_plan.mcp().map_or("undeclared", |d| d.wire()),
             "{id}"
         );
-        assert_eq!(
-            row["main_menu"],
-            serde_json::json!(action.main_menu),
-            "{id}"
-        );
+        assert_eq!(row["main_menu"], serde_json::json!(action.main_menu), "{id}");
         if field_awaits_repin(id, "/title") {
             assert_ne!(
                 row["title"],
@@ -578,11 +526,7 @@ fn action_list_export_matches() {
         let args = row["args"].as_array().expect("args");
         if arguments_await_repin(id) {
             let names: Vec<_> = args.iter().map(|a| a["name"].clone()).collect();
-            let ours: Vec<_> = action
-                .arguments
-                .iter()
-                .map(|a| Value::from(a.name))
-                .collect();
+            let ours: Vec<_> = action.arguments.iter().map(|a| Value::from(a.name)).collect();
             assert_ne!(
                 names,
                 ours,
@@ -593,11 +537,7 @@ fn action_list_export_matches() {
             assert_eq!(args.len(), action.arguments.len(), "{id}");
             for (wire, argument) in args.iter().zip(action.arguments) {
                 assert_eq!(wire["name"], argument.name, "{id}");
-                assert_eq!(
-                    wire["required"], argument.required,
-                    "{id}.{}",
-                    argument.name
-                );
+                assert_eq!(wire["required"], argument.required, "{id}.{}", argument.name);
             }
         }
         let section = &row["palette_section"];
@@ -618,14 +558,10 @@ fn translations_equal_the_string_catalogs() {
             .entry(table)
             .or_insert_with(|| read_json(&dir.join(format!("{table}.xcstrings"))));
         let entry = &catalog["strings"][key];
-        assert!(
-            !entry.is_null(),
-            "{table}/{key} is not in {table}.xcstrings"
-        );
+        assert!(!entry.is_null(), "{table}/{key} is not in {table}.xcstrings");
         for (index, locale) in cmux_action_catalog::LOCALES.iter().enumerate() {
-            let swift = entry["localizations"][*locale]["stringUnit"]["value"]
-                .as_str()
-                .unwrap_or("");
+            let swift =
+                entry["localizations"][*locale]["stringUnit"]["value"].as_str().unwrap_or("");
             assert_eq!(values[index], swift, "{table}/{key} in {locale}");
             checked += 1;
         }
@@ -639,11 +575,7 @@ fn ids_and_cli_names_are_unique() {
     let mut cli = std::collections::HashSet::new();
     for action in cmux_action_catalog::actions() {
         assert!(ids.insert(action.id), "{} twice", action.id);
-        assert!(
-            cli.insert(action.cli_name),
-            "CLI name {} twice",
-            action.cli_name
-        );
+        assert!(cli.insert(action.cli_name), "CLI name {} twice", action.cli_name);
     }
 }
 
@@ -677,14 +609,8 @@ fn japanese_titles_are_translated() {
     let ja = cmux_action_catalog::strings::locale_index("ja-JP");
     assert_eq!(cmux_action_catalog::LOCALES[ja], "ja");
     let action = cmux_action_catalog::find("newSurface").expect("newSurface");
-    assert_ne!(
-        cmux_action_catalog::strings::resolve(&action.title, ja),
-        action.title.en
-    );
-    assert_eq!(
-        cmux_action_catalog::find("app.quit").map(|a| a.id),
-        Some("quit")
-    );
+    assert_ne!(cmux_action_catalog::strings::resolve(&action.title, ja), action.title.en);
+    assert_eq!(cmux_action_catalog::find("app.quit").map(|a| a.id), Some("quit"));
 }
 
 #[test]
@@ -692,26 +618,16 @@ fn debug_build_only_entries_exist() {
     for id in cmux_action_catalog::tables::DEBUG_BUILD_ONLY_ACTIONS {
         let action =
             cmux_action_catalog::find(id).unwrap_or_else(|| panic!("{id} is not an action"));
-        assert!(
-            action.is_debug_only,
-            "{id} is Debug-build only but not debug-only"
-        );
+        assert!(action.is_debug_only, "{id} is Debug-build only but not debug-only");
     }
     for (id, name, value) in cmux_action_catalog::tables::DEBUG_BUILD_ONLY_CASES {
         let action =
             cmux_action_catalog::find(id).unwrap_or_else(|| panic!("{id} is not an action"));
-        let argument = action
-            .arguments
-            .iter()
-            .find(|a| a.name == *name)
-            .expect("the argument");
+        let argument = action.arguments.iter().find(|a| a.name == *name).expect("the argument");
         let cmux_action_catalog::model::ArgKind::Enumeration(cases) = argument.kind else {
             panic!("{id}.{name} is not an enumeration");
         };
-        assert!(
-            cases.iter().any(|c| c.value == *value),
-            "{id}.{name} has no {value}"
-        );
+        assert!(cases.iter().any(|c| c.value == *value), "{id}.{name} has no {value}");
     }
 }
 

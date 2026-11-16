@@ -48,18 +48,14 @@ fn every_name_belongs_to_one_command() {
         commands.sort();
         commands.dedup();
         if commands.len() > 1 {
-            clashes.push(format!(
-                "{shared}: {ids:?} are different commands with one name"
-            ));
+            clashes.push(format!("{shared}: {ids:?} are different commands with one name"));
         }
     }
     assert!(clashes.is_empty(), "{}", clashes.join("\n"));
 
     let title_of = |id: &str| -> String {
-        let action = actions
-            .iter()
-            .find(|action| action["id"] == id)
-            .unwrap_or_else(|| panic!("{id}"));
+        let action =
+            actions.iter().find(|action| action["id"] == id).unwrap_or_else(|| panic!("{id}"));
         name(action["title"].as_str().expect("title"))
     };
     for (duplicate, original) in palette::DUPLICATES {
@@ -68,10 +64,6 @@ fn every_name_belongs_to_one_command() {
             title_of(original),
             "{duplicate} does not read as {original}"
         );
-        assert_eq!(
-            canonical(original),
-            *original,
-            "{original} is itself a duplicate"
-        );
+        assert_eq!(canonical(original), *original, "{original} is itself a duplicate");
     }
 }
