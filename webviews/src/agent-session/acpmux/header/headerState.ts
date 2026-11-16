@@ -47,7 +47,7 @@ export interface HeaderMoveTarget {
   readonly id: string;
   readonly label: string;
   readonly status?: string;
-  readonly kind: "local" | "cloud";
+  readonly kind: "local" | "cloud" | "ssh" | "auto" | "remote";
   /// Why a move there would refuse now: the row is greyed with it.
   readonly reason?: string;
 }
@@ -157,7 +157,10 @@ export function setHeaderState(value: unknown): void {
       ? raw.moveTargets.flatMap((target: unknown): HeaderMoveTarget[] => {
           const row = (target ?? {}) as Record<string, unknown>;
           if (typeof row.id !== "string" || !row.id || typeof row.label !== "string") return [];
-          const kind = row.kind === "local" ? "local" : "cloud";
+          const kind =
+            row.kind === "local" || row.kind === "ssh" || row.kind === "auto" || row.kind === "remote"
+              ? row.kind
+              : "cloud";
           // Only this Mac's row may come without a name: the page names it.
           if (!row.label && kind !== "local") return [];
           return [
