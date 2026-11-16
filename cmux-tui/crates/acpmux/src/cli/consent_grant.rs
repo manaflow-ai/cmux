@@ -212,6 +212,12 @@ impl Grant {
     }
 
     /// Whether this grant is for every machine of the account (`*`).
+    /// The sign-in's default account grant: both surfaces `default`, signed with no gesture. It
+    /// ranks below every explicit account grant and every per-machine record.
+    pub fn is_default(&self) -> bool {
+        self.account_wide() && self.control == Change::Default
+    }
+
     pub fn account_wide(&self) -> bool {
         self.machine_id == ANY
     }
@@ -654,7 +660,7 @@ pub(crate) fn apply(
         // machine can hand it on to a peer that enrolls later (`op: "policy"`). An older one
         // (another grantor's newer policy is kept) changes nothing.
         // SECURITY: the sign-in's default On (both `default`) takes only where no policy for the
-        // account is kept yet: an automatic sign-in on one Mac never undoes the person's Off.
+        // account is kept yet, and any explicit grant replaces it (`replaces`).
         let kept = read_policy(root).filter(|(kept, _)| kept.account == grant.account);
         let newer = replaces(kept.as_ref().map(|(kept, _)| kept), &grant);
         if newer {
@@ -800,11 +806,14 @@ pub(crate) fn policy_grant(root: &Path, account: Option<&str>) -> Option<Value> 
 }
 
 /// Whether account grant `grant` replaces the account policy `kept` for its account.
+/// SECURITY: a sign-in default (no gesture) takes only where nothing is kept, and any explicit
+/// grant replaces a kept default whatever its signing time: a default never wins over an Off the
+/// person signed, in whichever order they arrive. Explicit grants order by signing time.
 fn replaces(kept: Option<&Grant>, grant: &Grant) -> bool {
-    if grant.control == Change::Default {
+    if grant.is_default() {
         kept.is_none()
     } else {
-        kept.is_none_or(|kept| grant.issued_at > kept.issued_at)
+        kept.is_none_or(|kept| kept.is_default() || grant.issued_at > kept.issued_at)
     }
 }
 
@@ -856,8 +865,10 @@ pub(crate) fn recompute(
                 at: *at,
             })
         });
+        // A sign-in default ranks below every per-machine record, whatever their signing times.
+        let default = policy.as_ref().is_some_and(|(grant, _)| grant.is_default());
         let signed = match (record, account_record) {
-            (Some(record), Some(policy)) if policy.issued_at > record.issued_at => {
+            (Some(record), Some(policy)) if !default && policy.issued_at > record.issued_at => {
                 Some((policy, "account"))
             }
             (Some(record), _) => Some((record, "machine")),
