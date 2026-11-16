@@ -275,7 +275,7 @@ impl ListDriver {
         let slot = match request.view {
             ListView::Live => "live",
             ListView::All => "all",
-            ListView::Folders => unreachable!(),
+            ListView::Folders => return Err(DriverError::Invalid("list.unsupported".into())),
         }
         .into();
         let sub = Sub::new(sid.clone(), Stream::new("list")).around(Anchor::End, HEAD_WINDOW);
