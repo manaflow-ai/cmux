@@ -5,7 +5,9 @@ import CmuxNextDesign
 /// `minHeight`, `maxHeight`; a number or `"infinity"`) sizes the node around its padding; `background` fills it, `borderColor` and
 /// `borderWidth` (1 by default) stroke it inside, `cornerRadius` rounds and clips both;
 /// `hoverBackground` washes it while the pointer is over it (local, no script round trip);
-/// `rotation` turns it clockwise by that many degrees about its center.
+/// `rotation` turns it clockwise by that many degrees about its center, `scale` sizes it about its
+/// center and `offset` moves it, all three on the layer's own transform (the frame does not move);
+/// `glow` and `gradient` are drawn in AppSceneNodeNSView+Motion.swift.
 extension AppSceneNodeNSView {
     /// One `frame` dimension: a number, or `"infinity"` (fill).
     func frameDimension(_ key: String) -> CGFloat? {
@@ -52,32 +54,51 @@ extension AppSceneNodeNSView {
         guard let layer else { return }
         layer.cornerCurve = .continuous
         layer.cornerRadius = cornerRadius
-        layer.masksToBounds = cornerRadius > 0
+        // A glow is a shadow outside the bounds: a node that glows rounds without clipping.
+        layer.masksToBounds = cornerRadius > 0 && node.glow == nil
         layer.borderWidth = node.props["borderColor"]?.stringValue == nil ? 0 : CGFloat(node.number("borderWidth") ?? 1)
         // Painted now too, so a node reads right before its first draw.
         performWithTheme { paintDecorations() }
     }
 
-    /// The fill and border colors, in the theme scope (``paint()``'s caller).
+    /// The fill, border, glow and gradient colors, in the theme scope (``paint()``'s caller). An
+    /// animated prop change (``changeMotion``) animates them from the colors on screen.
     func paintDecorations() {
         guard let layer else { return }
         let hover = isDecorationHovered ? node.props["hoverBackground"]?.sceneColor : nil
-        layer.backgroundColor = (hover ?? node.props["background"]?.sceneColor)?.cgColor
-        layer.borderColor = node.props["borderColor"]?.sceneColor?.cgColor
+        animateColor(layer, \.backgroundColor, "backgroundColor", (hover ?? node.props["background"]?.sceneColor)?.cgColor)
+        animateColor(layer, \.borderColor, "borderColor", node.props["borderColor"]?.sceneColor?.cgColor)
+        paintGlow()
+        paintGradientBackground()
     }
 
-    /// The rotation about the node's center (on each layout, since it depends on the size).
+    /// The `scale`, `rotation` (clockwise, in degrees) and `offset` about the node's center, as the
+    /// layer's own transform (it does not move the node's frame), and the gradient's and glow's
+    /// geometry; on each layout, since they depend on the size.
     func layoutDecorations() {
         guard let layer else { return }
-        let degrees = node.number("rotation") ?? 0
-        guard degrees != 0 else {
-            if !CATransform3DIsIdentity(layer.sublayerTransform) { layer.sublayerTransform = CATransform3DIdentity }
-            return
+        let parts = SceneTransformParts(scale: node.scaleFactor, degrees: node.rotationDegrees, offset: node.offset)
+        let space = SceneTransformSpace(layer: layer)
+        let target = space.transform(scale: parts.scale, degrees: parts.degrees, offset: parts.offset)
+        if !CATransform3DEqualToTransform(layer.transform, target) {
+            let from = appliedTransform
+            withoutActions { layer.transform = target }
+            // From the old value's parts, so a resize alone never animates.
+            if let from, from != parts, parts.scale > 0.001 {
+                let delta = space.transform(scale: from.scale / parts.scale, degrees: from.degrees - parts.degrees,
+                                            offset: CGPoint(x: from.offset.x - parts.offset.x, y: from.offset.y - parts.offset.y))
+                animateAdditive(layer, "transform", from: NSValue(caTransform3D: delta), zero: NSValue(caTransform3D: CATransform3DIdentity))
+            }
         }
-        // Clockwise on screen, about the center: the content's sublayers turn, the node keeps its frame.
-        let (cx, cy) = (bounds.midX, bounds.midY)
-        var turn = CATransform3DMakeTranslation(cx, cy, 0)
-        turn = CATransform3DRotate(turn, CGFloat(-degrees * .pi / 180) * (layer.contentsAreFlipped() ? -1 : 1), 0, 0, 1)
-        layer.sublayerTransform = CATransform3DTranslate(turn, -cx, -cy, 0)
+        appliedTransform = parts
+        layoutGradientBackground()
+        layoutGlowPath()
     }
+}
+
+/// The parts of a node's own transform (``AppSceneNodeNSView/layoutDecorations()``).
+struct SceneTransformParts: Equatable {
+    var scale: CGFloat
+    var degrees: CGFloat
+    var offset: CGPoint
 }

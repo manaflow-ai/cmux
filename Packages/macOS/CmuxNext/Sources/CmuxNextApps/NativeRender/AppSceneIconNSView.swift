@@ -16,7 +16,11 @@ final class AppSceneIconNSView: AppSceneNodeNSView {
 
     override func configure(_ node: AppSceneNode) {
         super.configure(node)
-        image.image = NSImage.icon(symbol: node.string("symbol") ?? "circle", size: side)
+        // With an `animation`, a new symbol or color crossfades in place.
+        if let motion = changeMotion, previousNode?.props["symbol"] != node.props["symbol"] || previousNode?.props["color"] != node.props["color"] {
+            Motion.appScenes.sceneCrossfade(motion, on: image.layer, in: window)
+        }
+        image.image =NSImage.icon(symbol: node.string("symbol") ?? "circle", size: side)
     }
 
     override func paint() {
