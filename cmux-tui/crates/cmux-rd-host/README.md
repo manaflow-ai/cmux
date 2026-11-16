@@ -77,6 +77,17 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   version 2 or later), so control works on Wayland; otherwise the desktop is shared view
   only. A grant the person revoked makes the next share show the dialog once, then it is
   saved again. `cmux-rd linux-host grant [--control]` makes the grant again by itself.
+- Machine join: `cmux-rd linux-host enable --non-interactive --stack-token-file PATH|-` is the
+  one command the join runs after the acpmux join, often over ssh. It never opens a browser
+  (with no token file it signs in nothing, and runs on a desktop that is still enabled), finds
+  the desktop through logind, leaves the portal dialog up for a minute at most, and installs,
+  enables and starts the host unit itself. A Wayland desktop gets the one grant above, and
+  "this desktop's screen-share portal can't remember a grant; each share will ask once on this
+  machine" or "view only: this desktop has no remote-input portal" when its portal cannot
+  keep one (neither is fatal). With no graphical session it starts an Xvfb display cmux owns
+  (`cmux-screen-display.service`, :99 or the next free one), says "no graphical session on this
+  machine; started a virtual display at :N for sharing", points the host at it and keeps the
+  user manager running (`loginctl enable-linger`).
 - Viewers: cmux on a Mac (cmux.rd/1). The iPhone's WebRTC viewer is not served by this host
   yet; its session ends with that reason.
 - Relays the person added by hand are sealed to the device's agreement key and not opened
