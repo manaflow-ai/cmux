@@ -22,6 +22,8 @@ const WRITER_THREAD_WAIT: Duration = Duration::from_secs(60);
 const RELEASE_RECORD_FILE: &str = "previous-owner-release.json";
 /// The key of that record in the start line of the next owner.
 const RELEASE_RECORD_KEY: &str = "previous_owner_release";
+/// The key of the event whose commit the journal writer is held at.
+const WRITER_EVENT: &str = "release_writer_1";
 
 fn try_open_owner(root: &Path, session: &str) -> anyhow::Result<Arc<Mux>> {
     let options = SurfaceOptions {
@@ -93,15 +95,15 @@ impl HeldWriter {
             let _ = producer_mux.append_journal_ingress(
                 &ingress,
                 "client_release_writer",
-                "release_writer_1",
+                WRITER_EVENT,
             );
         });
         at_the_commit
             .recv_timeout(WRITER_THREAD_WAIT)
             .expect("the journal writer did not reach its commit");
-        // The step of a shutdown that waits for the writer's end. The other
-        // steps of a shutdown are not run here: some of them wait for the
-        // writer too.
+        // The step of a shutdown that waits for the writer's end. Limit: the
+        // whole shutdown with a held writer: NOT RUN; which other shutdown
+        // steps wait for the writer: NOT READ.
         let joined = mux.journal_ingress.close_and_join();
         assert!(
             joined.is_err(),
@@ -289,6 +291,49 @@ fn a_commit_admitted_before_the_release_does_not_land_under_the_next_owner() {
         before == after,
         "a commit that the owner before had admitted at its release landed in the store that \
          the next owner has: ((revision, tabs), journal head) before {before:?}, after {after:?}"
+    );
+}
+
+/// The same owner, and its journal writer commits after the owner released
+/// the session and before the next owner opens it. The next owner either is
+/// refused because the session still has an owner, or its store does not
+/// hold that commit.
+#[test]
+fn the_next_owner_has_no_commit_that_the_owner_before_made_after_its_release() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-late-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "release-late";
+    let held = HeldWriter::open(&root, session);
+    held.mux.release_ownership(&root.join("control.sock"));
+    // The writer's commit ends here, after the release.
+    let mux = held.finish();
+    let next = match WorkspaceRegistry::open(&root, session) {
+        Ok(next) => next,
+        Err(error) => {
+            let refused = format!("{error:#}");
+            drop(mux);
+            let _ = std::fs::remove_dir_all(&root);
+            assert!(
+                refused.contains("already owned by another daemon"),
+                "the next owner's open failed, and not because the session has an owner: {refused}"
+            );
+            return;
+        }
+    };
+    let head = next.session_journal_head().unwrap();
+    let landed = next
+        .session_journal_after(0, 1024)
+        .unwrap()
+        .records
+        .iter()
+        .any(|record| record.correlation_id.as_deref() == Some(WRITER_EVENT));
+    drop(next);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(
+        !landed,
+        "the owner before committed after it released the session: the store that the next \
+         owner has holds that commit (event `{WRITER_EVENT}`, journal head {head})"
     );
 }
 
