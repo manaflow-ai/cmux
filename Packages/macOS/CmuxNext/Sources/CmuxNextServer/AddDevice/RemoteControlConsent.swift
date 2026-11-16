@@ -151,8 +151,8 @@ public nonisolated struct RemoteControlCallError: Error, Equatable, Sendable {
 ///
 /// SECURITY: this signs what it is asked to. A caller turning anything on (one machine, all of them) first
 /// takes the person's own HID gesture and then Touch ID or the password, and ``refreshTrust()`` takes the
-/// gesture (Settings > Devices' ops, ``RemoteControlConsentPage``); off and back-to-default only narrow and
-/// need neither. The one on with no gesture is ``signedIn()``, which rides on the person signing in here.
+/// gesture (Settings > Devices' ops, ``RemoteControlConsentPage``), and so does back-to-default (it widens to
+/// the account); off only narrows and needs neither. The one on with no gesture is ``signedIn()``'s default.
 /// Trust residual (contract v2 B): a machine pins this Mac's key with no prompt only during its own
 /// enrollment step; a Mac that signs in later is pinned on that machine's next enrollment step or
 /// "Refresh trusted Macs" there, else through the four-word ask its first grant leaves.
