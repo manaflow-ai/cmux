@@ -400,11 +400,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.personInput.start()
         services.joinConsent.follow(settings: settings)
         if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
-        // Agent-launched builds never take system-wide keys from the person's app.
-        if !environment.noActivate { services.globalHotKeys.start() }
-        // Nor a menu bar item: a tagged build an agent launches leaves the person's menu bar alone.
-        if !environment.noActivate { services.menuBarExtra.follow(settings, background: services.background) }
-        services.cache.browserTabs.preference.follow(settings)
+        // Agent-launched builds never take system-wide keys from the person's app, nor a menu bar item.
+        if !environment.noActivate { services.globalHotKeys.start(); services.menuBarExtra.follow(settings, background: services.background) }
+        services.cache.browserTabs.preference.follow(settings); services.cache.cef.loadAfter(environment.copyPrewarm) // before any Chromium start
+        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(firstFrame); services.cache.cef.preload() } // a restored chat's page starts Chromium as the window builds: map its framework now, off main; CefInitialize waits for the first frame (CMUX-571)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)

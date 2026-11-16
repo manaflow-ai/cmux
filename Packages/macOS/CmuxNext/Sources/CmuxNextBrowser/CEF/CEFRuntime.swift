@@ -156,6 +156,15 @@ final class CEFRuntime {
     /// Runs when a start fails. `CefInitialize` resets the signal actions
     /// before it can fail, so the App re-installs its handlers here too.
     var onStartFailed: (() -> Void)?
+    /// The first window frame (`AppDelegate.firstFrame`): `start` runs `CefInitialize` (about 360 ms on the
+    /// main thread) only once it is open, so a framework mapped early never delays that frame (CMUX-571).
+    /// The gate always opens (its 3 s backstop), so a start waits at most until then; nil waits for nothing.
+    weak var initializeAfter: FirstFrameGate?
+    /// A new copy's launch pre-warm (CopyFirstLaunchPrewarm: each Chromium helper once, from `main`), which pays the
+    /// framework's first load in the helpers' processes. The library load (`start`, `preload`) awaits it first: on a
+    /// new copy an in-process `dlopen` beside that first load held dyld's loader lock, and with it the main thread,
+    /// for 1469-1515 ms (nightly-fresh-launch fresh-copy marks). Its runs end at their own timeout; nil waits for nothing.
+    var loadAfter: Task<Void, Never>?
     /// Hides or closes top-level Chromium windows that slip through (see
     /// `ChromiumWindowGuard`).
     private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
@@ -274,16 +283,32 @@ final class CEFRuntime {
             task = loadTask
         } else {
             state = .loading
-            task = Task.detached(priority: .userInitiated) { CEFRuntime.loadLibrary(candidate) }
+            let after = loadAfter
+            task = Task.detached(priority: .userInitiated) { _ = await CEFRuntime.afterPrewarm(after); return CEFRuntime.loadLibrary(candidate) }
             loadTask = task
         }
         // A utility-priority preload may still be running; the await below
         // raises its priority to this task's.
         let loaded = await task.value
+        if await Self.waitForInitializeGate(initializeAfter) { CEFStartSteps.shared.point("first_frame_waited") }
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() { throw error }
         if state == .ready { return }
         try finishStart(loaded, environment: environment, trigger: trigger)
+    }
+
+    /// Returns once `prewarm` ended (at once when it is nil); true when there was one to wait for.
+    static func afterPrewarm(_ prewarm: Task<Void, Never>?) async -> Bool {
+        guard let prewarm else { return false }
+        await prewarm.value
+        return true
+    }
+
+    /// Returns once `gate` is open (at once when it is nil or already open); true when it waited.
+    static func waitForInitializeGate(_ gate: FirstFrameGate?) async -> Bool {
+        guard let gate, !gate.isOpen else { return false }
+        await gate.opened()
+        return true
     }
 
     /// Starts mapping the shim and the framework in the background without
@@ -293,7 +318,8 @@ final class CEFRuntime {
         guard state == .idle, loadTask == nil else { return }
         state = .loading
         preloaded = true
-        let task = Task.detached(priority: .utility) { CEFRuntime.loadLibrary(candidate) }
+        let after = loadAfter
+        let task = Task.detached(priority: .utility) { _ = await CEFRuntime.afterPrewarm(after); return CEFRuntime.loadLibrary(candidate) }
         loadTask = task
         Task { [weak self] in
             _ = await task.value

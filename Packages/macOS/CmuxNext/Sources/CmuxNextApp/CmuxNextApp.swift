@@ -48,7 +48,9 @@ public struct CmuxNextApp {
         LaunchWarmup.start(); AcpmuxEnvironment.startBuildHomeAdoption() // the old homes' adoption, before anything awaits it
         DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
-        environment.marksRun = true
+        // A copy's first launch (a first install): the Chromium framework's first load starts now in the helpers, beside
+        // AppKit's start, not when the first Chromium page asks for it; the app's own load waits for it (CMUX-571).
+        environment.marksRun = true; environment.copyPrewarm = CopyFirstLaunchPrewarm.main()?.start { DebugTimings.markLaunch($0) }
         // A relaunch into an update nobody clicked comes back behind the user's app; read (and
         // cleared) before anything can activate the app. An agent launch never activates anyway.
         if !environment.noActivate {
