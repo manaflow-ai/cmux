@@ -3,11 +3,12 @@
 // kept windows, one chat on the store a pane, and the falls to v1. The recording's rows are of kind
 // `assistant`, which the adapter draws nothing of; here they are read as `text` rows, so each one
 // draws one view row.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { ChatSource, HOLD_ATTACH_CAPABILITY, KEPT_WINDOWS, chatRowsState, resetChatRowsState } from "./chatSource";
 import { CHAT_ROWS_LATE, CHAT_ROWS_LOST, OPEN_ANSWER_MS } from "./host";
-import { receiveChatRows, resetChatRowsReceiver } from "./receiver";
+import type { Lanes } from "../schedule";
+import { listenForChatRows, receiveChatRows, resetChatRowsReceiver } from "./receiver";
 
 const FIXTURES = `${import.meta.dir}/../../../../../Packages/macOS/CmuxNext/Tests/Fixtures/AgentChatStream`;
 const HOLDS: ReadonlySet<string> = new Set([HOLD_ATTACH_CAPABILITY]);
@@ -61,6 +62,22 @@ function source(answer?: (post: Post) => Promise<unknown> | undefined, prefix = 
   made.push(rows);
   return { rows, posts, drawn, fell, feed, opens };
 }
+
+/// Lanes that run a frame task at once, in the receiving task: these tests are about where changes
+/// go, not when (receiver.test.ts covers the frame pacing).
+function syncLanes(): Lanes {
+  const slice = { timeLeft: () => Number.POSITIVE_INFINITY, shouldYield: () => false };
+  return {
+    frame: (_key, fn) => void fn(slice),
+    idle: (_key, fn) => void fn(slice),
+    inputPending: () => false,
+    yield: () => Promise.resolve(),
+    flush: () => {},
+    dispose: () => {},
+  };
+}
+
+beforeEach(() => listenForChatRows(syncLanes()));
 
 afterEach(() => {
   for (const rows of made.splice(0)) rows.dispose();
@@ -300,7 +317,7 @@ test("one store's throw leaves the other stores' changes applied and the batch t
   const two = source(undefined, "two");
   await one.rows.choose("chat-a", HOLDS);
   await two.rows.choose("chat-b", HOLDS);
-  one.rows.host.store.applyBatch = () => {
+  one.rows.host.store.applyPart = () => {
     throw new Error("broken store");
   };
   expect(() =>

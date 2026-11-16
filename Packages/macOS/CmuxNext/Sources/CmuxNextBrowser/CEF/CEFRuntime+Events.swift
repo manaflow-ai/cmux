@@ -270,7 +270,10 @@ extension CEFRuntime {
     private func browserClosed(_ browser: Int32) {
         windowRequests.linkClicks.forget(opener: browser)
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
+            // Read before the close: a closed tab's state is not this page's any more.
+            let cmuxPage = CEFPageRendererGC.isCmuxPage(tab.state.url)
             tab.browserDidClose(closesTab: shutdownSequence == nil)
+            if cmuxPage, shutdownSequence == nil { pageRendererGC.pageClosed() }
         } else {
             // Never registered: drop a pending adoption of it, or the spare page.
             orphans.closedUnregistered(browser)
@@ -359,8 +362,9 @@ extension CEFRuntime {
 
     /// Closes every browser, waits (without blocking the main thread) until
     /// the Chromium windows are destroyed or `timeout` passes, commits every
-    /// cookie store (main thread free, at most `cookieFlushLimit`), then runs
-    /// `beforeEngineStop` (the App hides its windows) and calls CefShutdown.
+    /// cookie store (main thread free, at most `cookieFlushLimit`), then awaits
+    /// `beforeEngineStop` (the App hides its windows, drains its state files and bounds
+    /// the block that follows) and calls CefShutdown, logging how long it held the main thread.
     /// The App awaits this from `applicationShouldTerminate` (terminate-later),
     /// so the run loop keeps pumping CEF meanwhile.
     ///
@@ -368,7 +372,11 @@ extension CEFRuntime {
     /// thread pool's shutdown tasks and child processes, under load), and in most of those
     /// quits the quit deadline ended the process inside it, before Chromium's own cookie
     /// flush finished. The flush here runs first, while the main thread is free.
-    func shutdown(timeout: Duration, beforeEngineStop: @MainActor () -> Void = {}) async {
+    func shutdown(timeout: Duration) async {
+        await shutdown(timeout: timeout, beforeEngineStop: {})
+    }
+
+    func shutdown(timeout: Duration, beforeEngineStop: @MainActor () async -> Void) async {
         if state == .loading {
             // The library is still mapping: never initialize after quit began.
             state = .shutDown
@@ -410,10 +418,11 @@ extension CEFRuntime {
             state = .shutDown
             return
         }
-        beforeEngineStop()
+        await beforeEngineStop()
+        let stopping = ContinuousClock.now
         shim.shutdown()
         state = .shutDown
-        logger.notice("CEF shutdown complete")
+        logger.notice("CEF shutdown complete: CefShutdown held the main thread \(ContinuousClock.now - stopping, privacy: .public)")
     }
 
     /// Commits every profile's cookie store (`cmux_shim_flush_cookie_stores`) and waits, with the

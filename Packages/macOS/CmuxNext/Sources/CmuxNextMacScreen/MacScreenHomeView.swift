@@ -11,6 +11,8 @@ public struct MacScreenHomeActions {
     public var openDeviceInNewTab: (String, SessionScope?) -> Void = { _, _ in }
     /// Sign In under Your Devices while this Mac is signed out of cmux.
     public var signIn: () -> Void = {}
+    /// Start the same guided Share This Mac action used by the sidebar and Devices.
+    public var shareThisMac: () -> Void = {}
 
     public init() {}
 }
@@ -31,7 +33,7 @@ final class MacScreenHomeView: MacScreenThemedView {
     let actions: MacScreenHomeActions
     let systemShortcuts: MacScreenSystemShortcuts?
     let devices: MacScreenHomeDevices?
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let document = MacScreenFlippedView()
     private let column = MacScreenStack.make(.vertical, spacing: 28, alignment: .leading)
     /// What the rows show now (nil before the first build).

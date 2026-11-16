@@ -15,5 +15,6 @@
   {"name": "stream_open_newer_kind", "json": {"t": "stream_open", "stream": 9, "kind": "hologram", "codec": "x"}, "kind": "unknown"},
   {"name": "stream_opened", "json": {"t": "stream_opened", "stream": 100}},
   {"name": "stream_refused", "json": {"t": "stream_refused", "stream": 101, "reason": "unsupported"}},
-  {"name": "stream_close", "json": {"t": "stream_close", "stream": 100}}
+  {"name": "stream_close", "json": {"t": "stream_close", "stream": 100}},
+  {"name": "cursor_shape", "json": {"t": "cursor_shape", "shape": 3735928559, "width": 2, "height": 1, "hot_x": 1, "hot_y": 0, "rgba": "AAAA//////8="}}
 ]

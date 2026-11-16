@@ -5,7 +5,7 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
 import { personalizationPartOf } from "./personalizationParts";
-import type { AgentsState, ChannelsState, KeysState, SharesState, TailnetState } from "./ops";
+import type { AgentsState, ChannelsState, LibraryListing, SharesState, TailnetState, KeysState } from "./ops";
 import { settingsKeys } from "./queries";
 import type { SettingsStore } from "./store";
 
@@ -75,6 +75,22 @@ export function sharesQuery(store: SettingsStore) {
   });
 }
 
+/** Personalization > Customization Library's key; a change the card makes writes the library it answers here. */
+export const LIBRARY_KEY = [...settingsKeys.all, "customize-library"] as const;
+
+/** Personalization > Customization Library: everything the person applied, top first (null: no CLI). */
+export function libraryQuery(store: SettingsStore) {
+  return queryOptions<LibraryRead>({
+    queryKey: LIBRARY_KEY,
+    queryFn: () => store.customizeLibrary({ verb: "list" }),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
+/** The library as read, and the CLI's refusal of the read in its own words. */
+export type LibraryRead = { library: LibraryListing | null; refusal: string | null };
+
 /** The Keys list's key; an answer, a decline, a revoke and the host's `cmux.settings.keys.changed`
  * refresh it. */
 export const KEYS_KEY = [...settingsKeys.all, "keys"] as const;
@@ -117,6 +133,7 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
+  if (cards.has("customizeLibrary")) reads.push({ options: libraryQuery(store), revalidate: true });
   if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });
   if (cards.has("tailnet")) reads.push({ options: tailnetQuery(store), revalidate: true });
   if (cards.has("channels")) {

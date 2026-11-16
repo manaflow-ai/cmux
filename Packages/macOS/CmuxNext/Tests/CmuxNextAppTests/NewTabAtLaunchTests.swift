@@ -61,6 +61,18 @@ struct NewTabAtLaunchTests {
                 "New Workspace while connecting targets a second window, not the launch window")
     }
 
+    /// A new workspace whose preferred window is not open (a closed window, an id nothing here shows) goes to the
+    /// window the person is in, never a second window (Leo 2026-11-16: "Why that open up a new space actually?").
+    /// Only nil asks for a new window.
+    @Test func aNewWorkspaceForAWindowThatIsNotOpenStaysInTheCurrentWindow() throws {
+        let (services, launch) = try Self.launchWindowUp()
+        defer { for controller in services.windows.controllers { controller.window?.close() } }
+
+        #expect(services.windows.targetWindow(preferring: "a-window-closed-long-ago") == launch.state.id,
+                "a new workspace for a window that is not open opened a second window")
+        #expect(services.windows.targetWindow(preferring: nil) != launch.state.id, "nil no longer asks for a new window")
+    }
+
     /// The real create runs a reconcile before it sends the create command (`FirstTabHold.creating` releases at
     /// once for a terminal), with Home already listed: that reconcile registers the launch window early. The
     /// workspace's own delta came next and its reconcile placed the claim in the registry the restore then

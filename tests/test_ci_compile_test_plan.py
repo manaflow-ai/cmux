@@ -109,9 +109,10 @@ class CompileTestPlanTests(unittest.TestCase):
         self.assertTrue(plan[CMUXNEXT], "the CmuxNext test targets that use CMUXAuthCore")
 
     def test_packages_outside_the_macos_lanes_are_not_compiled(self) -> None:
-        # iOS packages build in the iOS jobs, not with a macOS `swift build`.
-        plan = self.plan(["Packages/iOS/CmuxTabsKit/Sources/CmuxTabsKit/Tabs.swift"])
-        self.assertNotIn("Packages/iOS/CmuxTabsKit", plan)
+        # A package outside the lane's PACKAGES builds in its own jobs, not with a macOS `swift build`.
+        # (CmuxMobileSSH: scripts/ci/swift-test-targets.json says why the lane does not run it.)
+        plan = self.plan(["Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/SSHStores.swift"])
+        self.assertNotIn("Packages/iOS/CmuxMobileSSH", plan)
 
     def test_changes_that_compile_no_test_are_an_empty_plan(self) -> None:
         self.assertEqual(self.plan(["docs/ci/merge-freeze.md", "web/app/page.tsx", "README.md"]), {})

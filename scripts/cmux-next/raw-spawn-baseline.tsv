@@ -1,7 +1,6 @@
 # path	matching lines	owner who moves them to cmux_process (check-no-raw-spawn.py; the count only goes down)
 cmux-tui/crates/cmux-pty/src/lib.rs	2	PL-holder (cmux-pty and cmux-tui-platform migration)
 cmux-tui/crates/cmux-pty/src/macos.rs	7	PL-holder (cmux-pty and cmux-tui-platform migration)
-cmux-tui/crates/cmux-tui-core/src/apps/host.rs	3	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui-core/src/apps/servers.rs	2	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui-core/src/browser_host.rs	3	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui-core/src/chief_brains.rs	3	PL-daemon (cmux-tui-core and cmux-tui migration)

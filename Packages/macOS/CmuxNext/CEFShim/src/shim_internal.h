@@ -309,6 +309,10 @@ CefRefPtr<CefPermissionHandler> PermissionHandler();
 // Releases every waiting prompt callback (before CefShutdown).
 void ForgetPermissionPrompts();
 
+// Before CefShutdown: page requests waiting for their frame's URL (DeferredPageResource) stop
+// polling and are judged at once.
+void StopDeferredPageRequests();
+
 // A Proceed the host asked for on a certificate warning
 // (cmux_shim_certificate_proceed, shim_site.mm, UI thread): taken by the
 // browser's next certificate error with that host and error code.

@@ -20,7 +20,7 @@ extension NativePopupContent {
         railDivider = divider
         addSubview(divider)
         if placement == .symbols || placement == .top {
-            let strip = NSScrollView()
+            let strip = OverlayScrollView()
             strip.drawsBackground = false
             strip.borderType = .noBorder
             strip.hasVerticalScroller = false

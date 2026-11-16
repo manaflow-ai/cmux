@@ -104,6 +104,24 @@ Draws windows in the plain theme color.
 
 It changes only what is drawn. Your `appearance.*` values and workspace and pane pictures stay as they are, and turning it off brings them back. Change it in **Settings > Appearance > Window Background** or with `cmux settings set ui.reducedBackgrounds true`.
 
+## `appearance.fontSmoothing`
+
+How text draws in cmux's own controls (tab titles, the sidebar, the command palette, menus, toasts, dialogs) and in its web pages (chat, Settings, New Tab). It follows the CSS `-webkit-font-smoothing` values.
+
+```json
+{
+  "appearance": { "fontSmoothing": "auto" }
+}
+```
+
+- `"auto"` (default): no override. Native controls use the Mac's own font smoothing (or none, if you turned it off for every app with `defaults -currentHost write -g AppleFontSmoothing -int 0`), and each web page keeps its own CSS. This is the look cmux had before the setting existed.
+- `"antialiased"`: thin, grayscale strokes everywhere, the look of `-webkit-font-smoothing: antialiased`. Small or dim text gets lighter: about 15% less ink for dark text on light, about 27% less for light text on dark, more so on a 1x display.
+- `"subpixel"`: the heavier macOS font smoothing everywhere, the look of `-webkit-font-smoothing: subpixel-antialiased`, even if smoothing is off for every app.
+
+`"system"`, the earlier name, still reads as `"auto"`.
+
+Web pages change at once. Native controls change after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Change it in **Settings > Appearance > Density and Motion** or with `cmux settings set appearance.fontSmoothing subpixel`.
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.

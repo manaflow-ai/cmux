@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextCrashReporting
@@ -90,7 +91,17 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
-    override func sendEvent(_ event: NSEvent) {
+    /// Nonisolated so that nothing runs before this check: the `@MainActor` entry check reads the
+    /// runtime's executor record, and a record left dead by an exception that unwound a Swift job
+    /// segfaulted there at random, minutes later (#44060, #44185). A dead record is cleared and
+    /// logged (``SwiftExecutorFrames``), then the event goes on to the main actor.
+    nonisolated override func sendEvent(_ event: NSEvent) {
+        if let dead = SwiftExecutorFrames.recoverDeadRecord(in: "sendEvent") { UncaughtExceptionRecorder.reportLostExecutor(dead) }
+        nonisolated(unsafe) let event = event // crash-allow: AppKit calls sendEvent: on the main thread only; the event never leaves it
+        MainActor.assumeIsolated { dispatchEvent(event) } // main-proof: AppKit calls sendEvent: on the main thread only
+    }
+
+    private func dispatchEvent(_ event: NSEvent) {
         guard event.cmuxAllowsPinchZoom else { return }
         if let inputDispatch { inputDispatch.dispatching(event) { route(event) } } else { route(event) }
     }
@@ -238,28 +249,5 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
 
     private func logRefused() {
         logger.info("activation refused (CMUX_NEXT_NO_ACTIVATE=1, or an update relaunch's startup)")
-    }
-}
-
-/// What assistive clients asked of the app: VoiceOver sets `AXEnhancedUserInterface`, automation
-/// drivers (cua) `AXManualAccessibility`, on the application element. The app wants Chromium's page
-/// accessibility while either is on.
-nonisolated struct AssistiveClientRequests: Equatable {
-    static let attributes: Set<String> = ["AXEnhancedUserInterface", "AXManualAccessibility"]
-    private var values: [String: Bool] = [:]
-
-    var wantsAccessibility: Bool { values.values.contains(true) }
-
-    /// Records `value` for `attribute`; false (nothing recorded) for an attribute no assistive
-    /// client sets.
-    mutating func set(_ value: Any?, for attribute: String) -> Bool {
-        guard Self.attributes.contains(attribute) else { return false }
-        values[attribute] = (value as? NSNumber)?.boolValue ?? false
-        return true
-    }
-
-    /// What was set for `attribute`; nil for other attributes. Unset reads as false.
-    func value(for attribute: String) -> Bool? {
-        Self.attributes.contains(attribute) ? values[attribute] ?? false : nil
     }
 }

@@ -23,6 +23,12 @@ pub type CMSampleBufferRef = *mut c_void;
 pub type CVPixelBufferRef = *mut c_void;
 pub type IOSurfaceRef = *mut c_void;
 pub type DispatchQueue = *mut c_void;
+pub type CGColorSpaceRef = *mut c_void;
+pub type CGContextRef = *mut c_void;
+pub type CGImageRef = *mut c_void;
+
+/// kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big: RGBA8 in memory order.
+pub const BITMAP_RGBA_PREMULTIPLIED: u32 = 1 | (4 << 12);
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -147,6 +153,21 @@ framework! {
         fn CGEventSetFlags(event: CGEventRef, flags: u64);
         fn CGEventKeyboardSetUnicodeString(event: CGEventRef, length: usize, units: *const u16);
         fn CGEventPost(tap: u32, event: CGEventRef);
+        // The cursor as metadata (cursor.rs): where it is, and its shape drawn into pixels.
+        fn CGEventCreate(source: CGEventSourceRef) -> CGEventRef;
+        fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
+        fn CGColorSpaceCreateWithName(name: CFStringRef) -> CGColorSpaceRef;
+        fn CGColorSpaceRelease(space: CGColorSpaceRef);
+        fn CGBitmapContextCreate(data: *mut c_void, width: usize, height: usize, bits: usize, row: usize, space: CGColorSpaceRef, info: u32) -> CGContextRef;
+        fn CGContextDrawImage(context: CGContextRef, rect: CGRect, image: CGImageRef);
+        fn CGContextRelease(context: CGContextRef);
+    }
+}
+
+framework! {
+    // NSCursor is registered once AppKit loaded (cursor.rs reads the system cursor).
+    pub mod appkit = "/System/Library/Frameworks/AppKit.framework/AppKit" {
+        ref NSAppKitVersionNumber: f64;
     }
 }
 

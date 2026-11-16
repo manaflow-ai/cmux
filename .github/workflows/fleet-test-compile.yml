@@ -34,7 +34,9 @@ name: fleet test-compile (advisory)
 # The plan (scripts/ci/compile_test_plan.py, over the merge commit's diff from
 # its base) is the macOS package lane's packages whose sources or path
 # dependencies changed. An empty plan passes on a Linux runner in seconds and
-# queues nothing.
+# queues nothing. A hot-only pull request (scripts/ci/cmux_next_route.py
+# --hot-only, the router cmux-next.yml skips its Mac app jobs by) gets an empty
+# plan: it changes nothing a Swift test target reads.
 #
 # CmuxNext is compiled here again. From 2026-10-30 it was skipped, because
 # cmux-next.yml's swift test job ran `swift build --build-tests` on every
@@ -87,17 +89,46 @@ jobs:
           submodules: false
           fetch-depth: 2
 
+      # Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI
+      # that we can get it to do". A pull request cmux_next_route.py calls hot-only (every file a running app
+      # takes live through hot-apply.py, or one that reaches no app tier; no full-ci or dev-build label) changes
+      # nothing a Swift test target reads, so it compiles none: an empty plan, no gateway runner, no Mac.
+      # The router's verdict on this same diff, never a copy of its rule. A router error keeps the plan.
       - name: Plan the test targets this change reaches
         id: plan
+        env:
+          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: |
           set -euo pipefail
           base="$(git rev-parse HEAD^1)"
           git diff --no-renames --name-only "$base" HEAD > "$RUNNER_TEMP/changed.txt"
           python3 scripts/ci/compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" > "$RUNNER_TEMP/plan.txt"
+          hot_only=false
+          if python3 scripts/ci/cmux_next_route.py --hot-only --event pull_request \
+              --changed-files "$RUNNER_TEMP/changed.txt" --labels "$EVENT_LABELS" --base-rev "$base" \
+              > "$RUNNER_TEMP/hot.txt"; then
+            if grep -qx 'hot_only=true' "$RUNNER_TEMP/hot.txt"; then hot_only=true; fi
+          else
+            echo "::warning title=fleet test-compile::cmux_next_route.py --hot-only failed; compiling the plan."
+          fi
+          planned="$(cat "$RUNNER_TEMP/plan.txt")"
+          if [[ "$hot_only" == true ]]; then
+            : > "$RUNNER_TEMP/plan.txt"
+          fi
           {
             echo "### fleet test-compile plan"
             echo
-            if [ -s "$RUNNER_TEMP/plan.txt" ]; then
+            if [[ "$hot_only" == true ]]; then
+              echo "Hot-only pull request ($(grep '^hot_layers=' "$RUNNER_TEMP/hot.txt" | cut -d= -f2-)): it changes nothing a Swift test target reads, so nothing compiles and no Mac is queued."
+              if [[ -n "$planned" ]]; then
+                echo
+                echo 'The path plan would have compiled:'
+                echo
+                echo '```'
+                echo "$planned"
+                echo '```'
+              fi
+            elif [ -s "$RUNNER_TEMP/plan.txt" ]; then
               echo 'Package, then its test targets (none listed: every one):'
               echo
               echo '```'

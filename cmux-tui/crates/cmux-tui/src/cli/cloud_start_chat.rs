@@ -205,22 +205,8 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
         let message = format!("cmux: {error:#}");
         return super::app::failure(folder::REFUSED_CODE, &message, global.output, 2);
     }
-    // A folder too big to copy is refused before any machine is made for it.
-    if let Some(dir) = &request.from_folder
-        && !request.allow_large
-        && let Err(large) = crate::link::sync_cli::size_cap::check_plain(std::path::Path::new(dir))
-    {
-        let hint = crate::link::sync_cli::size_cap::OVERRIDE_HINT;
-        // A parent of repositories (~/Projects): each one inside is a folder the chat can start in.
-        let repos = crate::link::sync_cli::size_cap::repos_hint(std::path::Path::new(dir));
-        let message = format!("cmux: {large}{repos}{hint}");
-        return super::app::failure(
-            crate::link::sync_cli::size_cap::CODE,
-            &message,
-            global.output,
-            2,
-        );
-    }
+    // A folder's size never stops a start: one past what a copy sends whole goes as a first pass
+    // (`size_cap`; Leo, 2026-11-15: "why are you guys still blocking on these?").
     let mut runner = SelfRunner::new(global);
     let outcome = run(&mut runner, request);
     report(&outcome, global.output)
@@ -658,8 +644,8 @@ impl Runner for SelfRunner {
     }
 
     fn fresh_name(&mut self) -> String {
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        format!("chat-{}", id.chars().take(16).collect::<String>())
+        // The app reads this shape as generated (`record::is_generated_name`), never as a title.
+        cmux_cloud_machine::record::chat_machine_name(&uuid::Uuid::new_v4().simple().to_string())
     }
 
     fn app(

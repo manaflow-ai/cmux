@@ -42,6 +42,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
     /// cluster, apart from the working spinner; its tooltip says each rule and the number.
     let usageWarningMark = DecorativeImageView()
+    /// A flat workspace keeps Share or View visible beside its existing trailing controls.
+    let screenSlot = RowControlSlot { (row: WorkspaceRowView) in row.makeScreenButton() }
+    var screenAction: SidebarIntent?
+    var onScreenAction: ((SidebarIntent) -> Void)?
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`). Made when it first shows
@@ -180,7 +184,7 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] {
-        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator] as [NSView?]).compactMap(\.self)
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, screenSlot.made, driveIndicator] as [NSView?]).compactMap(\.self)
     }
     override var hoverPaintedControls: [NSView] {
         ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
@@ -221,6 +225,8 @@ final class WorkspaceRowView: SidebarRowView {
         onSelect = nil
         onToggleTree = nil
         onToggleAudio = nil
+        onScreenAction = nil
+        configureScreen(nil)
         title.stopMarquee()
         title.cancelRoll()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")

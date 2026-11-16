@@ -56,6 +56,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case tailnet
         /// Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks.
         case sharedLinks
+        /// Personalization > Customization Library: everything the person applied (an ask, a profile, a kept try-on, an import), kept as entries that turn on and off and stack top first, the higher winning (cmux-customize library.rs); the bundled CLI's `cmux customize library`, `cmux.settings.customize.library`.
+        case customizeLibrary
         /// Settings > Keys: the keys agents keep on this Mac (`cmux keys ls`, never a value) with Revoke, and the key requests waiting for the person (`cmux keys request`, answered with Store or Decline; design/settings-keys.md); `cmux.settings.keys.*`. Deep link: #/settings/keys.
         case keys
         /// Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay.

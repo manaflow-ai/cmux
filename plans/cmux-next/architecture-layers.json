@@ -78,6 +78,7 @@
     "CmuxNextChecklist": {"layer": "ui", "note": "the workspace checklist strings only (CmuxNextTasks before)"},
     "CmuxNextApps": {"layer": "ui", "mixes": ["domain", "service"]},
     "CmuxNextAgentActivity": {"layer": "ui", "mixes": ["domain"]},
+    "CmuxNextAgentList": {"layer": "ui", "mixes": ["service"]},
     "CmuxNextChiefMemory": {"layer": "ui", "mixes": ["domain"]},
     "CmuxNextResources": {"layer": "ui", "mixes": ["domain"]},
     "CmuxNextUpdater": {"layer": "ui", "mixes": ["service", "domain"]},

@@ -190,6 +190,59 @@ The other verbs:
   `cmux theme set appearance.theme "<its name>"`.
 - Add `--json` to any of these for output a script can read.
 
+### Wallpaper that switches by itself
+
+The picture behind the window can change on its own, the way macOS does it. When
+someone asks for that ("switch my wallpaper at sunset", "use the Catalina dynamic
+one"), run one `cmux wallpaper` command. It checks the values, expands `~`, writes
+every key of the mode in one atomic settings write, and the app picks it up at once.
+It prints what is now set in one line. `cmux wallpaper show` prints the mode, its
+keys and the picture shown now.
+
+| Ask | Command |
+| --- | --- |
+| One picture for light mode, one for dark | `cmux wallpaper follow-appearance --light ~/Pictures/day.jpg --dark ~/Pictures/night.jpg` |
+| Switch at sunset (and back at 7) | `cmux wallpaper schedule 07:00=~/Pictures/day.jpg sunset=~/Pictures/night.jpg` |
+| macOS Catalina, following the sun | `cmux wallpaper use-macos-dynamic catalina` |
+| The dynamic wallpapers this Mac has | `cmux wallpaper use-macos-dynamic` |
+| A folder, a new picture every 30 minutes | `cmux wallpaper rotate ~/Pictures/Walls --every 30m` |
+| Sun times for another place | `cmux wallpaper location 37.77,-122.42` (`auto`: from the time zone) |
+| One fixed picture, or none | `cmux wallpaper set ~/Pictures/x.jpg`, `cmux wallpaper off` |
+
+- WHEN is `HH:MM` (24 h, local time) or `sunrise`, `sunset`, `dawn`, `dusk`, `noon`,
+  with an optional offset: `sunset-30m`, `sunrise+1h`. The picture of the latest
+  time today that has passed shows; before the first, yesterday's last.
+- A picture is a path (image or movie), `desktop` (the desktop picture), a painting
+  id, or a macOS wallpaper name (`sonoma`). A folder only goes to `set` or `rotate`.
+- `use-macos-dynamic NAME --follow appearance` shows the wallpaper's light or dark
+  picture instead of following the sun.
+- `--every` takes `15m`, `30m`, `1h`, `daily`, or a number of minutes (1 to 1440).
+- `schedule --clear` stops a schedule. Add `--json` for one object a script can read.
+
+The same settings by hand, in `~/.config/cmux/cmux-next.json` (or a theme file):
+
+```jsonc
+// Follow light/dark
+{ "appearance.background": "appearance",
+  "appearance.backgroundLight": "file:/Users/me/Pictures/day.jpg",
+  "appearance.backgroundDark": "file:/Users/me/Pictures/night.jpg" }
+
+// Switch at sunset, back at 7:00
+{ "appearance.background": "schedule",
+  "appearance.backgroundSchedule": {
+    "07:00": "file:/Users/me/Pictures/day.jpg",
+    "sunset": "file:/Users/me/Pictures/night.jpg" } }
+
+// macOS Catalina, following the sun (location: optional, default from the time zone)
+{ "appearance.background": "system:/System/Library/Desktop Pictures/Catalina.madesktop",
+  "appearance.backgroundDynamic": "time",
+  "appearance.backgroundLocation": "37.77,-122.42" }
+
+// A folder, every 30 minutes
+{ "appearance.background": "folder:/Users/me/Pictures/Walls",
+  "appearance.backgroundRotation": 30 }
+```
+
 ## Make a view
 
 When someone asks for a view of their own (a sidebar section, a Session Info

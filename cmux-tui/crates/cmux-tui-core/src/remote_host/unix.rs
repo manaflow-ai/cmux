@@ -256,6 +256,9 @@ impl RemoteHostSupervisor {
                 "headless": config.headless,
             },
             "upgrade": if *lock(&self.inner.upgrade_pending) { "pending" } else { "none" },
+            // false in a cmux build without cmux Remote (Release and NIGHTLY embed none): the
+            // cmux app shares the screen itself there, and `cmux remote-host` says so.
+            "bundled": bundled(),
         });
         let Some(fields) = status.as_object_mut() else { return status };
         match &*lock(&self.inner.state) {
@@ -804,6 +807,19 @@ fn write_private(path: &Path, bytes: &[u8]) {
         .and_then(|mut file| file.write_all(bytes));
     if written.is_ok() {
         let _ = std::fs::rename(&temporary, path);
+    }
+}
+
+/// Whether this cmux build embeds cmux Remote (`CMUX_REMOTE_APP`, or the app
+/// bundle that holds this daemon). Never starts or stages it.
+fn bundled() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        platform::embedded().is_ok()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
     }
 }
 

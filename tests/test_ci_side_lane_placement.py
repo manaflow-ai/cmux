@@ -1282,6 +1282,132 @@ class PlacementTakesTheShallowerOwnedQueue(unittest.TestCase):
                 self.assertIn(" generated-files ", lines["session_jobs"])
 
 
+class BorrowIdlePool(unittest.TestCase):
+    """2026-11-16 03:16Z, macos-pool-load: glaeda-side-std-xcode-26.6 had 44 queued (oldest 113 min) and
+    glaeda-std-xcode-26.6 48 (oldest 178 min) while glaeda-gui-std-xcode-26.6 had 0 queued, and the slowest PR
+    verdicts ended on the Release compile. A PR's Release compile with no idle side runner borrows an idle gui
+    runner, bounded: never while the gui label has a queue, always leaving BORROW_RESERVE idle for the gui pool's
+    own jobs, and never past BORROW_CAP borrowed at once. The detector for the handbook's idle-pool pattern."""
+
+    COMPILE = "cmux-next Release compile (Xcode 26)"
+    DEV = "glaeda-dev-std-xcode-26.6"
+
+    def runners(self, *, gui_idle: int = 3, gui: int = 6, dev_idle: int = 0):
+        return ([runner(f"mini{index}-glaeda-3", busy=True) for index in range(8)]
+                + [runner(f"mini{index}-glaeda-7", busy=index >= gui_idle, labels=(GUI,)) for index in range(gui)]
+                + [runner(f"mini{index}-glaeda-dev", busy=index >= dev_idle, labels=(self.DEV,)) for index in range(2)])
+
+    def seen(self, *, side=(44, 113), gui=(0, 0), running=None, gates=None, stale=False, **extra):
+        pools = {SIDE: {"queued": side[0], "oldest_queued_minutes": side[1]},
+                 GUI: {"queued": gui[0], "oldest_queued_minutes": gui[1]},
+                 self.DEV: {"queued": 0, "oldest_queued_minutes": 0}}
+        snapshot = {"pools": pools, "running": running or {}}
+        if gates is not None:
+            snapshot["gates"] = {"labels": gates}
+        return placement.cascade.Seen(waits={}, owned_queued={SIDE: side[0], GUI: gui[0]}, snapshot=snapshot,
+                                      stale=stale, **extra)
+
+    def borrow(self, runners=None, seen=None, taken=(), own=0, **values):
+        values = {"BORROW_JOBS": "release-compile", "CASCADE_RUNS": " release-compile daemon-test ", **values}
+        return placement.borrow_route(env(**values), self.runners() if runners is None else runners,
+                                      self.seen() if seen is None else seen, taken, own)
+
+    def test_the_incident_release_compile_borrows_an_idle_gui_runner(self):
+        self.assertEqual(self.borrow(), (GUI, ("release-compile",)))
+
+    def test_the_gui_pools_own_queue_stops_borrowing(self):
+        self.assertEqual(self.borrow(seen=self.seen(gui=(1, 0))), ("", ()))
+        gates = {GUI: {"queued": 2, "oldest_queued_s": 30}}
+        self.assertEqual(self.borrow(seen=self.seen(gates=gates)), ("", ()))
+        self.assertEqual(self.borrow(seen=self.seen(unserved=frozenset({GUI}))), ("", ()))
+        self.assertEqual(self.borrow(seen=self.seen(owned_full={GUI: True})), ("", ()))
+
+    def test_a_reserve_stays_idle_for_the_gui_pool(self):
+        self.assertEqual(self.borrow(runners=self.runners(gui_idle=1)), ("", ()))
+        self.assertEqual(self.borrow(runners=self.runners(gui_idle=2)), (GUI, ("release-compile",)))
+        # This run's own GUI-label jobs come first.
+        self.assertEqual(self.borrow(runners=self.runners(gui_idle=2), own=1), ("", ()))
+
+    def test_no_more_than_the_cap_borrowed_at_once(self):
+        cap = placement.BORROW_CAP
+        lent = {f"mini{index}-glaeda-7": {"job": self.COMPILE} for index in range(3, 3 + cap)}
+        self.assertEqual(self.borrow(runners=self.runners(gui_idle=3, gui=3 + cap), seen=self.seen(running=lent)),
+                         ("", ()))
+        one = dict(list(lent.items())[:cap - 1])
+        self.assertEqual(self.borrow(seen=self.seen(running=one)), (GUI, ("release-compile",)))
+        # The gui pool's own jobs running there are not borrowed ones.
+        own = {name: {"job": "cmux-next swift test"} for name in lent}
+        self.assertEqual(self.borrow(seen=self.seen(running=own)), (GUI, ("release-compile",)))
+
+    def test_only_a_fresh_reading_of_a_backed_up_side_route_borrows(self):
+        for seen in (None, self.seen(stale=True), self.seen(side=(0, 0))):
+            with self.subTest(seen=seen):
+                self.assertEqual(placement.borrow_route(
+                    env(BORROW_JOBS="release-compile"), self.runners(), seen), ("", ()))
+        self.assertEqual(placement.borrow_route(env(BORROW_JOBS="release-compile"), None, self.seen()), ("", ()))
+
+    def test_only_listed_jobs_nobody_took_on_attempt_one(self):
+        self.assertEqual(self.borrow(BORROW_JOBS=""), ("", ()))
+        self.assertEqual(self.borrow(taken=("release-compile",)), ("", ()))
+        self.assertEqual(self.borrow(CASCADE_RUNS=" daemon-test "), ("", ()))
+        self.assertEqual(self.borrow(GITHUB_RUN_ATTEMPT="2"), ("", ()))
+        # A job that is not borrowable never borrows, even listed.
+        self.assertEqual(self.borrow(BORROW_JOBS="swift-test daemon-test", CASCADE_RUNS=" swift-test "), ("", ()))
+
+    def test_never_the_dev_slot_or_the_nightly_labels(self):
+        # glaeda's hook admits only feed compiles on the DEV slot, and nightly keeps its dedicated Macs.
+        self.assertEqual(self.borrow(runners=self.runners(gui_idle=0, dev_idle=2)), ("", ()))
+        for role in placement.LENDER_ROLES:
+            with self.subTest(role=role):
+                self.assertNotIn("dev", role(STD))
+                self.assertNotIn("nightly", role(STD))
+
+    def test_the_borrowed_name_is_the_workflows(self):
+        jobs = CmuxNextWiring().workflow()["jobs"]
+        for job, name in placement.BORROW_NAMES.items():
+            with self.subTest(job=job):
+                self.assertEqual(jobs[job]["name"], name)
+
+    def test_placement_writes_the_borrow_and_the_pr_release_compile_takes_it(self):
+        seen = self.seen()
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+            with mock.patch.object(placement.pool, "GitHub") as github, \
+                    mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), seen)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                github.return_value.runners.return_value = self.runners(gui_idle=5)
+                placement.main(env(GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                   BORROW_JOBS="release-compile", CASCADE_RUNS=" release-compile "))
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+        self.assertEqual(lines["borrow_runner"], GUI)
+        self.assertEqual(lines["borrow_jobs"], " release-compile ")
+        wiring = CmuxNextWiring()
+        job = wiring.workflow()["jobs"]["release-compile"]
+        for key in ("runs-on", "CMUX_NEXT_RUNNER"):
+            expression = runs_on_route(job, "release-compile") if key == "runs-on" else job_env(job)[key]
+            with self.subTest(key=key):
+                context = wiring.context(runner=SIDE)
+                context["needs"][CmuxNextWiring.PLACEMENT]["outputs"].update(
+                    borrow_runner=GUI, borrow_jobs=lines["borrow_jobs"], placed_attempt="1")
+                self.assertEqual(evaluate(expression, context), GUI)
+                # Another attempt's reading is not this attempt's.
+                carried = wiring.context("2", runner=SIDE)
+                carried["needs"][CmuxNextWiring.PLACEMENT]["outputs"].update(
+                    borrow_runner=GUI, borrow_jobs=lines["borrow_jobs"], placed_attempt="1")
+                self.assertNotEqual(evaluate(expression, carried), GUI)
+                # Nothing borrowed: the side route as before.
+                unlisted = wiring.context(runner=SIDE)
+                unlisted["needs"][CmuxNextWiring.PLACEMENT]["outputs"].update(
+                    borrow_runner="", borrow_jobs=" ", placed_attempt="1")
+                self.assertEqual(evaluate(expression, unlisted), SIDE)
+        # Only a same-repo PR lists the job; a push's feed compile keeps its own slot.
+        place = next(step for step in wiring.workflow()["jobs"]["macos-placement"]["steps"]
+                     if step.get("id") == "place")
+        self.assertIn("pull_request", place["env"]["BORROW_JOBS"])
+        self.assertIn("'release-compile'", place["env"]["BORROW_JOBS"])
+
+
 class FreshRoute(unittest.TestCase):
     """A feed's compile takes the freshness slot (one extra runner per owned std mini) while it is idle, then
     the side route and the cascade (2026-10-26: no DEV publish from 21:01Z, every DEV Release compile queued

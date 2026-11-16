@@ -2,27 +2,6 @@
 # cmux-tui/crates/*/include/*.h with no caller in Packages/**/*.swift (test targets excluded).
 # header<TAB>function. This list only shrinks: `--update` removes entries that gained a caller.
 # Never add a line: a new export ships with its Swift caller.
-# acpmux_client_*: #43039 step A linked the list client into the app library and #43920 pinned it, with no Swift
-# caller yet. Listed so base stays green; step B (Swift calls them, the Swift copy goes) removes them with --update.
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_abi_version
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_bytes_free
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_chat_blob
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_chat_page
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_connected
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_disconnected
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_free
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_new
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_new_with_surfaces
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_next_change
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_page
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_received
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_subscribe
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_subscribe_chat
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_subscribe_mirror
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_take_send
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_unsubscribe
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_unwant
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_client_want
 cmux-tui/crates/cmux-action-catalog/include/cmux_action_catalog.h	cmux_action_catalog_abi_version
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_abi_version
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_bytes_free

@@ -15,10 +15,13 @@ Full loop and examples: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md)
 
 | Layer | Into the running app |
 |---|---|
-| Web (`webviews/`) | `cmux customize use pr:N`, `branch:NAME`, `sha:SHA`, `dir:PATH [--watch]` (re-applied about 19 s after a save on a fleet Mac) or a fork's `OWNER/REPO@REF` (from the fork's own CI); back with `cmux customize library off NAME` or `off --all`. `library status` shows what is on, `library refresh` re-pulls |
+| Web (`webviews/`) | `cmux customize use pr:N`, `branch:NAME`, `sha:SHA`, `dir:PATH [--watch]` (re-applied about 19 s after a save on a fleet Mac) or a fork's `OWNER/REPO@REF` (from the fork's own CI); back with `cmux customize library off NAME` or `off --all`. `library status` shows what is on, `library refresh` re-pulls (a fork's new code only through `use` again) |
 | Terminal daemon, acpmux Rust (`cmux-tui/`) | `scripts/cmux-next/hot-apply.py plan SHA`, `apply SHA`, `rollback` (about 2.7 s; `--restart-sessions` also hands other sessions' daemons over, about 6.9 s once its fix lands) |
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>`, back with `cmux app try undo` |
 | Swift, Rust the app links, resources | a build; `hot-apply.py plan` says which and why |
+
+`scripts/cmux-next/hot-verify.py plan --source dir:. --app APP` says whether a build is needed; `look --source dir:.|pr:N
+--app APP --out DIR` puts the change into a side copy and writes the screenshots, video and receipt to post on the PR.
 
 Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a Developer ID NIGHTLY is held back.
 
@@ -70,6 +73,9 @@ A change to the Mac or iOS app is not done until the person can open it. Every a
 such a change ends with the dev build link, the fleet simulator evidence and the iPhone install result.
 Use one task tag, `<task-slug>` (for example `sidebar-star-align-v1`), for the Mac and iOS builds.
 A documentation-only change needs no build; give the file path instead.
+The report also names, for the person to run, the command that puts the change into their running cmux now, from
+[the loop](#the-loop-use-it-first-then-test) (`cmux app try <PR>`, `cmux customize use pr:N`), so they
+use it before the build is done. The agent itself runs it there only when asked; otherwise it uses a side copy (`hot-verify.py look`).
 
 - **Mac:** build the pushed exact head on the fleet and publish it to HQ, never on the person's Mac:
 
@@ -181,6 +187,8 @@ all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. Th
   observation, instant create, main-thread budget, off-main frames, daemon request path) and meet
   [REVIEW-STANDARD.md](plans/cmux-next/REVIEW-STANDARD.md): root-cause fixes, no hacks, no partial fixes. Review
   landed work with the repo workflow `.claude/workflows/cmux-next-deep-review.js`.
+- A measurement lands as a registered bench in `scripts/bench/benches/` (`scripts/bench/cmux-bench list`), or extends
+  one, never as a one-off script; perf PRs cite `cmux-bench compare` output ([scripts/bench/README.md](scripts/bench/README.md)).
 - Budget: every action reaches its committed frame in < 10 ms p95; motion runs at full refresh, 0 drops.
   Measure on the fleet yourself, light and STRESS ([perf-lead.md](plans/cmux-next/perf-lead.md)), before and after.
 - Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI tests (Lawrence 2026-10-23: "not to
@@ -341,7 +349,8 @@ Leo and every agent:
 - Webview UI screenshots come from the gallery advisory run: add a gallery entry with fixture states.
   For a before/after in a minute or two, push and run `scripts/gallery-compare.sh [--open]`: it prints a
   tailnet URL that shows each gallery state your change reaches at the merge-base and at your branch, side
-  by side (no Swift build).
+  by side (no Swift build). A `Visual-change: <state id or *>: <why>` line in the PR body says a difference is
+  wanted; the status comment marks every other changed, new or removed state "unjustified" (warn only).
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
 - A native UI change shows a real capture in its description (`pr-capture-check` warns otherwise; a missing capture never blocks a land, since Leo tries the build himself):
   `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the

@@ -26,8 +26,8 @@ final class SidebarBridge {
     /// The rows and selection observations, also run in the turn the window shows a workspace.
     private(set) lazy var sameTurn = SidebarSameTurn(view: container.sidebarView)
     private var widthObservation: Task<Void, Never>?
-    /// Item presentation for sidebar sections (SidebarBridge+Sections).
-    var sectionsObservation: Task<Void, Never>?
+    /// Item presentation for sidebar sections (SidebarBridge+Sections): its pass and the task that follows changes.
+    var sectionsPass: SidebarSectionsPass?
     /// The window's app sections (no All chats: it is on the New Tab page, cx-n0i9).
     private var appSections: SidebarAppSections?
     var cardsObservation: Task<Void, Never>?
@@ -63,7 +63,7 @@ final class SidebarBridge {
         self.services = services
         self.state = state
         let frames = FrameBatcher(owner: "SidebarRows") // `state.id` is read on each call: the launch window adopts a saved id
-        rowFeed = SidebarRowFeed(schedule: { frames.scheduleFrame($0) }, keeps: { [weak services, weak state] id in state.map { services?.windows.registry.value.owner(of: id.rawValue) == $0.id } ?? false })
+        rowFeed = SidebarRowFeed(schedule: { frames.scheduleFrame($0) }, keeps: { [weak services, weak state] id in state.map { services?.windows.registry.value.lists(id.rawValue, in: $0.id) == true } ?? false })
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Link rows draw the favicon at their item's icon address, from this app's favicons.
@@ -132,7 +132,7 @@ final class SidebarBridge {
         sameTurn.cancel()
         rowFeed.reset()
         widthObservation?.cancel()
-        sectionsObservation?.cancel()
+        sectionsPass?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
         container.sidebarView.tearDownSpaceWindowMarks() // a retained closed window keeps its views (#38333 review)
@@ -185,7 +185,7 @@ final class SidebarBridge {
             guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }
             PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
                                                held: { machines.workspace(id: $0) != nil }) { id in
-                if let owner = registry.value.owner(of: id), owner != windowState.id { return true }
+                if let owner = registry.value.owner(of: id), owner != windowState.id, !registry.value.isGuest(id, in: windowState.id) { return true }
                 guard let workspace = WindowProfiles.qualified(id, machines: machines), let membership = WindowProfiles.membership(machines) else { return false }
                 return PendingWorkspaceRows.shared.unpinned.contains(id) ? !membership.contains(workspace, in: windowState.profileID) : membership.pinned(workspace).map { $0 != windowState.profileID } ?? false // unpinned: its space no longer lists it
             }
@@ -261,7 +261,7 @@ final class SidebarBridge {
         model.docDrag = services.sidebarDoc.drag(room: state?.profileID.rawValue) // the document's drag half, nil keeps the older resolver
         if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
-        if model.layout != layout { model.layout = layout }
+        if model.layout != layout { model.layout = layout; sectionsPass?.ensureValues() } // a new pin has its value in this turn
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store
         // snapshot laid over again) sets no sections: no arrange and compare of every row in the main thread's frame.
         let elsewhere = model.docDrag.flatMap { drag in drag.document?.shown?.bandGroupsNotListedHere(drag: drag) }
@@ -311,7 +311,7 @@ final class SidebarBridge {
             top: .make(layout, machines: machines, room: window.profileID.rawValue), pageFace: pageFace ?? services.sidebarPageFace,
             tabTitle: tabTitle(services), rows: rows, listing: feed?.listingSource, groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
             harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none }, faces: faces)
-        return (sections, launching && services.windows.restoresSession(window.id), failed) // a new window shows its own rows (#38128)
+        return (SidebarScreenActions(macs: services.macScreenPages.hub?.macScreenAvailability ?? [:], aliases: DaemonService.screenDeviceAliases(in: services.machines.daemons)).applying(to: sections), launching && services.windows.restoresSession(window.id), failed) // a new window shows its own rows (#38128)
     }
 
     /// The window's live sidebar, whether the app is still launching (its

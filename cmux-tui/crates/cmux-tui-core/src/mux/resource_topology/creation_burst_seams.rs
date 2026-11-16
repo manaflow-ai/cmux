@@ -11,8 +11,13 @@ use super::*;
 pub(crate) struct CreationBurstSeams {
     before_effect: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     before_fence: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    launch: Mutex<Option<LaunchHook>>,
     waiting: AtomicUsize,
 }
+
+/// The hook of [`Mux::set_creation_launch_hook_for_test`].
+#[cfg(test)]
+type LaunchHook = Arc<dyn Fn(u64, bool) + Send + Sync>;
 
 impl Mux {
     /// Runs `hook` once, in the next group leader, after it joined its
@@ -60,6 +65,40 @@ impl Mux {
         {
             hook();
         }
+    }
+
+    /// Runs `hook` in the launch job of each creation of a connection, on the
+    /// terminal work pool: with `false` when the launch step is done and
+    /// before the creation can commit, and with `true` when the job has
+    /// committed what it could. The number is the creation's place in its
+    /// connection's request order. A test holds the first call to let the
+    /// launches end in an order of its choice.
+    #[cfg(test)]
+    pub(crate) fn set_creation_launch_hook_for_test(
+        &self,
+        hook: impl Fn(u64, bool) + Send + Sync + 'static,
+    ) {
+        *self.creation_burst_seams.launch.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(Arc::new(hook));
+    }
+
+    /// The hook of [`Self::set_creation_launch_hook_for_test`]; nothing
+    /// outside tests.
+    pub(crate) fn run_creation_launch_hook(&self, seq: u64, ended: bool) {
+        #[cfg(test)]
+        {
+            let hook = self
+                .creation_burst_seams
+                .launch
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            if let Some(hook) = hook {
+                hook(seq, ended);
+            }
+        }
+        #[cfg(not(test))]
+        let _ = (seq, ended);
     }
 
     /// Creations that wait right now while another creation holds the
