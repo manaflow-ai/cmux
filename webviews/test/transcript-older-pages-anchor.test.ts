@@ -146,28 +146,31 @@ await requireBrowserLane("transcript-older-pages-anchor.test.ts", async () => {
         const pages = pane.methods.filter((method) => method === "_acpmux/events").length - pagesBefore;
 
         // The row on screen moves only with the wheel: down by at most what the wheel scrolled up, or not at
-        // all (held at the loaded rows' top while a page comes). Moving up, against the wheel, or further
-        // than it is a jump. `drift` is the row's move less the wheel's (support/upwardAnchorTrace.ts).
-        // One case is apart: a wheel step that went past the loaded rows' top into the room shows that
-        // frame, and the scroll event after it puts the view back at the loaded top (`handleScroll`), as
-        // a browser's own scrolling shows it too. The row then goes back exactly where it was before that
-        // step went past (counted as `edgeFrames`); anything else it does is a jump.
+        // all (held at the loaded rows' top while a page comes). `drift` is the row's move less the wheel's
+        // (support/upwardAnchorTrace.ts). A page landing that moves it further, or against the wheel, is a
+        // jump. One move against the wheel is apart: a wheel step that went past the loaded rows' top into
+        // the room shows that frame, and the scroll event after it puts the view back at the loaded top
+        // (`handleScroll`), as the browser's threaded scrolling shows it too. That bounce gives back at most
+        // the step before it, and is counted (`edgeBounces`), not failed: stopping the step itself takes a
+        // wheel listener that can cancel, which made WebKit hold every trackpad scroll for the page (Leo,
+        // 2026-10-29, wheelGlide.ts).
         const held = (sample: (typeof samples)[number]) =>
           sample.room > 0 && Math.abs(sample.scrollTop - sample.room) <= 1;
         const pastEdge = (sample: (typeof samples)[number] | undefined) =>
           sample !== undefined && sample.room > 0 && sample.scrollTop < sample.room - 1;
-        let edgeFrames = 0;
-        let edgeMax = 0;
+        let edgeBounces = 0;
+        let edgeBounceMax = 0;
         const moved = samples.flatMap((sample, index) => {
           if (sample.drift === null) return [];
           const before = samples[index - 1];
           const shift = sample.drift - sample.wheelPixels;
-          if (pastEdge(before)) {
-            edgeFrames += 1;
-            edgeMax = Math.max(edgeMax, before!.room - before!.scrollTop);
-            return [{ sample, before, shift, off: Math.abs(shift - (before!.scrollTop - sample.scrollTop)) }];
+          const further = Math.max(0, shift + sample.wheelPixels);
+          if (shift < -1 && pastEdge(before) && -shift <= -before!.wheelPixels + 1) {
+            edgeBounces += 1;
+            edgeBounceMax = Math.max(edgeBounceMax, -shift);
+            return [{ sample, before, shift, off: further }];
           }
-          return [{ sample, before, shift, off: shift < 0 ? -shift : Math.max(0, shift + sample.wheelPixels) }];
+          return [{ sample, before, shift, off: shift < 0 ? -shift : further }];
         });
         const jumps = moved.filter((each) => each.off > 1);
         // The thumb: its top, the offset's share of the content in the viewport's height.
@@ -195,8 +198,8 @@ await requireBrowserLane("transcript-older-pages-anchor.test.ts", async () => {
           pages,
           frames: samples.length,
           heldFrames: samples.filter(held).length,
-          edgeFrames,
-          edgeMax: Math.round(edgeMax),
+          edgeBounces,
+          edgeBounceMax: Math.round(edgeBounceMax),
           rowJumps: jumps.length,
           rowJumpMax: Math.round(Math.max(0, ...jumps.map((each) => each.off)) * 100) / 100,
           thumbDown,
