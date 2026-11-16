@@ -6,6 +6,7 @@ import { currentLanguage, useT } from "./i18n";
 import { shortSession } from "./chatUnavailableStateModel";
 import type { PeerReconnect } from "./peerReconnect";
 import { PeerReconnectText } from "./PeerReconnectText";
+import { useComposerSettings } from "./composerSettings";
 
 /// The tab's chat is not here (`missingSession`): centered in place of the transcript, quiet, in the
 /// new chat hero's type (EmptyState.tsx), it says which case it is. Deleted: Remove from Sidebar
@@ -67,6 +68,8 @@ export function ChatUnavailableState({
   progress?: PeerReconnect;
 }) {
   const t = useT();
+  const { showPeerReconnectStatus } = useComposerSettings();
+  const visibleProgress = showPeerReconnectStatus ? progress : undefined;
   // A pause is invisible at first, as a resume is (Leo, 2026-11-03: the wait "you mostly perceive as
   // "thinking""): a machine that wakes within RESUME_NOTE_DELAY_MS never shows its card, and one
   // resuming shows its spinner only past it. The spinner's slot is kept from the first frame, so it
@@ -80,7 +83,7 @@ export function ChatUnavailableState({
   const offlineShown = useLinkDownSaid(
     unavailable.reason === "offline",
     undefined,
-    progress ? 0 : (offlineDelayMs ?? (noteDelayMs <= 0 ? 0 : undefined)),
+    visibleProgress ? 0 : (offlineDelayMs ?? (noteDelayMs <= 0 ? 0 : undefined)),
   );
   // Still loading, or paused or offline for less than the threshold: nothing shows, in the loading
   // layout, until the chat opens or the wait goes on (then offline or paused, below).
@@ -185,7 +188,11 @@ export function ChatUnavailableState({
           {(unavailable.reason === "offline" || resuming) && (
             <Spinner size={12} loading className="acpmux-peer-copy-spinner" />
           )}
-          {unavailable.reason === "offline" && progress ? <PeerReconnectText progress={progress} /> : title}
+          {unavailable.reason === "offline" && visibleProgress ? (
+            <PeerReconnectText progress={visibleProgress} />
+          ) : (
+            title
+          )}
         </p>
         {error && (
           <p className="acpmux-watch-hint" role="alert">
@@ -232,7 +239,7 @@ export function ChatUnavailableState({
         </svg>
       )}
       <h2 className="acpmux-empty-title acpmux-unavailable-title">
-        {unavailable.reason === "offline" && progress ? <PeerReconnectText progress={progress} /> : title}
+        {unavailable.reason === "offline" && visibleProgress ? <PeerReconnectText progress={visibleProgress} /> : title}
       </h2>
       <div className="acpmux-unavailable-copy">
         {unavailable.reason === "paused" ? (

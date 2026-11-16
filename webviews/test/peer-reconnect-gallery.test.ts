@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -20,6 +21,7 @@ await requireBrowserLane("peer-reconnect-gallery.test.ts", async () => {
   const measurements: unknown[] = [];
 
   beforeAll(async () => {
+    setComposerSettings({ showPeerReconnectStatus: true });
     mkdirSync(out, { recursive: true });
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
@@ -34,6 +36,7 @@ await requireBrowserLane("peer-reconnect-gallery.test.ts", async () => {
     });
   });
   afterAll(async () => {
+    setComposerSettings({ showPeerReconnectStatus: false });
     writeFileSync(path.join(out, "reconnect-visibility.json"), JSON.stringify(measurements, null, 2));
     await browser?.close();
     await vite?.close();

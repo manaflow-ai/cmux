@@ -9,6 +9,7 @@ import type { PeerMachineState } from "./peerCloudMachine";
 import { pausedMachineResume } from "./pausedMachine.experiment";
 import type { PeerReconnect } from "./peerReconnect";
 import { PeerReconnectText } from "./PeerReconnectText";
+import { useComposerSettings } from "./composerSettings";
 
 /// A peer chat drawn from the Mac's copy while its machine does not answer (peerCopy.ts): the
 /// transcript is what the Mac last saw and may be out of date, until the machine is back and the
@@ -61,6 +62,8 @@ function PeerCopyBannerBody({
   progress?: PeerReconnect;
 }) {
   const t = useT();
+  const { showPeerReconnectStatus } = useComposerSettings();
+  const visibleProgress = showPeerReconnectStatus ? progress : undefined;
   const [reconnect, setReconnect] = useState<{ state: "idle" | "reconnecting" | "failed" }>({
     state: "idle",
   });
@@ -131,8 +134,8 @@ function PeerCopyBannerBody({
   return (
     <div className="acpmux-link-missing acpmux-peer-copy" data-enter="top">
       <p className="acpmux-peer-copy-title">
-        {progress ? (
-          <PeerReconnectText progress={progress} />
+        {visibleProgress ? (
+          <PeerReconnectText progress={visibleProgress} />
         ) : (
           <span>{t("peerCopy.offline.title", { machine: copy.peer })}</span>
         )}
