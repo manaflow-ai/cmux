@@ -9,6 +9,16 @@ public import Foundation
 /// PC on the account (`cmux-rd windows-host`): listed, not yet viewable.
 public enum DevicePlatform: String, Codable, Sendable, Equatable {
     case macos, ios, linux, windows
+
+    /// Whether this Mac can view a screen this platform hosts: a Mac or a Linux desktop, never an iPhone.
+    /// A Windows PC is listed but not viewed yet. Settings > Devices and the sidebar's screen actions ask
+    /// this, and the switch is exhaustive, so a new platform says here whether the Mac views it.
+    public var hostsScreenThisMacViews: Bool {
+        switch self {
+        case .macos, .linux: true
+        case .ios, .windows: false
+        }
+    }
 }
 
 /// What a viewer may do on a host's screen.
@@ -41,10 +51,14 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
         self.macScreenShared = macScreenShared; self.online = online
     }
 
-    /// Known Mac screen destinations, including Macs whose user has yet to allow sharing.
+    /// Whether this Mac can view this device's screen (``DevicePlatform/hostsScreenThisMacViews``); a device
+    /// with no platform is not offered.
+    public var hostsScreenThisMacViews: Bool { platform?.hostsScreenThisMacViews ?? false }
+
+    /// Known screen destinations (Macs and Linux desktops), including hosts whose user has yet to allow sharing.
     /// Lowercase device IDs are stable identity keys; display names never participate.
     public static func macScreenAvailability(in devices: [HubDevice]) -> [String: Bool] {
-        Dictionary(devices.filter { $0.platform == .macos }.map { ($0.id.lowercased(), $0.online) },
+        Dictionary(devices.filter(\.hostsScreenThisMacViews).map { ($0.id.lowercased(), $0.online) },
                    uniquingKeysWith: { first, _ in first })
     }
 
