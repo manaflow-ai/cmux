@@ -39694,6 +39694,137 @@
           }
         }
       }
+    },
+    "macScreen.indicator.shared": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Mac هذا مشارَك مع أجهزتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac je podijeljen s vašim uređajima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac er delt med dine enheder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac wird mit deinen Geräten geteilt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is shared with your devices"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac se comparte con tus dispositivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac est partagé avec vos appareils"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac è condiviso con i tuoi dispositivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac はあなたのデバイスと共有されています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះត្រូវបានចែករំលែកជាមួយឧបករណ៍របស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac이 내 기기와 공유되고 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen deles med enhetene dine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac jest udostępniony Twoim urządzeniom"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac está compartilhado com seus dispositivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ к этому Mac открыт для ваших устройств"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้แชร์กับอุปกรณ์ของคุณอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac cihazlarınızla paylaşılıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ до цього Mac відкрито для ваших пристроїв"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này đang được chia sẻ với các thiết bị của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 正在与你的设备共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 正在與你的裝置分享"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

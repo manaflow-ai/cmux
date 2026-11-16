@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// A window-scoped permission guide for the process that actually captures the screen: this app.
 /// The same guide serves the visible Share action and the CLI's person-confirmed share request.
@@ -64,14 +65,53 @@ struct CmuxRemoteSharingSetup {
     }
 
     /// `remote.confirm {action: share}`'s sheet: the overview offers Always Allow beside Continue.
-    /// Whether sharing went on, and whether the person chose Always Allow for it.
-    func confirmRequest(in window: NSWindow) async throws -> (shared: Bool, always: Bool) {
-        let center = CmuxDialogCenter.shared
-        let answer = await center.present(Self.spec(.overview, offerAlways: true), in: .window(window)).button
-        let shared = try await proceed(after: answer == "always" ? "continue" : answer) { spec in
+    /// Whether sharing went on, and whether the person chose Always Allow for it. `personPressed` is
+    /// read as the overview answers (``overviewAnswer(in:center:personPressed:)``).
+    func confirmRequest(in window: NSWindow, center: CmuxDialogCenter = .shared,
+                        personPressed: @escaping @MainActor (NSWindow) -> Bool) async throws -> (shared: Bool, always: Bool) {
+        let overview = await Self.overviewAnswer(in: window, center: center, personPressed: personPressed)
+        return try await afterOverview(overview.button, personPressed: overview.personPressed) { spec in
             await center.present(spec, in: .window(window)).button
         }
-        return (shared, shared && answer == "always")
+    }
+
+    /// SECURITY: the request overview's answer, and whether the person's own press gave it, read in
+    /// the answer's own completion: a press answers inside its event's dispatch, which has ended by the
+    /// time an awaited answer resumes. Only an Always Allow press reads it. Cancelling dismisses the sheet.
+    static func overviewAnswer(in window: NSWindow, center: CmuxDialogCenter,
+                               personPressed: @escaping @MainActor (NSWindow) -> Bool) async -> (button: String, personPressed: Bool) {
+        let shown = ShownOverview()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                shown.id = center.present(spec(.overview, offerAlways: true), in: .window(window)) { [weak window] answer in
+                    var pressed = false
+                    if answer.button == "always", let window { pressed = personPressed(window) }
+                    continuation.resume(returning: (answer.button, pressed))
+                }
+                if Task.isCancelled { shown.dismiss(from: center) }
+            }
+        } onCancel: {
+            // The cancel can come from any thread: the overview this cancelled wait showed ends on main.
+            MainDelivery().run { shown.dismiss(from: center) }
+        }
+    }
+
+    /// The overview an ``overviewAnswer(in:center:personPressed:)`` showed, for its cancellation.
+    @MainActor private final class ShownOverview {
+        var id: Int?
+        func dismiss(from center: CmuxDialogCenter) {
+            if let id { center.dismiss(id) }
+        }
+    }
+
+    /// The request after its overview: Always Allow goes on as Continue does, and counts as Always
+    /// Allow only when the person pressed it and sharing went on; one another process pressed
+    /// (computer use, a script) allows this request once.
+    func afterOverview(_ button: String, personPressed: Bool,
+                       present: (CmuxDialogSpec) async -> String) async throws -> (shared: Bool, always: Bool) {
+        let always = button == "always"
+        let shared = try await proceed(after: always ? "continue" : button, present: present)
+        return (shared, shared && always && personPressed)
     }
 
     func confirm(in window: NSWindow) async throws -> Bool {
@@ -84,7 +124,8 @@ struct CmuxRemoteSharingSetup {
 
     /// Each permission step advances only after a fresh TCC read. A declined or closed sheet never
     /// changes the sharing switch. Accessibility is optional; viewing still needs Screen Recording.
-    func proceed(after answer: String, present: (CmuxDialogSpec) async -> String) async throws -> Bool {
+    /// `enabling` false (this Mac already shares): only the missing grants' steps, no hub write.
+    func proceed(after answer: String, enabling: Bool = true, present: (CmuxDialogSpec) async -> String) async throws -> Bool {
         guard answer == "continue", !Task.isCancelled else { return false }
         var permissions = await refresh()
         var screenRequested = false, controlRequested = false, viewOnly = false
@@ -110,7 +151,7 @@ struct CmuxRemoteSharingSetup {
             }
         }
         guard !Task.isCancelled else { return false }
-        try await enable()
+        if enabling { try await enable() }
         return true
     }
 

@@ -362,7 +362,7 @@ extension MachineSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.remote.shareWithoutAsking", "Share This Mac Without Asking"),
-                help: SettingsText.keyed("settings.remote.shareWithoutAsking.help", "On, an agent or the cmux CLI turns on Share This Mac without asking you first. Each device keeps the access it has in Devices. Always Allow on the Share This Mac? dialog turns this on."),
+                help: SettingsText.keyed("settings.remote.shareWithoutAsking.help", "On, an agent or the cmux CLI turns on Share This Mac without asking you first. Each device keeps the access it has in Devices. It takes effect only after you choose Always Allow on the Share This Mac sheet; signing out turns it off."),
                 summary: SettingsText.keyed("settings.remote.shareWithoutAsking.summary", "Agents turn on Share This Mac without asking"),
                 kind: .toggle,
                 default: .bool(RemoteSettings.shareWithoutAskingDefault),

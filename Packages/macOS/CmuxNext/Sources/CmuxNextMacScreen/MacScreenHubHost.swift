@@ -35,7 +35,10 @@ public final class MacScreenHubHost {
     @ObservationIgnored private var host: MacScreenRdHost?
     @ObservationIgnored private var serveTask: Task<Void, Never>?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
-    @ObservationIgnored private let indicator = MacScreenShareIndicator()
+    @ObservationIgnored let indicator = MacScreenShareIndicator()
+    /// Share This Mac is on (the hub's record of this device), as `sharingChanged` last heard.
+    @ObservationIgnored private var sharingOn = false
+    static var sharedTitle: String { L.t("macScreen.indicator.shared", "This Mac is shared with your devices") }
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-hub-host")
     /// Makes the host for one session; tests replace it.
     @ObservationIgnored var makeHost: (MacScreenRdHost.Session) -> MacScreenRdHost = { MacScreenRdHost(session: $0) }
@@ -268,9 +271,23 @@ public final class MacScreenHubHost {
         Task { await endSession(hub, id, reason.rawValue) }
     }
 
+    /// The hub's word on whether this Mac shares (`MacScreenPages` follows it): the menu bar item shows
+    /// while it is on, also with no device connected and when an agent turned it on with no dialog.
+    func sharingChanged(_ on: Bool) {
+        guard sharingOn != on else { return }
+        sharingOn = on
+        updateIndicator()
+    }
+
+    /// The menu bar item shows while a device is connected or Share This Mac is on.
+    nonisolated static func indicatorShows(sessionConnected: Bool, sharingOn: Bool) -> Bool {
+        sessionConnected || sharingOn
+    }
+
     private func updateIndicator() {
         guard let session, session.connected else {
-            indicator.setVisible(false)
+            indicator.setVisible(Self.indicatorShows(sessionConnected: false, sharingOn: sharingOn))
+            if sharingOn { indicator.update(title: Self.sharedTitle, offersRevoke: false, sessionLive: false) }
             return
         }
         let title = session.scope == .view

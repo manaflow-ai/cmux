@@ -16,16 +16,26 @@ public struct CmuxRemoteActionEnvironment {
     public var settings: @MainActor () -> SettingsController?
     public var window: @MainActor () -> NSWindow?
     public var openDevices: @MainActor () -> Void
+    /// SECURITY: whether the press answering the "Share This Mac" sheet shown in the given window, read
+    /// as it answers, is the person's own (``pressedByPerson(_:in:now:isPerson:)`` on the input event the
+    /// app is dispatching then). Only then is Always Allow kept; any other press allows this request once.
+    /// None set: never kept.
+    public var personPressed: @MainActor (NSWindow) -> Bool
+    /// Which account's Always Allow counts (``RemoteShareGrant``); none: the setting alone never skips.
+    public var shareGrant: @MainActor () -> RemoteShareGrant?
 
     public init(remote: CmuxRemoteService, screenHost: MacScreenHubHost, hub: @escaping @MainActor () -> DeviceHub?,
                 settings: @escaping @MainActor () -> SettingsController? = { nil }, window: @escaping @MainActor () -> NSWindow?,
-                openDevices: @escaping @MainActor () -> Void) {
+                shareGrant: @escaping @MainActor () -> RemoteShareGrant? = { nil },
+                openDevices: @escaping @MainActor () -> Void, personPressed: @escaping @MainActor (NSWindow) -> Bool = { _ in false }) {
         self.remote = remote
         self.screenHost = screenHost
         self.hub = hub
         self.settings = settings
         self.window = window
         self.openDevices = openDevices
+        self.personPressed = personPressed
+        self.shareGrant = shareGrant
     }
 }
 
@@ -118,25 +128,27 @@ extension CmuxRemoteActionEnvironment {
                 }
                 let screenHost = environment.screenHost
                 let settings = environment.settings()
+                let grant = environment.shareGrant(), personPressed = environment.personPressed
                 let step = Self.shareStep(alreadyShared: hub.thisDevice?.macScreenShared == true,
-                                          withoutAsking: settings?.snapshot.remote.shareWithoutAsking == true)
+                                          withoutAsking: Self.withoutAsking(settings: settings, grant: grant))
                 // The setup sheet asks and turns sharing on itself, so its answer is the change.
                 return .followUp(Self.confirmedChange(
                     confirm: {
                         let setup = CmuxRemoteSharingSetup(host: screenHost)
+                        let present = { (spec: CmuxDialogSpec) async -> String in
+                            guard let window else { return "cancel" }
+                            return await CmuxDialogCenter.shared.present(spec, in: .window(window)).button
+                        }
                         switch step {
-                        case .nothing:
-                            return true
-                        case .apply:
-                            // Always Allow skips the overview; a missing macOS grant still gets its own step.
-                            return try await setup.proceed(after: "continue") { spec in
-                                guard let window else { return "cancel" }
-                                return await CmuxDialogCenter.shared.present(spec, in: .window(window)).button
-                            }
+                        case .nothing, .apply:
+                            return try await Self.shareWithoutOverview(step, setup: setup, present: present)
                         case .ask:
                             guard let window else { return false }
-                            let answer = try await setup.confirmRequest(in: window)
-                            if answer.always, let settings { await Self.shareWithoutAsking(settings) }
+                            let answer = try await setup.confirmRequest(in: window, personPressed: personPressed)
+                            // Written first, then recorded: a record never sits beside the setting off. No account, nothing.
+                            if answer.always, let settings, let grant, grant.account != nil, await Self.shareWithoutAsking(settings) {
+                                grant.record()
+                            }
                             return answer.shared
                         }
                     },
@@ -168,11 +180,47 @@ extension CmuxRemoteActionEnvironment {
         alreadyShared ? .nothing : withoutAsking ? .apply : .ask
     }
 
+    /// A share request with no overview: `.apply` (Always Allow) turns sharing on, and a missing
+    /// macOS grant still gets its own step. `.nothing` (this Mac already shares) writes nothing to the
+    /// hub, but a missing grant still gets its steps: a share that cannot capture is not done.
+    static func shareWithoutOverview(_ step: ShareStep, setup: CmuxRemoteSharingSetup,
+                                     present: (CmuxDialogSpec) async -> String) async throws -> Bool {
+        try await setup.proceed(after: "continue", enabling: step == .apply, present: present)
+    }
+
+    /// Whether a share request may skip the overview: `remote.shareWithoutAsking` is on and the
+    /// signed-in account's person chose Always Allow, or a managing team pinned it (``RemoteShareGrant``).
+    /// No grant: the setting alone never skips.
+    static func withoutAsking(settings: SettingsController?, grant: RemoteShareGrant?) -> Bool {
+        guard let settings, let grant else { return false }
+        return grant.covers(settingOn: settings.snapshot.remote.shareWithoutAsking,
+                            managed: settings.managedKeys[RemoteSettings.shareWithoutAskingPath.joined(separator: ".")] != nil)
+    }
+
+    /// SECURITY: whether `event`, the input event the app is dispatching as the sheet answers (nil
+    /// outside a dispatch: an Accessibility press, a timer), is the person's own click or key on the
+    /// sheet shown in `window`: a key or mouse-button event in `window` or one of its child windows (the
+    /// overlay panel the sheet draws in) at most a second before `now` (system uptime) that `isPerson`
+    /// (the strict HID-system check, `PersonInputCheck`) takes. A mouse move, an old event, an event in
+    /// another window or none does not count.
+    public static func pressedByPerson(_ event: NSEvent?, in window: NSWindow, now: TimeInterval = ProcessInfo.processInfo.systemUptime,
+                                       isPerson: (NSEvent) -> Bool) -> Bool {
+        let windows = Set([window.windowNumber] + (window.childWindows ?? []).map(\.windowNumber))
+        return pressedByPerson(event, inWindows: windows, now: now, isPerson: isPerson)
+    }
+
+    /// ``pressedByPerson(_:in:now:isPerson:)`` for the window numbers of the sheet's window and its
+    /// overlay panel.
+    static func pressedByPerson(_ event: NSEvent?, inWindows windows: Set<Int>, now: TimeInterval, isPerson: (NSEvent) -> Bool) -> Bool {
+        guard let event, [.keyDown, .leftMouseDown, .leftMouseUp].contains(event.type), windows.contains(event.windowNumber) else { return false }
+        return event.timestamp <= now && now - event.timestamp <= 1 && isPerson(event)
+    }
+
     /// Always Allow: the person's click turns on `remote.shareWithoutAsking` (the user writer: the
-    /// click is in this app's UI). A refused or failed write only means the next request asks again.
-    static func shareWithoutAsking(_ settings: SettingsController) async {
-        guard let descriptor = SettingsSchema.descriptor(for: RemoteSettings.shareWithoutAskingPath) else { return }
-        try? await settings.setSetting(descriptor, to: .bool(true), by: .user)
+    /// click is in this app's UI). False when refused or failed: the next request asks again.
+    static func shareWithoutAsking(_ settings: SettingsController) async -> Bool {
+        guard let descriptor = SettingsSchema.descriptor(for: RemoteSettings.shareWithoutAskingPath) else { return false }
+        return (try? await settings.setSetting(descriptor, to: .bool(true), by: .user)) != nil
     }
 
     /// `remote.confirm`'s answer: the person's choice on the dialog, then the change it allows.

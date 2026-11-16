@@ -6,8 +6,9 @@
 /// - `endSharingOnQuit` (off by default): a Screen Sharing session ends when cmux quits. Off,
 ///   cmux Remote keeps this Mac available to the person's devices while cmux is quit.
 /// - `shareWithoutAsking` (off by default; user-only): `remote.confirm {action: share}` (agents,
-///   the CLI, the MCP tools) turns Share This Mac on with no "Share This Mac?" dialog. Always
-///   Allow on that dialog turns it on.
+///   the CLI, the MCP tools) turns Share This Mac on with no "Share This Mac" sheet. Always
+///   Allow on that sheet turns it on; it skips the sheet only for the account that chose it
+///   (`RemoteShareGrant` in CmuxNextMacScreen) or when a managing team pins it.
 /// - `ultra` (Auto by default): Ultra Connection Mode, Off, Auto or Always. The Rust tunnel starts
 ///   read it from the file themselves (cmux-tui-util `user_settings::ultra`); kept here so the row
 ///   reads back. Without it, the retired toggle `ultraMode` set to true reads as Always, as Rust does.

@@ -2,16 +2,19 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 
-/// The menu bar item shown while a device sees or controls this Mac: visible
-/// from every app. It names who and how (a device hub session) and offers
-/// Stop Sharing (ends the session) and, for a device hub session, Revoke
-/// This Device (sets its access to None and ends the session). Both rows run
-/// registered actions (`macScreen.stopSharing`, `macScreen.revokeViewer`), the
-/// same path as the palette and `cmux action run`.
+/// The menu bar item shown while a device sees or controls this Mac, or while
+/// Share This Mac is on with no device connected: visible from every app. For a
+/// session it names who and how (a device hub session) and offers Stop Sharing
+/// (ends the session) and, for a device hub session, Revoke This Device (sets
+/// its access to None and ends the session); with no session it offers Stop
+/// Sharing This Mac. The rows run registered actions (`macScreen.stopSharing`,
+/// `macScreen.revokeViewer`, `macScreen.stopSharingThisMac`), the same path as
+/// the palette and `cmux action run`.
 @MainActor
 final class MacScreenShareIndicator: NSObject {
     static let stopSharingAction: ActionID = "macScreen.stopSharing"
     static let revokeViewerAction: ActionID = "macScreen.revokeViewer"
+    static let stopSharingThisMacAction: ActionID = "macScreen.stopSharingThisMac"
 
     private var item: NSStatusItem?
     /// The in-app host bar is the first-class stop affordance. The menu bar item remains as a
@@ -22,6 +25,8 @@ final class MacScreenShareIndicator: NSObject {
     var menuItem: (ActionID) -> NSMenuItem? = { _ in nil }
     /// Whether the session shown offers Revoke This Device.
     private(set) var offersRevoke = false
+    /// A device is connected now; false: Share This Mac is on with no session, and the row turns it off.
+    private(set) var sessionLive = true
     /// The menu's first line: who sees or controls this Mac.
     private(set) var title = MacScreenShareIndicator.defaultTitle
 
@@ -45,18 +50,38 @@ final class MacScreenShareIndicator: NSObject {
     }
 
     /// Shows `title` (who, and View Only or Full Control) from now on.
-    func update(title: String, offersRevoke: Bool) {
+    func update(title: String, offersRevoke: Bool, sessionLive: Bool = true) {
         self.title = title
         self.offersRevoke = offersRevoke
-        let bar = bar ?? {
-            let created = MacScreenSharingBar()
-            self.bar = created
-            return created
-        }()
-        bar.update(title: title) { [weak self] in self?.run(Self.stopSharingAction) }
-        bar.show()
+        self.sessionLive = sessionLive
+        // The bar is for a live session; shared with no one connected shows only the menu bar item.
+        if sessionLive {
+            let bar = bar ?? {
+                let created = MacScreenSharingBar()
+                self.bar = created
+                return created
+            }()
+            bar.update(title: title) { [weak self] in self?.run(Self.stopSharingAction) }
+            bar.show()
+        } else {
+            bar?.hide()
+            bar = nil
+        }
         rebuild()
     }
+
+    /// The menu's action rows, in order.
+    var rowActions: [ActionID] { Self.rowActions(sessionLive: sessionLive, offersRevoke: offersRevoke) }
+
+    /// The rows for a live session (Stop Sharing, and Revoke This Device when offered), or, shared with
+    /// no device connected, Stop Sharing This Mac (turns Share This Mac off).
+    static func rowActions(sessionLive: Bool, offersRevoke: Bool) -> [ActionID] {
+        guard sessionLive else { return [stopSharingThisMacAction] }
+        return offersRevoke ? [stopSharingAction, revokeViewerAction] : [stopSharingAction]
+    }
+
+    /// The sharing bar is up (a live session only).
+    var showsBar: Bool { bar != nil }
 
     /// Runs the same registered action as the menu item. This keeps the one-click bar on the
     /// app's action path (and therefore the CLI and palette path) instead of duplicating teardown.
@@ -75,11 +100,8 @@ final class MacScreenShareIndicator: NSObject {
         heading.isEnabled = false
         menu.addItem(heading)
         menu.addItem(.separator())
-        if let stop = menuItem(Self.stopSharingAction) {
-            menu.addItem(stop)
-        }
-        if offersRevoke, let revoke = menuItem(Self.revokeViewerAction) {
-            menu.addItem(revoke)
+        for id in rowActions {
+            if let row = menuItem(id) { menu.addItem(row) }
         }
         item.menu = menu
     }

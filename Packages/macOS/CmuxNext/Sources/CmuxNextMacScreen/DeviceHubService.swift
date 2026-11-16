@@ -52,6 +52,8 @@ public final class DeviceHubService {
     private let loginKeychain: LoginKeychain
     /// Settings > Devices (the React page's `devices` card).
     public let settingsModel: MacScreenDevicesSettings
+    /// Always Allow on the "Share This Mac" sheet belongs to the signed-in account: it follows the account and leaving the hub.
+    public let shareGrant = RemoteShareGrant()
     private var hub: DeviceHub?
     /// What the running hub was made for: its address and the account.
     private var running: (url: URL, user: String)?
@@ -109,11 +111,13 @@ public final class DeviceHubService {
         settingsModel.signIn = { [weak self] in
             guard let self else { return }
             leftHub = false
+            shareGrant.accountChanged(user)
             reconcile()
         }
         settingsModel.thisDeviceRemoved = { [weak self] in
             guard let self else { return }
             leftHub = true
+            shareGrant.accountChanged(nil)
             stopHub(endingSessions: false, removed: true)
         }
         settingsModel.thisDeviceRenamed = { [weak pages] name in pages?.store.setHubDeviceName(name) }
@@ -128,15 +132,24 @@ public final class DeviceHubService {
     /// Follows the hub address and the account from now on.
     public func start(settings: SettingsController) {
         guard watch == nil else { return }
+        shareGrant.turnOff = { [weak settings] in
+            guard let settings else { return }
+            // task-owner: one settings write when the grant is forgotten (sign-out, another account, leaving the hub)
+            Task { await RemoteShareGrant.turnOff(settings) }
+        }
         let account = account, selectedBaseURL = selectedBaseURL
         // task-owner: DeviceHubService.watch: follows deviceHub.url and sign-in for the app's life
         watch = Task { [weak self] in
             await account.awaitRestored()
             await self?.pages.store.load()
-            for await (address, user) in ObservationStream({ (selectedBaseURL ?? Self.address(settings), account.userID()) }) {
+            for await (address, user, shareOn) in ObservationStream({
+                (selectedBaseURL ?? Self.address(settings), account.userID(), settings.snapshot.remote.shareWithoutAsking)
+            }) {
                 guard let self else { return }
                 url = address
                 self.user = user
+                shareGrant.accountChanged(leftHub ? nil : user)
+                shareGrant.settingChanged(on: shareOn)
                 pages.hubConfigured = url != nil
                 reconcile()
             }
@@ -232,6 +245,7 @@ public final class DeviceHubService {
                 // Another device removed this Mac: it leaves the hub until the person signs in again.
                 guard let self, self.hub === hub else { return }
                 leftHub = true
+                shareGrant.accountChanged(nil)
                 stopHub(endingSessions: false, removed: true)
                 return
             }
