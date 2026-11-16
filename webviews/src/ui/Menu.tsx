@@ -30,6 +30,7 @@ import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
 import { useNativeFinalFocus } from "./useNativeFinalFocus";
+import { markPopupWithin } from "./popupWithin";
 
 export interface MenuProps {
   open?: boolean;
@@ -241,9 +242,15 @@ export function MenuButton({
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
+  const self = useRef<HTMLButtonElement | null>(null);
+  const isOpen = !!context?.isOpen;
+  // While open, its row keeps its actions shown (ui/popupWithin.ts), in the frame its
+  // `data-popup-open` lands; cleared on close and on unmount.
+  useLayoutEffect(() => (isOpen ? markPopupWithin(self.current) : undefined), [isOpen]);
   return (
     <BaseMenu.Trigger
       ref={(node: HTMLButtonElement | null) => {
+        self.current = node;
         if (context) context.trigger.current = node;
         if (buttonRef) buttonRef.current = node;
       }}

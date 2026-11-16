@@ -21,6 +21,7 @@ import { usePopupHost } from "./UiProvider";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction } from "./popupDescriptors";
+import { markPopupWithin, popupOpener } from "./popupWithin";
 
 /** An action in the standalone context menu. */
 export interface ContextMenuItem {
@@ -129,7 +130,11 @@ export function ContextMenu({
   const [nativeOpen, setNativeOpen] = useState(false);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
-  const popupTarget = useRef<HTMLElement | null>(null);
+  // The right-clicked thing stays lit while its menu is open, and its row keeps its actions shown
+  // (ui/popupWithin.ts); every close path and unmount clears both.
+  const popupTarget = useRef<ReturnType<typeof popupOpener> | null>(null);
+  popupTarget.current ??= popupOpener();
+  const openMark = useRef<HTMLSpanElement | null>(null);
   const nativeRequest = useRef(0);
   const menu = useRef<HTMLDivElement | null>(null);
   const host = usePopupHost();
@@ -171,8 +176,7 @@ export function ContextMenu({
   useEffect(
     () => () => {
       nativeRequest.current += 1;
-      popupTarget.current?.removeAttribute("data-popup-open");
-      popupTarget.current = null;
+      popupTarget.current?.close();
     },
     [],
   );
@@ -217,8 +221,7 @@ export function ContextMenu({
     nativeRequest.current += 1;
     setPoint(null);
     setNativeOpen(false);
-    popupTarget.current?.removeAttribute("data-popup-open");
-    popupTarget.current = null;
+    popupTarget.current?.close();
     const target = returnFocus.current;
     returnFocus.current = null;
     if (restoreFocus && target?.isConnected) target.focus({ preventScroll: true });
@@ -293,16 +296,14 @@ export function ContextMenu({
     if (native && nativePopup.available && !nativeTarget) return;
     event.preventDefault();
     onOpen?.();
-    popupTarget.current?.removeAttribute("data-popup-open");
-    popupTarget.current = null;
+    popupTarget.current?.close();
     setPoint(null);
     const requestId = nativeRequest.current + 1;
     nativeRequest.current = requestId;
     setNativeOpen(true);
     setActive(0);
     const opener = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
-    popupTarget.current = opener;
-    opener?.setAttribute("data-popup-open", "");
+    if (opener) popupTarget.current?.open(opener);
     returnFocus.current = opener;
     const at = { x: event.clientX, y: event.clientY };
     if (native && nativePopup.available) {
@@ -344,9 +345,12 @@ export function ContextMenu({
       },
     );
   };
+  // The open menu's mark where this menu sits (the hidden span below), for its row.
+  const menuOpen = point !== null || nativeOpen;
+  useLayoutEffect(() => (menuOpen ? markPopupWithin(openMark.current) : undefined), [menuOpen]);
   const rest = (
     <>
-      <span aria-hidden="true" hidden data-popup-open={point || nativeOpen ? "" : undefined} />
+      <span ref={openMark} aria-hidden="true" hidden data-popup-open={menuOpen ? "" : undefined} />
       {point
         ? createPortal(
             // Placement is inline, not only in ui.css: a host that does not load ui.css (the agent
