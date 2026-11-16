@@ -23,8 +23,8 @@ public final class SettingsMachineLoad: PageProvider {
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard op == Self.prefix else { throw PageError.unknownOp(op) }
         guard let socket = environment()?.socketPath,
-              let data = try? await AcpmuxPeerList(socketPath: socket).loadRows(),
-              let rows = try? JSONValue.parse(data)
+              let text = try? await AcpmuxPeerList(socketPath: socket).loadRows(),
+              let rows = try? JSONValue.parse(Data(text.utf8))
         else { return .object(["peers": .array([])]) }
         return rows
     }
