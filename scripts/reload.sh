@@ -2276,6 +2276,20 @@ else
   "$PWD/scripts/build-cmux-cua.sh" --output "$PWD/build/cmux-cua/cmux-cua" \
     --helper-app "$CMUX_CUA_HELPER_APP"
 fi
+# The Screen Sharing helper, when this build has its binary (CMUX_NEXT_SCREEN_HELPER_BIN, above)
+# but the app came out without it: the Xcode phase's only declared output is its stamp in
+# TARGET_TEMP_DIR, so a reused DerivedData (fleet slots) whose app bundle was removed or rebuilt
+# while the stamp stayed skips the phase, and the app falls back to sharing from its own process.
+# Bundle the same binary into the final app here, named and signed as the phase would.
+cmux_screen_helper_bins=("$APP_PATH/Contents/Library/"*" Screen Sharing.app/Contents/MacOS/cmux-screen-sharing")
+if [[ -x "${cmux_screen_helper_bins[0]}" ]]; then
+  echo "Preserving Xcode-built Screen Sharing helper at ${cmux_screen_helper_bins[0]%/Contents/MacOS/*}"
+elif [[ -n "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" && -x "$PWD/scripts/cmux-next/bundle-screen-sharing-helper.sh" ]]; then
+  echo "==> cmux-next: the Bundle Screen Sharing helper phase did not run; bundling it into $APP_PATH"
+  env CONFIGURATION="$BUILD_CONFIGURATION" CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 \
+    EXPANDED_CODE_SIGN_IDENTITY="${CMUX_DEV_SIGN_IDENTITY:-}" CMUX_TIMESTAMP=none \
+    "$PWD/scripts/cmux-next/bundle-screen-sharing-helper.sh" --app "$APP_PATH" || exit 1
+fi
 # A dev build uses a Developer ID helper from an installed release, NIGHTLY or
 # RC, or none. Drop an ad-hoc helper an older build left in this app.
 "$PWD/scripts/cmux-cua-helper-trust.sh" drop-unsigned "$APP_PATH"

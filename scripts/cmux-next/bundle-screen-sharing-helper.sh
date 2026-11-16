@@ -25,13 +25,24 @@
 #
 #   bundle-screen-sharing-helper.sh             the Xcode phase (Xcode's variables)
 #   bundle-screen-sharing-helper.sh --stamp APP re-stamps APP's helper from APP's Info.plist
+#   bundle-screen-sharing-helper.sh --app APP   bundles into the built APP, named from its
+#                                               Info.plist: reload.sh's fallback when the Xcode
+#                                               phase did not run (writes no stamp)
 set -euo pipefail
 
 repo_root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 EXECUTABLE=cmux-screen-sharing
 SUFFIX=" Screen Sharing"
 
-plist_get() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true; }
+# PlistBuddy on a Mac; plistlib elsewhere (the Linux release signer stamps before it signs).
+plist_get() {
+  if [[ -x /usr/libexec/PlistBuddy ]]; then
+    /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true
+  else
+    python3 -I -c 'import plistlib, sys; v = plistlib.load(open(sys.argv[1], "rb")).get(sys.argv[2]); print("" if v is None else v)' \
+      "$1" "$2" 2>/dev/null || true
+  fi
+}
 
 # The helper's Info.plist: <path> <bundle id> <name> <version> <minimum macOS>.
 write_plist() {
@@ -89,21 +100,28 @@ if [[ "${1:-}" == "--stamp" ]]; then
   exit 0
 fi
 
-# The Xcode phase.
-resources="${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}"
-app="${TARGET_BUILD_DIR:?}/${resources%/Contents/Resources}"
-[[ "$app" == *.app ]] || { echo "error: cannot find the app bundle from UNLOCALIZED_RESOURCES_FOLDER_PATH=$resources" >&2; exit 1; }
-stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/bundle-screen-sharing-helper.stamp"
+# The Xcode phase, or --app APP after the build (reload.sh), which writes no stamp.
+if [[ "${1:-}" == "--app" ]]; then
+  app="${2:?usage: $0 --app <app>}"
+  app="${app%/}"
+  [[ "$app" == *.app && -d "$app/Contents" ]] || { echo "error: no app bundle at $app" >&2; exit 1; }
+  stamp=""
+else
+  resources="${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}"
+  app="${TARGET_BUILD_DIR:?}/${resources%/Contents/Resources}"
+  [[ "$app" == *.app ]] || { echo "error: cannot find the app bundle from UNLOCALIZED_RESOURCES_FOLDER_PATH=$resources" >&2; exit 1; }
+  stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/bundle-screen-sharing-helper.stamp"
+fi
 on_exit() {
   status=$?
-  if (( status == 0 )); then
+  if (( status == 0 )) && [[ -n "$stamp" ]]; then
     mkdir -p "$(dirname "$stamp")"
     printf 'completed\n' > "$stamp"
   fi
   exit "$status"
 }
 trap on_exit EXIT
-rm -f "$stamp"
+[[ -z "$stamp" ]] || rm -f "$stamp"
 
 src="${CMUX_NEXT_SCREEN_HELPER_BIN:-}"
 if [[ "${CONFIGURATION:-Debug}" == Release* && -z "$src" && "${CMUX_NEXT_REQUIRE_SCREEN_HELPER:-}" != 1 ]]; then
@@ -135,7 +153,7 @@ info="$app/Contents/Info.plist"
 id="$(plist_get "$info" CFBundleIdentifier)"; id="${id:-${PRODUCT_BUNDLE_IDENTIFIER:-com.cmuxterm.app.next}}"
 name="$(plist_get "$info" CFBundleName)"; name="${name:-$(basename "$app" .app)}"
 version="$(plist_get "$info" CFBundleVersion)"; version="${version:-${CURRENT_PROJECT_VERSION:-1}}"
-minimum="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+minimum="${MACOSX_DEPLOYMENT_TARGET:-$(plist_get "$info" LSMinimumSystemVersion)}"; minimum="${minimum:-14.0}"
 dest="$app/Contents/Library/$name$SUFFIX.app"
 remove_other_helpers "$app" "$dest"
 mkdir -p "$app/Contents/Library"

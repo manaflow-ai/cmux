@@ -28,8 +28,10 @@
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
 #                              flow uses all-except-computer-use while Apple's
-#                              service processes the helper, then main-only after
-#                              stapling so the submitted helper CDHash survives.
+#                              service processes the helpers (Computer Use and the
+#                              Screen Sharing helper, one submission), then
+#                              main-only after stapling so the submitted helper
+#                              CDHashes survive.
 #
 # Signs in the Apple-documented inside-out order:
 #   0. scripts/sign-cmux-bundle-helpers.sh stamps the cmux server's launchd
@@ -155,12 +157,17 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   # (nightly and RC rename the app after the build), then signed as its own app with the
   # hardened runtime and no entitlements. Its bundle id and team are what macOS keeps its
   # Screen Recording and Accessibility grants under, so a grant survives every update.
-  "$SCRIPT_DIR/cmux-next/bundle-screen-sharing-helper.sh" --stamp "$APP_PATH"
-  for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
-    [[ -d "$screen_helper" ]] || continue
-    echo "==> signing the Screen Sharing helper $(basename "$screen_helper")"
-    "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$screen_helper"
-  done
+  # Like the Computer Use helper it goes in the early notarization submission
+  # (notarize-computer-use-helper.sh --start stamps and signs it), so
+  # all-except-computer-use keeps that signature and the ticket finish staples.
+  if [[ "$SIGN_MODE" == "all" ]]; then
+    "$SCRIPT_DIR/cmux-next/bundle-screen-sharing-helper.sh" --stamp "$APP_PATH"
+    for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
+      [[ -d "$screen_helper" ]] || continue
+      echo "==> signing the Screen Sharing helper $(basename "$screen_helper")"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$screen_helper"
+    done
+  fi
 
   # 3. Plugins
   if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
@@ -224,6 +231,10 @@ done
 if [[ -d "$COMPUTER_USE_HELPER" ]]; then
   /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
 fi
+for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
+  [[ -d "$screen_helper" ]] || continue
+  /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
+done
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.
 SIDECAR_CHECK=(--archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" --require-signed)

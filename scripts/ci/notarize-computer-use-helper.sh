@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Independently notarize and staple the nested cmux Computer Use app.
+# Independently notarize and staple the nested cmux Computer Use app, and the
+# nested Screen Sharing helper ("<app name> Screen Sharing.app",
+# plans/cmux-next/screen-sharing-helper.md) when the host carries it.
 #
-# cmux copies this helper out of the signed host bundle before launch. An
-# independent ticket keeps that copied app Gatekeeper-valid even when the Mac
-# cannot contact Apple's notarization service. Stapling changes the nested
-# bundle, so the outer cmux app is re-sealed afterward without re-signing the
-# helper and discarding its ticket.
+# cmux copies these helpers out of the signed host bundle before launch. An
+# independent ticket keeps each copied app Gatekeeper-valid even when the Mac
+# cannot contact Apple's notarization service. Both go in one submission (one
+# zip, one ticket that covers every slice of both, stapled to each), so the
+# state file, the pending exit and the recovery flows stay one per host.
+# Stapling changes the nested bundles, so the outer cmux app is re-sealed
+# afterward without re-signing the helpers and discarding their tickets.
 
 set -euo pipefail
 
@@ -73,6 +77,24 @@ SIGN_BUNDLE_TOOL="${CMUX_SIGN_BUNDLE_TOOL:-$ROOT_DIR/scripts/sign-cmux-bundle.sh
 SIGNING_KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$ROOT_DIR/scripts/ci/signing-keychain.sh}"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-$ROOT_DIR/cmux-helper.entitlements}"
 HELPER_PATH="$APP_PATH/Contents/Library/cmux Computer Use.app"
+SCREEN_HELPER_STAMP_TOOL="${CMUX_SCREEN_HELPER_STAMP_TOOL:-$ROOT_DIR/scripts/cmux-next/bundle-screen-sharing-helper.sh}"
+# Every nested helper of this submission, the Computer Use helper first, then
+# the Screen Sharing helper when the host carries one. Its name follows the
+# app's (bundle-screen-sharing-helper.sh --stamp gives it the final one), and
+# it is signed with the hardened runtime and no entitlements.
+find_nested_helpers() {
+  local found
+  SCREEN_SHARE_PATH=""
+  NESTED_HELPERS=("$HELPER_PATH")
+  for found in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
+    if [ -d "$found/Contents" ]; then
+      SCREEN_SHARE_PATH="$found"
+      NESTED_HELPERS+=("$found")
+      break
+    fi
+  done
+}
+find_nested_helpers
 
 if [ ! -d "$APP_PATH/Contents" ]; then
   echo "Signed host app not found: $APP_PATH" >&2
@@ -107,10 +129,18 @@ notary_auth_init "$TMP_DIR"
 
 HELPER_ZIP="$TMP_DIR/cmux-cua-notary.zip"
 STANDALONE_DIR="$TMP_DIR/standalone"
-STANDALONE_HELPER="$STANDALONE_DIR/cmux Computer Use.app"
+ZIP_STAGE="$TMP_DIR/notary-stage"
 
+# The slice CDHashes of every nested helper, in NESTED_HELPERS order. A helper
+# whose slices cannot be read leaves the whole list empty.
 helper_cdhashes() {
-  slice_cdhashes "$HELPER_PATH" | paste -sd ',' -
+  local helper all="" one
+  for helper in "${NESTED_HELPERS[@]}"; do
+    one="$(slice_cdhashes "$helper" | paste -sd ',' -)" || return 0
+    [ -n "$one" ] || return 0
+    all="${all:+$all,}$one"
+  done
+  printf '%s\n' "$all"
 }
 
 submission_value() {
@@ -130,29 +160,55 @@ start_submission() {
     exit 1
   fi
 
+  # The Screen Sharing helper takes the app's final bundle id and name first
+  # (nightly and RC rename the app after the build), as sign-cmux-bundle.sh
+  # step 2b does; its signature below is then the one Apple notarizes.
+  if [ -n "$SCREEN_SHARE_PATH" ]; then
+    "$SCREEN_HELPER_STAMP_TOOL" --stamp "$APP_PATH"
+    find_nested_helpers
+  fi
+
   # A signing timestamp does not change a slice CDHash. Isolate this
   # submission before signing so thin and universal builds cannot retrieve
   # each other's notarization tickets through a shared CDHash.
-  isolate_helper_submission "$HELPER_PATH"
+  local helper sign_args
+  for helper in "${NESTED_HELPERS[@]}"; do
+    isolate_helper_submission "$helper"
+  done
 
-  # Give the helper its final Developer ID signature before upload. Later host
-  # signing must use all-except-computer-use so this exact CDHash survives until
-  # finish staples the ticket and re-seals only the outer app.
+  # Give each helper its final Developer ID signature before upload. Later host
+  # signing must use all-except-computer-use so these exact CDHashes survive
+  # until finish staples the ticket and re-seals only the outer app.
   "$SIGNING_KEYCHAIN_TOOL" unlock
-  "$CODESIGN_TOOL" \
-    --force \
-    --options runtime \
-    --timestamp \
-    --sign "$SIGNING_IDENTITY" \
-    --entitlements "$HELPER_ENTITLEMENTS" \
-    "$HELPER_PATH"
-  "$CODESIGN_TOOL" --verify --strict --verbose=2 "$HELPER_PATH"
+  for helper in "${NESTED_HELPERS[@]}"; do
+    # The Screen Sharing helper needs no entitlements.
+    sign_args=(--entitlements "$HELPER_ENTITLEMENTS")
+    [ "$helper" != "$SCREEN_SHARE_PATH" ] || sign_args=()
+    "$CODESIGN_TOOL" \
+      --force \
+      --options runtime \
+      --timestamp \
+      --sign "$SIGNING_IDENTITY" \
+      ${sign_args[@]+"${sign_args[@]}"} \
+      "$helper"
+    "$CODESIGN_TOOL" --verify --strict --verbose=2 "$helper"
+  done
   submitted_cdhash="$(helper_cdhashes)"
   if [ -z "$submitted_cdhash" ]; then
     echo "Could not resolve Computer Use helper CDHash before notarization" >&2
     exit 1
   fi
-  "$DITTO_TOOL" -c -k --sequesterRsrc --keepParent "$HELPER_PATH" "$HELPER_ZIP"
+  if [ "${#NESTED_HELPERS[@]}" -eq 1 ]; then
+    "$DITTO_TOOL" -c -k --sequesterRsrc --keepParent "$HELPER_PATH" "$HELPER_ZIP"
+  else
+    # One archive with every helper at its top level: ditto copies keep each
+    # signature (and so each CDHash) unchanged.
+    mkdir -p "$ZIP_STAGE"
+    for helper in "${NESTED_HELPERS[@]}"; do
+      "$DITTO_TOOL" "$helper" "$ZIP_STAGE/$(basename "$helper")"
+    done
+    "$DITTO_TOOL" -c -k --sequesterRsrc "$ZIP_STAGE" "$HELPER_ZIP"
+  fi
 
   submit_json="$("$XCRUN_TOOL" notarytool submit "$HELPER_ZIP" \
     "${NOTARY_AUTH_ARGS[@]}" \
@@ -188,7 +244,10 @@ finish_submission() {
     exit 1
   fi
 
-  "$CODESIGN_TOOL" --verify --strict --verbose=2 "$HELPER_PATH"
+  local helper
+  for helper in "${NESTED_HELPERS[@]}"; do
+    "$CODESIGN_TOOL" --verify --strict --verbose=2 "$helper"
+  done
   current_cdhash="$(helper_cdhashes)"
   if [ "$current_cdhash" != "$submitted_cdhash" ]; then
     echo "Computer Use helper changed after notarization submission" >&2
@@ -369,31 +428,37 @@ PYSTATE
     exit 75
   fi
   cat "$TMP_DIR/notary-log.json"
-  verify_ticket_contents_cover_slices "$TMP_DIR/notary-log.json" "$HELPER_PATH"
-  "$XCRUN_TOOL" stapler staple "$HELPER_PATH"
-  # The ticket is written with this script's 077 umask; the shipped helper
-  # must be readable by every user.
-  [ ! -e "$HELPER_PATH/Contents/CodeResources" ] || chmod 0644 "$HELPER_PATH/Contents/CodeResources"
-  "$XCRUN_TOOL" stapler validate "$HELPER_PATH"
-  verify_stapled_ticket_covers_slices "$HELPER_PATH"
-  "$CODESIGN_TOOL" --verify --strict --verbose=2 "$HELPER_PATH"
+  local standalone
+  for helper in "${NESTED_HELPERS[@]}"; do
+    verify_ticket_contents_cover_slices "$TMP_DIR/notary-log.json" "$helper"
+  done
+  for helper in "${NESTED_HELPERS[@]}"; do
+    "$XCRUN_TOOL" stapler staple "$helper"
+    # The ticket is written with this script's 077 umask; the shipped helper
+    # must be readable by every user.
+    [ ! -e "$helper/Contents/CodeResources" ] || chmod 0644 "$helper/Contents/CodeResources"
+    "$XCRUN_TOOL" stapler validate "$helper"
+    verify_stapled_ticket_covers_slices "$helper"
+    "$CODESIGN_TOOL" --verify --strict --verbose=2 "$helper"
 
-  # Validate the same shape the runtime launches: a standalone copy outside the
-  # host app. This also proves that the stapled ticket survives the copy.
-  mkdir -p "$STANDALONE_DIR"
-  "$DITTO_TOOL" "$HELPER_PATH" "$STANDALONE_HELPER"
-  "$XCRUN_TOOL" stapler validate "$STANDALONE_HELPER"
-  verify_stapled_ticket_covers_slices "$STANDALONE_HELPER"
-  "$CODESIGN_TOOL" --verify --strict --verbose=2 "$STANDALONE_HELPER"
-  if [ "$DEFER_GATEKEEPER_ASSESSMENT" = true ]; then
-    # Gatekeeper's CDN-backed assessment can lag an Accepted ticket by many
-    # minutes. Published continuation performs this same check after the
-    # outer Apple wait, so the signing lane can finish without weakening the
-    # ticket, stapler, or code-signature gates above.
-    echo "Deferring Gatekeeper assessment for the published continuation"
-  else
-    assess_with_gatekeeper "$STANDALONE_HELPER"
-  fi
+    # Validate the same shape the runtime launches: a standalone copy outside the
+    # host app. This also proves that the stapled ticket survives the copy.
+    mkdir -p "$STANDALONE_DIR"
+    standalone="$STANDALONE_DIR/$(basename "$helper")"
+    "$DITTO_TOOL" "$helper" "$standalone"
+    "$XCRUN_TOOL" stapler validate "$standalone"
+    verify_stapled_ticket_covers_slices "$standalone"
+    "$CODESIGN_TOOL" --verify --strict --verbose=2 "$standalone"
+    if [ "$DEFER_GATEKEEPER_ASSESSMENT" = true ]; then
+      # Gatekeeper's CDN-backed assessment can lag an Accepted ticket by many
+      # minutes. Published continuation performs this same check after the
+      # outer Apple wait, so the signing lane can finish without weakening the
+      # ticket, stapler, or code-signature gates above.
+      echo "Deferring Gatekeeper assessment for the published continuation"
+    else
+      assess_with_gatekeeper "$standalone"
+    fi
+  done
 
   # Stapling the nested app changes the host's resource seal. Re-sign only the
   # outer app: re-signing nested code here would discard the helper's ticket.
@@ -406,8 +471,10 @@ PYSTATE
   )
   [ ! -e "$APP_PATH/Contents/_CodeSignature/CodeResources" ] || chmod 0644 "$APP_PATH/Contents/_CodeSignature/CodeResources"
   "$CODESIGN_TOOL" --verify --deep --strict --verbose=2 "$APP_PATH"
-  "$XCRUN_TOOL" stapler validate "$HELPER_PATH"
-  verify_stapled_ticket_covers_slices "$HELPER_PATH"
+  for helper in "${NESTED_HELPERS[@]}"; do
+    "$XCRUN_TOOL" stapler validate "$helper"
+    verify_stapled_ticket_covers_slices "$helper"
+  done
   rm -f "$SUBMISSION_FILE"
 
   echo "Computer Use helper notarized and stapled: $HELPER_PATH"
