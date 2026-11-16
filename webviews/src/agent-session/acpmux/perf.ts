@@ -160,6 +160,8 @@ export type TypingSample = {
   key?: string;
   /** Same-host epoch clock, for joining the native bench's dispatch to this after-frame callback. */
   paint_epoch_ms?: number;
+  /** Shared rAF timestamp identifies keys delivered in the same display-frame callback batch. */
+  frame_timestamp_ms?: number;
 };
 type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapshotPaint" | "firstToken";
 /**
@@ -252,8 +254,9 @@ export class AcpmuxPerf {
         done.port2.postMessage(0);
       };
       page.addEventListener("input", input, { capture: true, once: true });
-      requestAnimationFrame(() => {
+      requestAnimationFrame((timestamp) => {
         const frame = performance.now();
+        sample.frame_timestamp_ms = timestamp;
         page.removeEventListener("input", input, { capture: true });
         const channel = new MessageChannel();
         channel.port1.onmessage = () => {

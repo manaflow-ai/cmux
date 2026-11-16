@@ -19,6 +19,7 @@ import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
 import type { SeedSnapshotFields } from "./waitingSteersFixture";
 import type { PasteProbeOptions } from "./pasteProbe";
+import type { TypingLoadOptions } from "./typingLoadDebug";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -89,6 +90,7 @@ export type AcpmuxDebug = {
   loadSeed(turns?: number, options?: { light?: boolean }): Promise<Record<string, unknown>>;
   /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
+  typingLoad(options?: TypingLoadOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
   loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
   /** Committed renders per component since the last call (perf.ts `renders`: `row:<id>`, `content:<id>`,
@@ -514,6 +516,10 @@ export function createAcpmuxDebug(
     async loadRun(options = {}) {
       const { loadRun } = await import("./loadDebug");
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
+    },
+    async typingLoad(options = {}) {
+      const { typingLoad } = await import("./typingLoadDebug");
+      return typingLoad(host.sessionId?.(), options);
     },
     async loadTick(options = {}) {
       const { loadTick } = await import("./loadDebug");

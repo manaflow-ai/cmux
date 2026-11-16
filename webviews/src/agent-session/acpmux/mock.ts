@@ -248,7 +248,15 @@ export function mockTurn(prompt: string, turn: number): Step[] {
 
 /// How a load run streams its turn: text deltas of `chunkChars` every `chunkMs`, and a large
 /// tool call (a log or an edit) after every `toolEvery` deltas.
-export type LoadStreamOptions = { seconds: number; chunkChars: number; chunkMs: number; toolEvery: number };
+export type LoadStreamOptions = {
+  seconds: number;
+  chunkChars: number;
+  chunkMs: number;
+  toolEvery: number;
+  toolLinesPerSecond?: number;
+  stopped?: () => boolean;
+  progress?: (counts: { deltas: number; toolLines: number; elapsedMs: number; maxGapMs: number }) => void;
+};
 
 /// Whether `event` is subagent `id`'s own record (hub/paging.rs `subagent_owns`): an agent update
 /// acpmux tagged with it (`_meta.acpmux.subagent`) or one that starts or changes it (`subagents[].id`).
@@ -444,21 +452,52 @@ export class MockAcpmuxSocket {
     this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: stream a long answer` } });
     this.emit(target, { mux: "turn_started" });
     const reply = streamedReply(turn, 400);
-    const end = performance.now() + options.seconds * 1000;
+    const started = performance.now();
+    const end = started + options.seconds * 1000;
+    const call = `load-stream-tool-${turn}`;
+    if (options.toolLinesPerSecond)
+      this.emit(target, {
+        update: tool(call, "execute", "Stream benchmark output", "in_progress", { rawInput: { command: "benchmark" } }),
+      });
+    let toolLines = 0;
+    let output = "";
+    let previous = started;
+    let maxGapMs = 0;
     let at = 0;
     let deltas = 0;
     let tools = 0;
-    while (performance.now() < end && !this.closed) {
+    while (performance.now() < end && !this.closed && !options.stopped?.()) {
       await this.delay(options.chunkMs);
+      if (options.stopped?.() || this.closed) break;
+      const now = performance.now();
+      maxGapMs = Math.max(maxGapMs, now - previous);
+      previous = now;
       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
       at += options.chunkChars;
       this.emit(target, { update: text(chunk) });
       deltas += 1;
+      const due = Math.floor(((now - started) * (options.toolLinesPerSecond ?? 0)) / 1000);
+      if (due > toolLines) {
+        output += Array.from({ length: due - toolLines }, (_, index) => `benchmark line ${toolLines + index}\n`).join(
+          "",
+        );
+        toolLines = due;
+        this.emit(target, {
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: call,
+            status: "in_progress",
+            content: [{ type: "content", content: { type: "text", text: output } }],
+          },
+        });
+      }
+      options.progress?.({ deltas, toolLines, elapsedMs: now - started, maxGapMs });
       if (options.toolEvery > 0 && deltas % options.toolEvery === 0) {
         this.emit(target, { update: streamedTool(turn, tools) });
         tools += 1;
       }
     }
+    if (options.toolLinesPerSecond) this.emit(target, { update: done(call) });
     this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
     this.touch(target, { status: "idle", indicator: "done" });
     return { deltas, chars: at, tools };

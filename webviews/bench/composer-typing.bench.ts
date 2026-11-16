@@ -139,10 +139,34 @@ const releases: (() => unknown)[] = [];
 const serveOptions = { dev: DEV, unminified: PROFILE };
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
-async function measure(port: number, length: number, mode: "idle" | "stream"): Promise<Record<string, unknown>> {
-  const browser = await chromium.launch({ headless: true });
+async function measure(
+  port: number,
+  length: number,
+  mode: string,
+  engine: "chromium" | "webkit" = "chromium",
+): Promise<Record<string, unknown>> {
+  const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
+    if (mode.startsWith("L") || engine === "webkit") {
+      const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
+      try {
+        return {
+          engine,
+          ...(await runComposerLoad(page, {
+            port,
+            mode: canonical,
+            length,
+            keys: KEYS,
+            gap: GAP_MS,
+            stream: STREAM,
+            toolLines: TOOL_LINES,
+          })),
+        };
+      } finally {
+        await page.close();
+      }
+    }
     await page.addInitScript(longTaskProbe);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
     const cdp = await page.context().newCDPSession(page);
@@ -235,6 +259,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
         .reduce((total, [, value]) => total + value, 0);
     const delta = (name: string) => (after[name] ?? 0) - (before[name] ?? 0);
     return {
+      engine,
       mode,
       rows,
       keys: typing.keys,
@@ -272,6 +297,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
 
 try {
   const cases = LENGTHS.flatMap((length) => MODES.map((mode) => ({ length, mode })));
+  if (ARMS && ENGINES.some((engine) => engine === "webkit"))
+    throw new Error("--engines webkit cannot be combined with --arms; run WebKit as a single source tree");
   if (ARMS) {
     // Two source trees in one run: each built and served once, then every case interleaved (composer-arms.ts).
     const ports = new Map<string, number>();
@@ -293,7 +320,8 @@ try {
   } else {
     const port = await servePane(webviews, serveOptions, releases);
     const table: Record<string, unknown>[] = [];
-    for (const { length, mode } of cases) table.push(await measure(port, length, mode));
+    for (const engine of ENGINES)
+      for (const { length, mode } of cases) table.push(await measure(port, length, mode, engine as "chromium" | "webkit"));
     console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
     for (const row of table)
       console.log(
