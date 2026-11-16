@@ -42,6 +42,7 @@ import { INCOMING_LOOK, threadMinimapIncoming } from "./incoming.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
 import { RailRows, tickRows, turnRows } from "./railRows";
+import { PromptHeads } from "../promptHeads";
 import { useThreadMinimapArm } from "../chatDisplay";
 import {
   CARD_DELAY,
@@ -126,7 +127,6 @@ const promptSeq = (id: string) => {
   const match = /^user-(\d+)/.exec(id);
   return match ? Number(match[1]) : Number.NaN;
 };
-const EMPTY_EARLIER: readonly AcpmuxRow[] = [];
 
 /// A row the rail's state names: the index the state holds for it, and its prompt's key.
 type KeyedRow = { index: number; key: string };
@@ -145,7 +145,7 @@ const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElemen
 
 export function ThreadMinimap({
   rows,
-  earlier = EMPTY_EARLIER,
+  earlier = PromptHeads.EMPTY,
   promptCount,
   loadThrough,
   loadPromptIndex,
@@ -165,7 +165,7 @@ export function ThreadMinimap({
 }: {
   rows: readonly AcpmuxRow[];
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
-  earlier?: readonly AcpmuxRow[];
+  earlier?: PromptHeads;
   /// The chat's prompt count while `rows` and `earlier` do not hold every prompt yet (the snapshot's
   /// `promptCount`): the prompts neither holds draw as pending resting ticks above the held ones
   /// (model.ts pendingCount), so the rail's first frame has its final length and tick rows. It
@@ -209,7 +209,6 @@ export function ThreadMinimap({
   const t = useT();
   const topInsetNow = useRef(topInset);
   topInsetNow.current = topInset;
-  const earlierRows = earlier;
   /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`: the turn
   /// steps below still run), read once per pane. The Chat Minimap setting
   /// (`agentPane.display.minimap`) wins when set, live.
@@ -231,32 +230,42 @@ export function ThreadMinimap({
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
   const read = useMemo(
-    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows, promptCount),
-    [rows, sessionId, change, earlierRows, promptCount],
+    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlier, promptCount),
+    [rows, sessionId, change, earlier, promptCount],
   );
   useLayoutEffect(() => {
     lastTurns.current = read;
   }, [read]);
-  const loadedTurns = read.loadedTurns ?? read.turns.filter((turn) => turn.index >= 0);
+  const loadedTurns = read.turns;
   /// Whose prompts the rail shows (model.ts `RailFilter`), picked from its right-click menu.
   const [filter, setFilter] = useState<RailFilter>("all");
   // A run of other chats' messages next to each other draws as one tick (model.ts `foldIncoming`):
   // the rail's jumps, hover, keys and bookmarks all read the folded lists. The full-height map keeps
   // a mark per prompt (`loadedTurns`). A filtered rail draws each prompt it keeps as its own tick, and
   // falls back to every prompt when the filter would leave none, so the rail and its menu stay.
+  // The indexed prompts (`read.earlier`) come before the held ones as rows of the rail's own (railRows.ts). The index
+  // names no sender, so they are the person's: Mine keeps them, Agents none.
   const named = useMemo(() => {
-    const start = read.loadedStart ?? 0;
+    const indexed = read.earlier ?? PromptHeads.EMPTY;
     // The full-height map draws every loaded turn and finds its jump in these lists: it never filters.
-    const kept = filter === "all" || full ? undefined : filterTurns(read.turns, read.ticks, start, filter);
-    if (kept?.ticks.length) return { ...kept, filtered: true };
-    const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, start) : read;
-    return { turns: folded.turns, ticks: folded.ticks, loadedStart: start, filtered: false };
+    const kept = filter === "all" || full ? undefined : filterTurns(read.turns, read.ticks, 0, filter);
+    const keptIndexed = filter === "agents" ? PromptHeads.EMPTY : indexed;
+    if (kept && (kept.ticks.length || keptIndexed.length))
+      return { turns: kept.turns, ticks: kept.ticks, earlier: keptIndexed, filtered: true };
+    const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, 0) : read;
+    return { turns: folded.turns, ticks: folded.ticks, earlier: indexed, filtered: false };
   }, [filter, full, incomingLook.fold, read]);
   // Prompts known only by count have no sender yet: a filtered rail draws none of them.
   const pendingCount = named.filtered ? 0 : (read.pendingCount ?? 0);
-  const loadedStart = named.loadedStart + pendingCount;
-  const turns = useMemo(() => turnRows(named.turns, pendingCount, sessionId), [named.turns, pendingCount, sessionId]);
-  const ticks = useMemo(() => tickRows(named.ticks, pendingCount, sessionId), [named.ticks, pendingCount, sessionId]);
+  const loadedStart = pendingCount + named.earlier.length;
+  const turns = useMemo(
+    () => turnRows(named.turns, pendingCount, sessionId, named.earlier),
+    [named.turns, pendingCount, sessionId, named.earlier],
+  );
+  const ticks = useMemo(
+    () => tickRows(named.ticks, pendingCount, sessionId, named.earlier),
+    [named.ticks, pendingCount, sessionId, named.earlier],
+  );
   /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   /// When the pane is too narrow for the rail beside the text, the edge strip can reveal it over the

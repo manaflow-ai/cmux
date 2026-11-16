@@ -13,13 +13,15 @@
 // and in each, once the pages settle:
 //   idle         the renderers' CPU (/proc/PID/stat utime+stime) over IDLE_S seconds of nothing, as % of one core;
 //   streaming    the same while the shown chat streams a turn of TPS chunks a second for STREAM_S seconds;
-//   renderer MB  the renderers' proportional set size (/proc/PID/smaps_rollup Pss) after a collection on every page.
+//   renderer MB  the renderers' proportional set size (/proc/PID/smaps_rollup Pss) after a collection on every page;
+//   heap MB      the JS heap those pages use then (Runtime.getHeapUsage), its ratios beside ratio_max, not in it.
 // Rows (PERF_ROW, chat_100k_flat.*): each value per launch, each long/empty ratio at x1 and xN, and ratio_max, the
 // worst of the ratios a run measured (long and grown, each over empty; CASES below): the goal's number (NOW benches
 // row chat_100k_flat_ratio_max, target 1.2, the worse of ratio_max and grown_many.ratio_max). A CPU ratio is
 // taken over a floor of CPU_FLOOR_PCT (default 1 % of a core) on both sides, so two near-idle readings are not a ratio
 // of noise.
-// HIDDEN=0 keeps every chat shown. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
+// HIDDEN=0 keeps every chat shown. HEAP_SNAPSHOT=DIR writes each launch's V8 heap snapshots (the shown page, and in
+// an xN launch a hidden one) for DevTools. CASES=long runs only empty x1, long x1, empty xN and long xN. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
 // windows.
 // WAKES=1 counts what wakes the renderers in each idle window, per second: the renderer threads' context switches
 // (/proc/PID/task/*/status), and on every page the timer and interval callbacks, animation frames, MessagePort posts
@@ -79,11 +81,12 @@ const SETTLE_PCT = Number(process.env.SETTLE_PCT ?? 2);
 const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 60);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
-if (!["all", "main", "grown-many", "running"].includes(CASES)) {
-  console.error("chat-100k-flat: CASES is all, main, grown-many or running");
+if (!["all", "main", "grown-many", "running", "long"].includes(CASES)) {
+  console.error("chat-100k-flat: CASES is all, main, grown-many, running or long");
   process.exit(2);
 }
 const GROW_OPEN = process.env.GROW_OPEN === "1";
+const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
 const WAKES = process.env.WAKES === "1";
 type Wakes = { timers: number; raf: number; posts: number; mutations: number };
 if (!Number.isInteger(ROWS) || ROWS < 2 || !Number.isInteger(CHATS) || CHATS < 2) {
@@ -158,7 +161,15 @@ const median = (values: number[]) => {
 const pssMB = (pid: number) =>
   Number(/^Pss:\s+(\d+) kB/m.exec(fs.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8"))?.[1] ?? 0) / 1024;
 
-type Launch = { name: string; idlePct: number; streamPct: number; mb: number; renderers: number; settleS: number };
+type Launch = {
+  name: string;
+  idlePct: number;
+  streamPct: number;
+  mb: number;
+  heapMb: number;
+  renderers: number;
+  settleS: number;
+};
 
 const releases: (() => unknown)[] = [];
 const release = async () => {
@@ -727,6 +738,33 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       const pids = renderers(root);
       const mb = pids.reduce((sum, pid) => sum + pssMB(pid), 0);
+      // heap MB: the JS heap the pages' one renderer uses after that collection (cmux-page's pages share an isolate,
+      // so the shown page's reading is every page's), and its DOM.
+      const shownPage = pages.at(-1)!;
+      const { usedSize } = (await shownPage.cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
+      const heapMb = usedSize / 1048576;
+      const elements = await shownPage.page.evaluate(() => document.getElementsByTagName("*").length);
+      console.log(`  ${name}: JS heap ${heapMb.toFixed(1)} MB; shown page ${elements} elements`);
+      if (HEAP_SNAPSHOT) {
+        // HEAP_SNAPSHOT=DIR: the first page's (hidden in an xN launch) and the shown page's V8 heap, for DevTools.
+        fs.mkdirSync(HEAP_SNAPSHOT, { recursive: true });
+        const which =
+          count > 1
+            ? ([
+                ["hidden", pages[0]!],
+                ["shown", shownPage],
+              ] as const)
+            : ([["shown", shownPage]] as const);
+        for (const [label, { cdp }] of which) {
+          await cdp.send("HeapProfiler.enable");
+          const chunks: string[] = [];
+          const onChunk = (event: { chunk: string }) => chunks.push(event.chunk);
+          cdp.on("HeapProfiler.addHeapSnapshotChunk", onChunk);
+          await cdp.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false } as never);
+          cdp.off("HeapProfiler.addHeapSnapshotChunk", onChunk);
+          fs.writeFileSync(path.join(HEAP_SNAPSHOT, `${name}-${label}.heapsnapshot`), chunks.join(""));
+        }
+      }
       if (count === 1 && RESIZE) {
         const { page, cdp } = pages[0]!;
         await cdp.send("Performance.enable", { timeDomain: "threadTicks" });
@@ -758,7 +796,7 @@ try {
             `resize cpu ms ${resizeCpuMs.map((v) => v.toFixed(0)).join(", ")} (median ${median(resizeCpuMs).toFixed(0)})`,
         );
       }
-      const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length, settleS };
+      const row: Launch = { name, idlePct, streamPct, mb, heapMb, renderers: pids.length, settleS };
       perfRow({ name: `${ROW}.${name}.cpu_settle_s`, p50: settleS, p95: settleS, unit: "s" });
       console.log(`${name} | ${row.renderers} | ${idlePct.toFixed(2)} | ${streamPct.toFixed(2)} | ${mb.toFixed(1)}`);
       perfRow({ name: `${ROW}.${name}.idle_cpu_pct`, p50: idlePct, p95: idlePct, unit: "pct", clock: "cpu" });
@@ -770,6 +808,7 @@ try {
         clock: "cpu",
       });
       perfRow({ name: `${ROW}.${name}.renderer_mb`, p50: mb, p95: mb, unit: "MB" });
+      perfRow({ name: `${ROW}.${name}.heap_mb`, p50: heapMb, p95: heapMb, unit: "MB" });
       return row;
     } finally {
       await context.close().catch(() => undefined);
@@ -787,18 +826,23 @@ try {
     const emptyOne = await runLaunch("empty_x1", small, 1);
     if (CASES !== "running") {
       const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE });
-      const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns });
-      pairs.push(["long_x1", longOne, emptyOne], ["grown_x1", grownOne, emptyOne]);
+      pairs.push(["long_x1", longOne, emptyOne]);
+      if (CASES !== "long") {
+        const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns });
+        pairs.push(["grown_x1", grownOne, emptyOne]);
+      }
     }
     // Running: one chat whose single open turn takes about ROWS records live (a chunk, a tool call and its update per
     // step), the coordinator chat that never finishes its turn.
-    const runningOne = await runLaunch("running_x1", small, 1, { profile: PROFILE, runGrow: Math.ceil(ROWS / 3) });
-    pairs.push(["running_x1", runningOne, emptyOne]);
+    if (CASES !== "long") {
+      const runningOne = await runLaunch("running_x1", small, 1, { profile: PROFILE, runGrow: Math.ceil(ROWS / 3) });
+      pairs.push(["running_x1", runningOne, emptyOne]);
+    }
   }
   const emptyMany = CASES === "running" ? undefined : await runLaunch(`empty_x${CHATS}`, small, CHATS);
   if (emptyMany && CASES !== "grown-many")
     pairs.push([`long_x${CHATS}`, await runLaunch(`long_x${CHATS}`, long, CHATS), emptyMany]);
-  if (emptyMany && CASES !== "main")
+  if (emptyMany && CASES !== "main" && CASES !== "long")
     pairs.push([`grown_x${CHATS}`, await runLaunch(`grown_x${CHATS}`, small, CHATS, { grow: long.turns }), emptyMany]);
   const cpuRatio = (a: number, b: number) => Math.max(a, CPU_FLOOR_PCT) / Math.max(b, CPU_FLOOR_PCT);
   const ratios: [string, number][] = [];
@@ -810,6 +854,12 @@ try {
   for (const [name, value] of ratios) {
     console.log(`chat-100k-flat: ${name} ${value.toFixed(2)}x`);
     perfRow({ name: `${ROW}.${name}`, p50: value, p95: value, unit: "x", target: 1.2, floor: 0.05 });
+  }
+  // The JS heap's long/empty ratios: where a renderer MB ratio comes from, read beside ratio_max, never in it.
+  for (const [label, big, base] of pairs) {
+    const value = big.heapMb / base.heapMb;
+    console.log(`chat-100k-flat: ${label}.heap_mb_ratio ${value.toFixed(2)}x`);
+    perfRow({ name: `${ROW}.${label}.heap_mb_ratio`, p50: value, p95: value, unit: "x" });
   }
   const [worst, max] = ratios.reduce((a, b) => (b[1] > a[1] ? b : a));
   console.log(`chat-100k-flat: worst ratio ${max.toFixed(2)}x (${worst}); target 1.2x`);

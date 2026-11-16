@@ -281,7 +281,9 @@ test("a cold tail draws before the full prompt index is read, then fills its lab
     expect(indexReads()).toHaveLength(0);
     await turns();
     expect(indexReads()).toHaveLength(1);
-    expect(last().earlierPrompts?.map((row) => row.text)).toEqual(["Earlier"]);
+    const earlier = last().earlierPrompts;
+    expect(earlier?.length).toBe(1);
+    expect(earlier?.text(0)).toBe("Earlier");
     expect(text(last())).toContain("Tail ready.");
   } finally {
     client.close();

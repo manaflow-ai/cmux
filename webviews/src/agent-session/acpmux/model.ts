@@ -1,4 +1,5 @@
 import { experimentArm } from "../../experiments/experiment";
+import type { PromptHeads } from "./promptHeads";
 import { permissionCardHeight } from "./permissions/cardHeight";
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
@@ -1478,7 +1479,7 @@ export type AcpmuxSnapshot = {
    * instead of adding ticks. Each is a `user` row (`user-<seq>`, its promptId and the start of its
    * text) that opens a turn. Absent while unread, and for a chat with no older history.
    */
-  earlierPrompts?: readonly AcpmuxRow[];
+  earlierPrompts?: PromptHeads;
   /**
    * The chat's prompt count from its summary (`turnCount`), while the pane does not hold every prompt
    * yet (the prompt index has not answered, or the daemon has none) and older history is left: the

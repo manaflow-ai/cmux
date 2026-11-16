@@ -241,6 +241,7 @@ import {
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
+import { PromptHeads, type PromptHead } from "./promptHeads";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -458,7 +459,8 @@ const baseModel = (model: string | undefined) => model?.replace(/\[1m\]$/i, "");
 type PromptIndexRead = {
   sessionId: string;
   generation: number;
-  rows?: AcpmuxRow[];
+  /// The index once read, as columns (promptHeads.ts): no object a prompt.
+  heads?: PromptHeads;
   failed?: boolean;
   read?: Promise<boolean>;
   cancel?: () => void;
@@ -473,7 +475,7 @@ const PROMPT_INDEX_RETRY_MS = 2_000;
 /// Reads of the prompt index a chat's snapshots start by themselves; a hover asks past them.
 const PROMPT_INDEX_TRIES = 3;
 /// The snapshot's `earlierPrompts` when there are none: one list, so the rail's memo holds.
-const NO_EARLIER_PROMPTS: readonly AcpmuxRow[] = [];
+const NO_EARLIER_PROMPTS = PromptHeads.EMPTY;
 
 /// How soon after a question was declined the person's prompt still counts as its answer: the hat
 /// sends the typed reply right after the decline, so this only has to cover one round trip.
@@ -534,17 +536,18 @@ const INDEXED_GAP_PAGES_PER_DRAW = 4;
 /// Prompt rows that stand in for the turns between a directly fetched target page and the held
 /// tail. Keeping these rows in sequence order prevents the minimap from shrinking while pages warm.
 export function indexedPromptPlaceholders(
-  indexRows: readonly AcpmuxRow[],
+  index: PromptHeads,
   heldSeqs: ReadonlySet<number>,
   pageStart: number,
   tailStart: number,
 ): AcpmuxRow[] {
-  return indexRows.flatMap((row) => {
-    const seq = Number(row.id.slice("user-".length));
-    return Number.isFinite(seq) && seq > pageStart && seq < tailStart && !heldSeqs.has(seq)
-      ? [{ ...row, seq, kind: "user" }]
-      : [];
-  });
+  const out: AcpmuxRow[] = [];
+  // Only the prompts between the page and the tail: a bounded gap, never the whole index.
+  for (let at = index.countBefore(pageStart + 1); at < index.length && index.seq(at) < tailStart; at += 1) {
+    const seq = index.seq(at);
+    if (!heldSeqs.has(seq)) out.push({ ...index.row(at), seq, kind: "user" });
+  }
+  return out;
 }
 /// The most pages of one subagent's own records a subagent pane reads (`readSubagentLog`).
 const SUBAGENT_LOG_PAGES = 8;
@@ -14611,11 +14614,11 @@ export class AcpmuxDirectClient {
   /// bounded `user_message` page the request also names, which covers what it holds.
   private promptIndex?: PromptIndexRead;
   /// `shownEarlierPrompts`' last answer, by what it was read from.
-  private earlierShown?: { rows: AcpmuxRow[]; before: number; list: readonly AcpmuxRow[] };
+  private earlierShown?: { heads: PromptHeads; before: number; list: PromptHeads };
 
   /// The indexed prompts older than every held row (the snapshot's `earlierPrompts`). The first ask
   /// for a chat with older history starts the index's one read.
-  private shownEarlierPrompts(): readonly AcpmuxRow[] {
+  private shownEarlierPrompts(): PromptHeads {
     const sessionId = this.selectedSessionId;
     if (!sessionId || !this.seqHistoryLeft() || !this.firstSeq) return NO_EARLIER_PROMPTS;
     const index = this.promptIndex;
@@ -14629,15 +14632,13 @@ export class AcpmuxDirectClient {
       void this.readPromptIndex(sessionId, this.firstSeq, index.tries);
       return NO_EARLIER_PROMPTS;
     }
-    if (!index.rows) return NO_EARLIER_PROMPTS;
+    if (!index.heads) return NO_EARLIER_PROMPTS;
     // The turn opener drawn above the held page is held: only prompts before it are earlier.
     const before = Math.min(this.firstSeq, this.turnOpener?.seq ?? Infinity);
     const kept = this.earlierShown;
-    if (kept && kept.rows === index.rows && kept.before === before) return kept.list;
-    let end = index.rows.length;
-    while (end > 0 && Number(index.rows[end - 1]!.id.slice(5)) >= before) end -= 1;
-    const list = end === index.rows.length ? index.rows : index.rows.slice(0, end);
-    this.earlierShown = { rows: index.rows, before, list };
+    if (kept && kept.heads === index.heads && kept.before === before) return kept.list;
+    const list = index.heads.before(before);
+    this.earlierShown = { heads: index.heads, before, list };
     return list;
   }
 
@@ -14650,7 +14651,7 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     if (!sessionId || !this.seqHistoryLeft()) return undefined;
     const index = this.promptIndex;
-    if (index?.rows && !index.failed && index.sessionId === sessionId && index.generation === this.selectionGeneration)
+    if (index?.heads && !index.failed && index.sessionId === sessionId && index.generation === this.selectionGeneration)
       return undefined;
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
     const count = Number(summary?.turnCount ?? 0);
@@ -14668,7 +14669,7 @@ export class AcpmuxDirectClient {
     if (!index || index.sessionId !== sessionId || index.generation !== this.selectionGeneration)
       return this.readPromptIndex(sessionId, this.firstSeq);
     if (index.read) return index.read;
-    if (!index.failed) return Promise.resolve(index.rows !== undefined);
+    if (!index.failed) return Promise.resolve(index.heads !== undefined);
     if (Date.now() < index.retryAt) return Promise.resolve(false);
     return this.readPromptIndex(sessionId, this.firstSeq, index.tries);
   }
@@ -14715,19 +14716,20 @@ export class AcpmuxDirectClient {
             return false;
           }
           entry.read = undefined;
-          entry.rows = records(result?.events)
-            .filter(startsTurn)
-            .map((event): AcpmuxRow => {
-              const promptId = typeof event.msg?.promptId === "string" ? event.msg.promptId : undefined;
-              return {
-                id: `user-${event.seq}`,
-                version: 1,
-                at: event.at,
-                kind: "user",
-                text: String(event.msg?.text ?? "").slice(0, 240),
-                ...(promptId ? { promptId } : {}),
-              };
+          // Kept as columns (promptHeads.ts): a 100k-row chat's index was 50k rows here and a turn, a tick and a
+          // key each in the rail, about 15 MB of renderer heap a chat (bench/chat-100k-flat.bench.ts).
+          const heads: PromptHead[] = [];
+          for (const event of records(result?.events)) {
+            if (!startsTurn(event)) continue;
+            const promptId = typeof event.msg?.promptId === "string" ? event.msg.promptId : undefined;
+            heads.push({
+              seq: event.seq,
+              at: event.at,
+              text: String(event.msg?.text ?? "").slice(0, 240),
+              ...(promptId ? { promptId } : {}),
             });
+          }
+          entry.heads = PromptHeads.of(heads);
           this.emit();
           settle(true);
           return true;
@@ -14740,7 +14742,7 @@ export class AcpmuxDirectClient {
             return false;
           }
           entry.read = undefined;
-          entry.rows = [];
+          entry.heads = PromptHeads.EMPTY;
           entry.failed = true;
           entry.retryAt = Date.now() + PROMPT_INDEX_RETRY_MS * entry.tries;
           settle(false);
@@ -14807,7 +14809,12 @@ export class AcpmuxDirectClient {
     // newly held records, as `checkFinishedTurn` does for a narrow repair read.
     this.rebuildKeepingLiveState(Math.min(before, ...page.map((event) => event.seq)) - 1);
     const held = new Set(this.events.map((event) => event.seq));
-    for (const row of indexedPromptPlaceholders(this.promptIndex?.rows ?? [], held, pageStart, tailStart))
+    for (const row of indexedPromptPlaceholders(
+      this.promptIndex?.heads ?? PromptHeads.EMPTY,
+      held,
+      pageStart,
+      tailStart,
+    ))
       this.indexedPlaceholders.set(row.id, row);
     this.emit("history");
     // The page sits below the held tail with a hole between them: no older page reads across it
@@ -14933,7 +14940,7 @@ export class AcpmuxDirectClient {
     // The prompt index gives us the target's sequence before its transcript page is held. Fetch
     // that window first, then warm one page on each side for the next scrub step. If an older
     // daemon cannot serve the bounded read, the established page walker remains the fallback.
-    const indexed = this.promptIndex?.rows?.some((row) => row.id === `user-${seq}`) ? this.indexedPage(seq) : undefined;
+    const indexed = (this.promptIndex?.heads?.indexOfSeq(seq) ?? -1) >= 0 ? this.indexedPage(seq) : undefined;
     if (indexed) {
       const page = await indexed;
       if (generation !== this.selectionGeneration || this.selectedSessionId === undefined) return false;
