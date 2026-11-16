@@ -34,13 +34,11 @@ extension CmuxNextApp {
     /// A DEV build's own settings file and the files beside it (``BuildStatePaths``): set for this
     /// process, so the app's own readers (`CmuxConfigFile.defaultURL`, `HostBudgetFile`, `CustomizeFolder`) and
     /// every child that inherits its environment (the daemon, acpmux, the `cmux` CLI in its terminals) use
-    /// them. NIGHTLY and every other shared build set nothing. Its config folder is made here, empty: a
-    /// fresh DEV build starts from the schema's defaults, never from another build's file.
+    /// them. NIGHTLY and every other shared build set nothing. The folder starts empty (the settings owner
+    /// makes it on its first write): a fresh DEV build starts from the schema's defaults, never from another build's file.
     static func applyBuildStatePaths(_ paths: BuildStatePaths = .current, environmentGuard: ProcessEnvironmentGuard) {
         let values = paths.launchEnvironment(over: ProcessInfo.processInfo.environment)
         guard !values.isEmpty else { return }
-        // concurrency-allow: one mkdir in main before any thread starts, beside the launch's other environment writes.
-        try? FileManager.default.createDirectory(at: paths.configDirectory, withIntermediateDirectories: true)
         environmentGuard.write("CmuxNextApp.applyBuildStatePaths") {
             for (key, value) in values { setenv(key, value, 1) }
         }

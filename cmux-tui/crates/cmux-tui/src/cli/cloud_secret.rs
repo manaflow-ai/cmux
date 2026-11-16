@@ -454,7 +454,8 @@ mod tests {
     #[test]
     fn a_dev_builds_keychain_service_is_its_own() {
         let dev = |key: &str| {
-            (key == SERVICE_OVERRIDE).then(|| "cmux-cloud-secret.com.cmuxterm.app.debug.dev".to_owned())
+            (key == SERVICE_OVERRIDE)
+                .then(|| "cmux-cloud-secret.com.cmuxterm.app.debug.dev".to_owned())
         };
         assert_eq!(service_from(dev, false), "cmux-cloud-secret.com.cmuxterm.app.debug.dev");
         assert_eq!(service_from(dev, true), SERVICE, "another app's service in its terminal");
