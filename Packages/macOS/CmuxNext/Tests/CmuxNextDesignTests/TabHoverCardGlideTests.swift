@@ -101,6 +101,26 @@ import Testing
         #expect(f.panel.frame.contains(drawn), "after a refit the window \(f.panel.frame) cuts off the gliding card (\(drawn))")
     }
 
+    /// The live recording of the first fix: when the last card's content finished fading out, it was made
+    /// whole again before AppKit took it out of the window, so it flashed back at full strength for one
+    /// frame. It leaves clear, and shows whole when its tab's card comes back without a fade.
+    @Test func theLeavingContentNeverFlashesBack() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let f = Self.fixture()
+        defer { f.tearDown() }
+        let a = Self.body(width: 240, height: 120), b = Self.body(width: 240, height: 60)
+
+        f.present(tab: 0, body: a)
+        f.present(tab: 1, body: b)
+        f.panel.endLeaving()
+        #expect(a.superview == nil, "the last content stayed in the card")
+        #expect(a.layer?.opacity == 0, "the last content was made whole while it left (a one-frame flash)")
+        Motion.reduceMotionOverride = true
+        f.present(tab: 0, body: a)
+        #expect(a.layer?.opacity == 1, "content shown again without a fade stayed clear")
+    }
+
     @Test func movingOnMidGlideRetargetsTheGlideFromWhereTheCardIsDrawn() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
