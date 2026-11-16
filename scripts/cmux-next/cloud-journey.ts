@@ -982,7 +982,7 @@ export function markRanOnGuest(runs: ExecProbeRun[], nonces: string | null): Exe
  * HOME, ACPMUX_* and CMUX_* (never a token, key or secret); the login-env cache; the binary `$c` runs; `acp status`;
  * where `claude` is; and the store's bin directories.
  */
-export const ENSURE_BENCH_DAEMON_FACTS = `${GUEST}` +
+export const ensureBenchDaemonFacts = (): string => `${GUEST}` +
   `for p in $(pgrep -f 'acpmux|cmux-tui' 2>/dev/null); do echo "== pid $p"; ps -o pid=,ppid=,lstart=,user=,args= -p "$p" 2>/dev/null | cut -c1-300; ` +
   `pp=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); [ -n "$pp" ] && ps -o pid=,args= -p "$pp" 2>/dev/null | cut -c1-200; ` +
   `tr '\\0' '\\n' < "/proc/$p/environ" 2>/dev/null | grep -E '^(PATH|HOME|USER|ACPMUX_[A-Z_]+|CMUX_[A-Z_]+)=' | grep -viE 'TOKEN|KEY|SECRET|PASS' | cut -c1-300; done; ` +
@@ -1030,7 +1030,7 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
     await installPreclaimLogin(args.api, machine, exec, args.programs, args.login, 0, args.ownerScope);
     // Run 43931369542: every ensure answered `unknown harness "claude"; families: chief, unii` in ~13 ms from a daemon
     // already up, while the run before cold-started its own. Which daemon serves the first ensure, and with what PATH.
-    boot.daemon_before_ensure = (await exec(ENSURE_BENCH_DAEMON_FACTS, 60_000).catch((e) => ({ stdout: `read failed: ${String((e as Error)?.message ?? e)}` }))).stdout;
+    boot.daemon_before_ensure = (await exec(ensureBenchDaemonFacts(), 60_000).catch((e) => ({ stdout: `read failed: ${String((e as Error)?.message ?? e)}` }))).stdout;
     const timed = async (condition: EnsureBenchCondition) => {
       for (let i = 0; i < args.n; i++) {
         const result = await exec(ensureBenchCommand(`bench-${args.tag}-${condition}-${i}`, condition === "loaded"), 300_000).catch((e) => ({ code: 1, stdout: "", stderr: String((e as Error)?.message ?? e) }));
