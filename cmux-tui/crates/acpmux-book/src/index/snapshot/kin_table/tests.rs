@@ -190,12 +190,101 @@ fn forest() -> Vec<Summary> {
 fn forest_entries_match_ancestor_oracle_with_depth_and_hot_bridges() {
     let rows = forest();
     let (_directory, path) = write_table(&rows, 42, TEST_HEAD_CRC);
-    let mut table = open_table(&path, 42, rows.len() as u64, TEST_HEAD_CRC);
+    let table = open_table(&path, 42, rows.len() as u64, TEST_HEAD_CRC);
     let mut actual = entries(&table);
     actual.sort_unstable_by(entry_order);
     assert_eq!(actual, expected_entries(&rows));
     assert!(actual.iter().any(|entry| entry.depth == MAX_DEPTH));
     assert!(!actual.iter().any(|entry| entry.depth > MAX_DEPTH));
+}
+
+#[test]
+fn cycle_closure_deduplicates_nearest_ancestors_without_self_rows() {
+    let mut cycle_a = row("cycle-a", 1);
+    let mut cycle_b = row("cycle-b", 2);
+    let mut child = row("cycle-child", 3);
+    cycle_a.parent = Some(cycle_b.key());
+    cycle_b.parent = Some(cycle_a.key());
+    child.parent = Some(cycle_b.key());
+    let rows = [cycle_a.clone(), cycle_b.clone(), child.clone()];
+    let (_directory, path) = write_table(&rows, 44, TEST_HEAD_CRC);
+    let table = open_table(&path, 44, rows.len() as u64, TEST_HEAD_CRC);
+    let actual = entries(&table);
+
+    let family = |row_index: usize, ancestor: &RowKey, depth: u8| {
+        let (hash, check) = key_fingerprint(ancestor, FAMILY_KIND);
+        actual.iter().any(|entry| {
+            entry.kind == FAMILY_KIND
+                && entry.offset == offset(row_index)
+                && entry.hash == hash
+                && entry.check == check
+                && entry.depth == depth
+        })
+    };
+    assert!(family(0, &cycle_b.key(), 1));
+    assert!(family(1, &cycle_a.key(), 1));
+    assert!(family(2, &cycle_b.key(), 1));
+    assert!(family(2, &cycle_a.key(), 2));
+    assert_eq!(actual.iter().filter(|entry| entry.kind == FAMILY_KIND).count(), 4);
+    for (index, row) in rows.iter().enumerate() {
+        let (hash, check) = key_fingerprint(&row.key(), FAMILY_KIND);
+        assert!(!actual.iter().any(|entry| {
+            entry.kind == FAMILY_KIND
+                && entry.offset == offset(index)
+                && entry.hash == hash
+                && entry.check == check
+        }));
+    }
+}
+
+#[test]
+fn fork_self_edges_are_excluded_but_other_sources_are_retained() {
+    let mut self_fork = row("fork-self", 1);
+    self_fork.fork_of = Some(ForkOf { key: self_fork.key(), seq: 1 });
+    let source = RowKey::new("local", "fork-source");
+    let mut other_fork = row("fork-other", 2);
+    other_fork.fork_of = Some(ForkOf { key: source.clone(), seq: 2 });
+    let rows = [self_fork, other_fork];
+    let (_directory, path) = write_table(&rows, 45, TEST_HEAD_CRC);
+    let table = open_table(&path, 45, rows.len() as u64, TEST_HEAD_CRC);
+    let actual = entries(&table);
+    let (source_hash, source_check) = key_fingerprint(&source, FORK_KIND);
+    assert_eq!(actual.iter().filter(|entry| entry.kind == FORK_KIND).count(), 1);
+    assert!(actual.iter().any(|entry| {
+        entry.kind == FORK_KIND
+            && entry.offset == offset(1)
+            && entry.hash == source_hash
+            && entry.check == source_check
+            && entry.depth == 1
+    }));
+    let (self_hash, self_check) = key_fingerprint(&rows[0].key(), FORK_KIND);
+    assert!(!actual.iter().any(|entry| {
+        entry.kind == FORK_KIND && entry.hash == self_hash && entry.check == self_check
+    }));
+}
+
+#[test]
+fn self_parent_has_no_self_entry_but_children_still_use_it() {
+    let mut self_parent = row("self-parent-explicit", 1);
+    self_parent.parent = Some(self_parent.key());
+    let mut child = row("self-parent-child", 2);
+    child.parent = Some(self_parent.key());
+    let rows = [self_parent.clone(), child];
+    let (_directory, path) = write_table(&rows, 46, TEST_HEAD_CRC);
+    let table = open_table(&path, 46, rows.len() as u64, TEST_HEAD_CRC);
+    let actual = entries(&table);
+    let (parent_hash, parent_check) = key_fingerprint(&self_parent.key(), FAMILY_KIND);
+    assert_eq!(actual.len(), 1);
+    assert_eq!(actual[0].offset, offset(1));
+    assert_eq!(actual[0].depth, 1);
+    assert_eq!(actual[0].hash, parent_hash);
+    assert_eq!(actual[0].check, parent_check);
+}
+
+#[test]
+fn fingerprint_fixed_vector_is_stable() {
+    let key = RowKey::new("local", "chat-1");
+    assert_eq!(key_fingerprint(&key, FAMILY_KIND), (0xd22b47804e9d17c0, 0xb87b4fdf));
 }
 
 #[test]
@@ -209,7 +298,7 @@ fn cold_descendant_keeps_ancestor_path_through_hot_parent() {
     child.parent = Some(parent.key());
     let rows = [root, parent, child];
     let (_directory, path) = write_table(&rows, 43, TEST_HEAD_CRC);
-    let mut table = open_table(&path, 43, rows.len() as u64, TEST_HEAD_CRC);
+    let table = open_table(&path, 43, rows.len() as u64, TEST_HEAD_CRC);
     let actual = entries(&table);
     let child_offset = offset(2);
     let child_entries: Vec<_> =
@@ -227,7 +316,7 @@ fn parent_mutation_replaces_the_old_ancestor_chain() {
     child_a.parent = Some(root_a.key());
     let first_rows = [root_a.clone(), root_b.clone(), child_a];
     let (_first_directory, first_path) = write_table(&first_rows, 50, TEST_HEAD_CRC);
-    let mut first_table = open_table(&first_path, 50, first_rows.len() as u64, TEST_HEAD_CRC);
+    let first_table = open_table(&first_path, 50, first_rows.len() as u64, TEST_HEAD_CRC);
     let first = entries(&first_table);
     let old_hash = key_fingerprint(&root_a.key(), FAMILY_KIND).0;
     let new_hash = key_fingerprint(&root_b.key(), FAMILY_KIND).0;
@@ -238,8 +327,8 @@ fn parent_mutation_replaces_the_old_ancestor_chain() {
     child_b.parent = Some(root_b.key());
     let second_rows = [root_a, root_b, child_b];
     let (_second_directory, second_path) = write_table(&second_rows, 51, TEST_HEAD_CRC);
-    let mut second_table = open_table(&second_path, 51, second_rows.len() as u64, TEST_HEAD_CRC);
-    let second = entries(&mut second_table);
+    let second_table = open_table(&second_path, 51, second_rows.len() as u64, TEST_HEAD_CRC);
+    let second = entries(&second_table);
     assert!(second.iter().any(|entry| entry.hash == new_hash));
     assert!(!second.iter().any(|entry| entry.hash == old_hash));
 }
