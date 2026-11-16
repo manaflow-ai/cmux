@@ -332,7 +332,7 @@ type Round = {
   selfMs?: [string, number][];
 };
 
-type Capture = { records?: { all?: { count?: number; to_paint?: { p50?: number; p95?: number } } } } | null;
+type Capture = { records?: { all?: { count?: number; to_paint?: { p50_ms?: number; p95_ms?: number } } } } | null;
 
 type CpuProfile = {
   nodes: {
@@ -500,8 +500,8 @@ async function measured(
     commitP95: r1(percentile(commits, 0.95)),
     missed,
     records: paints.length,
-    captureP50: all?.to_paint?.p50 ?? null,
-    captureP95: all?.to_paint?.p95 ?? null,
+    captureP50: all?.to_paint?.p50_ms ?? null,
+    captureP95: all?.to_paint?.p95_ms ?? null,
     captureCount: all?.count ?? null,
     ...(profiled ? { selfMs: selfTimes(profiled) } : {}),
   };
