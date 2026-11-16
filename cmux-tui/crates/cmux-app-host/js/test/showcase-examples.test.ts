@@ -388,7 +388,7 @@ describe("local/link-hints", () => {
 
   test("f draws the labels in the page the key came from", async () => {
     const { h } = hints()
-    expect(await run(h, "followLink", { tab: "tab_7" }, 1)).toEqual({ ok: true, body: { labels: 4 } })
+    expect(await run(h, "followLink", { tab: "tab_7" }, 1)).toEqual({ ok: true, body: { value: { labels: 4 } } })
     const call = h.calls.find((c) => c.name === "browser.page.eval")!
     expect(call.params.tab).toBe("tab_7")
     expect(call.params.script).toStartWith("(function hintScript(")
@@ -398,7 +398,7 @@ describe("local/link-hints", () => {
 
   test("F labels links for a new tab, and says so when there are none", async () => {
     const { h } = hints(0)
-    expect(await run(h, "followLinkInNewTab", {}, 1)).toEqual({ ok: true, body: { labels: 0 } })
+    expect(await run(h, "followLinkInNewTab", {}, 1)).toEqual({ ok: true, body: { value: { labels: 0 } } })
     expect(h.calls.find((c) => c.name === "browser.page.eval")!.params.script).toEndWith(`,true])`)
     expect(h.calls.find((c) => c.name === "toast.show")!.params.title).toBe("No links on screen")
   })

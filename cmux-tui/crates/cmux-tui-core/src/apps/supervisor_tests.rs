@@ -902,8 +902,26 @@ fn page_keys_follow_the_persons_bindings_in_storage() {
     };
     // Writing the bindings tells every client, so the app routes the new keys at once.
     let set = json!({ "key": "cmux.keys", "value": { "demo.go": ["shift+g", "/"] } });
-    assert_eq!(f.call("m1", "app.storage.set", set, false)["ok"], true);
-    f.wait("page-keys apps-changed", |e| e["event"] == "apps-changed");
+    // (Dispatched directly: `call` waits for the scene update and would drop the broadcast.)
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({ "op": "app.storage.set", "params": set }),
+            false,
+        )
+        .unwrap();
+    // The broadcast and the call's scene update, in either order.
+    let (mut changed, mut answered) = (false, false);
+    while !(changed && answered) {
+        let e = f.wait("page-keys apps-changed and the call result", |e| {
+            e["event"] == "apps-changed" || e["event"] == "apps-scene"
+        });
+        changed |= e["event"] == "apps-changed" && e["transaction"] == "page-keys";
+        answered |= e["event"] == "apps-scene" && e["ops"][0]["op"] == "update";
+    }
     assert_eq!(keys(&f), json!(["shift+g", "/"]));
     // A binding cmux cannot route keeps the catalog's key; an empty one turns it off.
     let chord = json!({ "key": "cmux.keys", "value": { "demo.go": ["cmd+g"] } });

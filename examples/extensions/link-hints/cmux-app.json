@@ -10,7 +10,7 @@
   "license": "MIT",
   "icon": { "symbol": "keyboard" },
   "categories": ["browser"],
-  "keywords": ["browser", "keyboard", "links", "hints", "vimium", "example"],
+  "keywords": ["browser", "keyboard", "links", "hints", "example"],
   "engines": { "cmux": "^2.0" },
   "runtime": { "main": "dist/main.js" },
   "catalog": "catalog.json",
