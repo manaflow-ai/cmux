@@ -221,11 +221,12 @@ fn floating_pane_record_of_a_pane_that_never_floats_is_dropped_at_load() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 
-    // The first column has 2 rows; the low pane is the pane of its second row.
+    // The first column has 2 rows; the low pane is the pane of its second row. The heights agree with the
+    // ratio 0.6 of the fixture's row split, as each record that the product writes does.
     let (root, session) = seed("never-rows", |screen| {
         screen.viewport.columns[0].rows = vec![
-            RegistryRow { id: restore_split_id(9), height: 700 },
-            RegistryRow { id: restore_split_id(1), height: 300 },
+            RegistryRow { id: restore_split_id(9), height: 600 },
+            RegistryRow { id: restore_split_id(1), height: 400 },
         ];
         screen.floating = records(&[&low, &right]);
     });
