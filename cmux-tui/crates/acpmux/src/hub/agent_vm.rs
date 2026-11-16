@@ -102,7 +102,7 @@ mod tests {
         let r = registry();
         assert!(agent_vm_in(&r, "agent-lane-1", "ssh://agent-lane-1"));
         assert!(agent_vm_in(&r, "lane-1", "ssh://cmux@agent-lane-1:22"), "an alias");
-        assert!(agent_vm_in(&r, "GCP-Agent-Lane-1", "ssh://GCP-AGENT-LANE-1"), "case aside");
+        assert!(agent_vm_in(&r, "Agent-Lane-1", "ssh://AGENT-LANE-1"), "case aside");
         assert!(!agent_vm_in(&r, "agent-lane-1", "ws://127.0.0.1:7777"), "a leased ws peer");
         assert!(!agent_vm_in(&r, "agent-lane-1", "wss://lane.example"), "not ssh");
         assert!(!agent_vm_in(&r, "agent-lane-1", "ssh://evil.example"), "dials elsewhere");
