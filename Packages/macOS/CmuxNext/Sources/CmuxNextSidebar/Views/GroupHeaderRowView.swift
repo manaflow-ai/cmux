@@ -591,8 +591,8 @@ final class GroupHeaderRowView: SidebarRowView {
         // one text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not
         // aligned"; Leo 2026-10-28, "the alignment").
         let pinSide = SidebarStyle.pinGlyphSide // Home's glyph square, as a pinned workspace row's pin (#38061)
-        // A pinned group with its own icon (or a machine mark) draws it in the pin's place, so its name starts at Home's
-        // label x as a pinned workspace row's title does (`SidebarPinnedRowLeading`, #38061).
+        // A pinned group keeps its pin, and its own icon (or a machine mark) takes the next column, as a pinned workspace
+        // row's does (`SidebarPinnedRowLeading.pinThenIcon`, #42431). The Debug `ownIcon` look draws it in the pin's place.
         let showsPin = pinned && (!(hasIcon || leadsWithMachineMark) || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
         pin.isHidden = !showsPin
         // `configure` sets the image; a density or type scale change since then moves `pinGlyphSide`.

@@ -287,9 +287,9 @@ class SidebarItemRowView: NSView {
         // One icon column for every row (Lawrence 2026-10-28, "home and pinned are not aligned"; #38061): a band row's
         // glyph and a pinned row's pin start their ink on the icon column's leading edge, the row inset (its inset plus
         // the pill inset) where text-only titles start (Lawrence 2026-11-09), and a title after that glyph starts at the
-        // one text column (`SidebarStyle.leadingTextX`). A pinned row's own icon or color dot, when it has one, takes the
-        // pin's place in that column, so its title starts at Home's label x too (`SidebarPinnedRowLeading`, #38061); the
-        // `pinThenIcon` look draws it in the text column after the pin instead.
+        // one text column (`SidebarStyle.leadingTextX`). Every pinned row draws its pin in that column, and its own icon or color
+        // dot, when it has one, in the next column (`SidebarPinnedRowLeading.pinThenIcon`, #42431: a favicon in the pin's
+        // place left the row with no pin). The Debug `ownIcon` look draws that icon in the pin's place instead.
         let columns = bandColumns(in: b)
         // A missing workspace (its fallback glyph, dimmed) keeps its pin: the glyph is not the workspace's own icon.
         let showsPin = info.leadingPin && (bare && !showsSwatchDot || info.isMissing || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
@@ -328,12 +328,12 @@ class SidebarItemRowView: NSView {
         pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
         pill.cornerCurve = isRailButton ? .continuous : Metrics.tabCornerCurve // one curve with the tabs
         // A text-only workspace with a color draws it as its list row does: a dot before the title. A pinned row's dot
-        // in the leading column centers in the rows' one optical glyph square, on the line Home's glyph, the globe, an
-        // app icon and the pin center on (`SidebarOpticalGlyph`, #42431).
+        // centers in the rows' one optical glyph square of its column, as a favicon or emoji there does: the column after
+        // the pin by default, the pin's own in the Debug `ownIcon` look (`SidebarOpticalGlyph`, #42431).
         let dot = SidebarStyle.dotSize, dotInk = CGRect(x: 0, y: 0, width: dot, height: dot)
         let dotScale = max(1, window?.backingScaleFactor ?? 2)
         chip.frame = showsSwatchDot
-            ? NSRect(x: info.leadingPin && !showsPin
+            ? NSRect(x: info.leadingPin
                         ? ((iconFrame.minX + (SidebarStyle.rowGlyphOpticalSide - dot) / 2) * dotScale).rounded() / dotScale
                         : SidebarStyle.iconColumnGlyphX(leading: iconFrame.minX, ink: dotInk),
                      y: (b.height - dot) / 2, width: dot, height: dot)
@@ -364,10 +364,9 @@ class SidebarItemRowView: NSView {
             icon.frame = frame
         } else {
             showGlyph(side: glyphSide)
-            // A bare glyph beside a title (Home, the band's rows, a pinned workspace's own icon in the pin's place)
-            // starts its ink on the leading icon column's edge, as the pin does (`SidebarStyle.bandGlyphX`). In the
-            // `pinThenIcon` look a pinned workspace's own icon after its pin sits in the text column and starts its ink
-            // there (`SidebarStyle.iconColumnGlyphX`). A glyph in a well centers its square in the well, a tile's in its tile.
+            // A bare glyph beside a title (Home, the band's rows, a pinned workspace's own icon after its pin) centers its
+            // ink in the rows' one optical glyph square of its column (`SidebarOpticalGlyph`, #42431). A glyph in a well
+            // centers its square in the well, a tile's in its tile.
             icon.frame = style == .builtIn && !isRailButton
                 ? inkColumnGlyphFrame(side: glyphSide, column: iconFrame)
                 : alignedGlyphFrame(side: glyphSide, centeredIn: style == .list ? wellFrame : iconFrame)
@@ -507,6 +506,12 @@ class SidebarItemRowView: NSView {
     /// band row's, or a pinned workspace's own icon in the pin's place, `SidebarPinnedRowLeading`).
     var leadingInkFrame: CGRect? {
         if let pin = pinInkFrame { return pin }
+        return ownIconInkFrame
+    }
+
+    /// The row's own mark in the row's coordinates (tests): its color dot, else its glyph's ink (an emoji, a symbol, a
+    /// favicon); nil for a text-only row. On a pinned row it sits after the pin (`SidebarPinnedRowLeading.pinThenIcon`).
+    var ownIconInkFrame: CGRect? {
         if showsSwatchDot { return chip.frame }
         return glyphInkFrame
     }
