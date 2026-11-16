@@ -103,7 +103,7 @@ pub trait SameAccountGrant {
 /// [`SameAccountGrant`] as this Mac's owner set it: the `signedInMachines`
 /// consent (`cli/machine_consent.rs`, granted only by the person's own app on
 /// this Mac), read the way the workspace circuit's gate reads it
-/// ([`crate::cli::cloud_join::signed_in_machines_granted`]). The consent is for
+/// ([`crate::machine_record::signed_in_machines_granted`]). The consent is for
 /// the account's machines as a whole, so it covers an asker only when the grant
 /// holds for the account this Mac is joined as and the asker is signed in to
 /// that same account; off, unanswered, unreadable or another account's grant
@@ -118,7 +118,7 @@ impl SignedInMachinesConsent {
     /// From a `_acpmux/machine_consent_get` answer and the account this Mac is joined as.
     pub fn from_status(consent: &Value, account: Option<&str>) -> Self {
         Self {
-            granted: crate::cli::cloud_join::signed_in_machines_granted(consent, account),
+            granted: crate::machine_record::signed_in_machines_granted(consent, account),
             account: account.map(str::to_owned),
         }
     }

@@ -53,7 +53,7 @@ pub fn decide(consent: &Value, account: Option<&str>) -> Decision {
     let for_account = account.is_some_and(|account| {
         consent.pointer("/consent/signedInMachinesUser").and_then(Value::as_str) == Some(account)
     });
-    if crate::cli::cloud_join::signed_in_machines_granted(consent, account) {
+    if crate::machine_record::signed_in_machines_granted(consent, account) {
         return Decision::Admit;
     }
     let answered = for_account

@@ -1619,7 +1619,7 @@ pub struct Config {
     /// target names no session here and no peer lists it (`cli/send_relay.rs`). Unset (the
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub send_relay: Option<crate::cli::send_relay::SendRelay>,
+    pub send_relay: Option<SendRelay>,
     /// `meshRelay`: `{"url", "tokenCommand", "controlFrom", "teamMessaging"}`, the team hub this
     /// daemon heartbeats its sessions to, takes messages for them from, and sends a message to a
     /// name nobody here resolves through (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the
@@ -1719,6 +1719,17 @@ impl WriteJournalConfig {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
     }
+}
+
+/// `sendRelay`: the relay command's argv; the CLI appends the session and `-`. `lsArgv`, when
+/// set, prints the other machines' live sessions as `{"sessions": [...]}` (see the module doc of
+/// `cli/send_relay.rs`, which re-exports it).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SendRelay {
+    pub argv: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ls_argv: Option<Vec<String>>,
 }
 
 mod config_impl;

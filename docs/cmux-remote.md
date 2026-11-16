@@ -27,8 +27,12 @@ cmux.app (the person's app; serves attached cmux.rd/1 + WebRTC sessions,
   `com.cmuxterm.remote.dev`), with the cmux icon on a remote-screen badge. Its
   designated requirement (bundle id + team) stays the same across builds, so a
   grant survives every update. The Release phase embeds the pinned asset from
-  `scripts/cmux-next/cmux-remote-dev.pin.json`; a missing or mismatched asset
-  is visible in the build log and fails when `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1`.
+  `scripts/cmux-next/cmux-remote-dev.pin.json`; a Release build fails without
+  it, and a mismatched asset fails each build. Only with
+  `CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1`, a Release build on a Mac with no source
+  for the asset prints one `NOT EMBEDDED` warning line and has no cmux Remote.
+  A DEV build warns in the build log and fails only when
+  `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1`.
 - **Responsibility.** The daemon starts the Remote host with
   `responsibility_spawnattrs_setdisclaim`, so the host is its own responsible
   process. Workers are the host's ordinary children: macOS attributes their
