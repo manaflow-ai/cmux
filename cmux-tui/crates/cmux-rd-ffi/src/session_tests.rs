@@ -473,3 +473,29 @@ mod local_hop {
         assert!(s.note_consumed(9, 1, 1).is_err());
     }
 }
+
+mod local_hop_fallback {
+    use crate::receiver::Carrier;
+    use crate::session::Session;
+    use cmux_rd_core::packetize::Packetizer;
+    use cmux_rd_proto::{
+        FrameBody, MAX_DATAGRAM_VPC, REF_NONE, STREAM_DATAGRAM, encode_stream_frame, flags,
+    };
+
+    #[test]
+    fn an_older_connect_that_sends_datagrams_is_reassembled_here_again() {
+        let mut s = Session::new(Carrier::Stream, 200_000, 5_000);
+        s.assemble_upstream(0).unwrap();
+        let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+        let body = FrameBody { t_capture_us: 1, ref_frame: REF_NONE, access_unit: vec![1; 2000] };
+        let mut bytes = Vec::new();
+        for d in p.packetize(1, flags::KEYFRAME, &body, 0).unwrap().datagrams {
+            encode_stream_frame(STREAM_DATAGRAM, &d, &mut bytes).unwrap();
+        }
+        s.push_stream(&bytes, 0).unwrap();
+        let (stream, frame) = s.pop_frame().expect("the session reassembled it");
+        assert_eq!((stream, frame.frame), (0, 1));
+        assert_eq!(s.last_release_us(), None);
+        assert!(s.feedback(1).is_some(), "and sends the stream's feedback again");
+    }
+}

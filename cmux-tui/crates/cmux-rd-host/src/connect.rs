@@ -26,7 +26,7 @@ use crate::wire::{write_frame, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM};
 use crate::Res;
 use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
 use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
-use cmux_rd_proto::app_line::{AppLine, LinePath};
+use cmux_rd_proto::app_line::{AppLine, LineHop, LinePath};
 use cmux_rd_proto::{LocalReport, STREAM_LOCAL_FRAME, STREAM_LOCAL_REPORT};
 use serde::Deserialize;
 use std::io::{self, BufRead, Read, Write};
@@ -159,7 +159,7 @@ fn app_lines(buf: &mut Vec<u8>) -> Result<Vec<Later>, String> {
 /// used while it reassembled (RemoteRdSession's defaults).
 const HOP_DEADLINE_US: u64 = 200_000;
 const HOP_NACK_AFTER_US: u64 = 5_000;
-/// How often the hop's frame timings are summarized on stderr.
+/// How often the hop's frame timings are summarized (an `AppLine` `hop`).
 const HOP_LOG_US: u64 = 5_000_000;
 
 /// Monotonic microseconds on the clock the app reads too: `CLOCK_UPTIME_RAW` on macOS
@@ -176,23 +176,28 @@ fn now_us() -> u64 {
     (ts.tv_sec as u64).saturating_mul(1_000_000) + (ts.tv_nsec as u64) / 1_000
 }
 
-/// The hop's per-frame timings, summarized every [`HOP_LOG_US`].
+/// The hop's per-frame timings, summarized on one `hop` line every [`HOP_LOG_US`].
 #[derive(Default)]
 struct HopLog {
     since_us: u64,
     decoded: Vec<u64>,
+    decode: Vec<u64>,
     presented: Vec<u64>,
+}
+
+/// The `q` quantile of `v` in milliseconds (sorts `v`).
+fn quantile_ms(v: &mut [u64], q: f64) -> Option<f64> {
+    v.sort_unstable();
+    let i = ((v.len() as f64 - 1.0) * q).round() as usize;
+    v.get(i).map(|us| *us as f64 / 1000.0)
 }
 
 impl HopLog {
     fn note(&mut self, hop: &mut ViewerHop, now: u64) {
         for t in hop.take_timings() {
-            if let Some(d) = t.release_to_decoded_us {
-                self.decoded.push(d);
-            }
-            if let Some(p) = t.release_to_presented_us {
-                self.presented.push(p);
-            }
+            self.decoded.extend(t.release_to_decoded_us);
+            self.decode.extend(t.decode_us.map(u64::from));
+            self.presented.extend(t.release_to_presented_us);
         }
         if now.saturating_sub(self.since_us) < HOP_LOG_US {
             return;
@@ -201,22 +206,21 @@ impl HopLog {
         if self.presented.is_empty() && self.decoded.is_empty() {
             return;
         }
-        let p50 = |v: &mut Vec<u64>| {
-            v.sort_unstable();
-            v.get(v.len() / 2).map_or(0.0, |us| *us as f64 / 1000.0)
-        };
         let s = hop.stats();
-        eprintln!(
-            "viewer hop: release to decoded p50 {:.1} ms, release to presented p50 {:.1} ms ({} frames), sent {}, replaced {}, overrun {}, credit timeouts {}",
-            p50(&mut self.decoded),
-            p50(&mut self.presented),
-            self.presented.len(),
-            s.sent,
-            s.replaced,
-            s.overrun,
-            s.credit_timeouts
-        );
+        let line = LineHop {
+            release_to_decoded_ms_p50: quantile_ms(&mut self.decoded, 0.5),
+            decode_ms_p50: quantile_ms(&mut self.decode, 0.5),
+            release_to_presented_ms_p50: quantile_ms(&mut self.presented, 0.5),
+            release_to_presented_ms_p95: quantile_ms(&mut self.presented, 0.95),
+            presented: self.presented.len() as u64,
+            sent: s.sent,
+            replaced: s.replaced,
+            overrun: s.overrun,
+            credit_timeouts: s.credit_timeouts,
+        };
+        say(AppLine { hop: Some(line), ..AppLine::default() });
         self.decoded.clear();
+        self.decode.clear();
         self.presented.clear();
     }
 }

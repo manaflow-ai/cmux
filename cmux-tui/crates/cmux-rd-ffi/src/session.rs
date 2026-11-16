@@ -286,7 +286,6 @@ impl Session {
                     let frame = CompleteFrame { frame: f.frame, flags: f.flags, body: f.body };
                     return Some((stream, frame));
                 }
-                continue;
             }
             if let Some(frame) = self.streams.get_mut(&stream).and_then(Receiver::pop_frame) {
                 return Some((stream, frame));
@@ -432,6 +431,12 @@ impl Session {
         let (header, _) = DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
         match header.kind {
             DatagramKind::Video | DatagramKind::Fec => {
+                // Media of an upstream-assembled stream came as datagrams: the connect
+                // process did not take "assemble" (an older one). This session reassembles
+                // the stream again and sends its feedback, as before.
+                if self.local.remove(&header.stream).is_some() {
+                    self.local_reports.retain(|r| r.stream() != header.stream);
+                }
                 let r = self.receiver(header.stream)?;
                 let before = r.ready_frames();
                 let pushed = r.push_datagram(datagram, now_us);
