@@ -77,6 +77,20 @@ class TypingReceipt(unittest.TestCase):
         with self.assertRaises(BenchError):
             self.ingest(row)
 
+    def test_complete_flag_cannot_hide_bad_integrity(self):
+        for field in ("text_exact", "key_order_ok"):
+            row = {"load": "cpu", "typing": self.report, **verdict(self.report, self.text, self.dispatch)}
+            row[field] = False
+            with self.subTest(field=field), self.assertRaises(BenchError):
+                self.ingest(row)
+
+    def test_ledger_derives_native_tail_from_samples(self):
+        row = {"load": "cpu", "typing": self.report, **verdict(self.report, self.text, self.dispatch)}
+        row["dispatch_to_after_frame_ms"][-4:] = [80] * 4
+        ctx = self.ingest(row)
+        values = {r["metric"]: r["value"] for r in ctx.rows}
+        self.assertEqual(values["dispatch_to_after_frame_p99_ms"], 80)
+
 
 if __name__ == "__main__":
     unittest.main()

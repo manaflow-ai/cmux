@@ -135,7 +135,11 @@ export async function loadRun(
     toolEvery: Math.max(0, Math.floor(options.tool_every ?? 60)),
   });
   let streamDone = false;
-  void streaming.then(() => (streamDone = true));
+  let streamFinished: number | undefined;
+  void streaming.then(() => {
+    streamFinished = performance.timeOrigin + performance.now();
+    streamDone = true;
+  });
   const timestamps: number[] = [];
   const work: number[] = [];
   const late: number[] = [];
@@ -190,7 +194,7 @@ export async function loadRun(
     rows: host.rowCount(),
     ...streamed,
     stream_started_epoch_ms: streamStarted,
-    stream_finished_epoch_ms: performance.timeOrigin + performance.now(),
+    stream_finished_epoch_ms: streamFinished,
     seconds,
     scroll_speed: speed,
     display: frameStats(timestamps, nominal),

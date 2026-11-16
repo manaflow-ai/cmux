@@ -52,6 +52,8 @@ class Typing(Bench):
                 if report.get("complete") is not True:
                     ctx.notes.append(f"{engine}/{report['load']}: incomplete; {report.get('error', 'see raw artifact')}")
                     continue
+                if report.get("text_exact") is not True or report.get("key_order_ok") is not True:
+                    raise BenchError("typing: complete run has no exact key/text integrity receipt")
                 samples = report.get("typing", {}).get("samples", [])
                 if len(samples) < 200 or len(samples) != report.get("expected_keys"):
                     raise BenchError("typing: complete run lacks the requested >=200 samples")
@@ -70,8 +72,10 @@ class Typing(Bench):
                 if len(joined) != len(samples) or not all(type(x) in (int, float) and math.isfinite(x) and x >= 0 for x in joined):
                     raise BenchError("typing: native dispatch/paint clock join is incomplete")
                 ctx.row("dispatch_to_after_frame", samples=joined, labels=labels)
+                joined = sorted(joined)
                 for q in (95, 99):
-                    ctx.row(f"dispatch_to_after_frame_p{q}_ms", report.get(f"dispatch_to_after_frame_p{q}_ms"),
+                    value = joined[math.floor((len(joined) - 1) * q / 100 + .5)]
+                    ctx.row(f"dispatch_to_after_frame_p{q}_ms", value,
                             n=len(joined), labels=labels)
         if not ctx.rows:
             raise BenchError("typing: artifact contains no load measurements")

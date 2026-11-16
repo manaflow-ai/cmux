@@ -84,7 +84,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 |---|---|---|---|---|
 | `pane-perf.sh` | Pane layout motion (split, close, zoom, drag) at 2, 8 and 30 terminals. | panes-perf | 2026-10-27 | active |
 | `pane-zoom.sh` | Cmd-Shift-Enter zoom and unzoom frames in 1x2, 2x2, 2x4 layouts. | pane-zoom | 2026-10-27 | active |
-| `split-spring.sh` | Rapid Cmd-D and Cmd-Shift-D frames, plus the perf cron budgets suite. | - | 2026-11-08 | active |
+| `split-spring.sh` | Rapid Cmd-D and Cmd-Shift-D frames, perf cron budgets, and `--suite=typing-load` native composer p95/p99 under streaming, wakeup, CPU and 100k-row loads (`cmux-bench typing`). | - | 2026-11-16 | active |
 | `perf-10x-drag.sh` | Pane and divider drags at 120 Hz, plus daemon cost per drag value. | perf-10x | 2026-10-22 | active |
 | `perf-10x-drag-daemon.py` | Daemon-side cost of one drag value. | perf-10x | 2026-11-13 | active |
 | `pane-motion-films.sh` | One movie per pane act, for a person to look at (judges nothing). | - | 2026-11-15 | active |

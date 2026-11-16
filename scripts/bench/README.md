@@ -45,9 +45,7 @@ One row per metric per run (`benchlib/schema.py`):
 
 A metric is (bench, metric, labels). Compare matches rows on that key.
 
-## The ledger
-
-### Composer typing under load
+## Composer typing under load
 
 `cmux-bench typing --build SHA` extends `agent-engine-bench.py` on a fleet Mac with idle,
 three simultaneously streaming chat panes, another pane's turn waking during input, one busy
@@ -71,6 +69,12 @@ window or a driver that falls behind makes the run incomplete. Incomplete rows c
 and never produce fast timing values. `scripts/bench/tests/test_typing.py` falsifies that contract.
 The target is p95 ≤16 ms and p99 ≤33 ms in each load with exact key/text integrity; a run receipt
 must establish each load before claiming it meets the target.
+
+The stream loads use the existing in-page mock ACP daemon through the production client/reducer.
+They exercise transcript updates and renderer contention; they do not yet establish live provider
+process, native stream transport or daemon wakeup costs. Retain that distinction in acceptance reports.
+
+## The ledger
 
 The `bench-ledger` branch of manaflow-ai/cmuxterm-hq holds one JSONL file per run
 (`runs/YYYY/MM/<run id>.jsonl`). Runs append through git, not the GitHub API, so they spend no API
