@@ -78,25 +78,71 @@ nonisolated struct MacScreenConnectTimings: Equatable, Sendable {
     /// Round trips over the last 60 path and status reports.
     static let rttWindow = 60
 
+    /// The steps between the ticket and the first frame, in order.
+    enum Step: String, CaseIterable, Sendable {
+        /// This side's offer went to the hub.
+        case offerSent = "offer_sent"
+        /// The host's answer came back.
+        case answered
+        /// The link's bridge listens: the pane's transport connects.
+        case linkReady = "link_ready"
+        /// The host's stream started (welcome and started arrived).
+        case streaming
+    }
+
     /// Wall clock when this session's connect started (the approved ticket's stream began).
     private(set) var startedAt: Date?
     private(set) var started: ContinuousClock.Instant?
+    /// When the person asked (Connect, Try Again): the hub request before the approval and its ticket.
+    private(set) var requested: ContinuousClock.Instant?
     /// Connect start to the first decoded frame reaching the screen, in milliseconds.
     private(set) var firstFrameMs: Double?
+    /// The person's Connect to the first frame on screen, in milliseconds (nil when the session
+    /// started without one, as a quality restart does).
+    private(set) var clickToFirstFrameMs: Double?
+    /// Each step's time since the connect started, in milliseconds.
+    private(set) var stepsMs: [Step: Double] = [:]
     private(set) var rtt = MacScreenRollingSamples(capacity: rttWindow)
 
-    /// A new connect: everything before it is gone.
-    mutating func connectStarted(at wall: Date, _ instant: ContinuousClock.Instant) {
+    /// A new connect (`requested`: when the person asked for it): everything before it is gone.
+    mutating func connectStarted(at wall: Date, _ instant: ContinuousClock.Instant, requested: ContinuousClock.Instant? = nil) {
         self = MacScreenConnectTimings()
         startedAt = wall
         started = instant
+        self.requested = requested.flatMap { $0 <= instant ? $0 : nil }
+    }
+
+    /// A step reached at `instant`; only its first time after a connect counts.
+    mutating func reached(_ step: Step, at instant: ContinuousClock.Instant) {
+        guard stepsMs[step] == nil, let started, instant >= started else { return }
+        stepsMs[step] = Self.ms(started.duration(to: instant))
     }
 
     /// The first frame showed at `instant`; only the first one after a connect counts.
     mutating func firstFrame(at instant: ContinuousClock.Instant) {
         guard firstFrameMs == nil, let started, instant >= started else { return }
-        let elapsed = started.duration(to: instant)
-        firstFrameMs = (Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15).rounded()
+        firstFrameMs = Self.ms(started.duration(to: instant))
+        if let requested { clickToFirstFrameMs = Self.ms(requested.duration(to: instant)) }
+    }
+
+    /// Request to ticket, then each step to the next, then the last step to the first frame:
+    /// where a slow connect spent its time. Steps not reached are left out.
+    var stagesMs: [(String, Double)] {
+        guard firstFrameMs != nil || !stepsMs.isEmpty else { return [] }
+        var stages: [(String, Double)] = []
+        if let requested, let started { stages.append(("request_to_ticket", Self.ms(requested.duration(to: started)))) }
+        var last = ("ticket", 0.0)
+        for step in Step.allCases {
+            guard let at = stepsMs[step] else { continue }
+            stages.append(("\(last.0)_to_\(step.rawValue)", (at - last.1).rounded()))
+            last = (step.rawValue, at)
+        }
+        if let firstFrameMs { stages.append(("\(last.0)_to_first_frame", (firstFrameMs - last.1).rounded())) }
+        return stages
+    }
+
+    private static func ms(_ elapsed: Duration) -> Double {
+        (Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15).rounded()
     }
 
     mutating func sampleRtt(_ ms: Double?) {

@@ -100,8 +100,9 @@ public final class MacScreenPane {
         view = MacScreenPaneView(model: model)
         view.input.sink = sink
         wire(session)
-        viewer.startStream = { [weak self] in
+        viewer.startStream = { [weak self, weak viewer] in
             guard let self, let session = self.session else { return }
+            session.requestedAt = viewer?.requestedAt
             connectSession(session)
         }
         viewer.stopStream = { [weak self] in

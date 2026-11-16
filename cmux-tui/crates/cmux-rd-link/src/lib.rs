@@ -449,6 +449,15 @@ impl Link {
         Ok(retry)
     }
 
+    /// This side's last handshake message while the handshake runs, for a
+    /// route learned after it went out (resending it is what a retry does).
+    pub(crate) fn handshake_in_flight(&self) -> Option<&[u8]> {
+        match self.state {
+            State::Handshake(_) => self.last_handshake.as_ref().map(|(packet, _)| &packet[..]),
+            _ => None,
+        }
+    }
+
     /// When the caller should call [`Link::poll_transmit`] next without input.
     pub fn next_deadline_us(&self) -> Option<u64> {
         let handshake = self.last_handshake.as_ref().map(|(_, sent)| sent + HANDSHAKE_RETRY_US);

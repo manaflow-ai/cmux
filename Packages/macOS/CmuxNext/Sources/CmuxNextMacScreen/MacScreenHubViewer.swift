@@ -59,8 +59,13 @@ public final class MacScreenHubViewer {
 
     // MARK: Person
 
+    /// When the person last asked (Connect, Try Again): the start of the session's
+    /// click-to-first-frame time (`MacScreenConnectTimings`).
+    @ObservationIgnored private(set) var requestedAt: ContinuousClock.Instant?
+
     /// Asks the host for a session (Connect, Try Again, a scope on the home page).
     public func request(_ scope: SessionScope) {
+        requestedAt = .now
         failureEnd.cancel()
         failedWhileOffline = false
         cancelPending(endingSession: true)

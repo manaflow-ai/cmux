@@ -26,28 +26,39 @@ while i < len(rest):
         stun.append(rest[i + 1]); i += 2
     else:
         bench_flags.append(rest[i]); i += 1
+
+
+def unbuffered(stream):
+    """A child's stdout with no read-ahead. select() waits on the descriptor, so a buffered
+    readline() that pulled a whole burst in (key, candidates, candidates_done in one write)
+    leaves the rest where select() never sees it, and the next wait sits out its timeout."""
+    return os.fdopen(os.dup(stream.fileno()), "rb", buffering=0)
+
+
 session = "local-" + os.urandom(8).hex()
 
 viewer = subprocess.Popen([binary, "bench", "--link", "1", *bench_flags], stdin=subprocess.PIPE,
                           stdout=subprocess.PIPE, text=True, bufsize=1)
-viewer_key = json.loads(viewer.stdout.readline())["key"]
+viewer_out = unbuffered(viewer.stdout)
+viewer_key = json.loads(viewer_out.readline())["key"]
 host = subprocess.Popen([binary, "serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+host_out = unbuffered(host.stdout)
 host.stdin.write(json.dumps({"session": session, "peer_key": viewer_key, "scope": scope, "stun": stun,
                              "viewer": {"user": "viewer", "install": "bench"}}) + "\n")
 host.stdin.flush()
-host_line = json.loads(host.stdout.readline())
+host_line = json.loads(host_out.readline())
 if "displays" in host_line:  # serve reports its displays before its key
     print("host displays:", host_line["displays"], "current:", host_line.get("current"), file=sys.stderr)
-    host_line = json.loads(host.stdout.readline())
+    host_line = json.loads(host_out.readline())
 host_key = host_line["key"]
 
 # The host's candidates (all of them, or what came within 3 s) go in the answer.
 candidates, deadline = [], time.time() + 3
 while time.time() < deadline:
-    ready, _, _ = select.select([host.stdout], [], [], max(0, deadline - time.time()))
+    ready, _, _ = select.select([host_out], [], [], max(0, deadline - time.time()))
     if not ready:
         break
-    line = json.loads(host.stdout.readline())
+    line = json.loads(host_out.readline())
     if "candidate" in line:
         candidates.append(line["candidate"])
     if line.get("candidates_done"):
@@ -59,7 +70,7 @@ viewer.stdin.flush()
 
 # Relay until both end.
 report = None
-streams = {host.stdout: "host", viewer.stdout: "viewer"}
+streams = {host_out: "host", viewer_out: "viewer"}
 while streams:
     ready, _, _ = select.select(list(streams), [], [], 120)
     if not ready:
@@ -74,7 +85,7 @@ while streams:
         try:
             msg = json.loads(line)
         except ValueError:
-            print(f"{who}: {line.rstrip()}", file=sys.stderr)
+            print(f"{who}: {line.decode(errors='replace').rstrip()}", file=sys.stderr)
             continue
         if who == "viewer" and "candidate" in msg:
             host.stdin.write(json.dumps(msg) + "\n"); host.stdin.flush()

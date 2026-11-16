@@ -12,9 +12,16 @@ the device hub's signaling is played by this script the way `hub-session-local.p
 link is cmux-rd-link over UDP between the namespaces. Only the capture differs: an Xvfb display with
 `cmux-rd testapp` drawing the marker, not ScreenCaptureKit.
 
+With --stun-delay-ms D the host and viewer get a STUN server (this script, in the host's
+namespace) that answers each binding request after D ms, as the hub ticket's STUN server does
+across the internet; D < 0 never answers (a STUN server that is down or blocked).
+
 Each attempt is one fresh session (new keys, new link). Per attempt it records:
+  answer_ms       serve started (the viewer's offer reached the host) -> the host's answer is
+                  ready (candidates_done), when the app sends it through the hub
   connect_ms      answer handed to the viewer -> host prints {"connected":true}
   first_frame_ms  the viewer's own clock: answer read -> first decoded marker
+  offer_to_first_frame_ms  answer_ms + first_frame_ms: the host's part of Connect -> picture
   g2g_ms          key press -> decoded marker, p50/p95 (input to photon)
   frames_per_s, mbit_per_s
   stalls_ms       with --blip-at: 100 % loss both ways for --blip-s seconds, then the time from
@@ -61,19 +68,52 @@ def setup(args):
     return [app, xvfb]
 
 
+STUN_PORT = 3478
+
+STUN_SERVER = r'''
+import socket, struct, sys, threading, time
+delay = float(sys.argv[2]) / 1000
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.bind((sys.argv[1], int(sys.argv[3])))
+def answer(req, peer):
+    time.sleep(delay)
+    ip = struct.unpack("!I", socket.inet_aton(peer[0]))[0] ^ 0x2112A442
+    attr = struct.pack("!HHBBHI", 0x0020, 8, 0, 1, peer[1] ^ 0x2112, ip)
+    s.sendto(struct.pack("!HHI", 0x0101, len(attr), 0x2112A442) + req[8:20] + attr, peer)
+while True:
+    req, peer = s.recvfrom(2048)
+    if len(req) >= 20 and req[:2] == b"\x00\x01" and delay >= 0:
+        threading.Thread(target=answer, args=(req, peer), daemon=True).start()
+'''
+
+
+def stun_server(delay_ms):
+    """A STUN binding responder in the host's namespace that answers after `delay_ms`."""
+    return subprocess.Popen(["ip", "netns", "exec", HOST_NS, sys.executable, "-I", "-c", STUN_SERVER,
+                             HOST_IP, str(delay_ms), str(STUN_PORT)],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def teardown():
     for ns in (HOST_NS, VIEW_NS):
         sh(f"ip netns del {ns}", check=False)
 
 
-def readline(proc, deadline):
+def unbuffered(stream):
+    """A child's stdout with no read-ahead. select() waits on the descriptor, so a buffered
+    readline() that pulled a whole burst in (key, candidates, candidates_done in one write)
+    leaves the rest where select() never sees it, and the next wait sits out its timeout."""
+    return os.fdopen(os.dup(stream.fileno()), "rb", buffering=0)
+
+
+def readline(out, deadline):
     while True:
         left = deadline - time.time()
         if left <= 0:
             return None
-        r, _, _ = select.select([proc.stdout], [], [], left)
+        r, _, _ = select.select([out], [], [], left)
         if r:
-            return proc.stdout.readline()
+            return out.readline()
 
 
 def attempt(args, n):
@@ -85,22 +125,25 @@ def attempt(args, n):
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
     host = None
     try:
-        line = readline(viewer, time.time() + 10)
+        viewer_out = unbuffered(viewer.stdout)
+        line = readline(viewer_out, time.time() + 10)
         viewer_key = json.loads(line)["key"]
+        stun = [f"{HOST_IP}:{STUN_PORT}"] if args.stun_delay_ms is not None else []
+        t_offer = time.time()
         host = subprocess.Popen(["ip", "netns", "exec", HOST_NS, *args.host_wrap.split(), args.bin, "serve", "--display",
                                  args.display, "--profile", "baseline", *args.serve_arg],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, bufsize=1)
         host.stdin.write(json.dumps({"session": session, "peer_key": viewer_key, "scope": "control",
-                                     "stun": [], "display": args.display,
+                                     "stun": stun, "display": args.display,
                                      "viewer": {"user": "viewer", "install": "bench"}}) + "\n")
         host.stdin.flush()
+        host_out = unbuffered(host.stdout)
         host_key, cands = None, []
         dl = time.time() + 10
         while True:
-            # Once the key and a candidate are in, wait only briefly for more: serve with
-            # no STUN prints no candidates_done, and the handshake clock is already running.
-            line = readline(host, min(dl, time.time() + 0.2) if host_key and cands else dl)
+            # The answer waits for candidates_done, as the app's does (serve always prints it).
+            line = readline(host_out, dl)
             if not line:
                 break
             msg = json.loads(line)
@@ -114,12 +157,13 @@ def attempt(args, n):
         rec["host_candidates"] = cands
         cands = [c for c in cands if HOST_IP in c or args.one_ns] or cands
         t0 = time.time()
-        viewer.stdin.write(json.dumps({"session": session, "peer_key": host_key, "stun": [],
+        rec["answer_ms"] = round((t0 - t_offer) * 1000, 1)
+        viewer.stdin.write(json.dumps({"session": session, "peer_key": host_key, "stun": stun,
                                        "candidates": cands}) + "\n")
         viewer.stdin.flush()
         blip_done = args.blip_at is None
         blip_until = None
-        streams = {host.stdout: "host", viewer.stdout: "viewer"}
+        streams = {host_out: "host", viewer_out: "viewer"}
         deadline = t0 + args.timeout
         while streams and time.time() < deadline:
             if not blip_done and "connect_ms" in rec and time.time() - t0 >= args.blip_at:
@@ -145,6 +189,11 @@ def attempt(args, n):
                     rec.setdefault("viewer_candidates", []).append(msg["candidate"])
                     host.stdin.write(json.dumps(msg) + "\n")
                     host.stdin.flush()
+                elif who == "host" and "candidate" in msg:
+                    # Trickled after the answer (reflexive, relay), as the hub relays them.
+                    rec.setdefault("host_trickled", []).append(msg["candidate"])
+                    viewer.stdin.write(json.dumps(msg) + "\n")
+                    viewer.stdin.flush()
                 elif who == "host" and msg.get("connected"):
                     rec["connect_ms"] = round((time.time() - t0) * 1000, 1)
                 elif who == "host" and "path" in msg:
@@ -153,7 +202,7 @@ def attempt(args, n):
                     rec["host_ended"] = msg["ended"]
                 elif who == "viewer" and "g2g_ms" in msg:
                     rec["report"] = msg
-                    streams.pop(viewer.stdout, None)
+                    streams.pop(viewer_out, None)
             if "report" in rec:
                 break
         if blip_until:
@@ -161,6 +210,8 @@ def attempt(args, n):
         rep = rec.get("report")
         if rep:
             rec["first_frame_ms"] = rep.get("first_frame_ms")
+            if rec["first_frame_ms"] is not None:
+                rec["offer_to_first_frame_ms"] = round(rec["answer_ms"] + rec["first_frame_ms"], 1)
             rec["g2g_ms"] = rep.get("g2g_ms")
             rec["lost"] = rep.get("lost")
             rec["stalls_ms"] = rep.get("stalls_ms")
@@ -211,8 +262,11 @@ def main():
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--one-ns", action="store_true")
     ap.add_argument("--host-wrap", default="")
+    ap.add_argument("--stun-delay-ms", type=float, default=None)
     args = ap.parse_args()
     procs = setup(args)
+    if args.stun_delay_ms is not None:
+        procs.append(stun_server(args.stun_delay_ms))
     out = open(args.out, "a") if args.out else None
     try:
         for n in range(1, args.attempts + 1):

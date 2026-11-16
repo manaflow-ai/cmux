@@ -161,7 +161,17 @@ impl MediaSession {
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
-        let desktop = crate::desktop::open(cfg)?;
+        Ok(Self::with_desktop(crate::desktop::open(cfg)?, cfg, max_datagram, negotiated_caps, sink))
+    }
+
+    /// A session on a desktop opened earlier (`cmux-rd serve` opens it during the handshake).
+    pub fn with_desktop(
+        desktop: Box<dyn crate::desktop::Desktop>,
+        cfg: &SessionCfg,
+        max_datagram: usize,
+        negotiated_caps: &[String],
+        sink: Box<dyn UpstreamSink>,
+    ) -> Self {
         let (w, h) = desktop.size();
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
         let engine = MediaEngine::new(
@@ -179,7 +189,7 @@ impl MediaSession {
             },
             now_us(),
         );
-        Ok(Self {
+        Self {
             desktop,
             au: Vec::new(),
             engine,
@@ -192,7 +202,7 @@ impl MediaSession {
             cpu_last: (process_cpu_s(), now_ns()),
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
-        })
+        }
     }
 
     /// The streamed size (even; an odd last column or row of the display is not sent).

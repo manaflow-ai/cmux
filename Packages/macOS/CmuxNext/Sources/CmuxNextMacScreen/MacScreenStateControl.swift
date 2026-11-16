@@ -63,6 +63,9 @@ extension MacScreenPages {
         let timings = session.timings
         row["connect_started_at"] = timings.startedAt.map { .string($0.formatted(.iso8601)) } ?? .null
         row["first_frame_ms"] = timings.firstFrameMs.map(JSONValue.number) ?? .null
+        row["click_to_first_frame_ms"] = timings.clickToFirstFrameMs.map(JSONValue.number) ?? .null
+        let stages = timings.stagesMs
+        row["first_frame_stages_ms"] = stages.isEmpty ? .null : .object(Dictionary(uniqueKeysWithValues: stages.map { ($0.0, JSONValue.number($0.1)) }))
         let stats = session.stats
         row["fps"] = .number((stats.fps * 10).rounded() / 10)
         row["target_fps"] = stats.targetFps.map { .number(Double($0)) } ?? .null
