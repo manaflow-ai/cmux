@@ -1709,7 +1709,7 @@ public final class ComputerUseRuntimeService {
         }
     }
 
-    private func checkHelperHealth() async {
+    func checkHelperHealth() async {
         async let nativeListening = Self.isDaemonListening(
             paths: paths,
             transport: transport,
