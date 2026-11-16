@@ -116,8 +116,10 @@ nonisolated struct RemoteDecodeRangeBenchTests {
 }
 
 private nonisolated final class Collected: @unchecked Sendable {
-    // @unchecked: CMSampleBuffer is not Sendable; each one is only read after the encoder is done with it.
-    private let samples = Mutex<[CMSampleBuffer]>([])
-    func append(_ sample: CMSampleBuffer) { samples.withLock { $0.append(sample) } }
-    var all: [CMSampleBuffer] { samples.withLock { $0 } }
+    // @unchecked: `samples` is only touched under `lock`; CMSampleBuffer is not Sendable, and each one is
+    // only read after the encoder is done with it.
+    private let lock = NSLock()
+    private var samples: [CMSampleBuffer] = []
+    func append(_ sample: CMSampleBuffer) { lock.withLock { samples.append(sample) } }
+    var all: [CMSampleBuffer] { lock.withLock { samples } }
 }
