@@ -11001,6 +11001,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// (`acpmux-session-adopt`, a start from the page) only shows it and draws the chat's rows: the
   /// adopt event's task was one ~70 ms React pass building the whole view in New Tab's place.
   const premountsChatView = showNewTab && !harnessesOpen;
+  /// A chat view that showed and then went under a New Tab page (Cmd-T in this page, a host that
+  /// answered after its error) is built again: the hidden one is always a fresh mount, as the view
+  /// the adopt used to build, so no draft or picker state of the chat it showed carries over.
+  const chatViewMount = useRef({ shown: showsChatView, key: 0 });
+  if (chatViewMount.current.shown && !showsChatView) chatViewMount.current.key += 1;
+  chatViewMount.current.shown = showsChatView;
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
   /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
@@ -13691,7 +13697,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             />
           ) : null}
           {(showsChatView || premountsChatView) && (
-            <Activity mode={showsChatView ? "visible" : "hidden"}>
+            <Activity key={chatViewMount.current.key} mode={showsChatView ? "visible" : "hidden"}>
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
