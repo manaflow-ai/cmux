@@ -15,16 +15,34 @@ import Testing
 /// delay, never change that. The keys run the two actions' own handlers in a whole window (the `large` session); the
 /// daemon is a model (``TabKeysModelDaemon``) whose events and replies the seed hands over at random points.
 ///
-/// One run for each seed gives three results, each its own test:
+/// One run for each seed gives four results, each its own test:
 /// - `order`: the strip's tab list and its selected tab are the oracle's at once after each key, after the key's turn
 ///   and after each delivery; at the end the daemon's list and the store's list are the oracle's too.
 /// - `shown`: after each turn the pane shows the selected tab (the test makes the frame's own call).
 /// - `focus`: after each turn the key focus is on that tab, where it is a tab the keys made.
+/// - `typed` (the seeds with letter keys): a letter key directly after a New Tab key is for the new tab. The window's
+///   key hold takes it; the hold then lives, with no field ready, while a tab the keys made is selected and until
+///   the next Close Tab key; and the view that had the keyboard before the first New Tab key gets no key.
+///
+/// The whole tree. The daemon sends a `tree-changed` for each close and for each move, and the app answers each one
+/// with a read of the whole tree. This store has no driver, so the test makes the steps of `DaemonStore.resync()`
+/// itself: while the tree is owed the store gets no event (the driver holds its inbox), a reply can still arrive, and
+/// the tree that arrives is the daemon's of that moment. The events that reached the inbox meanwhile apply in the same
+/// turn as the tree: 3 of 4 times each waiting event, else a count the seed picks, so that the tree can hold a tab
+/// whose event the store did not get yet. The failure text says for each tree which events the store had.
 ///
 /// Limits. A turn is a fixed count of yields and of round trips through the connection and the thread pool, not a
-/// proof that each task ended. The model makes no full tree refresh for a move and no selection events. The placement
-/// overlay's wall-clock limits are not controlled. The store's list is compared at the end only: between a create and
-/// its move the store holds the tab at the end of the pane. Close Tab is pressed only on a tab the keys made.
+/// proof that each task ended. The test copies the driver's steps; it does not run the driver, and a tree that the
+/// app asks for with no `tree-changed` is not served. The model makes no selection events. The placement overlay's
+/// wall-clock limits are not controlled. The store's list is compared at the end only: between a create and its move
+/// the store holds the tab at the end of the pane. Close Tab is pressed only on a tab the keys made.
+///
+/// Limits of `typed`. The two keys go through the action registry, so the hold's own rule for a chord key (the keys
+/// typed before a chord go on first) does not run. No page reports its field ready here (the inert address), so that
+/// the field got the letter is not asserted. The hold's time limit never passes in these seeds (its clock stands
+/// still). The letter comes directly after the key's handler, before the app's next turn. A hold that ends with no
+/// field ready sends its keys on as the product does, to what has the keyboard then. The seeds with no letter keys
+/// have no probe view and the hold's own clock.
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(10)))
 struct TabKeysOrderFuzzTests {
     /// One key list and its deliveries: all of it follows from `value`.
@@ -33,14 +51,18 @@ struct TabKeysOrderFuzzTests {
         let keys: Int
         /// Close Tab at each `closeEvery`-th key of a held New Tab; nil: the two keys mixed at random.
         let closeEvery: Int?
-        var testDescription: String { "seed \(value): \(keys) keys, \(closeEvery.map { "held, a close at each \($0)th" } ?? "mixed")" }
+        /// A letter key directly after about half of the New Tab keys.
+        var letters = false
+        var testDescription: String {
+            "seed \(value): \(keys) keys, \(closeEvery.map { "held, a close at each \($0)th" } ?? "mixed")\(letters ? ", letter keys" : "")"
+        }
     }
 
     nonisolated static let seeds: [Seed] = [
         Seed(value: 1, keys: 6, closeEvery: 3), Seed(value: 2, keys: 10, closeEvery: nil),
-        Seed(value: 3, keys: 16, closeEvery: 4), Seed(value: 4, keys: 24, closeEvery: nil),
+        Seed(value: 3, keys: 16, closeEvery: 4, letters: true), Seed(value: 4, keys: 24, closeEvery: nil, letters: true),
         Seed(value: 5, keys: 32, closeEvery: 8), Seed(value: 6, keys: 48, closeEvery: nil),
-        Seed(value: 7, keys: 64, closeEvery: 16), Seed(value: 8, keys: 100, closeEvery: nil),
+        Seed(value: 7, keys: 64, closeEvery: 16, letters: true), Seed(value: 8, keys: 100, closeEvery: nil, letters: true),
     ]
 
     /// What one seed's run found: the first difference of each class, nil for none.
@@ -50,9 +72,12 @@ struct TabKeysOrderFuzzTests {
         var order: String?
         var shown: String?
         var focus: String?
+        var typed: String?
+        /// The run could not test the letter keys: a cause of the fixture, not of the product.
+        var typedSetup: String?
     }
 
-    /// One run for each seed, shared by the three tests.
+    /// One run for each seed, shared by its tests.
     private static var outcomes: [UInt64: Outcome] = [:]
 
     static func outcome(_ seed: Seed) async throws -> Outcome {
@@ -87,6 +112,21 @@ struct TabKeysOrderFuzzTests {
         #expect(outcome.setup == nil, "\(seed.testDescription): \(outcome.setup ?? "")")
         #expect(outcome.focus == nil, "\(seed.testDescription): \(outcome.focus ?? "")")
     }
+
+    @Test(arguments: seeds.filter(\.letters))
+    func aLetterKeyAfterNewTabWaitsInTheKeyHoldForTheNewTab(seed: Seed) async throws {
+        let outcome = try await Self.outcome(seed)
+        #expect(outcome.setup == nil, "\(seed.testDescription): \(outcome.setup ?? "")")
+        #expect(outcome.typedSetup == nil, "\(seed.testDescription): \(outcome.typedSetup ?? "")")
+        #expect(outcome.typed == nil, "\(seed.testDescription): \(outcome.typed ?? "")")
+    }
+}
+
+/// Stands for the view that had the keyboard before the first New Tab key: it counts each key it gets.
+final class TabKeysKeyProbe: NSView {
+    var keys = 0
+    override var acceptsFirstResponder: Bool { true }
+    override func keyDown(with event: NSEvent) { keys += 1 }
 }
 
 /// One seed's run in one window: the keys, the deliveries and the comparisons.
@@ -105,6 +145,16 @@ struct TabKeysOrderFuzzTests {
     private var opened = 0
     private var found = TabKeysOrderFuzzTests.Outcome()
     private var trace: [String] = []
+    /// The tree the session started from: the model's tree is this one with the pane's tabs replaced.
+    private let base: DaemonTree
+    /// The store asked for the whole tree, and the tree did not arrive yet.
+    private var treeOwed = false
+    /// The newest event sequence the store got: what the driver's inbox calls taken.
+    private var handed: UInt64 = 0
+    private let input: NewTabInputCoordinator
+    private var probe: TabKeysKeyProbe?
+    /// The window's key hold took a letter key, and no Close Tab key came after it.
+    private var lettersWait = false
 
     init(_ seed: TabKeysOrderFuzzTests.Seed, store: DaemonStore, controller: WindowController) throws {
         let services = controller.services
@@ -123,6 +173,8 @@ struct TabKeysOrderFuzzTests {
         self.store = store
         self.controller = controller
         self.pane = pane
+        input = services.keyRouter.newTabInputCoordinator
+        base = LargeSessionWindowFixture.tree(.large)
         names = Dictionary(uniqueKeysWithValues: start.enumerated().map { ($0.element, "s\($0.offset)") })
         oracle = TabKeysOracle(tabs: start.indices.map { "s\($0)" }, selected: "s\(selectedIndex)")
         random = TabKeysRandom(seed: seed.value)
@@ -139,6 +191,19 @@ struct TabKeysOrderFuzzTests {
         configuration.answers.answerer = TabKeysModelDaemon.Answerer(model)
         connection = DaemonConnection(configuration: configuration, endpointProvider: { throw DaemonError.notConnected })
         pane.daemon.connection = connection
+        if seed.letters {
+            // The hold's limit is a time on the clock: it never passes in this run.
+            let began = input.now()
+            input.now = { began }
+            input.scheduleDeadline = { _, _ in Task {} }
+            let probe = TabKeysKeyProbe(frame: CGRect(x: 0, y: 0, width: 10, height: 10))
+            pane.view.addSubview(probe)
+            if let window = pane.view.window, window.makeFirstResponder(probe), window.firstResponder === probe {
+                self.probe = probe
+            } else {
+                found.typedSetup = "fixture: the probe view did not get the keyboard before the first key, so no letter key was typed"
+            }
+        }
         trace.append("start: \(oracle.tabs.joined(separator: " ")) [\(oracle.selected ?? "-")], shows \(pane.currentTabKey.map { name($0) } ?? "-"), "
             + "focus \(controller.focus.currentState().resolved.tab.map { name($0) } ?? "-")")
     }
@@ -147,22 +212,26 @@ struct TabKeysOrderFuzzTests {
     func outcome() async -> TabKeysOrderFuzzTests.Outcome {
         for number in 1...seed.keys where found.setup == nil && found.order == nil {
             await press(number)
-            for _ in 0..<random.next(in: 0...3) where found.setup == nil && found.order == nil {
+            // Up to 5: a key makes about 5 deliveries (a create's event and reply; a move's 2 events, reply and tree).
+            for _ in 0..<random.next(in: 0...5) where found.setup == nil && found.order == nil {
                 guard let what = await deliver() else { break }
                 compare("after \(what) (key \(number) was the last key)")
             }
         }
         // Each reply goes back, also after a difference: no request stays open when the window closes.
         var rounds = 0
-        while model.pendingEvents + model.pendingReplies > 0, rounds < seed.keys * 20 + 50 {
+        while owed, rounds < seed.keys * 20 + 50 {
             guard let what = await deliver() else { break }
             rounds += 1
             if found.setup == nil, found.order == nil { compare("after \(what) (all keys pressed)") }
         }
-        if model.pendingEvents + model.pendingReplies > 0 { fail(\.setup, "the daemon still had events or replies after \(rounds) deliveries") }
+        if owed { fail(\.setup, "the daemon still had events, replies or a tree to give after \(rounds) deliveries") }
         if found.setup == nil, found.order == nil { compareEnd() }
         return found
     }
+
+    /// The daemon has an event, a reply or the tree to hand over.
+    private var owed: Bool { model.pendingEvents + model.pendingReplies > 0 || treeOwed }
 
     // MARK: Keys
 
@@ -174,6 +243,7 @@ struct TabKeysOrderFuzzTests {
         if closes, let target = oracle.selected {
             point = "key \(number) (Close Tab on \(target))"
             trace.append(point)
+            lettersWait = false
             let ran = registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
             oracle.close(target)
             if !ran { return fail(\.order, "\(point): the action was refused") }
@@ -195,6 +265,7 @@ struct TabKeysOrderFuzzTests {
             }
         }
         compare("\(point), at once", frame: false)
+        if !closes { typeLetter(point) }
         await turn()
         if model.creates.count != opened {
             return fail(\.setup, "\(point): \(model.creates.count) create requests arrived for \(opened) New Tab keys in the keys' turns")
@@ -202,25 +273,94 @@ struct TabKeysOrderFuzzTests {
         compare("\(point), after its turn")
     }
 
+    /// The seeds with letter keys: one letter key for the window's key hold, directly after about half of the New Tab
+    /// keys and before the app's next turn.
+    private func typeLetter(_ point: String) {
+        guard seed.letters, random.next(in: 0...1) == 0, found.typed == nil, found.typedSetup == nil else { return }
+        guard let window = pane.view.window,
+              let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                         context: nil, characters: "x", charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7) else {
+            return fail(\.typedSetup, "fixture: \(point): the pane has no window or no key event could be made")
+        }
+        trace.append("a letter key")
+        if input.capture(key, in: window) {
+            lettersWait = true
+        } else {
+            fail(\.typed, "\(point): the window's key hold did not take a letter key typed directly after it. \(holdLog)")
+        }
+    }
+
+    /// The end of the hold's own log. It holds no text of a key.
+    private var holdLog: String { "The hold's log ends: \(input.log.suffix(6).joined(separator: " | "))" }
+
+    /// The letter keys against their rule: they wait in the window's hold, and the view that had the keyboard before
+    /// the first New Tab key gets none.
+    private func compareLetters(_ point: String) {
+        if let probe, probe.keys > 0 {
+            fail(\.typed, "\(point): the view that had the keyboard before the first New Tab key got \(probe.keys) keys. \(holdLog)")
+        }
+        guard lettersWait, let window = pane.view.window, !input.isHolding(in: window) else { return }
+        lettersWait = false
+        // A hold that gave its keys to a field that reported ready ended as it must.
+        if input.log.last(where: { $0.hasPrefix("release") || $0.hasPrefix("drained to field") })?.hasPrefix("drained to field") == true { return }
+        fail(\.typed, "\(point): the hold with the letter keys ended with no field ready while \(oracle.selected ?? "-") is selected. \(holdLog)")
+    }
+
     // MARK: Deliveries
 
-    /// Hands over the daemon's next events (1 to 3, as one batch) or one of its waiting replies, and gives the app a
-    /// turn. Nil: the daemon has nothing to hand over.
+    /// Hands over the daemon's next events (1 to 3, as one batch), one of its waiting replies or the tree the store
+    /// asked for, and gives the app a turn. Nil: the daemon has nothing to hand over.
     private func deliver() async -> String? {
         let events = model.pendingEvents, replies = model.pendingReplies
-        guard events + replies > 0 else { return nil }
+        guard owed else { return nil }
         let what: String
-        if replies == 0 || (events > 0 && random.next(in: 0...1) == 0) {
-            let batch = model.takeEvents(random.next(in: 1...3))
-            let followup = store.apply(batch: batch)
-            what = "events \(batch.map { String($0.sequence) }.joined(separator: ","))"
-            if followup != .none { fail(\.setup, "\(what): the store asked for \(followup), which the model does not serve") }
+        if treeOwed {
+            // The driver holds its inbox until the tree arrives: only the tree or a reply comes now.
+            what = replies == 0 || random.next(in: 0...1) == 0 ? serveTree() : "the reply of " + model.deliverReply(random.next(in: 0...(replies - 1)))
+        } else if replies == 0 || (events > 0 && random.next(in: 0...1) == 0) {
+            what = apply(model.takeEvents(random.next(in: 1...3)))
         } else {
             what = "the reply of " + model.deliverReply(random.next(in: 0...(replies - 1)))
         }
         trace.append(what)
         await turn()
         return what
+    }
+
+    /// Gives a batch to the store as the driver's drain does: a batch that needs the whole tree makes the tree owed.
+    private func apply(_ batch: [DaemonEventEnvelope]) -> String {
+        let what = "events \(batch.map { String($0.sequence) }.joined(separator: ","))"
+        handed = max(handed, batch.map(\.sequence).max() ?? 0)
+        switch store.apply(batch: batch) {
+        case .none:
+            return what
+        case .resync:
+            treeOwed = true
+            return what + " (the store asks for the tree)"
+        case .personal:
+            fail(\.setup, "\(what): the store asked for the personal state, which the model does not serve")
+            return what
+        }
+    }
+
+    /// The tree arrives: the steps of `DaemonStore.resync()` after its snapshot request. The tree and its barrier are
+    /// the daemon's of this moment; the store may acknowledge only the events it got; then the events that reached the
+    /// held inbox (the seed picks how many of the waiting ones) apply in the same turn.
+    private func serveTree() -> String {
+        treeOwed = false
+        guard let snapshot = model.snapshot(of: base) else {
+            fail(\.setup, "the model daemon holds a tab with no entity, so it has no tree to give")
+            return "no tree"
+        }
+        // 3 of 4 times all of them: the daemon wrote each one before the tree, so only the app's own pump can hold one back.
+        let inbox = random.next(in: 0...3) == 0 ? random.next(in: 0...model.pendingEvents) : model.pendingEvents
+        store.apply(snapshot: snapshot.tree)
+        store.snapshotBarrier = max(store.snapshotBarrier, snapshot.barrier)
+        let consumed = min(snapshot.barrier, handed)
+        store.snapshotCoveredPersonal(through: consumed)
+        store.advanceAppliedSequence(to: consumed)
+        let what = "the tree to \(snapshot.barrier) (the store had the events to \(handed))"
+        return inbox > 0 ? what + ", then " + apply(model.takeEvents(inbox)) : what
     }
 
     /// Lets the app's tasks run: the main actor's queue, one round trip through the connection, one through the
@@ -251,6 +391,7 @@ struct TabKeysOrderFuzzTests {
     /// The strip against the oracle; with `frame`, also the shown tab and the key focus after the frame's call.
     private func compare(_ point: String, frame: Bool = true) {
         learnNames()
+        compareLetters(point)
         let strip = pane.orderedIDs.map { name($0.rawValue) }
         let selected = pane.stripModel.selectedID.map { name($0.rawValue) }
         let want = "\(oracle.tabs.joined(separator: " ")) [\(oracle.selected ?? "-")]"
