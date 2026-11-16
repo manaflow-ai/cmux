@@ -108,6 +108,80 @@ pub(crate) fn ensure(hub: &str, access: &str, acp: &mut Acp<'_>) -> ThisMac {
     }
 }
 
+/// Where the this-mac step's time went: this Mac's own join (with its daemon restart), then the
+/// wait for the hub to list the machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct Timing {
+    pub join_ms: u64,
+    pub listed_ms: u64,
+}
+
+/// The this-mac step's result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Done {
+    pub state: ThisMac,
+    /// The name the hub lists the machine by ([`mesh_names`]), None when it listed none in time.
+    pub listed_as: Option<String>,
+    pub timing: Timing,
+}
+
+impl Done {
+    /// The `--json` answer's `thisMac`.
+    pub(crate) fn to_value(&self) -> Value {
+        let mut mac = serde_json::json!({
+            "state": self.state.as_str(),
+            "listed": self.listed_as.is_some(),
+            "joinMs": self.timing.join_ms,
+            "listedMs": self.timing.listed_ms,
+        });
+        if let Some(name) = &self.listed_as {
+            mac["listedAs"] = Value::from(name.as_str());
+        }
+        if let ThisMac::Blocked { message, next } = &self.state {
+            mac["message"] = Value::from(message.as_str());
+            mac["next"] = Value::from(next.as_str());
+        }
+        mac
+    }
+}
+
+/// The this-mac step for the machine `name` that reported the host name `hostname`: this Mac on
+/// `hub`'s mesh ([`ensure`]), then the wait for the hub to list the machine ([`listed`], at most
+/// `within`), each step timed.
+pub(crate) fn run(
+    hub: &str,
+    access: &str,
+    name: &str,
+    hostname: Option<&str>,
+    within: Duration,
+    acp: &mut Acp<'_>,
+) -> Done {
+    let began = Instant::now();
+    let state = ensure(hub, access, acp);
+    let join_ms = began.elapsed().as_millis() as u64;
+    let listed_as = if matches!(state, ThisMac::Blocked { .. }) {
+        None
+    } else {
+        listed(&mesh_names(name, hostname), within, acp)
+    };
+    let listed_ms = (began.elapsed().as_millis() as u64).saturating_sub(join_ms);
+    Done { state, listed_as, timing: Timing { join_ms, listed_ms } }
+}
+
+/// The add's last line: the machine, the whole command's `seconds`, and what this Mac can do now.
+pub(crate) fn added_line(name: &str, seconds: u64, this_mac: Option<&Done>) -> String {
+    let chat = format!("cmux chat --on {} --prompt '…'", super::shell_word(name));
+    match this_mac {
+        Some(Done { state: ThisMac::Blocked { message, next }, .. }) => format!(
+            "Added {name} in {seconds} s, but this Mac cannot start chats there yet: {message}\nnext: {next}"
+        ),
+        Some(Done { listed_as: None, .. }) => format!(
+            "Added {name} in {seconds} s. The hub has not listed it to this Mac yet; in a few seconds: {chat}"
+        ),
+        _ => format!("Added {name} in {seconds} s. It runs your agents now: {chat}"),
+    }
+}
+
 fn blocked(message: &str, next: &str) -> ThisMac {
     ThisMac::Blocked { message: message.to_owned(), next: next.to_owned() }
 }
@@ -116,30 +190,43 @@ fn blocked(message: &str, next: &str) -> ThisMac {
 pub(crate) const LISTED_WITHIN: Duration = Duration::from_secs(20);
 const LISTED_EVERY: Duration = Duration::from_millis(1000);
 
-/// Whether this Mac's acpmux lists `name` through the hub (`acp host ls`, a `via: "hub"` row),
-/// read until `within` passes.
-pub(crate) fn listed(name: &str, within: Duration, acp: &mut Acp<'_>) -> bool {
+/// The names the hub's mesh may list the machine `name` by, in the order `cmux chat --on NAME`
+/// tries them (`cli/chat_start/joined.rs` `machine`): the name it joined with, which a current
+/// acpmux heartbeats with, then the host name it reported, which an acpmux released before that
+/// heartbeats with (Door A timing run, huge-blue/doora-timing, 2026-11-16: the VM installs the
+/// released acpmux, so `doora-vm-1` was on the mesh as `ubuntu` and the add waited out its 20 s).
+pub(crate) fn mesh_names<'a>(name: &'a str, hostname: Option<&'a str>) -> Vec<&'a str> {
+    let mut names = vec![name];
+    if let Some(host) = hostname.filter(|host| !host.is_empty() && !host.eq_ignore_ascii_case(name))
+    {
+        names.push(host);
+    }
+    names
+}
+
+/// The first of `names` this Mac's acpmux lists through the hub (`acp host ls`, a `via: "hub"`
+/// row), read until `within` passes; None when the hub listed none of them by then.
+pub(crate) fn listed(names: &[&str], within: Duration, acp: &mut Acp<'_>) -> Option<String> {
     let deadline = Instant::now() + within;
     loop {
         let rows = acp(&["host", "ls", "--json"], None).ok();
-        let found = rows
+        let hub_rows: Vec<&str> = rows
             .as_ref()
             .and_then(|answer| answer.get("peers"))
             .and_then(Value::as_array)
-            .is_some_and(|peers| {
-                peers.iter().any(|peer| {
-                    peer.get("via").and_then(Value::as_str) == Some("hub")
-                        && peer
-                            .get("name")
-                            .and_then(Value::as_str)
-                            .is_some_and(|listed| listed.eq_ignore_ascii_case(name))
-                })
-            });
-        if found {
-            return true;
+            .into_iter()
+            .flatten()
+            .filter(|peer| peer.get("via").and_then(Value::as_str) == Some("hub"))
+            .filter_map(|peer| peer.get("name").and_then(Value::as_str))
+            .collect();
+        let found = names
+            .iter()
+            .find(|name| hub_rows.iter().any(|listed| listed.eq_ignore_ascii_case(name)));
+        if let Some(found) = found {
+            return Some((*found).to_owned());
         }
         if Instant::now() + LISTED_EVERY > deadline {
-            return false;
+            return None;
         }
         // timeout: short-gate: one local acpmux read a second, bounded by `within`.
         std::thread::sleep(LISTED_EVERY);
