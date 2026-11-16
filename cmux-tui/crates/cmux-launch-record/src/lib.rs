@@ -435,12 +435,12 @@ pub unsafe extern "C" fn cmux_launch_record_front_window(
     if path.is_null() || out.is_null() {
         return false;
     }
+    let o = unsafe { &mut *out };
+    *o = CmuxLaunchWindow::default();
     let p = unsafe { CStr::from_ptr(path) };
     let Ok(p) = p.to_str() else { return false };
     let Some(record) = LaunchRecord::read(p) else { return false };
     let Some(w) = record.front_window() else { return false };
-    let o = unsafe { &mut *out };
-    *o = CmuxLaunchWindow::default();
     o.frame_x = w.frame.x;
     o.frame_y = w.frame.y;
     o.frame_width = w.frame.width;
