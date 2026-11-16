@@ -184,7 +184,8 @@ final class AgentCLIHybridBench {
     }
 }
 
-/// Cells of the phone's screen equal to the Mac's (text only), over the Mac's grid. The rows are
+/// Cells of the phone's screen equal to the Mac's (text only; a no-break space equals a space),
+/// over the Mac's grid. The rows are
 /// aligned at the bottom: the phone's text rows hold its scrollback above the screen.
 struct Parity {
     var same = 0
@@ -213,7 +214,9 @@ struct Parity {
             for column in 0..<columns {
                 let a = column < phoneRow.count ? phoneRow[column] : " "
                 let b = column < macRow.count ? macRow[column] : " "
-                if a == b {
+                // A no-break space is a blank, as cmux-tui's `Cell::is_blank` counts it: the
+                // hybrid stream sends it as one (it looks the same), the PTY as itself.
+                if a == b || (a == " " || a == "\u{a0}") && (b == " " || b == "\u{a0}") {
                     same += 1
                 } else if differing.count < 6 {
                     differing.append("\(row),\(column) \(a)|\(b)")
