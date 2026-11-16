@@ -46,10 +46,11 @@ final class CEFResizeFences {
             // This app's own deadline: the commit never waits longer than the GPU's deadline and one refresh.
             let clock = clock
             let after = Duration.milliseconds(Int64(timeoutMs)) + .microseconds(Int64(max(refreshMs, 1) * 1_000))
-            fence.deadline = Task { [weak fence] in
+            // The task holds the fence (and so its port) until the deadline or `drop()`: once the turn ended nothing
+            // else does, and a fence freed with its send right would hold the window's commits for good.
+            fence.deadline = Task {
                 // wakeup-allow: one-shot deadline of one resize turn (a frame or two), cancelled when every page reported
                 do { try await clock.sleep(for: after) } catch { return }
-                guard let fence else { return }
                 if fence.outstanding > 0 { CEFHostView.trackerStats.resizeFencesExpired += 1 }
                 fence.drop()
             }
