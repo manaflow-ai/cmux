@@ -126,7 +126,9 @@ import Testing
                     if let bytes { model.write(bytes) }
                     outcome.draws += 1
                     guard outcome.wrong == nil else { continue }
-                    guard stream == fixture.stream, let reference = fixture.screen(connection: connection, frame: frame) else {
+                    // Judged by its grid: a keyframe is a whole screen, so one renamed to a stream the
+                    // Mac never sent still draws right when its cells are the screen at that frame.
+                    guard let reference = fixture.screen(connection: connection, frame: frame) else {
                         outcome.wrong = "drew frame \(frame) of \(stream), which the Mac never sent"
                         continue
                     }
@@ -169,27 +171,38 @@ import Testing
             let resume = segment[0].base.map { (stream: fixture.stream, frame: $0) }
             var lines = segment.map { lean ? HybridWire.leanLine($0.lean) : HybridWire.v1Line($0, stream: fixture.stream) }
             var applied: [Mutation] = []
-            var mustFallBack = false
+            // The recorded step each line carries (nil: an inserted line) and whether it is one the
+            // phone must refuse, kept in step with `lines` through every mutation: a later drop may
+            // take a bad line out again.
+            var origin: [Int?] = segment.indices.map { Optional($0) }
+            var bad = [Bool](repeating: false, count: lines.count)
+            func insert(_ line: Data, at index: Int, bad isBad: Bool, origin from: Int? = nil) {
+                lines.insert(line, at: index)
+                bad.insert(isBad, at: index)
+                origin.insert(from, at: index)
+            }
+            func replace(_ index: Int, _ line: Data, bad isBad: Bool) {
+                lines[index] = line
+                bad[index] = isBad
+            }
             for _ in 0..<Int.random(in: 1...3, using: &rng) {
                 var kind = Mutation.allCases.randomElement(using: &rng) ?? .truncate
                 if !lean, kind == .garbageFrame { kind = .flipByte }
                 let at = Int.random(in: 1..<lines.count, using: &rng)
-                let step = segment[min(at, segment.count - 1)]
+                let step = segment[origin[at] ?? origin[...at].compactMap { $0 }.last ?? 0]
                 let rows = step.rows
                 let columns = step.columns
                 switch kind {
                 case .truncate:
                     if lean {
                         let length = Int.random(in: 0..<max(1, step.lean.count), using: &rng)
-                        lines[at] = HybridWire.leanLine(step.lean.prefix(length))
+                        replace(at, HybridWire.leanLine(step.lean.prefix(length)), bad: true)
                     } else {
                         let length = Int.random(in: 0..<max(1, step.delta.count), using: &rng)
-                        lines[at] = HybridWire.v1Line(step, stream: fixture.stream, delta: step.delta.prefix(length))
+                        replace(at, HybridWire.v1Line(step, stream: fixture.stream, delta: step.delta.prefix(length)), bad: true)
                     }
-                    mustFallBack = true
                 case .garbageLine:
-                    lines.insert(randomBytes(Int.random(in: 1...60, using: &rng), &rng) + Data([0x0A]), at: at)
-                    mustFallBack = true
+                    insert(randomBytes(Int.random(in: 1...60, using: &rng), &rng) + Data([0x0A]), at: at, bad: true)
                 case .spanOutOfGrid, .clearOutOfGrid, .cursorOutOfGrid, .shiftPastGrid, .controlInCell:
                     let cell = AgentCLIHybridFrame.Cell(text: "x", style: .plain)
                     let edge = Int.random(in: 0...2, using: &rng)
@@ -211,9 +224,9 @@ import Testing
                                                     row: 0, column: 0, cells: [.init(text: ["\u{1b}[2J", "\r", "a\u{08}"][edge], style: .plain)])
                         }
                         if kind == .spanOutOfGrid || kind == .controlInCell {
-                            lines[0] = HybridWire.leanLine(frame)
+                            replace(0, HybridWire.leanLine(frame), bad: true)
                         } else {
-                            lines.insert(HybridWire.leanLine(frame), at: at)
+                            insert(HybridWire.leanLine(frame), at: at, bad: true)
                         }
                     } else {
                         let delta: Data
@@ -233,23 +246,27 @@ import Testing
                             delta = HybridWire.delta(shift: 0, spans: [.set(row: 0, column: 0,
                                                                             cells: [.init(text: ["\u{1b}[2J", "\r", "a\u{08}"][edge], style: .plain)])])
                         }
-                        lines[at] = HybridWire.v1Line(step, stream: fixture.stream, delta: delta, cursor: cursor)
+                        replace(at, HybridWire.v1Line(step, stream: fixture.stream, delta: delta, cursor: cursor), bad: true)
                     }
-                    mustFallBack = true
                 case .duplicate:
-                    lines.insert(lines[at], at: at)
+                    insert(lines[at], at: at, bad: bad[at], origin: origin[at])
                 case .reorder:
-                    if at + 1 < lines.count { lines.swapAt(at, at + 1) }
+                    if at + 1 < lines.count {
+                        lines.swapAt(at, at + 1)
+                        bad.swapAt(at, at + 1)
+                        origin.swapAt(at, at + 1)
+                    }
                 case .drop:
                     lines.remove(at: at)
-                    if lines.count < 2 { lines.append(HybridWire.leanLine(Data())) }
+                    bad.remove(at: at)
+                    origin.remove(at: at)
+                    if lines.count < 2 { insert(HybridWire.leanLine(Data()), at: lines.count, bad: false) }
                 case .wrongBase:
                     if lean {
                         kind = .garbageFrame
-                        lines.insert(HybridWire.leanLine(randomBytes(Int.random(in: 1...24, using: &rng), &rng)), at: at)
+                        insert(HybridWire.leanLine(randomBytes(Int.random(in: 1...24, using: &rng), &rng)), at: at, bad: false)
                     } else {
-                        lines[at] = HybridWire.v1Line(step, stream: fixture.stream, base: .some((step.base ?? 0) + 100_000))
-                        mustFallBack = true
+                        replace(at, HybridWire.v1Line(step, stream: fixture.stream, base: .some((step.base ?? 0) + 100_000)), bad: true)
                     }
                 case .otherStream:
                     if lean {
@@ -257,18 +274,19 @@ import Testing
                         var bytes = step.lean
                         let position = Int.random(in: 0..<max(1, bytes.count), using: &rng)
                         if position < bytes.count { bytes[position] ^= UInt8(1 << Int.random(in: 0...7, using: &rng)) }
-                        lines[at] = HybridWire.leanLine(bytes)
+                        replace(at, HybridWire.leanLine(bytes), bad: false)
                     } else {
-                        lines[at] = HybridWire.v1Line(step, stream: "another-stream")
-                        mustFallBack = true
+                        // A frame on another stream cannot apply; a keyframe of one is a whole
+                        // screen (a resize starts a new stream), which the frame after it refuses.
+                        replace(at, HybridWire.v1Line(step, stream: "another-stream"), bad: step.base != nil)
                     }
                 case .flipByte:
                     var bytes = lean ? step.lean : step.delta
                     let position = Int.random(in: 0..<max(1, bytes.count), using: &rng)
                     if position < bytes.count { bytes[position] ^= UInt8(1 << Int.random(in: 0...7, using: &rng)) }
-                    lines[at] = lean ? HybridWire.leanLine(bytes) : HybridWire.v1Line(step, stream: fixture.stream, delta: bytes)
+                    replace(at, lean ? HybridWire.leanLine(bytes) : HybridWire.v1Line(step, stream: fixture.stream, delta: bytes), bad: false)
                 case .garbageFrame:
-                    lines.insert(HybridWire.leanLine(randomBytes(Int.random(in: 1...24, using: &rng), &rng)), at: at)
+                    insert(HybridWire.leanLine(randomBytes(Int.random(in: 1...24, using: &rng), &rng)), at: at, bad: false)
                 }
                 applied.append(kind)
             }
@@ -289,7 +307,7 @@ import Testing
             let caseName = "case \(index) \(fixture.name) \(form) \(applied.map(\.rawValue))"
             if outcome.drewAfterFallback { failures.append("\(caseName): drew after a fallback") }
             if tellable, let wrong = outcome.wrong { failures.append("\(caseName): \(wrong)") }
-            if tellable, mustFallBack, !outcome.fellBack { failures.append("\(caseName): no fallback") }
+            if tellable, bad.contains(true), !outcome.fellBack { failures.append("\(caseName): no fallback") }
         }
         #expect(failures.isEmpty, "\(failures.count) cases: \(failures.prefix(5))")
         let summary = (try? JSONSerialization.data(withJSONObject: tally, options: [.sortedKeys])).map { String(decoding: $0, as: UTF8.self) } ?? ""

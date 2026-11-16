@@ -58,10 +58,12 @@ fn daemon(
                 continue;
             }
             let Some(request) = read(&mut reader) else { break };
-            writeln!(writer, "{}", json!({"id": request["id"], "ok": true, "data": {}})).unwrap();
-            writeln!(writer, "{}", json!({"event": "output", "surface": 7, "data": "cGxhaW4="}))
-                .unwrap();
+            let id = request["id"].clone();
             requests.push(request);
+            // A viewer that has what it wanted may hang up before the event goes out.
+            let _ = writeln!(writer, "{}", json!({"id": id, "ok": true, "data": {}}));
+            let event = json!({"event": "output", "surface": 7, "data": "cGxhaW4="});
+            let _ = writeln!(writer, "{event}");
         }
         requests
     });
