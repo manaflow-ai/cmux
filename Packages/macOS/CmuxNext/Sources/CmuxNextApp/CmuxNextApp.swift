@@ -71,17 +71,16 @@ public struct CmuxNextApp {
         // The bundled CLI's Cloud environment read, off the main thread while AppKit starts; the daemon starts after it.
         let cloudEnvironment = CloudEnvironmentBootstrap.startAtLaunch(work: work)
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
-        CrashOnExceptions.register()
+        CrashOnExceptions.register(); DebugTimings.markLaunch("main.crash_handlers")
         // Instantiate the CEF-ready subclass before anything touches NSApp.
-        let app = CmuxApplication.shared
+        let app = CmuxApplication.shared; DebugTimings.markLaunch("main.nsapp_made")
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
         let delegate = AppDelegate(environment: environment, daemonPrestart: nil,
                                    launchReads: (work, launchImages, relaunchWake), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
-        app.delegate = delegate
+        DebugTimings.markLaunch("main.delegate_made"); app.delegate = delegate
         app.setActivationPolicy(.regular)
-        DebugTimings.markLaunch("main.nsapp")
-        DebugTimings.markLaunch("main.run")
+        DebugTimings.markLaunch("main.nsapp"); DebugTimings.markLaunch("main.run")
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {
             app.run()
