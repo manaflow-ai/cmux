@@ -1,0 +1,6 @@
+# #43826: a palette row that asks which joined machine (palette_target_source joined)
+/surfaces
+/surfacePlan/palette
+/paletteTarget
+/paletteTargetSource
+/computed/is_palette_visible

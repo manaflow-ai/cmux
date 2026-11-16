@@ -99,6 +99,9 @@ public final class MacScreenSession {
             return
         }
         phase = .connecting
+        // The first decoder session in a process is the slow one: make it now, in parallel with
+        // signaling and the host's capture start, not on the first keyframe.
+        RemoteDecoderPrewarm.start()
         isStalled = false
         frameSize = .zero
         stats = LiveStats()
