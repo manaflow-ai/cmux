@@ -169,7 +169,18 @@ impl Family for Source {
 /// the depth bound (`deeper`), and those under a cold row (a cold row's own kin, hot or cold, are
 /// in neither part of its parent's answer). A peer's row is never one, nor a row under one: v1's
 /// readers (`agent_session_children::descendants`, `chief_work::family`) leave peers out.
-pub(crate) fn kin(list: &mut impl Family, root: &str, max: usize) -> io::Result<Vec<Summary>> {
+///
+/// With `with_cold` false no snapshot part is asked, whatever a page says (decision 301): the
+/// hub says `coldUnread` whenever its snapshot is not empty, not when the key has cold kin, and
+/// a cold part is the snapshot's pager, read to its end at 256 KiB a request. So a hot-only
+/// read costs the hot kin alone, and a cold one about (closed rows / 400) requests a pass, for
+/// 1 + (cold rows found) passes.
+pub(crate) fn kin(
+    list: &mut impl Family,
+    root: &str,
+    max: usize,
+    with_cold: bool,
+) -> io::Result<Vec<Summary>> {
     let root = RowKey::new("local", root);
     let mut seen = HashSet::from([root.clone()]);
     let mut left_out = HashSet::new();
@@ -185,7 +196,7 @@ pub(crate) fn kin(list: &mut impl Family, root: &str, max: usize) -> io::Result<
         }
         let mut cold_unread = false;
         for cold in [false, true] {
-            if cold && !cold_unread {
+            if cold && !(with_cold && cold_unread) {
                 break;
             }
             list.family(&key, cold, &mut |page| {

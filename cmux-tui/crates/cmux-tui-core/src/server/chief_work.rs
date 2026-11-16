@@ -366,7 +366,7 @@ fn chief_kin(
             break;
         }
         let room = MAX_SESSIONS + 1 - owned.len();
-        for row in list_source::kin(&mut source, root, room).map_err(|_| UNAVAILABLE)? {
+        for row in list_source::kin(&mut source, root, room, true).map_err(|_| UNAVAILABLE)? {
             if owned.insert(row.chat_id.clone()) {
                 children.insert(row.chat_id.clone());
                 found.push(row);

@@ -12,6 +12,8 @@ struct Table {
     rows: Vec<(Summary, bool)>,
     depth: usize,
     asks: Vec<(String, bool)>,
+    /// Say `coldUnread` on every last hot page, as the hub does when its snapshot holds a row.
+    snapshot_held: bool,
 }
 
 fn key(row: &Summary) -> RowKey {
@@ -20,7 +22,7 @@ fn key(row: &Summary) -> RowKey {
 
 impl Table {
     fn new(depth: usize) -> Self {
-        Self { rows: Vec::new(), depth, asks: Vec::new() }
+        Self { rows: Vec::new(), depth, asks: Vec::new(), snapshot_held: false }
     }
 
     fn add(&mut self, origin: &str, id: &str, parent: Option<(&str, &str)>, hot: bool) {
@@ -84,7 +86,8 @@ impl Family for Table {
             FamilyPage { rows: self.cold(root), cold_unread: false, deeper: Vec::new() }
         } else {
             let (rows, deeper) = self.hot(root);
-            FamilyPage { rows, cold_unread: !self.cold(root).is_empty(), deeper }
+            let cold_unread = self.snapshot_held || !self.cold(root).is_empty();
+            FamilyPage { rows, cold_unread, deeper }
         };
         // Two rows a page, so the walk is paged.
         let FamilyPage { rows, cold_unread, deeper } = page;
@@ -122,7 +125,7 @@ fn a_cold_rows_kin_come_by_a_second_ask_and_peers_never() {
     table.add("peer", "p", Some(("local", "root")), true);
     table.add("local", "q", Some(("peer", "p")), true);
     table.add("local", "unrelated", None, true);
-    let found = kin(&mut table, "root", 256).unwrap();
+    let found = kin(&mut table, "root", 256, true).unwrap();
     assert_eq!(ids(&found), ["a", "b", "d", "c"]);
     assert_eq!(
         table.asks,
@@ -147,7 +150,7 @@ fn a_family_deeper_than_the_bound_is_asked_again_under_its_deeper_rows() {
         table.add("local", &id, Some(("local", &parent)), true);
         parent = id;
     }
-    let found = kin(&mut table, "root", 256).unwrap();
+    let found = kin(&mut table, "root", 256, true).unwrap();
     assert_eq!(ids(&found), ["n1", "n2", "n3", "n4", "n5", "n6", "n7"]);
     assert_eq!(table.asks.iter().filter(|(_, cold)| !cold).count(), 3);
 }
@@ -161,7 +164,28 @@ fn the_walk_stops_at_its_cap() {
         table.add("local", &format!("c{n}"), Some(("local", "root")), n % 2 == 0);
         table.add("local", &format!("g{n}"), Some(("local", &format!("c{n}"))), false);
     }
-    let found = kin(&mut table, "root", 4).unwrap();
+    let found = kin(&mut table, "root", 4, true).unwrap();
     assert_eq!(found.len(), 4);
     assert_eq!(table.asks, [("root".to_owned(), false)], "the hot part held the cap");
+}
+
+/// Decision 301: the attach reads the hot part only. The hub says `coldUnread` on every last
+/// hot page while its snapshot holds a row, cold kin or not, so a hot-only walk asks no cold
+/// part, whatever a page says, and never goes under a cold row.
+#[test]
+fn a_hot_only_walk_asks_no_cold_part_though_every_page_says_cold_unread() {
+    let mut table = Table::new(64);
+    table.snapshot_held = true;
+    table.add("local", "a", Some(("local", "root")), true);
+    table.add("local", "g", Some(("local", "a")), true);
+    table.add("local", "b", Some(("local", "a")), false);
+    table.add("local", "d", Some(("local", "b")), true);
+    let found = kin(&mut table, "root", 256, false).unwrap();
+    assert_eq!(ids(&found), ["a", "g"]);
+    assert_eq!(table.asks, [("root".to_owned(), false)], "one hot ask, no cold part");
+    // The same table read with its cold kin: the cold part is asked, as the hub's pages say.
+    table.asks.clear();
+    let found = kin(&mut table, "root", 256, true).unwrap();
+    assert_eq!(ids(&found), ["a", "g", "b", "d"]);
+    assert!(table.asks.contains(&("root".to_owned(), true)));
 }

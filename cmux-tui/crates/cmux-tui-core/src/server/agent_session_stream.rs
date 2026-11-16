@@ -96,16 +96,22 @@ pub(super) fn connect_and_attach(
     }
     let capabilities = link.capabilities(meta.as_ref(), CALL_TIMEOUT);
     // On the v2 list (row 7c) the one-row watch is the switch, and the descendants come by
-    // `page` with `family` (`agent_session_children::kin_ids`, the cap of 256 kept): no row
-    // but theirs is read. The watch goes on first, so a child started meanwhile is followed.
-    let kin = if capabilities.iter().any(|c| c == list_source::INFO_ROWS) {
-        let mut switch = watch.clone();
-        switch.set("limit", json!(1));
-        link.call("_acpmux/watch", switch, CALL_TIMEOUT)
-            .and_then(|_| agent_session_children::kin_ids(&socket, &link, &resolved))
+    // `page` with `family`, its hot part only (`agent_session_children::kin_ids`, the cap of
+    // 256 kept; decision 301): no row but theirs is read. The list is opened first, so a daemon
+    // without it gets v1's requests and no more; the watch goes on before the kin are read, so
+    // a child started meanwhile is followed.
+    let source = if capabilities.iter().any(|c| c == list_source::INFO_ROWS) {
+        agent_session_children::kin_source(&socket, &link)
     } else {
         Ok(None)
     };
+    let kin = source.and_then(|source| {
+        let Some(mut source) = source else { return Ok(None) };
+        let mut switch = watch.clone();
+        switch.set("limit", json!(1));
+        link.call("_acpmux/watch", switch, CALL_TIMEOUT)?;
+        agent_session_children::kin_ids(&mut source, &resolved, false).map(Some)
+    });
     let watched = match kin {
         Ok(Some(ids)) => Ok(ids),
         Err(error) => Err(error),

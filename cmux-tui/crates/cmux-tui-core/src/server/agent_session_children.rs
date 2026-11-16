@@ -123,36 +123,48 @@ pub(crate) fn descendants(root: &str, sessions: &[Value]) -> Vec<Value> {
     sessions.iter().zip(taken).filter(|(_, taken)| *taken).map(|(s, _)| s.clone()).collect()
 }
 
-/// `root`'s descendants through the v2 list (row 7c): their ids by `page` with `family`
-/// ([`list_source::kin`], at most [`MAX_CHILDREN`]), then their rows as `_acpmux/sessions`
-/// writes them, by id, in v1's order. `None`: the daemon serves no v2 list, or no rows by id
-/// (`info-rows-v1`), and the caller reads v1's list.
-pub(super) fn kin_ids(
+/// The v2 list (row 7c) the kin readers read through ([`kin_ids`]): `None` when the daemon
+/// serves no v2 list or no rows by id (`info-rows-v1`), and the caller reads v1's list.
+pub(super) fn kin_source(
     socket: &std::path::Path,
     link: &AcpmuxLink,
-    root: &str,
-) -> Result<Option<Vec<String>>, LinkError> {
+) -> Result<Option<list_source::Source>, LinkError> {
     if !link.capabilities(None, CALL_TIMEOUT).iter().any(|c| c == INFO_ROWS) {
         return Ok(None);
     }
-    let mut source = match list_source::open(socket, CALL_TIMEOUT).map_err(list_error)? {
-        Opened::List(source) => source,
-        Opened::V1 => return Ok(None),
-    };
-    let kin = list_source::kin(&mut source, root, MAX_CHILDREN).map_err(list_error)?;
-    Ok(Some(kin.into_iter().map(|row| row.chat_id).collect()))
+    Ok(match list_source::open(socket, CALL_TIMEOUT).map_err(list_error)? {
+        Opened::List(source) => Some(source),
+        Opened::V1 => None,
+    })
 }
 
-/// [`kin_ids`]' rows, as `_acpmux/sessions` writes them, in v1's order.
+/// `root`'s descendants' ids through `source` ([`list_source::kin`], at most
+/// [`MAX_CHILDREN`]). With `cold` false, the hot part only (the attach, decision 301): the hub
+/// says `coldUnread` whenever its snapshot is not empty, and a cold part is the snapshot's
+/// pager (256 KiB a request, its closed rows / 400 requests a pass, 1 + the cold kin found
+/// passes), so a cold read would grow an attach with the machine's closed chats. With `cold`,
+/// the cold kin too, at that cost (the children verb).
+pub(super) fn kin_ids(
+    source: &mut list_source::Source,
+    root: &str,
+    cold: bool,
+) -> Result<Vec<String>, LinkError> {
+    let kin = list_source::kin(source, root, MAX_CHILDREN, cold).map_err(list_error)?;
+    Ok(kin.into_iter().map(|row| row.chat_id).collect())
+}
+
+/// The attached session's descendants, cold kin too ([`kin_ids`]), then their rows by id as
+/// `_acpmux/sessions` writes them, in v1's order.
 fn kin_rows(attachment: &Attachment) -> Result<Option<Vec<Value>>, LinkError> {
     let Some(socket) =
         attachment.mux.upgrade().and_then(|mux| mux.control_clients.agent_sessions.socket())
     else {
         return Ok(None);
     };
-    let Some(ids) = kin_ids(&socket, &attachment.link, &attachment.session)? else {
+    let Some(mut source) = kin_source(&socket, &attachment.link)? else {
         return Ok(None);
     };
+    let ids = kin_ids(&mut source, &attachment.session, true)?;
     list_source::rows_by_id(&attachment.link, ids, CALL_TIMEOUT).map(Some)
 }
 
