@@ -114,6 +114,8 @@ pub struct PeerRow {
     /// The title a list without tools shows (`views::without_summary_tools`), when it is cut.
     short_title: Option<Box<str>>,
     hot: Hot,
+    /// Usage needs only this small projection, prepared once while the row is already parsed.
+    usage: Option<Arc<super::usage_order::Entry>>,
 }
 
 /// Two rows are the same when their text is: what changed detection compares.
@@ -140,6 +142,12 @@ impl PeerRow {
     /// `summary`, packed.
     pub fn new(summary: &Value) -> Self {
         let hot = Hot::of(summary);
+        let key = match (hot.peer.as_deref(), hot.session_id.as_deref()) {
+            (Some(peer), Some(id)) => format!("{peer}/{id}"),
+            (_, Some(id)) => id.to_owned(),
+            _ => String::new(),
+        };
+        let usage = super::usage_order::Entry::new(key, summary).map(Arc::new);
         let Some(map) = summary.as_object() else {
             return Self { base: json_text(summary).into(), hot, ..Self::default() };
         };
@@ -165,7 +173,7 @@ impl PeerRow {
             base.push_str(&json_text(value));
         }
         base.push('}');
-        Self { base: base.into(), apart: apart.into(), short_title, hot }
+        Self { base: base.into(), apart: apart.into(), short_title, hot, usage }
     }
 
     /// The row as JSON text: every member, `stale` as `stale` says (else as kept), `peerState`
@@ -253,6 +261,11 @@ impl PeerRow {
             *self = Self::new(&summary);
         }
         changed
+    }
+
+    pub(super) fn usage_entry(&self, key: &str) -> Option<Arc<super::usage_order::Entry>> {
+        let entry = self.usage.as_ref()?;
+        if entry.key == key { Some(entry.clone()) } else { entry.with_key(key).map(Arc::new) }
     }
 
     pub fn session_id(&self) -> Option<&str> {

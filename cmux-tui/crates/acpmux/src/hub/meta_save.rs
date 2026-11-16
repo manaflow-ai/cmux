@@ -341,6 +341,7 @@ impl Hub {
 
     /// The commit of the change just made to `session`'s metadata (module text).
     fn commit_meta(&self, session: &Session, wait: Wait, keep: ShowAfter) -> Result<()> {
+        self.project_usage(session);
         // Mark the cached rows the change may reach stale before the writer is scheduled; the
         // next full build then observes the in-memory change even while this write is queued.
         // Its own row always. Every row only when what other rows read of it changed (whether it

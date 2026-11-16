@@ -2623,6 +2623,7 @@ impl Hub {
                 let _breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
                 session.purged.store(true, Ordering::SeqCst);
             }
+            self.forget_usage(session);
             // An append that read the chat as not purged yet holds its append lock until its line
             // is written: it finishes before the folder goes, and every later one sees `purged`
             // and writes nothing. One that came after the delete removed the folder wrote the

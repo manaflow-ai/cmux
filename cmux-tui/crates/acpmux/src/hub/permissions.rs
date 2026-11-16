@@ -534,6 +534,9 @@ impl Hub {
             _ => {}
         }
         drop(m);
+        if matches!(kind, "usage_update" | "session_info_update") {
+            self.project_usage(session);
+        }
         // Goal state must survive a daemon restart even when the turn has not settled yet.
         if goal_write || breakdown_changed {
             self.save_meta(session);
