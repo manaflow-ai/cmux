@@ -1707,7 +1707,7 @@
       }
     }
   }
-  // cmux-tui/crates/cmux-app-host/generated/signals.json
+  // generated/signals.json
   var signals_default = {
     version: 1,
     signals: {
