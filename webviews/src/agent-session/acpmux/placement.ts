@@ -73,6 +73,8 @@ export function busyChoice(
   selected: string,
 ): { id: string; label: string; why: string } | undefined {
   if (!placement?.localOver || placement.local || placement.overloaded) return undefined;
+  // A pick with no reading (room unknown) is no machine known to have room.
+  if (placement.room === undefined || placement.room < 1) return undefined;
   if (environments.find((environment) => environment.id === selected)?.kind !== "local") return undefined;
   const machine = pickedEnvironment(placement, environments);
   if (!machine) return undefined;

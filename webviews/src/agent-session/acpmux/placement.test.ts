@@ -76,6 +76,9 @@ describe("busyChoice", () => {
     expect(busyChoice({ ...busy, overloaded: true }, machines, "local")).toBeUndefined();
     expect(busyChoice({ ...busy, pick: "leo-mac", local: true }, machines, "local")).toBeUndefined();
     expect(busyChoice({ ...busy, pick: "old-box" }, machines, "local")).toBeUndefined();
+    const { room: _room, ...unread } = busy;
+    expect(busyChoice(unread, machines, "local")).toBeUndefined();
+    expect(busyChoice({ ...busy, room: 0 }, machines, "local")).toBeUndefined();
   });
   test("never for a quiet Mac, or once another machine is the pick", () => {
     const { localOver: _, ...quiet } = busy;

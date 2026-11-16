@@ -14818,7 +14818,15 @@ export class AcpmuxDirectClient {
   /// peer's last reading), so a read is one local round trip. A daemon or host without the method
   /// leaves none, and the Auto row and busy chip stay away.
   async refreshPlacement(): Promise<void> {
-    const reply = await this.request("_acpmux/place", { work: "agent" }).catch(() => undefined);
+    let reply: unknown;
+    try {
+      reply = await this.request("_acpmux/place", { work: "agent" });
+    } catch (error) {
+      // A refusal (a daemon or host without the method) has no placement; a dropped or slow socket
+      // keeps the last one, so the Auto row and busy chip do not blink out while it reconnects.
+      if (this.closed || !(error && typeof error === "object" && "code" in error)) return;
+      reply = undefined;
+    }
     if (this.closed) return;
     const next = placementFromReply(reply);
     const same = JSON.stringify(next) === JSON.stringify(this.placement);
