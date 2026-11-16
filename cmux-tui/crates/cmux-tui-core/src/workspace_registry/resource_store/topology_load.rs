@@ -231,8 +231,11 @@ pub(crate) fn load_resource_topology(
     #[cfg(test)]
     FULL_TOPOLOGY_READS.with(|reads| reads.set(reads.get() + 1));
     let mut topology = load_topology_frame(connection, session_id, generation)?;
-    topology.screens =
-        screen_rows::with_side_tables(connection, load_screens(connection, "", &[])?)?;
+    topology.screens = screen_rows::with_side_tables(
+        connection,
+        load_screens(connection, "", &[])?,
+        screen_rows::SideRows::All,
+    )?;
     topology.panes = load_panes(connection, "", &[])?;
     topology.tabs = load_tabs(connection, "", &[])?;
     topology.browsers = load_browsers(connection, "", &[])?;
@@ -300,7 +303,8 @@ fn load_subtrees(
     for workspace in workspaces {
         screens.extend(load_screens(connection, " AND workspace_id = ?1", &[&workspace.as_str()])?);
     }
-    topology.screens = screen_rows::with_side_tables(connection, screens)?;
+    topology.screens =
+        screen_rows::with_side_tables(connection, screens, screen_rows::SideRows::OfLoadedScreens)?;
     for screen in &topology.screens {
         let panes = load_panes(connection, " AND screen_id = ?1", &[&screen.public_id.as_str()])?;
         topology.panes.extend(panes);
@@ -402,6 +406,7 @@ fn load_screen_subtrees(
         let loaded = screen_rows::with_side_tables(
             connection,
             load_screens(connection, " AND public_id = ?1", &[&id.as_str()])?,
+            screen_rows::SideRows::OfLoadedScreens,
         )?;
         for screen in &loaded {
             let panes =

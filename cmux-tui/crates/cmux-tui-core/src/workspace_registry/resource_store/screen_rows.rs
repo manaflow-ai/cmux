@@ -209,15 +209,12 @@ fn write_lone_dock(transaction: &Transaction<'_>, screen: &RegistryScreen) -> an
 fn overlay_lone_docks(
     connection: &Connection,
     screens: &mut [RegistryScreen],
+    side_rows: SideRows,
 ) -> anyhow::Result<()> {
-    let mut statement = connection.prepare(
-        "SELECT lone.screen_id, lone.column_json FROM resource_lone_docks AS lone
-             JOIN resource_parked_splits AS parked
-               ON parked.public_id = lone.column_id AND parked.screen_id = lone.screen_id",
-    )?;
-    let records = statement
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
-        .collect::<Result<Vec<_>, _>>()?;
+    let records =
+        side_records(side_rows, screens, " WHERE lone.screen_id = ?1", |filter, params| {
+            stored_lone_docks(connection, filter, params)
+        })?;
     for (screen_id, column_json) in records {
         #[cfg(test)]
         count_other_screen_side_row(screens, &screen_id);
@@ -244,6 +241,106 @@ fn overlay_lone_docks(
     Ok(())
 }
 
+/// Which rows of the 3 side tables a load reads.
+#[derive(Clone, Copy)]
+pub(super) enum SideRows {
+    /// Each row of each table: the full load.
+    All,
+    /// Only the rows of the screens the load holds: one keyed read per
+    /// screen and table, so a load of no screen reads no row.
+    OfLoadedScreens,
+}
+
+/// The records `read` gives for `side_rows`: one read with no filter, or one
+/// read per screen of `screens` with `filter` (`?1` is the screen id), in the
+/// order of `screens`.
+fn side_records<T>(
+    side_rows: SideRows,
+    screens: &[RegistryScreen],
+    filter: &str,
+    read: impl Fn(&str, &[&dyn rusqlite::ToSql]) -> anyhow::Result<Vec<T>>,
+) -> anyhow::Result<Vec<T>> {
+    match side_rows {
+        SideRows::All => read("", &[]),
+        SideRows::OfLoadedScreens => {
+            let mut records = Vec::new();
+            for screen in screens {
+                records.extend(read(filter, &[&screen.public_id.as_str()])?);
+            }
+            Ok(records)
+        }
+    }
+}
+
+/// `(screen id, column json)` of each stored lone pinned column whose id is
+/// still parked for its screen.
+fn stored_lone_docks(
+    connection: &Connection,
+    filter: &str,
+    params: &[&dyn rusqlite::ToSql],
+) -> anyhow::Result<Vec<(String, String)>> {
+    let mut statement = connection.prepare(&format!(
+        "SELECT lone.screen_id, lone.column_json FROM resource_lone_docks AS lone
+             JOIN resource_parked_splits AS parked
+               ON parked.public_id = lone.column_id AND parked.screen_id = lone.screen_id{filter}",
+    ))?;
+    let records = statement
+        .query_map(params, |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(records)
+}
+
+/// `(screen id, column id, row id, height)` of a `resource_screen_rows` row.
+type StoredRow = (String, String, String, i64);
+
+/// The stored rows, each column's rows together and in position order.
+fn stored_rows(
+    connection: &Connection,
+    filter: &str,
+    params: &[&dyn rusqlite::ToSql],
+) -> anyhow::Result<Vec<StoredRow>> {
+    let mut statement = connection.prepare(&format!(
+        "SELECT screen_id, column_id, row_id, height_permille FROM resource_screen_rows{filter}
+         ORDER BY screen_id, column_id, position",
+    ))?;
+    let records = statement
+        .query_map(params, |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(records)
+}
+
+/// `(screen id, column id, edge, mode)` of a `resource_column_docks` row.
+type StoredDock = (String, String, String, String);
+
+/// The stored top and bottom docks.
+fn stored_docks(
+    connection: &Connection,
+    filter: &str,
+    params: &[&dyn rusqlite::ToSql],
+) -> anyhow::Result<Vec<StoredDock>> {
+    let mut statement = connection.prepare(&format!(
+        "SELECT screen_id, column_id, edge, mode FROM resource_column_docks{filter}"
+    ))?;
+    let records = statement
+        .query_map(params, |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(records)
+}
+
 #[cfg(test)]
 thread_local! {
     static OTHER_SCREEN_SIDE_ROWS_READ: Cell<u64> = const { Cell::new(0) };
@@ -268,26 +365,19 @@ pub(super) fn other_screen_side_rows_read_for_test() -> u64 {
 /// `((screen id, column id), [(row id, height)])` as read from the table.
 type StoredColumnRows = ((String, String), Vec<(String, i64)>);
 
-/// `screens` with docks ([`with_column_docks`]) and rows overlaid.
+/// `screens` with docks ([`with_column_docks`]) and rows overlaid, from the
+/// side table rows that `side_rows` names. A load of some screens reads the
+/// rows of those screens only; each screen gets the value the full load gives
+/// it.
 pub(super) fn with_side_tables(
     connection: &Connection,
     screens: Vec<RegistryScreen>,
+    side_rows: SideRows,
 ) -> anyhow::Result<Vec<RegistryScreen>> {
-    let mut screens = with_column_docks(connection, screens)?;
-    let mut statement = connection.prepare(
-        "SELECT screen_id, column_id, row_id, height_permille FROM resource_screen_rows
-         ORDER BY screen_id, column_id, position",
-    )?;
-    let records = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut screens = with_column_docks(connection, screens, side_rows)?;
+    let records = side_records(side_rows, &screens, " WHERE screen_id = ?1", |filter, params| {
+        stored_rows(connection, filter, params)
+    })?;
     let mut columns: Vec<StoredColumnRows> = Vec::new();
     for (screen, column, row, height) in records {
         #[cfg(test)]
@@ -304,7 +394,7 @@ pub(super) fn with_side_tables(
         };
         overlay_column_rows(screen, &column_id, &rows);
     }
-    overlay_lone_docks(connection, &mut screens)?;
+    overlay_lone_docks(connection, &mut screens, side_rows)?;
     Ok(screens)
 }
 
@@ -415,19 +505,11 @@ pub(super) fn column_docks_match(
 fn with_column_docks(
     connection: &Connection,
     mut screens: Vec<RegistryScreen>,
+    side_rows: SideRows,
 ) -> anyhow::Result<Vec<RegistryScreen>> {
-    let mut statement =
-        connection.prepare("SELECT screen_id, column_id, edge, mode FROM resource_column_docks")?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+    let rows = side_records(side_rows, &screens, " WHERE screen_id = ?1", |filter, params| {
+        stored_docks(connection, filter, params)
+    })?;
     for (screen_id, column_id, edge, mode) in rows {
         #[cfg(test)]
         count_other_screen_side_row(&screens, &screen_id);
