@@ -111,6 +111,7 @@ public final class DeviceHubService {
         settingsModel.signIn = { [weak self] in
             guard let self else { return }
             leftHub = false
+            shareGrant.accountChanged(user)
             reconcile()
         }
         settingsModel.thisDeviceRemoved = { [weak self] in
@@ -141,11 +142,14 @@ public final class DeviceHubService {
         watch = Task { [weak self] in
             await account.awaitRestored()
             await self?.pages.store.load()
-            for await (address, user) in ObservationStream({ (selectedBaseURL ?? Self.address(settings), account.userID()) }) {
+            for await (address, user, shareOn) in ObservationStream({
+                (selectedBaseURL ?? Self.address(settings), account.userID(), settings.snapshot.remote.shareWithoutAsking)
+            }) {
                 guard let self else { return }
                 url = address
                 self.user = user
                 shareGrant.accountChanged(leftHub ? nil : user)
+                shareGrant.settingChanged(on: shareOn)
                 pages.hubConfigured = url != nil
                 reconcile()
             }

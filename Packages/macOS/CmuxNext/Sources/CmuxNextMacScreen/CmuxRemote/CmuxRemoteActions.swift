@@ -15,9 +15,9 @@ public struct CmuxRemoteActionEnvironment {
     public var settings: @MainActor () -> SettingsController?
     public var window: @MainActor () -> NSWindow?
     public var openDevices: @MainActor () -> Void
-    /// SECURITY: whether the app's latest input, the press that answered the dialog, was the
-    /// person's own (HID system, `PersonInputLedger.backs`, the check join consent takes). Only
-    /// then is Always Allow kept; any other press allows this request once. None set: never kept.
+    /// SECURITY: whether the press answering the dialog, read as it answers, is the person's own
+    /// (``pressedByPerson(_:now:isPerson:)`` on the input event the app is dispatching then). Only then
+    /// is Always Allow kept; any other press allows this request once. None set: never kept.
     public var personPressed: @MainActor () -> Bool
     /// Which account's Always Allow counts (``RemoteShareGrant``); none: the setting alone never skips.
     public var shareGrant: @MainActor () -> RemoteShareGrant?
@@ -135,10 +135,10 @@ extension CmuxRemoteActionEnvironment {
                 return .followUp(Self.confirmedChange(
                     confirm: {
                         guard step == .ask else { return true }
-                        let answer = await Self.confirm(title: title, body: body, always: share, in: window)
-                        if Self.keepsAlways(answer, personPressed: personPressed()), let settings, let grant {
+                        let answer = await Self.confirm(title: title, body: body, always: share, personPressed: personPressed, in: window)
+                        // Written first, then recorded: a record never sits beside the setting off. No account, nothing.
+                        if answer == .always, let settings, let grant, grant.account != nil, await Self.shareWithoutAsking(settings) {
                             grant.record()
-                            await Self.shareWithoutAsking(settings)
                         }
                         return answer != .cancel
                     },
@@ -170,17 +170,31 @@ extension CmuxRemoteActionEnvironment {
         alreadyShared ? .nothing : withoutAsking ? .apply : .ask
     }
 
-    /// Whether an answer turns on `remote.shareWithoutAsking`: Always Allow pressed by the person at
-    /// this Mac. An Always Allow another process posted (computer use, a script) allows once.
-    static func keepsAlways(_ answer: ConfirmAnswer, personPressed: Bool) -> Bool {
-        answer == .always && personPressed
+    /// The answer a pressed button gives: Always Allow counts as `always` only when the person pressed
+    /// it at this Mac; one another process pressed (computer use, a script) allows once.
+    static func answer(_ button: String, personPressed: Bool) -> ConfirmAnswer {
+        switch button {
+        case "confirm": .allow
+        case "always": personPressed ? .always : .allow
+        default: .cancel
+        }
+    }
+
+    /// SECURITY: whether `event`, the input event the app is dispatching as the dialog answers (nil
+    /// outside a dispatch: an Accessibility press, a timer), is the person's own click or key: a key or
+    /// mouse-button event at most a second before `now` (system uptime) that `isPerson` (the strict
+    /// HID-system check, `PersonInputCheck`) takes. A mouse move, an old event or none does not count.
+    public static func pressedByPerson(_ event: NSEvent?, now: TimeInterval = ProcessInfo.processInfo.systemUptime,
+                                       isPerson: (NSEvent) -> Bool) -> Bool {
+        guard let event, [.keyDown, .leftMouseDown, .leftMouseUp].contains(event.type) else { return false }
+        return event.timestamp <= now && now - event.timestamp <= 1 && isPerson(event)
     }
 
     /// Always Allow: the person's click turns on `remote.shareWithoutAsking` (the user writer: the
-    /// click is in this app's UI). A refused or failed write only means the next request asks again.
-    static func shareWithoutAsking(_ settings: SettingsController) async {
-        guard let descriptor = SettingsSchema.descriptor(for: RemoteSettings.shareWithoutAskingPath) else { return }
-        try? await settings.setSetting(descriptor, to: .bool(true), by: .user)
+    /// click is in this app's UI). False when refused or failed: the next request asks again.
+    static func shareWithoutAsking(_ settings: SettingsController) async -> Bool {
+        guard let descriptor = SettingsSchema.descriptor(for: RemoteSettings.shareWithoutAskingPath) else { return false }
+        return (try? await settings.setSetting(descriptor, to: .bool(true), by: .user)) != nil
     }
 
     /// `remote.confirm`'s answer: the person's choice on the dialog, then the change it allows.
@@ -206,14 +220,16 @@ extension CmuxRemoteActionEnvironment {
         case cancel, allow, always
     }
 
-    /// The person's answer to one dialog (cancel without a window). `always` adds Always Allow.
-    static func confirm(title: String, body: String, always: Bool = false, in window: NSWindow?) async -> ConfirmAnswer {
+    /// The person's answer to one dialog (cancel without a window). `always` adds Always Allow;
+    /// `personPressed` is read as the button answers, inside the press's own dispatch.
+    static func confirm(title: String, body: String, always: Bool = false, personPressed: @escaping @MainActor () -> Bool = { false },
+                        in window: NSWindow?) async -> ConfirmAnswer {
         guard let window else { return .cancel }
         return await withCheckedContinuation { continuation in
             let spec = CmuxDialogSpec(title: title, lines: [body], buttons: Self.confirmButtons(always: always),
                                       identifier: Self.confirmIdentifier)
             CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in
-                continuation.resume(returning: answer.button == "confirm" ? .allow : answer.button == "always" ? .always : .cancel)
+                continuation.resume(returning: Self.answer(answer.button, personPressed: answer.button == "always" && personPressed()))
             }
         }
     }
