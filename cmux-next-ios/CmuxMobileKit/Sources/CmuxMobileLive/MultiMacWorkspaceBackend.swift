@@ -256,6 +256,21 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func openTerminalChat(harness: String, session: String, terminalTabID: String, on macID: String) async throws -> TerminalChatOpen {
         try await backend(macID).openTerminalChat(harness: harness, session: session, terminalTabID: terminalTabID, on: macID)
     }
+    public func terminalChatListedWhole(on macID: String) -> Bool { linked(macID)?.terminalChatListedWhole(on: macID) ?? false }
+
+    /// The pairings this account keeps beside its transcripts (none without an account or cache).
+    private var keptTerminalChats: (kept: KeptTerminalChats, account: String)? {
+        guard let coordinator, let cache = coordinator.transcriptCache, !coordinator.userID.isEmpty else { return nil }
+        return (cache.terminalChats, coordinator.userID)
+    }
+    public func keptTerminalChat(harness: String, session: String, on macID: String) -> String? {
+        guard let kept = keptTerminalChats, let key = KeptTerminalChats.key(kept.account, macID, harness, session) else { return nil }
+        return kept.kept.chat(key)
+    }
+    public func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String) {
+        guard let kept = keptTerminalChats, let key = KeptTerminalChats.key(kept.account, macID, harness, session) else { return }
+        kept.kept.keepChat(chat, for: key)
+    }
 
     // MARK: WorkspaceGroupBackend
 
