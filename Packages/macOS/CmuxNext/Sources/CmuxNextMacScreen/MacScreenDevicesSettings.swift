@@ -300,7 +300,7 @@ public final class MacScreenDevicesSettings {
                                    body: L.t("devices.removeBody", "Its Mac Screen sessions end and it can no longer see or share screens. It comes back as a new device when it signs in again."),
                                    confirm: L.t("devices.removeConfirm", "Remove"))
         return State.Device(
-            id: device.id, name: device.name, platform: device.platform == .ios ? L.t("devices.platform.ios", "iPhone") : L.t("devices.platform.mac", "Mac"),
+            id: device.id, name: device.name, platform: Self.platformLabel(device.platform),
             fingerprint: device.fingerprint.map(DeviceIdentity.displayFingerprint), fingerprintFull: device.fingerprint, online: isMe || device.online, presence: presence,
             thisDevice: isMe, sharesText: device.macScreenShared ? L.t("devices.shares", "Shares Mac Screen") : nil,
             access: isMe ? nil : hub.scope(host: me, viewer: device.id).rawValue,
@@ -308,6 +308,15 @@ public final class MacScreenDevicesSettings {
                 ? .init(kind: isMe ? "share" : "view", title: isMe ? L.t("devices.shareScreen", "Share") : L.t("devices.viewScreen", "View screen"), disabled: !isMe && !device.online)
                 : nil,
             removeConfirm: confirm)
+    }
+
+    /// The device row's platform label (a device from before the hub sent a platform reads as a Mac).
+    nonisolated static func platformLabel(_ platform: DevicePlatform?) -> String {
+        switch platform {
+        case .ios: L.t("devices.platform.ios", "iPhone")
+        case .linux: L.t("devices.platform.linux", "Linux")
+        case .macos, nil: L.t("devices.platform.mac", "Mac")
+        }
     }
 
     nonisolated static func modeText(_ mode: RelayAuthMode) -> String {

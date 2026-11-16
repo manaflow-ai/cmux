@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-const FILE: &str = "machine-join.pending.json";
+use crate::machine_record::recovery::FILE;
 #[derive(Serialize, Deserialize)]
 struct Pending {
     version: u8,
@@ -111,16 +111,6 @@ pub(super) fn retire_sign_in_pending_at(
     }
     crate::home_fs::remove_file(&path)?;
     sync_ancestors(home)
-}
-
-/// The box a join pending in `home` was proposed on: `None` when there is none (or it cannot be
-/// read: [`read`] refuses it before it is used), `Some(None)` for one an older build wrote with
-/// no fingerprint. Read for its fingerprint only, by any process that decides whether `home`
-/// was copied (`home_copy_state`).
-pub(super) fn pending_made_on(home: &Path) -> Option<Option<String>> {
-    let file = crate::config::private_state_file(&home.join(FILE)).ok()?;
-    let pending: serde_json::Value = serde_json::from_reader(file).ok()?;
-    Some(pending.get("host_fingerprint").and_then(|made| made.as_str()).map(str::to_owned))
 }
 
 pub(super) fn pending_origin() -> Result<Option<String>> {
