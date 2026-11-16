@@ -430,8 +430,12 @@ def foreground_activation():
     opened = subprocess.run(["open", APP], capture_output=True, text=True, timeout=30)
     focus = wait(lambda: (lambda report: report if report.get("app_active") is True else None)(rpc("debug.focus") or {}),
                  15, step=0.25)
+    report = focus or rpc("debug.focus") or {}
+    front = str(report.get("front_app") or report.get("frontmost_app") or report.get("application") or "").lower()
+    locked = report.get("screen_locked") is True or front == "loginwindow"
     return {"method": "launchservices_open", "returncode": opened.returncode,
-            "stderr": opened.stderr.strip()[:200], "app_active": bool(focus), "focus": focus or rpc("debug.focus")}
+            "stderr": opened.stderr.strip()[:200], "app_active": bool(focus), "screen_locked": locked,
+            "focus": report}
 
 
 def open_agent_chat():
@@ -469,6 +473,16 @@ def ensure_agentpane():
 def measure_agentpane(phase, pid, pane, streams=()):
     """Native agent composer path: exact key samples, page paint epoch, foreground proof and load provenance."""
     activation = foreground_activation()
+    if activation.get("screen_locked"):
+        entry = {
+            "session": SESSION, "surface": "agentpane", "phase": phase, "mode": (MODE or {}).get("id"),
+            "mode_missing": (MODE or {}).get("nativeMissing") or [], "pane": pane,
+            "engine": LOAD.get("agentpane_engine"), "foreground": activation,
+            "error": "screen is locked (front app loginwindow); no typing or ACP measurement attempted",
+            "complete": False, "keys": 0, "measured": 0,
+        }
+        results["runs"].append(entry)
+        return entry
     focus_reply = rpc("debug.agent_pane", {"action": "focus_composer", "pane": pane}, timeout=30) or {}
     focus = wait(lambda: (lambda report: report if report.get("app_active") is True else None)(rpc("debug.focus") or {}),
                  10, step=0.25) or (rpc("debug.focus") or {})
@@ -920,6 +934,13 @@ def run_session(session, phases=None):
                                                               "detail": error.report.get("detail")})
             return
         app, SOCKET, CONFIG = bench.process, bench.socket, os.path.join(bench.scratch, "cmux.json")
+        initial_focus = rpc("debug.focus") or {}
+        front = str(initial_focus.get("front_app") or initial_focus.get("frontmost_app") or initial_focus.get("application") or "").lower()
+        if initial_focus.get("screen_locked") is True or front == "loginwindow":
+            note(f"{session}: screen is locked (front app {front or 'unknown'}); aborting GUI measurements")
+            results.setdefault("launch_failures", []).append({"session": session, "reason": "screen_locked",
+                                                               "detail": initial_focus})
+            return
         if opts.chat_agent == "real":
             added = action("agent.harness.add", {"id": "fake", "name": "Fake", "command": sys.executable,
                                                  "args": f"{shlex.quote(os.path.abspath(__file__))} --agent",
@@ -979,9 +1000,11 @@ def main():
         for r in results["runs"]:
             key = (f"{r['mode']}.{r['surface']}" if r.get("mode")
                    else f"{r['session']}.{r['surface']}.{r['phase']}")
-            summary.setdefault(key, []).append((r["key_to_frame_ms"] or {}).get("p95"))
+            summary.setdefault(key, []).append((r.get("key_to_frame_ms") or {}).get("p95"))
         results["summary_p95_ms"] = summary
         note(f"summary p95 ms: {json.dumps(summary)} refresh {results.get('refresh_hz')}")
+        # Keep a terminal report even when a surface fails before it has latency rows. This is the
+        # evidence artifact for screen-lock, focus and transport failures; it must not disappear.
         if opts.json:
             json.dump(results, open(opts.json, "w"), indent=1)
     if opts.gate_p95_ms is not None:

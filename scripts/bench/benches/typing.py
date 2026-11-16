@@ -67,6 +67,8 @@ class Typing(Bench):
             ("chat_agent", "real"),
             ("rounds", "1"),
             ("samples", "200"),
+            ("vdisplay", "120"),
+            ("vdisplay_size", "1920x1200"),
         ):
             value = ctx.arg(key, default)
             if value not in (None, ""):
