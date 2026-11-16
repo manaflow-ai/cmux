@@ -412,7 +412,7 @@ fn pr08_mirror_turn_split() {
         }
         god.hub.updates.units_first.store(false, Ordering::Relaxed);
         for (order, samples) in ["units_first", "rows_first"].iter().zip(&sides) {
-            let mut pick = |f: &dyn Fn(&ThirtySample) -> u128| {
+            let pick = |f: &dyn Fn(&ThirtySample) -> u128| {
                 let mut values: Vec<u128> = samples.iter().map(f).collect();
                 p95(&mut values)
             };
