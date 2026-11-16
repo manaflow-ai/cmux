@@ -390,10 +390,8 @@ fn serve_session(
                     host_candidate |= c.kind == cmux_rd_link::net::CandidateKind::Host;
                     say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() })
                 }
-                NetEvent::CandidatesDone => {
-                    if !std::mem::replace(&mut answered, true) {
-                        say(AppLine { candidates_done: true, ..AppLine::default() })
-                    }
+                NetEvent::CandidatesDone if !std::mem::replace(&mut answered, true) => {
+                    say(AppLine { candidates_done: true, ..AppLine::default() })
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
                     say(AppLine { connected: true, ..AppLine::default() })
