@@ -230,7 +230,7 @@ pub(super) struct Here {
 }
 
 impl Here {
-    fn read(flags: &super::super::Flags) -> anyhow::Result<Self> {
+    pub(super) fn read(flags: &super::super::Flags) -> anyhow::Result<Self> {
         let auth = super::super::JoinAuth::read(flags)?;
         let net = super::super::network::pick(
             super::super::choice(flags)?,

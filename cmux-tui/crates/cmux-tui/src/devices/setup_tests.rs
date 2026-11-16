@@ -139,11 +139,7 @@ impl Remote for FakeMac {
             let Some((accessibility, screen_recording)) = mac.grants else {
                 return Ok(ok("{}\n"));
             };
-            let session = if mac.console == mac.user {
-                acpmux::screen_share::Session::ThisUser
-            } else {
-                acpmux::screen_share::Session::Nobody
-            };
+            let session = if mac.console == mac.user { Session::ThisUser } else { Session::Nobody };
             let status = acpmux::screen_share::classify(acpmux::screen_share::Facts {
                 mac: true,
                 installed: Some(acpmux::screen_share::Installed {
@@ -462,9 +458,9 @@ fn a_missing_grant_names_the_screen_sharing_helper_and_opens_its_pane() {
 #[test]
 fn nobody_logged_in_is_said_and_no_pane_is_opened() {
     let mac = FakeMac::new(Mac { console: "root", grants: Some((false, false)), ..Mac::default() });
-    let status: acpmux::screen_share::Status =
+    let status: Status =
         serde_json::from_str(&mac.exec(SHARE_PREPARE, None).unwrap().stdout).unwrap();
-    assert_eq!(status.session, acpmux::screen_share::Session::Nobody);
+    assert_eq!(status.session, Session::Nobody);
     let (state, detail, fix) =
         share_line("studio-mac", &status, false, |_| panic!("a pane opened on the login window"));
     assert_eq!(state, StepState::Warn);
@@ -911,7 +907,7 @@ fn share_prepare_on_a_machine_reads_its_status_there() {
     let world = FakeWorld::new(Mac { grants: Some((true, false)), ..Mac::default() });
     let status = prepare::on(&world, "studio-mac");
     assert_eq!(status.state, acpmux::screen_share::State::NeedsGrant);
-    assert_eq!(status.missing, [acpmux::screen_share::Grant::ScreenRecording]);
+    assert_eq!(status.missing, [Grant::ScreenRecording]);
     assert_eq!(status.holder.as_deref(), Some("cmux NIGHTLY Screen Sharing"));
     assert_eq!(world.mac.sent_script(SHARE_PREPARE), [None]);
     // Reading never opens a pane or changes anything there.
