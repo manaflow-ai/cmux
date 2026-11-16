@@ -164,7 +164,7 @@ fn a_new_workspace_made_in_a_group_stays_in_that_group() {
     );
     drop(mux);
     let mux = session.open();
-    assert_eq!(group_of(&mux, &c), json!(leads), "a reopened workspace keeps its group");
+    assert_eq!(group_of(&mux, c), json!(leads), "a reopened workspace keeps its group");
     mux.shutdown();
 }
 
