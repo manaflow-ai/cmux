@@ -101,7 +101,7 @@ public struct LaunchSnapshot: Sendable {
     /// let snapshot = LaunchSnapshot.readAtLaunch(work: work, build: build)   // in `main`, before the other launch reads
     /// daemon.start(..., launchSnapshot: await snapshot.value)
     /// ```
-    public static func readAtLaunch(work: BackgroundWork, build: BuildIdentity) -> Task<LaunchRead, Never> {
+    public static func readAtLaunch(work: BackgroundWork, build: BuildIdentity) -> Task<LaunchSnapshotRead, Never> {
         readAtLaunch(work: work) { DaemonLauncher.appNames(build: build) }
     }
 
@@ -111,15 +111,15 @@ public struct LaunchSnapshot: Sendable {
     /// for this read, and `main` posts the pages' and the terminals' saved frames (megabytes, decoded) on the
     /// same slot right after it. A read that entered the lane only when its task first ran queued behind them.
     static func readAtLaunch(work: BackgroundWork, location: LaunchSnapshotLocation = LaunchSnapshotLocation(),
-                             names: @escaping @Sendable () -> (session: String, stateDirectory: URL?)) -> Task<LaunchRead, Never> {
-        let (results, result) = AsyncStream<LaunchRead>.makeStream(bufferingPolicy: .bufferingNewest(1))
+                             names: @escaping @Sendable () -> (session: String, stateDirectory: URL?)) -> Task<LaunchSnapshotRead, Never> {
+        let (results, result) = AsyncStream<LaunchSnapshotRead>.makeStream(bufferingPolicy: .bufferingNewest(1))
         // `.blockShutdown`: the launch awaits the result, so a shutdown of `work` must not skip the item.
         work.post(.userBlocking, mayBlock: .files, shutdown: .blockShutdown) {
             let daemon = names()
             let snapshot = Self.saved(session: daemon.session, stateDirectory: daemon.stateDirectory, location: location)
             let kind = LaunchKind.of(snapshot: snapshot, pathRecorded: location.path(session: daemon.session) != nil,
                                      registryExists: LaunchSnapshotLocation.registryExists(session: daemon.session, in: daemon.stateDirectory))
-            result.yield(LaunchRead(snapshot: snapshot, kind: kind))
+            result.yield(LaunchSnapshotRead(snapshot: snapshot, kind: kind))
             result.finish()
             DaemonLaunchTimings.shared.mark("daemon.launch_snapshot_read")
             if kind == .bare { DaemonLaunchTimings.shared.mark("launch.bare") }
@@ -127,7 +127,7 @@ public struct LaunchSnapshot: Sendable {
         // task-owner: AppDelegate.launchSnapshot; awaited once by its launch task, which then drops it.
         return Task.detached(priority: .userInitiated) {
             for await read in results { return read }
-            return LaunchRead(snapshot: nil, kind: .unknown)
+            return LaunchSnapshotRead(snapshot: nil, kind: .unknown)
         }
     }
 
@@ -167,7 +167,7 @@ public struct LaunchSnapshot: Sendable {
 }
 
 /// The launch's read (``LaunchSnapshot/readAtLaunch(work:build:)``): the snapshot, and what the launch has to restore.
-public struct LaunchRead: Sendable {
+public struct LaunchSnapshotRead: Sendable {
     public var snapshot: LaunchSnapshot?
     public var kind: LaunchKind
 
