@@ -1,0 +1,14 @@
+{
+  "caption": "Split, close, zoom and back: what leaves ends sooner than what arrives.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A second pane on the right", "cmux": ["action", "run", "splitRight"], "wait": 2},
+    {"title": "A third pane on the right", "cmux": ["action", "run", "splitRight"], "wait": 1.2, "clip": true},
+    {"title": "Close it", "cmux": ["action", "run", "closePane"], "wait": 1.2, "clip": true},
+    {"title": "Zoom the pane", "cmux": ["action", "run", "toggleSplitZoom"], "wait": 1.2, "clip": true},
+    {"title": "Back to the split", "cmux": ["action", "run", "toggleSplitZoom"], "wait": 1.2, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0.19, 0, 0.81, 0.9]
+}
