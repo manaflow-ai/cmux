@@ -44,10 +44,16 @@ fn program_status_records_survive_a_host_replacement_then_a_daemon_restart() {
 
     // The host dies under the running daemon, which replaces it on the
     // same shell; the program reports nothing more.
+    let kill_ms = crate::giveup_probe::now_ms();
     signal_pid(record.host_pid, libc::SIGKILL);
     wait_for_dead_host(&record_path, &record);
     let replacement = wait_for_replacement(&harness, &record);
-    assert_eq!(replacement.incarnation, incarnation);
+    assert_eq!(
+        replacement.incarnation,
+        incarnation,
+        "{}",
+        crate::giveup_probe::report(&harness.dir, &harness.host_root(), kill_ms)
+    );
 
     harness.sigkill();
     harness.restart();
@@ -138,3 +144,45 @@ fn a_prompt_mark_in_the_reconnect_replay_keeps_a_waiting_programs_record() {
     );
     wait_for_no_host_records(&harness.host_root());
 }
+
+// PROBE, a proof branch only (never for a merge): one hundred more passes of
+// the test of the host replacement with program status records. Each name is
+// one test process.
+macro_rules! giveup_probe_status_copies {
+    ($($name:ident)*) => {
+        $(
+            #[test]
+            fn $name() {
+                program_status_records_survive_a_host_replacement_then_a_daemon_restart();
+            }
+        )*
+    };
+}
+
+giveup_probe_status_copies!(
+    giveup_probe_status_001 giveup_probe_status_002 giveup_probe_status_003 giveup_probe_status_004
+    giveup_probe_status_005 giveup_probe_status_006 giveup_probe_status_007 giveup_probe_status_008
+    giveup_probe_status_009 giveup_probe_status_010 giveup_probe_status_011 giveup_probe_status_012
+    giveup_probe_status_013 giveup_probe_status_014 giveup_probe_status_015 giveup_probe_status_016
+    giveup_probe_status_017 giveup_probe_status_018 giveup_probe_status_019 giveup_probe_status_020
+    giveup_probe_status_021 giveup_probe_status_022 giveup_probe_status_023 giveup_probe_status_024
+    giveup_probe_status_025 giveup_probe_status_026 giveup_probe_status_027 giveup_probe_status_028
+    giveup_probe_status_029 giveup_probe_status_030 giveup_probe_status_031 giveup_probe_status_032
+    giveup_probe_status_033 giveup_probe_status_034 giveup_probe_status_035 giveup_probe_status_036
+    giveup_probe_status_037 giveup_probe_status_038 giveup_probe_status_039 giveup_probe_status_040
+    giveup_probe_status_041 giveup_probe_status_042 giveup_probe_status_043 giveup_probe_status_044
+    giveup_probe_status_045 giveup_probe_status_046 giveup_probe_status_047 giveup_probe_status_048
+    giveup_probe_status_049 giveup_probe_status_050 giveup_probe_status_051 giveup_probe_status_052
+    giveup_probe_status_053 giveup_probe_status_054 giveup_probe_status_055 giveup_probe_status_056
+    giveup_probe_status_057 giveup_probe_status_058 giveup_probe_status_059 giveup_probe_status_060
+    giveup_probe_status_061 giveup_probe_status_062 giveup_probe_status_063 giveup_probe_status_064
+    giveup_probe_status_065 giveup_probe_status_066 giveup_probe_status_067 giveup_probe_status_068
+    giveup_probe_status_069 giveup_probe_status_070 giveup_probe_status_071 giveup_probe_status_072
+    giveup_probe_status_073 giveup_probe_status_074 giveup_probe_status_075 giveup_probe_status_076
+    giveup_probe_status_077 giveup_probe_status_078 giveup_probe_status_079 giveup_probe_status_080
+    giveup_probe_status_081 giveup_probe_status_082 giveup_probe_status_083 giveup_probe_status_084
+    giveup_probe_status_085 giveup_probe_status_086 giveup_probe_status_087 giveup_probe_status_088
+    giveup_probe_status_089 giveup_probe_status_090 giveup_probe_status_091 giveup_probe_status_092
+    giveup_probe_status_093 giveup_probe_status_094 giveup_probe_status_095 giveup_probe_status_096
+    giveup_probe_status_097 giveup_probe_status_098 giveup_probe_status_099 giveup_probe_status_100
+);

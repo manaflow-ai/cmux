@@ -71,11 +71,30 @@ pub(super) fn request_custody(surface: &Arc<Surface>) {
                 PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => None,
             }
         };
-        let Some((record, record_path)) = discovery else { return };
-        let Ok(custody) =
-            crate::terminal_host_runtime::request_terminal_host_pty_custody(&record, &record_path)
-        else {
+        let Some((record, record_path)) = discovery else {
+            eprintln!(
+                "cmux-tui: host-replacement-probe: custody: no exchange (not hosted, no support, or held)"
+            );
             return;
+        };
+        probe_line(
+            &record.terminal_id,
+            &record.incarnation,
+            &format!("custody: the exchange starts with host pid {}", record.host_pid),
+        );
+        let custody = match crate::terminal_host_runtime::request_terminal_host_pty_custody(
+            &record,
+            &record_path,
+        ) {
+            Ok(custody) => custody,
+            Err(error) => {
+                probe_line(
+                    &record.terminal_id,
+                    &record.incarnation,
+                    &format!("custody: the exchange failed: {error:#}"),
+                );
+                return;
+            }
         };
         let Some(surface) = surface.upgrade() else { return };
         let Some(pty) = surface.as_pty() else { return };
@@ -85,8 +104,36 @@ pub(super) fn request_custody(surface: &Arc<Surface>) {
             && !host.holds_pty_custody()
         {
             host.keep_pty_custody(custody);
+            probe_line(
+                &record.terminal_id,
+                &record.incarnation,
+                &format!("custody: kept for host pid {}", record.host_pid),
+            );
+        } else {
+            probe_line(
+                &record.terminal_id,
+                &record.incarnation,
+                "custody: dropped (the runtime changed, or custody is held)",
+            );
         }
     });
+}
+
+/// PROBE, a proof branch only (never for a merge): one line on the owner's
+/// stderr for each step of the path of a dead host, with a wall time in ms.
+pub(super) fn probe(identity: &TerminalHostIdentity, what: &str) {
+    probe_line(&identity.terminal_id, &identity.incarnation, what);
+}
+
+/// PROBE: the line of [`probe`] for a terminal id and an incarnation.
+pub(super) fn probe_line(terminal_id: &str, incarnation: &str, what: &str) {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis())
+        .unwrap_or_default();
+    eprintln!(
+        "cmux-tui: host-replacement-probe: t={ms} terminal {terminal_id} incarnation {incarnation}: {what}"
+    );
 }
 
 /// Handle the proven death of the host `record` names: attach to a live
@@ -102,13 +149,16 @@ pub(super) fn after_host_death(
     let Some(pty) = surface.as_pty() else { return DeadHost::Stop };
     #[cfg(windows)]
     let _ = scrollback;
+    probe(identity, &format!("after the death of host pid {}", record.host_pid));
     // An earlier replacement whose install failed still serves the shell.
     if let Some(successor) =
         crate::terminal_host_runtime::live_successor_record(record_path, record)
     {
+        probe(identity, &format!("a live successor record: host pid {}", successor.host_pid));
         let Some(limits) =
             mux.upgrade().and_then(|mux| mux.kitty_image_limits_for_reconnect(surface).ok())
         else {
+            probe(identity, "stop: no image limits for the successor");
             return DeadHost::Stop;
         };
         return match crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
@@ -117,7 +167,10 @@ pub(super) fn after_host_death(
             limits,
         ) {
             Ok(attachment) => DeadHost::Replaced(Box::new(attachment)),
-            Err(_) => DeadHost::Retry,
+            Err(error) => {
+                probe(identity, &format!("retry: the successor was not adopted: {error:#}"));
+                DeadHost::Retry
+            }
         };
     }
     // A durable sidecar is the host's record of the child's end; without one
@@ -128,6 +181,14 @@ pub(super) fn after_host_death(
         .filter(|(_, exit)| {
             exit.terminal_id == identity.terminal_id && exit.incarnation == identity.incarnation
         });
+    probe(
+        identity,
+        if sidecar.is_some() {
+            "a durable exit sidecar: no replacement"
+        } else {
+            "no exit sidecar"
+        },
+    );
     #[cfg(unix)]
     if sidecar.is_none()
         && let Some(attachment) =
@@ -135,6 +196,7 @@ pub(super) fn after_host_death(
     {
         return DeadHost::Replaced(Box::new(attachment));
     }
+    probe(identity, "no replacement on the shell: the end of the terminal is recorded");
     let end =
         sidecar.map(|(_, exit)| TerminalEnd::from_host_exit(exit.exit)).unwrap_or_else(|| {
             TerminalEnd::host_lost("terminal host ended without a durable exit sidecar")
@@ -163,22 +225,45 @@ fn replace_host(
     (record, record_path): (&TerminalHostRecord, &Path),
     scrollback: usize,
 ) -> Option<HostAttachment> {
-    let mux = mux.upgrade()?;
-    if pty.owner_detaching.load(Ordering::Acquire)
-        || pty.dead.load(Ordering::Acquire)
-        || pty.exit.lock().unwrap_or_else(PoisonError::into_inner).is_some()
-        || !mux.terminal_accepts_host_replacement(identity)
-    {
+    let Some(mux) = mux.upgrade() else {
+        probe(identity, "give up 1: the owner is gone");
+        return None;
+    };
+    let detaching = pty.owner_detaching.load(Ordering::Acquire);
+    let dead = pty.dead.load(Ordering::Acquire);
+    let has_exit = pty.exit.lock().unwrap_or_else(PoisonError::into_inner).is_some();
+    let accepts = mux.terminal_accepts_host_replacement(identity);
+    if detaching || dead || has_exit || !accepts {
+        probe(
+            identity,
+            &format!(
+                "give up 2: owner_detaching={detaching} dead={dead} exit_is_set={has_exit} \
+                 registry_accepts={accepts}"
+            ),
+        );
         return None;
     }
-    let custody = match &mut *pty.runtime.lock().unwrap_or_else(PoisonError::into_inner) {
-        PtyRuntime::Hosted(host) if host.identity() == *identity => host.take_pty_custody(),
-        PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => None,
-    }?;
+    let (custody, runtime_kind) =
+        match &mut *pty.runtime.lock().unwrap_or_else(PoisonError::into_inner) {
+            PtyRuntime::Hosted(host) if host.identity() == *identity => {
+                (host.take_pty_custody(), "hosted, this incarnation")
+            }
+            PtyRuntime::Hosted(_) => (None, "hosted, another incarnation"),
+            PtyRuntime::ExitedHosted => (None, "exited"),
+            PtyRuntime::Local { .. } => (None, "local"),
+        };
+    let Some(custody) = custody else {
+        probe(identity, &format!("give up 3: no PTY custody is held (runtime: {runtime_kind})"));
+        return None;
+    };
     if !custody.session_alive() {
+        probe(identity, "give up 4: the shell does not lead its session (custody was held)");
         return None;
     }
-    let root = record_path.parent()?;
+    let Some(root) = record_path.parent() else {
+        probe(identity, "give up 5: the record path has no parent");
+        return None;
+    };
     let geometry = *pty.geometry.lock().unwrap_or_else(PoisonError::into_inner);
     let options = SurfaceOptions {
         term: mux.host_replacement_term(),
@@ -188,14 +273,22 @@ fn replace_host(
         ..SurfaceOptions::default()
     };
     let seed = replacement_seed(pty);
+    let Ok(owner_token) = crate::terminal_host_runtime::record_owner_token(record) else {
+        probe(identity, "give up 6: the owner token of the record is not readable");
+        return None;
+    };
+    let Ok(kitty_graphics_limits) = mux.kitty_image_limits_for_reconnect(surface) else {
+        probe(identity, "give up 7: no image limits for the reconnect");
+        return None;
+    };
     let adoption = TerminalHostAdoption {
         custody: &custody,
         identity: identity.clone(),
-        owner_token: crate::terminal_host_runtime::record_owner_token(record).ok()?,
+        owner_token,
         options: &options,
         default_colors: mux.default_colors(),
         cell_pixels: (geometry.cell_width, geometry.cell_height),
-        kitty_graphics_limits: mux.kitty_image_limits_for_reconnect(surface).ok()?,
+        kitty_graphics_limits,
         seed: &seed,
         host_binary: None,
     };
@@ -216,9 +309,17 @@ fn replace_host(
                     "cmux-tui: terminal {} kept its host loss: no replacement host: {error:#}",
                     identity.terminal_id
                 );
+                probe(
+                    identity,
+                    &format!("give up 8: the launch of the new host failed: {error:#}"),
+                );
                 return None;
             }
         };
+    probe(
+        identity,
+        &format!("replaced in place: the new host pid is {}", attachment.record.host_pid),
+    );
     if !record.workspace_key.is_empty() {
         let _ = attachment.persist_workspace(&record.workspace_key);
     }

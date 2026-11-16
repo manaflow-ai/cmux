@@ -175,6 +175,7 @@ fn assert_replaced_in_place(
     assert!(wait_for_screen(&harness.socket, shell.surface, &marker).contains(&marker));
     wait_for_daemon_custody(harness, true);
 
+    let kill_ms = crate::giveup_probe::now_ms();
     signal_pid(shell.record.host_pid, signal);
     if signal == libc::SIGSEGV {
         // Rust's stack-overflow handler swallows one SIGSEGV that is not a
@@ -190,7 +191,12 @@ fn assert_replaced_in_place(
     }
     wait_for_dead_host(&shell.record_path, &shell.record);
     let replacement = wait_for_replacement(harness, &shell.record);
-    assert_eq!(replacement.incarnation, shell.incarnation);
+    assert_eq!(
+        replacement.incarnation,
+        shell.incarnation,
+        "{}",
+        crate::giveup_probe::report(&harness.dir, &harness.host_root(), kill_ms)
+    );
     assert_ne!(replacement.host_start_nonce, shell.record.host_start_nonce);
     assert!(replacement.supports_pty_custody, "{replacement:?}");
 
@@ -326,3 +332,101 @@ fn a_terminal_whose_shell_died_with_its_host_is_not_replaced() {
     );
     wait_for_daemon_custody(&harness, false);
 }
+
+// PROBE, a proof branch only (never for a merge): one hundred more passes of
+// each of the three tests of `assert_replaced_in_place`. Each name is one
+// test process.
+macro_rules! giveup_probe_copies {
+    ($test:ident: $($name:ident)*) => {
+        $(
+            #[test]
+            fn $name() {
+                $test();
+            }
+        )*
+    };
+}
+
+giveup_probe_copies!(sigkill_of_a_host_under_a_running_daemon_keeps_the_same_terminal_and_shell:
+    giveup_probe_sigkill_001 giveup_probe_sigkill_002 giveup_probe_sigkill_003 giveup_probe_sigkill_004
+    giveup_probe_sigkill_005 giveup_probe_sigkill_006 giveup_probe_sigkill_007 giveup_probe_sigkill_008
+    giveup_probe_sigkill_009 giveup_probe_sigkill_010 giveup_probe_sigkill_011 giveup_probe_sigkill_012
+    giveup_probe_sigkill_013 giveup_probe_sigkill_014 giveup_probe_sigkill_015 giveup_probe_sigkill_016
+    giveup_probe_sigkill_017 giveup_probe_sigkill_018 giveup_probe_sigkill_019 giveup_probe_sigkill_020
+    giveup_probe_sigkill_021 giveup_probe_sigkill_022 giveup_probe_sigkill_023 giveup_probe_sigkill_024
+    giveup_probe_sigkill_025 giveup_probe_sigkill_026 giveup_probe_sigkill_027 giveup_probe_sigkill_028
+    giveup_probe_sigkill_029 giveup_probe_sigkill_030 giveup_probe_sigkill_031 giveup_probe_sigkill_032
+    giveup_probe_sigkill_033 giveup_probe_sigkill_034 giveup_probe_sigkill_035 giveup_probe_sigkill_036
+    giveup_probe_sigkill_037 giveup_probe_sigkill_038 giveup_probe_sigkill_039 giveup_probe_sigkill_040
+    giveup_probe_sigkill_041 giveup_probe_sigkill_042 giveup_probe_sigkill_043 giveup_probe_sigkill_044
+    giveup_probe_sigkill_045 giveup_probe_sigkill_046 giveup_probe_sigkill_047 giveup_probe_sigkill_048
+    giveup_probe_sigkill_049 giveup_probe_sigkill_050 giveup_probe_sigkill_051 giveup_probe_sigkill_052
+    giveup_probe_sigkill_053 giveup_probe_sigkill_054 giveup_probe_sigkill_055 giveup_probe_sigkill_056
+    giveup_probe_sigkill_057 giveup_probe_sigkill_058 giveup_probe_sigkill_059 giveup_probe_sigkill_060
+    giveup_probe_sigkill_061 giveup_probe_sigkill_062 giveup_probe_sigkill_063 giveup_probe_sigkill_064
+    giveup_probe_sigkill_065 giveup_probe_sigkill_066 giveup_probe_sigkill_067 giveup_probe_sigkill_068
+    giveup_probe_sigkill_069 giveup_probe_sigkill_070 giveup_probe_sigkill_071 giveup_probe_sigkill_072
+    giveup_probe_sigkill_073 giveup_probe_sigkill_074 giveup_probe_sigkill_075 giveup_probe_sigkill_076
+    giveup_probe_sigkill_077 giveup_probe_sigkill_078 giveup_probe_sigkill_079 giveup_probe_sigkill_080
+    giveup_probe_sigkill_081 giveup_probe_sigkill_082 giveup_probe_sigkill_083 giveup_probe_sigkill_084
+    giveup_probe_sigkill_085 giveup_probe_sigkill_086 giveup_probe_sigkill_087 giveup_probe_sigkill_088
+    giveup_probe_sigkill_089 giveup_probe_sigkill_090 giveup_probe_sigkill_091 giveup_probe_sigkill_092
+    giveup_probe_sigkill_093 giveup_probe_sigkill_094 giveup_probe_sigkill_095 giveup_probe_sigkill_096
+    giveup_probe_sigkill_097 giveup_probe_sigkill_098 giveup_probe_sigkill_099 giveup_probe_sigkill_100
+);
+
+giveup_probe_copies!(sigsegv_of_a_host_is_replaced_the_same_way:
+    giveup_probe_sigsegv_001 giveup_probe_sigsegv_002 giveup_probe_sigsegv_003 giveup_probe_sigsegv_004
+    giveup_probe_sigsegv_005 giveup_probe_sigsegv_006 giveup_probe_sigsegv_007 giveup_probe_sigsegv_008
+    giveup_probe_sigsegv_009 giveup_probe_sigsegv_010 giveup_probe_sigsegv_011 giveup_probe_sigsegv_012
+    giveup_probe_sigsegv_013 giveup_probe_sigsegv_014 giveup_probe_sigsegv_015 giveup_probe_sigsegv_016
+    giveup_probe_sigsegv_017 giveup_probe_sigsegv_018 giveup_probe_sigsegv_019 giveup_probe_sigsegv_020
+    giveup_probe_sigsegv_021 giveup_probe_sigsegv_022 giveup_probe_sigsegv_023 giveup_probe_sigsegv_024
+    giveup_probe_sigsegv_025 giveup_probe_sigsegv_026 giveup_probe_sigsegv_027 giveup_probe_sigsegv_028
+    giveup_probe_sigsegv_029 giveup_probe_sigsegv_030 giveup_probe_sigsegv_031 giveup_probe_sigsegv_032
+    giveup_probe_sigsegv_033 giveup_probe_sigsegv_034 giveup_probe_sigsegv_035 giveup_probe_sigsegv_036
+    giveup_probe_sigsegv_037 giveup_probe_sigsegv_038 giveup_probe_sigsegv_039 giveup_probe_sigsegv_040
+    giveup_probe_sigsegv_041 giveup_probe_sigsegv_042 giveup_probe_sigsegv_043 giveup_probe_sigsegv_044
+    giveup_probe_sigsegv_045 giveup_probe_sigsegv_046 giveup_probe_sigsegv_047 giveup_probe_sigsegv_048
+    giveup_probe_sigsegv_049 giveup_probe_sigsegv_050 giveup_probe_sigsegv_051 giveup_probe_sigsegv_052
+    giveup_probe_sigsegv_053 giveup_probe_sigsegv_054 giveup_probe_sigsegv_055 giveup_probe_sigsegv_056
+    giveup_probe_sigsegv_057 giveup_probe_sigsegv_058 giveup_probe_sigsegv_059 giveup_probe_sigsegv_060
+    giveup_probe_sigsegv_061 giveup_probe_sigsegv_062 giveup_probe_sigsegv_063 giveup_probe_sigsegv_064
+    giveup_probe_sigsegv_065 giveup_probe_sigsegv_066 giveup_probe_sigsegv_067 giveup_probe_sigsegv_068
+    giveup_probe_sigsegv_069 giveup_probe_sigsegv_070 giveup_probe_sigsegv_071 giveup_probe_sigsegv_072
+    giveup_probe_sigsegv_073 giveup_probe_sigsegv_074 giveup_probe_sigsegv_075 giveup_probe_sigsegv_076
+    giveup_probe_sigsegv_077 giveup_probe_sigsegv_078 giveup_probe_sigsegv_079 giveup_probe_sigsegv_080
+    giveup_probe_sigsegv_081 giveup_probe_sigsegv_082 giveup_probe_sigsegv_083 giveup_probe_sigsegv_084
+    giveup_probe_sigsegv_085 giveup_probe_sigsegv_086 giveup_probe_sigsegv_087 giveup_probe_sigsegv_088
+    giveup_probe_sigsegv_089 giveup_probe_sigsegv_090 giveup_probe_sigsegv_091 giveup_probe_sigsegv_092
+    giveup_probe_sigsegv_093 giveup_probe_sigsegv_094 giveup_probe_sigsegv_095 giveup_probe_sigsegv_096
+    giveup_probe_sigsegv_097 giveup_probe_sigsegv_098 giveup_probe_sigsegv_099 giveup_probe_sigsegv_100
+);
+
+giveup_probe_copies!(a_replaced_host_is_readopted_after_a_daemon_restart:
+    giveup_probe_readopted_001 giveup_probe_readopted_002 giveup_probe_readopted_003 giveup_probe_readopted_004
+    giveup_probe_readopted_005 giveup_probe_readopted_006 giveup_probe_readopted_007 giveup_probe_readopted_008
+    giveup_probe_readopted_009 giveup_probe_readopted_010 giveup_probe_readopted_011 giveup_probe_readopted_012
+    giveup_probe_readopted_013 giveup_probe_readopted_014 giveup_probe_readopted_015 giveup_probe_readopted_016
+    giveup_probe_readopted_017 giveup_probe_readopted_018 giveup_probe_readopted_019 giveup_probe_readopted_020
+    giveup_probe_readopted_021 giveup_probe_readopted_022 giveup_probe_readopted_023 giveup_probe_readopted_024
+    giveup_probe_readopted_025 giveup_probe_readopted_026 giveup_probe_readopted_027 giveup_probe_readopted_028
+    giveup_probe_readopted_029 giveup_probe_readopted_030 giveup_probe_readopted_031 giveup_probe_readopted_032
+    giveup_probe_readopted_033 giveup_probe_readopted_034 giveup_probe_readopted_035 giveup_probe_readopted_036
+    giveup_probe_readopted_037 giveup_probe_readopted_038 giveup_probe_readopted_039 giveup_probe_readopted_040
+    giveup_probe_readopted_041 giveup_probe_readopted_042 giveup_probe_readopted_043 giveup_probe_readopted_044
+    giveup_probe_readopted_045 giveup_probe_readopted_046 giveup_probe_readopted_047 giveup_probe_readopted_048
+    giveup_probe_readopted_049 giveup_probe_readopted_050 giveup_probe_readopted_051 giveup_probe_readopted_052
+    giveup_probe_readopted_053 giveup_probe_readopted_054 giveup_probe_readopted_055 giveup_probe_readopted_056
+    giveup_probe_readopted_057 giveup_probe_readopted_058 giveup_probe_readopted_059 giveup_probe_readopted_060
+    giveup_probe_readopted_061 giveup_probe_readopted_062 giveup_probe_readopted_063 giveup_probe_readopted_064
+    giveup_probe_readopted_065 giveup_probe_readopted_066 giveup_probe_readopted_067 giveup_probe_readopted_068
+    giveup_probe_readopted_069 giveup_probe_readopted_070 giveup_probe_readopted_071 giveup_probe_readopted_072
+    giveup_probe_readopted_073 giveup_probe_readopted_074 giveup_probe_readopted_075 giveup_probe_readopted_076
+    giveup_probe_readopted_077 giveup_probe_readopted_078 giveup_probe_readopted_079 giveup_probe_readopted_080
+    giveup_probe_readopted_081 giveup_probe_readopted_082 giveup_probe_readopted_083 giveup_probe_readopted_084
+    giveup_probe_readopted_085 giveup_probe_readopted_086 giveup_probe_readopted_087 giveup_probe_readopted_088
+    giveup_probe_readopted_089 giveup_probe_readopted_090 giveup_probe_readopted_091 giveup_probe_readopted_092
+    giveup_probe_readopted_093 giveup_probe_readopted_094 giveup_probe_readopted_095 giveup_probe_readopted_096
+    giveup_probe_readopted_097 giveup_probe_readopted_098 giveup_probe_readopted_099 giveup_probe_readopted_100
+);

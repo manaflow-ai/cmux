@@ -205,7 +205,7 @@ impl RecoveryHarness {
         private_state::use_private_state(&mut command, &self.dir)
             .envs(self.extra_env.iter().map(|(key, value)| (key.as_str(), value.as_str())))
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(giveup_probe::stderr_file(&self.dir))
             // Host copies stay in the test directory, not the user's home.
             .env("CMUX_TUI_HOST_EXE_DIR", self.dir.join("host-exe"));
         if let Some(delay_ms) = self.host_ready_delay_ms {
@@ -5274,6 +5274,9 @@ fn exclusive_process_test() -> std::sync::MutexGuard<'static, ()> {
     // A failed test poisons the lock; the next test still runs alone.
     EXCLUSIVE_PROCESS_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
+
+#[path = "terminal_host_recovery/giveup_probe.rs"]
+mod giveup_probe;
 
 #[path = "terminal_host_recovery/close_path.rs"]
 mod close_path;

@@ -403,6 +403,11 @@ impl Mux {
         end: &TerminalEnd,
     ) -> Option<RespawnDecision> {
         let (cause, old_incarnation) = self.respawn_candidate(incarnation, end)?;
+        // PROBE, a proof branch only (never for a merge).
+        eprintln!(
+            "cmux-tui: host-replacement-probe: terminal {terminal_id} incarnation {old_incarnation}: \
+             a respawn is planned, cause {cause}"
+        );
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         self.plan_terminal_respawn_locked(

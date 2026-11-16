@@ -32,10 +32,24 @@ impl HostedReader {
                 }
             };
             let (record, record_path) = discovery?;
-            let replaced = match crate::terminal_host_runtime::terminal_host_record_liveness(
-                &record_path,
-                &record,
-            ) {
+            let liveness =
+                crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record);
+            // PROBE, a proof branch only (never for a merge).
+            rehost::probe(
+                &identity,
+                &format!(
+                    "reconnect: host pid {} is {}",
+                    record.host_pid,
+                    match &liveness {
+                        Ok(crate::terminal_host_runtime::TerminalHostLiveness::Dead) => "dead",
+                        Ok(crate::terminal_host_runtime::TerminalHostLiveness::Live) => "live",
+                        Ok(crate::terminal_host_runtime::TerminalHostLiveness::Indeterminate) =>
+                            "indeterminate",
+                        Err(_) => "not readable",
+                    }
+                ),
+            );
+            let replaced = match liveness {
                 Ok(crate::terminal_host_runtime::TerminalHostLiveness::Dead) => {
                     match rehost::after_host_death(
                         surface,
@@ -72,12 +86,14 @@ impl HostedReader {
                 Ok(replacement) if replacement.identity() == identity => replacement,
                 // The record names another incarnation: no retry reaches this one.
                 Ok(_) => {
+                    rehost::probe(&identity, "reconnect: the record names another incarnation");
                     if !retry.wait_or_give_up(pty) {
                         return None;
                     }
                     continue;
                 }
-                Err(_) => {
+                Err(error) => {
+                    rehost::probe(&identity, &format!("reconnect: the adopt failed: {error:#}"));
                     if !retry.wait_or_fail(pty) {
                         return None;
                     }
