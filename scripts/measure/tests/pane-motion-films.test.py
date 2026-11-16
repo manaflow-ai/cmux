@@ -835,6 +835,23 @@ class FilmsCase(unittest.TestCase):
         # 75 spans of another animator, then the 2 of the zoom: the row keeps the 2, in the app's order.
         self.assertEqual((code, row.get("spans_total"), row.get("spans_cut"), names), (0, 77, 17, ["tabstrip"] * 58 + ["layout"] * 2))
 
+    def span_cut(self, names):
+        """What `motion_spans` keeps of a reply with these span names, each span at its place in the app's list."""
+        row = M.motion_spans({"spans": [{"name": name, "ms": 1.0, "at_ms": place} for place, name in enumerate(names)], "speed": 1})
+        return [(span["name"], span["at_ms"]) for span in row["spans"]], row["spans_total"], row["spans_cut"]
+
+    def test_the_span_cut_keeps_the_first_60_layout_spans_and_no_other_span_when_the_app_gives_more_than_60(self):
+        # 61 `layout` spans with 5 other spans between them: 5 groups of 12 and one other span, then the 61st.
+        names = (["layout"] * 12 + ["tabstrip"]) * 5 + ["layout"]
+        first_60 = [(name, place) for place, name in enumerate(names) if name == "layout"][:60]
+        self.assertEqual(self.span_cut(names), (first_60, 66, 6))
+
+    def test_the_span_cut_keeps_a_layout_span_between_other_spans_and_behind_them_in_the_order_of_the_app(self):
+        # 40 other spans, a `layout` span, 40 other spans, a `layout` span: the 2 and the first 58 others, in the app's order.
+        names = ["tabstrip"] * 40 + ["layout"] + ["tabstrip"] * 40 + ["layout"]
+        kept = [("tabstrip", place) for place in range(40)] + [("layout", 40)] + [("tabstrip", place) for place in range(41, 59)] + [("layout", 81)]
+        self.assertEqual(self.span_cut(names), (kept, 82, 22))
+
     def test_a_focus_read_that_fails_is_said_in_the_preflight_line_and_in_the_row_of_the_act(self):
         # The tool then sends `shell`: a reader of the line or of the row must know that no read gave that word.
         code, report, lines, launches = self.run_films({"launch-activates", "focus-read-fails"}, "--films", "T-Z.N")
