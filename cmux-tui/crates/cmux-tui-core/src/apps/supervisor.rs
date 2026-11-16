@@ -901,7 +901,7 @@ fn background_triggers(outs: &[Out]) -> Option<BTreeSet<String>> {
 
 /// A slow `apps.json` write on demand: an fsync on a busy disk takes seconds.
 #[cfg(test)]
-static PERSIST_PAUSES: Mutex<Vec<(std::path::PathBuf, Duration)>> = Mutex::new(Vec::new());
+static PERSIST_PAUSES: Mutex<Vec<(PathBuf, Duration)>> = Mutex::new(Vec::new());
 
 /// The next `apps.json` write into `dir` takes `pause` longer.
 #[cfg(test)]

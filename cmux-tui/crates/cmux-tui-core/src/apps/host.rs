@@ -258,7 +258,7 @@ mod spawn_tests {
         );
         assert!(started.is_ok(), "the start happens on the host's thread");
         let exit = rx.recv_timeout(Duration::from_secs(30)).expect("an exit");
-        let error = exit.err().expect("a missing binary does not start");
+        let error = exit.expect_err("a missing binary does not start");
         assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}");
     }
 
