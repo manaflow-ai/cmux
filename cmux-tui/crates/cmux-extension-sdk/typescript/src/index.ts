@@ -45,11 +45,23 @@ export const { signal, computed, effect, onCleanup, untrack } = g
 export const {
   VStack, HStack, ZStack, LazyVStack, Group, ForEach, Reorderable,
   Text, Icon, Image, Button, Menu, Spacer, Divider, Row, Badge, EmptyState, Panel,
-  Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle
+  Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle, Particles
 } = g
 
 export type View = CmuxView
 export type Signal<T> = CmuxSignal<T>
+
+/** Motion props (`.animation`, `.loop`, `.transition`, `Particles`, ...): declared in the scene, run by cmux's renderer at display rate. */
+export type Motion = CmuxMotion
+export type Loop = CmuxLoop
+export type LoopEffect = CmuxLoopEffect
+export type Transition = CmuxTransition
+export type Offset = CmuxOffset
+export type Glow = CmuxGlow
+export type Gradient = CmuxGradient
+export type Trim = CmuxTrim
+export type ParticlePreset = CmuxParticlePreset
+export type ParticlesProps = CmuxParticlesProps
 
 // ---------------------------------------------------------------------------------------------
 // Places. Export the result under the name the manifest gives the place's `export`.

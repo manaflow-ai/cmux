@@ -11,7 +11,7 @@ import * as views from "./view.ts"
 import { watch } from "./watch.ts"
 
 const g = globalThis as Record<string, unknown>
-export const RUNTIME_VERSION = "1.2.0"
+export const RUNTIME_VERSION = "1.3.0"
 
 const exportsOf = (): Record<string, unknown> => (g.__cmuxAppExports as Record<string, unknown> | undefined) ?? {}
 
