@@ -1381,7 +1381,16 @@ function ComposerFrame({
             extension: extensionMentions,
             extensionFirst: mentionWord !== undefined && mentionAsk(mentionWord, mentionPrefixes).prefix !== undefined,
           }),
-    [mentionWord, mentionFiles, snapshot.sessions, guestHarnesses, chatId, recentScope, extensionMentions],
+    [
+      mentionWord,
+      mentionFiles,
+      snapshot.sessions,
+      guestHarnesses,
+      chatId,
+      recentScope,
+      extensionMentions,
+      mentionPrefixes,
+    ],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
   // chat; it never hints at a file search.
