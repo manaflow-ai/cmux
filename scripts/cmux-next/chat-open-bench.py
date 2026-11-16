@@ -155,7 +155,8 @@ parser.add_argument("--page-engine", choices=bench_page_engine.WANTED, default="
                     help="the engine that each open's page must run in (decision 2026-11-16). `cef` or `webkit`: an open in "
                          "another engine, or one that showed content with no engine said, is no number; its case reads "
                          "FAILED (reason other_engine), gives no median and no memory per kept page, and the bench exits 1. "
-                         "`any` (the default) refuses no open: the table's `page engine` lines say what ran. "
+                         "`any` (the default) refuses no open: the table's `page engine` lines say what ran. With `cef` the "
+                         "bench asks the app one time at its first launch and stops there when the app has no Chromium. "
                          "scripts/measure/chat-open.sh asks `cef` unless --allow-no-chromium")
 parser.add_argument("--json")
 parser.add_argument("--md")
@@ -876,7 +877,8 @@ def click_engine(run, record):
     says it for the shown chat, asked after the click's frames are in, so the read is in no time of the click.
     A click that failed showed no page and asks nothing."""
     if engine_of(record) is None and not record.get("error"):
-        record["engine"] = bench_page_engine.page_engine(run.rpc("debug.agent_pane", {"action": "engine"}, timeout=10))
+        # 40 s, the bench's own limit for a call: a slow answer under load is not an engine that was not read.
+        record["engine"] = bench_page_engine.page_engine(run.rpc("debug.agent_pane", {"action": "engine"}, timeout=40))
     return record
 
 
@@ -1019,6 +1021,14 @@ def main():
             wipe_state(APP)
             run = Run(root, home)
             run.launch()
+            if opts.page_engine == "cef" and "chromium" not in results:
+                # One read, at the first launch: an app with no Chromium can give no open in the asked engine, so
+                # the bench stops here and not after each case ran to its end.
+                results["chromium"] = bench_page_engine.chromium_word(run.rpc("debug.cef", timeout=40))
+                say(bench_page_engine.chromium_line("chat-open", results["chromium"]))
+                stop = bench_page_engine.no_chromium(results["chromium"])
+                if stop:
+                    raise SystemExit(f"chat-open: {stop}")
             time.sleep(5)  # test script: let launch work end before the first measured open
             if condition != "idle":
                 load.start(condition)

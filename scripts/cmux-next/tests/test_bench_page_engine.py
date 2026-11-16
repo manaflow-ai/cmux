@@ -6,11 +6,13 @@ no measure step prints, and the app showed each page in WebKit: a New Tab time o
 default engine. These hold the three parts of the mend:
 
   - bench_page_engine.py: the engine's name from the app's answer, the rule for a row with another engine than the
-    asked one (an error of the row, its times kept apart, never a number), and the lines that a bench prints;
-  - scripts/measure/require-chromium.sh: an entry's build requires the engine unless `--allow-no-chromium`, and a
-    build that failed for the engine says so in one line;
-  - the wiring, by a read of the text: the two entries and the Cmd-T bench use them. No test here builds or
-    launches an app.
+    asked one (an error of the row, its times and frames kept apart, never a number), the Cmd-T bench's rule by
+    what a row's command opens, the stop of a bench whose app has no Chromium, and the lines that a bench prints;
+  - scripts/measure/require-chromium.sh: an entry's build requires the engine unless `--allow-no-chromium`, an
+    entry asks its bench for the engine unless the run goes to a bench with no such argument, and a build that
+    failed for the engine says so in one line;
+  - the wiring, by a read of the lines that are no comment: the two entries and the two benches use them. No test
+    here builds or launches an app.
 
 Runs on any host (Linux included): no app, no fleet.
 

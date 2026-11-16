@@ -44,9 +44,12 @@ the bench.
 
 The engine (bench_page_engine.py): each `new_tab` and `new_workspace` row has `page_engine`, the engine of the
 page that the key opened, read from the app after the timed press (`cef`, `webkit:<reason>`, `native` with
-`--native-new-tab`, `unknown: <why>` when the focused pane shows no page). `--page-engine cef|webkit` takes a row
-of another engine as an error of the row: its times move to `other_engine` and the row counts as a missed run
-(the default `any` judges no row). Each launch prints the app's own word on Chromium (`CHROMIUM ...`), and the
+`--native-new-tab`, `unknown: <why>` when the focused pane shows no page). A row of a command that opens a browser
+page (`link_right`, `split_browser`, `browser_workspace` and the others with a page time) names its engine itself,
+and that word is its `page_engine` (`cef`, `webkit`, or `none` when the focused pane shows no browser: a viewer's
+page, or a page in a pane with no focus; `none` is not judged). `--page-engine cef|webkit` takes a row of another
+engine as an error of the row: its times and its frames move to `other_engine` and the row counts as a missed run;
+a Cmd-T row whose engine was not read is refused too (the default `any` judges no row). Each launch prints the app's own word on Chromium (`CHROMIUM ...`), and the
 run's end prints the rows of each engine (`PAGE-ENGINE ...`); the JSON has both (`chromium`, `page_engines`).
 The read comes after the row's times. As each `debug.agent_pane` action, it stops WebKit from pausing that page's
 web view while another window covers it; a debug build's bench launch has done that for each page already.
@@ -89,8 +92,8 @@ parser.add_argument("--hang-stacks", action="store_true",
 parser.add_argument("--slow-wait", type=float, default=40, help="slow phase: seconds between marking WebKit slow and the first run")
 parser.add_argument("--native-new-tab", action="store_true", help="run with tabs.nativeNewTabPage on (Cmd-T opens the native New Tab page)")
 parser.add_argument("--page-engine", default="any", choices=bench_page_engine.WANTED,
-                    help="the engine that a New Tab page must show in (bench_page_engine.py): a row of another engine is an "
-                         "error of the row, not a number; any (the default) judges no row")
+                    help="the engine that a New Tab page and a browser page must show in (bench_page_engine.py): a row of "
+                         "another engine is an error of the row, not a number; any (the default) judges no row")
 parser.add_argument("--arms", default=None,
                     help="the arms to time (bench_arms.py; default warm,quick,cold, or warm alone with --budget-frames: a "
                          "budget run judges the warm rows only, so its time and its pass or fail do not change)")
@@ -128,6 +131,8 @@ DIFF_COMMANDS = {"diff_small": (1, 20), "diff_5k": (10, 500), "diff_200": (200, 
 READY_COMMANDS = ("new_workspace", "new_tab")  # the app reports ready_ms (the New Tab page painted and taking keys) for these
 NEWTAB_URL_COMMANDS = ("newtab_url", "newtab_url_beside")  # Return / Option-Return on an address in a New Tab page
 PAGE_COMMANDS = ("link_right", "link_home", "split_browser", "github_right", *NEWTAB_URL_COMMANDS, *DIFF_COMMANDS)  # the app reports page_ms (the new pane's page painted) for these
+# What a command's row opens, for the engine rule (bench_page_engine.judge_created); a command not here opens no page.
+OPENS = {"new_tab": "tab", "new_workspace": "workspace", "browser_workspace": "page", **dict.fromkeys(PAGE_COMMANDS, "page")}
 open(CONFIG, "w").write(json.dumps({"tabs": {"nativeNewTabPage": True}} if opts.native_new_tab else {}) + "\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
@@ -382,11 +387,12 @@ def timed(command, phase, index, arm=None):
     result.update({"phase": phase, "run": index, "command": command})
     if arm:
         result["arm"] = arm
-    if command in READY_COMMANDS and result.get("visible_ms") is not None:
-        # After the row's times: the engine of the page that the key opened (the focused pane's shown page).
-        result["page_engine"] = ("native" if opts.native_new_tab
-                                 else bench_page_engine.page_engine(rpc("debug.agent_pane", {"action": "engine"}, timeout=10)))
-        bench_page_engine.judge(result, opts.page_engine)
+    # After the row's times: the engine of the page that the key opened. Cmd-T and Cmd-N: the focused pane's shown
+    # page, read here (20 s, as the timed call: a slow answer under load is not an engine that was not read). A
+    # page command: the row's own `engine`.
+    bench_page_engine.judge_created(
+        result, opts.page_engine, OPENS.get(command),
+        lambda: "native" if opts.native_new_tab else bench_page_engine.page_engine(rpc("debug.agent_pane", {"action": "engine"}, timeout=20)))
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
           f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} ready={result.get('ready_ms')} "

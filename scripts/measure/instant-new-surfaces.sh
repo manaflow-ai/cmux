@@ -12,6 +12,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 . scripts/measure/require-chromium.sh
 require_chromium="$(measure_chromium_required "$@")"
+ask_engine="$(measure_engine_asked "$@")"
 # A fleet checkout has no submodules or GhosttyKit yet (as scripts/measure/tab-switch.sh).
 for sub in ghostty ghostty-next; do
   [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
@@ -27,19 +28,18 @@ tag="instantnew"
 out="$(mktemp -d)"
 # --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
 # debug.* control commands kept); every other argument goes to the bench.
-reload_config=() bench_args=() other_bench=0
+reload_config=() bench_args=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     --allow-no-chromium) ;;
-    --bench=*) other_bench=1; bench_args+=("$arg") ;;
     *) bench_args+=("$arg") ;;
   esac
 done
 set -- ${bench_args[@]+"${bench_args[@]}"}
 # Before the step's own arguments, so `--arg=--page-engine=webkit` wins over it. `--bench=` runs another bench on
-# the same app, and that bench has no `--page-engine`.
-if [[ "$require_chromium" == 1 && "$other_bench" == 0 ]]; then
+# the same app, and that bench has no `--page-engine` (measure_engine_asked).
+if [[ "$ask_engine" == 1 ]]; then
   set -- --page-engine=cef "$@"
 fi
 if [[ "$require_chromium" == 1 ]]; then

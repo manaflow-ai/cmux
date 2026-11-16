@@ -25,11 +25,13 @@
 #                    and the bench gets --page-engine=cef: an open in another engine makes its case FAILED and the
 #                    step exits 1 (an app given by --app or reused by --skip-build is held to that too). With this
 #                    option the bench refuses no open, and the table's `page engine` lines say what each case ran
-#                    in; --page-engine=webkit after it holds each open to WebKit.
+#                    in; --page-engine=webkit after it holds each open to WebKit. With --fork-open the build
+#                    requires Chromium too, but that bench says no engine and gets no --page-engine.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 . scripts/measure/require-chromium.sh
 require_chromium="$(measure_chromium_required "$@")"
+ask_engine="$(measure_engine_asked "$@")"
 tag="chatopen"
 out="$(mktemp -d)"
 reload_config=(--config bench) reload_args=() bench_args=() app="" skip_build=0
@@ -46,8 +48,9 @@ for arg in "$@"; do
   esac
 done
 set -- ${bench_args[@]+"${bench_args[@]}"}
-# Before the caller's arguments: a --page-engine of the caller's own wins.
-if [[ "$require_chromium" == 1 ]]; then
+# Before the caller's arguments: a --page-engine of the caller's own wins. `--fork-open` runs
+# fork-open-bench.py, and that bench has no `--page-engine` (measure_engine_asked).
+if [[ "$ask_engine" == 1 ]]; then
   set -- --page-engine=cef "$@"
 fi
 # The commit, configuration and architecture an app was built for: --skip-build reuses only a match.

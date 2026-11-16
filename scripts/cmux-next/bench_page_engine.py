@@ -6,9 +6,12 @@ hand (scripts/cmux-next/embed-cef.sh); with none it warned in a build log that n
 of a page in WebKit read as a time of the default engine. A bench that times a page:
 
   - reads the page's engine from the app after the timed press (`debug.agent_pane {action: engine}`: `cef`, or
-    `webkit:<reason>`) and keeps it in the row as `page_engine` (`page_engine`);
-  - with an asked engine (`cef` or `webkit`), takes a row of another engine as an error of the row: its times move
-    to `other_engine`, so each summary counts the row as a missed run and no percentile holds its numbers (`judge`);
+    `webkit:<reason>`) and keeps it in the row as `page_engine` (`page_engine`); a row of a command that opens a
+    browser page names its engine itself (`engine`), and that word is its `page_engine` (`judge_created`);
+  - with an asked engine (`cef` or `webkit`), takes a row of another engine as an error of the row: its times and
+    its frames move to `other_engine`, so each summary counts the row as a missed run and no percentile holds its
+    numbers (`judge`);
+  - with `cef` asked, can stop at its first launch when the app says that it has no Chromium (`no_chromium`);
   - prints the app's own word on Chromium at each launch (`chromium_line`) and the count of rows for each engine
     at its end (`counts_line`).
 
@@ -16,8 +19,10 @@ of a page in WebKit read as a time of the default engine. A bench that times a p
 """
 
 WANTED = ("any", "cef", "webkit")
-# The times of a row that a summary reads: what moves to `other_engine` in a row of another engine.
-TIMES = ("key_ms", "visible_ms", "confirmed_ms", "committed_ms", "page_ms", "ready_ms", "chrome_ms", "frames_to_visible")
+# The times of a row that a summary reads: what moves to `other_engine` in a row of another engine. `frames` is
+# the row's frame times (a summary reads its `first_tick_ms`).
+TIMES = ("key_ms", "visible_ms", "confirmed_ms", "committed_ms", "page_ms", "ready_ms", "chrome_ms", "frames_to_visible",
+         "frames")
 
 
 def page_engine(reply):
@@ -41,10 +46,11 @@ def family(name):
     return None
 
 
-def fault(row, wanted):
+def fault(row, wanted, page=False):
     """Why `row` is no number for the asked engine, or None. A row with no `page_engine` (a command that opens no
     page, a press that failed before the read) and a native page are not judged. A page whose engine was not read
-    is no number when the app said that the page was ready; with no ready page the row has no page time to refuse."""
+    is no number when the app said that the page was ready, or when the row's command always opens a page
+    (`page`); else the row has no page time to refuse."""
     name = row.get("page_engine")
     if wanted == "any" or name is None or name == "native":
         return None
@@ -52,18 +58,46 @@ def fault(row, wanted):
     if kind == wanted:
         return None
     if kind is None:
-        return f"page engine not read ({name}), asked: {wanted}" if row.get("ready_ms") is not None else None
+        return f"page engine not read ({name}), asked: {wanted}" if page or row.get("ready_ms") is not None else None
     return f"page engine {name}, asked: {wanted}"
 
 
-def judge(row, wanted):
+def judge(row, wanted, page=False):
     """`row`, and when it is no number for the asked engine (`fault`): its times moved to `other_engine` and the
     reason in `error`, after an error that the row had."""
-    why = fault(row, wanted)
+    why = fault(row, wanted, page)
     if why is None:
         return row
     row["other_engine"] = {name: row.pop(name) for name in TIMES if name in row}
     row["error"] = f"{row['error']}; {why}" if row.get("error") else why
+    return row
+
+
+def judge_created(row, wanted, opens, read):
+    """The Cmd-T bench's rule for one row: its `page_engine`, then `judge`. `opens` is what the row's command opens:
+
+      `tab`        Cmd-T: always a New Tab page. `read()` gives its engine after the row's times. An engine that
+                   was not read is no number, also when the page was not ready.
+      `workspace`  Cmd-N: a New Tab page or a terminal. `read()` as for `tab`; with no ready page and no engine
+                   the row is left as it is (a terminal has no page).
+      `page`       a browser page (a link, a browser split, a browser workspace, a viewer). The app's row names
+                   the engine of the focused pane's browser itself (`engine`: `cef`, `webkit`, or `none` when that
+                   pane shows no browser: a viewer's page, or a page in a pane with no focus). `none` is kept as
+                   the row's `page_engine` and is not judged: the engine of that page is not known.
+      None         no page: nothing is read and nothing is judged.
+
+    A `tab` or `workspace` row that showed nothing, and a `page` row with no page time, get no `page_engine`."""
+    if opens in ("tab", "workspace"):
+        if row.get("visible_ms") is None:
+            return row
+        row["page_engine"] = read()
+        return judge(row, wanted, page=opens == "tab")
+    if opens == "page":
+        if row.get("page_ms") is None and row.get("chrome_ms") is None:
+            return row
+        name = row.get("engine")
+        row["page_engine"] = name if isinstance(name, str) and name else "unknown: the row named no engine"
+        return judge(row, wanted)
     return row
 
 
@@ -85,6 +119,17 @@ def chromium_line(bench, word):
         return f"CHROMIUM {bench}: the app gave no word ({word['error']})"
     return (f"CHROMIUM {bench}: the app says state={word.get('state')} unavailable={word.get('unavailable') or 'no'} "
             f"browser_default_engine={word.get('browser_default_engine')}")
+
+
+def no_chromium(word):
+    """For a bench that was asked for `cef`: one line that says why it stops, when the app's own word
+    (`chromium_word`) is that Chromium is unavailable. None when the app has the engine, and when it gave no word
+    (no answer is no claim)."""
+    if "error" in word or not word.get("unavailable"):
+        return None
+    return (f"the app has no Chromium engine (unavailable={word['unavailable']}) and --page-engine=cef was asked, so "
+            "no open can be in the asked engine. For a measure of WebKit pass --allow-no-chromium to the entry "
+            "(with cmux-ci: --arg=--allow-no-chromium), or --page-engine=webkit to the bench.")
 
 
 def counts(rows):
