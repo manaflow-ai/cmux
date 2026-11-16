@@ -5,8 +5,10 @@
 //! the list cursor, edition, credit, or continuation token. A batch is held until [`ListDriver::taken`]
 //! acknowledges it, so the daemon's byte credit reaches the page end to end.
 
+use crate::wire::{Anchor, ListFilter, ListKey, ListView, Page, Position, Stream, Sub};
 use crate::{Change, Client, QueuedChange};
-use serde::Serialize;
+use acpmux_list_types::{RowKey, folders::FolderKey};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 
@@ -21,6 +23,43 @@ pub const MAX_WANTED_KEYS: usize = 4_096;
 pub const MAX_QUESTIONS: usize = 16;
 /// Maximum rows in a head or question slot.
 pub const MAX_ROWS: usize = 200;
+pub const HEAD_WINDOW: u16 = 20;
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OpenRequest {
+    pub sid: String,
+    pub view: ListView,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageRequest {
+    pub sid: String,
+    pub kind: PageKind,
+    #[serde(default)]
+    pub key: Option<ListKey>,
+    #[serde(default)]
+    pub folder: Option<String>,
+    #[serde(default)]
+    pub cold: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PageKind {
+    Older,
+    Family,
+    Forks,
+    Folder,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NextRequest {
+    pub sid: String,
+    pub id: String,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DriverError {
@@ -110,6 +149,13 @@ struct Question {
     complete: bool,
 }
 
+#[derive(Clone, Debug)]
+struct Head {
+    slot: String,
+    before_key: Option<ListKey>,
+    edition: u32,
+}
+
 struct HeldBatch {
     number: u64,
     changes: Vec<QueuedChange<Value>>,
@@ -120,6 +166,7 @@ struct HeldBatch {
 pub struct ListDriver {
     client: Client<Value>,
     slots: HashMap<String, String>,
+    heads: HashMap<String, Head>,
     questions: HashMap<String, Question>,
     deferred: VecDeque<QueuedChange<Value>>,
     latest: HashMap<RowRef, u64>,
@@ -127,6 +174,13 @@ pub struct ListDriver {
     next_batch: u64,
     next_question: u64,
     visible: bool,
+    synthetic: VecDeque<ListEvent>,
+}
+
+impl Default for ListDriver {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ListDriver {
@@ -134,6 +188,7 @@ impl ListDriver {
         Self {
             client: Client::new(["list"]),
             slots: HashMap::new(),
+            heads: HashMap::new(),
             questions: HashMap::new(),
             deferred: VecDeque::new(),
             latest: HashMap::new(),
@@ -141,6 +196,7 @@ impl ListDriver {
             next_batch: 1,
             next_question: 1,
             visible: true,
+            synthetic: VecDeque::new(),
         }
     }
 
@@ -158,6 +214,13 @@ impl ListDriver {
 
     pub fn connected(&mut self) {
         self.client.connected();
+        for sid in self.slots.keys() {
+            self.synthetic.push_back(ListEvent::Origin {
+                sid: sid.clone(),
+                origin: "local".into(),
+                state: "on".into(),
+            });
+        }
     }
 
     pub fn disconnected(&mut self) {
@@ -167,8 +230,19 @@ impl ListDriver {
         self.deferred.clear();
         self.held = None;
         for question in self.questions.values_mut() {
-            question.in_flight = false;
+            if question.in_flight {
+                question.in_flight = false;
+                self.synthetic.push_back(ListEvent::Error {
+                    sid: Some(question.sid.clone()),
+                    code: "list.lost".into(),
+                });
+            }
         }
+        self.synthetic.extend(
+            self.slots
+                .keys()
+                .map(|sid| ListEvent::Off { sid: Some(sid.clone()), code: "lost".into() }),
+        );
     }
 
     pub fn is_fallback(&self) -> bool {
@@ -190,12 +264,24 @@ impl ListDriver {
         self.client.take_send()
     }
 
-    pub fn open(&mut self, mut sub: crate::wire::Sub) -> Result<String, DriverError> {
-        if !crate::wire::identifier_fits(&sub.sid) {
+    pub fn open(&mut self, request: OpenRequest) -> Result<String, DriverError> {
+        if !crate::wire::identifier_fits(&request.sid) {
             return Err(DriverError::Invalid("sid is too long".into()));
         }
-        let slot = slot_name(&sub);
-        let sid = sub.sid.clone();
+        if matches!(request.view, ListView::Folders) {
+            return Err(DriverError::Invalid("list.unsupported".into()));
+        }
+        let sid = request.sid;
+        let slot = match request.view {
+            ListView::Live => "live",
+            ListView::All => "all",
+            ListView::Folders => unreachable!(),
+        }
+        .into();
+        let sub = Sub::new(sid.clone(), Stream::new("list")).around(Anchor::End, HEAD_WINDOW);
+        let mut sub = sub;
+        sub.view = Some(request.view);
+        sub.rows = Some("v1".into());
         let mirror = matches!(sub.view, Some(crate::wire::ListView::Live));
         let result = if mirror {
             self.client.subscribe_mirror(sub, [], false)
@@ -203,12 +289,14 @@ impl ListDriver {
             self.client.subscribe(sub)
         };
         result.map_err(|error| DriverError::Invalid(error.to_string()))?;
-        self.slots.insert(sid.clone(), slot);
+        self.slots.insert(sid.clone(), slot.clone());
+        self.heads.insert(sid.clone(), Head { slot, before_key: None, edition: 0 });
         Ok(sid)
     }
 
     pub fn close(&mut self, sid: &str) -> Result<(), DriverError> {
         self.slots.remove(sid);
+        self.heads.remove(sid);
         self.questions.retain(|_, question| question.sid != sid);
         self.client.unsubscribe(sid).map_err(|error| DriverError::Invalid(error.to_string()))
     }
@@ -237,10 +325,7 @@ impl ListDriver {
     }
 
     /// Starts one bounded question. The returned id is opaque and is safe to expose to a page.
-    pub fn page(&mut self, mut request: crate::wire::Page) -> Result<String, DriverError> {
-        if request.max_bytes as usize > MAX_REPLY_BYTES {
-            return Err(DriverError::Limit("list.reply"));
-        }
+    pub fn page(&mut self, request: PageRequest) -> Result<String, DriverError> {
         if self.questions.values().filter(|question| !question.complete).count() >= MAX_QUESTIONS {
             return Err(DriverError::Limit("list.busy"));
         }
@@ -251,35 +336,68 @@ impl ListDriver {
         {
             return Err(DriverError::Busy);
         }
-        let direction = if request.before.is_some() {
-            Direction::Before
-        } else if request.after.is_some() {
-            Direction::After
-        } else {
-            return Err(DriverError::Invalid("list.page needs before or after".into()));
+        let direction = Direction::Before;
+        let sid = request.sid.clone();
+        let (before, filter) = match request.kind {
+            PageKind::Older => {
+                let key = self
+                    .heads
+                    .get(&sid)
+                    .and_then(|head| head.before_key.clone())
+                    .ok_or_else(|| DriverError::Invalid("list.page".into()))?;
+                (Some(Position::List(key)), None)
+            }
+            PageKind::Family => {
+                let key = request.key.ok_or_else(|| DriverError::Invalid("list.request".into()))?;
+                (None, Some(ListFilter::family(RowKey::new(key.origin, key.chat_id))))
+            }
+            PageKind::Forks => {
+                let key = request.key.ok_or_else(|| DriverError::Invalid("list.request".into()))?;
+                (None, Some(ListFilter::forks(RowKey::new(key.origin, key.chat_id))))
+            }
+            PageKind::Folder => {
+                let folder =
+                    request.folder.ok_or_else(|| DriverError::Invalid("list.request".into()))?;
+                let origin = request.key.map(|key| key.origin).unwrap_or_else(|| "local".into());
+                (None, Some(ListFilter::folder(FolderKey::new(origin, folder))))
+            }
+        };
+        let head =
+            self.heads.get(&sid).cloned().ok_or_else(|| DriverError::Invalid("list.sid".into()))?;
+        let wire = Page {
+            sid: sid.clone(),
+            stream: Stream::new("list"),
+            before,
+            after: None,
+            keys: None,
+            view: Some(if matches!(request.kind, PageKind::Folder) {
+                ListView::All
+            } else {
+                ListView::All
+            }),
+            max_bytes: MAX_REPLY_BYTES as u32,
+            filter: filter.map(|mut value| {
+                value.cold = request.cold;
+                value
+            }),
+            edition: Some(head.edition),
+            fold: None,
+            turns: false,
         };
         let id = format!("q{}", self.next_question);
         self.next_question = self.next_question.saturating_add(1);
         request.max_bytes = request.max_bytes.min(MAX_REPLY_BYTES as u32);
-        self.client
-            .page(request.clone())
-            .map_err(|error| DriverError::Invalid(error.to_string()))?;
+        self.client.page(wire.clone()).map_err(|error| DriverError::Invalid(error.to_string()))?;
         self.questions.insert(
             id.clone(),
-            Question {
-                sid: request.sid.clone(),
-                request,
-                direction,
-                in_flight: true,
-                complete: false,
-            },
+            Question { sid, request: wire, direction, in_flight: true, complete: false },
         );
         Ok(id)
     }
 
     /// Requests the next page for a question, using the continuation held in Rust from its last
     /// result. No cursor or key is returned to the page.
-    pub fn next(&mut self, id: &str) -> Result<(), DriverError> {
+    pub fn next(&mut self, sid: &str, id: &str) -> Result<(), DriverError> {
         let request = {
             let question = self.questions.get(id).ok_or(DriverError::MissingQuestion)?;
             if question.complete || question.in_flight {
@@ -301,7 +419,10 @@ impl ListDriver {
         if !self.visible || self.held.is_some() {
             return Ok(None);
         }
-        if !self.client.has_queued_changes() && self.deferred.is_empty() {
+        if self.synthetic.is_empty()
+            && !self.client.has_queued_changes()
+            && self.deferred.is_empty()
+        {
             return Ok(None);
         }
         let mut changes = Vec::new();
@@ -329,6 +450,14 @@ impl ListDriver {
             events.push(event);
             if bytes >= MAX_BATCH_BYTES {
                 break;
+            }
+        }
+        if events.is_empty() {
+            if let Some(event) = self.synthetic.pop_front() {
+                let batch = ListBatch { number: self.next_batch, events: vec![event] };
+                self.next_batch = self.next_batch.saturating_add(1);
+                self.held = Some(HeldBatch { number: batch.number, changes: Vec::new() });
+                return Ok(Some(batch));
             }
         }
         if events.is_empty() {
@@ -361,6 +490,10 @@ impl ListDriver {
                 }
                 let sid = window.sid.clone();
                 let slot = self.slots.get(&sid).cloned().unwrap_or_else(|| "all".into());
+                if let Some(head) = self.heads.get_mut(&sid) {
+                    head.before_key = window.before_key.clone();
+                    head.edition = window.edition;
+                }
                 ListEvent::Rows {
                     sid,
                     slot,
@@ -409,11 +542,7 @@ impl ListDriver {
                         turns: false,
                     }),
                 };
-                let has_more = match question.direction {
-                    Direction::Before => page.has_before,
-                    Direction::After => page.has_after,
-                };
-                question.complete = !has_more || continuation.is_none();
+                question.complete = !page.has_before && !page.has_after;
                 if let Some(next) = continuation {
                     question.request = next;
                 }
@@ -497,15 +626,6 @@ impl ListDriver {
     }
 }
 
-fn slot_name(sub: &crate::wire::Sub) -> String {
-    match sub.view {
-        Some(crate::wire::ListView::Live) => "live",
-        Some(crate::wire::ListView::Folders) => "folders",
-        Some(crate::wire::ListView::All) | None => "all",
-    }
-    .into()
-}
-
 fn row_ref(value: &Value) -> Option<RowRef> {
     Some(RowRef {
         origin: value.get("origin").and_then(Value::as_str).unwrap_or("local").into(),
@@ -520,21 +640,6 @@ fn row_ref_key(key: crate::wire::ListKey) -> RowRef {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wire::{Anchor, ListView, Page, Position, Stream, Sub};
-
-    fn sub(sid: &str, view: ListView) -> Sub {
-        Sub {
-            sid: sid.into(),
-            stream: Stream::new("list"),
-            cursor: None,
-            edition: None,
-            anchor: Some(Anchor::End),
-            window: Some(20),
-            view: Some(view),
-            rows: Some("v1".into()),
-            filter: None,
-        }
-    }
 
     #[test]
     fn constants_hold_the_page_contract() {
@@ -550,45 +655,36 @@ mod tests {
         let mut driver = ListDriver::new();
         for index in 0..MAX_QUESTIONS {
             driver.slots.insert(format!("s{index}"), "all".into());
+            driver.heads.insert(
+                format!("s{index}"),
+                Head {
+                    slot: "all".into(),
+                    before_key: Some(crate::wire::ListKey {
+                        last_activity: index as u64,
+                        chat_id: index.to_string(),
+                        origin: "local".into(),
+                        past: false,
+                    }),
+                    edition: 0,
+                },
+            );
         }
         for index in 0..MAX_QUESTIONS {
-            let request = Page {
+            let request = PageRequest {
                 sid: format!("s{index}"),
-                stream: Stream::new("list"),
-                before: Some(Position::List(crate::wire::ListKey {
-                    last_activity: index as u64,
-                    chat_id: index.to_string(),
-                    origin: "local".into(),
-                    past: false,
-                })),
-                after: None,
-                keys: None,
-                view: Some(ListView::All),
-                max_bytes: MAX_REPLY_BYTES as u32,
-                filter: None,
-                edition: None,
-                fold: None,
-                turns: false,
+                kind: PageKind::Older,
+                key: None,
+                folder: None,
+                cold: false,
             };
             assert!(driver.page(request).is_ok());
         }
-        let request = Page {
+        let request = PageRequest {
             sid: "s-overflow".into(),
-            stream: Stream::new("list"),
-            before: Some(Position::List(crate::wire::ListKey {
-                last_activity: 0,
-                chat_id: "overflow".into(),
-                origin: "local".into(),
-                past: false,
-            })),
-            after: None,
-            keys: None,
-            view: Some(ListView::All),
-            max_bytes: MAX_REPLY_BYTES as u32,
-            filter: None,
-            edition: None,
-            fold: None,
-            turns: false,
+            kind: PageKind::Older,
+            key: None,
+            folder: None,
+            cold: false,
         };
         assert_eq!(driver.page(request), Err(DriverError::Limit("list.busy")));
     }

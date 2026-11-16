@@ -5,7 +5,7 @@
 //! the ABI boundary.
 
 use crate::chat::{ChatBlobRequest, ChatChange, ChatPageRequest, ChatSubRequest};
-use crate::page::ListDriver;
+use crate::page::{ListDriver, NextRequest, OpenRequest, PageRequest};
 use crate::wire::{FolderPageResult, FolderWindow, ListKey, Page, Sub};
 use crate::{Change, Client};
 use serde_json::{Value, json};
@@ -67,6 +67,8 @@ fn guarded(f: impl FnOnce() -> i32) -> i32 {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or(ACPMUX_CLIENT_ERR_PANIC)
 }
 
+/// # Safety
+/// `ptr..ptr+len` must be readable for the duration of the call, or `len` must be zero.
 unsafe fn input<'a>(ptr: *const u8, len: usize) -> Result<&'a [u8], i32> {
     if len == 0 {
         return Ok(&[]);
@@ -623,6 +625,9 @@ pub extern "C" fn acpmux_page_driver_new() -> *mut c_void {
 }
 
 /// Frees a page session-list driver.
+///
+/// # Safety
+/// `handle` is null or was returned by `acpmux_page_driver_new` and is consumed once.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_free(handle: *mut c_void) {
     if !handle.is_null() {
@@ -632,6 +637,9 @@ pub unsafe extern "C" fn acpmux_page_driver_free(handle: *mut c_void) {
 }
 
 /// Marks the page-list transport connected.
+///
+/// # Safety
+/// `handle` is null or a live page-driver handle owned by the caller; calls are serialized.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_connected(handle: *mut c_void) -> i32 {
     guarded(|| {
@@ -646,6 +654,9 @@ pub unsafe extern "C" fn acpmux_page_driver_connected(handle: *mut c_void) -> i3
 }
 
 /// Marks the page-list transport disconnected while retaining rows and wanted keys.
+///
+/// # Safety
+/// `handle` is null or a live page-driver handle owned by the caller; calls are serialized.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_disconnected(handle: *mut c_void) -> i32 {
     guarded(|| {
@@ -660,6 +671,9 @@ pub unsafe extern "C" fn acpmux_page_driver_disconnected(handle: *mut c_void) ->
 }
 
 /// Sets whether the page is visible. A hidden page takes no changes from its handle.
+///
+/// # Safety
+/// `handle` is null or a live page-driver handle owned by the caller; calls are serialized.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_visible(handle: *mut c_void, shown: bool) -> i32 {
     guarded(|| {
@@ -674,6 +688,9 @@ pub unsafe extern "C" fn acpmux_page_driver_visible(handle: *mut c_void, shown: 
 }
 
 /// Feeds daemon bytes to the page-list driver and writes the consumed count.
+///
+/// # Safety
+/// `handle` and `consumed` are owned writable pointers; `ptr..ptr+len` is readable for this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_received(
     handle: *mut c_void,
@@ -700,6 +717,9 @@ pub unsafe extern "C" fn acpmux_page_driver_received(
 }
 
 /// Takes one outbound daemon frame from the page-list driver.
+///
+/// # Safety
+/// `handle` and `out` are owned pointers; calls are serialized.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_take_send(handle: *mut c_void, out: *mut Bytes) -> i32 {
     guarded(|| {
@@ -712,6 +732,9 @@ pub unsafe extern "C" fn acpmux_page_driver_take_send(handle: *mut c_void, out: 
 }
 
 /// Takes one page event batch. The returned batch remains held until `acpmux_page_driver_taken`.
+///
+/// # Safety
+/// `handle` and `out` are owned pointers; calls are serialized.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_next_event(
     handle: *mut c_void,
@@ -735,6 +758,9 @@ pub unsafe extern "C" fn acpmux_page_driver_next_event(
 }
 
 /// Acknowledges one page event batch by its opaque number.
+///
+/// # Safety
+/// `handle` is null or a live page-driver handle owned by the caller; calls are serialized.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_taken(handle: *mut c_void, number: u64) -> i32 {
     guarded(|| {
@@ -746,6 +772,9 @@ pub unsafe extern "C" fn acpmux_page_driver_taken(handle: *mut c_void, number: u
 }
 
 /// Opens a list subscription from a JSON `Sub` and returns `{ "sid": ... }`.
+///
+/// # Safety
+/// `handle` and `out` are owned pointers; `request..request+request_len` is readable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_open(
     handle: *mut c_void,
@@ -758,7 +787,7 @@ pub unsafe extern "C" fn acpmux_page_driver_open(
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
-        let request = match serde_json::from_slice::<Sub>(bytes) {
+        let request = match serde_json::from_slice::<OpenRequest>(bytes) {
             Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
@@ -774,6 +803,9 @@ pub unsafe extern "C" fn acpmux_page_driver_open(
 }
 
 /// Closes a page list subscription from `{ "sid": ... }`.
+///
+/// # Safety
+/// `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_close(
     handle: *mut c_void,
@@ -801,6 +833,9 @@ pub unsafe extern "C" fn acpmux_page_driver_close(
 }
 
 /// Adds wanted keys from `{ "sid": ..., "keys": [...] }`.
+///
+/// # Safety
+/// `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_want(
     handle: *mut c_void,
@@ -827,6 +862,9 @@ pub unsafe extern "C" fn acpmux_page_driver_want(
 }
 
 /// Removes wanted keys from `{ "sid": ..., "keys": [...] }`.
+///
+/// # Safety
+/// `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_unwant(
     handle: *mut c_void,
@@ -852,13 +890,10 @@ pub unsafe extern "C" fn acpmux_page_driver_unwant(
     })
 }
 
-#[derive(serde::Deserialize)]
-struct DriverPageRequest {
-    #[serde(flatten)]
-    page: Page,
-}
-
 /// Starts a bounded page question from a `Page`, returning `{ "id": ... }`.
+///
+/// # Safety
+/// `handle` and `out` are owned pointers; `request..request+request_len` is readable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_page(
     handle: *mut c_void,
@@ -871,7 +906,7 @@ pub unsafe extern "C" fn acpmux_page_driver_page(
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
-        let request = match serde_json::from_slice::<DriverPageRequest>(bytes) {
+        let request = match serde_json::from_slice::<PageRequest>(bytes) {
             Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
         };
@@ -879,7 +914,7 @@ pub unsafe extern "C" fn acpmux_page_driver_page(
             Ok(driver) => driver,
             Err(error) => return error,
         };
-        match driver.page(request.page) {
+        match driver.page(request) {
             Ok(id) => output(out, serde_json::to_vec(&json!({"id": id})).unwrap_or_default()),
             Err(_) => ACPMUX_CLIENT_ERR_INVALID,
         }
@@ -887,6 +922,9 @@ pub unsafe extern "C" fn acpmux_page_driver_page(
 }
 
 /// Requests the next page of `{ "id": ... }`; continuation remains in Rust.
+///
+/// # Safety
+/// `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_page_driver_next(
     handle: *mut c_void,
@@ -898,17 +936,16 @@ pub unsafe extern "C" fn acpmux_page_driver_next(
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
-        let value = match serde_json::from_slice::<Value>(bytes) {
-            Ok(value) => value,
+        let request = match serde_json::from_slice::<NextRequest>(bytes) {
+            Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
-        };
-        let Some(id) = value.get("id").and_then(Value::as_str) else {
-            return ACPMUX_CLIENT_ERR_INVALID;
         };
         let driver = match page_driver_mut(handle) {
             Ok(driver) => driver,
             Err(error) => return error,
         };
-        driver.next(id).map_or(ACPMUX_CLIENT_ERR_INVALID, |_| ACPMUX_CLIENT_OK)
+        driver
+            .next(&request.sid, &request.id)
+            .map_or(ACPMUX_CLIENT_ERR_INVALID, |_| ACPMUX_CLIENT_OK)
     })
 }
