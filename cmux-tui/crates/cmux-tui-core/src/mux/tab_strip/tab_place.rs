@@ -12,8 +12,8 @@
 //! ([`Mux::place_tab_creation`]). The creation carries the place to its
 //! effect as internal fields ([`insert_fields`]), which are stored with the
 //! effect's intent. The attach of the tab reads them ([`Placed::of`]) and
-//! asks the list for the index ([`Placed::land`]), inside the state lock
-//! that inserts the tab.
+//! asks the list for the index and for the active tab ([`Placed::land`]),
+//! inside the state lock that inserts the tab.
 
 use std::cell::Cell;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
@@ -206,6 +206,8 @@ pub(crate) struct Landing {
     /// The tab group that the tab then joins, and its index among the
     /// members ([`Mux::join_new_tab`]).
     pub(crate) joins: Option<(String, usize)>,
+    /// The tab takes the active tab of the pane.
+    pub(crate) active: bool,
 }
 
 impl Placed {
@@ -227,7 +229,8 @@ impl Placed {
     }
 
     /// The slot of `tab`, a new tab of `pane` with a `place`; none for a
-    /// creation with no `place`, which keeps the slot of its kind. The caller
+    /// creation with no `place`, which keeps the slot of its kind. With
+    /// `activate` the tab asks for the active tab of the pane. The caller
     /// holds the state lock and inserts the tab at the index in the same
     /// lock.
     pub(crate) fn land(
@@ -236,6 +239,7 @@ impl Placed {
         presentation: &PresentationSnapshot,
         pane: PaneId,
         tab: SurfaceId,
+        activate: bool,
     ) -> Option<Landing> {
         self.place.as_ref()?;
         let (slots, groups) = strip_slots(state, presentation, pane);
@@ -243,8 +247,10 @@ impl Placed {
             client: self.client.unwrap_or(NO_CLIENT),
             transaction: self.transaction.as_deref(),
             place: self.place.as_ref(),
+            activate,
         };
-        let settled = state.tab_places.lock().commit(pane, &slots, &groups, self.hole, asked, tab);
+        let (settled, active) =
+            state.tab_places.lock().commit(pane, &slots, &groups, self.hole, asked, tab);
         let run = settled.joined.and_then(|run| {
             let start = slots.iter().position(|slot| slot.group == Some(run))?;
             let members = slots.iter().filter(|slot| slot.group == Some(run)).count();
@@ -256,9 +262,18 @@ impl Placed {
             Some((group, start, members)) => Landing {
                 index: start.saturating_add(members),
                 joins: Some((group, settled.index.saturating_sub(start).min(members))),
+                active,
             },
-            None => Landing { index: settled.index.min(slots.len()), joins: None },
+            None => Landing { index: settled.index.min(slots.len()), joins: None, active },
         })
+    }
+
+    /// A new tab of `pane` that [`Placed::land`] gave no slot asks for the
+    /// active tab of the pane: a creation with a slot gets the answer of the
+    /// list, each other creation gets the active tab, as before `place`. The
+    /// caller holds the state lock.
+    pub(crate) fn takes_active(&self, state: &State, pane: PaneId) -> bool {
+        self.hole.is_none_or(|number| state.tab_places.lock().takes_active(pane, number))
     }
 }
 
@@ -340,6 +355,7 @@ impl Mux {
             client: request.client,
             transaction: request.transaction,
             place: place.as_ref(),
+            activate: true,
         };
         self.with_state(|state| {
             if !state.panes.contains_key(&pane) {

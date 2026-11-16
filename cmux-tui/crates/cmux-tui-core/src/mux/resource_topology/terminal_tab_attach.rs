@@ -1,6 +1,8 @@
 //! The attach of a new terminal tab to its pane: the spawn, the slot in the pane's strip and
 //! the `tab-added` delta, in one state lock. The slot is the strip index that the creation
-//! names (`tab_slot`), else the `place` of its request (`tab_place`), else the end.
+//! names (`tab_slot`), else the `place` of its request (`tab_place`), else the end. The tab
+//! takes the active tab of the pane, but not from the tab of a create request that arrived
+//! after its own: a terminal launches while later requests make their tabs.
 
 use super::*;
 
@@ -52,10 +54,15 @@ impl Mux {
             // a tab back in place) wins over the `place` of its request.
             let landing = match spot.index {
                 None if refused.is_none() => {
-                    spot.placed.land(&state, &notifications.presentation, target, surface.id)
+                    spot.placed.land(&state, &notifications.presentation, target, surface.id, true)
                 }
                 _ => None,
             };
+            let active = refused.is_none()
+                && match &landing {
+                    Some(landing) => landing.active,
+                    None => spot.placed.takes_active(&state, target),
+                };
             let pane = if refused.is_some() { None } else { state.panes.get_mut(&target) };
             let delta = match pane {
                 Some(pane) => {
@@ -68,8 +75,15 @@ impl Mux {
                         None => tab_strip::tab_slot::slot(spot.index, end),
                     };
                     pane.tabs.insert(index, surface.id);
-                    pane.active_tab = index;
-                    pane.active_at = active_at;
+                    if active {
+                        pane.active_tab = index;
+                        pane.active_at = active_at;
+                    } else if pane.active_tab >= index {
+                        // The tab of a later request is active: it stays
+                        // active one slot to the right, and the pane keeps
+                        // its place in the focus order.
+                        pane.active_tab = pane.active_tab.saturating_add(1);
+                    }
                     fence_layout_undo_for_tab_membership(&mut state, &[target]);
                     state.register_placed_tab_identity(surface.id);
                     let (workspace_index, screen_index) =

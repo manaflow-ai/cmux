@@ -6,7 +6,9 @@
 //! ([`PlaceLists::commit`]); other creates and closes of the pane commit in
 //! between. The rule that this list keeps: for each order of the commits, the
 //! tabs of the pane are those of the same requests applied one by one in the
-//! order of their arrival.
+//! order of their arrival. The active tab follows the same rule among the
+//! creations: a tab that comes after the tab of a later request does not take
+//! the active tab from it ([`PlaceLists::takes_active`]).
 //!
 //! The list is a pure value: it reads the pane's tabs from its caller and
 //! holds no lock.
@@ -31,6 +33,8 @@ pub(crate) struct Asked<'a> {
     pub(crate) transaction: Option<&'a str>,
     /// The `place` of the request; none is the end of the strip.
     pub(crate) place: Option<&'a TabPlace>,
+    /// The tab asks for the active tab of its pane when it comes.
+    pub(crate) activate: bool,
 }
 
 /// One entry of the list of a pane.
@@ -78,6 +82,9 @@ pub(crate) struct PlaceLists {
     creations: VecDeque<Creation>,
     /// The list of each pane that has a creation of the record.
     lists: HashMap<PaneId, Vec<Entry>>,
+    /// The number of the creation that last took the active tab of each pane
+    /// that has a creation of the record.
+    active: HashMap<PaneId, u64>,
 }
 
 impl PlaceLists {
@@ -113,8 +120,10 @@ impl PlaceLists {
     }
 
     /// The creation `hole` made `tab`: gives the index among `tabs` (the
-    /// pane's tabs now) that the tab takes, and the run that it joins. A
-    /// creation that the list does not know takes its slot now.
+    /// pane's tabs now) that the tab takes and the run that it joins, and if
+    /// the tab takes the active tab of the pane ([`PlaceLists::takes_active`]).
+    /// A creation that the list does not know takes its slot now, as the
+    /// last creation.
     pub(crate) fn commit(
         &mut self,
         pane: PaneId,
@@ -123,7 +132,7 @@ impl PlaceLists {
         hole: Option<u64>,
         asked: Asked<'_>,
         tab: SurfaceId,
-    ) -> Settled {
+    ) -> (Settled, bool) {
         let known = hole.filter(|number| {
             self.creations.iter().any(|creation| {
                 creation.number == *number
@@ -157,12 +166,29 @@ impl PlaceLists {
                 list.insert(at, Entry::Tab(tab));
             }
         }
+        // Before the creation leaves the record: a pane with no creation
+        // has no record of its active tab.
+        let active = asked.activate && self.takes_active(pane, number);
         if let Some(position) = self.creations.iter().position(|creation| creation.number == number)
         {
             self.finish(position, Some(tab));
         }
         self.prune();
-        Settled { index, joined }
+        (Settled { index, joined }, active)
+    }
+
+    /// The tab of the creation `number` goes into `pane` and asks for the
+    /// active tab of the pane. It gets the active tab if no creation with a
+    /// later number took it: the requests applied one by one in the order of
+    /// their arrival leave the tab of the last of them active. Only a
+    /// creation writes this record: a select, a move or a close between a
+    /// request and its tab does not.
+    pub(crate) fn takes_active(&mut self, pane: PaneId, number: u64) -> bool {
+        if self.active.get(&pane).is_some_and(|last| *last > number) {
+            return false;
+        }
+        self.active.insert(pane, number);
+        true
     }
 
     /// The creation `number` ended with no commit: with `tab` it names that
@@ -298,7 +324,8 @@ impl PlaceLists {
     }
 
     /// Keeps the record in its bound: the oldest creation with a name that
-    /// has ended leaves first. A pane with no creation has no list.
+    /// has ended leaves first. A pane with no creation has no list, and no
+    /// record of its active tab: each later creation has a later number.
     fn prune(&mut self) {
         let mut named = self.creations.iter().filter(|creation| creation.is_named()).count();
         while named > KEPT {
@@ -309,6 +336,7 @@ impl PlaceLists {
         }
         let panes: HashSet<PaneId> = self.creations.iter().map(|creation| creation.pane).collect();
         self.lists.retain(|pane, _| panes.contains(pane));
+        self.active.retain(|pane, _| panes.contains(pane));
     }
 }
 

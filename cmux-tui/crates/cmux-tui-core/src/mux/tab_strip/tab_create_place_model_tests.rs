@@ -116,17 +116,36 @@ fn slots(tabs: &[SurfaceId]) -> Vec<Slot> {
     tabs.iter().map(|tab| Slot { tab: Some(*tab), pinned: false, group: None }).collect()
 }
 
+/// `request`, a new tab, arrives: its creation takes its slot in the list
+/// under test. Gives the number of the creation.
+fn admit(places: &mut PlaceLists, real: &[SurfaceId], request: &Request) -> u64 {
+    let Request::Create { name, anchor, .. } = request else {
+        panic!("{request:?} makes no tab");
+    };
+    let place = TabPlace { anchor: anchor.clone(), joins: false };
+    let asked =
+        Asked { client: CLIENT, transaction: name.as_deref(), place: Some(&place), activate: true };
+    places.admit(PANE, &slots(real), &[], asked)
+}
+
 /// The creation `number` of `request` made its tab: the tab goes into `real`
-/// where the list under test says.
-fn commit(places: &mut PlaceLists, real: &mut Vec<SurfaceId>, number: u64, request: &Request) {
+/// where the list under test says. Gives if the tab takes the active tab.
+fn commit(
+    places: &mut PlaceLists,
+    real: &mut Vec<SurfaceId>,
+    number: u64,
+    request: &Request,
+) -> bool {
     let Request::Create { tab, name, anchor, .. } = request else {
         panic!("{request:?} makes no tab");
     };
     let place = TabPlace { anchor: anchor.clone(), joins: false };
-    let asked = Asked { client: CLIENT, transaction: name.as_deref(), place: Some(&place) };
-    let settled = places.commit(PANE, &slots(real), &[], Some(number), asked, *tab);
+    let asked =
+        Asked { client: CLIENT, transaction: name.as_deref(), place: Some(&place), activate: true };
+    let (settled, active) = places.commit(PANE, &slots(real), &[], Some(number), asked, *tab);
     assert!(settled.index <= real.len(), "{settled:?} is not a slot of {real:?}");
     real.insert(settled.index, *tab);
+    active
 }
 
 /// The tabs of the pane after `requests`, when the list under test takes
@@ -161,11 +180,8 @@ fn daemon(
             commit(&mut places, &mut real, number, &requests[launched]);
         }
         match request {
-            Request::Create { page, name, anchor, .. } => {
-                let place = TabPlace { anchor: anchor.clone(), joins: false };
-                let asked =
-                    Asked { client: CLIENT, transaction: name.as_deref(), place: Some(&place) };
-                let number = places.admit(PANE, &slots(&real), &[], asked);
+            Request::Create { page, .. } => {
+                let number = admit(&mut places, &real, request);
                 if *page {
                     commit(&mut places, &mut real, number, request);
                 } else {
@@ -223,6 +239,48 @@ fn a_tab_whose_anchor_closed_while_it_launched_lands_where_the_anchor_was() {
     let requests = [terminal(100, None, Anchor::After(2)), Request::Close { tab: 2 }];
     assert_eq!(OneByOne::of(&requests), [1, 100, 3]);
     assert_eq!(daemon(&requests, launches_end_last), [1, 100, 3]);
+}
+
+/// A terminal tab after `1` still launches when a page comes: the page is
+/// the active tab. The terminal's tab comes later and does not take the
+/// active tab, as when the two requests are applied one by one. The tab of
+/// a request that arrives after that takes it.
+#[test]
+fn a_tab_that_launched_late_does_not_take_the_active_tab_of_a_later_page() {
+    let requests = [
+        terminal(100, None, Anchor::After(1)),
+        page(101, None, Anchor::After(1)),
+        terminal(102, None, Anchor::After(1)),
+    ];
+    let mut places = PlaceLists::default();
+    let mut real = FIRST.to_vec();
+    let first = admit(&mut places, &real, &requests[0]);
+    let second = admit(&mut places, &real, &requests[1]);
+    assert!(commit(&mut places, &mut real, second, &requests[1]), "the page: the last request");
+    assert!(
+        !commit(&mut places, &mut real, first, &requests[0]),
+        "the terminal's tab took the active tab of the page"
+    );
+    let third = admit(&mut places, &real, &requests[2]);
+    assert!(commit(&mut places, &mut real, third, &requests[2]), "the last request");
+    assert_eq!(real, OneByOne::of(&requests));
+}
+
+/// A page that stays in the background (it does not ask for the active tab)
+/// does not keep the active tab from the terminal's tab that comes after it.
+#[test]
+fn a_page_in_the_background_leaves_the_active_tab_to_a_tab_that_launched_late() {
+    let mut places = PlaceLists::default();
+    let real = FIRST.to_vec();
+    let place = TabPlace { anchor: Anchor::After(1), joins: false };
+    let asked = Asked { client: CLIENT, transaction: None, place: Some(&place), activate: true };
+    let background = Asked { activate: false, ..asked };
+    let first = places.admit(PANE, &slots(&real), &[], asked);
+    let second = places.admit(PANE, &slots(&real), &[], background);
+    let (_, active) = places.commit(PANE, &slots(&real), &[], Some(second), background, 101);
+    assert!(!active, "a tab that did not ask took the active tab");
+    let (_, active) = places.commit(PANE, &slots(&[1, 101, 2, 3]), &[], Some(first), asked, 100);
+    assert!(active, "the terminal's tab did not take the active tab");
 }
 
 /// One step of a generated case: a request that names its tab or its

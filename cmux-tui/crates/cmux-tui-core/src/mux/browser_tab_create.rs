@@ -384,6 +384,9 @@ impl Mux {
         let active_at = self.next_active_at();
         let notifications = self.tree_decorations();
         let mut active_index_moved = false;
+        // A tab that asks for the active tab does not take it from the tab
+        // of a create request that arrived after its own (`tab_place`).
+        let mut takes_active = activate;
         let joins;
         let attached = {
             let mut state = self.state.lock().unwrap();
@@ -401,12 +404,14 @@ impl Mux {
                     joins = None;
                     None
                 }
-                None => match placed.land(&state, presentation, target, surface.id) {
+                None => match placed.land(&state, presentation, target, surface.id, activate) {
                     Some(landing) => {
                         joins = landing.joins;
+                        takes_active = landing.active;
                         Some(landing.index)
                     }
                     None => {
+                        takes_active = activate && placed.takes_active(&state, target);
                         joins = joined_group(&state, presentation, target, after);
                         insertion_index(&state, presentation, target, after)
                     }
@@ -420,7 +425,7 @@ impl Mux {
                         None => slot.unwrap_or(end).min(end),
                     };
                     pane.tabs.insert(index, surface.id);
-                    if activate {
+                    if takes_active {
                         pane.active_tab = index;
                         pane.active_at = active_at;
                     } else if pane.active_tab >= index {
@@ -464,7 +469,7 @@ impl Mux {
         };
         // A background tab changes no pane's selection; one inserted before
         // the active tab moves its index, so index-based clients resync.
-        self.emit_tree_delta(delta, activate || active_index_moved);
+        self.emit_tree_delta(delta, takes_active || active_index_moved);
         self.join_new_tab(surface.id, joins);
         self.reap_if_dead(&surface);
         Ok(surface)
