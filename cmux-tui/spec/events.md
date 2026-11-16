@@ -1507,6 +1507,32 @@ Example:
 {"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
 ```
 
+### device-setup-step
+
+| Field | Value |
+| --- | --- |
+| event | `device-setup-step` |
+| status | implemented targeted control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"device-setup-step",device:string,step:string,
+       state:"ok"|"changed"|"warn"|"fail"|"skip",detail:string,fix:string}
+```
+
+Meaning: One step of a `device-setup` request ([commands.md](commands.md#device-setup)), sent
+on the control queue of the connection that asked, before the request's reply. The fields are
+the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `login-item`,
+`start`, `sign-in`, `share` and `agents`, and `fix` is empty when there is nothing to do.
+
+Example:
+
+```json
+{"event":"device-setup-step","device":"studio-mac","step":"app","state":"ok","detail":"NIGHTLY 2100 is current","fix":""}
+```
+
 ### terminal-clipboard-read
 
 | Field | Value |

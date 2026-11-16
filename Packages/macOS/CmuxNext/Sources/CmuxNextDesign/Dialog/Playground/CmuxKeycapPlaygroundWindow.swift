@@ -3,8 +3,9 @@ public import AppKit
 /// Debug: Keycap Playground (`debug.keycapPlayground`, DEV and NIGHTLY; Lawrence 2026-11-16 on the quit dialog's
 /// "esc" and "↩" chips: "still looks bad, come up with more variations, think about how linear would do it"). It
 /// shows every ``CmuxDialogKeycapStyle`` on a real dialog card's real buttons, Cancel and the default button, at rest,
-/// hovered and pressed, in light or dark (a switch at its top). The dialogs keep today's ``CmuxDialogKeycapStyle/plate`` until one is
-/// picked.
+/// hovered and pressed, in light or dark (a switch at its top). Every dialog draws ``CmuxDialogKeycapStyle/linearKbd``
+/// (Lawrence 2026-11-16); the others stay here to compare. It opens from the palette (`debug.keycapPlayground`) and
+/// from the Toast Playground's Keycap Playground button, which works before the palette knows the action.
 ///
 /// ```swift
 /// let playground = CmuxKeycapPlaygroundWindow()
