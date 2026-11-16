@@ -250,7 +250,7 @@ struct PageFactory {
         let cli: @MainActor () async -> URL? = { [bundled = services.bundledCLI] in await bundled.resolve() }
         let integrations = SettingsAgentIntegrations(cli: cli)
         let consent = RemoteControlConsentPage(actions: .over(services.remoteControl, join: services.joinConsent), gate: services.wideningGate, backs: provider.personBacksGesture, confirm: { await LocalDeviceOwnerAuthenticator().authenticate(reason: $0) }, refusal: SettingsPageProvider.personOnly) // Control between my devices' ops
-        provider.parts = consent.parts.merging(["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli)]) { $1 }
+        provider.parts = consent.parts.merging(["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url })]) { $1 }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }

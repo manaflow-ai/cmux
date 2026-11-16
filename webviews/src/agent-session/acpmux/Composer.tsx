@@ -2686,6 +2686,45 @@ function ComposerFrame({
     ) : (
       sendOrStop
     );
+  // The + menu's rows, the same array until what they list changes. ComposerFrame is left
+  // uncompiled by the React Compiler, so an inline array was new on each keystroke and drew the menu again.
+  const plusCanCapture = Boolean(capture && allowImages);
+  const plusCanRecord = Boolean(capture && canRecord);
+  const plusCanChooseProject = locationVisible && Boolean(projectChoices || onBrowseProject);
+  const plusPlanId = planChoice && plan ? plan.id : undefined;
+  const plusPlanName = planChoice?.name;
+  const plusSearchesFiles = Boolean(searchFiles);
+  const plusEntries = useMemo(
+    () =>
+      composerPlusRegistry({
+        commands,
+        recentCommands: recentCommands(recentCommandNames, commands),
+        translate: t,
+        extensions: plusExtensions,
+        canCapture: plusCanCapture,
+        canRecord: plusCanRecord,
+        canChooseProject: plusCanChooseProject,
+        ...(plusPlanId !== undefined && plusPlanName !== undefined
+          ? { planMode: { id: plusPlanId, name: plusPlanName, description: t("picker.planHint") } }
+          : {}),
+      }).filter((entry) => {
+        if (entry.id === "files.search") return plusSearchesFiles;
+        if (entry.id === "add.commands") return Boolean(commands?.length);
+        return true;
+      }),
+    [
+      commands,
+      recentCommandNames,
+      t,
+      plusExtensions,
+      plusCanCapture,
+      plusCanRecord,
+      plusCanChooseProject,
+      plusPlanId,
+      plusPlanName,
+      plusSearchesFiles,
+    ],
+  );
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
   return (
@@ -2957,22 +2996,7 @@ function ComposerFrame({
             ) : (
               <ComposerPlusMenu
                 planning={planning}
-                entries={composerPlusRegistry({
-                  commands,
-                  recentCommands: recentCommands(recentCommandNames, commands),
-                  translate: t,
-                  extensions: plusExtensions,
-                  canCapture: Boolean(capture && allowImages),
-                  canRecord: Boolean(capture && canRecord),
-                  canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
-                  ...(planChoice && plan
-                    ? { planMode: { id: plan.id, name: planChoice.name, description: t("picker.planHint") } }
-                    : {}),
-                }).filter((entry) => {
-                  if (entry.id === "files.search") return Boolean(searchFiles);
-                  if (entry.id === "add.commands") return Boolean(commands?.length);
-                  return true;
-                })}
+                entries={plusEntries}
                 onCommand={(action, modeId) => {
                   if (action === "composer.attachFiles") chooser.current?.click();
                   else if (CAPTURE_MODES[action]) {

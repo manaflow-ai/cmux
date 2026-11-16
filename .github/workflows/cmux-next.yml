@@ -1797,6 +1797,7 @@ jobs:
             bash scripts/cmux-next/tests/fast-tier.test.sh
             bash scripts/cmux-next/tests/check-scrollbars.test.sh
             bash scripts/cmux-next/tests/check-button-radius.test.sh
+            bash scripts/cmux-next/tests/check-concentric-containers.test.sh
             bash scripts/cmux-next/tests/check-pressed-state.test.sh
             bash scripts/cmux-next/tests/check-overlay-glass.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
@@ -1921,6 +1922,8 @@ jobs:
             python3 scripts/cmux-next/tests/test_sidebar_churn_typed_terminal.py
             python3 scripts/cmux-next/tests/test_sidebar_stress_switch_refs.py
             python3 scripts/cmux-next/tests/test_swift_logic_lines.py
+            python3 scripts/cmux-next/tests/test_tab_switch_frames.py
+            python3 scripts/cmux-next/tests/test_tab_switch_judge.py
             python3 scripts/cmux-next/tests/test_tag_teardown.py
             python3 scripts/cmux-next/tests/test_teardown_clone_cleanup.py
             python3 scripts/cmux-next/tests/test_terminal_throughput_bench.py
@@ -2129,6 +2132,13 @@ jobs:
         id: button-radius
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-button-radius.py "$GITHUB_WORKSPACE"
+
+      # A container that holds buttons rounds from them (Lawrence 2026-11-15: "all dialogs needs concentric padding
+      # with buttons inside"): Metrics.buttonContainer(padding:), calc(var(--ds-radius-control) + padding).
+      - name: Containers concentric with their buttons
+        id: concentric-containers
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-concentric-containers.py "$GITHUB_WORKSPACE"
 
       # A held button changes its background and nothing else (Lawrence 2026-11-15): no bold, size, scale,
       # offset, dimming or icon change on :active, a held frame or a SwiftUI press (design/pressed-state.md).
@@ -2570,6 +2580,7 @@ jobs:
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.scrollbars.outcome }}|Scrollbars thin, one style
             ${{ steps.button-radius.outcome }}|Buttons round as tabs
+            ${{ steps.concentric-containers.outcome }}|Containers concentric with their buttons
             ${{ steps.pressed-state.outcome }}|Buttons change only their fill when pressed
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid

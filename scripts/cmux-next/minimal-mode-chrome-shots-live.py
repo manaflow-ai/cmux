@@ -22,6 +22,9 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="minimal-chrome-"))
 parser.add_argument("--modes", default="default,minimal")
+# Comma-separated `sidebar.density` values (Lawrence 2026-11-15: "minimal mode should not change density at all"):
+# with it, each density is shot with Minimal Mode off and on, at rest, and the rows must match.
+parser.add_argument("--densities", default="")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -70,10 +73,15 @@ def cli(*args):
     return done
 
 
-def write_config(minimal):
+def write_config(minimal, density=None):
     config = {"tabs": {"toolbarButtons": ["splitRight"]}}
+    sidebar = {}
     if minimal:
-        config["sidebar"] = {"minimal": True}
+        sidebar["minimal"] = True
+    if density:
+        sidebar["density"] = density
+    if sidebar:
+        config["sidebar"] = sidebar
     with open(CONFIG + ".tmp", "w") as f:
         json.dump(config, f)
     os.replace(CONFIG + ".tmp", CONFIG)
@@ -147,7 +155,8 @@ def shoot(name):
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 modes = [m for m in opts.modes.split(",") if m]
-write_config(modes[0] == "minimal")
+densities = [d for d in opts.densities.split(",") if d]
+write_config(modes[0] == "minimal", densities[0] if densities else None)
 open(GHOSTTY, "w").write("")
 teardown = TagTeardown(opts.app)
 teardown.install()
@@ -174,6 +183,21 @@ try:
     added = rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
     safe_print("panes", pane_ids, "newTab", json.dumps(added)[:200], flush=True)
     wait(lambda: len((first_pane().get("tab_slots") or [])) >= 2, 15)
+    if densities:
+        # A few workspaces and a group, so the list's row heights read in the shots.
+        for name in ("workspace.newAtBottom", "workspace.newAtBottom", "workspace.newInNewGroup", "workspace.newBelow"):
+            reply = rpc("action.run", {"action": name, "args": {}, "focus": False, "origin": "script"})
+            safe_print(name, json.dumps(reply)[:160], flush=True)
+            time.sleep(1.0)  # capture harness: the new row settles
+        for density in densities:
+            for mode in modes:
+                write_config(mode == "minimal", density)
+                time.sleep(1.5)  # capture harness: the config watcher applies the setting
+                rpc("debug.pointer_hover", {"point": None})
+                time.sleep(0.6)  # capture harness: the hover chrome's fade ends
+                report[f"{density}-{mode}"] = first_pane().get("toolbar")
+                shoot(f"{density}-{mode}-rest")
+        modes = []
     for mode in modes:
         write_config(mode == "minimal")
         time.sleep(1.5)  # capture harness: the config watcher applies the setting

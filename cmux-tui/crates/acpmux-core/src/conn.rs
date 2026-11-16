@@ -531,10 +531,15 @@ fn process_frame(
             }
         }
         Request::Unsub(unsub) => {
-            if !state.lock().map_err(|_| poisoned())?.unsubscribe(&unsub.sid) {
+            let mut held = state.lock().map_err(|_| poisoned())?;
+            if held.unsubscribe(&unsub.sid) {
+                drop(held);
+                source.end(&unsub.sid);
+            } else if !held.unsubscribe_ended(&unsub.sid) {
+                // A sid this connection ended itself was ended at its source then: only a sid
+                // it never had is unknown.
                 return Err(ConnError::UnknownSubscription(unsub.sid));
             }
-            source.end(&unsub.sid);
         }
         Request::Page(page) => {
             require_surface(&page.stream, surfaces)?;

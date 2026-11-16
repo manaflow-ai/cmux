@@ -633,6 +633,14 @@ fn cpu_s() -> f64 {
 }
 
 pub fn run(opts: &Opts) -> Res<()> {
+    // The first decoder session in a process is the slow one: create a throwaway one now,
+    // in parallel with connecting, so the first IDR does not pay for it.
+    #[cfg(target_os = "macos")]
+    if opts.str_or("decoder", "videotoolbox") == "videotoolbox"
+        && opts.num_or("vt-prewarm", 1u8)? == 1
+    {
+        crate::vtdecode::prewarm_in_background();
+    }
     let addr: SocketAddr = opts.str_or("addr", "127.0.0.1:4103").parse()?;
     let samples: usize = opts.num_or("samples", 300)?;
     let carrier = opts.str_or("carrier", "udp");
