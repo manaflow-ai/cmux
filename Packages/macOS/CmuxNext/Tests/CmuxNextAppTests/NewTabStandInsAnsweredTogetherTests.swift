@@ -13,6 +13,10 @@ import Testing
 /// still select the tab of the selected stand-in, and show it in that same apply: no other tab shows in between,
 /// and the pane is not empty for a frame.
 ///
+/// The second case adds an open of the pane that has no stand-in and no answer yet (a terminal tab, a duplicate).
+/// The strip holds back a pane's new tabs for such an open, because one of them can be the open's own tab. The tab
+/// of the selected stand-in is not: the store's record names its creation. The pane selects and shows it all the same.
+///
 /// One pane in a window with no daemon. The test has no wait: each step is one call, and the pane's own
 /// observation of the store cannot run before the test's apply.
 @Suite(.closesItsWindows)
@@ -41,7 +45,8 @@ import Testing
         return (provisional.id, transaction)
     }
 
-    @Test func theTabOfTheSelectedStandInIsSelectedAndShownInTheApplyThatAnswersTwo() throws {
+    @Test(arguments: [false, true])
+    func theTabOfTheSelectedStandInIsSelectedAndShownInTheApplyThatAnswersTwo(anotherOpenWaits: Bool) throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -68,6 +73,9 @@ import Testing
         try #require(listed.contains(first.id) && listed.contains(second.id), "setup: the strip does not list both stand-ins: \(listed)")
         try #require(pane.stripModel.selectedID?.rawValue == second.id, "setup: the newer stand-in is not selected")
         try #require(pane.currentTabKey == second.id, "setup: the pane does not show the newer stand-in")
+        if anotherOpenWaits {
+            try #require(NewTabSuccession.begin(after: nil, in: model, services: services) != nil, "setup: the other open did not start")
+        }
 
         // The store's record names the tab of each creation, and ONE snapshot lists both. No creator has heard of
         // its reply yet, so nothing but the pane's apply moves the selection.

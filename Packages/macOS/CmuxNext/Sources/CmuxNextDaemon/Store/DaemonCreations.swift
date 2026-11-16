@@ -9,6 +9,9 @@ public enum StandInFate: Equatable, Sendable {
     case underway
     /// Closed by the person, refused or failed, or its tab left the pane: no tab of the pane takes its place.
     case ended
+
+    /// The tab that the stand-in became, if it became one.
+    public var tab: String? { if case .became(let tab) = self { tab } else { nil } }
 }
 
 /// The store's pending creations as a close sees them (``CancelledCreation``): a close of a
