@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43818529449",
+  "recorded_at": "2026-11-16T06:50:30Z",
+  "reason": "cmux-tui 414a21f34731 changes the image's cmux-tui (pinned ddef325a5936)",
+  "dry_run": false,
+  "cmux_tui": "414a21f347319fda36f0cf275fee3c7a34c9d9ec",
+  "fixes": [
+    {
+      "sha": "414a21f347319fda36f0cf275fee3c7a34c9d9ec",
+      "mergedAt": "2026-11-16T06:24:02Z",
+      "subject": "test: require protected Windows journal DACL (#44249)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T06:50:30Z",
+    "snapshot_id": "sh-13ecd9147fbc40c5be7d3de13ef4a1da",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43818529449): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "05b93ccbfe10453214a69e0b11ccf6928028f7dc",
+    "image": "cloud-native-auto-414a21f3-43818529449-1",
+    "revision": "ci-43818529449-1",
+    "at": "2026-11-16T06:50:30Z"
+  },
+  "rolled_back": false
+}
