@@ -232,9 +232,9 @@ PY
 }
 
 # The packages this lane tests whole when a pull request changes one of their inputs. A Swift test
-# target no pull request check runs is listed in scripts/ci/swift-test-targets.json with its reason
-# (scripts/ci/swift_test_coverage.py, hq#11644); the rows after CmuxPhonePush passed `suite` on an
-# owned Mac at ccc9958672bf before they joined.
+# target no pull request check runs is listed with its reason in the swift-test-targets.json
+# registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxPhonePush
+# passed `suite` on an owned Mac at ccc9958672bf before they joined.
 select_packages() {
   PACKAGES=(
     CMUXAuthCore

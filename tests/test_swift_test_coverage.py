@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/swift_test_coverage.py"
 _spec = importlib.util.spec_from_file_location("swift_test_coverage", SCRIPT)
 coverage = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = coverage  # @dataclass reads its module from sys.modules
 _spec.loader.exec_module(coverage)
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 _fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests/git_fixture_env.py")
