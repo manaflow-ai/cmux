@@ -63,6 +63,8 @@ public final class MacScreenSession {
     /// This session's connect start, first frame and recent round trips (`mac_screen.state`;
     /// not observed: nothing on screen follows them).
     @ObservationIgnored var timings = MacScreenConnectTimings()
+    /// When the person asked for the session the next `connect()` starts (the hub viewer's request).
+    @ObservationIgnored var requestedAt: ContinuousClock.Instant?
     /// The current transport's frame counter (the pane's decoder sets it), for its frame timings.
     @ObservationIgnored var frameCounter: MacScreenFrameCounter?
     /// The pane attaches its decoder to each new transport.
@@ -102,7 +104,8 @@ public final class MacScreenSession {
         isStalled = false
         frameSize = .zero
         stats = LiveStats()
-        timings.connectStarted(at: Date(), .now)
+        timings.connectStarted(at: Date(), .now, requested: requestedAt)
+        requestedAt = nil
         frameCounter = nil
         let process = MacScreenRdProcess()
         do { try process.start(.connect) } catch {
@@ -112,6 +115,7 @@ public final class MacScreenSession {
         self.process = process
         signalingOpen = false
         pendingOffer = nil
+        laterCandidates = []
         let sessionID = (signaling as? TicketSignaling)?.ticket.sessionID ?? UUID().uuidString
         tasks.append(Task { [weak self] in
             let servers = MacScreenRdServers((try? await signaling.iceServers()) ?? [])
@@ -166,9 +170,16 @@ public final class MacScreenSession {
                     }
                     logger.info("cmux rd: answer received (\(answer.candidates.count, privacy: .public) candidates)")
                     if !answer.displays.isEmpty { onStreamDisplays?(answer.displays, answer.currentDisplay ?? 0) }
+                    timings.reached(.answered, at: .now)
                     answered(answer)
                 case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
-                    process.send(["candidate": candidate.candidate])
+                    // The link process reads its answer first: a candidate the host trickled
+                    // before that (its answer no longer waits for STUN and TURN) waits for it.
+                    if let waiting = laterCandidates {
+                        laterCandidates = waiting + [candidate.candidate]
+                    } else {
+                        process.send(["candidate": candidate.candidate])
+                    }
                 case .bye:
                     end(L.t("macScreen.rd.hostEnded", "The other Mac ended the session."))
                     return
@@ -187,9 +198,12 @@ public final class MacScreenSession {
     @ObservationIgnored private var signalingOpen = false
     /// This side's offer, made before the socket opened.
     @ObservationIgnored private var pendingOffer: String?
+    /// The host's candidates that came before the link process had its answer (nil once it has).
+    @ObservationIgnored private var laterCandidates: [String]? = []
 
     private func sendOffer(_ text: String, signaling: any ScreenSignaling, process: MacScreenRdProcess) async {
         logger.info("cmux rd: offer sent")
+        timings.reached(.offerSent, at: .now)
         do { try await signaling.send(.offer(text)) } catch {
             guard isCurrent(process) else { return }
             fail(L.t("macScreen.rd.signalingFailed", "The session could not reach the other Mac."))
@@ -270,6 +284,8 @@ public final class MacScreenSession {
             logger.info("cmux rd: link started toward the host")
             process.send(Answer(session: sessionID, peerKey: answer.key, stun: servers.stun, turn: servers.turn,
                                 candidates: answer.candidates, socket: path, relayOnly: relayOnly))
+            for candidate in laterCandidates ?? [] { process.send(["candidate": candidate]) }
+            laterCandidates = nil
         })
     }
 
@@ -286,6 +302,7 @@ public final class MacScreenSession {
             return
         }
         self.transport = transport
+        timings.reached(.linkReady, at: .now)
         onTransport?(transport)
         let statuses = transport.statusUpdates()
         tasks.append(Task { [weak self] in
@@ -299,6 +316,7 @@ public final class MacScreenSession {
                         askedKeyframe = true
                         transport.requestKeyframe()
                     }
+                    timings.reached(.streaming, at: .now)
                     if phase != .connected { phase = .connected }
                     if let rtt = status.rttMs {
                         stats.latencyMs = Double(rtt)
@@ -365,7 +383,14 @@ public final class MacScreenSession {
     func framesCounted(_ counter: MacScreenFrameCounter) {
         guard counter === frameCounter else { return }
         let frames = counter.timings
-        if let first = frames.firstPresentedAt { timings.firstFrame(at: first) }
+        if let first = frames.firstPresentedAt, timings.firstFrameMs == nil {
+            timings.firstFrame(at: first)
+            if let ms = timings.firstFrameMs {
+                let stages = timings.stagesMs.map { "\($0.0)=\(Int($0.1))" }.joined(separator: " ")
+                let click = timings.clickToFirstFrameMs.map { "\(Int($0)) ms" } ?? "-"
+                logger.info("cmux rd: first frame \(Int(ms), privacy: .public) ms after the ticket, \(click, privacy: .public) after Connect (\(stages, privacy: .public))")
+            }
+        }
         let dropped = Double(frames.dropped)
         if stats.framesDropped != dropped { stats.framesDropped = dropped }
     }

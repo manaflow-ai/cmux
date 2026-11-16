@@ -13,7 +13,8 @@
 //! `capture_backend::CaptureBackend` (`--capture`, else portal in a Wayland session).
 //! stdin, later: {"candidate":"host 192.168.1.4:51000"} or {"stop":true}
 //! stdout: {"key":"<this side's session key>"} first (the app signs it for the
-//!   viewer), then {"candidate":".."}, {"candidates_done":true},
+//!   viewer), then {"candidate":".."}, {"candidates_done":true} (sent once this side's host
+//!   candidates are known, the app answers then; reflexive and relayed candidates may follow it),
 //!   {"connected":true}, {"path":{"kind":"direct_wan","rtt_ms":3.2}},
 //!   and last {"ended":"<reason>"}.
 //!
@@ -340,6 +341,38 @@ fn serve_session(
     let started = Instant::now();
     let mut hello = None;
     let mut start = None;
+    // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
+    let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(display));
+    let mut cfg = SessionCfg {
+        display: display.to_owned(),
+        max_fps,
+        start_kbps: opts.num_or("start-kbps", 8000)?,
+        max_kbps: opts.num_or("max-kbps", 50_000)?,
+        preset: String::new(),
+        profile: opts.str_or("profile", "high"),
+        codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
+        content: "screen".into(),
+        openh264_lib: None,
+        threads: 2,
+        stats_every_ms: 1000,
+        settle_us: crate::host::DEFAULT_SETTLE_US,
+        upstream_record: None,
+        upstream_record_max_bytes: 0,
+        max_width: setup.max_width,
+        input_frame_now: opts.flag("input-frame-now"),
+        // Set from the path's round trip once the viewer starts (below).
+        frames_in_flight: 2,
+        capture,
+    };
+    // The answer goes as soon as this side's host candidates are known: the reflexive and
+    // relayed ones trickle after it (the app relays them as candidates), so a LAN session no
+    // longer waits a STUN round trip and two TURN round trips (3 s at most) before the viewer
+    // can even start its handshake. Relay only has no host candidate: it waits for the relay's.
+    let mut answered = false;
+    // The capture and encoder open while the answer crosses the hub and the link shakes
+    // hands, not after the viewer's start: its first frame no longer waits for them. An
+    // error waits for the viewer's start, where it ended the session before.
+    let mut desktop: Option<Res<Box<dyn crate::desktop::Desktop>>> = None;
     // Lines that came in the same read as the setup sit in stdin's buffer, where a wait on the
     // descriptor never sees them.
     carrier.pump_app()?;
@@ -350,13 +383,17 @@ fn serve_session(
         }
         crate::fdwait::wait_readable(&carrier.fds(), Some(left.as_nanos() as u64))?;
         carrier.pump_app().map_err(|e| e.to_string())?;
+        let mut host_candidate = false;
         for event in carrier.link.net.events() {
             match event {
                 NetEvent::Candidate(c) => {
+                    host_candidate |= c.kind == cmux_rd_link::net::CandidateKind::Host;
                     say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() })
                 }
                 NetEvent::CandidatesDone => {
-                    say(AppLine { candidates_done: true, ..AppLine::default() })
+                    if !std::mem::replace(&mut answered, true) {
+                        say(AppLine { candidates_done: true, ..AppLine::default() })
+                    }
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
                     say(AppLine { connected: true, ..AppLine::default() })
@@ -379,7 +416,13 @@ fn serve_session(
                 _ => {}
             }
         }
+        if host_candidate && !std::mem::replace(&mut answered, true) {
+            say(AppLine { candidates_done: true, ..AppLine::default() });
+        }
         carrier.report_paths();
+        if answered && desktop.is_none() {
+            desktop = Some(crate::desktop::open(&cfg));
+        }
     }
     let (Some(Control::Hello { service, caps, .. }), Some(Control::Start { key, mode })) =
         (hello, start)
@@ -426,36 +469,18 @@ fn serve_session(
             return Ok(format!("refused: {reason:?}"));
         }
     };
-    let display = display.to_owned();
-    // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
-    let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
-    let cfg = SessionCfg {
-        display,
-        max_fps,
-        start_kbps: opts.num_or("start-kbps", 8000)?,
-        max_kbps: opts.num_or("max-kbps", 50_000)?,
-        preset: String::new(),
-        profile: opts.str_or("profile", "high"),
-        codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
-        content: "screen".into(),
-        openh264_lib: None,
-        threads: 2,
-        stats_every_ms: 1000,
-        settle_us: crate::host::DEFAULT_SETTLE_US,
-        upstream_record: None,
-        upstream_record_max_bytes: 0,
-        max_width: setup.max_width,
-        input_frame_now: opts.flag("input-frame-now"),
-        // Enough frames in flight to cover the path's round trip, at least two: the next
-        // frame encodes while the last one waits for its acknowledgement.
-        frames_in_flight: carrier
-            .link
-            .rtt_us
-            .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, max_fps))
-            .max(2),
-        capture,
+    // Enough frames in flight to cover the path's round trip, at least two: the next
+    // frame encodes while the last one waits for its acknowledgement.
+    cfg.frames_in_flight = carrier
+        .link
+        .rtt_us
+        .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, max_fps))
+        .max(2);
+    let desktop = match desktop {
+        Some(opened) => opened?,
+        None => crate::desktop::open(&cfg)?,
     };
-    let mut media = MediaSession::open(&cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;
+    let mut media = MediaSession::with_desktop(desktop, &cfg, MAX_DATAGRAM, &negotiated.caps, sink);
     let (width, height) = media.size();
     carrier.send_control(&Control::Welcome {
         encoder: media.encoder_name(),

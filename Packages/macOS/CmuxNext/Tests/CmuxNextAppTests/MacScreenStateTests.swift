@@ -75,6 +75,28 @@ struct MacScreenConnectTimingsTests {
         timings.connectStarted(at: Date(), start + .seconds(5))
         #expect(timings.firstFrameMs == nil && timings.rtt.count == 0)
     }
+
+    /// Connect to first frame counts from the person's request, and the stages split it: the
+    /// request to the ticket, each step to the next, the last step to the frame.
+    @Test func clickToFirstFrameSplitsIntoStages() {
+        var timings = MacScreenConnectTimings()
+        let click = ContinuousClock.now
+        let ticket = click + .milliseconds(120)
+        timings.connectStarted(at: Date(), ticket, requested: click)
+        timings.reached(.offerSent, at: ticket + .milliseconds(10))
+        timings.reached(.answered, at: ticket + .milliseconds(90))
+        timings.reached(.answered, at: ticket + .milliseconds(400))
+        timings.reached(.streaming, at: ticket + .milliseconds(150))
+        timings.firstFrame(at: ticket + .milliseconds(200))
+        #expect(timings.firstFrameMs == 200)
+        #expect(timings.clickToFirstFrameMs == 320)
+        #expect(timings.stagesMs.map(\.0) == ["request_to_ticket", "ticket_to_offer_sent", "offer_sent_to_answered", "answered_to_streaming", "streaming_to_first_frame"])
+        #expect(timings.stagesMs.map(\.1) == [120, 10, 80, 60, 50])
+        // A restart without a click (a quality change) has no click number.
+        timings.connectStarted(at: Date(), ticket + .seconds(5))
+        timings.firstFrame(at: ticket + .seconds(6))
+        #expect(timings.clickToFirstFrameMs == nil && timings.firstFrameMs == 1000)
+    }
 }
 
 @MainActor
