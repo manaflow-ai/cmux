@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 @testable import CmuxNextMacScreen
 import Testing
@@ -21,10 +22,41 @@ import Testing
 
     @Test func onlyThePersonsOwnPressKeepsAlwaysAllow() {
         typealias Env = CmuxRemoteActionEnvironment
-        #expect(Env.keepsAlways(.always, personPressed: true))
-        #expect(!Env.keepsAlways(.always, personPressed: false))
-        #expect(!Env.keepsAlways(.allow, personPressed: true))
-        #expect(!Env.keepsAlways(.cancel, personPressed: true))
+        #expect(Env.answer("always", personPressed: true) == .always)
+        #expect(Env.answer("always", personPressed: false) == .allow)
+        #expect(Env.answer("confirm", personPressed: false) == .allow)
+        #expect(Env.answer("cancel", personPressed: true) == .cancel)
+    }
+
+    private func click(_ type: NSEvent.EventType, at timestamp: TimeInterval) -> NSEvent? {
+        NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: [], timestamp: timestamp, windowNumber: 0,
+                           context: nil, eventNumber: 1, clickCount: 1, pressure: 1)
+    }
+
+    /// The review's case: an Accessibility press of Always Allow while the person types or clicks
+    /// in cmux dispatches no event of its own, so the app's latest input (the person's) backs nothing.
+    @Test func thePressIsReadFromTheEventThatAnswers() {
+        typealias Env = CmuxRemoteActionEnvironment
+        let person: (NSEvent) -> Bool = { _ in true }
+        #expect(!Env.pressedByPerson(nil, now: 100, isPerson: person))
+        #expect(Env.pressedByPerson(click(.leftMouseUp, at: 99.9), now: 100, isPerson: person))
+        #expect(!Env.pressedByPerson(click(.leftMouseUp, at: 99.9), now: 100, isPerson: { _ in false }))
+        #expect(!Env.pressedByPerson(click(.leftMouseUp, at: 98), now: 100, isPerson: person))
+        #expect(!Env.pressedByPerson(click(.mouseMoved, at: 99.9), now: 100, isPerson: person))
+    }
+
+    @Test func turningTheSettingOffForgetsTheGrant() {
+        let (grant, _, offs) = grant()
+        grant.accountChanged("user-a")
+        grant.record()
+        grant.settingChanged(on: false)
+        #expect(grant.grantedTo == nil)
+        #expect(offs() == 0)
+        // A later edit turning the setting back on skips nothing.
+        #expect(!grant.covers(settingOn: true, managed: false))
+        grant.record()
+        grant.settingChanged(on: true)
+        #expect(grant.covers(settingOn: true, managed: false))
     }
 
     @Test func theSettingAloneSkipsNothingWithoutTheAccountsClick() {
