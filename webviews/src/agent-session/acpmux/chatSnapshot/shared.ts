@@ -42,10 +42,16 @@ export const SNAPSHOT_ROOT_CLASS = "cmux-snapshot-root";
 export const SNAPSHOT_SCROLL_ATTRIBUTE = "data-cmux-snapshot-scroll";
 /// A shadow root's adopted sheets, by index in the snapshot's `sheets`.
 export const SNAPSHOT_SHEETS_ATTRIBUTE = "data-cmux-snapshot-sheets";
-/// A drawn copy of a row a fold takes away, fading out where the row was (conversation/turnFold.ts,
-/// turnEndFold.ts). Its fade is a Web Animation, which markup does not carry: a copy is never written
-/// and never drawn, or it shows at full ink at its old place over the rows placed since (cmux#43975).
+/// Marks an element that only exists while a motion plays (a fold's fading row copy, a send's flying
+/// pill, a tree's leaving rows): a copy never writes or draws it. Its motion is a Web Animation, which
+/// markup does not carry, so written mid-motion it drew at full ink at its starting place over the
+/// rows placed since, on the next launch (cmux#43975: a turn's folded rows under their old copies).
+export const SNAPSHOT_SKIP_ATTRIBUTE = "data-cmux-snapshot-skip";
+/// A drawn copy of a row a fold takes away (conversation/turnFold.ts, turnEndFold.ts). Copies written
+/// before ``SNAPSHOT_SKIP_ATTRIBUTE`` carry only this class: a copy kept from then still drops them.
 export const FOLD_GHOST_CLASS = "acpmux-row--fold-ghost";
+/// What a copy leaves out, written or drawn.
+export const SNAPSHOT_SKIP_SELECTOR = `[${SNAPSHOT_SKIP_ATTRIBUTE}], .${FOLD_GHOST_CLASS}`;
 /// The page's stylesheet, a `<link>` to `pane.css` beside the page (build-agent-pane-web.sh). Its
 /// `data-copy` names the copy's sheet beside it: the page's rules with ``shadowSelector`` applied
 /// (scripts/agent-pane/snapshotCss.mjs), a file so every chat page of the renderer shares one parse.

@@ -16,7 +16,7 @@ import { foldMotion, foldMs } from "./fold";
 import { FOLD_SETTLE_MS } from "./foldAnchor";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
 import type { LayoutGeometry } from "../conversationGeometry";
-import { FOLD_GHOST_CLASS } from "../chatSnapshot/shared";
+import { FOLD_GHOST_CLASS, SNAPSHOT_SKIP_ATTRIBUTE } from "../chatSnapshot/shared";
 
 /// The fold's state on the thread while it plays: "open" or "close" (the CSS and tests read it).
 export const TURN_FOLD_ATTR = "data-turn-fold";
@@ -153,6 +153,7 @@ export function ghostOf(row: HTMLElement): HTMLElement {
   for (const node of copy.querySelectorAll<HTMLElement>(".acpmux-row__message-presentation"))
     node.classList.remove("acpmux-row__message-presentation");
   copy.classList.add(TURN_FOLD_GHOST);
+  copy.setAttribute(SNAPSHOT_SKIP_ATTRIBUTE, "");
   copy.setAttribute("aria-hidden", "true");
   copy.setAttribute("inert", "");
   return copy;
