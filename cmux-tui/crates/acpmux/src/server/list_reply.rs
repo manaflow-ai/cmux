@@ -425,7 +425,7 @@ fn acp_row(s: &Value) -> Value {
         "sessionId": s.get("sessionId").cloned().unwrap_or(Value::Null),
         "cwd": s.get("cwd").cloned().unwrap_or(Value::Null),
         "title": text("title").or_else(|| text("name")),
-        "updatedAt": super::clock_text::iso(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
+        "updatedAt": crate::clock_text::iso(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
         "_meta": {"acpmux": s},
     })
 }

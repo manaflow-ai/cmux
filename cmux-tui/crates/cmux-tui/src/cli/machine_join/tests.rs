@@ -714,6 +714,48 @@ fn list_rows_merge_into_an_array_or_items_and_fail_open() {
     assert_eq!(note.as_deref(), Some("joining isn't available"));
 }
 
+/// hq#11835 row 2: `cmux machine list` showed this machine and the Cloud VMs but not the
+/// machines added with `acpmux machine add`, which `cmux chat --on NAME` now takes. They are
+/// rows now (`kind: "peer"`), each once: a joined machine with that hostname, or a daemon row
+/// of that name, is the same machine; the hub's own rows are the joined list's.
+#[test]
+fn acpmuxs_own_machines_join_the_machine_list_once() {
+    let peers = vec![
+        json!({"name": "gcp-agent-lane-3", "carrier": "ssh", "connected": true}),
+        json!({"name": "cosmic-gray", "carrier": "ssh", "connected": false}),
+        // Joined too: the joined row lists it.
+        json!({"name": "gcp-agent-lane-6", "carrier": "ssh", "connected": true}),
+        json!({"name": "Box", "carrier": "ssh", "connected": true}),
+        json!({"name": "studio", "via": "hub", "connected": true}),
+        json!({"name": "\u{1b}[31m", "connected": true}),
+        json!({"connected": true}),
+    ];
+    let listed = json!([
+        {"id": "machine_mac", "name": "local", "origin": "local"},
+        {"id": "machine_box", "name": "box", "origin": "ssh"},
+        {"kind": "joined", "id": "m_6", "name": "lane six", "hostname": "gcp-agent-lane-6"},
+    ]);
+    let merged = merge_peer_rows(listed, &peers);
+    let added: Vec<&Value> = merged.as_array().unwrap()[3..].iter().collect();
+    let names: Vec<&str> = added.iter().map(|row| row["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["gcp-agent-lane-3", "cosmic-gray", "[31m"]);
+    assert_eq!(
+        *added[0],
+        json!({"kind": "peer", "id": "gcp-agent-lane-3", "name": "gcp-agent-lane-3",
+               "hostname": "gcp-agent-lane-3", "origin": "acpmux", "status": "connected",
+               "state": "online", "connectable": true, "carrier": "ssh",
+               "target": "gcp-agent-lane-3"})
+    );
+    assert_eq!(
+        (added[1]["status"].as_str(), added[1]["connectable"].as_bool()),
+        (Some("offline"), Some(false))
+    );
+    // `{"items": [...]}` too; anything else is left as it was.
+    let merged = merge_peer_rows(json!({"items": []}), &peers[..1]);
+    assert_eq!(merged["items"][0]["id"], "gcp-agent-lane-3");
+    assert_eq!(merge_peer_rows(json!("x"), &peers), json!("x"));
+}
+
 #[test]
 fn credentials_answers_in_every_list_shape_are_read() {
     let (origin, _requests) =
