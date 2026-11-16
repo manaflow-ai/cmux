@@ -115,6 +115,25 @@ import Testing
         #expect(CATransform3DIsIdentity(layer.transform))
     }
 
+    @Test func hitTestingFollowsAnOffsetChildLayerTransform() throws {
+        let model = Self.scene([
+            .create(id: "stack", type: "ZStack", props: ["frame": ["width": 100, "height": 40]]),
+            .create(id: "button", type: "Rectangle", props: ["frame": ["width": 20, "height": 20],
+                                                                  "offset": ["x": 40], "onTap": true]),
+            .children(id: "stack", children: ["button"]),
+            .root(id: "stack"),
+        ])
+        let (window, root) = Self.host(model)
+        defer { window.contentView = nil; window.close() }
+        let stack = try #require(Self.node("stack", in: root))
+        let button = try #require(Self.node("button", in: root))
+        root.layoutSubtreeIfNeeded()
+
+        #expect(button.frame == CGRect(x: 40, y: 10, width: 20, height: 20), "layout stays in the stack")
+        #expect(stack.hitTest(NSPoint(x: 90, y: 20)) === button, "the offset drawing receives a tap")
+        #expect(stack.hitTest(NSPoint(x: 50, y: 20)) == nil, "the old untransformed area does not")
+    }
+
     @Test func trimDrawsPartOfAStrokedCircleFromTwelveOClock() throws {
         let model = Self.scene([
             .create(id: "ring", type: "Circle", props: ["size": 40, "stroke": "primary", "strokeWidth": 4, "trim": ["to": 0.25]]),

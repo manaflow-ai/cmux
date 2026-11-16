@@ -185,7 +185,27 @@ class AppSceneNodeNSView: NSView {
 
     /// A node on its way out (its exit transition) takes no clicks: the scene removed it.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        exitHost == nil ? super.hitTest(point) : nil
+        guard exitHost == nil else { return nil }
+
+        // AppKit's default hit testing follows NSView frames. Scene motion is a transform on the
+        // backing layer, so a moved or scaled child can be drawn outside that frame. Walk children
+        // ourselves and convert through their layers; CALayer conversion applies the node's current
+        // model/presentation transform before the child's local bounds are tested.
+        let host = childHost
+        let hostPoint = host === self ? point : host.convert(point, from: self)
+        for child in host.subviews.reversed().compactMap({ $0 as? AppSceneNodeNSView }) {
+            let childPoint: NSPoint
+            if let childLayer = child.layer, let hostLayer = host.layer {
+                childPoint = childLayer.convert(hostPoint, from: hostLayer)
+            } else {
+                childPoint = child.convert(hostPoint, from: host)
+            }
+            if let hit = child.hitTest(childPoint) { return hit }
+        }
+
+        // Keep the existing behavior for this node (including context menus), but only after
+        // transformed descendants had a chance to receive the event.
+        return super.hitTest(point)
     }
 
     override func layout() {
