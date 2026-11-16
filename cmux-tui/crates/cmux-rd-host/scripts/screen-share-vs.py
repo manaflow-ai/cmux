@@ -60,6 +60,7 @@ the user from VNC_USERNAME and the password from VNC_PASSWORD_FILE (a 0600 file 
 Mac) and never from argv. Without them it is skipped and the table says so.
 """
 import argparse
+import ipaddress
 import json
 import os
 import queue
@@ -834,7 +835,7 @@ class Orchestrator:
         if self.a.synthetic_size:
             argv += ["--synthetic-size", self.a.synthetic_size]
         if self.a.link_bind:
-            socket.inet_aton(self.a.link_bind)  # an IPv4 literal, or this attempt fails
+            ipaddress.IPv4Address(self.a.link_bind)  # an IPv4 literal, or this attempt fails
             argv += ["--link-bind", f"{self.a.link_bind}:0"]
         timing = self.synthetic_timing_path()
         env = f": > {timing} && CMUX_RD_TIMING_LOG={timing} " if mode == "key" else ""

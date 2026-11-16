@@ -40,7 +40,7 @@ class SyntheticSource(unittest.TestCase):
         self.assertNotIn("--synthetic-size", cmd)
 
     def test_link_bind_must_be_an_ipv4_literal(self):
-        with self.assertRaises(OSError):
+        with self.assertRaises(ValueError):
             orchestrator(link_bind="1.2.3.4; rm -rf ~").synthetic_serve("key")
 
     def test_the_marker_is_at_the_origin_without_a_rig(self):

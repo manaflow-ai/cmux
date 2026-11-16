@@ -69,6 +69,8 @@ pub struct SyntheticDesktop {
     size: (u32, u32),
     motion: Motion,
     ticker: Option<JoinHandle<()>>,
+    /// The first due frame reports the whole picture (all of it is new to the viewer).
+    reported_whole: bool,
 }
 
 /// The encode thread's half: paints the next picture into its IOSurface and encodes it.
@@ -107,6 +109,9 @@ impl PixelBuffer {
                 cf_new::kCFTypeDictionaryKeyCallBacks(),
                 cf_new::kCFTypeDictionaryValueCallBacks(),
             );
+            if empty.is_null() {
+                return Err("CFDictionaryCreate failed".into());
+            }
             let key: CFTypeRef = cv_new::kCVPixelBufferIOSurfacePropertiesKey();
             let attrs = cf_new::CFDictionaryCreate(
                 null(),
@@ -116,6 +121,10 @@ impl PixelBuffer {
                 cf_new::kCFTypeDictionaryKeyCallBacks(),
                 cf_new::kCFTypeDictionaryValueCallBacks(),
             );
+            if attrs.is_null() {
+                cf::CFRelease(empty);
+                return Err("CFDictionaryCreate failed".into());
+            }
             let status = cv_new::CVPixelBufferCreate(
                 null(),
                 width as usize,
@@ -274,14 +283,19 @@ pub fn open(cfg: &SessionCfg, source: Synthetic) -> Res<Halves> {
         size: (width, height),
         motion: source.motion,
         ticker,
+        reported_whole: false,
     };
     Ok((Box::new(desktop), Box::new(frames)))
 }
 
 impl SyntheticDesktop {
-    /// What changes in a due frame: the whole picture when it moves, else the marker row.
-    fn damage(&self) -> Rect {
+    /// What changes in a due frame: the whole picture first and whenever it moves, else the
+    /// marker row.
+    fn damage(&mut self) -> Rect {
         let (width, height) = self.size;
+        if !std::mem::replace(&mut self.reported_whole, true) {
+            return Rect { x: 0, y: 0, width, height };
+        }
         match self.motion {
             Motion::Still => Rect {
                 x: 0,
@@ -412,6 +426,7 @@ mod tests {
             size: (1280, 720),
             motion: Motion::Still,
             ticker: None,
+            reported_whole: true,
         };
         let mut damage = Vec::new();
         desktop.drain(&mut damage).expect("drain");
