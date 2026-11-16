@@ -1,9 +1,10 @@
 //! The encoder profile a session runs: the one switch between today's encoder settings and
 //! "ultra" for fat links. The rate controller (cc.rs) owns which profile is current; the
 //! engine copies it onto every `EncodeRequest`, and the host's encoder applies it. Ultra
-//! stops saving bandwidth: frames at the display's refresh (up to [`ULTRA_MAX_FPS`]), a low
-//! QP ceiling so text stays near-lossless, a loose one-second rate window instead of a
-//! per-frame byte cap, and a refinement frame at a lower QP once the screen goes still.
+//! stops saving bandwidth and holds frame rate first: frames at the session's rate (up to
+//! [`ULTRA_MAX_FPS`]), each about target/fps within a per-pixel ceiling so extra rate buys
+//! fps before per-frame quality, quality then up to a QP floor, and a refinement frame at a
+//! lower QP once the screen goes still.
 
 /// Which encoder settings a session uses. [`EncodeProfile::Standard`] is today's behavior and
 /// the default; [`EncodeProfile::Ultra`] is opt-in.

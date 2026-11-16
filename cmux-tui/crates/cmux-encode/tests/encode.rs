@@ -311,20 +311,19 @@ fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
     assert!(worst <= budget * 3 / 2, "a changed frame of {worst} B is over the {budget} B budget");
 }
 
-/// Ultra (videotoolbox.rs set_ultra): a big change after a still screen is not cut to one
-/// frame interval's share (the one-second window is a loose safety, the pacer spreads the
-/// frame), the QP ceiling holds, and a refinement frame of the still picture encodes. Prints
-/// sizes and encode times next to standard's for the PR's numbers. Runs on a fleet Mac.
+/// Ultra (videotoolbox.rs set_ultra) holds frame rate first: a big change after a still screen
+/// stays within one frame interval's share of the target, an uncapped target stops at the
+/// per-pixel ceiling (3 bits per pixel), the QP floor is set, and a refinement frame of the
+/// still picture encodes. Prints sizes and encode ms next to standard's. Runs on a fleet Mac.
 #[cfg(target_os = "macos")]
 #[test]
-fn videotoolbox_ultra_spends_bits_on_a_change_and_refines_a_still_screen() {
+fn videotoolbox_ultra_holds_frame_rate_first_and_refines_a_still_screen() {
     use cmux_encode::H264Encoder;
-    use cmux_encode::videotoolbox::{ULTRA_MAX_QP, VideoToolbox};
+    use cmux_encode::videotoolbox::{ULTRA_MIN_QP, VideoToolbox};
     use std::time::Instant;
     const W: usize = 512;
     const H: usize = 256;
     const FPS: u32 = 30;
-    const KBPS: u32 = 2_000;
     let noise = |seed: &mut u64, pic: &mut I420| {
         for px in pic.y.iter_mut().chain(pic.u.iter_mut()).chain(pic.v.iter_mut()) {
             *seed ^= *seed << 13;
@@ -333,11 +332,12 @@ fn videotoolbox_ultra_spends_bits_on_a_change_and_refines_a_still_screen() {
             *px = 16 + (*seed % 220) as u8;
         }
     };
-    let run = |ultra: bool| -> (Vec<usize>, usize, f64) {
+    // (changed frame sizes, refinement size, mean encode ms) at `kbps`.
+    let run = |ultra: bool, kbps: u32| -> (Vec<usize>, usize, f64) {
         let mut enc =
-            VideoToolbox::new(W as u32, H as u32, FPS, KBPS, false).expect("hardware encoder");
+            VideoToolbox::new(W as u32, H as u32, FPS, kbps, false).expect("hardware encoder");
         enc.set_ultra(ultra);
-        assert_eq!(enc.max_qp(), ultra.then_some(ULTRA_MAX_QP));
+        assert_eq!(enc.min_qp(), ultra.then_some(ULTRA_MIN_QP));
         assert_eq!(enc.name().ends_with(" ultra"), ultra, "{}", enc.name());
         let still = I420::new(W, H);
         let mut au = Vec::new();
@@ -361,22 +361,27 @@ fn videotoolbox_ultra_spends_bits_on_a_change_and_refines_a_still_screen() {
         // The screen goes still on the last picture: one refinement frame of it.
         enc.set_refine(true);
         enc.encode(&pic, false, pts, &mut au).expect("refinement encode");
-        let refined = au.len();
-        (sizes, refined, ms / 3.0)
+        (sizes, au.len(), ms / 3.0)
     };
-    let (standard, standard_refined, standard_ms) = run(false);
-    let (ultra, ultra_refined, ultra_ms) = run(true);
+    const KBPS: u32 = 2_000;
+    let (standard, standard_next, standard_ms) = run(false, KBPS);
+    let (ultra, ultra_refined, ultra_ms) = run(true, KBPS);
+    // An uncapped target: far over what the picture can use.
+    let (uncapped, uncapped_refined, uncapped_ms) = run(true, 2_000_000);
     let budget = (KBPS as usize * 1000 / 8) / FPS as usize;
+    let ceiling = W * H * 3 / 8;
     eprintln!(
-        "per-frame budget {budget} B; standard changed {standard:?} B ({standard_ms:.2} ms/frame), \
-         next {standard_refined} B; ultra changed {ultra:?} B ({ultra_ms:.2} ms/frame), \
-         refinement {ultra_refined} B"
+        "budget {budget} B, ceiling {ceiling} B; standard {standard:?} B ({standard_ms:.2} ms), \
+         next {standard_next} B; ultra {ultra:?} B ({ultra_ms:.2} ms), refinement \
+         {ultra_refined} B; uncapped ultra {uncapped:?} B ({uncapped_ms:.2} ms), refinement \
+         {uncapped_refined} B"
     );
-    let ultra_worst = ultra.iter().copied().max().unwrap_or(0);
-    let standard_worst = standard.iter().copied().max().unwrap_or(0);
+    let worst = |v: &[usize]| v.iter().copied().max().unwrap_or(0);
+    // Slack for headers and the encoder's own estimate, as the standard budget test.
+    assert!(worst(&ultra) <= budget * 3 / 2, "ultra changed frame {ultra:?} over {budget} B");
     assert!(
-        ultra_worst > budget * 3 / 2,
-        "ultra cut a changed frame to {ultra_worst} B, within the {budget} B per-frame budget"
+        worst(&uncapped) <= ceiling * 3 / 2,
+        "uncapped ultra frame {uncapped:?} over the {ceiling} B per-pixel ceiling"
     );
-    assert!(ultra_worst > standard_worst, "ultra {ultra_worst} B <= standard {standard_worst} B");
+    assert!(ultra_refined > 0 && uncapped_refined > 0, "the refinement encodes");
 }
