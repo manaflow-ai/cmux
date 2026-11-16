@@ -556,6 +556,28 @@ class ReferencedFilesExist(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+class ScriptTestsAreListed(unittest.TestCase):
+    """Every scripts/cmux-next test_*.py is run by a `python3` line of a workflow or a CI script.
+    test_hot_apply.py and 72 others were run by no line, so their reds went unseen (30 of
+    test_hot_apply's 100 failed on feat-cmux-next until #43831)."""
+
+    def test_no_test_file_is_left_out(self):
+        texts = [path.read_text(encoding="utf-8", errors="replace")
+                 for folder in (ROOT / ".github/workflows", ROOT / "scripts/ci") for path in sorted(folder.rglob("*"))
+                 if path.is_file() and path.suffix in (".yml", ".yaml", ".sh", ".py")]
+        run = set()
+        for text in texts:
+            for line in text.splitlines():
+                if not line.lstrip().startswith("#"):
+                    run |= set(re.findall(r"python3(?: -I)? (scripts/cmux-next/[A-Za-z0-9_./-]*test_[A-Za-z0-9_-]+\.py)", line))
+        tests = [path.relative_to(ROOT).as_posix() for path in (ROOT / "scripts/cmux-next").rglob("test_*.py")
+                 if not {"node_modules", "__pycache__"} & set(path.parts)]
+        self.assertGreater(len(tests), 90)
+        left_out = sorted(set(tests) - run)
+        self.assertEqual(left_out, [], "add each to the checks job's script tests in .github/workflows/cmux-next.yml "
+                                       "(a test that needs a Mac skips on Linux with its reason)")
+
+
 class GodfileScopes(unittest.TestCase):
     """`--only swift` and `--only rust` each check their half, at unchanged budgets."""
 
@@ -2677,9 +2699,20 @@ class ReservedLaneLabels(unittest.TestCase):
         for placed in ("1", ""):
             self.assertEqual(evaluate(runs_on, context(fast, attempt=2, placed_attempt=placed)),
                              "blacksmith-6vcpu-macos-26")
-        for actor in ("someone", "github-actions[bot]", "cmux-bot[bot]"):
+        # A person's later re-run carries attempt 1's reading: Blacksmith, as above.
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor="someone", placed_attempt="1")),
+                         "blacksmith-6vcpu-macos-26")
+        for actor in ("github-actions[bot]", "cmux-bot[bot]"):
             with self.subTest(actor=actor):
-                self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor)),
+                # The bot's later attempts are placed afresh (macos-placement runs on every bot attempt), so the
+                # attempt's own reading decides: its Blacksmith slot, else the side route it placed the job on.
+                self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor,
+                                                           blacksmith_6_jobs=" fast-tier ")),
+                                 "blacksmith-6vcpu-macos-26")
+                self.assertEqual(evaluate(runs_on, context(fast, attempt=5, actor=actor)),
+                                 "glaeda-side-std-xcode-26.6")
+                # A carried reading (placement did not run in this attempt) never takes the owned label.
+                self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor, placed_attempt="1")),
                                  "blacksmith-6vcpu-macos-26")
 
 

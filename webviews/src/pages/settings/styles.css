@@ -959,6 +959,44 @@ mark {
   align-items: center;
 }
 
+/* Settings > Keys (design/settings-keys.md): a request is a row with its name, purpose and asker
+   over one line of field, Store and Decline (the Accounts paste form's field, at row width); a
+   key's state uses the Devices status dot. Names and commands are in the mono face. */
+.keys-name,
+.keys-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+}
+
+.keys-request {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.keys-purpose {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.keys-answer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.keys-answer > .keys-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 320px;
+}
+
+.keys-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .host-footer,
 .host-actions {
   display: flex;
