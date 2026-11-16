@@ -706,6 +706,13 @@ impl MediaEngine {
         let idr_allowed = state
             .last_forced_idr_us
             .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
+        if fb.need_recovery {
+            eprintln!(
+                "DIAG engine need_recovery stream={stream} now_us={now_us} last_forced={:?} idr_allowed={idr_allowed} action={:?}",
+                state.last_forced_idr_us,
+                matches!(action, FlowAction::Wait)
+            );
+        }
         if fb.need_recovery && idr_allowed {
             state.last_forced_idr_us = Some(now_us);
             state.force_idr = true;
