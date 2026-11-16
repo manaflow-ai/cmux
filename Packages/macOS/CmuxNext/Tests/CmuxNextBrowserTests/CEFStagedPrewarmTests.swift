@@ -38,6 +38,16 @@ import Testing
         #expect(Set(all.map(\.rawValue)).count == all.count)
     }
 
+    /// CefShutdown under a Chromium window that is still alive read freed memory on the main thread ("cmux exit 11" in
+    /// Leo's NIGHTLY update log, 2026-11-16): the pre-warm shuts down in the app's quit order, never on the browser
+    /// count alone.
+    @Test func shutdownWaitsForEveryWindowNotOnlyEveryBrowser() {
+        #expect(!CEFStagedPrewarm.readyToShutDown(liveBrowsers: 0, windows: 1), "CefShutdown ran with the page's window alive")
+        #expect(!CEFStagedPrewarm.readyToShutDown(liveBrowsers: 1, windows: 0))
+        #expect(CEFStagedPrewarm.readyToShutDown(liveBrowsers: 0, windows: 0))
+        #expect(CEFStagedPrewarm.readyToShutDown(liveBrowsers: 0, windows: -1), "stock CEF has no window count: that wait is skipped")
+    }
+
     @MainActor @Test func aBundleWithNoRuntimeEndsBeforeChromium() {
         #expect(CEFStagedPrewarm().run(application: NSApplication.shared, layout: nil) == .notEmbedded)
     }

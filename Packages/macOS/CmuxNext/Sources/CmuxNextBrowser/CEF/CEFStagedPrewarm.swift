@@ -124,12 +124,27 @@ public struct CEFStagedPrewarm: Sendable {
         }
         shim.closeAll()
         pump.pumpNow()
-        spin(for: closeTimeout) { shim.liveBrowserCount() == 0 }
-        // Past the close deadline CefShutdown would wait on the open page: the helpers end with this process instead.
-        guard shim.liveBrowserCount() == 0 else { return outcome }
+        // The app's quit order (CEFShutdownSequence): every browser closed, then every Chromium window gone. With only
+        // the browser count waited for, CefShutdown ran under the page's window and read freed memory on the main
+        // thread (EXC_BAD_ACCESS at 0xefefefefefeff007, PartitionAlloc's freed-memory byte: "cmux exit 11 2195 ms" in
+        // Leo's NIGHTLY update log, 2026-11-16, staged build 4394855427901).
+        let settled = { Self.readyToShutDown(liveBrowsers: Int(shim.liveBrowserCount()), windows: Int(shim.windowCount())) }
+        spin(for: closeTimeout, until: settled)
+        // Past the close deadline CefShutdown would wait on the open page or crash under its window: the helpers end
+        // with this process instead (the caller ends it with `_exit`: no static destructors under Chromium's threads).
+        guard settled() else { return outcome }
         pump.stop()
         shim.shutdown()
         return outcome
+    }
+
+    /// Whether `CefShutdown` may run: every browser closed and every Chromium window gone, the order the app's own
+    /// quit keeps (`CEFShutdownSequence`). `windows` is -1 when the fork API has no window count (stock CEF): that
+    /// wait is skipped.
+    nonisolated static func readyToShutDown(liveBrowsers: Int, windows: Int) -> Bool {
+        var sequence = CEFShutdownSequence(liveBrowsers: liveBrowsers, windows: windows)
+        sequence.begin()
+        return sequence.phase == .readyToShutdown
     }
 
     /// Runs the main run loop (the pump's timer, Chromium's main-thread work) until `done` or `limit`.
