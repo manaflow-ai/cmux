@@ -342,7 +342,7 @@ fn enable(args: &Args) -> Res<()> {
 /// account and their devices view and control it with no prompt here; `--view-only` keeps control off.
 /// `--allow-control`, the flag control used to need, is still accepted.
 fn enable_consent(args: &Args) -> LocalConsent {
-    LocalConsent { view: true, full: args.flag("allow-control") }
+    LocalConsent { view: true, full: !args.flag("view-only") }
 }
 
 /// On a Wayland session, asks the ScreenCast portal for its grant now, while the person who ran
