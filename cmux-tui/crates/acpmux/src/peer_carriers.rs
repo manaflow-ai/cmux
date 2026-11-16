@@ -688,6 +688,8 @@ impl Peer {
             // still connecting: once per connect, a new attempt with the same tokens, now.
             if restart && !self.stop.load(Ordering::SeqCst) {
                 tracing::info!(peer = %self.name, "a client asked while the connect was pending; connecting again");
+                // The network was down: the link this opens learned nothing about the peer (`SilenceBudget`).
+                self.with_silence(crate::peer_link::SilenceBudget::dial_struggled);
                 restarted = true;
                 ssh_tokens = Some(((token, peer_token), kept));
                 continue;
