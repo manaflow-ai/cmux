@@ -631,16 +631,16 @@ fn agents_events_say_when_an_agent_chat_starts_and_ends_its_turn() {
 /// acpmux call per chat, and no read at all with no chat tab.
 #[test]
 fn agents_events_read_every_chat_state_in_one_chat_list() {
-    let fake = chat_fake("idle");
+    let two_chats = chat_fake("idle");
     {
-        let mut live = fake.live.borrow_mut();
+        let mut live = two_chats.live.borrow_mut();
         let daemon = live.daemon.as_mut().unwrap();
         let mut second = daemon["tabs"][1].clone();
         second["id"] = json!("tab_3a1100000000000000000000000000bb");
         second["agent_session"] = json!(format!("acp:{OTHER_CHAT}"));
         daemon["tabs"].as_array_mut().unwrap().push(second);
     }
-    let mut server = Server::new(fake, None);
+    let mut server = Server::new(two_chats, None);
     let after = start(&mut server);
     now(&server, Change::Chats(chats("working", "working")));
     let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
