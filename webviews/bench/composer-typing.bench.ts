@@ -24,6 +24,9 @@ import path from "node:path";
 import { chromium } from "./browsers";
 import type { Page } from "playwright";
 import { warmViteServer } from "../test/support/warmDevServer";
+import { reportTrace, traceWindow } from "./styleInvalidationTrace";
+import { sourceMapper } from "./sourceMapper";
+let mapUrl: (file: string, line: number, column: number) => string = (file, line) => `${file}:${line + 1}`;
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -37,6 +40,10 @@ const MODES = (flag("--modes") ?? "idle").split(",") as ("idle" | "stream")[];
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
 const DEV = argv.includes("--dev");
+/// With --trace: a Chromium trace with style invalidation tracking over the typed keys and, in stream mode, over a 2 s
+/// stream with no typing; it prints elements restyled per key and per token and what restyled them
+/// (styleInvalidationTrace.ts; `STYLE-TRACE ... SUMMARY` lines).
+const TRACE = argv.includes("--trace");
 const webviews = path.resolve(import.meta.dir, "..");
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const METRICS = [
@@ -123,7 +130,12 @@ if (DEV) {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+    build: {
+      outDir: out,
+      emptyOutDir: true,
+      ...(PROFILE || TRACE ? { minify: false } : {}),
+      ...(TRACE ? { sourcemap: true } : {}),
+    },
     logLevel: "error",
   });
   const statics = Bun.serve({
@@ -136,6 +148,7 @@ if (DEV) {
     },
   });
   releases.push(() => statics.stop(true));
+  if (TRACE) mapUrl = sourceMapper(out);
   port = statics.port!;
 }
 const browser = await chromium.launch({ headless: true });
@@ -190,10 +203,15 @@ try {
     }
     const before = await metrics();
     const letters = "abcdefghijklmnopqrstuvwxyz";
-    for (let i = 0; i < KEYS; i += 1) {
-      await page.keyboard.press(letters[i % letters.length]!);
-      await page.waitForTimeout(GAP_MS);
-    }
+    const typeKeys = async () => {
+      for (let i = 0; i < KEYS; i += 1) {
+        await page.keyboard.press(letters[i % letters.length]!);
+        await page.waitForTimeout(GAP_MS);
+      }
+    };
+    const typedAt = performance.now();
+    const typedEvents = TRACE ? await traceWindow(browser, page, typeKeys) : (await typeKeys(), undefined);
+    const typedMs = performance.now() - typedAt;
     await page.waitForTimeout(500);
     const after = await metrics();
     if (PROFILE) {
@@ -205,6 +223,27 @@ try {
       return { renders: debug.renders(), typing: debug.typingStats() };
     })) as { renders: Record<string, number>; typing: Record<string, any> };
     await streaming;
+    if (typedEvents) {
+      await cdp.send("DOM.getDocument", { depth: 0 });
+      await reportTrace(`${mode}-typing ${rows}rows`, typedEvents, { keys: KEYS }, mapUrl, cdp);
+      console.log(
+        `STYLE-TRACE ${mode}-typing ${rows}rows WINDOW ${JSON.stringify({ keys: KEYS, window_ms: Math.round(typedMs) })}`,
+      );
+    }
+    if (TRACE && mode === "stream") {
+      let run: Record<string, any> = {};
+      const events = await traceWindow(browser, page, async () => {
+        run = (await page.evaluate(() =>
+          (window as any).cmuxAcpmuxDebug.loadRun({ seconds: 2, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
+        )) as Record<string, any>;
+      });
+      const tokens = Number(run.deltas ?? 0) + Number(run.tools ?? 0);
+      console.log(
+        `STYLE-TRACE stream-only ${rows}rows RUN ${JSON.stringify({ deltas: run.deltas, tools: run.tools, frames: run.frames, rows: run.rows })}`,
+      );
+      await cdp.send("DOM.getDocument", { depth: 0 });
+      await reportTrace(`stream-only ${rows}rows`, events, { tokens }, mapUrl, cdp);
+    }
     // Per stream event, nobody typing: the composer's renders while a reply and tool calls stream
     // (loadRun), then while a tool's output ticks and another chat changes (loadTick).
     let composerPerEvent: number | undefined;
