@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/link-hints",
+  "name": { "en": "Link hints" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension built only on cmux-extension-sdk: browse with the keyboard. f labels the links on screen and typing a label follows it; b goes back, a bookmarks, D saves the images, y copies the URL, / finds. Every key can be rebound." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "keyboard" },
+  "categories": ["browser"],
+  "keywords": ["browser", "keyboard", "links", "hints", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "catalog": "catalog.json",
+  "implements": {
+    "cmux.pane/1": {
+      "export": "renderKeys",
+      "title": { "en": "Link hints keys" },
+      "symbol": "keyboard"
+    }
+  },
+  "scopes": {
+    "browser:execute": "Draw the hint labels on the page you are on, save its images and find text in it.",
+    "browser:write": "Go back, and open a link in a new tab.",
+    "actions:run": "Bookmark the page and copy its address, the way cmux's own commands do.",
+    "storage:local": "Keep the keys you choose on this Mac."
+  },
+  "files": ["dist/", "catalog.json"]
+}

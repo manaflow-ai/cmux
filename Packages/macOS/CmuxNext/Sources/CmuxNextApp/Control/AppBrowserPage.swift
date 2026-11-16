@@ -81,6 +81,7 @@ enum AppBrowserPage {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
         case .evaluateAsync(let body):
+            _ = await awaitPendingNavigation(page, within: actionWait)
             do {
                 let value = try await page.evaluateAsync(body)
                 return ["value": await json(value)]

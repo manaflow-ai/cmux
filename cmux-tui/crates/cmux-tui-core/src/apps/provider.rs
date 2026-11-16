@@ -70,6 +70,11 @@ pub const FAMILIES: &[&str] = &[
     "credential",
     // `toast.show` (`cmux.toast`), shown by the Mac app's toast presenter.
     "toast",
+    // The pages of the browser tabs the Mac app draws (`browser.page.*`: eval,
+    // state, back, forward, reload, navigate, new_tab), run by the app's own
+    // page service. The daemon has no CDP session for an app-drawn tab
+    // (`browser_rendered_by_app`), so an extension reaches one only here.
+    "browser.page",
 ];
 
 /// Ops that wait for the user (a file panel) get the long deadline.
@@ -113,6 +118,10 @@ pub(super) enum Ending {
 pub fn family_of(op: &str) -> &str {
     if op.starts_with("app.settings.") {
         return "app.settings";
+    }
+    // `browser.*` is the daemon's (its own browsers); only the app's page ops are a family.
+    if op.starts_with("browser.page.") {
+        return "browser.page";
     }
     op.split('.').next().unwrap_or_default()
 }
@@ -546,6 +555,9 @@ mod tests {
         assert!(FAMILIES.contains(&family_of("agent_cli.list")));
         assert!(FAMILIES.contains(&family_of("agent_chat.list")));
         assert!(!FAMILIES.contains(&family_of("agent.list")), "the daemon owns agent.*");
+        assert_eq!(family_of("browser.page.eval"), "browser.page");
+        assert!(FAMILIES.contains(&family_of("browser.page.back")));
+        assert!(!FAMILIES.contains(&family_of("browser.back")), "the daemon owns its own browsers");
         let mut params = json!({ "provider": "github" });
         normalize_method(&mut params);
         assert_eq!(params["method"], "GET");

@@ -50,12 +50,22 @@ enum BrowserPageScripts {
     /// Evaluates `script` as an expression and returns a JSON-safe copy
     /// (`toJSON()` when present, else a structured clone through JSON). An
     /// exception it throws comes back as `{thrownKey: message}`, so only a
-    /// wrapper that failed to parse throws.
+    /// wrapper that failed to parse throws. A promise is settled first, for
+    /// at most ``promiseTimeoutMs``, and its value or rejection comes back the
+    /// same way: Chromium's evaluate awaits the promise the wrapper returns
+    /// (before, the promise itself was cloned into `{}`).
     static func jsonSafe(_ script: String) -> String {
-        "(() => { try { const v = (\n\(script)\n); if (v === undefined || v === null || typeof v !== 'object') return v; "
-            + "if (typeof v.toJSON === 'function') return v.toJSON(); try { return JSON.parse(JSON.stringify(v)); } catch (e) { return String(v); } } "
-            + "catch (e) { let m; try { m = String(e); } catch (_) { m = 'Uncaught exception'; } return { \(thrownKey): m }; } })()"
+        "(() => { const fail = (e) => { let m; try { m = String(e); } catch (_) { m = 'Uncaught exception'; } return { \(thrownKey): m }; }; "
+            + "const safe = (v) => { if (v === undefined || v === null || typeof v !== 'object') return v; "
+            + "if (typeof v.toJSON === 'function') return v.toJSON(); try { return JSON.parse(JSON.stringify(v)); } catch (e) { return String(v); } }; "
+            + "try { const v = (\n\(script)\n); if (v === null || typeof v !== 'object' || typeof v.then !== 'function') return safe(v); "
+            + "let timer; const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('the promise did not settle in \(promiseTimeoutMs / 1000) s')), \(promiseTimeoutMs)); }); "
+            + "return Promise.race([v, late]).then(safe).catch(fail).finally(() => clearTimeout(timer)); } "
+            + "catch (e) { return fail(e); } })()"
     }
+
+    /// How long `jsonSafe` waits for a promise: under an app call's 30 s provider deadline.
+    static let promiseTimeoutMs = 20_000
 
     /// The key `jsonSafe` reports a thrown exception under.
     static let thrownKey = "__cmuxEvalError"

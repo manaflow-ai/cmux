@@ -157,6 +157,34 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.page.back": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.page.eval": {
+      "scope": "browser:execute",
+      "class": "mutation"
+    },
+    "browser.page.forward": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.page.navigate": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.page.new_tab": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.page.reload": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.page.state": {
+      "scope": "browser:read",
+      "class": "read"
+    },
     "browser.profile.create": {
       "scope": "browser:write",
       "class": "mutation"

@@ -74,6 +74,8 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | `newTab(render)` | A whole New Tab page (`cmux.newtab/1`): the scene is the page body. It shows only once the person runs `cmux settings set tabs.newTabApp <your id>`; unset, or when the extension is hidden, disabled or fails, cmux draws its own page. Render gets `{ surface: "newTab", cwd? }`. Draws on the web New Tab page, not the native one (`tabs.nativeNewTabPage`). |
 | `chatWidget(render)` | A chat widget (`cmux.chat.widget/1`): a card under each agent tool call whose name matches the manifest's `options.tools` (`*` matches any run of characters), and for widget parts an agent sends naming the extension. Render gets `{ surface: "chatWidget", widget: { key }, tool?: { name, title?, status?, input?, output? }, props? }`. cmux ships no widgets of its own; a missing, hidden or failing extension leaves the call as it was. Export the same render with `section(...)` to show it in the sidebar too. |
 | `command(run)` | A command an extension declares in `catalog.json`; runs from the palette, the CLI or another extension. |
+| `browserPage(ctx.cmux)` | The page of a browser tab cmux draws: `eval(script or fn, {tab?, args?})` runs a script in the page's own world and answers its value (promises returned by functions or expression strings are awaited for up to 20 s), `state()`, `back()`, `forward()`, `reload()`, `navigate(url)`, `newTab(url)`. With no `tab`, the focused one. Scopes: `browser:execute` for `eval`, `browser:read` for `state`, `browser:write` for the rest. |
+| `pageKeys()`, `setPageKeys(bindings)`, `isPageKey(key)`, `PAGE_KEYS_STORAGE_KEY` | The person's page key bindings (below), kept with `storage:local`. |
 | `workspaces()`, `agents()`, `chats()` | Live lists: call one for the latest value; `.loading()`, `.error()`, `.refresh()`. One read however many views use it; re-read on the matching event. |
 | `on(stream, fn)` | Runs `fn` each time `stream` fires; returns the unsubscribe, and unsubscribes with the render that called it. An unknown stream throws at load. |
 | `onChange(live, fn, {initial})` | Runs `fn` with each new value of a live list. |
@@ -115,6 +117,43 @@ await host.settle()
 Every first-party extension with tests runs them this way as a fork, with only this package
 beside it (`bun first-party-apps/fork-check.ts`); `runtime-files.json` lists the runtime files the
 package ships.
+
+## Browser pages and page keys
+
+A command can answer a single key on a browser page. Give its catalog op a `keyboard` entry
+whose `when` is `browserFocused`:
+
+```json
+{ "name": "local.my_ext.follow", "export": "follow", "palette": { "title": "Follow a Link" },
+  "keyboard": [{ "key": "f", "when": "browserFocused" }] }
+```
+
+- cmux runs the command when the person presses the key on a page that left it alone while no
+  text field had focus, with `{tab}` (the page's tab) as its args. A key typed into a field
+  never reaches it.
+- A page key is a letter, `shift+` and a letter, or `/`. Chords are not routed from a page.
+- The op needs a palette entry: that is how cmux lists the extension's commands.
+- While the extension is installed and enabled, its page key wins over cmux's own single-key
+  browser keys (`f` link hints, `j`/`k` scrolling). Turn the extension off and cmux's come back.
+- The person rebinds them in the extension's own settings: `setPageKeys({"<op>": ["g"]})` saves
+  them under `PAGE_KEYS_STORAGE_KEY` and cmux routes the new keys at once. `[]` turns a key off,
+  `{}` puts back the catalog's, and a key cmux cannot route keeps the catalog's. Only an op
+  with a page key in its catalog can be given one.
+
+The command reaches the page with `browserPage(ctx.cmux)`. Promises returned by functions or
+expression strings are awaited for up to 20 s. Raw statement strings keep the browser engine's
+completion behavior and do not provide portable promise results. For a multi-statement async
+operation, pass a function with an explicit return:
+
+```ts
+const answer = await browserPage(ctx.cmux).eval(async () => {
+  const result = await Promise.resolve(42)
+  return result
+})
+```
+
+Work that outlives the call (a key listener) stays in the page, on listeners the script adds.
+`examples/extensions/link-hints` labels links with it.
 
 ## Composer: slash commands and mentions
 
