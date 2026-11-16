@@ -50,6 +50,10 @@ const reads =
     if (!row) throw new Error(`${name} is not listed`);
     if (!row.querySelector(".machine-load")?.textContent?.includes(words))
       throw new Error(`${name}'s load line does not read "${words}"`);
+    // The load line never squeezes the machine's name out of its row.
+    const label = row.querySelector<HTMLElement>(".acpmux-location-name .acpmux-menu-label");
+    if (!label || label.getBoundingClientRect().width < label.scrollWidth - 0.5)
+      throw new Error(`${name}'s name is cut by its load line`);
   };
 
 export default componentEntry<Props>({

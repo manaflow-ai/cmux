@@ -1,5 +1,6 @@
 public import CmuxNextAgentPane
 public import CmuxNextPages
+public import CmuxNextSettings
 import Foundation
 
 /// Settings > Machines' load rows: relays the page's `cmux.settings.machines.load` to this Mac's
