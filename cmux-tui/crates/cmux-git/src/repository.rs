@@ -361,6 +361,11 @@ const TOO_MANY_WORK_TREE_SETTINGS: &str =
 /// The settings of the file `name` of the git folder `git_dir`, and of no
 /// file that it includes. The run is in the git folder and names the file
 /// by `name`, so a git folder whose path is not UTF-8 is read too.
+///
+/// A limit: a setting whose record is 64 KiB or longer is not seen (the
+/// read of the records drops it). git gave the top folder with that
+/// setting read, so the limit is the one of [`is_on`]: the open then reads
+/// the git folder as one that names no work tree.
 fn file_settings(
     git_dir: &Path,
     name: &str,
