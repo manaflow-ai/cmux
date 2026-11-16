@@ -2,8 +2,8 @@
 import { composerClimbEntry } from "./climbEntry";
 import { composerFooterControls } from "./footerControls.experiment";
 
-export default composerClimbEntry(
-  "agent-pane.composer-footer-controls",
-  "Composer controls look",
-  composerFooterControls,
-);
+export default composerClimbEntry({
+  id: "agent-pane.composer-footer-controls",
+  title: "Composer controls look",
+  definition: composerFooterControls,
+});

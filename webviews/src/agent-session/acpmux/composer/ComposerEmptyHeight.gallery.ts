@@ -2,4 +2,8 @@
 import { composerClimbEntry } from "./climbEntry";
 import { composerEmptyHeight } from "./emptyHeight.experiment";
 
-export default composerClimbEntry("agent-pane.composer-empty-height", "Composer resting height", composerEmptyHeight);
+export default composerClimbEntry({
+  id: "agent-pane.composer-empty-height",
+  title: "Composer resting height",
+  definition: composerEmptyHeight,
+});

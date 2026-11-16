@@ -59,11 +59,11 @@
   --acpmux-strip-radius: 10px;
 }
 
-/* Floating: no border, a raised surface over a soft wide shadow, a mid corner. */
+/* Floating: no border, a raised surface over the popover elevation (--elevation-2, the one drop
+   shadow scale), a mid corner. */
 :root:root:root .acpmux-composer.acpmux-composer[data-shell-look="floating"] {
   --climb-shell-fill: light-dark(var(--cmux-tone-light), color-mix(in srgb, var(--agent-text) 4%, var(--acpmux-composer-solid)));
-  --climb-shell-shadow: 0 1px 3px light-dark(color-mix(in srgb, black 6%, transparent), color-mix(in srgb, black 40%, transparent)),
-    0 10px 30px light-dark(color-mix(in srgb, black 10%, transparent), color-mix(in srgb, black 60%, transparent));
+  --climb-shell-shadow: var(--elevation-2);
   --climb-shell-radius: 16px;
   --acpmux-strip-radius: 14px;
 }
@@ -92,7 +92,7 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 22%, transparent);
   background: color-mix(in srgb, var(--agent-text) 4%, transparent);
 }
-:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-actions > * + * {
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-actions > :not(:first-child) {
   box-shadow: inset 1px 0 0 color-mix(in srgb, var(--agent-text) 18%, transparent);
 }
 :root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="segment"] .acpmux-composer-actions .acpmux-send {
@@ -109,7 +109,7 @@
 }
 
 /* Codex disc: 32 px controls, + on a round soft disc, the model in primary ink, Send a filled
-   text-color circle with the page's ink for its arrow. */
+   text-color circle with the page's opaque base for its arrow. */
 :root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] {
   --acpmux-composer-control: calc(32px * var(--acpmux-density, 1));
   --acpmux-composer-glyph: calc(18px * var(--acpmux-density, 1));
@@ -130,7 +130,7 @@
   height: var(--acpmux-composer-control);
   border-radius: 50%; /* radius-allow: Send is a true circle (Leo: circles truly round) */
   background: var(--agent-text);
-  color: var(--agent-page-bg, var(--acpmux-base));
+  color: var(--acpmux-base);
 }
 
 /* ---------- composer-empty-height: the resting height and placeholder ---------- */

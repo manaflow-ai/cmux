@@ -2,4 +2,8 @@
 import { composerClimbEntry } from "./climbEntry";
 import { composerShellLook } from "./shellLook.experiment";
 
-export default composerClimbEntry("agent-pane.composer-shell-look", "Composer box look", composerShellLook);
+export default composerClimbEntry({
+  id: "agent-pane.composer-shell-look",
+  title: "Composer box look",
+  definition: composerShellLook,
+});

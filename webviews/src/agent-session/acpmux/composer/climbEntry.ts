@@ -13,7 +13,17 @@ export const CLIMB_STATES = ["new-chat", "draft", "working", "queued"] as const;
 const boxDrawn = (ctx: PlayContext) =>
   ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer .acpmux-composer-box") !== null);
 
-export function composerClimbEntry(id: string, title: string, definition: Experiment): AgentPaneEntry {
+// Each entry's file writes its id as an `id: "<id>"` literal, where galleryEntryPath
+// (test/support/galleryFrame.ts) finds it.
+export function composerClimbEntry({
+  id,
+  title,
+  definition,
+}: {
+  id: string;
+  title: string;
+  definition: Experiment;
+}): AgentPaneEntry {
   return agentPaneEntry({
     id,
     title,
