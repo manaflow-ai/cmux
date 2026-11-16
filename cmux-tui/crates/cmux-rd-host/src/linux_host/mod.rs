@@ -34,15 +34,15 @@
 //! captures through the Wayland portal without a RemoteDesktop grant: there it is served view
 //! only.
 
-mod b64;
+pub(crate) mod b64;
 mod consent;
-mod hub;
-mod identity;
-mod net;
-mod rd_doc;
-mod session;
+pub(crate) mod hub;
+pub(crate) mod identity;
+pub(crate) mod net;
+pub(crate) mod rd_doc;
+pub(crate) mod session;
 mod setup;
-mod stack_login;
+pub(crate) mod stack_login;
 mod status_json;
 
 use crate::capture_backend::CaptureBackend;
@@ -58,7 +58,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// The production device hub (the Mac app's default).
-const DEFAULT_HUB: &str = "https://cmux-device-hub.debussy.workers.dev";
+pub(crate) const DEFAULT_HUB: &str = "https://cmux-device-hub.debussy.workers.dev";
 const PING_EVERY: Duration = Duration::from_secs(30);
 
 const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--view-only] [--non-interactive]
@@ -530,7 +530,7 @@ fn refuses_identity(e: &(dyn std::error::Error + Send + Sync + 'static)) -> bool
 /// Runs `attempt` (sign in and register) with `device`; the device it succeeded with. When
 /// the hub refuses that identity (`device_removed`, `device_key_mismatch`), once more with a
 /// new device of the same name, as the Mac app does.
-fn with_fresh_identity<T>(
+pub(crate) fn with_fresh_identity<T>(
     device: Device,
     mut attempt: impl FnMut(&Device) -> Res<T>,
 ) -> Res<(Device, T)> {
