@@ -202,8 +202,10 @@ the glibc 2.31 floor. The archive holds `bin/cmux-rd`, `LICENSE` (GPL-3.0-or-lat
   - x264 carries no patent coverage; it ships to no one until Lawrence decides (D-RD1).
 - The encoder sits behind one trait (`encoder::H264Encoder`). Hardware encoders (VA-API,
   NVENC, and VideoToolbox on macOS hosts) are later implementations of the same trait.
-- `--profile high` (default) is for the macOS pane's VideoToolbox decoder; the Linux bench
-  decoder (openh264) needs `--profile baseline` on the host (scripts/loopback-bench.sh sets it).
+- `--profile high` (default) is for the macOS pane's VideoToolbox decoder. A viewer that
+  decodes with OpenH264 (the bench on Linux, `--decoder openh264` on macOS, a Windows viewer)
+  offers the cap `h264.baseline` in hello, and `host` and `serve` then encode Constrained
+  Baseline for that session whatever `--profile` says.
 
 ## Upstream media (development)
 

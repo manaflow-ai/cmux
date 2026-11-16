@@ -187,6 +187,16 @@ fn wants_cursor(negotiated_caps: &[String]) -> bool {
         && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::CURSOR)
 }
 
+/// The session's settings for what the viewer negotiated: a viewer that decodes only
+/// Constrained Baseline (cap `h264.baseline`) gets that profile whatever `--profile` says.
+fn negotiated_cfg(cfg: &SessionCfg, negotiated_caps: &[String]) -> SessionCfg {
+    let mut cfg = cfg.clone();
+    if negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::H264_BASELINE) {
+        cfg.profile = "baseline".into();
+    }
+    cfg
+}
+
 fn now_us() -> u64 {
     now_ns() / 1000
 }
@@ -216,6 +226,7 @@ impl MediaSession {
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
         let open_us = now_us();
+        let cfg = &negotiated_cfg(cfg, negotiated_caps);
         let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps))?;
         let ready_us = now_us();
         let mut session =
@@ -817,6 +828,16 @@ mod encode_off_loop_tests {
             max_width: None,
             capture: crate::capture_backend::CaptureBackend::default(),
         }
+    }
+
+    #[test]
+    fn a_baseline_only_viewer_gets_baseline_and_others_keep_the_host_profile() {
+        let high = SessionCfg { profile: "high".into(), ..cfg() };
+        let baseline = vec![cmux_rd_core::service::caps::H264_BASELINE.to_string()];
+        assert_eq!(negotiated_cfg(&high, &baseline).profile, "baseline");
+        assert_eq!(negotiated_cfg(&high, &[]).profile, "high");
+        let cursor = vec![cmux_rd_core::service::caps::CURSOR.to_string()];
+        assert_eq!(negotiated_cfg(&high, &cursor).profile, "high");
     }
 
     #[test]

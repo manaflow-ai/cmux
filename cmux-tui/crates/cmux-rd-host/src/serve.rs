@@ -433,6 +433,8 @@ fn serve_session(
     };
     let sink = crate::upstream::session_sink(None, 0);
     let mut host_caps = crate::upstream::offered_caps(&*sink);
+    // Every encoder here can send Constrained Baseline to a viewer that decodes only that.
+    host_caps.push(cmux_rd_core::service::caps::H264_BASELINE);
     // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
     if crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);

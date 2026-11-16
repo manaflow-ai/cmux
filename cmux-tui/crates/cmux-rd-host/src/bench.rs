@@ -231,6 +231,20 @@ fn pct(xs: &mut [f64]) -> serde_json::Value {
 }
 
 impl Viewer {
+    /// Whether H.264 goes to OpenH264 (every viewer but macOS `--decoder videotoolbox` and
+    /// the VP9 or AV1 decoders), which decodes only Constrained Baseline.
+    fn decodes_with_openh264(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        if self.vt.is_some() {
+            return false;
+        }
+        #[cfg(any(feature = "vp9", feature = "av1"))]
+        if self.alt.is_some() {
+            return false;
+        }
+        true
+    }
+
     fn send_datagram(&mut self, d: &[u8]) -> io::Result<()> {
         self.io.send_datagram(d)
     }
@@ -822,11 +836,17 @@ pub fn run(opts: &Opts) -> Res<()> {
             None => None,
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-        // Upstream media needs both caps (rd change C4).
-        caps: if upstream.is_some() {
-            vec![caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]
-        } else {
-            Vec::new()
+        caps: {
+            let mut offered: Vec<String> = Vec::new();
+            // Upstream media needs both caps (rd change C4).
+            if upstream.is_some() {
+                offered.extend([caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]);
+            }
+            // OpenH264 decodes only Constrained Baseline: ask the host for that profile.
+            if v.decodes_with_openh264() {
+                offered.push(caps::H264_BASELINE.into());
+            }
+            offered
         },
     })?;
     v.io.send_control(&Control::Start {

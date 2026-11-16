@@ -35,9 +35,13 @@ pub mod caps {
     /// viewer draws the cursor itself. A viewer that does not offer it keeps the cursor in
     /// the picture.
     pub const CURSOR: &str = "cursor";
+    /// The viewer decodes only H.264 Constrained Baseline (OpenH264, the Linux and Windows
+    /// viewers): the host encodes that profile for the session instead of its default (High
+    /// on a Mac, for VideoToolbox decoders). A viewer that does not offer it gets the default.
+    pub const H264_BASELINE: &str = "h264.baseline";
     /// Every named cap.
-    pub const ALL: [&str; 8] =
-        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR];
+    pub const ALL: [&str; 9] =
+        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR, H264_BASELINE];
 }
 
 /// Why a hello is refused.
