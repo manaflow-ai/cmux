@@ -186,7 +186,7 @@ const SIGNALS_SCHEMA = join(here, "../schema/v2/signals.schema.json")
 interface SignalDef {
   docs: string; scopes: string[]; params: Record<string, unknown>; value: Record<string, unknown>
   read: { op: string } | { reader: string; ops: Array<{ op: string; scope: string; docs: string }> }
-  push: string[]; pollFloorSeconds: number; staleAfterSeconds: number
+  push: string[]; pollFloorSeconds: number; staleAfterSeconds: number; safetyPollSeconds?: number
 }
 
 /** A value or params schema as TS: schemaType plus `{"$ref": "cmux:types/<Name>"}` for catalog types. */
@@ -229,7 +229,14 @@ export function loadSignals(scopes: Record<string, { scope: string; class: strin
       if (!def.scopes.includes(scope)) throw new Error(`signals.json: ${name} reads ${op} with ${scope}, which its scopes do not list`)
     }
     if (def.staleAfterSeconds < def.pollFloorSeconds) throw new Error(`signals.json: ${name} goes stale before it may be polled again`)
-    const how = def.push.length ? `pushed by ${def.push.map((p) => `\`${p}\``).join(", ")}` : `polled every ${def.staleAfterSeconds} s (never faster than ${def.pollFloorSeconds} s): nothing pushes it yet`
+    if (def.safetyPollSeconds !== undefined && !def.push.length) throw new Error(`signals.json: ${name} has safetyPollSeconds but nothing pushes it`)
+    if (def.safetyPollSeconds !== undefined && def.safetyPollSeconds < def.staleAfterSeconds) throw new Error(`signals.json: ${name} re-reads faster while pushed than while polled`)
+    const pushedBy = def.push.map((p) => `\`${p}\``).join(", ")
+    const how = !def.push.length
+      ? `polled every ${def.staleAfterSeconds} s (never faster than ${def.pollFloorSeconds} s): nothing pushes it yet`
+      : def.safetyPollSeconds === undefined
+        ? `pushed by ${pushedBy}`
+        : `pushed by ${pushedBy} from outside this machine: while that push is live it re-reads every ${def.safetyPollSeconds} s, and until it is, it polls every ${def.staleAfterSeconds} s (never faster than ${def.pollFloorSeconds} s)`
     lines.push(`  /** \`${name}\`: ${def.docs.replace(/\*\//g, "* /")} Scope: any of ${def.scopes.map((s) => `\`${s}\``).join(", ")}; ${how}. */`)
     lines.push(`  ${JSON.stringify(name)}: { params: ${signalType(def.params, types)}; value: ${signalType(def.value, types)} }`)
   }
@@ -243,17 +250,22 @@ export function loadSignals(scopes: Record<string, { scope: string; class: strin
  * scope is the stream's scope.
  */
 export function loadEvents(scopes: Record<string, { scope: string; class: string }>): Record<string, { docs: string; reads: string; scope: string }> {
-  const file = JSON.parse(readFileSync(EVENTS, "utf8")) as { version: number; events: Record<string, { docs: string; reads: string }> }
+  const file = JSON.parse(readFileSync(EVENTS, "utf8")) as { version: number; events: Record<string, { docs: string; reads: string; readsParams?: Record<string, unknown>; scope?: string }> }
   if (file.version !== 1) throw new Error(`schema/v2/events.json: version ${file.version}, expected 1`)
   const out: Record<string, { docs: string; reads: string; scope: string }> = {}
   for (const name of Object.keys(file.events).sort()) {
-    const { docs, reads } = file.events[name]!
+    const { docs, reads, readsParams, scope } = file.events[name]!
     const family = name.match(/^([a-z][a-z0-9_]*)\.changed$/)?.[1]
     if (!family) throw new Error(`events.json: ${name} is not <family>.changed`)
     const known = scopes[reads]
     if (!known) throw new Error(`events.json: ${name} reads ${reads}, which apps cannot call`)
-    if (known.class !== "read") throw new Error(`events.json: ${name} reads ${reads}, which is not a read (${known.class})`)
-    out[name] = { docs, reads, scope: known.scope }
+    // A host op that reads (integration.request as a GET) is a read once readsParams say so.
+    const reading = known.class === "read" || (known.class === "runtime" && readsParams !== undefined && String(readsParams.method ?? "GET").toUpperCase() === "GET")
+    if (!reading) throw new Error(`events.json: ${name} reads ${reads}, which is not a read (${known.class})`)
+    // A scope with a <placeholder> needs the stream's own narrowed scope, which must fit it.
+    if (known.scope.includes("<") !== (scope !== undefined)) throw new Error(`events.json: ${name} must name its scope exactly when ${reads}'s scope (${known.scope}) has a placeholder`)
+    if (scope !== undefined && !new RegExp(`^${known.scope.replace(/<[a-z]+>/g, "[^:]+")}(:read)?$`).test(scope)) throw new Error(`events.json: ${name} says ${scope}, which ${reads}'s scope ${known.scope} does not fit`)
+    out[name] = { docs, reads, scope: scope ?? known.scope }
   }
   return out
 }
@@ -430,7 +442,7 @@ interface CmuxWatch<T> {
   /** Stops reading for this reader; automatic when the render or effect that called watch is disposed. */
   dispose(): void
 }
-interface CmuxWatchOptions { /** Poll this often while this reader is mounted; clamped up to the source's pollFloorSeconds. Ignored for pushed sources. */ everySeconds?: number }
+interface CmuxWatchOptions { /** Poll this often while this reader is mounted; clamped up to the source's pollFloorSeconds. Ignored while a push is live. */ everySeconds?: number }
 interface CmuxWatchFn {
   /** \`params\` may be a function: it is tracked, and the reader moves to the new (name, params) when its answer changes (a setting). */
   <N extends CmuxSignalName>(name: N, params?: CmuxSignalMap[N]["params"] | (() => CmuxSignalMap[N]["params"]), options?: CmuxWatchOptions): CmuxWatch<CmuxSignalMap[N]["value"]>

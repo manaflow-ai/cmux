@@ -33,7 +33,7 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
     /// The page's method; answered in ``AgentPaneBridge`` before ``AgentPaneRequest``, never logged.
     nonisolated static let method = "diag.flicker"
     /// The kinds a page may write, and the most events one call carries.
-    nonisolated static let pageKinds: Set<String> = ["page-load", "visibility", "transcript-mount", "long-frame", "frames"]
+    nonisolated static let pageKinds: Set<String> = ["page-load", "visibility", "transcript-mount", "long-frame", "frames", "focus-lost"]
     nonisolated static let maximumPageEvents = 32
 
     /// The app run's ring, for the composition root to make once; nil outside an app bundle
