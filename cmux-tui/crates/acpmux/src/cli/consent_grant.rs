@@ -953,7 +953,6 @@ pub(crate) fn screen_auto(
     viewer: &Viewer,
     now: u64,
 ) -> Value {
-    return json!({"allowed": false, "source": "none", "reason": "stub"}); // red stub
     let refuse =
         |source: &str, reason: &str| json!({"allowed": false, "source": source, "reason": reason});
     let Some(account) = account else {

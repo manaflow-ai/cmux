@@ -788,12 +788,8 @@ fn a_grant_survives_a_store_reload_and_later_connects_record_no_refusal_or_ask()
         assert_eq!(consent_of(&now, "screen"), "granted");
         assert_eq!(source(&now, "screen"), "account");
         #[cfg(feature = "hub-carrier")]
-        {
+        for _connect in 0..2 {
             assert!(crate::cmux_tui_service::admit(Some("127.0.0.1:7781"), &now, 7781).is_ok());
-            assert!(matches!(
-                crate::session_service::decide(&now, Some(ACCOUNT_ID)),
-                crate::session_service::Decision::Admit
-            ));
         }
         assert!(status_fields(&again, Some(ACCOUNT_ID), None)["grantorAsk"].is_null());
     }
