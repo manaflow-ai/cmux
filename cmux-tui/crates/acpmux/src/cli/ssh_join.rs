@@ -25,6 +25,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use serde::Serialize;
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
@@ -883,7 +884,7 @@ impl Hub for PersonHub {
         Box::pin(async move {
             let mut body = json!({"ttlSeconds": TOKEN_TTL_SECS});
             if let Some(label) = label {
-                body["label"] = json!(label);
+                body.set("label", json!(label));
             }
             let body: cmux_cloud_client::types::JoinTokenMint = serde_json::from_value(body)
                 .map_err(|_| HubError::Unreachable("bad mint body".into()))?;

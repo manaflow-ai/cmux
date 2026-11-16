@@ -21,6 +21,7 @@
 
 use std::sync::Arc;
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
@@ -88,7 +89,7 @@ async fn join(conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
         .await
         .map_err(|_| RpcError::internal("the host check stopped"))?;
         if let Some(mut ask) = ask {
-            ask["joinId"] = json!(join_id);
+            ask.set("joinId", json!(join_id));
             return Ok(ask);
         }
     }
@@ -97,8 +98,8 @@ async fn join(conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
     let progress_host = request.host.clone();
     let mut emit = move |step: ssh_join::Progress| {
         let mut note = serde_json::to_value(&step).unwrap_or_default();
-        note["joinId"] = json!(progress_id);
-        note["host"] = json!(progress_host);
+        note.set("joinId", json!(progress_id));
+        note.set("host", json!(progress_host));
         progress_conn.send(&Message::notification(method::MUX_MACHINE_JOIN_PROGRESS, note));
     };
     let outcome = ssh_join::join_as(&request, access, &mut emit).await;
@@ -110,7 +111,7 @@ async fn join(conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
         "machine join over ssh"
     );
     let mut answer = outcome.to_value();
-    answer["joinId"] = json!(join_id);
+    answer.set("joinId", json!(join_id));
     Ok(answer)
 }
 
@@ -202,7 +203,7 @@ pub(super) fn list(
     }
     let mut answer = json!({"candidates": rows});
     if let Some(error) = tailnet_error {
-        answer["tailnet"] = json!({"error": error});
+        answer.set("tailnet", json!({"error": error}));
     }
     answer
 }
