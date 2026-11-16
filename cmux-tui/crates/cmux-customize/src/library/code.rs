@@ -322,3 +322,29 @@ pub(crate) fn read_object(path: &Path) -> Result<(Map<String, Value>, Option<Str
         Err(error) => Err(error.into()),
     }
 }
+
+/// The `use` that fetches or builds `code`'s layer again.
+pub(super) fn use_again(code: &CodeLayer) -> String {
+    let source = match code.kind {
+        CodeKind::Pr => format!("pr:{}", code.pr),
+        CodeKind::Branch => format!("branch:{}", code.source),
+        CodeKind::Sha => format!("sha:{}", code.source),
+        CodeKind::Dir => format!("dir:{}", code.source),
+        CodeKind::Fork => code.source.clone(),
+    };
+    format!("cmux customize use {source}")
+}
+
+/// `needs a build: ...` for an entry with no web part.
+pub(super) fn needs_build_line(code: &CodeLayer) -> String {
+    if code.needs_build.is_empty() {
+        "it needs a build".to_owned()
+    } else {
+        format!("needs a build: {}", code.needs_build.join("; "))
+    }
+}
+
+/// The first 12 characters of a commit.
+pub(super) fn short(sha: &str) -> &str {
+    sha.get(..12).unwrap_or(sha)
+}

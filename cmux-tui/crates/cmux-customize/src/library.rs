@@ -35,30 +35,35 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cmux_app_manifest::hidden;
 use cmux_config::{Schema, jsonc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::profile::{Profile, shareable_settings, valid_name};
+use crate::profile::{Profile, shareable_settings};
 use crate::redact::find_secret;
 use crate::store::{Draft, Generation, Kind};
 use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
 pub mod code;
+mod collection;
 pub mod keys;
 pub mod overlay;
 pub mod recover;
+mod stack;
 mod text;
 
-use code::WebTarget;
 pub use code::{CodeKind, CodeLayer, WEB_KEY, WebBase};
+use code::{WebTarget, needs_build_line, short, use_again};
 use keys::KEYBINDINGS;
 pub use overlay::Overlay;
 pub use recover::{ActiveLayer, Layers, Recovered};
+use stack::{
+    apps_written, binding_winners, listing, prune_made, referenced, setting_value, stacked, top,
+    web_top,
+};
 pub use text::thumbnail;
-use text::{one_line, redact_serde, slug, unique_name};
+use text::{one_line, slug, unique_name};
 
 /// The collection format version this cmux reads and writes.
 pub const COLLECTION_VERSION: u32 = 1;
@@ -633,198 +638,6 @@ impl Customize {
         })
     }
 
-    /// The library (or the entries that are on) as a collection to share.
-    pub fn library_export(
-        &self,
-        name: &str,
-        description: &str,
-        only_on: bool,
-    ) -> Result<Collection, Error> {
-        let library = self.read_library()?;
-        let entries = library
-            .entries
-            .into_iter()
-            .filter(|entry| !only_on || entry.on)
-            .map(|entry| Entry { added_ms: None, generation: None, ..entry })
-            .collect();
-        Ok(Collection {
-            version: COLLECTION_VERSION,
-            name: one_line(name),
-            description: one_line(description),
-            entries,
-        })
-    }
-
-    /// Adds a collection's entries on top, in its order. They come in off,
-    /// unless `turn_on`: then those the collection marks on are turned on
-    /// and the stack is made live. Every entry is checked first; one that
-    /// fails writes nothing.
-    pub fn library_import(
-        &self,
-        collection: &Collection,
-        turn_on: bool,
-        origin: &str,
-        now_ms: u64,
-    ) -> Result<Imported, Error> {
-        self.check_collection(collection)?;
-        let mut added = Vec::new();
-        let mut already = Vec::new();
-        let mut renamed = Vec::new();
-        let label = format!(
-            "library: import {}",
-            if collection.name.is_empty() { "a collection" } else { &collection.name }
-        );
-        let live_settings = self.live_settings()?;
-        let change = self.library_change(&label, origin, now_ms, |library| {
-            let mut incoming = Vec::new();
-            for entry in &collection.entries {
-                let code = entry.code.as_ref();
-                if library.entries.iter().any(|have| have.same_content(&entry.profile, code))
-                    || incoming.iter().any(|have: &Entry| have.same_content(&entry.profile, code))
-                {
-                    already.push(entry.name().to_owned());
-                    continue;
-                }
-                let mut taken: Vec<Entry> = library.entries.clone();
-                taken.extend(incoming.iter().cloned());
-                let name = unique_name(&taken, entry.name());
-                if name != entry.name() {
-                    renamed.push((entry.name().to_owned(), name.clone()));
-                }
-                let profile = Profile { name: name.clone(), ..entry.profile.clone() };
-                // A key the library does not manage yet starts from what is
-                // live now.
-                let live_file = (!live_settings.is_null()).then_some(&live_settings);
-                for key in profile.settings.keys() {
-                    if !library.base.settings.contains_key(key) {
-                        library.base.note_setting(key, live_file);
-                    }
-                }
-                for path in profile.files.keys() {
-                    if !library.base.files.contains_key(path) {
-                        let text = tree::read(self.roots(), path)?
-                            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
-                        library.base.files.insert(path.clone(), text);
-                    }
-                }
-                added.push(name);
-                incoming.push(Entry {
-                    on: turn_on && entry.on,
-                    source: "import".to_owned(),
-                    words: entry.words.iter().map(|w| one_line(w)).take(MAX_WORDS).collect(),
-                    thumbnail: thumbnail(&profile),
-                    profile,
-                    added_ms: Some(now_ms),
-                    generation: None,
-                    code: entry.code.clone(),
-                });
-            }
-            if library.entries.len() + incoming.len() > MAX_ENTRIES {
-                return Err(Error::Library(format!(
-                    "a library holds at most {MAX_ENTRIES} entries; remove some first"
-                )));
-            }
-            incoming.append(&mut library.entries);
-            library.entries = incoming;
-            Ok(())
-        })?;
-        Ok(Imported { added, already, renamed, change })
-    }
-
-    /// Reads a collection from its text, checking only its shape; import
-    /// checks every profile.
-    pub fn parse_collection(text: &str) -> Result<Collection, Error> {
-        if text.len() > MAX_COLLECTION_BYTES {
-            return Err(Error::Library(format!(
-                "a collection is at most {} MiB",
-                MAX_COLLECTION_BYTES / 1024 / 1024
-            )));
-        }
-        let probe: Value = serde_json::from_str(text).map_err(|error| {
-            Error::Library(format!(
-                "not a cmux collection (line {}, column {})",
-                error.line(),
-                error.column()
-            ))
-        })?;
-        // A single profile is a collection of one.
-        if probe.get("cmuxProfile").is_some() {
-            let profile: Profile = serde_json::from_value(probe)
-                .map_err(|_| Error::Library("not a cmux profile".to_owned()))?;
-            return Ok(Collection {
-                version: COLLECTION_VERSION,
-                name: profile.name.clone(),
-                description: String::new(),
-                entries: vec![Entry {
-                    on: true,
-                    source: "import".to_owned(),
-                    words: Vec::new(),
-                    thumbnail: Thumbnail::default(),
-                    profile,
-                    added_ms: None,
-                    generation: None,
-                    code: None,
-                }],
-            });
-        }
-        match probe.get("cmuxCollection").and_then(Value::as_u64) {
-            Some(1) => {}
-            Some(n) => {
-                return Err(Error::Library(format!(
-                    "this collection is format {n}; this cmux reads format {COLLECTION_VERSION}"
-                )));
-            }
-            None => return Err(Error::Library("not a cmux collection".to_owned())),
-        }
-        // Where it stops reading, never what it read there.
-        serde_json::from_value(probe).map_err(|error| {
-            Error::Library(format!("not a cmux collection: {}", redact_serde(&error.to_string())))
-        })
-    }
-
-    /// Every entry of `collection` is one `use` would take, and the set is
-    /// one a library can hold.
-    fn check_collection(&self, collection: &Collection) -> Result<(), Error> {
-        if collection.version != COLLECTION_VERSION {
-            return Err(Error::Library(format!(
-                "this collection is format {}; this cmux reads format {COLLECTION_VERSION}",
-                collection.version
-            )));
-        }
-        if collection.entries.len() > MAX_ENTRIES {
-            return Err(Error::Library(format!(
-                "a collection holds at most {MAX_ENTRIES} entries"
-            )));
-        }
-        for (i, entry) in collection.entries.iter().enumerate() {
-            let which = format!("entry {} ({:?})", i + 1, entry.name());
-            if !valid_name(entry.name()) {
-                return Err(Error::Library(format!(
-                    "{which}: a name is lowercase letters, digits, '-' and '_'"
-                )));
-            }
-            self.check_profile(&entry.profile)
-                .map_err(|error| Error::Library(format!("{which}: {error}")))?;
-            for word in &entry.words {
-                if let Some(mark) = hidden::first_hidden(word, hidden::Context::ManifestString) {
-                    return Err(Error::Library(format!(
-                        "{which}: its words have {} ({})",
-                        mark.describe(),
-                        mark.code_point
-                    )));
-                }
-            }
-            for text in entry.profile.files.values() {
-                if let Some((line, what)) = find_secret(text) {
-                    return Err(Error::Library(format!(
-                        "{which}: a file's line {line} looks like a secret ({what})"
-                    )));
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Runs `edit` on the library, then makes the new stack live: writes
     /// the keys and files whose stacked value changed and records one
     /// applied generation. Nothing is written when `edit` or a check fails.
@@ -1162,237 +975,6 @@ impl Customize {
         }
         Ok((profile, base))
     }
-}
-
-/// The value of setting `key` in a parsed settings file.
-fn setting_value(file: &Value, key: &str) -> Option<Value> {
-    let row = Schema::embedded().row(key)?;
-    cmux_config::value::value_at(file, &row.path).cloned()
-}
-
-/// The apps (`local/NAME`) whose manifest `writes` puts on disk.
-fn apps_written(writes: &BTreeMap<String, Option<Vec<u8>>>) -> Vec<String> {
-    let mut apps: Vec<String> = writes
-        .iter()
-        .filter(|(path, bytes)| bytes.is_some() && tree::is_manifest(path))
-        .filter_map(|(path, _)| tree::app_of(path).map(|name| format!("local/{name}")))
-        .collect();
-    apps.dedup();
-    apps
-}
-
-/// Settings text after the library took keys out of it: every object the
-/// library made that is empty now is taken out too, and the file itself
-/// (`None`) when the library made it and nothing of anyone's is left in it.
-fn prune_made(mut text: String, base: &Base) -> Option<String> {
-    let mut made: Vec<&Vec<String>> = base.made_objects.iter().collect();
-    made.sort_by_key(|path| std::cmp::Reverse(path.len()));
-    for path in made {
-        let Ok(file) = jsonc::parse(&text) else { break };
-        let empty = cmux_config::value::value_at(&file, path)
-            .is_some_and(|value| value.as_object().is_some_and(serde_json::Map::is_empty));
-        if empty && let Ok(pruned) = jsonc::remove(&text, path) {
-            text = pruned;
-        }
-    }
-    let solid = |text: &str| text.chars().filter(|c| !c.is_whitespace()).collect::<String>();
-    let nothing_left = jsonc::parse(&text).is_ok_and(|file| file == Value::Object(Default::default()))
-        // A comment is the person's: the file stays.
-        && jsonc::strip(&text).is_ok_and(|strict| solid(&strict) == solid(&text));
-    if base.made_settings_file && nothing_left { None } else { Some(text) }
-}
-
-/// The highest entry that is on with a web part: the layer web-dev.json serves.
-fn web_top(entries: &[Entry]) -> Option<&CodeLayer> {
-    entries.iter().filter(|entry| entry.on).find_map(Entry::web_layer)
-}
-
-/// The `use` that fetches or builds `code`'s layer again.
-fn use_again(code: &CodeLayer) -> String {
-    let source = match code.kind {
-        CodeKind::Pr => format!("pr:{}", code.pr),
-        CodeKind::Branch => format!("branch:{}", code.source),
-        CodeKind::Sha => format!("sha:{}", code.source),
-        CodeKind::Dir => format!("dir:{}", code.source),
-        CodeKind::Fork => code.source.clone(),
-    };
-    format!("cmux customize use {source}")
-}
-
-/// `needs a build: ...` for an entry with no web part.
-fn needs_build_line(code: &CodeLayer) -> String {
-    if code.needs_build.is_empty() {
-        "it needs a build".to_owned()
-    } else {
-        format!("needs a build: {}", code.needs_build.join("; "))
-    }
-}
-
-/// The first 12 characters of a commit.
-fn short(sha: &str) -> &str {
-    sha.get(..12).unwrap_or(sha)
-}
-
-/// The highest entry that is on whose profile `get` finds something in.
-fn top<'a, T>(
-    entries: &'a [Entry],
-    get: impl Fn(&'a Profile) -> Option<&'a T>,
-) -> Option<(&'a Entry, &'a T)> {
-    entries
-        .iter()
-        .filter(|entry| entry.on)
-        .find_map(|entry| get(&entry.profile).map(|v| (entry, v)))
-}
-
-/// Every key and file the stack decides: the top on entry's value, or the
-/// base.
-struct Stacked {
-    settings: BTreeMap<String, Option<Value>>,
-    files: BTreeMap<String, Option<String>>,
-}
-
-/// The winning binding of every key the entries that are on bind.
-fn binding_winners(entries: &[Entry]) -> Vec<(String, Value)> {
-    keys::winners(
-        entries
-            .iter()
-            .filter(|entry| entry.on)
-            .filter_map(|entry| entry.profile.files.get(KEYBINDINGS).map(String::as_str))
-            .collect::<Vec<_>>()
-            .into_iter(),
-    )
-}
-
-fn stacked(entries: &[Entry], base: &Base) -> Result<Stacked, Error> {
-    let mut stack = stacked_whole(entries, base);
-    // An app stacks whole, by its folder: the highest entry that is on with
-    // any file of `apps/NAME/` gives every file there (one it does not have is
-    // not there); with none on, each file is its base.
-    let folders: BTreeSet<&str> = base.files.keys().filter_map(|path| tree::app_of(path)).collect();
-    for name in folders {
-        let prefix = format!("apps/{name}/");
-        let winner = entries
-            .iter()
-            .filter(|entry| entry.on)
-            .find(|entry| entry.profile.files.keys().any(|path| path.starts_with(&prefix)));
-        if let Some(winner) = winner {
-            for (path, value) in
-                stack.files.iter_mut().filter(|(path, _)| path.starts_with(&prefix))
-            {
-                *value = winner.profile.files.get(path).cloned();
-            }
-        }
-    }
-    if let Some(under) = base.files.get(KEYBINDINGS) {
-        let file = keys::compose(under.as_deref(), &binding_winners(entries))?;
-        stack.files.insert(KEYBINDINGS.to_owned(), file);
-    }
-    Ok(stack)
-}
-
-/// [`stacked`] with every file whole.
-fn stacked_whole(entries: &[Entry], base: &Base) -> Stacked {
-    let settings = base
-        .settings
-        .iter()
-        .map(|(key, under)| {
-            let value = top(entries, |profile| profile.settings.get(key))
-                .map(|(_, value)| Some(value.clone()))
-                .unwrap_or_else(|| under.clone());
-            (key.clone(), value)
-        })
-        .collect();
-    let files = base
-        .files
-        .iter()
-        .map(|(path, under)| {
-            let value = top(entries, |profile| profile.files.get(path))
-                .map(|(_, text)| Some(text.clone()))
-                .unwrap_or_else(|| under.clone());
-            (path.clone(), value)
-        })
-        .collect();
-    Stacked { settings, files }
-}
-
-fn referenced(entries: &[Entry]) -> (BTreeSet<String>, BTreeSet<String>) {
-    let mut settings = BTreeSet::new();
-    let mut files = BTreeSet::new();
-    for entry in entries {
-        settings.extend(entry.profile.settings.keys().cloned());
-        files.extend(entry.profile.files.keys().cloned());
-    }
-    (settings, files)
-}
-
-fn listing(entries: &[Entry]) -> Listing {
-    // Who sets what, among entries that are on, top first.
-    let mut setters: BTreeMap<(&'static str, String), Vec<&str>> = BTreeMap::new();
-    for entry in entries.iter().filter(|entry| entry.on) {
-        for key in entry.profile.settings.keys() {
-            setters.entry(("setting", key.clone())).or_default().push(entry.name());
-        }
-        for (path, text) in &entry.profile.files {
-            if path == KEYBINDINGS {
-                // One binding at a time: two entries meet only on a key.
-                for (id, _) in keys::bindings(text) {
-                    let key = format!("{KEYBINDINGS} {id}");
-                    setters.entry(("binding", key)).or_default().push(entry.name());
-                }
-                continue;
-            }
-            if let Some(name) = tree::app_of(path) {
-                // One app at a time: two entries meet on an app folder.
-                let names = setters.entry(("app", format!("apps/{name}"))).or_default();
-                if names.last() != Some(&entry.name()) {
-                    names.push(entry.name());
-                }
-                continue;
-            }
-            setters.entry(("file", path.clone())).or_default().push(entry.name());
-        }
-        if entry.web_layer().is_some() {
-            setters.entry(("code", WEB_KEY.to_owned())).or_default().push(entry.name());
-        }
-    }
-    let conflicts: Vec<Conflict> = setters
-        .iter()
-        .filter_map(|((kind, key), names)| {
-            let (winner, losers) = names.split_first()?;
-            (!losers.is_empty()).then(|| Conflict {
-                kind,
-                key: key.clone(),
-                winner: (*winner).to_owned(),
-                losers: losers.iter().map(|name| (*name).to_owned()).collect(),
-            })
-        })
-        .collect();
-    let listed = entries
-        .iter()
-        .enumerate()
-        .map(|(i, entry)| {
-            let overridden = conflicts
-                .iter()
-                .filter(|conflict| entry.on && conflict.losers.iter().any(|n| n == entry.name()))
-                .map(|conflict| conflict.key.clone())
-                .collect();
-            Listed {
-                position: i + 1,
-                name: entry.name().to_owned(),
-                on: entry.on,
-                source: entry.source.clone(),
-                words: entry.words.clone(),
-                description: entry.profile.description.clone(),
-                thumbnail: entry.thumbnail.clone(),
-                settings: entry.profile.settings.keys().cloned().collect(),
-                files: entry.profile.files.keys().cloned().collect(),
-                added_ms: entry.added_ms,
-                overridden,
-                code: entry.code.clone(),
-            }
-        })
-        .collect();
-    Listing { entries: listed, conflicts }
 }
 
 fn find<'a>(entries: &'a mut [Entry], name: &str) -> Result<&'a mut Entry, Error> {
