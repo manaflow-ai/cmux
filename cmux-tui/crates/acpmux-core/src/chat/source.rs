@@ -884,7 +884,7 @@ impl FileSource {
         let (dev, ino) = file_identity(&held);
         let size = held.len();
         let (head_fixed, head_len, head) = if let Some(previous) = previous {
-            if previous.head_fixed {
+            if previous.head_fixed && size >= previous.head_len {
                 let head_len = previous.head_len.min(size);
                 let mut bytes = vec![0; usize::try_from(head_len).map_err(io::Error::other)?];
                 self.read_exact_at(0, &mut bytes)?;
@@ -1121,6 +1121,11 @@ mod tests {
         std::fs::write(&path, b"header\nbody\n")?;
         let mut source = FollowFileSource::open(&path)?;
         std::fs::write(&path, b"header\n")?;
+        assert_eq!(source.check_generation()?, GenerationChange::Replaced);
+
+        std::fs::write(&path, b"header\nbody\n")?;
+        let mut source = FollowFileSource::open(&path)?;
+        std::fs::write(&path, b"head")?;
         assert_eq!(source.check_generation()?, GenerationChange::Replaced);
 
         std::fs::write(&path, b"header\nbody\n")?;
