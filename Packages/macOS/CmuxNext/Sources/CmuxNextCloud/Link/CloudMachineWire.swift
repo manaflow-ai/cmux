@@ -9,37 +9,42 @@ public final class CloudMachineWire {
     private let apiBaseURL: URL
     private let token: @Sendable () async throws -> String
     private let team: @Sendable () async -> String?
-    /// The teams the wire subscribes in for an active team (Rust's `wireTeams`): the active one first, then the
-    /// install token's team when it is another, where the person's spares live (#36037). Nil: the active team alone.
-    private let teams: @Sendable (String?) async -> [String]?
     private var runner: Task<Void, Never>?
     private var generation = 0
     /// The person's spare that the platform says just became ready (`cloud.spare.ready`, for this socket's own team):
     /// its machine id, for the login copy before any claim (Rust's `spare_warm` `ready` coalesces repeats).
     public var onSpareReady: @MainActor (String) -> Void = { _ in }
+    /// The teams the wire subscribes in for an active team (Rust's `wireTeams`): the active one first, then the
+    /// install token's team when it is another, where the person's spares live (#36037). Nil: the active team alone.
+    public var teams: (@MainActor (String?) async -> [String]?)?
 
-    public init(apiBaseURL: URL, token: @escaping @Sendable () async throws -> String,
-                team: @escaping @Sendable () async -> String?,
-                teams: @escaping @Sendable (String?) async -> [String]?) {
-        self.apiBaseURL = apiBaseURL
-        self.token = token
-        self.team = team
+    /// The App's two handlers in one call: the copy onto a ready spare (``onSpareReady``) and the wire's teams (``teams``).
+    public func follow(spareReady: @escaping @MainActor (String) -> Void, teams: @escaping @MainActor (String?) async -> [String]?) {
+        onSpareReady = spareReady
         self.teams = teams
     }
 
-    public convenience init(apiBaseURL: URL, auth: CloudAuth, teams: @escaping @Sendable (String?) async -> [String]?) {
+    public init(apiBaseURL: URL, token: @escaping @Sendable () async throws -> String,
+                team: @escaping @Sendable () async -> String?) {
+        self.apiBaseURL = apiBaseURL
+        self.token = token
+        self.team = team
+    }
+
+    public convenience init(apiBaseURL: URL, auth: CloudAuth) {
         self.init(apiBaseURL: apiBaseURL, token: { try await auth.tokens().access },
-                  team: { await auth.teamID }, teams: teams)
+                  team: { await auth.teamID })
     }
 
     /// The socket of the active team (every event, as before) and, in addition, one socket per other team of
-    /// ``extraTeams(active:teams:)`` that hears only its spares' readiness (`cloud.spare.ready`, `spares_needing_login`).
+    /// ``extraTeams(active:named:)`` that hears only its spares' readiness (`cloud.spare.ready`, `spares_needing_login`).
     public func start(_ sink: @escaping @MainActor (CloudPortChange) -> Void) {
         stop()
         let generation = generation
         runner = Task { [weak self] in
             guard let self else { return }
-            let extra = await Self.extraTeams(active: self.team(), teams: self.teams)
+            let active = await self.team()
+            let extra = Self.extraTeams(active: active, named: await self.teams?(active))
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { [weak self] in await self?.run(generation, only: nil, sink: sink) }
                 for team in extra {
@@ -49,11 +54,11 @@ public final class CloudMachineWire {
         }
     }
 
-    /// The teams past the active one that Rust named (`teams`), never the active one again: none when they are the same.
-    nonisolated static func extraTeams(active: String?, teams: @Sendable (String?) async -> [String]?) async -> [String] {
+    /// The teams past the active one that Rust named, never the active one again: none when they are the same.
+    nonisolated static func extraTeams(active: String?, named: [String]?) -> [String] {
         guard let active, !active.isEmpty else { return [] }
         var seen: Set<String> = [active]
-        return (await teams(active) ?? []).filter { !$0.isEmpty && seen.insert($0).inserted }
+        return (named ?? []).filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     public func stop() {
