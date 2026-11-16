@@ -156,6 +156,7 @@ import Testing
         fixture.storeGetsThePane = false
         let failure = await fixture.run(beside: 1)
         #expect(fixture.floats.isEmpty)
+        #expect(fixture.focused.isEmpty, "no focus request for a pane that the store does not have")
         #expect(failure?.notice(title: nil) == FloatingPaneStrings.notFloated, "the act never ends with no error and no floating pane")
         #expect(failure?.refusal == .unavailable, "a caller of the action gets the reason")
     }

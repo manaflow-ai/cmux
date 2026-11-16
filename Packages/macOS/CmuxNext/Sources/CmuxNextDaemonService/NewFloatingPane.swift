@@ -28,9 +28,9 @@ public struct NewPaneFocus {
 }
 
 /// New Floating Pane as one unit: a split on the right of a tiled pane of the screen, then `float-pane` on the pane
-/// that the split made. The act ends with a floating pane or with an error that a person sees, never with a tiled
-/// pane and no error (decision 2026-11-16). The 2 requests and the focus request are closures, so a test runs the
-/// act with stand-ins and no daemon.
+/// that the split made. The new pane gets the focus (decision 2026-11-16). The act ends with a floating pane or with
+/// an error that a person sees, never with a tiled pane and no error (decision 2026-11-16). The 2 requests and the
+/// focus request are closures, so a test runs the act with stand-ins and no daemon.
 struct NewFloatingPane {
     /// The store that holds the screens.
     let store: DaemonStore
@@ -51,9 +51,9 @@ struct NewFloatingPane {
         return isAnchor(pane) ? pane : screen.panes.last { isAnchor($0.handle) }?.handle
     }
 
-    /// Runs the act for the focused pane `pane`: the split, then the float of the pane that the split made. The
-    /// daemon's reply names the new tab's surface and no numeric pane, so the pane is the store's pane that holds
-    /// that surface.
+    /// Runs the act for the focused pane `pane`: the split, the focus request for the pane that the split made, then
+    /// the float of that pane. The daemon's reply names the new tab's surface and no numeric pane, so the pane is the
+    /// store's pane that holds that surface.
     ///
     /// - Throws: ``ActionFailure`` with the notice's text when the screen has no pane that a split can go to, or
     ///   when the store has no pane for the reply; the error of a request that the daemon refused.
@@ -65,6 +65,9 @@ struct NewFloatingPane {
         guard let new = store.pane(containing: created.surface)?.handle else {
             throw ActionFailure(message: FloatingPaneStrings.notFloated)
         }
+        // As a split: the new pane gets the focus when the reply names it. A float that the daemon refuses leaves a
+        // tiled pane that has the focus, as a split does.
+        focus(created.surface)
         try await float(new)
     }
 
