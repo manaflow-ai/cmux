@@ -151,6 +151,17 @@ pub struct GrantedBy {
 /// 2026-11-14: "ok then do that", to one click on the new Mac).
 pub const SIGNED_IN_MACHINES: &str = "signedInMachines";
 
+/// Whether `consent` (a `_acpmux/machine_consent_get` answer) grants [`SIGNED_IN_MACHINES`] while
+/// this machine is joined as `account`: only the word `granted`, given for that same account
+/// (`signedInMachinesUser`), does. A grant given for another account, or no account, grants
+/// nothing. The workspace circuit's gate (`session_service`) and Share This Mac's admission
+/// (`share_approval::SignedInMachinesConsent`) read it the same way.
+pub fn signed_in_machines_granted(consent: &Value, account: Option<&str>) -> bool {
+    account.is_some_and(|account| {
+        consent.pointer("/consent/signedInMachinesUser").and_then(Value::as_str) == Some(account)
+    }) && consent.pointer("/consent/signedInMachines").and_then(Value::as_str) == Some("granted")
+}
+
 /// Every consent surface the person can grant on this machine.
 pub(crate) fn is_consent_surface(surface: &str) -> bool {
     matches!(surface, "screen" | "control" | SIGNED_IN_MACHINES)

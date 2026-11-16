@@ -32,7 +32,7 @@ use crate::machine_record::home_copy_state;
 pub(super) use crate::machine_record::load_at;
 pub use crate::machine_record::{
     CONSENT_REQUIRED, Consent, ConsentState, GrantedBy, MachineCredential, SIGNED_IN_MACHINES,
-    require_consent, require_joined_consent,
+    require_consent, require_joined_consent, signed_in_machines_granted,
 };
 use crate::machine_record::{
     CREDENTIAL_FILE, CopyState, consent_home, copied_here, copy_state, load, other_box,
@@ -756,6 +756,13 @@ pub(crate) fn consent_status_with_grants(
         fields.insert("account".into(), json!(account));
     }
     status
+}
+
+/// This machine's consent and the account it is joined as, read now (blocking file reads).
+pub fn signed_in_machines_granted_here() -> (bool, Option<String>) {
+    let account = machine_user_id();
+    let granted = signed_in_machines_granted(&consent_status_for(&json!({})), account.as_deref());
+    (granted, account)
 }
 
 /// The consent status the gates read. With `{"use": "localComputerUse"}` (the app asking

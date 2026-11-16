@@ -232,7 +232,7 @@ public final class AgentPaneView: NSView {
             let resources = AgentPageResources(session: { [weak model] in model?.sessionId }, allowed: keepsSnapshots)
             pageResources = resources
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium, panelProvider: panelProvider, resources: resources)
+                                                                 chromium: chromium, panelProvider: panelProvider, resources: resources, chatModel: model)
             else { return nil }
             self.page = page
             pageEvents = provider
