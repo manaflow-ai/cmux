@@ -51,6 +51,8 @@ import Testing
             #expect(frame.misfits.isEmpty, "frame \(index + 1): the zoomed pane's content is not at the rect its pane gives it: \(frame.misfits)")
         }
         #expect(Set(zoomed.panes.keys) == ["p4"] && zoomed.dividers.isEmpty, "the zoomed layout is not one pane: \(zoomed.panes)")
+        // A zoom's covered panes are still in the layout (focus topology, theme): the provider keeps them all.
+        #expect(harness.provider.shown == ["p1", "p2", "p3", "p4"], "a zoom took a pane out of the provider's shown panes: \(harness.provider.shown)")
         #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "a zoom that showed still asks for frames")
     }
 

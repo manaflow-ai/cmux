@@ -52,6 +52,9 @@ import Testing
         private(set) var contents: [PaneID: Content] = [:]
         /// The panes whose content the layout released, in order.
         private(set) var released: [PaneID] = []
+        /// The panes the provider counts as shown: the ones made, less the ones a close took out or the layout
+        /// released, and again the ones a close gave back.
+        private(set) var shown: Set<PaneID> = []
 
         init(holds: Bool, surfaces: Bool) {
             self.holds = holds
@@ -62,12 +65,20 @@ import Testing
             let view = surfaces ? Surface() : Content()
             view.wantsLayer = true
             contents[pane] = view
+            shown.insert(pane)
             return view
         }
 
         func holdsContentInMotion(for pane: PaneID) -> Bool { holds }
 
-        func releaseContentView(_ view: NSView, for pane: PaneID) { released.append(pane) }
+        func releaseContentView(_ view: NSView, for pane: PaneID) {
+            released.append(pane)
+            shown.remove(pane)
+        }
+
+        func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool) {
+            if retired { shown.remove(pane) } else { shown.insert(pane) }
+        }
 
         func surface(_ pane: PaneID) -> Surface? { contents[pane] as? Surface }
     }
@@ -372,7 +383,8 @@ import Testing
     }
 
     /// A pane a close takes out is shown until the close shows, hidden in the frame that shows it, and torn down only
-    /// after that frame's commit: the frame that shows the close carries no teardown.
+    /// after that frame's commit: the frame that shows the close carries no teardown. The provider's shown panes lose
+    /// it in the close's own turn (a key, a focus or a lookup there never finds a closed pane); only its teardown waits.
     @Test func aClosedPaneIsTornDownAfterTheFrameThatShowsTheClose() throws {
         let harness = Harness(Self.pairSplit(.horizontal), focused: Self.left, holds: false)
         defer { harness.window.closeAfterTest() }
@@ -385,6 +397,7 @@ import Testing
         harness.model.apply(screens: Self.pair)
         harness.root.syncWithModel()
         #expect(!closed.isHidden && closed.superview === screen, "the closed pane left the screen before the close showed")
+        #expect(harness.provider.shown == [Self.left, Self.right], "the close's own turn left the closed pane among the provider's shown panes: \(harness.provider.shown)")
         _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
         #expect(closed.isHidden, "the closed pane still shows in the frame that shows the close")
         #expect(harness.provider.released.isEmpty, "the closed pane was torn down in the frame that shows the close")
@@ -414,6 +427,7 @@ import Testing
         harness.model.apply(screens: Self.pairSplit(.horizontal))
         harness.root.syncWithModel()
         #expect(harness.root.context.hosts[Self.added] === closed, "the pane that came back has another host")
+        #expect(harness.provider.shown == [Self.left, Self.added, Self.right], "the pane that came back is not among the provider's shown panes: \(harness.provider.shown)")
         #expect(whole.isShown(by: Self.shown(screen)), "the screen changed in the turns of a close and of its return")
         for _ in 0..<Self.frames {
             _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
@@ -448,6 +462,7 @@ import Testing
         harness.root.syncWithModel()
         #expect(new.isShown(by: Self.shown(screen)), "a close that resizes nothing did not show in its own turn: \(Self.shown(screen).panes)")
         #expect(closed.isHidden && harness.provider.released.isEmpty, "the turn that shows the close did not hide the closed pane, or tore it down")
+        #expect(harness.provider.shown == [PaneID("p0-0"), PaneID("p2-0")], "the close's own turn left the closed pane among the provider's shown panes: \(harness.provider.shown)")
         #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "a close that showed asks for frames")
         let work = afterCommit
         afterCommit = []
