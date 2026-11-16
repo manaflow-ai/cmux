@@ -5,7 +5,7 @@ public import Foundation
 /// `device_list`): every build of cmux with its own bundle id (NIGHTLY, DEV, a tagged DEV) is its
 /// own identity and so its own hub record with the same Computer Name, and a renewed identity
 /// leaves its old record behind. Records of one platform and one folded name are one device;
-/// this device's are This Mac, never a remote (Leo's Screen Sharing page listed cosmic-gray
+/// this device's are This Mac, never a remote (Leo's Screen Sharing page listed his own Mac
 /// twice, Offline, while he sat on it, 2026-11-15).
 public struct HubDeviceList: Equatable, Sendable {
     /// Every record of this device: its own id first, then its other builds'.
