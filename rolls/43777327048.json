@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43777327048",
+  "recorded_at": "2026-11-16T00:02:29Z",
+  "reason": "cmux-tui 39e72e287e2d changes the image's cmux-tui (pinned 829a459e1720)",
+  "dry_run": false,
+  "cmux_tui": "39e72e287e2d5e0aaa4833153d7f8653deebb1f7",
+  "fixes": [
+    {
+      "sha": "39e72e287e2d5e0aaa4833153d7f8653deebb1f7",
+      "mergedAt": "2026-11-15T15:38:52-08:00",
+      "subject": "remote --via-machine: stop on the far side's refusal and say what to do; a transient failure says it is redialing (#43960)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T00:02:29Z",
+    "snapshot_id": "sh-d0640607772c4540b8d7bde75e90813b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43777327048): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "554ed79eb863f3cbb7c9d7ec08a314c479cd036e",
+    "image": "cloud-native-auto-39e72e28-43777327048-1",
+    "revision": "ci-43777327048-1",
+    "at": "2026-11-16T00:02:29Z"
+  },
+  "rolled_back": false
+}
