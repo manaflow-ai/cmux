@@ -340,6 +340,31 @@ fn wifi_long_schedule_holds_the_target_through_every_outage() {
     replay("wifi-long", wifi_long(), 0.0);
 }
 
+/// A path's first feedback can take hundreds of milliseconds to arrive (session
+/// setup, a slow first frame). Nothing went away, so it is not an outage: the
+/// controller does not freeze and the host is not told to drop anything. The same
+/// holds for the first feedback after a path change.
+#[test]
+fn a_slow_first_feedback_is_not_an_outage() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    let mut seq = 0u16;
+    let mut first_feedback = |cc: &mut CongestionController, start_us: u64| {
+        let mut arrivals = Vec::new();
+        for frame in 0..18u64 {
+            let sent = start_us + frame * 16_667;
+            cc.on_sent(seq, sent);
+            arrivals.push(Arrival { transport_seq: seq, arrival_us: (sent + 20_000) as u32 });
+            seq = seq.wrapping_add(1);
+        }
+        cc.on_feedback(&arrivals, 0.0, start_us + 320_000);
+        assert!(!cc.frozen(), "a first feedback 320 ms after the first send froze the controller");
+        assert_eq!(cc.take_outage_end(), None, "a first feedback reported an outage");
+    };
+    first_feedback(&mut cc, 1_000);
+    cc.on_path_changed(PathKind::DirectLan);
+    first_feedback(&mut cc, 2_000_000);
+}
+
 /// A 10 Mbps link with a real queue still cuts to the bottleneck, as before D12,
 /// with and without the radio's holds on top.
 #[test]

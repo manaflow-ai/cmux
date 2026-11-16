@@ -719,12 +719,14 @@ impl CongestionController {
         now_us: u64,
     ) -> (Vec<Arrival>, f64) {
         let threshold = self.outage.threshold_us();
-        let last_feedback = self.outage.last_feedback_us.replace(now_us).unwrap_or(0);
-        let silent = self
-            .outage
-            .unanswered_since_us
-            .take()
-            .map_or(0, |t| now_us.saturating_sub(t.max(last_feedback)));
+        // Silence needs a feedback to be silent after: a path's first feedback (at
+        // start or after a path change) may be slow to set up, and is not an outage.
+        let last_feedback = self.outage.last_feedback_us.replace(now_us);
+        let unanswered = self.outage.unanswered_since_us.take();
+        let silent = match (last_feedback, unanswered) {
+            (Some(feedback), Some(sent)) => now_us.saturating_sub(sent.max(feedback)),
+            _ => 0,
+        };
         let mut timed: Vec<(u64, u32)> = arrivals
             .iter()
             .filter_map(|a| self.sent.get(&a.transport_seq).map(|s| (s.at_us, a.arrival_us)))
