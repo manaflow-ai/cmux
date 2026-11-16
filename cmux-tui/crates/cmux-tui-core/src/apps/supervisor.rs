@@ -318,6 +318,9 @@ pub struct Supervisor {
     pub(super) inner: Mutex<Inner>,
     pub(super) router: Box<dyn OpRouter>,
     pub(super) fetcher: Box<dyn Fetcher>,
+    /// `integration.request` for provider `github`, answered here
+    /// (`github_gateway.rs`). Unset, the call goes to the provider.
+    pub(super) github: OnceLock<Arc<super::github_gateway::GitHubGateway>>,
     pub(super) storage: Mutex<Option<Storage>>,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
@@ -462,6 +465,7 @@ impl Supervisor {
             config,
             router,
             fetcher,
+            github: OnceLock::new(),
             storage: Mutex::new(None),
             timers: Timers::default(),
             me: me.clone(),
