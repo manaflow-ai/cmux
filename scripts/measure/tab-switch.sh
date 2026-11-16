@@ -17,10 +17,20 @@
 #    build=head     an app built at this checkout
 #    dmg=https://   one DMG instead of the feed
 #    rounds=N       switches per scenario and load (1 to 20, default 5)
-#    load=LIST      idle,cpu,agents (default all)
-#    scenarios=LIST chat-long-return,terminal-return,chromium-return,new-tab,close-tab (default all)
+#    load=LIST      idle,cpu,agents (default), or the instant-at-any-load modes L0 (idle), L1 (the focused chat
+#                   streams 60 chunks/s and 2,000 tool-output lines/s), L2 (10 other chats streaming, 3 in a split
+#                   pane), L3 (the focused chat is a 100k-row chat, streaming), L4 (every core pinned), L5 (all of
+#                   them plus STRESS: 60 workspaces, 20 printing terminals; run last); also cpu-max, agents-N,
+#                   chat-100k, tabs-N, and any of them joined with + (L4+tabs-40)
+#    scenarios=LIST chat-long-return,terminal-return,chromium-return,new-tab,close-tab (default), or all: also
+#                   webkit-return, new-workspace, switch-workspace, close-workspace, rapid-open-5, rapid-close-3,
+#                   open-while-close
+#    record=S       seconds recorded after each action (default 1.2); settled needs 300 ms still inside it
+#    rows=N         rows of the 100k-row chat (default 100000)
 #    turns=N        answered turns in the long chat (default 200); agents=N streaming chats (default 4)
 #    gate=0         exit 0 once the report is written, budgets or not (an artifact comes back only from a passing step)
+#    Every action also gets settled_ms (the window still for 300 ms) and an oddity log (tab_switch_settle.py),
+#    printed as TSW-ODD lines, with a summary table (TSW-TABLE, table.md).
 #    Writes .build/tab-switch/report.json (schema tab-switch/v1), contact sheets of failing switches in
 #    .build/tab-switch/sheets/, and both in .build/tab-switch/report.tgz. Prints TSW and TSW-FAIL lines.
 #    Exit: 0 every budget held (or gate=0), 1 a budget failed, 3 could not measure.
@@ -60,6 +70,7 @@ prepare_build() {
 
 frames_main() {
   local build=nightly rounds=5 load=idle,cpu,agents scenarios="" gate=1 turns=200 agents=4 dmg="" config=release arg
+  local record="" rows=""
   for arg in "$@"; do
     case "$arg" in
       build=*) build="${arg#build=}" ;;
@@ -71,11 +82,16 @@ frames_main() {
       agents=*) agents="${arg#agents=}" ;;
       dmg=https://*) dmg="${arg#dmg=}" ;;
       config=release|config=bench) config="${arg#config=}" ;;
+      record=*) record="${arg#record=}" ;;
+      rows=*) rows="${arg#rows=}" ;;
       *) echo "tab-switch: unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$rounds" =~ ^([1-9]|1[0-9]|20)$ ]] || { echo "tab-switch: rounds= takes 1 to 20" >&2; exit 2; }
   [[ "$turns" =~ ^[0-9]+$ && "$agents" =~ ^[0-9]+$ ]] || { echo "tab-switch: turns= and agents= take numbers" >&2; exit 2; }
+  [[ -z "$record" || "$record" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "tab-switch: record= takes seconds" >&2; exit 2; }
+  [[ -z "$rows" || "$rows" =~ ^[0-9]+$ ]] || { echo "tab-switch: rows= takes a number" >&2; exit 2; }
+  [[ "$load" =~ ^[A-Za-z0-9+,-]+$ && "$scenarios" =~ ^[a-z0-9,-]*$ ]] || { echo "tab-switch: load= and scenarios= take names" >&2; exit 2; }
   [[ "$build" == nightly || "$build" == head || "$build" =~ ^[0-9a-f]{40}$ ]] || { echo "tab-switch: build= is nightly, head or a 40-hex commit" >&2; exit 2; }
   local root="$PWD" out="$PWD/.build/tab-switch" tmp
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
@@ -130,6 +146,8 @@ frames_main() {
   [[ "$gate" == 0 ]] && gate_args=(--no-gate)
   local scenario_args=()
   [[ -n "$scenarios" ]] && scenario_args=(--scenarios "$scenarios")
+  [[ -n "$record" ]] && scenario_args+=(--record "$record")
+  [[ -n "$rows" ]] && scenario_args+=(--chat-rows "$rows")
   local rc=0
   set +e
   GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/bench_tab_switch.py" \
@@ -145,7 +163,7 @@ frames_main() {
   exit "$rc"
 }
 
-if [[ "${1:-}" =~ ^(build|rounds|load|scenarios|gate|turns|agents|dmg|config)= ]]; then
+if [[ "${1:-}" =~ ^(build|rounds|load|scenarios|gate|turns|agents|dmg|config|record|rows)= ]]; then
   frames_main "$@"
 fi
 

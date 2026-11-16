@@ -151,6 +151,102 @@ class SettleBlock(unittest.TestCase):
         return hh
 
 
+class LoadNames(unittest.TestCase):
+    """The load modes fable-instant-at-any-load set (L0..L5), the older names, and combinations."""
+
+    def test_modes(self):
+        self.assertEqual(tsf.parse_load("L0"), {})
+        self.assertEqual(tsf.parse_load("L1"), {"live": (60, 2000)})
+        self.assertEqual(tsf.parse_load("L2")["bg_chats"], 10)
+        self.assertTrue(tsf.parse_load("L3")["chat100k"])
+        self.assertEqual(tsf.parse_load("L4"), tsf.parse_load("cpu-max"))
+        l5 = tsf.parse_load("L5")
+        for key in ("live", "bg_chats", "chat100k", "cpu", "stress"):
+            self.assertIn(key, l5)
+
+    def test_numbered_and_combined(self):
+        self.assertEqual(tsf.parse_load("agents-12"), {"bg_chats": 12})
+        self.assertEqual(tsf.parse_load("cpu-max+tabs-40+chat-100k"), {"cpu": True, "tabs": 40, "chat100k": True})
+        self.assertEqual(tsf.parse_load("L1+L3")["live"], (60, 2000))
+        for bad in ("L6", "agents-0", "tabs-", "gpu"):
+            with self.assertRaises(ValueError):
+                tsf.parse_load(bad)
+
+    def test_stress_loads_run_last(self):
+        self.assertEqual(tsf.order_loads(["L5", "L0", "L4+tabs-40", "L1"]), ["L0", "L4+tabs-40", "L1", "L5"])
+
+
+class TargetedActions(unittest.TestCase):
+    def test_target_rides_beside_the_args(self):
+        app = FakeApp()
+        self.addCleanup(app.close)
+        tsf.Control(app.path).action("closeTab", focus=False, target="tab:t1")
+        sent = app.requests[-1]["params"]
+        self.assertEqual((sent["target"], sent["args"]), ("tab:t1", {}))
+
+    def test_confirmation_required_runs_once_more_with_confirm(self):
+        control = tsf.Control("/nonexistent")
+        calls = []
+
+        def call(method, params=None, timeout=30):
+            calls.append(params)
+            return {"error": {"code": "confirmation_required"}} if len(calls) == 1 else {}
+        control.call = call
+        self.assertEqual(control.action("closeWorkspace", target="workspace:w1"), {})
+        self.assertEqual([c["args"] for c in calls], [{}, {"confirm": True}])
+        self.assertEqual(calls[1]["target"], "workspace:w1")
+
+
+class SettledAndOddities(unittest.TestCase):
+    """settle_block adds settled_ms and the oddity log (each with its sheet) to every judged action."""
+
+    def test_a_new_workspace_that_keeps_moving_after_its_content(self):
+        import random
+        w, h = 32, 32
+
+        def tex(seed):
+            rng = random.Random(seed)
+            return bytes(rng.randrange(256) for _ in range(w * h))
+        old, new = tex(1), tex(2)
+
+        def sidebar(frame, value):
+            out = bytearray(frame)
+            for y in range(16):
+                out[y * w:y * w + 16] = bytes([value]) * 16
+            return bytes(out)
+        frames = [(0.0, old), (1.010, sidebar(new, 10)), (1.050, sidebar(new, 90)), (1.120, sidebar(new, 200))]
+        flips = {"n:leave": 0.999, "n:mark": 1.0, "n:end": 2.0}
+        hh = SettleBlock().harness(w, h)
+        hh.content = (16, 0, w, h)
+        judged = hh.settle_block([{"label": "n", "kind": "settled", "strip": "sidebar"}], frames, flips)
+        (_item, s), = judged
+        self.assertEqual(s["to_content_ms"], 10.0)
+        self.assertEqual(s["settled_ms"], 120.0)
+        self.assertEqual(s["changed_after_first"], 2)
+        kinds = {o["kind"]: o for o in s["oddities"]}
+        self.assertIn("layout-after-content", kinds)
+        self.assertTrue(os.path.exists(os.path.join(hh.args.out, kinds["layout-after-content"]["sheet"])))
+        self.assertEqual(kinds["layout-after-content"]["ms"], 120.0)
+
+    def test_an_at_item_is_judged_against_its_ref_flip_frame(self):
+        import random
+        w, h = 20, 10
+
+        def tex(seed):
+            rng = random.Random(seed)
+            return bytes(rng.randrange(256) for _ in range(w * h))
+        a, b = tex(1), tex(2)
+        frames = [(0.0, a), (1.5, b), (2.008, a)]
+        flips = {"n:leave": 0.9, "n:mark": 1.0, "n:end": 1.8, "s:leave": 1.9, "s:mark": 2.0, "s:end": 3.0}
+        hh = SettleBlock().harness(w, h)
+        judged = hh.settle_block([{"label": "s", "kind": "at", "ref_flip": "n:leave"}], frames, flips)
+        (_item, s), = judged
+        self.assertEqual(s["to_content_ms"], 8.0)
+        self.assertTrue(s["end_matches_reference"])
+        self.assertEqual(s["settled_ms"], 8.0)
+        self.assertEqual(s["oddities"], [])
+
+
 class SetupFaultRows(unittest.TestCase):
     def harness(self):
         args = types.SimpleNamespace(out=tempfile.mkdtemp(prefix="tsw-out-"))

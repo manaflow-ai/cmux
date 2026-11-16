@@ -22,13 +22,27 @@ Scenarios (--scenarios), each --rounds times under each load (--loads):
   chromium-return    the Chromium page shown, switch to the terminal and back
   new-tab            a new terminal tab from the terminal (newSurface): the settled frame, the strip's insert and end
   close-tab          close that new tab (closeTab): judged against the neighbor's last frame, the strip too
-Loads:
-  idle     nothing else runs
-  cpu      spinners on every core (as chat-open-bench.py's load)
-  agents   --agents chats on the app's acpmux, each streaming a word --stream-rate times a second, open in a
-           background workspace
-Per switch (tab_switch_judge.py): to_content_ms, blank_frames, wrong_frames, shift_px, insert_ok, anim_end_ok.
-Budgets: content within one display frame, 0 blank, 0 wrong, 0 px shift, insert and animation end right.
+With --scenarios all, also (Leo, 2026-11-16: "opening closing tabs and workspaces idk why we didn't measure settled
+states before but like / testing it under actual extreme load is the point and seeing what oddities arise is
+meaningful"):
+  webkit-return      a WebKit page shown, switch to the terminal and back
+  new-workspace      `workspace new` from the measured workspace: the settled frame, the sidebar's insert and end
+  switch-workspace   back to the measured workspace (against its last frame), then to the new one again
+  close-workspace    close the new workspace: against the measured workspace's last frame when it is the one shown
+  rapid-open-5       five new tabs as fast as the socket takes them (animations retarget mid-flight)
+  rapid-close-3      three of them closed as fast
+  open-while-close   a close, then a new tab while the close still animates
+Loads (--loads; parse_load, LOAD_PRESETS): idle and cpu and agents as before, and the instant-at-any-load modes:
+  L0 idle; L1 the focused chat streams 60 chunks/s and a 2,000 lines/s tool output; L2 10 other chats streaming at
+  30 chunks/s (3 as tabs of a pane split beside the measured one, the rest in background workspaces); L3 the focused
+  chat is a 100k-row chat, streaming; L4 every core pinned; L5 all of them plus STRESS (perf-stress-session.py: 60
+  workspaces, 20 printing terminals). Also cpu-max, agents-N, chat-100k, tabs-N, joined with + to combine.
+Per switch (tab_switch_judge.py): to_content_ms, blank_frames, wrong_frames, shift_px, insert_ok, anim_end_ok; and
+(tab_switch_settle.py) first_change_ms, settled_ms (the window still for 300 ms), changed_after_first and the
+oddity log (placement, retarget, flicker, blank, layout-after-content, shift, late-change, never-settled), each oddity
+with its frame and a contact-sheet crop, printed as TSW-ODD lines; the summary table as TSW-TABLE lines and table.md.
+Budgets: content within one display frame, 0 blank, 0 wrong, 0 px shift, insert and animation end right. Settled
+time and oddities are reported, never gated.
 
 Writes OUT/report.json (schema tab-switch/v1) and, for every failing switch, a contact sheet OUT/sheets/*.png (the
 frame before the switch, the frames after it, the expected end frame last). Exit 0 when every budget holds, 1 when
@@ -58,6 +72,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import tab_switch_capture as capture  # noqa: E402
 import tab_switch_judge as judge  # noqa: E402
+import tab_switch_settle as settle  # noqa: E402
 
 
 def mac_helpers():
@@ -120,14 +135,23 @@ class Control:
             return {"error": answer["error"]}
         return answer.get("result") if answer.get("result") is not None else {}
 
-    def action(self, action_id, /, focus=True, **args):
+    def action(self, action_id, /, focus=True, target=None, **args):
         """`action.run` of `action_id` with `args` (positional-only, so an action's own `name` or `action` argument
-        is one of its args, as agent.harness.add's `name`)."""
+        is one of its args, as agent.harness.add's `name`), aimed at `target` ("tab:ID", "pane:ID", "workspace:ID")
+        when given. A destructive action the app refuses with confirmation_required runs once more with confirm."""
         params = {"action": action_id, "args": args, "wait": True, "origin": "script",
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
         if focus:
             params["focus"] = True
-        return self.call("action.run", params, timeout=60)
+        if target:
+            params["target"] = target
+        reply = self.call("action.run", params, timeout=60)
+        if not isinstance(reply, dict):
+            reply = {"result": reply}
+        if "confirmation_required" in json.dumps(reply.get("error") or "") and not args.get("confirm"):
+            params = dict(params, args=dict(args, confirm=True), idempotency_key=f"mutation_{uuid.uuid4().hex}")
+            reply = self.call("action.run", params, timeout=60)
+        return reply
 
     def topology(self):
         snap = self.call("snapshot.get", timeout=15)
@@ -221,6 +245,55 @@ class CpuLoad:
         self.children = []
 
 
+# The load modes fable-instant-at-any-load set for every "instant at any load" bench (the typing-under-load bench uses
+# the same names), and the older names. Each is a spec of parts; parse_load joins names with "+".
+#   live        the focused chat streams (chunks a second, tool-output lines a second)
+#   bg_chats    other chats streaming at bg_rate (True: --agents of them at --stream-rate), `split` of them as tabs of a
+#               pane split right of the measured one (one shown, the rest hidden), the rest in background workspaces
+#   chat100k    the focused chat is a 100k-row chat (chat-100k-flat.bench.ts's size, seeded through acpmux)
+#   cpu         every core pinned by busy processes outside the app
+#   tabs        the measured pane holds this many tabs
+#   stress      the STRESS background (perf-stress-session.py): 60 workspaces, 20 printing terminals
+LOAD_PRESETS = {
+    "L0": {}, "idle": {},
+    "L1": {"live": (60, 2000)},
+    "L2": {"bg_chats": 10, "bg_rate": 30, "split": 3},
+    "L3": {"chat100k": True, "live": (60, 0)},
+    "L4": {"cpu": True}, "cpu": {"cpu": True}, "cpu-max": {"cpu": True},
+    "L5": {"live": (60, 2000), "bg_chats": 10, "bg_rate": 30, "split": 3, "chat100k": True, "cpu": True,
+           "stress": True},
+    "agents": {"bg_chats": True}, "chat-100k": {"chat100k": True},
+}
+
+
+def parse_load(name):
+    """The spec of a load name: a preset, agents-N, tabs-N, or several joined with "+" (L4+tabs-40). Raises
+    ValueError on an unknown name."""
+    spec = {}
+    for part in name.split("+"):
+        if part in LOAD_PRESETS:
+            add = dict(LOAD_PRESETS[part])
+        elif re.fullmatch(r"agents-([1-9][0-9]?)", part):
+            add = {"bg_chats": int(part[7:])}
+        elif re.fullmatch(r"tabs-([1-9][0-9]{0,2})", part):
+            add = {"tabs": int(part[5:])}
+        else:
+            raise ValueError(f"unknown load {part!r} (L0..L5, idle, cpu, cpu-max, agents, agents-N, chat-100k, tabs-N)")
+        for key, value in add.items():
+            if key == "live" and "live" in spec:
+                spec["live"] = tuple(max(a, b) for a, b in zip(spec["live"], value))
+            elif key in ("bg_chats", "tabs", "split", "bg_rate") and key in spec and spec[key] is not True and value is not True:
+                spec[key] = max(spec[key], value)
+            else:
+                spec[key] = value
+    return spec
+
+
+def order_loads(loads):
+    """`loads` in the order asked, those that build STRESS last (it is never taken down)."""
+    return [x for x in loads if not parse_load(x).get("stress")] + [x for x in loads if parse_load(x).get("stress")]
+
+
 def new_session_argvs(help_text):
     """The acpmux argv prefixes that create a session, best first, from `acpmux --help`: `new` (feat-cmux-next since
     acpmux dropped `acp new`; the NIGHTLY of 2026-11-16 answered "unrecognized subcommand 'acp'"), then `acp new` for an
@@ -307,18 +380,50 @@ class Agents:
         return session, round(time.monotonic() - started, 1)
 
     def stream_chats(self, count):
-        sessions = [self.new(STREAM_AGENT[0], f"hello {i}") for i in range(count)]
-        for session in sessions:
+        self.ensure_background(count)
+        return self.background[:count]
+
+    def make_stream_sessions(self, count):
+        return [self.new(STREAM_AGENT[0], f"hello {i}") for i in range(count)]
+
+    def ensure_background(self, count):
+        """At least `count` stream chats, each open in a background workspace."""
+        self.background = getattr(self, "background", [])
+        for session in self.make_stream_sessions(max(0, count - len(self.background))):
             self.app.control.action("agent.openSessionWorkspace", focus=False, session=session)
-        return sessions
+            self.background.append(session)
+
+    def hundred_k_chat(self, rows):
+        """A chat of `rows` transcript rows (chat_open_agent.py `rows:`, 10,000 a turn), made once."""
+        if getattr(self, "big", None):
+            return self.big
+        started = time.monotonic()
+        per = 10000
+        session = self.new(TURNS_AGENT[0], f"rows: {min(per, rows)}")
+        for _ in range(max(0, (rows - 1) // per)):
+            sent = subprocess.run([self.cli, "send", session, f"rows: {per}"], capture_output=True, text=True,
+                                  timeout=600, env=self.env)
+            if sent.returncode != 0:
+                raise Unmeasurable(f"send rows: {(sent.stdout + sent.stderr).strip()[-600:]}")
+        say(f"100k-row chat {session}: {rows} rows in {round(time.monotonic() - started, 1)} s")
+        self.big = session
+        return session
 
     def start(self, sessions, seconds, rate):
         for session in sessions:
             mac_helpers()[1].stream([self.cli], self.env, session, seconds, rate)
-        self.streaming = sessions
+        self.streaming = list(getattr(self, "streaming", [])) + list(sessions)
+
+    def live(self, session, seconds, chunks, lines):
+        """The focused chat streaming (chat_open_agent.py `live:`), without waiting for it."""
+        sent = subprocess.run([self.cli, "send", "--no-wait", session, f"live: {int(seconds)} {chunks} {lines}"],
+                              capture_output=True, text=True, timeout=60, env=self.env)
+        if sent.returncode != 0:
+            say(f"live {session}: {(sent.stdout + sent.stderr).strip()[:400]}")
+        self.streaming = list(getattr(self, "streaming", [])) + [session]
 
     def stop(self):
-        for session in self.streaming:
+        for session in getattr(self, "streaming", []):
             subprocess.run([self.cli, "cancel", session], capture_output=True, timeout=30, env=self.env)
         self.streaming = []
 
@@ -337,10 +442,22 @@ class Harness:
         self.c = app.control
         self.refs = {}
         self.index = {}
+        self.ids = {}  # tab name -> its tab id (tab.focus by id: a pane with more than nine tabs, the tabs-N load)
         self.chat_note = None  # why the chat scenario is unmeasured, when it is
+        self.sidebar = None
+        self.workspace_id = self.pane_id = None
+        self.load_tabs = []  # tabs a load added to the measured pane (closed when the load ends)
+        self.split_pane = None
 
+    def opt(self, name, default):
+        return getattr(self.args, name, default)
 
     def select(self, name):
+        tab = self.ids.get(name)
+        if tab:
+            reply = self.c.action("tab.focus", target=f"tab:{tab}")
+            if not reply.get("error"):
+                return reply
         return self.c.action("selectSurfaceByNumber", index=self.index[name])
 
     @staticmethod
@@ -358,18 +475,49 @@ class Harness:
     def wait_tabs(self, count, limit=60):
         deadline = time.monotonic() + limit
         while time.monotonic() < deadline:
-            tabs, _ = self.c.focused_tabs()
-            if len(tabs) >= count:
+            tabs, _ = self.pane_tabs()
+            if len(tabs) >= count and not any(str(t.get("id", "")).startswith("pending_tab_") for t in tabs):
                 return tabs
             time.sleep(0.2)  # test script: waiting for the tab
         raise Unmeasurable(f"the pane never had {count} tabs")
 
+    def pane_tabs(self):
+        """The measured pane's tabs and the pane (the focused pane's until the pane is known)."""
+        if not self.pane_id:
+            return self.c.focused_tabs()
+        for workspace in self.c.topology().get("workspaces") or []:
+            for screen in workspace.get("screens") or []:
+                for pane in screen.get("panes") or []:
+                    if pane.get("id") == self.pane_id:
+                        return pane.get("tabs") or [], pane
+        return [], None
+
+    def workspace_ids(self):
+        return [w.get("id") for w in self.c.topology().get("workspaces") or [] if w.get("id")]
+
+    def focused_workspace(self):
+        topology = self.c.topology()
+        focus = topology.get("focus") or {}
+        if focus.get("workspace"):
+            return focus["workspace"]
+        pane_id = focus.get("pane")
+        for workspace in topology.get("workspaces") or []:
+            for screen in workspace.get("screens") or []:
+                if any(p.get("id") == pane_id for p in screen.get("panes") or []):
+                    return workspace.get("id")
+        return None
+
     def build(self, chat_session):
+        before = set(self.workspace_ids())
         reply = self.c.action("workspace new")
         if reply.get("error"):
             raise Unmeasurable(f"workspace new: {reply['error']}")
         self.wait_tabs(1)
         time.sleep(1.5)  # test script: the terminal attaches
+        made = [w for w in self.workspace_ids() if w not in before]
+        self.workspace_id = made[0] if made else self.focused_workspace()
+        _tabs, pane = self.c.focused_tabs()
+        self.pane_id = (pane or {}).get("id")
         # The chat is optional: without it the terminal and page scenarios still run, the chat's reported unmeasured.
         order = ["terminal"]
         if chat_session:
@@ -387,13 +535,26 @@ class Harness:
         if reply.get("error"):
             raise Unmeasurable(f"openBrowser.chromium: {reply['error']}")
         order.append("chromium")
+        self.wait_tabs(len(order))
+        if self.opt("webkit", False):
+            reply = self.c.action("openBrowser.webkit", url="file://" + page)
+            if not reply.get("error"):
+                order.append("webkit")
+                self.wait_tabs(len(order))
+            else:
+                self.webkit_note = f"openBrowser.webkit: {reply['error']}"
         tabs = self.wait_tabs(len(order))
         self.tabs_at_build = tabs
         if len(tabs) != len(order):
             raise Unmeasurable(f"the workspace's pane has {len(tabs)} tabs, want {len(order)} ({', '.join(order)}): {json.dumps(tabs)[:600]}")
         self.index = {name: i + 1 for i, name in enumerate(order)}
+        self.ids = {name: tabs[i].get("id") for i, name in enumerate(order)}
         time.sleep(2)  # test script: the page loads
-        # Each tab's picture, from one recorded block: a flip once the tab settled marks the frame that shows it.
+        self.calibrate()
+
+    def calibrate(self):
+        """Each tab's picture, from one recorded block (a flip once the tab settled marks the frame that shows it), and
+        from them the content, strip and sidebar rects. Again after a load changes the measured pane's size."""
         self.rec.begin()
         for name in self.index:
             self.select(name)
@@ -409,7 +570,10 @@ class Harness:
             raise Unmeasurable("the capture shows no difference between a terminal and a Chromium page (no page pixels: "
                                "Screen Recording grant?)")
         self.strip = judge.strip_rect(self.content, self.rec.scale, self.rec.h)
+        self.sidebar = judge.sidebar_rect(self.content, self.rec.scale, self.rec.h)
         self.refs = {"terminal": terminal, "chromium": page_frame}
+        if "webkit" in shown:
+            self.refs["webkit"] = shown["webkit"]
         if "chat" in self.index:
             chat = shown["chat"]
             cterm, cchat = (judge.crop(f, self.rec.w, self.content) for f in (terminal, chat))
@@ -425,6 +589,8 @@ class Harness:
             return None
         for window in chrome.get("windows") or []:
             for pane in window.get("panes") or []:
+                if self.pane_id and pane.get("id") not in (None, self.pane_id):
+                    continue
                 border = pane.get("border")
                 if isinstance(border, dict) and border.get("width"):
                     s = self.rec.scale
@@ -433,27 +599,181 @@ class Harness:
                             min(self.rec.h, int((border["y"] + border["height"]) * s)))
         return None
 
+    # -- loads -------------------------------------------------------------------------------------------------
+
+    def enter_load(self, spec, agents, cpu):
+        """Starts what `spec` (parse_load) asks; returns notes on the parts that could not start (the rest runs)."""
+        notes = []
+        seconds = self.load_seconds
+        if spec.get("stress") and not getattr(self, "stress_built", False):
+            try:
+                self.stress_built = True
+                build_stress(self.c, self.workspace_id, self.opt("stress_workspaces", 60),
+                             self.opt("stress_terminals", 20))
+            except Exception as error:  # noqa: BLE001 - the load runs with what was built
+                notes.append(f"stress: {type(error).__name__}: {error}"[:300])
+            self.c.action("goToWorkspace", workspace=self.workspace_id)
+            time.sleep(2)  # test script: the measured workspace shows again
+        if spec.get("chat100k"):
+            try:
+                session = agents.hundred_k_chat(self.opt("chat_rows", 100000))
+                reply = self.c.action("agent.openSessionTab", session=session, target=f"pane:{self.pane_id}")
+                if reply.get("error"):
+                    raise Unmeasurable(f"agent.openSessionTab: {reply['error']}")
+                tabs = self.wait_tabs(len(self.index) + len(self.load_tabs) + 1)
+                known = set(self.ids.values()) | set(self.load_tabs)
+                new = [t.get("id") for t in tabs if t.get("id") not in known]
+                if not new:
+                    raise Unmeasurable("the 100k-row chat's tab never showed in the measured pane")
+                self.load_tabs.append(new[0])
+                self.saved_chat = (self.ids.get("chat"), self.refs.get("chat"))
+                self.ids["chat"] = new[0]
+                self.index.setdefault("chat", len(self.index) + 1)
+                self.chat_session = session
+                self.select("chat")
+                time.sleep(6)  # test script: the 100k-row transcript opens
+                self.rec.begin()
+                self.rec.flip("ref-chat100k")
+                time.sleep(0.3)
+                frames, flips = self.rec.end()
+                self.refs["chat"] = self.at(frames, flips["ref-chat100k"])
+            except Exception as error:  # noqa: BLE001
+                notes.append(f"chat-100k: {type(error).__name__}: {error}"[:300])
+        if spec.get("live"):
+            chunks, lines = spec["live"]
+            session = getattr(self, "chat_session", None) or getattr(self, "long_session", None)
+            if session and agents:
+                agents.live(session, seconds, chunks, lines)
+            else:
+                notes.append("live: no focused chat to stream")
+        if spec.get("bg_chats"):
+            count = spec["bg_chats"] if spec["bg_chats"] is not True else self.opt("agents", 4)
+            try:
+                split = spec.get("split", 0)
+                if split:
+                    self.open_split_chats(agents, split)
+                agents.ensure_background(count - split if split else count)
+                agents.start(agents.background[:count - (split or 0)] + (self.split_sessions if split else []),
+                             seconds=seconds, rate=spec.get("bg_rate") or self.opt("stream_rate", 30))
+            except Exception as error:  # noqa: BLE001
+                notes.append(f"background chats: {type(error).__name__}: {error}"[:300])
+        if spec.get("tabs"):
+            try:
+                self.fill_tabs(spec["tabs"])
+            except Exception as error:  # noqa: BLE001
+                notes.append(f"tabs: {type(error).__name__}: {error}"[:300])
+        if spec.get("cpu"):
+            cpu.start()
+        self.select("terminal")
+        time.sleep(self.opt("load_settle", 5.0))
+        return notes
+
+    def exit_load(self, spec, agents, cpu):
+        if spec.get("cpu"):
+            cpu.stop()
+        if agents is not None:
+            agents.stop()
+        for tab in reversed(self.load_tabs):
+            self.c.action("closeTab", focus=False, target=f"tab:{tab}")
+        self.load_tabs = []
+        if getattr(self, "saved_chat", None):
+            chat_id, chat_ref = self.saved_chat
+            if chat_id:
+                self.ids["chat"] = chat_id
+                if chat_ref is not None:
+                    self.refs["chat"] = chat_ref
+            else:
+                self.ids.pop("chat", None)
+                self.index.pop("chat", None)
+                self.refs.pop("chat", None)
+            self.saved_chat = None
+            self.chat_session = None
+        if self.split_pane:
+            for tab in getattr(self, "split_tabs", []):
+                self.c.action("closeTab", focus=False, target=f"tab:{tab}")
+            self.split_pane, self.split_tabs = None, []
+            time.sleep(1)  # test script: the pane closes
+            self.select("terminal")
+            self.calibrate()
+        time.sleep(1)  # test script: the load's tabs close
+
+    def open_split_chats(self, agents, count):
+        """`count` streaming chats as tabs of a new pane right of the measured one (one shown, the rest hidden tabs);
+        the content rect is measured again."""
+        sessions = agents.make_stream_sessions(count)
+        before = {p for p in self.all_panes()}
+        reply = self.c.action("splitRight", target=f"pane:{self.pane_id}")
+        if reply.get("error"):
+            raise Unmeasurable(f"splitRight: {reply['error']}")
+        deadline = time.monotonic() + 15
+        made = None
+        while time.monotonic() < deadline and not made:
+            made = next((p for p in self.all_panes() if p not in before), None)
+            time.sleep(0.2)  # test script: waiting for the pane
+        if not made:
+            raise Unmeasurable("splitRight made no pane")
+        self.split_pane, self.split_tabs, self.split_sessions = made, [], sessions
+        for session in sessions:
+            self.c.action("agent.openSessionTab", focus=False, session=session, target=f"pane:{made}")
+        time.sleep(2)  # test script: the chats open
+        for workspace in self.c.topology().get("workspaces") or []:
+            for screen in workspace.get("screens") or []:
+                for pane in screen.get("panes") or []:
+                    if pane.get("id") == made:
+                        self.split_tabs = [t.get("id") for t in pane.get("tabs") or [] if t.get("id")]
+        self.select("terminal")
+        self.calibrate()
+
+    def all_panes(self):
+        return [p.get("id") for w in self.c.topology().get("workspaces") or [] for s in w.get("screens") or []
+                for p in s.get("panes") or []]
+
+    def fill_tabs(self, count):
+        """Terminal tabs added to the measured pane until it has `count` (closed when the load ends)."""
+        tabs, _ = self.pane_tabs()
+        anchor = self.ids.get("chromium")
+        for _ in range(max(0, count - len(tabs))):
+            known = {t.get("id") for t in tabs}
+            self.c.action("newSurface", focus=False, target=f"tab:{anchor}")
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                tabs, _ = self.pane_tabs()
+                new = [t.get("id") for t in tabs if t.get("id") not in known and not str(t.get("id")).startswith("pending_tab_")]
+                if new:
+                    self.load_tabs.append(new[0])
+                    break
+                time.sleep(0.1)  # test script: waiting for the tab
+        self.select("terminal")
+
     # -- scenarios ---------------------------------------------------------------------------------------------
 
     def judge(self, frames, mark, reference=None, strip=None):
         return judge.judge_switch(frames, mark, self.rec.w, self.content, self.rec.frame_ms, reference=reference,
                                   strip=strip, px_per_point=self.rec.scale, tolerance=self.args.tolerance)
 
+    def write_png(self, png, label):
+        folder = os.path.join(self.args.out, "sheets")
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, re.sub(r"[^A-Za-z0-9._-]+", "-", label) + ".png")
+        with open(path, "wb") as handle:
+            handle.write(png)
+        return os.path.relpath(path, self.args.out)
+
     def keep_sheet(self, switch, frames, mark, label, reference=None):
         if not judge.budget_fails(switch, label):
             return
         png, tiles = judge.contact_sheet(frames, mark, self.rec.w, self.rec.h, reference=reference)
         if png:
-            folder = os.path.join(self.args.out, "sheets")
-            os.makedirs(folder, exist_ok=True)
-            path = os.path.join(folder, label.replace("/", "-").replace(" ", "-") + ".png")
-            with open(path, "wb") as handle:
-                handle.write(png)
-            switch["sheet"] = os.path.relpath(path, self.args.out)
+            switch["sheet"] = self.write_png(png, label)
             switch["sheet_tiles_ms"] = tiles
 
     # Drive, then judge: a scenario only selects tabs and flips the marker (`<label>:leave`, `:mark`, `:end`), and returns
     # what to judge; settle_block judges every pending switch once the block's recording is decoded.
+
+    def flip3(self, label):
+        """The leave and mark flips of an action that starts at once (no switch away first)."""
+        self.rec.flip(f"{label}:leave")
+        self.rec.flip(f"{label}:mark")
 
     def returning(self, shown, via, label):
         self.select(shown)
@@ -470,32 +790,126 @@ class Harness:
     def new_and_close(self, label_new, label_close):
         self.select("terminal")
         time.sleep(self.args.settle)
-        self.rec.flip(f"{label_new}:leave")
-        self.rec.flip(f"{label_new}:mark")
+        tabs0 = {t.get("id") for t in self.pane_tabs()[0]}
+        self.flip3(label_new)
         reply = self.c.action("newSurface")
         time.sleep(self.args.record + 0.3)
         self.rec.flip(f"{label_new}:end")
         new = {"label": label_new, "kind": "new", "error": f"newSurface: {reply['error']}" if reply.get("error") else None}
         if new["error"]:
             return new, None
+        made = [t.get("id") for t in self.pane_tabs()[0] if t.get("id") not in tabs0]
         time.sleep(0.5)
-        self.rec.flip(f"{label_close}:leave")
-        self.rec.flip(f"{label_close}:mark")
-        reply = self.c.action("closeTab")
+        self.flip3(label_close)
+        reply = self.c.action("closeTab", target=f"tab:{made[0]}") if made else self.c.action("closeTab")
         time.sleep(self.args.record + 0.3)
         self.rec.flip(f"{label_close}:end")
         close = {"label": label_close, "kind": "close", "error": f"closeTab: {reply['error']}" if reply.get("error") else None}
-        tabs, pane = self.c.focused_tabs()
-        selected = next((i + 1 for i, t in enumerate(tabs) if t.get("selected") or (pane and t.get("id") == pane.get("selected_tab"))), None)
-        close["neighbor"] = {i: name for name, i in self.index.items()}.get(selected)
-        if not close["error"] and len(tabs) != len(self.index):
-            close["error"] = f"the pane has {len(tabs)} tabs after the close, want {len(self.index)}"
+        tabs, pane = self.pane_tabs()
+        selected = next((t.get("id") for t in tabs if t.get("selected") or (pane and t.get("id") == pane.get("selected_tab"))), None)
+        close["neighbor"] = {i: name for name, i in self.ids.items()}.get(selected)
+        if not close["error"] and len(tabs) != len(tabs0):
+            close["error"] = f"the pane has {len(tabs)} tabs after the close, want {len(tabs0)}"
         return new, close
+
+    def workspace_round(self, load, r):
+        """new-workspace, switch-workspace (back, then to it again) and close-workspace; the items to judge, by name."""
+        out = []
+        self.select("terminal")
+        time.sleep(self.args.settle)
+        before = set(self.workspace_ids())
+        ws0 = self.workspace_id
+        label = f"new-workspace/{load} round {r}"
+        self.flip3(label)
+        reply = self.c.action("workspace new")
+        time.sleep(self.args.record + 0.3)
+        self.rec.flip(f"{label}:end")
+        new_ws = next((w for w in self.workspace_ids() if w not in before), None)
+        error = f"workspace new: {reply['error']}" if reply.get("error") else (None if new_ws else "no new workspace")
+        out.append(("new-workspace", {"label": label, "kind": "settled", "strip": "sidebar", "error": error}))
+        if not new_ws:
+            self.c.action("goToWorkspace", workspace=ws0)
+            return out
+        new_label = label
+        time.sleep(0.3)
+        back = f"switch-workspace/{load} round {r} back"
+        self.flip3(back)
+        reply = self.c.action("goToWorkspace", workspace=ws0)
+        time.sleep(self.args.record)
+        self.rec.flip(f"{back}:end")
+        out.append(("switch-workspace", {"label": back, "kind": "at", "ref_flip": f"{new_label}:leave", "strip": "sidebar",
+                                         "error": f"goToWorkspace: {reply['error']}" if reply.get("error") else None}))
+        time.sleep(0.3)
+        there = f"switch-workspace/{load} round {r} there"
+        self.flip3(there)
+        reply = self.c.action("goToWorkspace", workspace=new_ws)
+        time.sleep(self.args.record)
+        self.rec.flip(f"{there}:end")
+        out.append(("switch-workspace", {"label": there, "kind": "at", "ref_flip": f"{back}:leave", "strip": "sidebar",
+                                         "error": f"goToWorkspace: {reply['error']}" if reply.get("error") else None}))
+        time.sleep(0.3)
+        close = f"close-workspace/{load} round {r}"
+        self.flip3(close)
+        reply = self.c.action("closeWorkspace", confirm=True, target=f"workspace:{new_ws}")
+        time.sleep(self.args.record + 0.3)
+        self.rec.flip(f"{close}:end")
+        shown = self.focused_workspace()
+        item = {"label": close, "kind": "at" if shown == ws0 else "settled", "ref_flip": f"{there}:leave",
+                "strip": "sidebar", "error": f"closeWorkspace: {reply['error']}" if reply.get("error") else None,
+                "neighbor": "measured" if shown == ws0 else shown}
+        if new_ws in self.workspace_ids() and not item["error"]:
+            item["error"] = "the workspace is still there after closeWorkspace"
+        out.append(("close-workspace", item))
+        if shown != ws0:
+            self.c.action("goToWorkspace", workspace=ws0)
+            time.sleep(0.5)
+        return out
+
+    def rapid_round(self, load, r):
+        """rapid-open-5, rapid-close-3 and open-while-close in the measured pane; restores its tabs after."""
+        out = []
+        self.select("terminal")
+        time.sleep(self.args.settle)
+        tabs0 = [t.get("id") for t in self.pane_tabs()[0]]
+        label = f"rapid-open-5/{load} round {r}"
+        self.flip3(label)
+        errors = [self.c.action("newSurface").get("error") for _ in range(5)]
+        time.sleep(self.args.record + 0.5)
+        self.rec.flip(f"{label}:end")
+        made = [t.get("id") for t in self.pane_tabs()[0] if t.get("id") not in tabs0]
+        error = next((f"newSurface: {e}" for e in errors if e), None) or (
+            None if len(made) == 5 else f"{len(made)} new tabs, want 5")
+        out.append(("rapid-open-5", {"label": label, "kind": "settled", "strip": "tab", "error": error}))
+        if len(made) >= 4:
+            time.sleep(0.3)
+            label = f"rapid-close-3/{load} round {r}"
+            self.flip3(label)
+            closing = made[-3:][::-1]
+            errors = [self.c.action("closeTab", target=f"tab:{tab}").get("error") for tab in closing]
+            time.sleep(self.args.record + 0.5)
+            self.rec.flip(f"{label}:end")
+            out.append(("rapid-close-3", {"label": label, "kind": "settled", "strip": "tab",
+                                          "error": next((f"closeTab: {e}" for e in errors if e), None)}))
+            left = [t for t in made if t not in closing]
+            time.sleep(0.3)
+            label = f"open-while-close/{load} round {r}"
+            self.flip3(label)
+            e1 = self.c.action("closeTab", target=f"tab:{left[-1]}").get("error")
+            e2 = self.c.action("newSurface").get("error")
+            time.sleep(self.args.record + 0.5)
+            self.rec.flip(f"{label}:end")
+            out.append(("open-while-close", {"label": label, "kind": "settled", "strip": "tab",
+                                             "error": (f"closeTab: {e1}" if e1 else None) or (f"newSurface: {e2}" if e2 else None)}))
+        for tab in [t.get("id") for t in self.pane_tabs()[0] if t.get("id") not in tabs0]:
+            self.c.action("closeTab", focus=False, target=f"tab:{tab}")
+        time.sleep(0.8)  # test script: the extra tabs close
+        return out
 
     def settle_block(self, pending, frames, flips):
         """Each pending switch of a block, judged on the block's frames: the window from its leave flip to its end flip,
         the switch's mark at its mark flip. A return is judged against the shown tab's frame at its leave flip (its last
-        frame before it was left); a close against the neighbor's newest such frame; a new tab against its settled one."""
+        frame before it was left); a close against the neighbor's newest such frame; a new tab against its settled one;
+        "at" items against the frame at their ref_flip. Then its settled time and oddities (tab_switch_settle.py)."""
         judged = []
         for item in pending:
             label = item["label"]
@@ -504,20 +918,49 @@ class Harness:
                 continue
             leave, mark, end = (flips[f"{label}:{k}"] for k in ("leave", "mark", "end"))
             window = self.between(frames, leave, end)
-            if item["kind"] == "return":
+            kind = item["kind"]
+            strip = self.strip if kind in ("new", "close") or item.get("strip") == "tab" else None
+            if kind == "return":
                 reference = self.at(frames, leave)
                 self.refs[item["shown"]] = reference
-                switch = self.judge(window, mark, reference=reference)
-            elif item["kind"] == "new":
+            elif kind == "new" or kind == "settled":
                 reference = None
-                switch = self.judge(window, mark, strip=self.strip)
+            elif kind == "at":
+                reference = self.at(frames, flips[item["ref_flip"]]) if item.get("ref_flip") in flips else None
             else:
                 reference = self.refs.get(item.get("neighbor"))
-                switch = self.judge(window, mark, reference=reference, strip=self.strip)
+            switch = self.judge(window, mark, reference=reference, strip=strip)
+            if kind == "close":
                 switch["neighbor"] = item.get("neighbor")
+            if item.get("strip") == "sidebar" and getattr(self, "sidebar", None):
+                side = judge.judge_strip(window, mark, self.rec.w, self.sidebar, self.rec.frame_ms, self.rec.scale,
+                                         self.args.tolerance, tab_points=40, axis="y")
+                switch.update({"sidebar_" + k: v for k, v in side.items()})
+            self.add_settle(switch, frames, window, leave, mark, end, reference, label)
             self.keep_sheet(switch, window, mark, label, reference)
             judged.append((item, switch))
         return judged
+
+    def add_settle(self, switch, frames, window, leave, mark, end, reference, label):
+        """settled_ms and the oddity list of one action, each oddity with its contact-sheet crop."""
+        w, h, fm = self.rec.w, self.rec.h, self.rec.frame_ms
+        a = settle.AMBIENT_S
+        pre = self.between(frames, min(leave, mark) - a - 0.05, end)
+        amb = settle.ambient(pre, w, h, [(leave - a, leave), (mark - a, mark)])
+        st = settle.settle(window, mark, w, h, fm, end=end, ambient_tiles=amb)
+        flicker = settle.flicker_frame(window, mark, w, self.content, self.args.tolerance)
+        odd = settle.oddities(switch, st, flicker, fm)
+        after = [f for f in window if f[0] > mark]
+        for o in odd:
+            if o.get("frame") is not None and 0 <= o["frame"] < len(after):
+                o["ms"] = round((after[o["frame"]][0] - mark) * 1000, 1)
+            png, tiles = settle.oddity_sheet(window, mark, w, h, o.get("frame"), reference)
+            if png:
+                o["sheet"] = self.write_png(png, f"odd {label} {o['kind']}")
+                o["sheet_tiles_ms"] = tiles
+        switch.update({k: v for k, v in st.items() if k != "change_frames"})
+        switch["change_frames"] = st.get("change_frames", [])[:20]
+        switch["oddities"] = odd
 
     def run(self, loads, rounds, scenarios, agents, sessions, load_notes=None):
         """The scenario rows. A load in `load_notes` (its setup failed) and the chat scenario without a measurable chat
@@ -528,24 +971,32 @@ class Harness:
             scenarios = [s for s in scenarios if s != "chat-long-return"]
             for load in loads:
                 notes[("chat-long-return", load)] = self.chat_note or "no chat"
+        if "webkit-return" in scenarios and "webkit" not in self.refs:
+            scenarios = [s for s in scenarios if s != "webkit-return"]
+            for load in loads:
+                notes[("webkit-return", load)] = getattr(self, "webkit_note", None) or "no WebKit page"
         for load in [x for x in loads if x in load_notes]:
             for name in scenarios:
                 notes[(name, load)] = load_notes[load]
+        self.load_seconds = rounds * 90 + 180
+        cpu = None
         for load in [x for x in loads if x not in load_notes]:
             say(f"load {load}")
-            if load == "cpu":
-                agents_cpu = CpuLoad(self.root)
-                agents_cpu.start()
-            elif load == "agents":
-                agents.start(sessions, seconds=rounds * 40 + 120, rate=self.args.stream_rate)
-            time.sleep(self.args.load_settle if load != "idle" else 0)
+            spec = parse_load(load)
+            if spec.get("cpu") and cpu is None:
+                cpu = CpuLoad(self.root)
             pending = []  # (scenario name, what to judge), in the order driven
+            setup = []
             try:
+                setup = self.enter_load(spec, agents, cpu)
+                for note in setup:
+                    say(f"  {load}: {note}")
                 self.rec.begin()
                 for r in range(1, rounds + 1):
                     for name, (shown, via) in (("chat-long-return", ("chat", "terminal")),
                                                ("terminal-return", ("terminal", "chromium")),
-                                               ("chromium-return", ("chromium", "terminal"))):
+                                               ("chromium-return", ("chromium", "terminal")),
+                                               ("webkit-return", ("webkit", "terminal"))):
                         if name in scenarios:
                             pending.append((name, self.returning(shown, via, f"{name}/{load} round {r}")))
                     if "new-tab" in scenarios or "close-tab" in scenarios:
@@ -553,24 +1004,55 @@ class Harness:
                         pending.append(("new-tab", new))
                         if close is not None:
                             pending.append(("close-tab", close))
+                    if any(s in scenarios for s in ("new-workspace", "switch-workspace", "close-workspace")):
+                        pending += self.workspace_round(load, r)
+                    if any(s in scenarios for s in ("rapid-open-5", "rapid-close-3", "open-while-close")):
+                        pending += self.rapid_round(load, r)
                     say(f"  round {r} driven")
-            finally:
-                if load == "cpu":
-                    agents_cpu.stop()
-                elif load == "agents":
-                    agents.stop()
-            try:
                 frames, flips = self.rec.end()
             except Exception as error:  # noqa: BLE001 - this load's rows say why; the next load still records
-                for name, _item in pending:
-                    notes.setdefault((name, load), f"recording: {type(error).__name__}: {error}"[:600])
+                for name, _item in pending or [(s, None) for s in scenarios]:
+                    notes.setdefault((name, load), f"{type(error).__name__}: {error}"[:600])
+                try:
+                    self.rec.end()  # a block a driving fault left open
+                except Exception:  # noqa: BLE001 - it was already closed
+                    pass
+                frames = None
+            finally:
+                # After the block's recording: ending a load can recalibrate, which records a block of its own.
+                self.exit_load(spec, agents, cpu)
+            if frames is None:
                 continue
             for (name, _), (_item, switch) in zip(pending, self.settle_block([p for _, p in pending], frames, flips)):
                 if name in scenarios:
+                    if setup:
+                        switch["load_setup"] = setup
                     rows.setdefault((name, load), []).append(switch)
             say(f"load {load}: {len(pending)} switches judged on {len(frames)} frames")
         out = [judge.scenario_row(name, load, switches) for (name, load), switches in rows.items()]
         return out + [judge.scenario_row(name, load, [], notes=note) for (name, load), note in notes.items()]
+
+
+def build_stress(control, measured, workspaces, terminals):
+    """The STRESS background of L5 through the shared builder (scripts/cmux-next/perf-stress-session.py, as
+    typing-frame-bench.py --stress): `workspaces` - 1 more workspaces (the first ten with Chromium pages) and
+    `terminals` of them printing output. The measured workspace stays as built."""
+    path = os.path.join(HERE, "perf-stress-session.py")
+    spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    stress = module.Stress(control.call, log=say)
+    made = stress.build_background(count=max(0, workspaces - 1))
+    busy = 0
+    for workspace in made:
+        if busy >= terminals:
+            break
+        tab = stress.first_terminal(workspace)
+        if tab:
+            stress.make_busy(tab)
+            busy += 1
+    say(f"stress: {len(made)} more workspaces, {busy} printing terminals")
+    return made
 
 
 def main(argv=None):
@@ -582,15 +1064,21 @@ def main(argv=None):
     parser.add_argument("--tolerance", type=float, default=0.01,
                         help="share of the content area that may differ for two decoded video frames to be one picture")
     parser.add_argument("--rounds", type=int, default=5)
-    parser.add_argument("--loads", default="idle,cpu,agents")
-    parser.add_argument("--scenarios", default=",".join(judge.SCENARIOS))
+    parser.add_argument("--loads", default="idle,cpu,agents",
+                        help="comma list of load names (parse_load): L0..L5, idle, cpu, cpu-max, agents, agents-N, "
+                             "chat-100k, tabs-N, joined with + to combine")
+    parser.add_argument("--scenarios", default=",".join(judge.SCENARIOS), help="comma list, or all")
     parser.add_argument("--chat-turns", type=int, default=200)
+    parser.add_argument("--chat-rows", type=int, default=100000, help="rows of the chat-100k / L3 / L5 chat")
     parser.add_argument("--agents", type=int, default=4)
     parser.add_argument("--stream-rate", type=float, default=30)
+    parser.add_argument("--stress-workspaces", type=int, default=60)
+    parser.add_argument("--stress-terminals", type=int, default=20)
     parser.add_argument("--width", type=int, default=480, help="recorded frame width in pixels")
     parser.add_argument("--settle", type=float, default=1.0)
     parser.add_argument("--away", type=float, default=0.8)
-    parser.add_argument("--record", type=float, default=1.2)
+    parser.add_argument("--record", type=float, default=1.2,
+                        help="seconds recorded after each action: the settled time's cap is this less 300 ms")
     parser.add_argument("--load-settle", type=float, default=5.0)
     parser.add_argument("--out", default=os.path.join(os.getcwd(), ".build/tab-switch"))
     parser.add_argument("--no-gate", action="store_true", help="exit 0 when the report is written, budgets or not")
@@ -598,17 +1086,26 @@ def main(argv=None):
     # Decoded h264 frames of one picture differ in the low bits: 16 gray levels, not 32, so noise is not a change.
     judge.QUANT = bytes(v >> 4 for v in range(256))
     loads = [x for x in args.loads.split(",") if x]
-    scenarios = [x for x in args.scenarios.split(",") if x]
-    bad = [x for x in loads if x not in judge.LOADS] + [x for x in scenarios if x not in judge.SCENARIOS]
+    scenarios = list(judge.ALL_SCENARIOS) if args.scenarios == "all" else [x for x in args.scenarios.split(",") if x]
+    bad = [x for x in scenarios if x not in judge.ALL_SCENARIOS]
+    for load in loads:
+        try:
+            parse_load(load)
+        except ValueError:
+            bad.append(load)
     if bad or not (args.app or args.dmg):
         parser.error(f"unknown load or scenario {bad}" if bad else "--app or --dmg")
+    loads = order_loads(loads)
+    args.webkit = "webkit-return" in scenarios
     os.makedirs(args.out, exist_ok=True)
     smoke = load_smoke()
     root = tempfile.mkdtemp(prefix="tab-switch-")
     extra = {"host": {"chip": subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True).stdout.strip(),
                       "macos": subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip(),
                       "cores": os.cpu_count()},
-             "rounds": args.rounds, "chat_turns": args.chat_turns, "agents": args.agents}
+             "rounds": args.rounds, "chat_turns": args.chat_turns, "agents": args.agents,
+             "loads": {load: parse_load(load) for load in loads}, "record_s": args.record,
+             "settle_quiet_ms": settle.QUIET_MS}
     app = recorder = None
     status, rows, hz = 3, [], None
     try:
@@ -618,8 +1115,8 @@ def main(argv=None):
                                                  capture_output=True, text=True).stdout.strip()
         app = App(bundle, root, smoke)
         app.launch()
-        # The chat and the agents load are optional: a setup fault in either leaves the terminal and page scenarios,
-        # idle and under CPU load, measured, and names the fault on the rows it cost.
+        # The chat and the chat loads are optional: a setup fault in either leaves the terminal and page scenarios
+        # measured, and names the fault on the rows it cost.
         agents, session, sessions, setup = None, None, [], {}
         try:
             agents = Agents(app, bundle)
@@ -630,14 +1127,10 @@ def main(argv=None):
             setup["chat"] = f"chat setup: {type(error).__name__}: {error}"[:600]
             say(setup["chat"])
         load_notes = {}
-        if "agents" in loads:
-            try:
-                if agents is None:
-                    raise Unmeasurable("no agent harness")
-                sessions = agents.stream_chats(args.agents)
-            except Exception as error:  # noqa: BLE001 - reported on the agents load's rows
-                load_notes["agents"] = f"agents setup: {type(error).__name__}: {error}"[:600]
-                say(load_notes["agents"])
+        for load in loads:
+            spec = parse_load(load)
+            if agents is None and (spec.get("bg_chats") or spec.get("chat100k") or spec.get("live")):
+                load_notes[load] = "agents setup: no agent harness" + (f" ({setup['chat']})" if setup.get("chat") else "")
         extra["setup_errors"] = {**setup, **load_notes}
         recorder = capture.Capture(args.tools, app.process.pid, args.width, os.path.join(root, "capture"))
         hz = recorder.hz
@@ -646,8 +1139,10 @@ def main(argv=None):
         say(f"capture {json.dumps(extra['capture'])}")
         harness = Harness(args, app, recorder, root)
         harness.chat_note = setup.get("chat")
+        harness.long_session = session
         harness.build(session)
         extra["content_rect_px"], extra["strip_rect_px"] = harness.content, harness.strip
+        extra["sidebar_rect_px"] = harness.sidebar
         extra["tabs_at_build"] = harness.tabs_at_build
         rows = harness.run(loads, args.rounds, scenarios, agents, sessions, load_notes)
         status = 0
@@ -664,15 +1159,28 @@ def main(argv=None):
         if app is not None:
             app.end()
         shutil.rmtree(root, ignore_errors=True)
+    lines = settle.table(rows, baseline=next((x for x in ("L0", "idle") if x in loads), loads[0] if loads else "L0"))
+    extra["table"] = lines
+    extra["oddity_count"] = sum(len(s.get("oddities") or []) for r in rows for s in r["switches"])
     out = judge.report(args.build, hz, rows, extra)
     if status == 3:
         out["pass"] = False
     with open(os.path.join(args.out, "report.json"), "w") as handle:
         json.dump(out, handle, indent=1)
+    with open(os.path.join(args.out, "table.md"), "w") as handle:
+        handle.write(settle.table_markdown(lines))
     for row in rows:
         print("TSW", json.dumps(judge.summary(row)), flush=True)
         for fail in row["budget_fail"][:6]:
             print("TSW-FAIL", fail, flush=True)
+        for index, switch in enumerate(row["switches"]):
+            for odd in switch.get("oddities") or []:
+                print("TSW-ODD", json.dumps({"scenario": row["name"], "load": row["load"], "action": index + 1,
+                                             **{k: odd.get(k) for k in ("kind", "frame", "ms", "detail", "sheet")}}),
+                      flush=True)
+    for line in lines:
+        print("TSW-TABLE", json.dumps(line), flush=True)
+    print(settle.table_markdown(lines), flush=True)
     say(f"pass={out['pass']} report {os.path.join(args.out, 'report.json')}")
     if status == 3:
         return 3
