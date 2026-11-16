@@ -692,6 +692,8 @@ pub use shared::records::{
 };
 #[cfg(any(unix, windows))]
 pub use shared::unadoptable::*;
+#[cfg(unix)]
+pub(crate) use sys::barrier_sync;
 #[cfg(windows)]
 pub(crate) use sys::{HostProcessStartFailed, kill_process_group};
 #[cfg(any(unix, windows))]

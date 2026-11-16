@@ -37,7 +37,9 @@ pub(crate) fn barrier_sync(file: &File) -> io::Result<()> {
 /// Debug seam (`CMUX_TUI_DEBUG_SLOW_DISCOVERY_SYNC_MS=N`, off by default):
 /// every discovery-file sync takes N ms longer, as on a busy disk, so a test
 /// can see which of them a new terminal's first text waits for
-/// (new-terminal-100x). Terminal hosts inherit it from their daemon.
+/// (new-terminal-100x). Terminal hosts inherit it from their daemon. The
+/// files that a worktree's setup writes before a rename (its status, the
+/// repository's ports) have the same sync, so the delay is in them too.
 fn slow_discovery_sync_delay() -> Option<std::time::Duration> {
     static DELAY: std::sync::OnceLock<Option<std::time::Duration>> = std::sync::OnceLock::new();
     *DELAY.get_or_init(|| {
