@@ -37,8 +37,9 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 /// first backoff delay again.
 const HEALTHY_RUN: Duration = Duration::from_secs(30);
 /// Status reason after the person quit cmux Remote.
-const QUIT_REASON: &str =
-    "cmux Remote was quit; it starts again with the next request or the next cmux start";
+const QUIT_REASON: &str = "cmux Remote was quit; it starts again with `cmux remote-host restart` or when a feature is turned on";
+/// What the stop intent says stopped it (cmux-supervise-core `intent`, F17).
+const QUIT_INTENT: &str = "person quit cmux Remote";
 
 /// What the person turned on (`config.json`, kept for the next daemon start).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -80,6 +81,14 @@ struct HostRecord {
     socket: PathBuf,
 }
 
+impl HostRecord {
+    /// This host's epoch for the stop intent: its process start time, so a later start is
+    /// always newer than the one the person quit.
+    fn epoch(&self) -> u64 {
+        self.start_sec.saturating_mul(1_000_000).saturating_add(self.start_usec)
+    }
+}
+
 /// Where one daemon's host lives.
 #[derive(Clone, Debug)]
 pub(crate) struct Paths {
@@ -105,6 +114,11 @@ impl Paths {
     }
     fn log(&self) -> PathBuf {
         self.runtime.join("host.log")
+    }
+    /// The person's Quit (F17): durable, so neither a restart after the host exits nor the
+    /// next daemon start brings the host back. Only an explicit start clears it.
+    fn stop_intent(&self) -> cmux_supervise_core::intent::Intent {
+        cmux_supervise_core::intent::Intent::new(self.state.join("stop-intent.json"))
     }
 }
 
@@ -204,7 +218,8 @@ impl RemoteHostSupervisor {
     pub(crate) fn set_config(&self, update: &Value) -> Result<Value, String> {
         let _starting = lock(&self.inner.starting);
         capture::require_open(&self.inner)?;
-        let mut config = lock(&self.inner.config).clone();
+        let previous = lock(&self.inner.config).clone();
+        let mut config = previous.clone();
         if let Some(value) = update.get("computer_use").and_then(Value::as_bool) {
             config.computer_use = value;
         }
@@ -220,6 +235,16 @@ impl RemoteHostSupervisor {
         }
         if !config.wanted() {
             Inner::stop(&self.inner);
+            return Ok(self.status());
+        }
+        // The person turning a feature on is an explicit start; the app sending the same
+        // switches again (its launch) is not, so it never brings back a host the person quit.
+        let turned_on = (config.computer_use && !previous.computer_use)
+            || (config.screen_sharing && !previous.screen_sharing);
+        if turned_on {
+            Inner::explicit_start(&self.inner)?;
+        } else if Inner::quit_standing(&self.inner, 0) {
+            *lock(&self.inner.unavailable) = Some(QUIT_REASON.into());
             return Ok(self.status());
         }
         let connection = Inner::ensure_locked(&self.inner, None)?;
@@ -245,6 +270,11 @@ impl RemoteHostSupervisor {
             // no host starts for a request, so an off switch never runs cmux Remote.
             if !lock(&self.inner.config).wanted() {
                 return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
+            }
+            // `cmux remote-host restart` is the person's explicit start. Any other request
+            // (an agent's, the app's hourly anchor) never starts a host the person quit.
+            if method == "restart" {
+                Inner::explicit_start(&self.inner)?;
             }
             Inner::ensure_locked(&self.inner, None)?
         };
@@ -313,6 +343,12 @@ impl Inner {
         if let State::Running(connection) = &*lock(&this.state) {
             return Ok(Arc::clone(connection));
         }
+        // A standing stop intent (F17) covers every start but an explicit one, which clears
+        // it first: the restart after the host exits, the next daemon start, any request.
+        if Self::quit_standing(this, 0) {
+            *lock(&this.unavailable) = Some(QUIT_REASON.into());
+            return Err(QUIT_REASON.into());
+        }
         let paths = lock(&this.paths).clone().ok_or("this daemon has no cmux Remote")?;
         let result = Self::adopt_or_start(this, &paths, config);
         match result {
@@ -322,6 +358,42 @@ impl Inner {
                 Err(reason)
             }
         }
+    }
+
+    /// Whether a stop the person meant stands for the host of `epoch` (0: any host). An intent
+    /// file that cannot be read counts as one (cmux-supervise-core fails closed).
+    fn quit_standing(this: &Arc<Self>, epoch: u64) -> bool {
+        lock(&this.paths).as_ref().is_some_and(|paths| paths.stop_intent().meant(epoch).is_some())
+    }
+
+    /// The person quit the host of `connection`: written down before it stops (its `quit`
+    /// event comes before it ends its workers and exits), so whatever would start it again
+    /// reads "meant", not "crashed".
+    fn record_quit(this: &Arc<Self>, connection: &Connection) {
+        let Some(paths) = lock(&this.paths).clone() else { return };
+        let written = paths.stop_intent().record_with(
+            QUIT_INTENT,
+            connection.record.epoch(),
+            &|path, bytes| write_private_checked(path, bytes),
+        );
+        if let Err(error) = written {
+            // The connection's own flag still keeps this daemon from restarting it.
+            eprintln!("cmux-tui: cmux Remote: cannot record the quit: {error}");
+        }
+    }
+
+    /// An explicit start (the person's `restart`, a feature turned on): the quit no longer stands.
+    fn explicit_start(this: &Arc<Self>) -> Result<(), String> {
+        let Some(paths) = lock(&this.paths).clone() else { return Ok(()) };
+        paths
+            .stop_intent()
+            .clear()
+            .map_err(|error| format!("cannot clear cmux Remote's stop intent: {error}"))?;
+        let mut unavailable = lock(&this.unavailable);
+        if unavailable.as_deref() == Some(QUIT_REASON) {
+            *unavailable = None;
+        }
+        Ok(())
     }
 
     /// Install a connected host and publish the identity from its latest
@@ -533,6 +605,9 @@ impl Inner {
             }
             if message.get("event").and_then(Value::as_str) == Some("quit") {
                 connection.quit.store(true, std::sync::atomic::Ordering::Relaxed);
+                if let Some(inner) = this.upgrade() {
+                    Self::record_quit(&inner, connection);
+                }
                 continue;
             }
             if message.get("event").and_then(Value::as_str) == Some("status") {
@@ -631,7 +706,9 @@ impl Inner {
         {
             let _ = std::fs::remove_file(paths.record());
         }
-        if connection.quit.load(std::sync::atomic::Ordering::Relaxed) {
+        if connection.quit.load(std::sync::atomic::Ordering::Relaxed)
+            || Self::quit_standing(this, connection.record.epoch())
+        {
             eprintln!(
                 "cmux-tui: cmux Remote pid {} was quit; not starting it again",
                 connection.pid
@@ -810,23 +887,24 @@ fn write_record(path: &Path, record: &HostRecord) {
 
 /// Writes `bytes` to `path` atomically, mode 0600, in a 0700 directory.
 fn write_private(path: &Path, bytes: &[u8]) {
+    let _ = write_private_checked(path, bytes);
+}
+
+/// [`write_private`], saying whether the file is in place.
+fn write_private_checked(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let Some(dir) = path.parent() else { return };
-    if std::fs::create_dir_all(dir).is_err() {
-        return;
-    }
+    let dir = path.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
+    std::fs::create_dir_all(dir)?;
     let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
     let temporary = path.with_extension("tmp");
     let _ = std::fs::remove_file(&temporary);
-    let written = std::fs::OpenOptions::new()
+    std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(&temporary)
-        .and_then(|mut file| file.write_all(bytes));
-    if written.is_ok() {
-        let _ = std::fs::rename(&temporary, path);
-    }
+        .and_then(|mut file| file.write_all(bytes))?;
+    std::fs::rename(&temporary, path)
 }
 
 /// Whether this cmux build embeds cmux Remote (`CMUX_REMOTE_APP`, or the app
@@ -1069,5 +1147,58 @@ mod tests {
         assert!(matches!(&*super::lock(&inner.state), State::Idle));
         assert_eq!(super::lock(&inner.unavailable).as_deref(), None);
         assert!(super::lock(&inner.backoff).is_some(), "a crashed host restarts after the backoff");
+    }
+
+    /// F17 fault: the person quits cmux Remote, the host exits, and nothing starts it again
+    /// within a bound (not the restart after its exit, not the next daemon start); then the
+    /// person's explicit start (`cmux remote-host restart`) runs a start again. Off macOS a
+    /// start ends in `adopt_or_start`'s "runs on macOS only", which is how a start shows here.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn fault_a_quit_host_never_respawns_until_an_explicit_start() {
+        use std::io::Write;
+        use std::time::Duration;
+        let dir = std::env::temp_dir().join(format!("cmux-remote-quit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let paths = super::Paths {
+            runtime: dir.join("run"),
+            state: dir.join("state"),
+            scope: "s0".into(),
+            daemon_socket: dir.join("d.sock"),
+        };
+        let intent_file = paths.state.join("stop-intent.json");
+        let started = |inner: &Arc<Inner>| {
+            super::lock(&inner.unavailable).as_deref().is_some_and(|r| r.contains("macOS only"))
+        };
+        let inner = Arc::new(Inner::default());
+        *super::lock(&inner.paths) = Some(paths.clone());
+        super::lock(&inner.config).computer_use = true;
+        let running = Inner::install_running(&inner, connection(json!({}))).unwrap();
+
+        // The host announces the quit, then its process exits: EOF on its supervisor link.
+        let (reader, mut host) = std::os::unix::net::UnixStream::pair().unwrap();
+        host.write_all(b"{\"type\":\"event\",\"event\":\"quit\"}\n").unwrap();
+        drop(host);
+        Inner::read(&Arc::downgrade(&inner), &running, std::io::BufReader::new(reader));
+        assert!(matches!(&*super::lock(&inner.state), State::Idle));
+
+        // The bound: ten times the first restart delay (200 ms). A respawn is a start attempt.
+        std::thread::sleep(Duration::from_secs(2));
+        assert!(!started(&inner), "a host the person quit was started again within 2 s");
+        assert!(intent_file.exists(), "the quit is written down as a stop intent");
+
+        // The next daemon start reads the same intent and starts nothing.
+        let next_daemon = Arc::new(Inner::default());
+        *super::lock(&next_daemon.paths) = Some(paths);
+        super::lock(&next_daemon.config).computer_use = true;
+        let _ = Inner::ensure(&next_daemon);
+        assert!(!started(&next_daemon), "the next daemon start brought the quit host back");
+
+        // The person's explicit start clears the intent and starts again.
+        let supervisor = super::RemoteHostSupervisor { inner: Arc::clone(&inner) };
+        let _ = supervisor.call("restart", json!({"worker": "computer-use", "force": false}));
+        assert!(started(&inner), "an explicit start must run a start again");
+        assert!(!intent_file.exists(), "an explicit start clears the stop intent");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

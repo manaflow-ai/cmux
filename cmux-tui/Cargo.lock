@@ -2424,6 +2424,7 @@ dependencies = [
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-sdk",
+ "cmux-supervise-core",
  "cmux-tasks",
  "cmux-tasks-core",
  "cmux-terminal-iface",
