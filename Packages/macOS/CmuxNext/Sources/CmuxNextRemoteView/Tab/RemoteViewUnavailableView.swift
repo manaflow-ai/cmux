@@ -10,7 +10,7 @@ import CmuxNextDesign
 /// One card, one alignment, leading: the machine's name (never an id) with its status as a chip at
 /// the end of the same row, then Connect as the theme's primary button (the dialogs' default
 /// button, ``CmuxDialogButtonView``). No sentence says how the tab opened or what Connect does
-/// (Leo, 2026-11-16: "why even say lal that bullshit? esp the second line."). An unavailable tab's
+/// (Leo, 2026-11-16: "why even say all that? esp the second line."). An unavailable tab's
 /// one line of text wraps at the card's width, never past its inset. Leo, 2026-11-16, on the old
 /// card: "is is a weirdly styled thing :(".
 ///

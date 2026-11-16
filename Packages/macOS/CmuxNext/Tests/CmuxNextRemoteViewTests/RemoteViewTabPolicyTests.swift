@@ -100,8 +100,8 @@ import Testing
 
     /// Leo, 2026-11-16, on "Open chat-800dd580cab0487c" over two centered paragraphs: "is is a weirdly
     /// styled thing :(". The title is the name a person reads and the status is its own chip. Leo, 2026-11-16, on
-    /// "Another action opened this tab. Nothing connects until you choose Connect.": "why even say lal that
-    /// bullshit? esp the second line." No sentence under them.
+    /// "Another action opened this tab. Nothing connects until you choose Connect.": "why even say all
+    /// that? esp the second line." No sentence under them.
     @Test func connectionGateTitlesTheNameWithStatusApartAndOneLine() {
         let target = RemoteConnectionTarget(name: "Nightly desktop", status: "Running", region: "us-west", kind: .desktop, isLive: true)
         let text = RemoteViewUnavailableView.text(for: .confirmTarget(target))

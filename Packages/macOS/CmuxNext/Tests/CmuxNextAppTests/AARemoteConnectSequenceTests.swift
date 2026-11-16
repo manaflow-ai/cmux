@@ -9,7 +9,7 @@ import Testing
 /// A Cloud machine's tab from Connect to its first frame, drawn the way the tab draws it: the
 /// Connect card, then the pane's connecting card as the dial reports its steps. Counts the layout
 /// shifts between steps: the card's frame or its title moving. Leo, 2026-11-16: "then the
-/// Connecting to rd-demo-linux there's so many layout shifts with the bullshit display text in between :/".
+/// Connecting to rd-demo-linux there's so many layout shifts with the [...] display text in between :/".
 /// With `CMUX_TEST_REQUIRE_GUI=1` each step is also a PNG under `remote-connect-sequence/`, bundled to
 /// `remote-connect-sequence.tar`.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AARemoteConnectSequenceTests {

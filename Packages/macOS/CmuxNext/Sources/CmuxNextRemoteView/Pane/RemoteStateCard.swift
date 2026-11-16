@@ -119,7 +119,7 @@ final class RemoteStateCard: NSView {
     /// The pane draws a connect in the Connect card's own frame (``RemoteViewUnavailableView``,
     /// `.connecting`), not this card; `.connecting` here is its words for tools and tests.
     /// No card narrates the path or the dial's steps: the title, the spinner and Cancel say it
-    /// (Leo, 2026-11-16: "so many layout shifts with the bullshit display text in between").
+    /// (Leo, 2026-11-16: "so many layout shifts with the [...] display text in between").
     static func spec(for overlay: RemotePaneOverlay, host: String, viaCloudTunnel: Bool = false, reconnecting: Bool = false) -> Spec {
         switch overlay {
         case .connecting:
