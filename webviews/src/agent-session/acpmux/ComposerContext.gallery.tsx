@@ -400,6 +400,12 @@ const openMoveTo: Play = async (ctx) => {
   await ctx.click({ role: "option", name: /Move to…/ });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-moves [data-action="moveTarget"]'));
 };
+// A started Cloud chat's popover opens on its machine card (MachineCard.tsx), whose Continue on
+// section lists the move targets as rows of its own: there is no Move to… row to open.
+const openMachineCardMoves: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover.acpmux-env-card [data-action="moveTarget"]'));
+};
 const openMachineList: Play = async (ctx) => {
   await ctx.contextMenu({ role: "button", name: /^Environment/ });
   await ctx.click({ role: "menuitem", name: "Machines…" });
@@ -1573,7 +1579,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
           hostKind: "cloud",
         },
       },
-      play: openMoveTo,
+      play: openMachineCardMoves,
     },
     "started-move-to-cloud-only": {
       note: "Preview, a chat that started on a Cloud machine: its one other machine is Move to…'s only row.",
