@@ -118,6 +118,9 @@ struct Shared {
     commit_delay: Option<Duration>,
     /// Bytes of one WAL frame: its header and one page.
     frame_bytes: u64,
+    /// The release of the database's owner: the syncer does not checkpoint
+    /// after it ([`checkpoint_if_large`]).
+    released: OwnerRelease,
 }
 
 thread_local! {
@@ -333,6 +336,7 @@ impl WalDurability {
             flush_each_commit,
             commit_delay,
             frame_bytes: page_size + WAL_FRAME_HEADER_BYTES,
+            released: released.clone(),
         });
         let owner = SyncerOwner(shared.clone());
         let _ = connection.commit_hook(Some(move || {
@@ -533,7 +537,15 @@ fn run(shared: &Shared) {
 /// `journal_size_limit`), so a file that passed [`CHECKPOINT_BYTES`] once
 /// stays above it while it holds a few frames. A file past the limit is
 /// one a reader pinned: a checkpoint lets the next commit cut it back.
+///
+/// No checkpoint after the release of the database's owner (decision of
+/// 2026-11-16): the syncer's connection has no commit hook, and a checkpoint
+/// writes the database file, which the next owner has from then on. A
+/// checkpoint that began before the release ends after it.
 fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -> bool {
+    if shared.released.is_released() {
+        return false;
+    }
     let file = wal_file_len(shared);
     let frames = shared.state.lock().recover_poison().wal_frames;
     if frames.saturating_mul(shared.frame_bytes) <= CHECKPOINT_BYTES && file <= WAL_SIZE_LIMIT_BYTES
