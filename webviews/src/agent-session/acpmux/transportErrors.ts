@@ -57,9 +57,9 @@ const DAEMON_REASON_TEXT: Record<string, StringKey> = {
 // every chat typed on New Tab failed with the generic line, and nothing said the chat's open was
 // what the app refused). Any other method keeps the generic text.
 const INTENT_INVALID_TEXT: Record<string, StringKey> = {
+  // Only the chat's own open: `_acpmux/watch` (the session list) and `_acpmux/events` (an older
+  // page) are no chat the person opened, and keep the generic line.
   "_acpmux/attach": "transport.intentInvalidOpen",
-  "_acpmux/events": "transport.intentInvalidOpen",
-  "_acpmux/watch": "transport.intentInvalidOpen",
   "session/new": "transport.intentInvalidStart",
   "session/load": "transport.intentInvalidStart",
   "session/resume": "transport.intentInvalidStart",
@@ -71,7 +71,9 @@ const INTENT_INVALID_TEXT: Record<string, StringKey> = {
 
 function intentInvalidKey(error: unknown): StringKey {
   const method = typeof error === "object" && error !== null ? (error as { method?: unknown }).method : undefined;
-  return (typeof method === "string" ? INTENT_INVALID_TEXT[method] : undefined) ?? "transport.intentInvalid";
+  return typeof method === "string" && Object.hasOwn(INTENT_INVALID_TEXT, method)
+    ? INTENT_INVALID_TEXT[method]!
+    : "transport.intentInvalid";
 }
 
 /// The text to show for `error`: a transport refusal's own text (a code without one reads as the

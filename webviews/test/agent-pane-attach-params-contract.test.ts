@@ -32,6 +32,20 @@ describe("the page's _acpmux/attach params are the contract's", () => {
     });
   }
 
+  // The host's pane policy as data (cmux-agent-pane-policy policy.json, which its tests/swift.rs keeps
+  // equal to AcpmuxPaneMethods.swift): the params rule takes every key of every attach.
+  test("the pane policy's params rule takes every attach", () => {
+    const policy = JSON.parse(
+      readFileSync(join(import.meta.dir, "../../cmux-tui/crates/cmux-agent-pane-policy/policy.json"), "utf8"),
+    ) as { known_params: Record<string, { params: string[] }> };
+    const known = policy.known_params["_acpmux/attach"]?.params ?? [];
+    for (const frame of contract.attach)
+      expect({ name: frame.name, refused: Object.keys(frame.params).filter((key) => !known.includes(key)) }).toEqual({
+        name: frame.name,
+        refused: [],
+      });
+  });
+
   test("the contract lists no attach the page does not send", () => {
     expect(contract.attach.map((frame) => frame.name).sort()).toEqual(Object.keys(sent).sort());
   });

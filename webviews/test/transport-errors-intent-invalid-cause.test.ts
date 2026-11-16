@@ -42,8 +42,61 @@ test("a refused open, start, send or setting says which", () => {
 });
 
 test("a refusal with no known method keeps the generic line", () => {
-  expect(quietly(() => errorMessage(refusal()))).toBe(translate("transport.intentInvalid"));
-  expect(quietly(() => errorMessage(refusal("_acpmux/typing")))).toBe(translate("transport.intentInvalid"));
+  for (const method of [undefined, "_acpmux/typing", "_acpmux/watch", "_acpmux/events", "constructor"])
+    expect(quietly(() => errorMessage(refusal(method)))).toBe(translate("transport.intentInvalid"));
+});
+
+/// The app's bridge, refusing the chat's open as AgentPaneTransport does (AcpmuxPaneMethods
+/// `refusal`: `data.method` names the refused frame's method); every other frame reaches the mock
+/// daemon.
+function refusingAttach(daemon: {
+  onopen: (() => void) | null;
+  onmessage: ((message: { data: string }) => void) | null;
+  send(raw: string): void;
+}) {
+  const socket = {
+    readyState: 0,
+    onopen: null as (() => void) | null,
+    onerror: null as (() => void) | null,
+    onclose: null as ((event: { code: number; reason: string; wasClean: boolean }) => void) | null,
+    onmessage: null as ((message: { data: string }) => void) | null,
+    send(raw: string) {
+      const frame = JSON.parse(raw) as { id?: number | string; method?: string };
+      if (frame.method !== "_acpmux/attach" || frame.id === undefined) return daemon.send(raw);
+      const data = { code: "transport.intent_invalid", origin: "native", method: frame.method };
+      const error = { code: -32601, message: "Refused by the cmux host", data };
+      queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: frame.id, error }) }));
+    },
+    close() {
+      socket.readyState = 3;
+      queueMicrotask(() => socket.onclose?.({ code: 1000, reason: "", wasClean: true }));
+    },
+  };
+  daemon.onopen = () => {
+    socket.readyState = 1;
+    socket.onopen?.();
+  };
+  daemon.onmessage = (message) => {
+    if (socket.readyState === 1) socket.onmessage?.(message);
+  };
+  return socket;
+}
+
+test("a chat whose open the app refuses reads as that, through the page's own client", async () => {
+  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  const { MockAcpmuxSocket, mockHost } = await import("../src/agent-session/acpmux/mock");
+  const open = () => refusingAttach(new MockAcpmuxSocket(() => Promise.resolve()) as never) as unknown as WebSocket;
+  let failure: unknown;
+  await quietly(() =>
+    AcpmuxDirectClient.connect(mockHost, () => {}, undefined, open).then(
+      (client) => client.close(),
+      (error: unknown) => {
+        failure = error;
+      },
+    ),
+  );
+  expect(failure).toBeDefined();
+  expect(quietly(() => errorMessage(failure))).toBe(translate("transport.intentInvalidOpen"));
 });
 
 test("the start card for a refused open names it, not 'Something went wrong'", () => {
