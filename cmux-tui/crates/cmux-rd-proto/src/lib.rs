@@ -19,6 +19,7 @@ mod error;
 mod feedback;
 mod frame;
 mod input;
+mod local;
 mod stream;
 
 pub use bulk::{BULK_PREFIX_LEN, BulkFrame, MAX_BULK_CHUNK};
@@ -36,6 +37,10 @@ pub use frame::{FRAME_PREFIX_LEN, FrameBody, REF_NONE};
 pub use input::{
     INPUT_PACKET_PREFIX_LEN, InputEvent, InputPacket, MAX_SERVICE_BYTES, MAX_TEXT_BYTES,
     service_flags,
+};
+pub use local::{
+    LOCAL_FRAME_PREFIX_LEN, LOCAL_REPORT_LEN, LocalCounters, LocalFrame, LocalReport,
+    MAX_LOCAL_FRAME, STREAM_LOCAL_FRAME, STREAM_LOCAL_REPORT,
 };
 pub use stream::{
     MAX_STREAM_FRAME, STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, STREAM_PREFIX_LEN,

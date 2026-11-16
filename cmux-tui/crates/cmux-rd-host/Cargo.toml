@@ -29,6 +29,9 @@ serde_json = "1"
 cmux-encode = { path = "../cmux-encode" }
 # The secure link of device hub sessions (`cmux-rd serve`).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"], optional = true }
+# `cmux-rd connect` reassembles the viewer's display stream with the app's own receiver
+# (design D7), so the app gets whole frames instead of datagrams.
+cmux-rd-ffi = { path = "../cmux-rd-ffi", optional = true }
 # The bench decoder only (OpenH264 from source never ships in the host).
 openh264 = { version = "0.9", default-features = false, features = ["source"], optional = true }
 # VP9 and AV1 for measurement (features `vp9`, `av1`).
@@ -69,7 +72,7 @@ cc = "1"
 
 [features]
 # `cmux-rd serve`: device hub sessions over the secure link (cmux-rd-link).
-link = ["dep:cmux-rd-link"]
+link = ["dep:cmux-rd-link", "dep:cmux-rd-ffi"]
 default = ["bench", "openh264", "link", "portal"]
 # Wayland screen capture through xdg-desktop-portal ScreenCast and PipeWire (view-only).
 # Its dependencies are Linux-only, so on macOS and Windows the feature compiles nothing.

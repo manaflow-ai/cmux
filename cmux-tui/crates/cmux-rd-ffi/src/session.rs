@@ -11,8 +11,9 @@ use std::collections::{BTreeMap, VecDeque};
 use cmux_rd_core::clock::ClockEstimator;
 use cmux_rd_core::reassembly::CompleteFrame;
 use cmux_rd_proto::{
-    ClockEstimate, ClockPong, DatagramHeader, DatagramKind, STREAM_BULK, STREAM_CONTROL,
-    STREAM_DATAGRAM, StreamDeframer, encode_stream_frame,
+    ClockEstimate, ClockPong, DatagramHeader, DatagramKind, LocalCounters, LocalFrame, LocalReport,
+    REF_NONE, STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, STREAM_LOCAL_FRAME,
+    STREAM_LOCAL_REPORT, StreamDeframer, encode_stream_frame, flags,
 };
 
 use crate::receiver::{
@@ -21,6 +22,22 @@ use crate::receiver::{
 
 /// Most open streams per session (main surface, popups, tiles).
 pub const MAX_STREAMS: usize = 16;
+/// Whole frames of an upstream-assembled stream held for the caller. The connect process
+/// sends the next frame only after the caller consumed the last, so more than one here
+/// means it ran ahead: the oldest is dropped and counted, never queued without bound.
+pub const MAX_LOCAL_READY: usize = 2;
+/// Reports held for the connect process; the oldest go when the caller outruns it.
+pub const MAX_LOCAL_REPORTS: usize = 64;
+
+/// A stream the viewer's connect process reassembles (design D7, screen-share-under-100ms):
+/// its frames arrive whole ([`LocalFrame`]) and its feedback is the connect process's.
+#[derive(Debug, Default)]
+struct LocalStream {
+    frames: VecDeque<LocalFrame>,
+    counters: LocalCounters,
+    /// Frames dropped here because the caller fell behind (added to `frames_lost`).
+    dropped: u64,
+}
 
 /// Why a session call was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +70,13 @@ pub struct Session {
     ready: VecDeque<u16>,
     /// The session clock (rd change C8), once the host accepted the `clock` cap.
     clock: Option<ClockEstimator>,
+    /// Streams the connect process reassembles ([`Self::assemble_upstream`]).
+    local: BTreeMap<u16, LocalStream>,
+    /// Reports for the connect process, sent through [`Self::feedback`].
+    local_reports: VecDeque<LocalReport>,
+    /// When the connect process released the frame [`Self::pop_frame`] returned last
+    /// (`CLOCK_UPTIME_RAW` microseconds), or `None` for a frame reassembled here.
+    last_release_us: Option<u64>,
     failed: bool,
 }
 
@@ -69,10 +93,102 @@ impl Session {
             message_bytes: 0,
             ready: VecDeque::new(),
             clock: None,
+            local: BTreeMap::new(),
+            local_reports: VecDeque::new(),
+            last_release_us: None,
             failed: false,
         };
         let _ = s.open_stream(0);
         s
+    }
+
+    /// `stream` is reassembled by the viewer's connect process (stream carrier only): its
+    /// frames arrive whole on the stream, this session sends no feedback for it, and
+    /// [`Self::note_consumed`], [`Self::note_presented`] and [`Self::request_keyframe`]
+    /// go to the connect process instead. Call before the connect process starts
+    /// sending (the app asks for it in its answer line). Idempotent.
+    pub fn assemble_upstream(&mut self, stream: u16) -> Result<(), SessionError> {
+        if self.carrier != Carrier::Stream {
+            return Err(ReceiverError::Carrier.into());
+        }
+        self.open_stream(stream)?;
+        self.deframer.accept_local();
+        self.local.entry(stream).or_default();
+        Ok(())
+    }
+
+    /// When the connect process released the frame [`Self::pop_frame`] returned last.
+    pub fn last_release_us(&self) -> Option<u64> {
+        self.last_release_us
+    }
+
+    /// The caller is done with `frame` of `stream` (decoded in `decode_us`, or 0 when it
+    /// was skipped). An upstream-assembled stream's connect process sends its next frame
+    /// on this; any other stream records the decode time for its feedback.
+    pub fn note_consumed(
+        &mut self,
+        stream: u16,
+        frame: u32,
+        decode_us: u32,
+    ) -> Result<(), SessionError> {
+        if self.local.contains_key(&stream) {
+            self.report(LocalReport::Consumed { stream, frame, decode_us });
+            return Ok(());
+        }
+        if decode_us > 0 {
+            self.receiver(stream)?.note_decode(decode_us);
+        }
+        Ok(())
+    }
+
+    /// `frame` of `stream` reached the glass at `presented_us` (`CLOCK_UPTIME_RAW`
+    /// microseconds). Goes to the connect process of an upstream-assembled stream.
+    pub fn note_presented(
+        &mut self,
+        stream: u16,
+        frame: u32,
+        presented_us: u64,
+    ) -> Result<(), SessionError> {
+        if self.local.contains_key(&stream) {
+            self.report(LocalReport::Presented { stream, frame, presented_us });
+            return Ok(());
+        }
+        self.receiver(stream).map(|_| ())
+    }
+
+    fn report(&mut self, report: LocalReport) {
+        if self.local_reports.len() >= MAX_LOCAL_REPORTS {
+            self.local_reports.pop_front();
+        }
+        self.local_reports.push_back(report);
+    }
+
+    fn on_local_frame(&mut self, payload: &[u8]) {
+        // A frame that does not parse, or of a stream not assembled upstream, is skipped
+        // like an invalid datagram: the reliable stream itself is fine.
+        let Ok(frame) = LocalFrame::decode(payload) else { return };
+        let stream = frame.stream;
+        let Some(local) = self.local.get_mut(&stream) else { return };
+        let resumes = frame.flags & (flags::KEYFRAME | flags::RECOVERY) != 0
+            || frame.body.ref_frame == REF_NONE;
+        let mut keyframe_wanted = false;
+        if local.frames.len() >= MAX_LOCAL_READY {
+            // The connect process ran ahead of the caller: the dropped frame breaks the
+            // chain unless the new one starts a new one.
+            local.frames.pop_front();
+            local.dropped += 1;
+            keyframe_wanted = !resumes;
+            if let Some(i) = self.ready.iter().position(|s| *s == stream) {
+                self.ready.remove(i);
+            }
+        }
+        local.counters = frame.counters;
+        local.counters.frames_lost = local.counters.frames_lost.saturating_add(local.dropped);
+        local.frames.push_back(frame);
+        self.ready.push_back(stream);
+        if keyframe_wanted {
+            self.report(LocalReport::KeyframeWanted { stream });
+        }
     }
 
     /// Starts clock probes (only when welcome lists the `clock` cap: an
@@ -103,6 +219,8 @@ impl Session {
     /// Stops accepting `stream` and drops its frames and state.
     pub fn close_stream(&mut self, stream: u16) -> Result<(), SessionError> {
         self.streams.remove(&stream).ok_or(SessionError::Stream(stream))?;
+        self.local.remove(&stream);
+        self.local_reports.retain(|r| r.stream() != stream);
         self.ready.retain(|s| *s != stream);
         Ok(())
     }
@@ -131,6 +249,9 @@ impl Session {
                     // One bad datagram does not end a reliable stream.
                     let _ = self.on_datagram(&payload, now_us);
                 }
+                Ok(Some((STREAM_LOCAL_FRAME, payload))) => self.on_local_frame(&payload),
+                // Only the app writes reports; one coming back is skipped.
+                Ok(Some((STREAM_LOCAL_REPORT, _))) => {}
                 Ok(Some((kind, payload))) => self.queue_message(kind, payload)?,
                 Err(_) => return Err(self.fail()),
             }
@@ -157,7 +278,16 @@ impl Session {
 
     /// The oldest ready frame of any stream, with its stream.
     pub fn pop_frame(&mut self) -> Option<(u16, CompleteFrame)> {
+        self.last_release_us = None;
         while let Some(stream) = self.ready.pop_front() {
+            if let Some(local) = self.local.get_mut(&stream) {
+                if let Some(f) = local.frames.pop_front() {
+                    self.last_release_us = Some(f.release_us);
+                    let frame = CompleteFrame { frame: f.frame, flags: f.flags, body: f.body };
+                    return Some((stream, frame));
+                }
+                continue;
+            }
             if let Some(frame) = self.streams.get_mut(&stream).and_then(Receiver::pop_frame) {
                 return Some((stream, frame));
             }
@@ -167,7 +297,8 @@ impl Session {
 
     /// Frames ready in all streams.
     pub fn ready_frames(&self) -> usize {
-        self.streams.values().map(Receiver::ready_frames).sum()
+        let local: usize = self.local.values().map(|l| l.frames.len()).sum();
+        self.streams.values().map(Receiver::ready_frames).sum::<usize>() + local
     }
 
     /// The oldest queued message (control JSON or a non-video datagram).
@@ -177,20 +308,38 @@ impl Session {
         Some(m)
     }
 
-    /// Records one decode time of `stream`.
+    /// Records one decode time of `stream` (an upstream-assembled stream's connect process
+    /// gets it from [`Self::note_consumed`], which names the frame).
     pub fn note_decode(&mut self, stream: u16, decode_us: u32) -> Result<(), SessionError> {
         self.receiver(stream)?.note_decode(decode_us);
         Ok(())
     }
 
-    /// Asks the host for a keyframe on `stream` until one is released there.
+    /// Asks the host for a keyframe on `stream` until one is released there (through the
+    /// connect process for an upstream-assembled stream).
     pub fn request_keyframe(&mut self, stream: u16) -> Result<(), SessionError> {
+        if self.local.contains_key(&stream) {
+            let wanted = LocalReport::KeyframeWanted { stream };
+            if !self.local_reports.contains(&wanted) {
+                self.report(wanted);
+            }
+            return Ok(());
+        }
         self.receiver(stream)?.request_keyframe();
         Ok(())
     }
 
-    /// Counters of `stream`.
+    /// Counters of `stream` (the connect process's, for an upstream-assembled stream).
     pub fn stats(&self, stream: u16) -> Result<Stats, SessionError> {
+        if let Some(local) = self.local.get(&stream) {
+            let c = local.counters;
+            return Ok(Stats {
+                acked_frame: c.acked_frame,
+                need_recovery: c.need_recovery,
+                frames_released: c.frames_released,
+                frames_lost: c.frames_lost,
+            });
+        }
         self.streams.get(&stream).map(Receiver::stats).ok_or(SessionError::Stream(stream))
     }
 
@@ -199,6 +348,12 @@ impl Session {
     pub fn feedback(&mut self, now_us: u64) -> Option<Vec<u8>> {
         if self.failed {
             return None;
+        }
+        if let Some(report) = self.local_reports.pop_front() {
+            let mut out = Vec::new();
+            // A report is 16 bytes, far below the stream frame limit.
+            let _ = encode_stream_frame(STREAM_LOCAL_REPORT, &report.encode(), &mut out);
+            return Some(out);
         }
         let ping = self.clock.as_mut().and_then(|c| c.ping(now_us)).map(|ping| {
             let mut d = DatagramHeader {
@@ -216,8 +371,14 @@ impl Session {
             d.extend_from_slice(&ping.encode());
             d
         });
-        let datagram =
-            ping.or_else(|| self.streams.values_mut().find_map(|r| r.feedback(now_us)))?;
+        // An upstream-assembled stream's feedback is the connect process's.
+        let local = &self.local;
+        let datagram = ping.or_else(|| {
+            self.streams
+                .iter_mut()
+                .filter(|(id, _)| !local.contains_key(id))
+                .find_map(|(_, r)| r.feedback(now_us))
+        })?;
         Some(match self.carrier {
             Carrier::Datagram => datagram,
             Carrier::Stream => {
@@ -234,8 +395,17 @@ impl Session {
         if self.failed {
             return u64::MAX;
         }
+        if !self.local_reports.is_empty() {
+            return 0;
+        }
         let ping = self.clock.as_ref().map_or(u64::MAX, ClockEstimator::next_ping_us);
-        self.streams.values().map(Receiver::next_deadline_us).min().unwrap_or(u64::MAX).min(ping)
+        self.streams
+            .iter()
+            .filter(|(id, _)| !self.local.contains_key(id))
+            .map(|(_, r)| r.next_deadline_us())
+            .min()
+            .unwrap_or(u64::MAX)
+            .min(ping)
     }
 
     fn receiver(&mut self, stream: u16) -> Result<&mut Receiver, SessionError> {

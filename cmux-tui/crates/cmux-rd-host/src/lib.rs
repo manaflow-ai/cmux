@@ -94,6 +94,8 @@ mod testapp;
 mod token;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod upstream;
+#[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
+mod viewer_hop;
 #[cfg(all(target_os = "macos", feature = "bench"))]
 mod vtdecode;
 #[cfg(windows)]

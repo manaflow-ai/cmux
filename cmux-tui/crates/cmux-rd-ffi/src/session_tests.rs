@@ -360,3 +360,116 @@ fn bulk_frames_on_the_stream_carrier_are_queued_as_bulk_messages() {
     assert_eq!(rc, CMUX_RD_OK);
     assert_eq!(&out[..len], &bytes[..]);
 }
+
+mod local_hop {
+    //! Design D7: the connect process reassembles a stream and sends whole frames.
+    use crate::receiver::Carrier;
+    use crate::session::{MAX_LOCAL_READY, Session};
+    use cmux_rd_proto::{
+        FrameBody, LocalCounters, LocalFrame, LocalReport, REF_NONE, STREAM_DATAGRAM,
+        STREAM_LOCAL_FRAME, STREAM_LOCAL_REPORT, StreamDeframer, encode_stream_frame, flags,
+    };
+
+    fn local_frame(frame: u32, keyframe: bool, release_us: u64) -> Vec<u8> {
+        let f = LocalFrame {
+            stream: 0,
+            frame,
+            flags: if keyframe { flags::KEYFRAME } else { 0 },
+            release_us,
+            counters: LocalCounters {
+                acked_frame: frame,
+                frames_released: u64::from(frame),
+                ..Default::default()
+            },
+            body: FrameBody {
+                t_capture_us: 1,
+                ref_frame: if keyframe { REF_NONE } else { frame - 1 },
+                access_unit: vec![frame as u8; 10],
+            },
+        };
+        let mut out = Vec::new();
+        encode_stream_frame(STREAM_LOCAL_FRAME, &f.encode(), &mut out).unwrap();
+        out
+    }
+
+    fn reports(s: &mut Session, now: u64) -> Vec<LocalReport> {
+        let mut d = StreamDeframer::default();
+        d.accept_local();
+        let mut out = Vec::new();
+        while let Some(bytes) = s.feedback(now) {
+            d.extend(&bytes);
+            while let Some((kind, payload)) = d.next_frame().unwrap() {
+                if kind == STREAM_LOCAL_REPORT {
+                    out.push(LocalReport::decode(&payload).unwrap());
+                } else {
+                    assert_eq!(kind, STREAM_DATAGRAM);
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_whole_frame_pops_with_its_release_time_and_reports_go_back() {
+        let mut s = Session::new(Carrier::Stream, 200_000, 5_000);
+        s.assemble_upstream(0).unwrap();
+        s.push_stream(&local_frame(1, true, 777), 10).unwrap();
+        let (stream, f) = s.pop_frame().unwrap();
+        assert_eq!((stream, f.frame, f.body.access_unit.len()), (0, 1, 10));
+        assert_eq!(s.last_release_us(), Some(777));
+        assert_eq!(s.stats(0).unwrap().frames_released, 1);
+        s.note_consumed(0, 1, 3_000).unwrap();
+        s.note_presented(0, 1, 9_000).unwrap();
+        s.request_keyframe(0).unwrap();
+        s.request_keyframe(0).unwrap();
+        assert_eq!(s.next_deadline_us(), 0);
+        assert_eq!(
+            reports(&mut s, 20),
+            vec![
+                LocalReport::Consumed { stream: 0, frame: 1, decode_us: 3_000 },
+                LocalReport::Presented { stream: 0, frame: 1, presented_us: 9_000 },
+                LocalReport::KeyframeWanted { stream: 0 },
+            ]
+        );
+    }
+
+    #[test]
+    fn an_assembled_stream_sends_no_feedback_of_its_own() {
+        let mut s = Session::new(Carrier::Stream, 200_000, 5_000);
+        s.assemble_upstream(0).unwrap();
+        // A plain session sends keepalive feedback at once; this one has nothing to send.
+        assert!(s.feedback(0).is_none());
+        assert_eq!(s.next_deadline_us(), u64::MAX);
+    }
+
+    #[test]
+    fn a_session_that_did_not_ask_refuses_whole_frames() {
+        let mut s = Session::new(Carrier::Stream, 200_000, 5_000);
+        assert!(s.push_stream(&local_frame(1, true, 1), 0).is_err());
+        let mut d = Session::new(Carrier::Datagram, 200_000, 5_000);
+        assert!(d.assemble_upstream(0).is_err());
+    }
+
+    #[test]
+    fn a_connect_process_that_runs_ahead_loses_the_oldest_frame_counted() {
+        let mut s = Session::new(Carrier::Stream, 200_000, 5_000);
+        s.assemble_upstream(0).unwrap();
+        for n in 1..=(MAX_LOCAL_READY as u32 + 1) {
+            s.push_stream(&local_frame(n, n == 1, u64::from(n)), 0).unwrap();
+        }
+        assert_eq!(s.ready_frames(), MAX_LOCAL_READY);
+        assert_eq!(s.pop_frame().unwrap().1.frame, 2);
+        assert_eq!(s.stats(0).unwrap().frames_lost, 1);
+        // Frame 2 references the dropped keyframe: the decoder needs a new one.
+        assert!(reports(&mut s, 0).contains(&LocalReport::KeyframeWanted { stream: 0 }));
+    }
+
+    #[test]
+    fn a_plain_stream_takes_note_consumed_as_its_decode_time() {
+        let mut s = Session::new(Carrier::Stream, 200_000, 5_000);
+        s.note_consumed(0, 1, 4_000).unwrap();
+        s.note_presented(0, 1, 5).unwrap();
+        assert_eq!(s.last_release_us(), None);
+        assert!(s.note_consumed(9, 1, 1).is_err());
+    }
+}

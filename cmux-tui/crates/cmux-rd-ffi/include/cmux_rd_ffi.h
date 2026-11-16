@@ -224,6 +224,25 @@ int32_t cmux_rd_session_enable_clock(CmuxRdSession *session);
    *offset_us) and the round trip of the best sample: 1 when an estimate
    exists, 0 before the first answer. */
 int32_t cmux_rd_session_clock(const CmuxRdSession *session, int64_t *offset_us, uint32_t *rtt_us);
+/* Viewer local hop (screen-share design D7): `stream` is reassembled by the
+   viewer's `cmux-rd connect` process, which sends it whole frames (stream
+   carrier only; the app asks for them with "assemble" in its answer line).
+   Call before connecting. The session then sends no feedback for the stream;
+   note_consumed, note_presented and request_keyframe go to the connect
+   process through cmux_rd_session_feedback. */
+int32_t cmux_rd_session_assemble_upstream(CmuxRdSession *session, uint16_t stream);
+/* The caller is done with `frame` of `stream`: decoded in decode_us, or
+   skipped (0). The connect process sends the next frame on this, so call it
+   for every frame popped of an assembled stream, decoded or not. For any
+   other stream it records decode_us like note_decode. */
+int32_t cmux_rd_session_note_consumed(CmuxRdSession *session, uint16_t stream, uint32_t frame, uint32_t decode_us);
+/* `frame` of `stream` reached the glass at presented_us (CLOCK_UPTIME_RAW
+   microseconds, the clock of CACurrentMediaTime and DispatchTime). */
+int32_t cmux_rd_session_note_presented(CmuxRdSession *session, uint16_t stream, uint32_t frame, uint64_t presented_us);
+/* When the connect process released the frame cmux_rd_session_pop_frame
+   returned last (CLOCK_UPTIME_RAW microseconds), or 0 for a frame this
+   session reassembled itself. */
+uint64_t cmux_rd_session_last_release_us(const CmuxRdSession *session);
 
 /* ---- Upstream media sender (rd change C4b, cap "up_media", ABI 3) ----
    One sender per upstream stream (microphone, camera, screen share) the host

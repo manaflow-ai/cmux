@@ -394,3 +394,58 @@ pub unsafe extern "C" fn cmux_rd_session_clock(
         1
     })
 }
+
+/// Marks `stream` as reassembled by the viewer's connect process (design D7).
+///
+/// # Safety
+/// `session` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_assemble_upstream(
+    session: *mut CmuxRdSession,
+    stream: u16,
+) -> i32 {
+    with_session(session, |h| unit(h.inner.assemble_upstream(stream)))
+}
+
+/// The caller is done with `frame` of `stream` (decoded in `decode_us`, or 0).
+///
+/// # Safety
+/// `session` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_note_consumed(
+    session: *mut CmuxRdSession,
+    stream: u16,
+    frame: u32,
+    decode_us: u32,
+) -> i32 {
+    with_session(session, |h| unit(h.inner.note_consumed(stream, frame, decode_us)))
+}
+
+/// `frame` of `stream` reached the glass at `presented_us`.
+///
+/// # Safety
+/// `session` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_note_presented(
+    session: *mut CmuxRdSession,
+    stream: u16,
+    frame: u32,
+    presented_us: u64,
+) -> i32 {
+    with_session(session, |h| unit(h.inner.note_presented(stream, frame, presented_us)))
+}
+
+/// When the connect process released the last popped frame; 0 when this session
+/// reassembled it, or for NULL.
+///
+/// # Safety
+/// `session` is NULL or valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_last_release_us(session: *const CmuxRdSession) -> u64 {
+    // SAFETY: guaranteed by the caller.
+    let Some(handle) = (unsafe { session.as_ref() }) else { return 0 };
+    if handle.poisoned {
+        return 0;
+    }
+    handle.inner.last_release_us().unwrap_or(0)
+}
