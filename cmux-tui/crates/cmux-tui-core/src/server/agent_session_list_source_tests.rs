@@ -368,3 +368,22 @@ fn a_pager_first_then_table_later_snapshot_finds_sorted_grandchild() {
     assert_eq!(ids(&found), ["parent", "sibling", "grandchild"]);
     assert!(list.asks.contains(&("parent".to_owned(), true)));
 }
+
+/// A pager walk must recover under every cold key it lists, even one already
+/// seen in an earlier table walk before the snapshot changed.
+#[test]
+fn a_mixed_walk_recovers_below_a_previously_seen_cold_row() {
+    let bridge = scripted_row("bridge", Some("root"));
+    let parent = scripted_row("parent", Some("bridge"));
+    let grandchild = scripted_row("grandchild", Some("parent"));
+    let mut root_page = Scripted::page(vec![bridge, parent.clone()], false, true);
+    root_page.deeper.push(RowKey::new("local", "bridge"));
+    let mut table = Scripted::new(scripted_replies(vec![
+        ("root", vec![root_page]),
+        ("bridge", vec![Scripted::page(vec![parent], false, false)]),
+        ("parent", vec![Scripted::page(vec![grandchild], false, true)]),
+    ]));
+    let found = kin(&mut table, "root", 256, true).unwrap();
+    assert_eq!(ids(&found), ["bridge", "parent", "grandchild"]);
+    assert_eq!(table.asks.iter().filter(|(key, cold)| key == "parent" && *cold).count(), 1);
+}

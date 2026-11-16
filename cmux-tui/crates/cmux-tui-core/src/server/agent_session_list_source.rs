@@ -226,11 +226,14 @@ pub(crate) fn kin(
                         left_out.insert(row_key);
                         continue;
                     }
-                    if !seen.insert(row_key.clone()) {
-                        continue;
-                    }
                     if cold {
-                        cold_keys.push(row_key);
+                        // A row seen in an earlier closure walk may return in
+                        // a pager walk after the snapshot changes. Its children
+                        // still need recovery; `asked` deduplicates the asks.
+                        cold_keys.push(row_key.clone());
+                    }
+                    if !seen.insert(row_key) {
+                        continue;
                     }
                     found.push(row);
                     if found.len() >= max {
