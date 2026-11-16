@@ -13,7 +13,7 @@ import Testing
         let window = PageHostPoolLaunchWindowTests.shownWindow()
         defer { window.close() }
         let pool = Self.pool()
-        defer { pool.dropSpare() }
+        defer { pool.releaseIdle() } // cancels the idle timer too: none outlives the test
         pool.start(isMainWindow: { $0 === window }, fallback: { _ in nil })
         try await Task.sleep(for: .milliseconds(300)) // well past idleInput (5 ms): an armed build would have started
         #expect(pool.target === window)
@@ -27,7 +27,7 @@ import Testing
         defer { window.close() }
         var input: UInt64 = 0
         let pool = Self.pool(activity: { input &+= 1; return input }, isTrackingMenu: { true })
-        defer { pool.dropSpare() }
+        defer { pool.releaseIdle() } // cancels the idle timer too: none outlives the test
         pool.follow(window)
         pool.noteIntent()
         #expect(pool.isBuilding, "a sign of intent waited for idle input")
@@ -40,7 +40,7 @@ import Testing
         let window = PageHostPoolLaunchWindowTests.shownWindow()
         defer { window.close() }
         let pool = Self.pool()
-        defer { pool.dropSpare() }
+        defer { pool.releaseIdle() } // cancels the idle timer too: none outlives the test
         pool.follow(window)
         pool.noteIntent()
         await Self.waitReady(pool)
@@ -51,6 +51,7 @@ import Testing
         #expect(pool.hostCount == 0 && !pool.isLikely, "the idle limit passed and the spare stayed")
         try await Task.sleep(for: .milliseconds(300)) // past idleInput: no rebuild may be armed
         #expect(pool.hostCount == 0 && !pool.isBuilding, "a freed spare was built again with no sign of intent")
+        pool.idleLimit = nil // a build takes about 130 ms: a 100 ms limit would free this one before it loads
         pool.noteIntent()
         await Self.waitReady(pool)
         #expect(pool.isSpareReady, "the next sign of intent did not build the spare again")
@@ -59,8 +60,11 @@ import Testing
     static func pool(activity: @escaping () -> UInt64 = { 0 }, isTrackingMenu: @escaping () -> Bool = { false }) -> PageHostPool {
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
-        return PageHostPool(memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), policy: policy,
-                            activity: activity, isTrackingMenu: isTrackingMenu)
+        let pool = PageHostPool(memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), policy: policy,
+                                activity: activity, isTrackingMenu: isTrackingMenu)
+        // No 10-minute idle timer in a test (it held this suite 645 s, step d3ec2127): a test that needs one sets it.
+        pool.idleLimit = nil
+        return pool
     }
 
     static func waitReady(_ pool: PageHostPool) async {
