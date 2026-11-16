@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43812453612",
+  "recorded_at": "2026-11-16T05:55:03Z",
+  "reason": "cmux-tui 3cbf7a5759e3 changes the image's cmux-tui (pinned 379e8982edc0)",
+  "dry_run": false,
+  "cmux_tui": "3cbf7a5759e3b031fa89d339a046d71387692a5d",
+  "fixes": [
+    {
+      "sha": "3cbf7a5759e3b031fa89d339a046d71387692a5d",
+      "mergedAt": "2026-11-15T21:29:47-08:00",
+      "subject": "Fold peer messages behind Claude Code's \"A peer session sent a message\" line (#44150)"
+    },
+    {
+      "sha": "d51526fe51f7b51603304002809c6e807ca6f907",
+      "mergedAt": "2026-11-16T05:26:38Z",
+      "subject": "cmux-action-catalog: the first catalog request rows (Remove Site, Recently Closed, Error Journal) (#43867)"
+    },
+    {
+      "sha": "d8a63f76f7c34dc559c9d06d389dfbd99b014c16",
+      "mergedAt": "2026-11-15T21:26:10-08:00",
+      "subject": "agents events: agent-idle and agent-needs-input fire for agent chats (#44178)"
+    },
+    {
+      "sha": "811b28b24cec08d0d2d5b3622b77ea5e987178f1",
+      "mergedAt": "2026-11-16T05:25:20Z",
+      "subject": "acpmux: a message bridged into Claude Code carries one line of ours, not four (#44147)"
+    },
+    {
+      "sha": "0fad6e51ecccec312ce0dbb73d34e907168eabe4",
+      "mergedAt": "2026-11-16T05:24:15Z",
+      "subject": "cmux-action-catalog: a step-A row in a HandlerCoverage category needs an App binding (detector for the Debug launch trap) (#44090)"
+    },
+    {
+      "sha": "1b8d32bf9ef7a4bed758a912ba479f3e44a139f9",
+      "mergedAt": "2026-11-15T21:13:18-08:00",
+      "subject": "Floating panes: the placement rules (cmux-layout-reducer) (#44211)"
+    },
+    {
+      "sha": "d9279815555551e75100c95047d33d578c7fe18e",
+      "mergedAt": "2026-11-15T21:09:24-08:00",
+      "subject": "tests, raw-flock baseline: 3 comments and 1 note name the build, the rule and the date (#44207)"
+    },
+    {
+      "sha": "66859f299e113faac6e9af349ff6ae850c886086",
+      "mergedAt": "2026-11-15T21:08:28-08:00",
+      "subject": "cmux-tui: a layout size command reads one workspace and keeps the indexes (#44201)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T05:55:03Z",
+    "snapshot_id": "sh-0cba3ec9f2f6477ab4cad91068a3fa05",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43812453612): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ec017fbc2a21bab57505ba5e64d7ee324f631693",
+    "image": "cloud-native-auto-3cbf7a57-43812453612-1",
+    "revision": "ci-43812453612-1",
+    "at": "2026-11-16T05:55:03Z"
+  },
+  "rolled_back": false
+}
