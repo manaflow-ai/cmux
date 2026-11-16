@@ -8,6 +8,9 @@
 //! by a restart and by layout undo. A client without the capability shows the
 //! pane tiled at its leaf.
 //!
+//! Until the layout projection reads this list, a floating pane keeps its
+//! tiled rectangle and each client shows it tiled.
+//!
 //! Invariant: a screen keeps at least one tiled pane. `float-pane` refuses to
 //! float the last one, and when the last tiled pane closes, the front
 //! floating pane becomes tiled.

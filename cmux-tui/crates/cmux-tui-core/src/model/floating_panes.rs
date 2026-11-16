@@ -5,6 +5,9 @@
 //! or a build without the capability shows the pane tiled at its leaf. The rules of the list are the layout
 //! reducer's (`cmux_layout_reducer::floating_panes`); this file applies them to a screen and to a layout snapshot,
 //! and names the panes that never float.
+//!
+//! Until the layout projection reads this list, a floating pane keeps its tiled rectangle and each client shows
+//! it tiled.
 
 use cmux_layout_reducer::floating_panes::{
     self as rules, FloatFrame, FloatMode, FloatRefusal, Floating,

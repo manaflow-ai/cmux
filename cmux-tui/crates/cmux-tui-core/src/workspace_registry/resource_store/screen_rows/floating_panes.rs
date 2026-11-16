@@ -14,6 +14,15 @@
 //! the list again (`cmux_layout_reducer::floating_panes::normalized`), so a
 //! screen always loads with at least one tiled pane. A dropped record goes on
 //! the screen's next write.
+//!
+//! The column types of the table are affinities only: SQLite keeps a REAL, a
+//! TEXT or a BLOB where the table says `INTEGER`. This build writes integers
+//! only. A record with another value is not a record of this build: load
+//! ignores it with one log line and goes on, and the screen's next write
+//! takes it out of the table.
+//!
+//! Load reads the records of the screens that it loads, by their ids, in one
+//! statement: a load of one workspace reads no record of another workspace.
 
 use cmux_layout_reducer::floating_panes::{FloatFrame, Floating, normalized};
 
@@ -53,27 +62,43 @@ fn desired(screen: &RegistryScreen) -> Records {
     records
 }
 
-fn stored(connection: &Connection, screen_id: &str) -> anyhow::Result<Records> {
+/// The pane id and the four values of the record in `row`, whose pane id is at column `pane` and whose values
+/// follow it. `None` when the pane id is not a text or one of the values is not an integer.
+fn record(row: &rusqlite::Row<'_>, pane: usize) -> rusqlite::Result<Option<(String, [i64; 4])>> {
+    let Ok(id) = row.get_ref(pane)?.as_str() else {
+        return Ok(None);
+    };
+    let mut frame = [0_i64; 4];
+    for (offset, value) in frame.iter_mut().enumerate() {
+        let Ok(stored) = row.get_ref(pane + 1 + offset)?.as_i64() else {
+            return Ok(None);
+        };
+        *value = stored;
+    }
+    Ok(Some((id.to_owned(), frame)))
+}
+
+/// The screen's records, back to front. `None` when one of them is not valid ([`record`]).
+fn stored(connection: &Connection, screen_id: &str) -> anyhow::Result<Option<Records>> {
     let mut statement = connection.prepare(
         "SELECT pane_id, x, y, w, h FROM resource_floating_panes
          WHERE screen_id = ?1 ORDER BY position",
     )?;
     let records = statement
-        .query_map(params![screen_id], |row| {
-            let frame: [i64; 4] = [row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?];
-            Ok((row.get::<_, String>(0)?, frame))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+        .query_map(params![screen_id], |row| record(row, 0))?
+        .collect::<Result<Option<Vec<_>>, _>>()?;
     Ok(records)
 }
 
 /// Whether the table already holds exactly the screen's list (a change of
-/// the list alone leaves the screen's row unchanged).
+/// the list alone leaves the screen's row unchanged). A record that is not
+/// valid makes this false, so the write that follows takes it out.
 pub(super) fn matches(
     transaction: &Transaction<'_>,
     screen: &RegistryScreen,
 ) -> anyhow::Result<bool> {
-    Ok(stored(transaction, screen.public_id.as_str())? == desired(screen))
+    Ok(stored(transaction, screen.public_id.as_str())?
+        .is_some_and(|records| records == desired(screen)))
 }
 
 pub(super) fn write(transaction: &Transaction<'_>, screen: &RegistryScreen) -> anyhow::Result<()> {
@@ -91,36 +116,47 @@ pub(super) fn write(transaction: &Transaction<'_>, screen: &RegistryScreen) -> a
     Ok(())
 }
 
-/// Overlays each screen's stored list. A record of a pane that is no longer
-/// a pane of the screen's layout, or with a value that is not a frame, is
-/// ignored; the rules of the list then apply to what is left.
+/// Overlays the stored list of each of `screens`: one statement reads the
+/// records of these screens only, and none runs for an empty `screens`. A
+/// record with a value that is not valid (a value that is not an integer, a
+/// frame value that is not a `u32`, a pane id that is not a pane id) is
+/// ignored with one log line. A record of a pane that is no longer a pane of
+/// the screen's layout is ignored too; the rules of the list then apply to
+/// what is left.
 pub(super) fn overlay(
     connection: &Connection,
     screens: &mut [RegistryScreen],
 ) -> anyhow::Result<()> {
+    if screens.is_empty() {
+        return Ok(());
+    }
+    let ids = screens.iter().map(|screen| screen.public_id.as_str()).collect::<Vec<_>>();
+    let ids = serde_json::to_string(&ids)?;
     let mut statement = connection.prepare(
         "SELECT screen_id, pane_id, x, y, w, h FROM resource_floating_panes
+         WHERE screen_id IN (SELECT value FROM json_each(?1))
          ORDER BY screen_id, position",
     )?;
     let records = statement
-        .query_map([], |row| {
-            let frame: [i64; 4] = [row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?];
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, frame))
+        .query_map(params![ids], |row| {
+            let screen_id = row.get_ref(0)?.as_str().unwrap_or_default().to_owned();
+            Ok((screen_id, record(row, 1)?))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    if records.is_empty() {
-        return Ok(());
-    }
     let mut touched: Vec<usize> = Vec::new();
-    for (screen_id, pane_id, frame) in records {
+    for (screen_id, record) in records {
         let Some(index) = screens.iter().position(|screen| screen.public_id.as_str() == screen_id)
         else {
             continue;
         };
-        let (Ok(pane), Some(frame)) = (PanePublicId::parse(pane_id), stored_frame(frame)) else {
+        let entry = record.and_then(|(pane, frame)| {
+            Some(Floating { pane: PanePublicId::parse(pane).ok()?, frame: stored_frame(frame)? })
+        });
+        let Some(entry) = entry else {
+            eprintln!("cmux-tui: ignoring a floating pane record of {screen_id}: it is not valid");
             continue;
         };
-        screens[index].floating.push(Floating { pane, frame });
+        screens[index].floating.push(entry);
         if !touched.contains(&index) {
             touched.push(index);
         }
