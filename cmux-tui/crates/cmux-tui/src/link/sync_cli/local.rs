@@ -222,14 +222,14 @@ pub(super) fn collect(
         Err(error) if error.is::<super::size_cap::FileLimit>() => true,
         Err(error) => return Err(error),
     };
-    if stopped || set.cap.as_ref().is_some_and(super::size_cap::Cap::past_bytes) {
+    if stopped || set.cap.as_ref().is_some_and(super::size_cap::Cap::past) {
         first_pass(&mut set, stopped);
     }
     Ok(set)
 }
 
 /// Whether `relative` is a repository's own state (`.git` or inside one, at any depth).
-fn in_history(relative: &str) -> bool {
+pub(super) fn in_history(relative: &str) -> bool {
     relative == ".git"
         || relative.starts_with(".git/")
         || relative.ends_with("/.git")
