@@ -120,6 +120,34 @@ fn loss_after_an_acknowledged_ltr_requests_refresh_instead_of_idr() {
 }
 
 #[test]
+fn a_viewer_without_ltr_gets_frames_in_the_plain_layout() {
+    // VideoToolbox hands back an LTR token whenever the OS has LTR; a viewer that did not
+    // negotiate it reads the 16-byte prefix, so the token must not reach the wire.
+    let mut e = MediaEngine::new(
+        EngineConfig { width: 640, height: 480, ltr_enabled: false, ..EngineConfig::default() },
+        0,
+    );
+    let first = e.start(0).expect("first");
+    let access_unit = au(200);
+    let encoded = Encoded {
+        access_unit: access_unit.clone(),
+        idr: true,
+        t_capture_us: 0,
+        ltr_token: Some(7),
+    };
+    let packets = e.encoded(&first, Some(encoded), 0).expect("packet");
+    let (_, payload) = DatagramHeader::decode(&packets.datagrams[0]).expect("header");
+    assert_eq!(
+        payload.get(cmux_rd_proto::FRAME_PREFIX_LEN..cmux_rd_proto::FRAME_PREFIX_LEN + 4),
+        access_unit.get(..4),
+        "the access unit starts right after the plain prefix"
+    );
+    let body = cmux_rd_proto::FrameBody::decode(payload).expect("body");
+    assert_eq!(body.ltr_token, None);
+    assert_eq!(body.access_unit, access_unit);
+}
+
+#[test]
 fn changing_frames_in_flight_updates_every_live_stream() {
     let mut e = engine();
     const POPUP: u16 = 3;
