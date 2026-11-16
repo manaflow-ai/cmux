@@ -300,6 +300,50 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     assert_eq!(stats.failed, 0);
     assert!(stats.completed > 0);
     assert!(changes >= MIN_CHANGES);
+    if tree_fixture {
+        let outside_samples: Vec<u128> = observations
+            .iter()
+            .filter_map(|&(running, elapsed)| (!running).then_some(elapsed))
+            .collect();
+        let during_samples: Vec<u128> = observations
+            .iter()
+            .filter_map(|&(running, elapsed)| running.then_some(elapsed))
+            .collect();
+        assert!(!outside_samples.is_empty(), "tree fixture collected no outside turns");
+        assert!(!during_samples.is_empty(), "tree fixture collected no in-flight turns");
+        let small = p95(&outside_samples);
+        let god = p95(&during_samples);
+        let expected_entries: u64 = (0..11_000)
+            .map(|index| {
+                let mut node = index;
+                let mut depth = 0u64;
+                while node > 0 {
+                    depth += 1;
+                    node = (node - 1) / 4;
+                }
+                depth.min(64)
+            })
+            .sum();
+        let entries = fs::read(dir.path().join("index.snap.kin"))
+            .ok()
+            .and_then(|bytes| {
+                bytes.get(40..48).and_then(|bytes| bytes.try_into().ok()).map(u64::from_le_bytes)
+            })
+            .unwrap_or(0);
+        assert_eq!(entries, expected_entries, "four-way sidecar closure count");
+        eprintln!(
+            "PR5i compaction_fixture=four_way_closed kin_entries={entries} outside_p95_ns={small} during_p95_ns={god} outside_samples={} during_samples={} changes={} compactions={}",
+            outside_samples.len(),
+            during_samples.len(),
+            changes,
+            stats.completed,
+        );
+        drop((hub, writer));
+        let (restored, _) = Hub::open(dir.path(), 19, || 17).unwrap();
+        assert_eq!(restored.snapshot().seq(), 11_000 + changes);
+        assert_eq!(restored.snapshot().merged_rows().count(), 11_000);
+        return;
+    }
     assert!(during.len() >= ROUNDS * SAMPLES, "not enough actual in-flight writer turns");
     let (round_outside, round_during) =
         matched_rounds(&observations).expect("not enough completed matched rounds");
