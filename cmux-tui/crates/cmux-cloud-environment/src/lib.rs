@@ -383,6 +383,18 @@ impl Resolver {
         client_config::resolve(self, selection).await
     }
 
+    /// `cloud env check-create`: the preflight the app runs before every Cloud create. The backend's
+    /// client-config is read for the capabilities the create's fields need (check_create_capabilities).
+    pub async fn check_create(
+        &self,
+        selection: Selection,
+        params: &serde_json::Value,
+    ) -> Result<Selection, String> {
+        let selection = client_config::resolve(self, selection).await?;
+        check_create_capabilities(&selection, params)?;
+        Ok(selection)
+    }
+
     /// A launch's read, with no network I/O when it can: the validated cache, else a known
     /// deployment's built-in configuration (what an unreachable or config-less backend gives
     /// anyway); only a custom origin with no cache is fetched. The app refreshes the cache after
