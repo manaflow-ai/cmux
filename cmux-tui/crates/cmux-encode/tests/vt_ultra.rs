@@ -68,6 +68,7 @@ unsafe extern "C" {
     fn CFArrayGetValueAtIndex(a: Ref, i: isize) -> Ref;
     fn CFNumberCreate(a: Ref, t: isize, v: *const c_void) -> Ref;
     fn CFRelease(v: Ref);
+    fn CFNumberGetValue(n: Ref, t: isize, v: *mut c_void) -> u8;
     fn CFRetain(v: Ref) -> Ref;
     fn CFCopyDescription(v: Ref) -> Ref;
     fn CFStringGetCString(s: Ref, buf: *mut c_char, len: isize, enc: u32) -> u8;
@@ -1617,6 +1618,9 @@ fn vt_ultra_measurements() {
     let only = std::env::var("VT_ULTRA_ONLY").unwrap_or_default();
     let want = |q: &str| only.is_empty() || only.split(',').any(|x| x == q);
     let t = Instant::now();
+    if want("q5") {
+        q5::run_all(&mut log);
+    }
     if want("q0") {
         q0::run_all(&mut log);
     }
@@ -1831,7 +1835,7 @@ mod q0 {
         Some(p.init_qp + r.se())
     }
 
-    fn params(desc: Ref) -> (Sps, Pps) {
+    pub fn params(desc: Ref) -> (Sps, Pps) {
         let (mut sps, mut pps) = (Sps::default(), Pps::default());
         let mut i = 0usize;
         loop {
@@ -1859,7 +1863,7 @@ mod q0 {
     }
 
     /// The QP of every slice in one sample (AVCC, 4-byte lengths).
-    fn sample_qps(sb: Ref, sps: &Sps, pps: &Pps) -> Vec<Option<i64>> {
+    pub fn sample_qps(sb: Ref, sps: &Sps, pps: &Pps) -> Vec<Option<i64>> {
         let len = sample_bytes(sb);
         let mut data = vec![0u8; len];
         unsafe {
@@ -2312,5 +2316,462 @@ mod q0 {
                 }
             }
         }
+    }
+}
+
+/// Q5 (fable's decision note, via screen-share-fast-fix): the non-low-latency hardware encoder
+/// (ave.avc) as the live path would build it. RealTime, no reordering, MaxFrameDelayCount 0,
+/// DataRateLimits of one frame (target/fps over 1/fps s), MinAllowedFrameQP 12 or 16. Frames
+/// are submitted in real time (one frame interval apart, no CompleteFrames between them), so
+/// output delay and encode time are what a live session sees. Plus the Q4 drop test on this
+/// encoder and an LTR check on both encoders.
+mod q5 {
+    use super::q0::{Kind, Scene, params, sample_qps};
+    use super::*;
+    use std::time::Duration;
+
+    fn kv(name: &str) -> Ref {
+        k(name)
+    }
+
+    /// One encoded frame as the callback gave it.
+    struct Out {
+        bytes: usize,
+        key: bool,
+        qp: Option<i64>,
+        ltr_token: Option<i64>,
+    }
+
+    fn attachment(sb: Ref, key: Ref) -> Ref {
+        unsafe {
+            let a = CMSampleBufferGetSampleAttachmentsArray(sb, 0);
+            if a.is_null() || CFArrayGetCount(a) == 0 || key.is_null() {
+                return null();
+            }
+            CFDictionaryGetValue(CFArrayGetValueAtIndex(a, 0), key)
+        }
+    }
+
+    fn number(v: Ref) -> Option<i64> {
+        if v.is_null() {
+            return None;
+        }
+        let mut out = 0i64;
+        let ok = unsafe { CFNumberGetValue(v, 4, (&mut out as *mut i64).cast()) };
+        (ok != 0).then_some(out)
+    }
+
+    /// Every callback since the last call, in order: `None` for a dropped or failed frame
+    /// (VideoToolbox calls back for those too, with no sample), so outputs stay matched to
+    /// their submissions.
+    fn collect_all(enc: &Enc, cache: &mut Option<(q0::Sps, q0::Pps)>) -> Vec<Option<Out>> {
+        let got = std::mem::take(&mut *enc.out.lock().unwrap());
+        let token_key = kv("kVTSampleAttachmentKey_RequireLTRAcknowledgementToken");
+        let mut v = vec![];
+        for s in got {
+            if s.sb.is_null() || s.status != 0 {
+                if !s.sb.is_null() {
+                    unsafe { CFRelease(s.sb) };
+                }
+                v.push(None);
+                continue;
+            }
+            let desc = unsafe { CMSampleBufferGetFormatDescription(s.sb) };
+            let key = sample_key(s.sb);
+            if key || cache.is_none() {
+                *cache = Some(params(desc));
+            }
+            let (sps, pps) = cache.unwrap();
+            let qp = sample_qps(s.sb, &sps, &pps).into_iter().flatten().max();
+            v.push(Some(Out {
+                bytes: sample_bytes(s.sb),
+                key,
+                qp,
+                ltr_token: number(attachment(s.sb, token_key)),
+            }));
+            unsafe { CFRelease(s.sb) };
+        }
+        v
+    }
+
+    /// The frames that came out (dropped ones left out).
+    fn collect(enc: &Enc, cache: &mut Option<(q0::Sps, q0::Pps)>) -> Vec<Out> {
+        collect_all(enc, cache).into_iter().flatten().collect()
+    }
+
+    #[derive(Clone, Copy)]
+    struct Setup {
+        min_qp: Option<i32>,
+        low_latency: bool,
+        limits: bool,
+    }
+
+    /// The session for one row; the -12902 ladder over profile and average rate as run_ladder.
+    fn session(
+        w: usize,
+        h: usize,
+        fps: u32,
+        kbps: u32,
+        s: Setup,
+        probe: &mut dyn Source,
+    ) -> Result<(Enc, String), String> {
+        let mut tried = vec![];
+        for (profile, avg) in [
+            ("H264_High_AutoLevel", kbps),
+            ("H264_ConstrainedHigh_AutoLevel", kbps),
+            ("H264_Main_AutoLevel", kbps),
+            ("H264_High_AutoLevel", kbps.min(200_000)),
+        ] {
+            let mut cfg = Cfg::new(H264, w, h, fps);
+            cfg.profile = k(&format!("kVTProfileLevel_{profile}"));
+            cfg.profile_name = profile.into();
+            cfg.low_latency = s.low_latency;
+            cfg.speed = false;
+            cfg.avg_kbps = Some(avg);
+            cfg.limits = s.limits.then(|| {
+                ((u64::from(avg) * 1000 / 8 / u64::from(fps)) as i32, 1.0 / f64::from(fps))
+            });
+            cfg.min_qp = s.min_qp;
+            match Enc::new(&cfg) {
+                Ok(mut enc) => {
+                    // A test encode (the -12902 refusals came on the first frame).
+                    probe.prepare(0);
+                    write(enc.pb, probe, h, true);
+                    match enc.encode(0, true) {
+                        Ok((samples, _)) => {
+                            for x in samples {
+                                if !x.sb.is_null() {
+                                    unsafe { CFRelease(x.sb) };
+                                }
+                            }
+                            let label = format!(
+                                "profile={profile} avg={avg}kbps{} notes=[{}]",
+                                if tried.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!(" (refused: {})", tried.join("; "))
+                                },
+                                enc.notes.join(",")
+                            );
+                            // A fresh session for the row itself, so its first frame is the IDR.
+                            drop(enc);
+                            let enc = Enc::new(&cfg)?;
+                            return Ok((enc, label));
+                        }
+                        Err(e) => tried.push(format!("{profile}@{avg}:{e}")),
+                    }
+                }
+                Err(e) => tried.push(format!("{profile}@{avg}:{e}")),
+            }
+        }
+        Err(format!("every combination refused: {}", tried.join("; ")))
+    }
+
+    struct Row {
+        submitted: usize,
+        outs: Vec<(usize, Out)>,
+        lag: Vec<usize>,
+        ms: Vec<f64>,
+        end_lag: usize,
+    }
+
+    /// Submits `still` copies of frame 0 then `moving` frames, one frame interval apart, with
+    /// no CompleteFrames between them. Records which submission each output belongs to (by
+    /// order), how many submissions later it came, and submit-to-output ms.
+    fn realtime(
+        enc: &mut Enc,
+        src: &mut dyn Source,
+        h: usize,
+        fps: u32,
+        still: usize,
+        moving: usize,
+    ) -> Row {
+        let interval = Duration::from_micros(1_000_000 / u64::from(fps));
+        let mut cache = None;
+        let mut pending: std::collections::VecDeque<(usize, Instant)> = Default::default();
+        let mut row = Row { submitted: 0, outs: vec![], lag: vec![], ms: vec![], end_lag: 0 };
+        for f in 0..still + moving {
+            let frame = if f < still { 0 } else { f - still + 1 };
+            src.prepare(frame);
+            if f == 0 || f >= still {
+                write(enc.pb, src, h, true);
+            }
+            let props = if f == 0 {
+                dict(&[(k("kVTEncodeFrameOptionKey_ForceKeyFrame"), yes())])
+            } else {
+                null()
+            };
+            let t = Instant::now();
+            let st = unsafe {
+                let mut info = 0u32;
+                VTCompressionSessionEncodeFrame(
+                    enc.s,
+                    enc.pb,
+                    micros(f as i64 * 1_000_000 / i64::from(fps)),
+                    INVALID,
+                    props,
+                    null_mut(),
+                    &mut info,
+                )
+            };
+            if !props.is_null() {
+                unsafe { CFRelease(props) };
+            }
+            if st != 0 {
+                break;
+            }
+            row.submitted += 1;
+            pending.push_back((f, t));
+            loop {
+                for o in collect_all(enc, &mut cache) {
+                    if let Some((j, tj)) = pending.pop_front() {
+                        row.lag.push(f - j);
+                        row.ms.push(tj.elapsed().as_secs_f64() * 1000.0);
+                        if let Some(o) = o {
+                            row.outs.push((j, o));
+                        }
+                    }
+                }
+                if t.elapsed() >= interval {
+                    break;
+                }
+                std::thread::sleep(Duration::from_micros(150));
+            }
+        }
+        unsafe { VTCompressionSessionCompleteFrames(enc.s, INVALID) };
+        for o in collect_all(enc, &mut cache) {
+            if let Some((j, _)) = pending.pop_front() {
+                row.end_lag += 1;
+                if let Some(o) = o {
+                    row.outs.push((j, o));
+                }
+            }
+        }
+        row
+    }
+
+    fn report(
+        log: &mut Log,
+        tag: &str,
+        label: &str,
+        row: &Row,
+        still: usize,
+        moving: usize,
+        kbps: u32,
+        fps: u32,
+    ) {
+        let moving_outs: Vec<&Out> =
+            row.outs.iter().filter(|(j, _)| *j >= still).map(|(_, o)| o).collect();
+        let bytes: Vec<f64> = moving_outs.iter().map(|o| o.bytes as f64).collect();
+        let qps: Vec<i64> = moving_outs.iter().filter_map(|o| o.qp).collect();
+        let budget = f64::from(kbps) * 1000.0 / 8.0 / f64::from(fps);
+        let over = bytes.iter().filter(|&&b| b > budget).count();
+        let over15 = bytes.iter().filter(|&&b| b > budget * 1.5).count();
+        let lag_hist = {
+            let mut m = std::collections::BTreeMap::new();
+            for l in &row.lag {
+                *m.entry(*l).or_insert(0usize) += 1;
+            }
+            format!("{m:?}")
+        };
+        let mut q = qps.clone();
+        q.sort();
+        let qs = if q.is_empty() {
+            "-".into()
+        } else {
+            format!("{}/{}/{}", q[0], q[q.len() / 2], q[q.len() - 1])
+        };
+        let keys = moving_outs.iter().filter(|o| o.key).count();
+        log.line(format!(
+            "{tag} | out/in {}/{} (moving {}/{moving}, drops {}) | delay frames {lag_hist} late-at-end={} | enc ms p50={:.2} p95={:.2} max={:.2} | {:.2} Mbps, bytes p95={:.0} max={:.0} budget={:.0} over={over} over1.5x={over15} | QP min/p50/max {qs} | IDR in motion={keys} | {label}",
+            row.outs.len(), row.submitted, moving_outs.len(), moving - moving_outs.len().min(moving),
+            row.end_lag,
+            pct(&row.ms, 0.5), pct(&row.ms, 0.95), pct(&row.ms, 1.0),
+            mean(&bytes) * 8.0 * f64::from(fps) / 1e6,
+            pct(&bytes, 0.95), pct(&bytes, 1.0), budget
+        ));
+    }
+
+    fn scene(name: &str, w: usize, h: usize, moving: usize) -> Box<dyn Source> {
+        match name {
+            "bars" => Box::new(Bars::new(w)),
+            "text" => Box::new(Scene::new(Kind::Text, w, h)),
+            "noise" => Box::new(Scene::new(Kind::Noise, w, h)),
+            "churn" => Box::new(Scene::new(Kind::Churn, w, h)),
+            _ => Box::new(TextPage::new(w, h, moving + 2, 24, false)),
+        }
+    }
+
+    fn rows(log: &mut Log) {
+        log.line("## Q5a ave.avc (no low-latency RC): RealTime, no reordering, MaxFrameDelayCount 0, DataRateLimits = target/fps per 1/fps s, speed off; frames submitted one interval apart");
+        let (still, moving) = (10usize, 120usize);
+        for (w, h, fps) in [(1920usize, 1080usize, 60u32), (3840, 2160, 60)] {
+            for kbps in [40_000u32, 8_000] {
+                for name in ["bars", "text", "noise", "churn", "scroll"] {
+                    for min_qp in [Some(12), Some(16)] {
+                        let mut src = scene(name, w, h, moving);
+                        let setup = Setup { min_qp, low_latency: false, limits: true };
+                        let tag = format!(
+                            "Q5a {name} {w}x{h}@{fps} {}Mbps minQP={}",
+                            kbps / 1000,
+                            min_qp.unwrap_or(0)
+                        );
+                        match session(w, h, fps, kbps, setup, src.as_mut()) {
+                            Ok((mut enc, label)) => {
+                                let row = realtime(&mut enc, src.as_mut(), h, fps, still, moving);
+                                report(log, &tag, &label, &row, still, moving, kbps, fps);
+                            }
+                            Err(e) => log.line(format!("{tag} error={e}")),
+                        }
+                    }
+                }
+            }
+        }
+        // The same frames on today's low-latency session, submitted the same way, for the
+        // delay and frames-out comparison.
+        for name in ["text", "scroll"] {
+            let (w, h, fps, kbps) = (1920usize, 1080usize, 60u32, 40_000u32);
+            let mut src = scene(name, w, h, moving);
+            let setup = Setup { min_qp: None, low_latency: true, limits: true };
+            let tag = format!("Q5a-ref {name} {w}x{h}@{fps} 40Mbps RTVC(merged)");
+            match session(w, h, fps, kbps, setup, src.as_mut()) {
+                Ok((mut enc, label)) => {
+                    let row = realtime(&mut enc, src.as_mut(), h, fps, still, moving);
+                    report(log, &tag, &label, &row, still, moving, kbps, fps);
+                }
+                Err(e) => log.line(format!("{tag} error={e}")),
+            }
+        }
+    }
+
+    fn drops(log: &mut Log) {
+        log.line("## Q5b Q4's drop test on ave.avc: scrolled text 24 rows a frame after 30 still frames, one-frame DataRateLimits, real-time submission");
+        for (w, h, fps) in [(512usize, 256usize, 30u32), (1920, 1080, 60), (3840, 2160, 60)] {
+            for kbps in [400u32, 2000] {
+                for min_qp in [Some(12), Some(16)] {
+                    let moving = 120;
+                    let mut src: Box<dyn Source> =
+                        Box::new(TextPage::new(w, h, moving + 2, 24, false));
+                    let setup = Setup { min_qp, low_latency: false, limits: true };
+                    let tag = format!("Q5b {w}x{h}@{fps} {kbps}kbps minQP={}", min_qp.unwrap_or(0));
+                    match session(w, h, fps, kbps, setup, src.as_mut()) {
+                        Ok((mut enc, label)) => {
+                            let row = realtime(&mut enc, src.as_mut(), h, fps, 30, moving);
+                            report(log, &tag, &label, &row, 30, moving, kbps, fps);
+                        }
+                        Err(e) => log.line(format!("{tag} error={e}")),
+                    }
+                }
+            }
+        }
+    }
+
+    /// LTR on both encoders: EnableLTR read back, tokens on frames, and a ForceLTRRefresh
+    /// after an acknowledged token: a P frame (NAL 1, not sync) or an IDR.
+    fn ltr(log: &mut Log) {
+        log.line("## Q5c long-term references (EnableLTR, RequireLTRAcknowledgementToken, AcknowledgedLTRTokens, ForceLTRRefresh)");
+        for low_latency in [true, false] {
+            let (w, h, fps) = (1920usize, 1080usize, 60u32);
+            let mut src: Box<dyn Source> = Box::new(TextPage::new(w, h, 40, 24, false));
+            let setup = Setup { min_qp: None, low_latency, limits: true };
+            let tag =
+                format!("Q5c {}", if low_latency { "RTVC (low-latency RC)" } else { "ave.avc" });
+            let (mut enc, label) = match session(w, h, fps, 8_000, setup, src.as_mut()) {
+                Ok(x) => x,
+                Err(e) => {
+                    log.line(format!("{tag} error={e}"));
+                    continue;
+                }
+            };
+            let set = enc.set("EnableLTR", yes());
+            let readback = enc.get("EnableLTR");
+            let mut cache = None;
+            let mut log_frames = vec![];
+            let mut acked: Option<i64> = None;
+            let mut refresh_result = String::from("not reached");
+            for f in 0..30usize {
+                src.prepare(f);
+                write(enc.pb, src.as_ref(), h, true);
+                let mut pairs: Vec<(Ref, Ref)> = vec![];
+                let mut owned: Vec<Ref> = vec![];
+                if f == 0 {
+                    pairs.push((k("kVTEncodeFrameOptionKey_ForceKeyFrame"), yes()));
+                }
+                // Acknowledge the first token seen, two frames later; force a refresh at 20.
+                if f == 12 {
+                    if let Some(t) = acked {
+                        let n = unsafe { CFNumberCreate(null(), 4, (&t as *const i64).cast()) };
+                        let arr = unsafe {
+                            CFArrayCreate(
+                                null(),
+                                [n].as_ptr(),
+                                1,
+                                (&raw const kCFTypeArrayCallBacks).cast(),
+                            )
+                        };
+                        pairs.push((k("kVTEncodeFrameOptionKey_AcknowledgedLTRTokens"), arr));
+                        owned.push(n);
+                        owned.push(arr);
+                    }
+                }
+                let refresh = f == 20;
+                if refresh {
+                    pairs.push((k("kVTEncodeFrameOptionKey_ForceLTRRefresh"), yes()));
+                }
+                let props = if pairs.is_empty() { null() } else { dict(&pairs) };
+                let st = unsafe {
+                    let mut info = 0u32;
+                    let s = VTCompressionSessionEncodeFrame(
+                        enc.s,
+                        enc.pb,
+                        micros(f as i64 * 16_667),
+                        INVALID,
+                        props,
+                        null_mut(),
+                        &mut info,
+                    );
+                    if s == 0 { VTCompressionSessionCompleteFrames(enc.s, INVALID) } else { s }
+                };
+                unsafe {
+                    if !props.is_null() {
+                        CFRelease(props);
+                    }
+                    for o in owned {
+                        CFRelease(o);
+                    }
+                }
+                if st != 0 {
+                    log_frames.push(format!("{f}:err{st}"));
+                    continue;
+                }
+                for o in collect(&enc, &mut cache) {
+                    if acked.is_none() {
+                        acked = o.ltr_token;
+                    }
+                    log_frames.push(format!(
+                        "{f}:{}{}",
+                        if o.key { "I" } else { "P" },
+                        o.ltr_token.map_or(String::new(), |t| format!("(tok {t})"))
+                    ));
+                    if refresh {
+                        refresh_result = format!(
+                            "{} ({} B)",
+                            if o.key { "IDR/sync" } else { "P frame, not sync" },
+                            o.bytes
+                        );
+                    }
+                }
+            }
+            log.line(format!(
+                "{tag} | set EnableLTR={set} readback={readback} | first token={acked:?} acknowledged at frame 12 | ForceLTRRefresh at frame 20 -> {refresh_result} | frames {} | {label}",
+                log_frames.join(" ")
+            ));
+        }
+    }
+
+    pub fn run_all(log: &mut Log) {
+        ltr(log);
+        drops(log);
+        rows(log);
     }
 }
