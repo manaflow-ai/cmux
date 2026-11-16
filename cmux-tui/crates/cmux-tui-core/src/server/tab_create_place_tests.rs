@@ -76,7 +76,7 @@ pub(super) fn tabs(mux: &Mux, pane: PaneId) -> Vec<SurfaceId> {
     mux.with_state(|state| state.panes.get(&pane).map(|pane| pane.tabs.clone())).unwrap_or_default()
 }
 
-fn active_tab(mux: &Mux, pane: PaneId) -> usize {
+pub(super) fn active_tab(mux: &Mux, pane: PaneId) -> usize {
     mux.with_state(|state| state.panes.get(&pane).map(|pane| pane.active_tab)).unwrap()
 }
 
