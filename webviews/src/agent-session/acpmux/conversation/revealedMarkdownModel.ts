@@ -60,22 +60,6 @@ type Loop = { grownTo?: number; grewAt?: number };
 /// `fadeMs` is the host's fade token, read once a frame for every row (a computed-style read each).
 type RevealTick = (now: number, away: boolean, fadeMs: number) => boolean;
 
-/// The longest run of frames the clock gives to pending input before it reveals anyway, so a
-/// stream of keys can never hold a reply back for more than a few frames.
-const MAX_INPUT_YIELDS = 3;
-
-/// Whether a key or pointer event waits for the main thread (Chromium's `isInputPending`). The
-/// reveal yields its frame to it; the next frame catches up to the same target.
-const inputPending = (): boolean => {
-  const scheduling = (globalThis.navigator as { scheduling?: { isInputPending?: () => boolean } } | undefined)
-    ?.scheduling;
-  try {
-    return scheduling?.isInputPending?.() === true;
-  } catch {
-    return false;
-  }
-};
-
 /// The one clock every revealing row runs on (chat-instant-under-load.md, piece 4). One display
 /// frame callback for the whole page, however many rows reveal: each due row advances in it, and
 /// React batches their state into one render and one commit. It holds a frame only while some row
@@ -91,7 +75,6 @@ export const revealClock = {
   lastFrame: undefined as number | undefined,
   lastCommit: undefined as number | undefined,
   frameMs: COMMIT_MS,
-  yields: 0,
   /// Rows taken off during the current frame's run (an unmount in a flushed render): not put back.
   gone: new Set<RevealTick>(),
   /// Runs `tick` from the next display frame on, until it returns false.
@@ -138,13 +121,6 @@ function revealFrame(now: number): void {
   // shows again: until its first frame back has passed, the backlog counts as away too
   // (shared/pageReveal.ts), and its blocks draw in place (Markdown's awayBlocks).
   const away = pageAway();
-  // A key waiting for the thread goes first; the reveal catches up to the same target next frame.
-  if (!away && clock.yields < MAX_INPUT_YIELDS && inputPending()) {
-    clock.yields += 1;
-    clock.request();
-    return;
-  }
-  clock.yields = 0;
   if (
     !away &&
     clock.frameMs < FAST_FRAME_MS &&
@@ -159,10 +135,15 @@ function revealFrame(now: number): void {
   const due = [...clock.rows];
   clock.rows.clear();
   clock.running = true;
+  // How many of `due` have run: a row that throws stops only itself; the rows after it stay on the clock.
+  let ran = 0;
   const run = () => {
     const fadeMs = freshFadeMs();
-    for (const tick of due)
+    for (; ran < due.length; ) {
+      const tick = due[ran]!;
+      ran += 1;
       if (!clock.gone.has(tick) && tick(now, away, fadeMs) && !clock.gone.has(tick)) clock.rows.add(tick);
+    }
   };
   try {
     // The backlog commits in this frame, before it paints, for every row at once: a state update
@@ -172,11 +153,12 @@ function revealFrame(now: number): void {
     if (away) flushSync(run);
     else run();
   } finally {
+    for (const tick of due.slice(ran)) if (!clock.gone.has(tick)) clock.rows.add(tick);
     clock.running = false;
     clock.gone.clear();
+    if (clock.rows.size) clock.request();
+    else clock.stop();
   }
-  if (clock.rows.size) clock.request();
-  else clock.stop();
 }
 
 /// The part of `text` to show this frame, and the steps still fading in.
