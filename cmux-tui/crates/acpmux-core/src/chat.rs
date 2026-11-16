@@ -29,6 +29,7 @@ pub mod process;
 pub mod queue;
 pub mod record;
 pub mod source;
+pub mod stage;
 pub mod stream;
 pub mod stream_state;
 pub mod subagent;
