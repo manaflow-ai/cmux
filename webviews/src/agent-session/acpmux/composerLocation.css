@@ -1917,3 +1917,12 @@
   width: calc(var(--ui-ghost-icon-size) * 1.25);
   height: var(--ui-ghost-icon-size);
 }
+/* A machine's load line (shared/MachineLoadLine.tsx) sits where the state, warning or dot did, and
+   gives up its numbers before the machine's name gives up room. */
+.acpmux-env-row .machine-load {
+  flex: 0 1 auto;
+  margin-left: auto;
+  padding-left: 8px;
+}
+.acpmux-env-row .machine-load + .acpmux-env-key,
+.acpmux-env-row .machine-load + .acpmux-location-check { margin-left: 6px; }

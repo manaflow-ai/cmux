@@ -71,6 +71,7 @@ import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusAfterEscape } from "../../ui/escapeFocus";
 import type { RunModeRows } from "./sandboxRun";
 import { machineLoadWarning, type MachineResources } from "./machineResources";
+import type { MachineLoad } from "../shared/machineLoad";
 import { useComposerSettings } from "./composerSettings";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
 import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel";
@@ -122,11 +123,13 @@ type Computer = Location & {
   downSince?: number;
   cloudMachine?: CloudMachine;
   resources?: MachineResources;
+  load?: MachineLoad;
 };
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_PEER_STATES: Record<string, string> = {};
 const NO_PEER_RESOURCES: Record<string, MachineResources> = {};
+const NO_PEER_LOADS: Record<string, MachineLoad> = {};
 const NO_PEER_LINKS: Record<string, PeerLinkDetail> = {};
 const NO_OFFLOADS: readonly OffloadKind[] = [];
 
@@ -143,6 +146,7 @@ export function ComposerContext({
   peerConnected = NO_PEER_CONNECTED,
   peerStates = NO_PEER_STATES,
   peerResources = NO_PEER_RESOURCES,
+  peerLoads = NO_PEER_LOADS,
   peerLinks = NO_PEER_LINKS,
   environments = false,
   started = false,
@@ -202,6 +206,8 @@ export function ComposerContext({
   peerStates?: Record<string, string>;
   /// Each peer's cached one-minute host health from the same acpmux reading as the sidebar.
   peerResources?: Record<string, MachineResources>;
+  /// Each peer's load row (`AcpmuxSnapshot.peerLoads`): what a machine row draws (MachineLoadLine).
+  peerLoads?: Record<string, MachineLoad>;
   /// Each peer's whole link (`AcpmuxSnapshot.peerLinks`): how long a machine has been down, so the
   /// machine lists group one down for long under Unavailable (environments.ts environmentUnavailable).
   peerLinks?: Record<string, PeerLinkDetail>;
@@ -357,6 +363,7 @@ export function ComposerContext({
         peerConnected,
         peerStates,
         peerResources,
+        peerLoads,
         peerLinks,
       ),
       shownMachines,
@@ -375,6 +382,7 @@ export function ComposerContext({
     peerConnected,
     peerStates,
     peerResources,
+    peerLoads,
     peerLinks,
     ownName,
     newChat,
@@ -1294,6 +1302,7 @@ function availableComputers(
   peerConnected: Record<string, boolean>,
   peerStates: Record<string, string>,
   peerResources: Record<string, MachineResources>,
+  peerLoads: Record<string, MachineLoad>,
   peerLinks: Record<string, PeerLinkDetail>,
 ): Computer[] {
   const localLabel =
@@ -1308,6 +1317,7 @@ function availableComputers(
       ...machine,
       detail,
       ...(peerResources[machine.id] ? { resources: peerResources[machine.id] } : {}),
+      ...(peerLoads[machine.id] ? { load: peerLoads[machine.id] } : {}),
       ...(downSince !== undefined ? { downSince } : {}),
     });
   }
