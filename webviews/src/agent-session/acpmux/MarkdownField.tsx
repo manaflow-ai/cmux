@@ -518,8 +518,8 @@ const PLAIN_LINE = /^[A-Za-z0-9,'?!](?:[A-Za-z0-9 ,'?!.]*[A-Za-z0-9,'?!.])?$/;
 const ESCAPED_DOT = /^\d+\.|[Ww]\.[\w.-]/;
 
 /** One paragraph of plain prose, unmarked, as its text: what the serializer writes for it, without
- * running the serializer. Most keys type into such a prompt, and the serializer took about 1 ms of
- * each key's ~2 ms of script (composer-typing bench --profile). Undefined for anything else. */
+ * running the serializer, which every key into such a prompt ran (Milkdown's whole remark pipeline
+ * for one line; composer-typing bench --profile). Undefined for anything else. */
 function plainLine(paragraph: ProseNode): string | undefined {
   if (paragraph.type.name !== "paragraph" || !paragraph.childCount) return undefined;
   let text = "";
