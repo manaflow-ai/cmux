@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43932419197",
+  "recorded_at": "2026-11-16T19:01:31Z",
+  "reason": "cmux-tui 9bbe07477705 changes the image's cmux-tui (pinned c2ccb8326c93)",
+  "dry_run": false,
+  "cmux_tui": "9bbe07477705bcbd20cb61c852d494aec6749fd8",
+  "fixes": [
+    {
+      "sha": "9bbe07477705bcbd20cb61c852d494aec6749fd8",
+      "mergedAt": "2026-11-16T10:33:38-08:00",
+      "subject": "fix(cmux NEXT): no two rows of one context menu share an icon"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T19:01:31Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
