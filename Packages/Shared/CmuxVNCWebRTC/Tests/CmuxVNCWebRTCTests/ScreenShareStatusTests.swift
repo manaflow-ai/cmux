@@ -26,7 +26,7 @@ struct ScreenShareStatusTests {
         // A status with no state (a malformed host) is no status.
         let bare = try JSONDecoder().decode(ScreenHostMessage.self, from: Data(#"{"t":"status","s":"x"}"#.utf8))
         #expect(bare.shareStatus == nil)
-        #expect(!ScreenHostMessage.isDisplays(bare), "a status is never read as displays")
+        #expect(!ScreenStreamViewer.isDisplays(bare), "a status is never read as displays")
     }
 
     @Test func viewOnlyAndReadyStatesStillShowTheScreen() {
