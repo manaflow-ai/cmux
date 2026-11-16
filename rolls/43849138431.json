@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43849138431",
+  "recorded_at": "2026-11-16T10:44:30Z",
+  "reason": "cmux-tui a04cee415b6e changes the image's cmux-tui (pinned 8d70e801d341)",
+  "dry_run": false,
+  "cmux_tui": "a04cee415b6eac32a37c35f6997682d8dee33bd5",
+  "fixes": [
+    {
+      "sha": "a04cee415b6eac32a37c35f6997682d8dee33bd5",
+      "mergedAt": "2026-11-16T02:11:50-08:00",
+      "subject": "acpmux: our own lane VMs take the VM boundary, Codex included (#44380)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T10:44:30Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
