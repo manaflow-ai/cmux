@@ -6072,7 +6072,7 @@ export class AcpmuxDirectClient {
       return;
     }
     this.quietChecks = 0;
-    if (this.workingNow()) this.armQuietWatch();
+    this.armQuietWatch();
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.opening || !this.hasConnected) return;
     if (this.attachedGeneration !== this.selectionGeneration) return;
@@ -6082,9 +6082,12 @@ export class AcpmuxDirectClient {
     this.checkStall(sessionId, "wake");
   }
 
-  /// Arms the quiet watch's timer for the shown chat (one at a time), when it is due next.
+  /// Arms the quiet watch's timer for the shown chat (one at a time), when it is due next, while the chat works. A
+  /// chat at rest arms none: its check would wake the pane only to find it not working, the one wakeup left in the
+  /// 10 s after a switch (CMUX-571 idle wakeups, bench/chat-switch.bench.ts). A record that opens a turn arms it
+  /// (`apply`), as do a list change that says the chat runs and a wake.
   private armQuietWatch(): void {
-    if (this.quietTimer !== undefined || this.closed || !this.hasConnected) return;
+    if (this.quietTimer !== undefined || this.closed || !this.hasConnected || !this.workingNow()) return;
     if (this.quietChecks >= stallTiming.quietChecks) return;
     const due = this.chatEventAt + quietDelay(this.quietChecks);
     this.quietTimer = setTimeout(
@@ -7543,13 +7546,11 @@ export class AcpmuxDirectClient {
       void this.permissions.refresh().catch(() => {});
       this.readMissedAfterLag(sessionId, generation, hostLast ?? pageEnd ?? this.lastSeq, 0);
     }
-    // The chat's records reached the page with its attach: a working chat's quiet is watched from here. A chat at
-    // rest arms nothing: the check would wake the pane only to find it not working (CMUX-571 idle wakeups); its next
-    // record, list change or wake arms the watch again.
+    // The chat's records reached the page with its attach: its quiet is watched from here, while it works.
     this.chatEventAt = Date.now();
     this.quietChecks = 0;
     this.stopQuietWatch();
-    if (this.workingNow()) this.armQuietWatch();
+    this.armQuietWatch();
     // The machine answered: these rows are its chat now, not the Mac's copy.
     this.peerCopy = undefined;
     if (this.copyBack === sessionId) this.copyBack = undefined;
@@ -7721,8 +7722,8 @@ export class AcpmuxDirectClient {
       this.summary = { ...this.summary, ...session, loopEpisode: session.loopEpisode ?? null };
       // Built when sent, after the record it follows: it settles the turn the records folded.
       this.settleTurnWithHost();
-      // The chat may run now (a prompt sent elsewhere): its quiet is watched from here. One at rest arms nothing.
-      if (this.quietTimer === undefined && this.workingNow()) this.armQuietWatch();
+      // The chat may run now (a prompt sent elsewhere): its quiet is watched from here.
+      if (this.quietTimer === undefined) this.armQuietWatch();
       // A harness restart or a new conversation names a new native root without a rebuild: the
       // fold learns it now, or a record naming it as a parent would not repair its child. One
       // that records already folded named (a retired root, too) drew rows that are now wrong:
@@ -7876,6 +7877,8 @@ export class AcpmuxDirectClient {
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
     this.streamGrew = false;
     this.reduce(event);
+    // A record that opened the turn arms the watch now that the chat works (`armQuietWatch`).
+    if (this.quietTimer === undefined) this.armQuietWatch();
     this.noticeRefusal(event);
     this.emitInFrame(event.kind, this.streamGrew);
     if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
