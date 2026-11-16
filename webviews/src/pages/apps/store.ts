@@ -497,8 +497,8 @@ export class AppsStore {
   }
 
   // Mutations. Install goes on the person's click (page-router.json `gesture`); uninstall, update
-  // and grant changes show a native confirmation in the
-  // host; the page waits for the owner's answer and re-reads.
+  // and grant changes show a native confirmation in the host; the page waits for the owner's
+  // answer and re-reads.
 
   install(app: string): Promise<void> {
     return this.intent(AppsOps.install, { app, grant_optional: false });

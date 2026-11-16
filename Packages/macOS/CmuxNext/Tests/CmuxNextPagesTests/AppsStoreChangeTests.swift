@@ -83,5 +83,9 @@ struct AppsStoreChangeTests {
             #expect(page.needsDetail(op), "\(op)")
         }
         #expect(AppsPageConfirmations().needsDetail("cmux.apps.install"))
+        // An install that deploys runs a server on a machine: the sheet names it, click or not.
+        let deploy: JSONValue = ["app": "a/b", "deploy": ["target": "cloud-vm:m"]]
+        #expect(page.needsDetail("cmux.apps.install", params: deploy))
+        #expect(!page.needsDetail("cmux.apps.install", params: ["app": "a/b", "deploy": .null]))
     }
 }

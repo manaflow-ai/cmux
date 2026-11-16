@@ -109,16 +109,25 @@ public struct PageOperations: Sendable, Equatable {
     /// Whether `operation` may go out where nothing narrows it: a listed read always, a `gesture`
     /// operation when `confirmed` or `gesture()` spends the person's event, a `confirm` operation
     /// only when `confirmed`; anything else never.
-    public func allowsUnnarrowed(_ operation: String, confirmed: Bool, gesture: () -> Bool) -> Bool {
+    public func allowsUnnarrowed(_ operation: String, params: [String: JSONValue] = [:], confirmed: Bool, gesture: () -> Bool) -> Bool {
         if read.contains(operation) { return true }
-        if confirm.contains(operation) { return confirmed }
+        if confirm.contains(operation) || Self.needsSheet(operation, params: params) { return confirmed }
         return self.gesture.contains(operation) && (confirmed || gesture())
     }
 
-    /// ``allowsUnnarrowed(_:confirmed:gesture:)`` for `page` (a relay page id); a page the spec
+    /// ``allowsUnnarrowed(_:params:confirmed:gesture:)`` for `page` (a relay page id); a page the spec
     /// does not list may call nothing.
-    public static func allowsUnnarrowed(_ page: String?, _ operation: String, confirmed: Bool, gesture: () -> Bool) -> Bool {
-        page.flatMap { spec[$0] }?.allowsUnnarrowed(operation, confirmed: confirmed, gesture: gesture) ?? false
+    public static func allowsUnnarrowed(_ page: String?, _ operation: String, params: [String: JSONValue] = [:],
+                                        confirmed: Bool, gesture: () -> Bool) -> Bool {
+        page.flatMap { spec[$0] }?.allowsUnnarrowed(operation, params: params, confirmed: confirmed, gesture: gesture) ?? false
+    }
+
+    /// Whether a `gesture` operation needs the native sheet anyway for these params: an install that
+    /// deploys (`deploy {target}`) runs a server on a machine and can spend money, so a click alone
+    /// never sends it; a plain install from the App Store's Install click does.
+    public static func needsSheet(_ operation: String, params: [String: JSONValue]) -> Bool {
+        guard operation == "apps.install", let deploy = params["deploy"] else { return false }
+        return deploy != .null
     }
 }
 

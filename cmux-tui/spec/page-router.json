@@ -54,7 +54,7 @@
       ]
     },
     "apps": {
-      "description": "App Store. Reads the catalog and the installed-app panels (grants, logs, icons). Hide/Show and revoking a scope need the person's gesture (they never widen what an app may do), and so does an install: the click on Install is the person's yes, with no second sheet (the CLI, palette and MCP still show the consent card); an uninstall, allowed scope or other change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox). It hears apps-changed, so an open page shows an install, removal or instance change made elsewhere (the CLI, another window) without a reload.",
+      "description": "App Store. Reads the catalog and the installed-app panels (grants, logs, icons). Hide/Show and revoking a scope need the person's gesture (they never widen what an app may do), and so does an install: the click on Install is the person's yes, with no second sheet (the CLI, palette and MCP still show the consent card, and an install that deploys to a machine always does); an uninstall, allowed scope or other change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox). It hears apps-changed, so an open page shows an install, removal or instance change made elsewhere (the CLI, another window) without a reload.",
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",

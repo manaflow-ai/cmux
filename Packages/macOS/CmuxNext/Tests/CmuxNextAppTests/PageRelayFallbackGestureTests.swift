@@ -102,6 +102,10 @@ import Testing
         #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps")) == .refused)
         #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 9)) == .forwarded)
         #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", origin: "user", confirmed: true)) == .forwarded)
+        // An install that deploys needs the sheet: a click alone never sends it.
+        let deploy: [String: CmuxNextDaemon.JSONValue] = ["app": .string("a/b"), "deploy": .object(["target": .string("cloud-vm:m")])]
+        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 10), params: deploy) == .refused)
+        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", origin: "user", confirmed: true), params: deploy) == .forwarded)
     }
 
     /// A change subscription never needs a gesture: on this daemon the page has no live events

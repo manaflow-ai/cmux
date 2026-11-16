@@ -20,8 +20,10 @@ public nonisolated struct AppsPageConfirmations {
     }
 
     /// Whether `op` may need a sheet, so the caller reads the listing (`cmux.apps.catalog.get`) first.
-    public func needsDetail(_ op: String) -> Bool {
-        if installOnClick, op == "cmux.apps.install" { return false }
+    /// An install that deploys (`deploy {target}`) always asks: it runs a server on a machine.
+    public func needsDetail(_ op: String, params: JSONValue = .object([:])) -> Bool {
+        let deploys = params["deploy"].map { $0 != .null } ?? false
+        if installOnClick, op == "cmux.apps.install", !deploys { return false }
         return ["cmux.apps.install", "cmux.apps.update", "cmux.apps.uninstall", "cmux.apps.grant.set", "cmux.apps.set"].contains(op)
     }
 
