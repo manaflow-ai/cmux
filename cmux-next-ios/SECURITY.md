@@ -1005,6 +1005,15 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   asks nothing for 10 minutes whatever key it brings (`rate_limited`). hostd
   asks nothing until the app sent its approved list, so an approved phone is
   never asked again after a hostd restart.
+- **What the phone sends before its own check.** To save round trips on a
+  reconnect, the phone opens `acpmux` right behind `auth` and sends acpmux's
+  `initialize` (protocol version, client name) and the first page's watch
+  (`enabled`, a row limit) before it has checked the Mac's proof. Neither
+  carries a secret, a session id or content. A real Mac holds both until
+  `auth` passes; the phone applies no reply and no notification until its own
+  check of the Mac passed, and closes the channel when it fails, so a Mac that
+  cannot prove its pinned key learns only that a cmux phone asked for its
+  chat list (ask-48f698fc26).
 - **Prompt content.** `pair_request` carries `registered_at_ms` (PROTOCOL.md
   "Pairing"): when the backend first saw that device id. The phone sets the
   `name` it shows, so a spoofed "Aziz's iPhone" from a device registered
