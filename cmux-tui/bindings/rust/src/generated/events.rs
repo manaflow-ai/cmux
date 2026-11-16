@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e886a510ff75a8c85a2b295523007222553407c8125c7e914fdb72236f68cedf.
+// cmux-tui mux protocol 12, IR cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -413,6 +413,16 @@ pub struct DetachedEvent {
     pub surface: T::Id,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub view: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceSetupStepEvent {
+    pub detail: String,
+    pub device: String,
+    pub fix: String,
+    pub state: String,
+    pub step: String,
 }
 
 #[rustfmt::skip]
@@ -1095,6 +1105,7 @@ pub enum Event {
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
+    DeviceSetupStep(DeviceSetupStepEvent),
     Empty(EmptyEvent),
     FeedReportsChanged(FeedReportsChangedEvent),
     FeedViewChanged(FeedViewChangedEvent),
@@ -1198,6 +1209,7 @@ impl Event {
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
+            Self::DeviceSetupStep(_) => Some("device-setup-step"),
             Self::Empty(_) => Some("empty"),
             Self::FeedReportsChanged(_) => Some("feed-reports-changed"),
             Self::FeedViewChanged(_) => Some("feed-view-changed"),
@@ -1300,6 +1312,7 @@ impl Event {
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
+            Self::DeviceSetupStep(_) => Some(&DEVICE_SETUP_STEP_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
             Self::FeedReportsChanged(_) => Some(&FEED_REPORTS_CHANGED_EVENT_METADATA),
             Self::FeedViewChanged(_) => Some(&FEED_VIEW_CHANGED_EVENT_METADATA),
@@ -1665,6 +1678,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("detached") => match serde_json::from_value::<DetachedEvent>(raw.clone()) {
             Ok(event) => Event::Detached(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("device-setup-step") => match serde_json::from_value::<DeviceSetupStepEvent>(raw.clone()) {
+            Ok(event) => Event::DeviceSetupStep(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

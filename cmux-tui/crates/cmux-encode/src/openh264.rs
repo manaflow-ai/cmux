@@ -19,7 +19,7 @@ use std::path::Path;
 
 use openh264_sys2::*;
 
-use crate::{EncCfg, H264Encoder, I420, Res};
+use crate::{EncCfg, H264Encoder, Res, I420};
 
 /// The OpenH264 entry points in use.
 pub struct OpenH264Api(DynamicAPI);
@@ -180,13 +180,67 @@ pub struct OpenH264 {
     info: Box<SFrameBSInfo>,
     kbps: u32,
     name: String,
+    cfg: EncCfg,
+    opts: OpenH264Options,
+    /// The instance codes with screen usage now (else camera usage).
+    screen: bool,
+    motion: MotionGuard,
+}
+
+/// Screen usage turns OpenH264's scene-change detection on whatever the settings say
+/// (v2.6.0 ParamValidation), and with no long-term references every frame that moves 80 %
+/// of its blocks is an IDR (DecideFrameType): full-screen motion was all IDRs, about
+/// 4.7 fps on a Linux host. Camera usage honors "no scene-change IDR" but codes a text
+/// scroll far worse. So screen content starts in screen usage; after an IDR the encoder
+/// made on its own, a next picture that changed more than [`MOTION_CHANGE`] of its samples
+/// moves it to camera usage before that picture is coded (the IDR the move costs replaces
+/// the one screen usage would have made), and [`CALM_FRAMES_TO_SCREEN`] pictures in a row
+/// that changed less than [`CALM_CHANGE`] move it back. A move rebuilds the encoder, so its
+/// next frame is an IDR. One page flip or a scroll stays in screen usage.
+pub const MOTION_CHANGE: f32 = 0.5;
+pub const CALM_CHANGE: f32 = 0.25;
+pub const CALM_FRAMES_TO_SCREEN: u32 = 30;
+/// Luma rows and columns between samples of the change check.
+const SAMPLE_STEP: usize = 16;
+
+/// The state behind the usage moves (see [`MOTION_CHANGE`]).
+#[derive(Default)]
+struct MotionGuard {
+    /// The last coded frame was an IDR the encoder made on its own (screen usage).
+    self_idr: bool,
+    /// The instance has coded no frame yet (its first is an IDR).
+    fresh: bool,
+    /// Pictures in a row that changed little (camera usage).
+    calm: u32,
+    /// Every [`SAMPLE_STEP`]th luma sample of the previous picture.
+    samples: Vec<u8>,
+}
+
+impl MotionGuard {
+    /// The share of sampled luma that changed since the previous picture (1 for the first).
+    fn changed(&mut self, pic: &I420) -> f32 {
+        let rows = pic.y.chunks_exact(pic.width.max(1)).step_by(SAMPLE_STEP);
+        let now: Vec<u8> = rows.flat_map(|row| row.iter().step_by(SAMPLE_STEP).copied()).collect();
+        let changed = if now.len() == self.samples.len() && !now.is_empty() {
+            let n = now.iter().zip(&self.samples).filter(|(a, b)| a.abs_diff(**b) > 2).count();
+            n as f32 / now.len() as f32
+        } else {
+            1.0
+        };
+        self.samples = now;
+        changed
+    }
 }
 
 // SAFETY: the encoder instance is used from one thread at a time (owned by the media loop).
 unsafe impl Send for OpenH264 {}
 
 fn ok(rc: c_int, what: &str) -> Res<()> {
-    if rc == 0 { Ok(()) } else { Err(format!("openh264 {what} failed: {rc}").into()) }
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(format!("openh264 {what} failed: {rc}").into())
+    }
 }
 
 /// Settings past [`OpenH264::new`]'s, for measuring speed against sharpness. The default
@@ -197,24 +251,52 @@ pub struct OpenH264Options {
     pub frame_skip: bool,
     /// Worker threads and slices; `None` is the config's.
     pub threads: Option<u16>,
+    /// Slices of each picture; `None` is one per thread.
+    pub slices: Option<u16>,
+    /// OpenH264 moves slice boundaries toward equal coding time per thread.
+    pub load_balancing: bool,
     /// 0 low (the default), 1 medium, 2 high.
     pub complexity: u8,
     pub min_qp: Option<u8>,
     pub max_qp: Option<u8>,
     pub adaptive_quant: bool,
     pub background_detection: bool,
+    /// How screen content is coded (camera content always codes in camera usage).
+    pub usage: Usage,
+    /// Long-term references (0 off, at most 4). In screen usage a scene change then
+    /// codes a P-frame marked long-term instead of an IDR until all are taken.
+    pub ltr: u8,
 }
+
+/// The usage OpenH264 codes screen content in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Usage {
+    /// Screen usage throughout.
+    Screen,
+    /// Camera usage throughout.
+    Camera,
+    /// Screen usage, camera usage while most of the picture moves (see [`MOTION_CHANGE`]).
+    Switch,
+}
+
+/// The shipped usage and long-term references for screen content.
+pub const SHIPPED_USAGE: Usage = Usage::Switch;
+pub const SHIPPED_LTR: u8 = 0;
 
 impl Default for OpenH264Options {
     fn default() -> Self {
         Self {
             frame_skip: true,
             threads: None,
+            slices: None,
+            load_balancing: false,
             complexity: 0,
             min_qp: None,
             max_qp: None,
             adaptive_quant: false,
             background_detection: false,
+            usage: SHIPPED_USAGE,
+            ltr: SHIPPED_LTR,
         }
     }
 }
@@ -230,11 +312,22 @@ impl OpenH264Options {
             match k {
                 "frameskip" => o.frame_skip = num()? != 0,
                 "threads" => o.threads = Some(num()?.clamp(1, 16) as u16),
+                "slices" => o.slices = Some(num()?.clamp(1, 35) as u16),
+                "lb" => o.load_balancing = num()? != 0,
                 "complexity" => o.complexity = num()?.min(2) as u8,
                 "minqp" => o.min_qp = Some(num()?.min(51) as u8),
                 "maxqp" => o.max_qp = Some(num()?.min(51) as u8),
                 "aq" => o.adaptive_quant = num()? != 0,
                 "bgd" => o.background_detection = num()? != 0,
+                "usage" => {
+                    o.usage = match v {
+                        "screen" => Usage::Screen,
+                        "camera" => Usage::Camera,
+                        "switch" => Usage::Switch,
+                        _ => return Err(format!("openh264 options usage: {v}").into()),
+                    }
+                }
+                "ltr" => o.ltr = num()?.min(4) as u8,
                 _ => return Err(format!("openh264 options: unknown key {k}").into()),
             }
         }
@@ -247,6 +340,12 @@ impl OpenH264Options {
         let mut s = Vec::new();
         if self.threads.is_some() {
             s.push(format!("threads={}", self.threads.unwrap_or(1)));
+        }
+        if let Some(n) = self.slices {
+            s.push(format!("slices={n}"));
+        }
+        if self.load_balancing {
+            s.push("lb=on".into());
         }
         if self.complexity != d.complexity {
             s.push(format!("complexity={}", self.complexity));
@@ -263,6 +362,12 @@ impl OpenH264Options {
         if self.background_detection {
             s.push("bgd=on".into());
         }
+        if self.usage != d.usage {
+            s.push(format!("usage={:?}", self.usage).to_lowercase());
+        }
+        if self.ltr != d.ltr {
+            s.push(format!("ltr={}", self.ltr));
+        }
         s.join(" ")
     }
 }
@@ -276,103 +381,100 @@ impl OpenH264 {
 
     /// [`OpenH264::new`] with `opts` in place of the shipped settings.
     pub fn with_options(cfg: &EncCfg, api: OpenH264Api, opts: &OpenH264Options) -> Res<Self> {
+        let mut this = Self {
+            api,
+            enc: std::ptr::null_mut(),
+            info: Box::default(),
+            kbps: cfg.kbps.max(100),
+            name: String::new(),
+            cfg: *cfg,
+            opts: opts.clone(),
+            screen: cfg.screen_content && opts.usage != Usage::Camera,
+            motion: MotionGuard::default(),
+        };
+        this.rebuild(this.screen)?;
+        Ok(this)
+    }
+
+    /// Replaces the encoder instance with a new one in screen or camera usage, at the
+    /// current bitrate; its next frame is an IDR. On failure the old instance stays.
+    fn rebuild(&mut self, screen: bool) -> Res<()> {
         let mut enc: *mut ISVCEncoder = std::ptr::null_mut();
         // SAFETY: the API fills `enc` with a new encoder instance or fails.
-        ok(unsafe { api.0.WelsCreateSVCEncoder(&mut enc) }, "create")?;
+        ok(unsafe { self.api.0.WelsCreateSVCEncoder(&mut enc) }, "create")?;
         if enc.is_null() {
             return Err("openh264 create returned null".into());
         }
+        // SAFETY: `enc` is the live instance created above.
+        if let Err(e) = unsafe { init(enc, &self.cfg, &self.opts, self.kbps, screen) } {
+            // SAFETY: uninitialize and destroy the new instance exactly once (openh264
+            // checks its state, so a failed InitializeExt is safe to uninitialize).
+            unsafe {
+                if let Some(uninit) = (**enc).Uninitialize {
+                    uninit(enc);
+                }
+                self.api.0.WelsDestroySVCEncoder(enc);
+            }
+            return Err(e);
+        }
+        self.release();
+        self.enc = enc;
+        self.screen = screen;
+        self.motion.self_idr = false;
+        self.motion.fresh = true;
+        self.motion.calm = 0;
         // SAFETY: plain version query.
-        let v = unsafe { api.0.WelsGetCodecVersion() };
-        let name = format!(
+        let v = unsafe { self.api.0.WelsGetCodecVersion() };
+        self.name = format!(
             "openh264 {}.{}.{} {} baseline rc=bitrate frameskip={} gop=inf {}",
             v.uMajor,
             v.uMinor,
             v.uRevision,
-            if cfg.screen_content { "screen-realtime" } else { "camera-realtime" },
-            if opts.frame_skip { "on" } else { "off" },
-            opts.describe()
+            match (self.cfg.screen_content, screen, self.opts.usage) {
+                (true, true, _) => "screen-realtime",
+                (true, false, Usage::Switch) => "screen-realtime(camera-for-motion)",
+                _ => "camera-realtime",
+            },
+            if self.opts.frame_skip { "on" } else { "off" },
+            self.opts.describe()
         )
         .trim_end()
         .to_owned();
-        let this = Self { api, enc, info: Box::default(), kbps: cfg.kbps.max(100), name };
-        let vt = this.vtbl();
-        let mut p = SEncParamExt::default();
-        // SAFETY: vtable functions of a live encoder, called with valid pointers.
-        unsafe { ok(vt.GetDefaultParams.ok_or("no GetDefaultParams")?(enc, &mut p), "defaults")? };
-        let threads = opts.threads.unwrap_or(cfg.threads).max(1);
-        let bitrate = (this.kbps * 1000) as c_int;
-        // Camera usage honors "no scene-change IDR"; screen usage forces one on large changes
-        // but is the only mode that codes a text scroll cheaply (prototype: 73x less).
-        p.iUsageType =
-            if cfg.screen_content { SCREEN_CONTENT_REAL_TIME } else { CAMERA_VIDEO_REAL_TIME };
-        p.iPicWidth = cfg.width as c_int;
-        p.iPicHeight = cfg.height as c_int;
-        p.fMaxFrameRate = cfg.fps as f32;
-        p.iTemporalLayerNum = 1;
-        p.iSpatialLayerNum = 1;
-        p.iComplexityMode = match opts.complexity {
-            0 => LOW_COMPLEXITY,
-            1 => MEDIUM_COMPLEXITY,
-            _ => HIGH_COMPLEXITY,
-        };
-        p.uiIntraPeriod = 0;
-        p.iNumRefFrame = 1;
-        p.eSpsPpsIdStrategy = CONSTANT_ID;
-        p.bPrefixNalAddingCtrl = false;
-        p.bEnableSSEI = false;
-        p.iEntropyCodingModeFlag = 0;
-        // Frame skipping lets the rate controller hold the target (measured: without it the
-        // target overshot 6x); a skipped frame sends nothing and the next damage retries.
-        p.bEnableFrameSkip = opts.frame_skip;
-        p.bEnableLongTermReference = false;
-        p.iMultipleThreadIdc = threads;
-        p.bUseLoadBalancing = false;
-        p.iLoopFilterDisableIdc = 0;
-        p.bEnableDenoise = false;
-        p.bEnableBackgroundDetection = opts.background_detection;
-        p.bEnableAdaptiveQuant = opts.adaptive_quant;
-        if let Some(q) = opts.min_qp {
-            p.iMinQp = c_int::from(q);
+        Ok(())
+    }
+
+    /// Uninitializes and destroys the current instance, if there is one.
+    fn release(&mut self) {
+        if self.enc.is_null() {
+            return;
         }
-        if let Some(q) = opts.max_qp {
-            p.iMaxQp = c_int::from(q);
-        }
-        p.bEnableSceneChangeDetect = false;
-        p.iRCMode = RC_BITRATE_MODE;
-        p.iTargetBitrate = bitrate;
-        p.iMaxBitrate = bitrate;
-        let l = &mut p.sSpatialLayers[0];
-        l.iVideoWidth = cfg.width as c_int;
-        l.iVideoHeight = cfg.height as c_int;
-        l.fFrameRate = cfg.fps as f32;
-        l.iSpatialBitrate = bitrate;
-        l.iMaxSpatialBitrate = bitrate;
-        l.uiProfileIdc = PRO_BASELINE;
-        l.uiLevelIdc = LEVEL_UNKNOWN;
-        if threads > 1 {
-            l.sSliceArgument.uiSliceMode = SM_FIXEDSLCNUM_SLICE;
-            l.sSliceArgument.uiSliceNum = u32::from(threads);
-        } else {
-            l.sSliceArgument.uiSliceMode = SM_SINGLE_SLICE;
-            l.sSliceArgument.uiSliceNum = 1;
-        }
-        let mut trace: c_int = WELS_LOG_QUIET as c_int;
-        let mut fmt: c_int = videoFormatI420 as c_int;
-        // SAFETY: as above; option payloads are valid pointers for the call.
+        // SAFETY: uninitialize and destroy a live encoder exactly once; `enc` is cleared.
         unsafe {
-            ok(vt.InitializeExt.ok_or("no InitializeExt")?(enc, &p), "initialize")?;
-            let set = vt.SetOption.ok_or("no SetOption")?;
-            ok(
-                set(enc, ENCODER_OPTION_TRACE_LEVEL, (&mut trace as *mut c_int).cast::<c_void>()),
-                "trace level",
-            )?;
-            ok(
-                set(enc, ENCODER_OPTION_DATAFORMAT, (&mut fmt as *mut c_int).cast::<c_void>()),
-                "data format",
-            )?;
+            if let Some(uninit) = self.vtbl().Uninitialize {
+                uninit(self.enc);
+            }
+            self.api.0.WelsDestroySVCEncoder(self.enc);
         }
-        Ok(this)
+        self.enc = std::ptr::null_mut();
+    }
+
+    /// Moves between screen and camera usage before `pic` is coded (see [`MOTION_CHANGE`]).
+    fn pick_usage(&mut self, pic: &I420) {
+        if !self.cfg.screen_content || self.opts.usage != Usage::Switch {
+            return;
+        }
+        let changed = self.motion.changed(pic);
+        if self.screen {
+            if self.motion.self_idr && changed > MOTION_CHANGE {
+                // A failed rebuild keeps screen usage; the next IDR tries again.
+                let _ = self.rebuild(false);
+            }
+            return;
+        }
+        self.motion.calm = if changed < CALM_CHANGE { self.motion.calm + 1 } else { 0 };
+        if self.motion.calm >= CALM_FRAMES_TO_SCREEN {
+            let _ = self.rebuild(true);
+        }
     }
 
     fn vtbl(&self) -> &ISVCEncoderVtbl {
@@ -381,9 +483,105 @@ impl OpenH264 {
     }
 }
 
+/// Initializes the new instance `enc` with the shipped settings over `opts`.
+///
+/// # Safety
+/// `enc` is a live, uninitialized encoder instance.
+unsafe fn init(
+    enc: *mut ISVCEncoder,
+    cfg: &EncCfg,
+    opts: &OpenH264Options,
+    kbps: u32,
+    screen: bool,
+) -> Res<()> {
+    // SAFETY: the caller's live instance; its first field is its vtable pointer.
+    let vt = unsafe { &**enc };
+    let mut p = SEncParamExt::default();
+    // SAFETY: vtable functions of a live encoder, called with valid pointers.
+    unsafe { ok(vt.GetDefaultParams.ok_or("no GetDefaultParams")?(enc, &mut p), "defaults")? };
+    let threads = opts.threads.unwrap_or(cfg.threads).max(1);
+    let bitrate = (kbps * 1000) as c_int;
+    // Camera usage honors "no scene-change IDR"; screen usage forces one on large changes
+    // but is the only mode that codes a text scroll cheaply (prototype: 73x less).
+    p.iUsageType = if screen { SCREEN_CONTENT_REAL_TIME } else { CAMERA_VIDEO_REAL_TIME };
+    p.iPicWidth = cfg.width as c_int;
+    p.iPicHeight = cfg.height as c_int;
+    p.fMaxFrameRate = cfg.fps as f32;
+    p.iTemporalLayerNum = 1;
+    p.iSpatialLayerNum = 1;
+    p.iComplexityMode = match opts.complexity {
+        0 => LOW_COMPLEXITY,
+        1 => MEDIUM_COMPLEXITY,
+        _ => HIGH_COMPLEXITY,
+    };
+    p.uiIntraPeriod = 0;
+    // Screen usage keeps long-term references only on a link it calls lossless; ours
+    // recovers a lost reference with a keyframe the viewer asks for.
+    p.iNumRefFrame = 1 + c_int::from(opts.ltr);
+    p.bIsLosslessLink = opts.ltr > 0;
+    p.iLTRRefNum = c_int::from(opts.ltr);
+    p.eSpsPpsIdStrategy = CONSTANT_ID;
+    p.bPrefixNalAddingCtrl = false;
+    p.bEnableSSEI = false;
+    p.iEntropyCodingModeFlag = 0;
+    // Frame skipping lets the rate controller hold the target (measured: without it the
+    // target overshot 6x); a skipped frame sends nothing and the next damage retries.
+    p.bEnableFrameSkip = opts.frame_skip;
+    p.bEnableLongTermReference = opts.ltr > 0;
+    p.iMultipleThreadIdc = threads;
+    p.bUseLoadBalancing = opts.load_balancing;
+    p.iLoopFilterDisableIdc = 0;
+    p.bEnableDenoise = false;
+    p.bEnableBackgroundDetection = opts.background_detection;
+    p.bEnableAdaptiveQuant = opts.adaptive_quant;
+    if let Some(q) = opts.min_qp {
+        p.iMinQp = c_int::from(q);
+    }
+    if let Some(q) = opts.max_qp {
+        p.iMaxQp = c_int::from(q);
+    }
+    p.bEnableSceneChangeDetect = false;
+    p.iRCMode = RC_BITRATE_MODE;
+    p.iTargetBitrate = bitrate;
+    p.iMaxBitrate = bitrate;
+    let l = &mut p.sSpatialLayers[0];
+    l.iVideoWidth = cfg.width as c_int;
+    l.iVideoHeight = cfg.height as c_int;
+    l.fFrameRate = cfg.fps as f32;
+    l.iSpatialBitrate = bitrate;
+    l.iMaxSpatialBitrate = bitrate;
+    l.uiProfileIdc = PRO_BASELINE;
+    l.uiLevelIdc = LEVEL_UNKNOWN;
+    let slices = opts.slices.unwrap_or(threads).max(1);
+    if slices > 1 {
+        l.sSliceArgument.uiSliceMode = SM_FIXEDSLCNUM_SLICE;
+        l.sSliceArgument.uiSliceNum = u32::from(slices);
+    } else {
+        l.sSliceArgument.uiSliceMode = SM_SINGLE_SLICE;
+        l.sSliceArgument.uiSliceNum = 1;
+    }
+    let mut trace: c_int = WELS_LOG_QUIET as c_int;
+    let mut fmt: c_int = videoFormatI420 as c_int;
+    // SAFETY: as above; option payloads are valid pointers for the call.
+    unsafe {
+        ok(vt.InitializeExt.ok_or("no InitializeExt")?(enc, &p), "initialize")?;
+        let set = vt.SetOption.ok_or("no SetOption")?;
+        ok(
+            set(enc, ENCODER_OPTION_TRACE_LEVEL, (&mut trace as *mut c_int).cast::<c_void>()),
+            "trace level",
+        )?;
+        ok(
+            set(enc, ENCODER_OPTION_DATAFORMAT, (&mut fmt as *mut c_int).cast::<c_void>()),
+            "data format",
+        )?;
+    }
+    Ok(())
+}
+
 impl H264Encoder for OpenH264 {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
         out.clear();
+        self.pick_usage(pic);
         let vt = self.vtbl();
         let force = vt.ForceIntraFrame.ok_or("no ForceIntraFrame")?;
         let encode = vt.EncodeFrame.ok_or("no EncodeFrame")?;
@@ -425,7 +623,11 @@ impl H264Encoder for OpenH264 {
                 offset += len;
             }
         }
-        Ok(info.eFrameType == videoFrameTypeIDR)
+        let idr = info.eFrameType == videoFrameTypeIDR;
+        // A new instance's first IDR is the move's, not a scene change's.
+        self.motion.self_idr = self.screen && idr && !force_idr && !self.motion.fresh;
+        self.motion.fresh = false;
+        Ok(idr)
     }
 
     fn set_bitrate(&mut self, kbps: u32) {
@@ -489,15 +691,8 @@ impl H264Encoder for OpenH264 {
 }
 
 impl Drop for OpenH264 {
-    /// Uninitialize is safe on an encoder whose InitializeExt failed (openh264 checks its state).
     fn drop(&mut self) {
-        // SAFETY: uninitialize and destroy a live encoder exactly once.
-        unsafe {
-            if let Some(uninit) = self.vtbl().Uninitialize {
-                uninit(self.enc);
-            }
-            self.api.0.WelsDestroySVCEncoder(self.enc);
-        }
+        self.release();
     }
 }
 
@@ -596,5 +791,160 @@ mod bitrate_tests {
             assert_eq!(read_rate(&enc, ENCODER_OPTION_BITRATE, layer), 8_000_000);
             assert_eq!(read_rate(&enc, ENCODER_OPTION_MAX_BITRATE, layer), 8_000_000);
         }
+    }
+}
+
+/// OpenH264's decoder behind [`crate::VideoDecoder`], on the same entry points as the encoder:
+/// Cisco's binary loaded at run time (`cmux-rd view`, the Linux viewer) or the source build
+/// (tests). It decodes Constrained Baseline, the profile a host sends a viewer that offers
+/// the `h264.baseline` cap.
+pub struct OpenH264Decoder {
+    api: OpenH264Api,
+    dec: *mut ISVCDecoder,
+}
+
+// SAFETY: the decoder instance is used from one thread at a time (owned by the viewer's loop).
+unsafe impl Send for OpenH264Decoder {}
+
+impl OpenH264Decoder {
+    pub fn new(api: OpenH264Api) -> Res<Self> {
+        let mut dec: *mut ISVCDecoder = std::ptr::null_mut();
+        // SAFETY: WelsCreateDecoder writes one decoder pointer to `dec`.
+        ok(unsafe { api.0.WelsCreateDecoder(&mut dec) } as c_int, "WelsCreateDecoder")?;
+        if dec.is_null() {
+            return Err("openh264 WelsCreateDecoder returned no decoder".into());
+        }
+        let this = Self { api, dec };
+        // SAFETY: a zeroed SDecodingParam is the library's "defaults" (its own tests do the same).
+        let mut param: SDecodingParam = unsafe { std::mem::zeroed() };
+        param.sVideoProperty.eVideoBsType = VIDEO_BITSTREAM_AVC;
+        let vtbl = this.vtbl()?;
+        let initialize = vtbl.Initialize.ok_or("openh264 decoder has no Initialize")?;
+        // SAFETY: a live decoder and an initialized parameter block.
+        ok(unsafe { initialize(this.dec, &param) } as c_int, "decoder Initialize")?;
+        if let Some(set_option) = vtbl.SetOption {
+            let mut quiet: c_int = WELS_LOG_QUIET as c_int;
+            // Error concealment off: a frame with a hole is not shown; the viewer asks for
+            // recovery instead of drawing a smeared picture.
+            let mut conceal: c_int = ERROR_CON_DISABLE as c_int;
+            // SAFETY: each option takes a pointer to an int.
+            unsafe {
+                set_option(this.dec, DECODER_OPTION_TRACE_LEVEL, (&mut quiet as *mut c_int).cast());
+                set_option(
+                    this.dec,
+                    DECODER_OPTION_ERROR_CON_IDC,
+                    (&mut conceal as *mut c_int).cast(),
+                );
+            }
+        }
+        Ok(this)
+    }
+
+    fn vtbl(&self) -> Res<&ISVCDecoderVtbl> {
+        // SAFETY: a live decoder points at its vtable pointer, which points at the vtable.
+        unsafe { (*self.dec).as_ref() }.ok_or_else(|| "openh264 decoder has no vtable".into())
+    }
+}
+
+impl Drop for OpenH264Decoder {
+    fn drop(&mut self) {
+        // SAFETY: the decoder was created by this API and is destroyed once.
+        unsafe {
+            if let Ok(Some(uninitialize)) = self.vtbl().map(|v| v.Uninitialize) {
+                uninitialize(self.dec);
+            }
+            self.api.0.WelsDestroyDecoder(self.dec);
+        }
+    }
+}
+
+impl crate::VideoDecoder for OpenH264Decoder {
+    fn decode(&mut self, au: &[u8], out: &mut I420) -> Res<bool> {
+        let decode =
+            self.vtbl()?.DecodeFrameNoDelay.ok_or("openh264 decoder has no DecodeFrameNoDelay")?;
+        let mut planes = [std::ptr::null_mut::<u8>(); 3];
+        // SAFETY: zeroed SBufferInfo is the empty answer the decoder fills.
+        let mut info: SBufferInfo = unsafe { std::mem::zeroed() };
+        // SAFETY: `au` stays alive for the call; `planes` and `info` are ours to fill.
+        let state = unsafe {
+            decode(self.dec, au.as_ptr(), au.len() as c_int, planes.as_mut_ptr(), &mut info)
+        };
+        if state != 0 {
+            return Err(format!("openh264 decode failed: state {state:#x}").into());
+        }
+        if info.iBufferStatus != 1 {
+            return Ok(false);
+        }
+        // SAFETY: with iBufferStatus 1 the system buffer describes the three planes.
+        let sys = unsafe { info.UsrData.sSystemBuffer };
+        let (w, h) = (sys.iWidth.max(0) as usize, sys.iHeight.max(0) as usize);
+        let (ys, cs) = (sys.iStride[0].max(0) as usize, sys.iStride[1].max(0) as usize);
+        if w == 0 || h == 0 || planes.iter().any(|p| p.is_null()) {
+            return Ok(false);
+        }
+        if out.width != w || out.y.len() != w * h {
+            *out = I420::new(w, h);
+        }
+        let (cw, ch) = (w / 2, h / 2);
+        for (i, (dst, pw, ph, stride)) in
+            [(&mut out.y, w, h, ys), (&mut out.u, cw, ch, cs), (&mut out.v, cw, ch, cs)]
+                .into_iter()
+                .enumerate()
+        {
+            for row in 0..ph {
+                // SAFETY: OpenH264's plane `i` covers `stride * ph` bytes until the next call.
+                let src = unsafe { std::slice::from_raw_parts(planes[i].add(row * stride), pw) };
+                dst[row * pw..(row + 1) * pw].copy_from_slice(src);
+            }
+        }
+        Ok(true)
+    }
+
+    fn codec(&self) -> crate::Codec {
+        crate::Codec::H264
+    }
+
+    fn name(&self) -> String {
+        "openh264 decoder".into()
+    }
+}
+
+#[cfg(all(test, feature = "openh264-source"))]
+mod decoder_tests {
+    use super::*;
+    use crate::{VideoDecoder, VideoEncoder};
+
+    /// The encoder's own stream decodes back to its size, and the picture is close to the source.
+    #[test]
+    fn decodes_what_the_encoder_makes() {
+        let (w, h) = (64usize, 48usize);
+        let cfg = EncCfg {
+            width: w as u32,
+            height: h as u32,
+            fps: 30,
+            kbps: 2000,
+            threads: 1,
+            screen_content: true,
+        };
+        let mut enc = OpenH264::new(&cfg, OpenH264Api::from_source()).expect("encoder");
+        let mut dec = OpenH264Decoder::new(OpenH264Api::from_source()).expect("decoder");
+        let mut src = I420::new(w, h);
+        src.y.iter_mut().enumerate().for_each(|(i, p)| *p = 16 + (i % 200) as u8);
+        let mut out = I420::new(2, 2);
+        let mut decoded = 0;
+        let mut au = Vec::new();
+        for frame in 0..5 {
+            au.clear();
+            if !enc.encode(&src, frame == 0, frame, &mut au).expect("encode") || au.is_empty() {
+                continue;
+            }
+            if dec.decode(&au, &mut out).expect("decode") {
+                decoded += 1;
+            }
+        }
+        assert!(decoded > 0, "no picture came out");
+        assert_eq!((out.width, out.y.len()), (w, w * h));
+        let err: u64 = out.y.iter().zip(&src.y).map(|(a, b)| u64::from(a.abs_diff(*b))).sum();
+        assert!(err / (w * h) as u64 <= 8, "mean luma error {}", err / (w * h) as u64);
     }
 }

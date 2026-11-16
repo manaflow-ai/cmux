@@ -91,8 +91,19 @@ jobs:
           # cargo's output is kept so a stale Cargo.lock is named as such, not as a broken
           # Windows build (cargo-locks.py explain).
           log="$RUNNER_TEMP/windows-check.log"
-          if ! cargo check --locked --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui -p acpmux 2>&1 | tee "$log"; then
-            if python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
-            echo "::error title=Windows build broken::cargo check --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui -p acpmux failed. A #[cfg(unix)] covers one item only; wrap whole blocks, and give Windows its own arm."
-            exit 1
-          fi
+          # The tests too, not only the libraries and bins: a unix-only test (std::os::unix,
+          # libc::mkfifo) with no cfg landed through this check because it never compiled test
+          # code, and then broke the Windows jobs that do (2026-11-16: cmux-tui.yml's test
+          # (windows) checks acpmux --all-targets; cmux-tui-build-package.yml's long-path step
+          # builds cmux-tui-core's lib tests). Each line is what one of those compiles.
+          for targets in "-p cmux-tui-core -p cmux-tui -p acpmux" \
+                         "-p acpmux --all-targets" \
+                         "-p cmux-tui-core --lib --tests" \
+                         "-p cmux-tui --lib --bins --tests"; do
+            # shellcheck disable=SC2086 # $targets is a list of cargo arguments
+            if ! cargo check --locked --target x86_64-pc-windows-gnu $targets 2>&1 | tee "$log"; then
+              if python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then exit 1; fi
+              echo "::error title=Windows build broken::cargo check --target x86_64-pc-windows-gnu $targets failed. A #[cfg(unix)] covers one item only; wrap whole blocks, and give Windows its own arm (a unix-only test gets #[cfg(unix)])."
+              exit 1
+            fi
+          done

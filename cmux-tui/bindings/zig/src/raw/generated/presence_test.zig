@@ -53,6 +53,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CreateTerminalRequest, "keep");
     try expectExplicitNullRejected(protocol.CreateWorkspaceGroupRequest, "collapsed");
     try expectExplicitNullRejected(protocol.DeleteTerminalCommandsRequest, "all");
+    try expectExplicitNullRejected(protocol.DeviceSetupRequest, "allow_agents");
+    try expectExplicitNullRejected(protocol.DeviceSetupRequest, "dry_run");
     try expectExplicitNullRejected(protocol.FeedLocalListRequest, "unread");
     try expectExplicitNullRejected(protocol.ForgetSessionRequest, "force");
     try expectExplicitNullRejected(protocol.HistorySearchRequest, "kinds");
