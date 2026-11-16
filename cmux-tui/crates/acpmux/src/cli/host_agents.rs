@@ -100,15 +100,17 @@ pub(crate) fn probe(r: &dyn Remote) -> Result<Found> {
 /// Authentication status commands write only to the captured pipe; their output is reduced to
 /// booleans before it is returned to the caller.
 pub(crate) fn local_probe() -> Option<Found> {
-    let mut child = Command::new("/bin/sh")
+    let mut command = Command::new("/bin/sh");
+    command
         .args(["-c", &probe_script()])
         .env_remove("CMUX_CLOUD_ACCESS_TOKEN")
         .env_remove("CMUX_JOIN")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(Stdio::null());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    let mut child = command.spawn().ok()?;
     let mut stdout = child.stdout.take()?;
     let reader = std::thread::spawn(move || {
         let mut text = String::new();
@@ -116,11 +118,19 @@ pub(crate) fn local_probe() -> Option<Found> {
         text
     });
     use wait_timeout::ChildExt as _;
-    let status = match child.wait_timeout(Duration::from_secs(20)).ok()? {
-        Some(status) => status,
-        None => {
+    let status = match child.wait_timeout(Duration::from_secs(20)) {
+        Ok(Some(status)) => status,
+        Ok(None) | Err(_) => {
+            // The shell may have a harness child holding stdout open. Kill only
+            // the process group created above, then reap both the shell and its
+            // reader so a timed-out doctor cannot leak a process or pipe.
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
+            }
             let _ = child.kill();
             let _ = child.wait();
+            let _ = reader.join();
             return None;
         }
     };
