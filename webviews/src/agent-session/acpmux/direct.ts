@@ -487,6 +487,18 @@ const inChat = (question: AgentQuestion): AgentQuestion => ({
   state: { kind: "cancelled", reason: "answeredInChat" },
 });
 
+/// Whether records sorted by seq hold one numbered `seq` (a binary search).
+const holdsSeq = (events: readonly EventRecord[], seq: number) => {
+  let low = 0;
+  let high = events.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (events[mid]!.seq < seq) low = mid + 1;
+    else high = mid;
+  }
+  return events[low]?.seq === seq;
+};
+
 const startsTurn = (event: EventRecord) =>
   event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
 
@@ -8712,11 +8724,11 @@ export class AcpmuxDirectClient {
       // Drawn first, but neither firstSeq nor lastSeq moves: older pages still load from the held history.
       else if (opener && opener.seq <= through) this.reduce(opener);
       // Then the records a shed held aside for the rows it kept across its cut (`splits`), as it does the opener; one
-      // the held records reach again (an older page brought it) is theirs now.
-      const heldFrom = events[0]?.seq ?? Number.POSITIVE_INFINITY;
+      // the held records hold again (an older page brought it) is theirs now, and one a page only reached below (it
+      // left the record out) stays aside.
       const aside: EventRecord[] = [];
       for (const [id, split] of this.splits) {
-        split.aside = split.aside.filter((event) => event.seq < heldFrom);
+        split.aside = split.aside.filter((event) => !holdsSeq(events, event.seq));
         if (split.aside.length === 0) this.splits.delete(id);
         else aside.push(...split.aside);
       }
@@ -15811,9 +15823,10 @@ export class AcpmuxDirectClient {
   }
 
   /// Before an older page folds (`foldOlder`): each call a shed kept across its cut (`splits`) gets a row of its own
-  /// for the page, under the call's id, so the page's records of the call (its opening one too, when the page reaches
-  /// it) fold there, oldest first, and never into the held row, whose output they come before. The rows' ids, by the
-  /// held row's.
+  /// for the page, so the page's records of the call (its opening one too, when the page reaches it) fold there, oldest
+  /// first, and never into the held row, whose output they come before. The rows' ids, by the held row's. The page's
+  /// records route to it by call id from the call's opening record on (`routeSplitFills`), not before: a prompt the
+  /// page folds first clears `toolRows`, and a call id an older turn used is that turn's.
   private beginSplitFill(): Map<string, string> {
     const fills = new Map<string, string>();
     const current = this.rows.current;
@@ -15826,7 +15839,6 @@ export class AcpmuxDirectClient {
         const { output: _held, earlierOutput: _cut, ...tool } = item.tool;
         const fill = `${id}\u0000earlier`;
         this.rows.set(fill, { ...row, id: fill, version: 1, items: [{ ...item, tool }] });
-        this.toolRows.set(split.callId, fill);
         fills.set(id, fill);
       }
     } finally {
@@ -15835,21 +15847,32 @@ export class AcpmuxDirectClient {
     return fills;
   }
 
+  /// Before each record of an older page folds (`foldOlder`): from a kept call's opening record on, its id names the
+  /// page's row of it (`beginSplitFill`), whatever the page folded before (a prompt clears `toolRows`).
+  private routeSplitFills(fills: ReadonlyMap<string, string>, seq: number): void {
+    for (const [id, fill] of fills) {
+      const split = this.splits.get(id);
+      if (split?.kind !== "tool" || seq < split.aside[0]!.seq) continue;
+      if (this.toolRows.get(split.callId) !== fill) this.toolRows.set(split.callId, fill);
+    }
+  }
+
   /// After an older page folded (`foldOlder`), the rows a shed kept across its cut take back what it brought: a call's
   /// oldest output lines go before the held ones (`beginSplitFill`), and the reply the page left streaming
   /// (`pageReply`), the start of the held reply whose text that reply already holds, goes. Each stays as it was held
   /// otherwise (a page reaching its first record folded into it). A row whose aside records the page reached is drawn
-  /// from held records again (`splits`), and a call's output is whole once the page holds its opening record.
+  /// from held records again (`splits`), and a call's output is whole once the page holds its opening record: the
+  /// page's own records (`page`), never a page that only reaches below it.
   private endSplitFill(
     fills: Map<string, string>,
     held: ReadonlyMap<string, AcpmuxRow>,
-    pageFrom: number,
+    page: ReadonlySet<number>,
     pageReply: string | undefined,
   ): void {
     const current = this.rows.current;
     this.rows.current = undefined;
     try {
-      for (const [id, split] of [...this.splits]) {
+      for (const [id, split] of this.splits) {
         const row = held.get(id);
         if (split.kind === "tool") {
           const fill = fills.get(id);
@@ -15860,7 +15883,7 @@ export class AcpmuxDirectClient {
             if (this.toolRows.get(split.callId) === fill) this.toolRows.delete(split.callId);
           }
           const item = row?.items?.[0];
-          const opened = pageFrom <= split.aside[0]!.seq;
+          const opened = page.has(split.aside[0]!.seq);
           if (row && item?.tool && split.earlier) {
             const { earlierOutput: _cut, ...whole } = item.tool;
             const output = `${earlier ?? ""}${item.tool.output ?? ""}`;
@@ -15888,7 +15911,7 @@ export class AcpmuxDirectClient {
           }
           if (row && this.rows.get(id) !== row) this.rows.set(id, row);
         }
-        split.aside = split.aside.filter((event) => event.seq < pageFrom);
+        split.aside = split.aside.filter((event) => !page.has(event.seq));
         if (split.aside.length === 0) this.splits.delete(id);
       }
     } finally {
@@ -15994,11 +16017,12 @@ export class AcpmuxDirectClient {
     let pageMade: readonly string[] | undefined;
     // The page's records of a call a shed kept across its cut fold into a row of their own (`beginSplitFill`).
     const fills = this.beginSplitFill();
-    let pageFrom = Infinity;
+    const pageSeqs = new Set<number>();
     this.rows.beginPrepend(below);
     try {
       for (const event of [...older].sort((a, b) => a.seq - b.seq)) {
-        pageFrom = Math.min(pageFrom, event.seq);
+        if (this.splits.size > 0) pageSeqs.add(event.seq);
+        if (fills.size > 0) this.routeSplitFills(fills, event.seq);
         this.firstSeq = Math.min(this.firstSeq ?? event.seq, event.seq);
         this.reduce(event);
       }
@@ -16009,7 +16033,7 @@ export class AcpmuxDirectClient {
       this.foldingBelow = undefined;
       this.heldPromptRowKeys = undefined;
     }
-    this.endSplitFill(fills, held, pageFrom, this.streamingAssistant);
+    this.endSplitFill(fills, held, pageSeqs, this.streamingAssistant);
     // A page can split a tool call: its completed update may have been held first, then the
     // older page brings the call opener. Keep the held row as the authoritative later state and
     // remove the page's duplicate item, while retaining page-only calls in the incremental fold.
