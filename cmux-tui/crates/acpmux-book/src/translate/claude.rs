@@ -159,13 +159,18 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
             }
         }
         "assistant" => {
+            // Some Claude transcript versions omit `message.id` on assistant records. Their
+            // record UUID still identifies the streamed message; using an empty key would merge
+            // unrelated replies across turns.
+            let message_id =
+                if message.id.is_empty() { rec.uuid.as_ref() } else { message.id.as_ref() };
             let usage: Usage<'_> = message
                 .usage
                 .and_then(|raw| serde_json::from_str(raw.get()).ok())
                 .unwrap_or_default();
             if let Some(output) = input::count(usage.output_tokens) {
                 state.claude_call(
-                    &message.id,
+                    message_id,
                     super::Tokens {
                         output,
                         input: input::count(usage.input_tokens).unwrap_or(0),
@@ -176,7 +181,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                 );
             }
             if body.get().starts_with('"') {
-                state.text(&input::text(body)?, &message.id, &message.id, false, out)?;
+                state.text(&input::text(body)?, message_id, message_id, false, out)?;
             } else {
                 input::each(body, |raw| {
                     let block: Block<'_> = input::value(raw)?;
@@ -186,8 +191,8 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                             if let Some(raw) = if thinking { block.thinking } else { block.text } {
                                 state.text(
                                     &input::text(raw)?,
-                                    &message.id,
-                                    &message.id,
+                                    message_id,
+                                    message_id,
                                     thinking,
                                     out,
                                 )?;
@@ -225,6 +230,47 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
         _ => {}
     }
     Ok(())
+}
+
+/// Read the identity used to reconcile a followed prompt with a durable act. This deliberately
+/// does not return tool-result records: those are transcript effects, not user sends. The text is
+/// flattened from text/content blocks so matching has one representation for string and block
+/// prompts.
+pub(super) fn prompt_identity(bytes: &[u8]) -> Result<Option<super::PromptIdentity>, Error> {
+    let rec: Record<'_> = input::parse(bytes)?;
+    if rec.kind != "user" || rec.is_sidechain || rec.is_meta || rec.is_compact_summary {
+        return Ok(None);
+    }
+    let Some(message) = rec.message else { return Ok(None) };
+    let Some(body) = message.content else { return Ok(None) };
+    if body.get() == "null" {
+        return Ok(None);
+    }
+    let mut has_tool_result = false;
+    if body.get().starts_with('[') {
+        input::each(body, |raw| {
+            let block: Block<'_> = input::value(raw)?;
+            has_tool_result |= block.kind == "tool_result";
+            Ok(())
+        })?;
+    }
+    if has_tool_result {
+        return Ok(None);
+    }
+    let mut text = String::new();
+    input::content(body, 0, &mut |part| {
+        text.push_str(part);
+        Ok(())
+    })?;
+    let start = text.trim_start();
+    if start.is_empty()
+        || ["<command-", "<local-command-", "<bash-", "[Request interrupted"]
+            .iter()
+            .any(|prefix| start.starts_with(prefix))
+    {
+        return Ok(None);
+    }
+    Ok(Some(super::PromptIdentity { id: rec.uuid.into_owned(), text }))
 }
 
 pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
