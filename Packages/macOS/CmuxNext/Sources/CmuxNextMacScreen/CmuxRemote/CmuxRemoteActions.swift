@@ -15,15 +15,24 @@ public struct CmuxRemoteActionEnvironment {
     public var settings: @MainActor () -> SettingsController?
     public var window: @MainActor () -> NSWindow?
     public var openDevices: @MainActor () -> Void
+    /// SECURITY: whether the app's latest input, the press that answered the dialog, was the
+    /// person's own (HID system, `PersonInputLedger.backs`, the check join consent takes). Only
+    /// then is Always Allow kept; any other press allows this request once. None set: never kept.
+    public var personPressed: @MainActor () -> Bool
+    /// Which account's Always Allow counts (``RemoteShareGrant``); none: the setting alone never skips.
+    public var shareGrant: @MainActor () -> RemoteShareGrant?
 
     public init(remote: CmuxRemoteService, hub: @escaping @MainActor () -> DeviceHub?,
                 settings: @escaping @MainActor () -> SettingsController? = { nil }, window: @escaping @MainActor () -> NSWindow?,
-                openDevices: @escaping @MainActor () -> Void) {
+                shareGrant: @escaping @MainActor () -> RemoteShareGrant? = { nil },
+                openDevices: @escaping @MainActor () -> Void, personPressed: @escaping @MainActor () -> Bool = { false }) {
         self.remote = remote
         self.hub = hub
         self.settings = settings
         self.window = window
         self.openDevices = openDevices
+        self.personPressed = personPressed
+        self.shareGrant = shareGrant
     }
 }
 
@@ -117,13 +126,20 @@ extension CmuxRemoteActionEnvironment {
                 let window = environment.window()
                 let remote = environment.remote
                 let settings = environment.settings()
+                let personPressed = environment.personPressed
+                let grant = environment.shareGrant()
+                let withoutAsking = grant?.covers(settingOn: settings?.snapshot.remote.shareWithoutAsking == true,
+                                                  managed: settings?.managedKeys[RemoteSettings.shareWithoutAskingPath.joined(separator: ".")] != nil) ?? false
                 let step = !share ? ShareStep.ask : Self.shareStep(alreadyShared: hub.thisDevice?.macScreenShared == true,
-                                                                     withoutAsking: settings?.snapshot.remote.shareWithoutAsking == true)
+                                                                     withoutAsking: withoutAsking)
                 return .followUp(Self.confirmedChange(
                     confirm: {
                         guard step == .ask else { return true }
                         let answer = await Self.confirm(title: title, body: body, always: share, in: window)
-                        if answer == .always, let settings { await Self.shareWithoutAsking(settings) }
+                        if Self.keepsAlways(answer, personPressed: personPressed()), let settings, let grant {
+                            grant.record()
+                            await Self.shareWithoutAsking(settings)
+                        }
                         return answer != .cancel
                     },
                     apply: {
@@ -152,6 +168,12 @@ extension CmuxRemoteActionEnvironment {
     /// settings.set from an agent, the CLI or MCP is refused.
     nonisolated static func shareStep(alreadyShared: Bool, withoutAsking: Bool) -> ShareStep {
         alreadyShared ? .nothing : withoutAsking ? .apply : .ask
+    }
+
+    /// Whether an answer turns on `remote.shareWithoutAsking`: Always Allow pressed by the person at
+    /// this Mac. An Always Allow another process posted (computer use, a script) allows once.
+    static func keepsAlways(_ answer: ConfirmAnswer, personPressed: Bool) -> Bool {
+        answer == .always && personPressed
     }
 
     /// Always Allow: the person's click turns on `remote.shareWithoutAsking` (the user writer: the

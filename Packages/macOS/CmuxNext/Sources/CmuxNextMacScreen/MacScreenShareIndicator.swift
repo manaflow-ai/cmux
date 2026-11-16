@@ -12,12 +12,15 @@ import CmuxNextDesign
 final class MacScreenShareIndicator: NSObject {
     static let stopSharingAction: ActionID = "macScreen.stopSharing"
     static let revokeViewerAction: ActionID = "macScreen.revokeViewer"
+    static let stopSharingThisMacAction: ActionID = "macScreen.stopSharingThisMac"
 
     private var item: NSStatusItem?
     /// The registry's row for an action (`ActionRegistry.makeMenuItem`); the app sets it.
     var menuItem: (ActionID) -> NSMenuItem? = { _ in nil }
     /// Whether the session shown offers Revoke This Device.
     private(set) var offersRevoke = false
+    /// A device is connected now; false: Share This Mac is on with no session, and the row turns it off.
+    private(set) var sessionLive = true
     /// The menu's first line: who sees or controls this Mac.
     private(set) var title = MacScreenShareIndicator.defaultTitle
 
@@ -38,10 +41,17 @@ final class MacScreenShareIndicator: NSObject {
     }
 
     /// Shows `title` (who, and View Only or Full Control) from now on.
-    func update(title: String, offersRevoke: Bool) {
+    func update(title: String, offersRevoke: Bool, sessionLive: Bool = true) {
         self.title = title
         self.offersRevoke = offersRevoke
+        self.sessionLive = sessionLive
         rebuild()
+    }
+
+    /// The menu's action rows, in order.
+    var rowActions: [ActionID] {
+        guard sessionLive else { return [Self.stopSharingThisMacAction] }
+        return offersRevoke ? [Self.stopSharingAction, Self.revokeViewerAction] : [Self.stopSharingAction]
     }
 
     private func rebuild() {
@@ -54,11 +64,8 @@ final class MacScreenShareIndicator: NSObject {
         heading.isEnabled = false
         menu.addItem(heading)
         menu.addItem(.separator())
-        if let stop = menuItem(Self.stopSharingAction) {
-            menu.addItem(stop)
-        }
-        if offersRevoke, let revoke = menuItem(Self.revokeViewerAction) {
-            menu.addItem(revoke)
+        for id in rowActions {
+            if let row = menuItem(id) { menu.addItem(row) }
         }
         item.menu = menu
     }

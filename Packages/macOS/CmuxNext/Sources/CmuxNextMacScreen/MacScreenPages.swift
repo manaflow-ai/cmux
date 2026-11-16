@@ -185,12 +185,13 @@ public final class MacScreenPages {
     /// The hub says whether this Mac allows Mac Screen; on, the first-use guide is done.
     func hostSharingChanged(_ on: Bool) {
         if on { store.markSharedBefore() }
+        hubHost.sharingChanged(on)
     }
 
     /// Device tabs take their device's name from the hub (renames show live).
     private func watchDeviceNames() {
         namesWatch?.cancel()
-        guard let hub else { return }
+        guard let hub else { return hubHost.sharingChanged(false) }
         namesWatch = Task { [weak self] in
             for await names in ObservationStream({ hub.devices.map { [$0.id, $0.name, $0.online ? "1" : "0", $0.macScreenShared ? "1" : "0"] } }) {
                 guard let self else { return }
