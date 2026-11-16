@@ -55,6 +55,11 @@ async function moveClockTo(at: number, account: Account, alive: Device[]) {
   }
 }
 
+/** A fresh hub session for the same user under the moved clock (sessions outlive their Stack token by nothing). */
+async function refreshSession(account: Account) {
+  account.session = (await signIn(account.sub)).session;
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -150,6 +155,7 @@ describe("one record per machine", () => {
     expect(await ids(phone)).toEqual([phone.id, old1.id, old2.id, live.id].sort());
 
     await moveClockTo(Date.now() + LEGACY_DUPLICATE_MS + 1000, account, [live, phone]);
+    await refreshSession(account);
     expect(await ids(phone)).toEqual([phone.id, live.id].sort());
     // Another platform with the same name is another device.
     const ipad = await build(account, "cosmic-gray", null, "ios");
@@ -165,6 +171,7 @@ describe("one record per machine", () => {
     const phone = await build(account, "Phone", null, "ios");
     const legacy = await build(account, "cosmic-gray", null);
     vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + LEGACY_DUPLICATE_MS + 1000 });
+    await refreshSession(account);
     const current = await build(account, "cosmic-gray", "machine-cosmic-gray-0004");
     expect(await ids(phone)).toEqual([phone.id, current.id].sort());
     await expectOneRecordPerMachine([phone, current]);
