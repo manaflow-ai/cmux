@@ -42,6 +42,8 @@ public final class AgentPaneSpareRefiller {
         public var makes = 0
         /// Times a make found an input event in dispatch, made nothing and waited the settle again.
         public var heldForInput = 0
+        /// Times a make found a chat page on screen that had not drawn yet, made nothing and waited for its paint.
+        public var heldForOpen = 0
 
         public init() {}
     }
@@ -53,6 +55,7 @@ public final class AgentPaneSpareRefiller {
     private let timer: DemandTimer
     private let make: @MainActor () -> Void
     private let inInput: @MainActor () -> Bool
+    private let loading: @MainActor () -> [AgentPaneShownChatsWait.WhenPainted]
     /// The latest open's number: an earlier open's wait that a later open overtook does nothing.
     private var generation = 0
     /// From a handout until its open settled: the pool changes no parked page meanwhile (no prepare, no make).
@@ -63,12 +66,15 @@ public final class AgentPaneSpareRefiller {
     ///   - clock: The settle's clock (tests move it by hand).
     ///   - inInput: Whether an input event (a key, a click, a scroll) is in dispatch now: the app's input dispatch
     ///     context. A make that would start meanwhile waits the settle again.
+    ///   - loading: The chat pages on screen that have not drawn yet, each as "runs its work once it drew"
+    ///     (``AgentPaneShownChatsWait``): another chat's open that is still under way.
     ///   - make: Runs once the latest open settled: the pool prepares its parked pages and makes one when it has room.
     public init(on work: MainWorkScheduler, clock: any Clock<Duration> = ContinuousClock(), inInput: @escaping @MainActor () -> Bool = { false },
-                make: @escaping @MainActor () -> Void) {
+                loading: @escaping @MainActor () -> [AgentPaneShownChatsWait.WhenPainted] = { [] }, make: @escaping @MainActor () -> Void) {
         queue = FrameBatchQueue(owner: "NewTabSparePool.warm", budgeted: .background, on: work)
         timer = DemandTimer(owner: "NewTabSparePool.refill", clock: clock)
         self.inInput = inInput
+        self.loading = loading
         self.make = make
     }
 

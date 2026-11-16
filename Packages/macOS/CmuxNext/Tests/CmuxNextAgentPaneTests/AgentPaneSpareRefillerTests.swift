@@ -5,7 +5,8 @@ import Testing
 
 /// When the pool's next page is made after a chat adopted the last one (AgentPaneSpareRefiller, decision
 /// 2026-11-16): after the page drew the chat and the settle, as one background task; never in the handout's turn,
-/// and never while an input event (a key, a click, a scroll) is in dispatch.
+/// never while an input event (a key, a click, a scroll) is in dispatch, and never while another chat's page on
+/// screen has not drawn.
 ///
 /// The settle runs on a clock the test moves and the frames fire by hand: no test waits on the wall clock for a
 /// result.
@@ -17,6 +18,10 @@ import Testing
         var made = 0
         /// Makes that ran while an input event was in dispatch. The rule is 0.
         var madeInInput = 0
+        /// The chat pages on screen that have not drawn (the app: the wait for shown chats).
+        var loading: [AgentPaneShownChatsWait.WhenPainted] = []
+        /// What a page of `loading` runs once it drew.
+        var drew: (() -> Void)?
     }
 
     /// A refiller on a scheduler whose frames the test fires, with its settle on a manual clock.
@@ -37,7 +42,7 @@ import Testing
             self.seen = seen
             self.uptime = uptime
             self.work = work
-            refills = AgentPaneSpareRefiller(on: work, clock: clock, inInput: { seen.dispatching }) {
+            refills = AgentPaneSpareRefiller(on: work, clock: clock, inInput: { seen.dispatching }, loading: { seen.loading }) {
                 seen.made += 1
                 if seen.dispatching { seen.madeInInput += 1 }
             }
@@ -153,6 +158,38 @@ import Testing
         #expect(rig.seen.made == 1, "no page after the dispatch ended")
         #expect(rig.seen.madeInInput == 0, "a make ran while an input event was in dispatch")
         #expect(rig.refills.counts.makes == 1 && rig.refills.counts.heldForInput == 2, "\(rig.refills.counts)")
+        #expect(!rig.refills.isOpening)
+    }
+
+    /// A second chat found no page and builds its own (a cold open). A make that is due while that chat's page has
+    /// not drawn makes nothing: its main-thread tasks would land in that open. It waits for the page's paint (not on
+    /// the clock), then the settle again.
+    @Test func noMakeRunsWhileAChatOnScreenHasNotDrawn() async throws {
+        let rig = Rig()
+        rig.refills.afterPaint { $0() }
+        // The second chat's page loads before the first chat's settle ends.
+        rig.seen.loading = [{ [seen = rig.seen] in seen.drew = $0 }]
+        try await rig.advance(by: AgentPaneSpareRefiller.settle)
+        await rig.frames(until: { rig.refills.counts.heldForOpen > 0 || rig.seen.made > 0 })
+        #expect(rig.seen.made == 0, "a page was made while a chat on screen had not drawn")
+        #expect(rig.refills.counts.heldForOpen == 1, "the make that was due did not find the chat that loads")
+        #expect(rig.refills.isOpening, "the refill ended without a page")
+        // More frames make nothing, and nothing waits on the clock: a page that never draws keeps no timer running.
+        await rig.frames(20)
+        #expect(rig.clock.sleeperCount == 0, "the held make waits on the clock")
+        #expect(rig.seen.made == 0 && rig.refills.counts.heldForOpen == 1, "\(rig.refills.counts), made \(rig.seen.made)")
+
+        // The second chat drew: the settle again, then the page.
+        rig.seen.loading = []
+        let paint = try #require(rig.seen.drew, "the held make did not ask the page for its paint")
+        paint()
+        try await rig.advance(by: AgentPaneSpareRefiller.settle - .milliseconds(1))
+        await rig.frames(20)
+        #expect(rig.seen.made == 0, "a page was made before the settle ended")
+        rig.clock.advance(by: .milliseconds(1))
+        await rig.frames(until: { rig.seen.made > 0 })
+        #expect(rig.seen.made == 1, "no page after the chat drew")
+        #expect(rig.refills.counts.makes == 1 && rig.refills.counts.heldForOpen == 1, "\(rig.refills.counts)")
         #expect(!rig.refills.isOpening)
     }
 
