@@ -607,6 +607,14 @@ on:
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
+      - ios/cmux/Settings.bundle/Acknowledgements.plist
+      - scripts/cmux-debug-cli.sh
+      - scripts/gallery-matrix/runner.ts
+      - scripts/git-hooks/refresh_checks.py
+      - scripts/measure/bench-ab/bench_ab.py
+      - scripts/measure/perf-idle-ab.sh
+      - scripts/measure/require-chromium.sh
+      - scripts/perf-bench/**
   # Why: docs/ci/cmux-next-workflow-notes.md#note-366
   workflow_dispatch:
     inputs:
