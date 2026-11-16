@@ -130,6 +130,53 @@ class PlanTest(unittest.TestCase):
         self.fx.git("fetch", "-q", "origin")
         return tip
 
+    def land(self, files: dict, parent: str) -> str:
+        """FILES landed on feat-cmux-next on top of PARENT (a PR's merge commit, looked at after it landed)."""
+        landed = self.fx.commit(files, "landed", parent=parent)
+        self.fx.git("push", "-q", "-f", "origin", f"{landed}:refs/heads/feat-cmux-next")
+        self.fx.git("fetch", "-q", "origin")
+        return landed
+
+    def test_a_landed_commit_is_planned_from_its_first_parent(self):
+        # A look at a PR's merge commit on feat-cmux-next (its tree published, the nightly behind it): the change is
+        # the commit's own diff. Before, own == head, so the 33-file Swift drift since the nightly counted as it.
+        tip = self.advance_base({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift":
+                                 "struct App {\n    func title() -> String {\n        return \"drift\"\n"
+                                 "    }\n}\n"})
+        landed = self.land({"webviews/src/app.tsx": "export const title = 'Home 4'\n"}, tip)
+        planned = self.plan(landed)
+        self.assertEqual(planned["layers"], ["web"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+        self.assertEqual(planned["fork"], tip)
+        self.assertTrue(any("behind" in note for note in planned["notes"]), planned["notes"])
+
+    def test_a_landed_daemon_change_over_the_app_s_newer_rust_swaps_the_daemon(self):
+        # The class a PR head cannot take ("Rust the app has and the change lacks", 8 of 90 looks on 2026-11-16):
+        # the nightly carries cmux-tui changes the PR branched before. Its merge commit has both, so its daemon
+        # takes the app's changes along.
+        nightly = self.advance_base({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"night\"); }\n"})
+        landed = self.land({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"}, nightly)
+        planned = self.plan(landed, base=nightly)
+        self.assertEqual(planned["layers"], ["rust"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+
+    def test_a_branch_merged_in_as_second_parent_keeps_all_its_commits(self):
+        # Review of the first-parent rule: 161 first-parent merges in 30 days landed real branches as second parents.
+        # A look at such a branch's last commit after it landed must still count the branch's earlier Swift.
+        tip = self.advance_base({"docs/notes.md": "drift\n"})
+        swift = self.fx.commit({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift":
+                                "struct App {\n    func title() -> String {\n        return \"mine\"\n"
+                                "    }\n}\n"}, "branch: swift", parent=self.fx.base)
+        last = self.fx.commit({"webviews/src/app.tsx": "export const title = 'branch'\n"}, "branch: web", parent=swift)
+        self.fx.git("checkout", "-q", "--detach", tip)
+        self.fx.git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-ff", "-m", "merge branch", last)
+        merged = self.fx.git("rev-parse", "HEAD")
+        self.fx.git("push", "-q", "-f", "origin", f"{merged}:refs/heads/feat-cmux-next")
+        self.fx.git("fetch", "-q", "origin")
+        planned = self.plan(last)
+        self.assertTrue(planned["needs_build"], planned)
+        self.assertIn("Swift", planned["build"])
+
     def test_a_change_branched_after_the_app_is_planned_from_its_own_fork(self):
         # The fleet looked at cmux#43773 (4 Rust files) on a nightly 25 commits behind feat-cmux-next and said
         # "needs a build" for 33 Swift files merged after that nightly, none of them the PR's.
