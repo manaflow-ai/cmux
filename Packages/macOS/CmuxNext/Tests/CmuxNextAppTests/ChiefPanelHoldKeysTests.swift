@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// The Chief panel holds one Chief view. When the view it holds changes (Home's first Chief tab
 /// is another view after a daemon delta), the old one goes back to Home instead of staying covered
 /// in the panel: covered, it kept the keys, and typing went into a box no one could see
 /// (plans/cmux-next/focus-loss-AUDIT.md, cause C3).
-@MainActor @Suite(.serialized) struct ChiefPanelHoldKeysTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ChiefPanelHoldKeysTests {
     private static func chief() -> (view: NSView, field: NSTextField) {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 400))
         let field = NSTextField(frame: NSRect(x: 10, y: 10, width: 200, height: 22))

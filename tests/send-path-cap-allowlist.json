@@ -179,6 +179,7 @@
     "cmux-tui/crates/acpmux/src/catalog/schema.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/claude_stdio/result_images.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/claude_stdio/steer_batch.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "cmux-tui/crates/acpmux/src/cli/host_enroll_install.rs": {"count": 1, "reason": "safe: bounds only the published installer channel manifest before JSON parsing; no user message, prompt, attachment or uploaded file uses this metadata download"},
     "cmux-tui/crates/acpmux/src/cli/harness.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/cli/host_hold.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/cli/host_self_update.rs": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

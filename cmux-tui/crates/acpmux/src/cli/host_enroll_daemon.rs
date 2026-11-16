@@ -97,12 +97,6 @@ pub(super) fn judge_daemon(
         };
         return (Verdict::Done(result), port);
     }
-    // Linux reports a running executable that was replaced in place as
-    // `PATH (deleted)`.  The installed binary probe has the real path, so
-    // compare normalized paths before deciding whether a safe restart can
-    // use the current-target binary.
-    let used_path =
-        used.as_ref().map(|u| u.path.strip_suffix(" (deleted)").unwrap_or(&u.path).to_owned());
     let verdict = match listening {
         // A daemon bound on another port than the peer's (run with
         // `--listen` and `--token`, its config lacking one): refused before
@@ -118,35 +112,20 @@ pub(super) fn judge_daemon(
         Ok(_) => match used.and_then(|u| u.pid.map(|pid| (pid, u.build))) {
             None => Verdict::Repair("the daemon is not running".into()),
             Some((_, Some(b))) if b != build => {
-                // The daemon's `exe` is already resolved; a probed path may
-                // be a link (a custom `--remote-binary` install behind
-                // `~/.local/bin/acpmux`), so compare what each resolves to.
-                let used_real = used_path.as_deref().map(|u| probe.resolved(u));
-                let current_binary = probe.bins.iter().any(|(path, build)| {
-                    build.as_deref() == Some(crate::hub::build())
-                        && (Some(path.as_str()) == used_path.as_deref()
-                            || Some(probe.resolved(path)) == used_real)
-                });
-                let result = match platform_skew(Step::Daemon, host, name, &probe.uname, false) {
-                    Some(_) if current_binary => StepResult::new(
-                        Step::Daemon,
-                        StepState::Warn,
-                        format!("the daemon runs build {b}, this is {build}"),
-                    )
-                    .with_fix(format!(
-                        "Run `acpmux machine doctor {name} --fix` to restart the daemon on {host}."
-                    ))
-                    .with_reason("peer_version_skew"),
-                    Some(result) => result,
-                    None => StepResult::new(
-                        Step::Daemon,
-                        StepState::Warn,
-                        format!("the daemon runs build {b}, this is {build}"),
-                    )
+                let result = StepResult::new(
+                    Step::Daemon,
+                    StepState::Warn,
+                    format!("the daemon runs build {b}, this is {build}"),
+                );
+                // A different build is not a protocol verdict. The peer step
+                // negotiates with this daemon; its own updater owns upgrades.
+                if foreign_platform(&probe.uname) {
+                    return (Verdict::Done(result), port);
+                }
+                let result = result
                     .with_fix(format!("Run `acpmux machine update {name}`."))
                     .with_reason("peer_version_skew")
-                    .with_try(format!("acpmux machine update {name}")),
-                };
+                    .with_try(format!("acpmux machine update {name}"));
                 Verdict::OtherBuild(result)
             }
             Some((pid, _)) => Verdict::Done(StepResult::new(
@@ -226,13 +205,6 @@ fn daemon_only(
     let why = match verdict {
         Verdict::Done(result) => return (result, port),
         Verdict::OtherBuild(result) => {
-            if result.fix.as_deref().is_some_and(|fix| {
-                fix.starts_with("Rebuild acpmux on ") || fix.contains("--binary-dir DIR")
-            }) {
-                let result =
-                    if fix { StepResult { state: StepState::Fail, ..result } } else { result };
-                return (result, port);
-            }
             if !fix {
                 return (result, port);
             }
@@ -257,7 +229,7 @@ fn daemon_only(
     // one (`daemon.rs`), which the peer then uses unless it is a known one.
     let (after, port) = judge(r);
     let result = match after {
-        Verdict::Done(after) if after.state == StepState::Ok => {
+        Verdict::Done(after) if matches!(after.state, StepState::Ok | StepState::Warn) => {
             let detail = format!("{why}; now {}{auto_update_off}", after.detail);
             StepResult::new(Step::Daemon, StepState::Fixed, detail)
         }
