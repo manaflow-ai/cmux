@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Probe host capabilities before handing the ACP stream to fake_claude."""
 import json, os, socket, sys
+import subprocess
 from pathlib import Path
 
 
@@ -40,6 +41,32 @@ def main() -> None:
                 result["network"] = True
         except OSError:
             pass
+    send_bin = os.environ.get("ACPMUX_REMOTE_SEND_BIN")
+    send_target = os.environ.get("ACPMUX_REMOTE_SEND_TARGET")
+    send_socket = os.environ.get("ACPMUX_REMOTE_SEND_SOCKET")
+    send_home = os.environ.get("ACPMUX_REMOTE_SEND_HOME")
+    if send_bin and send_target and send_socket and send_home:
+        try:
+            send = subprocess.run(
+                [send_bin, "send", "--no-wait", send_target, "remote host probe reached starter"],
+                env={
+                    **os.environ,
+                    "ACPMUX_HOME": send_home,
+                    "ACPMUX_SOCKET": send_socket,
+                    "ACPMUX_SESSION_TOKEN_SOCKET": send_socket,
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            result["send"] = {
+                "success": send.returncode == 0,
+                "stdout": send.stdout,
+                "stderr": send.stderr,
+            }
+        except subprocess.TimeoutExpired as error:
+            result["send"] = {"success": False, "error": str(error)}
     output = os.environ.get("ACPMUX_REMOTE_PROBE_OUTPUT")
     if output:
         Path(output).write_text(json.dumps(result))

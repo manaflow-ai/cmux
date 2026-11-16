@@ -23,7 +23,7 @@ use acpmux::hub::Hub;
 use acpmux::rpc::Message;
 use acpmux::server::peer_auth::PeerAuth;
 use acpmux::server::{
-    ConnAuth, Origin, WsAuth, bind_ws, serve_connection_authed, serve_connection_with,
+    ConnAuth, Origin, WsAuth, bind_ws, serve_connection_authed, serve_connection_with, serve_unix,
     serve_ws_with,
 };
 use serde_json::{Value, json};
@@ -910,5 +910,94 @@ async fn owner_peer_approve_all_retains_repository_home_and_socket_capabilities(
     assert_eq!(probe["socket"], true, "Unix socket was not reachable: {probe}");
     assert_eq!(probe["network"], true, "network was not reachable: {probe}");
     hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The host-profile path still has to use the real CLI transport. The probe
+/// invokes `acpmux send --no-wait` against this hub's Unix socket while it is
+/// running as the owner peer's harness, and the starter's inbox records it.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn owner_peer_host_profile_can_send_to_the_fixture_starter() {
+    let d = dir("peer-approve-all-cli-send");
+    std::fs::create_dir_all(d.join("home")).unwrap();
+    std::fs::write(d.join("home/config.json"), "{}").unwrap();
+    let socket = d.join("acpmux.sock");
+    let output = d.join("work/send-probe.json");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let hub = hub_with(&d, None);
+    hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
+    let server = tokio::spawn({
+        let hub = hub.clone();
+        async move {
+            let _ = serve_unix(hub, listener).await;
+        }
+    });
+    let app = acpmux::client::Client::connect_without_caller(&socket).await.unwrap();
+    let starter =
+        app.request("session/new", json!({"cwd": d.join("work"), "mcpServers": []})).await.unwrap()
+            ["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    app.request(
+        "session/prompt",
+        json!({"sessionId": starter, "prompt": [{"type": "text", "text": "warm starter"}]}),
+    )
+    .await
+    .unwrap();
+    // Prime the event connection before the asynchronous no-wait delivery.
+    let mut events = hub.subscribe();
+    {
+        let mut config = hub.config.write().await;
+        let profile = config.harnesses.get_mut("fakeclaude").unwrap();
+        profile.argv = vec![
+            "python3".into(),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/remote_host_probe.py").into(),
+            FAKE_CLAUDE.into(),
+        ];
+        profile.env.insert("HOME".into(), d.join("home").display().to_string());
+        profile
+            .env
+            .insert("ACPMUX_REMOTE_SEND_BIN".into(), daemon_env::bin().display().to_string());
+        profile.env.insert("ACPMUX_REMOTE_SEND_TARGET".into(), starter.clone());
+        profile.env.insert("ACPMUX_REMOTE_SEND_SOCKET".into(), socket.display().to_string());
+        profile.env.insert("ACPMUX_REMOTE_SEND_HOME".into(), d.join("home").display().to_string());
+        profile.env.insert("ACPMUX_REMOTE_PROBE_OUTPUT".into(), output.display().to_string());
+    }
+    let mut peer = Client::new(&hub, Origin::Peer);
+    let created = peer.call("session/new", vm_boundary_new(&d, None, Some("approve-all"))).await;
+    let id = created["result"]["sessionId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("approve-all CLI-send start was refused: {created}"))
+        .to_owned();
+    let prompt = peer
+        .call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "send"}]}),
+        )
+        .await;
+    assert!(prompt["error"].is_null(), "host profile CLI-send prompt failed: {prompt}");
+    let probe: Value = serde_json::from_str(&tokio::fs::read_to_string(&output).await.unwrap())
+        .unwrap_or_else(|e| panic!("invalid host probe output: {e}"));
+    assert_eq!(probe["send"]["success"], true, "acpmux send failed: {probe}");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.session_id == starter
+                && event.record.kind == "inbox"
+                && event.record.msg["text"]
+                    .as_str()
+                    .is_some_and(|text| text.contains("remote host probe reached starter"))
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("CLI send did not reach the fixture starter");
+    hub.shutdown_all().await;
+    server.abort();
+    let _ = server.await;
     let _ = std::fs::remove_dir_all(&d);
 }

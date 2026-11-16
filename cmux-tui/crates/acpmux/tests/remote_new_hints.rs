@@ -482,16 +482,18 @@ async fn a_remote_start_keeps_its_report_to_watch_on_the_starters_daemon() {
     // The child emits its refusal in its journal. The starter's daemon reads it over
     // the peer link and delivers the report without running any tool in the child.
     let mut events = a.subscribe();
-    a.start_watches();
     let remote = b.resolve(&child).unwrap();
-    b.append(
-        &remote,
-        "mux",
-        "harness_sandbox_failed",
-        json!({
-            "error": "cannot create .git/index.lock: Permission denied", "remote": true
-        }),
-    );
+    // Force the inventory to lag the start reply without deleting the actual child.
+    // A missing cached row must not consume the failure watch as a closed session.
+    let peer = a.peer_by_name("b").unwrap();
+    a.forget_remote(("b", peer.generation), &child, Some(remote.meta().created_at));
+    assert!(a.resolve_remote(&format!("b/{child}")).is_none());
+    let mut receiver = C::open(&b, Origin::Peer);
+    let refused = receiver.call(method::SESSION_PROMPT, json!({
+        "sessionId": child, "prompt": [{"type": "text", "text": "remote-repository-refused"}]
+    })).await;
+    assert!(refused["error"].is_null(), "{refused}");
+    a.start_watches();
     let report = tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             let event = events.recv().await.unwrap();

@@ -66,8 +66,11 @@ impl HarnessSandbox {
 /// An agent's explicit blocked result, not an incidental mention of a blocker.
 /// Keep this separate from process/turn failure: the harness may have ended normally.
 pub fn blocked_reply(reply: &str) -> Option<&str> {
-    let line = reply.lines().find(|line| !line.trim().is_empty())?.trim();
-    let line = line.trim_start_matches(['#', '*', ' ']);
+    let mut lines = reply.lines().map(str::trim).filter(|line| !line.is_empty());
+    let line = lines.next()?.trim_matches(['#', '*', ' ']);
+    if matches!(line, "BLOCKED" | "Blocked") {
+        return Some(lines.next().unwrap_or(line));
+    }
     let tail = line.strip_prefix("BLOCKED:").or_else(|| line.strip_prefix("Blocked:"))?;
     Some(tail.trim_start_matches(['*', ' ']))
 }
@@ -79,6 +82,8 @@ mod blocked_reply_tests {
     #[test]
     fn only_an_explicit_blocked_result_changes_the_row() {
         assert_eq!(blocked_reply("**BLOCKED:** cannot create .git"), Some("cannot create .git"));
+        assert_eq!(blocked_reply("## BLOCKED\n\ncannot create .git"), Some("cannot create .git"));
+        assert_eq!(blocked_reply("**BLOCKED**"), Some("BLOCKED"));
         assert_eq!(
             blocked_reply("Blocked: broker unavailable\nNext step: retry"),
             Some("broker unavailable")

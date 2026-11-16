@@ -19,10 +19,14 @@ The existing event-driven watcher owns reconnect/restart reconciliation. No new
 timer or whole-inventory scan is introduced. Refusal inspection is bounded by the
 existing tool-result scan and preview limits. Shared lane projections carry the
 same refusal to app rows and CLI listings.
+Hub-only sources reuse the mesh read transport and address-book events; their
+heartbeat carries the bounded failure reason into the same row projection.
+Linked-peer watches read the returned exact id even before inventory catches up,
+so a delayed list update cannot consume a failure watch as a closed chat.
 
 Detector: remote product dogfood, hq#11835 row 21. Regression coverage lives in
 `remote_new_hints.rs`, `remote_sandbox.rs`, `mesh_relay.rs`,
 `mesh_control_send.rs`, `hub/harness_sandbox.rs`, and `session_liveness.rs`.
 The host-profile probe checks repository metadata, isolated HOME writes, Unix
-sockets and loopback TCP from the launched harness. The NIGHTLY canary still
+sockets, loopback TCP and a real acpmux send from the launched harness. The NIGHTLY canary still
 needs a real cross-machine start, wt new, and a PR branch.

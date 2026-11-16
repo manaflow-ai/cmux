@@ -35,12 +35,15 @@ impl Hub {
             .filter_map(|s| {
                 let m = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 (m.status != SessionStatus::Closed).then(|| {
+                    let stuck_reason = mesh_failure_reason(&m);
                     let row = SessionRow {
                         name: m.name.clone(),
                         session_id: s.id.clone(),
                         harness: m.harness.clone(),
-                        state: m.status.to_string(),
-                        stuck_reason: None,
+                        state: stuck_reason
+                            .as_ref()
+                            .map_or_else(|| m.status.to_string(), |_| "failed".into()),
+                        stuck_reason,
                         team_address: team_enabled
                             .then(|| {
                                 m.tags
@@ -161,6 +164,24 @@ impl Hub {
     }
 }
 
+/// Keep the mesh heartbeat's failure projection in step with the local row projection without
+/// constructing a full summary for every session. Only the harness's persisted sandbox refusal
+/// and an explicit BLOCKED reply are failures; arbitrary prose and ordinary turn errors remain
+/// their normal state.
+fn mesh_failure_reason(meta: &crate::store::SessionMeta) -> Option<String> {
+    let raw = if meta.harness_sandbox.failing {
+        meta.harness_sandbox.error.as_deref()
+    } else if !matches!(meta.status, SessionStatus::Idle | SessionStatus::Ready) {
+        // A previous BLOCKED reply is ordinary preview text while a new turn is running (or
+        // waiting for input); do not project that stale reply as a fresh heartbeat failure.
+        None
+    } else {
+        meta.preview.as_deref().and_then(crate::session_liveness::blocked_reply)
+    }?;
+    let masked = crate::secret_scan::mask(raw);
+    Some(masked.chars().take(512).collect())
+}
+
 /// Whether `host` is this machine's name (never the "host" stand-in for an unusable one).
 pub(super) fn is_own_host(host: &str) -> bool {
     let own = crate::pairing::machine_name();
@@ -173,6 +194,34 @@ mod mesh_route_tests {
     use crate::config::{Config, StoreMode};
     use crate::session_identity::SessionReceipt;
     use serde_json::json;
+
+    #[test]
+    fn mesh_failure_projection_tracks_blocked_turns_and_masks_bounded_refusals() {
+        let mut meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "child", "name": "child",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+            "preview": "BLOCKED: cannot create .git"
+        }))
+        .unwrap();
+        for status in [SessionStatus::Idle, SessionStatus::Ready] {
+            meta.status = status;
+            assert_eq!(mesh_failure_reason(&meta).as_deref(), Some("cannot create .git"));
+        }
+        for status in [SessionStatus::Running, SessionStatus::Waiting] {
+            meta.status = status;
+            assert_eq!(mesh_failure_reason(&meta), None, "stale reply while {status}");
+        }
+        meta.harness_sandbox.failing = true;
+        let secret = "https://person:private-password@example.com/repo";
+        meta.harness_sandbox.error = Some(format!("{secret} {}", "denied ".repeat(100)));
+        let reason = mesh_failure_reason(&meta).unwrap();
+        assert_eq!(reason.chars().count(), 512);
+        assert!(!reason.contains("private-password"), "{reason}");
+        meta.harness_sandbox = Default::default();
+        meta.status = SessionStatus::Idle;
+        meta.preview = Some("Repository work completed".into());
+        assert_eq!(mesh_failure_reason(&meta), None);
+    }
 
     fn row(peer: &str, id: &str, name: &str) -> RemoteSession {
         RemoteSession {

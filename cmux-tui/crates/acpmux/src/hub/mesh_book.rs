@@ -68,11 +68,17 @@ struct Fields<'a> {
     name: &'a str,
     harness: &'a str,
     state: &'a str,
+    stuck_reason: Option<&'a str>,
 }
 
 impl<'a> Fields<'a> {
     fn of(s: &'a BookSession) -> Self {
-        Self { name: &s.name, harness: &s.harness, state: &s.state }
+        Self {
+            name: &s.name,
+            harness: &s.harness,
+            state: &s.state,
+            stuck_reason: s.stuck_reason.as_deref(),
+        }
     }
 }
 
@@ -84,17 +90,29 @@ struct Bare {
     name: String,
     harness: String,
     state: String,
+    stuck_reason: Option<String>,
     read: u64,
 }
 
 impl Bare {
     fn of(fields: &Fields<'_>, read: u64) -> Self {
-        let Fields { name, harness, state } = *fields;
-        Self { name: name.into(), harness: harness.into(), state: state.into(), read }
+        let Fields { name, harness, state, stuck_reason } = *fields;
+        Self {
+            name: name.into(),
+            harness: harness.into(),
+            state: state.into(),
+            stuck_reason: stuck_reason.map(str::to_owned),
+            read,
+        }
     }
 
     fn fields(&self) -> Fields<'_> {
-        Fields { name: &self.name, harness: &self.harness, state: &self.state }
+        Fields {
+            name: &self.name,
+            harness: &self.harness,
+            state: &self.state,
+            stuck_reason: self.stuck_reason.as_deref(),
+        }
     }
 
     /// Whether `fields` build the row this was built from.
@@ -135,17 +153,32 @@ pub(crate) fn mine(
 /// A hub session's row before `remote_summary` names it for its host. `updatedAt` is when this
 /// daemon first saw it as it is now, so a heartbeat that changes nothing changes no row.
 fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
-    let Fields { name, harness, state } = *fields;
-    json!({
+    let Fields { name, harness, state, stuck_reason } = *fields;
+    let failed = state == "failed";
+    let mut row = json!({
         "sessionId": session_id,
         "name": name,
         "harness": harness,
-        "status": state,
+        // Keep the daemon's lifecycle status usable by existing summary views. The synthetic
+        // failed heartbeat state is carried by the last turn they already know how to render.
+        "status": if failed { "idle" } else { state },
         // A waiting session waits on its person: listed with the asks (`pendingOnly`).
         "pendingPermissions": u64::from(state == "waiting"),
         "via": "hub",
         "stale": false,
-    })
+    });
+    if failed {
+        // Existing summary views derive their failed indicator from the last turn. Keep that
+        // projection even when an older peer omitted the optional reason.
+        row["lastTurn"] = json!({"status": "failed"});
+    }
+    if let Some(reason) = stuck_reason {
+        row["stuckReason"] = json!(reason);
+        if failed {
+            row["lastTurn"]["errorText"] = json!(reason);
+        }
+    }
+    row
 }
 
 impl Hub {

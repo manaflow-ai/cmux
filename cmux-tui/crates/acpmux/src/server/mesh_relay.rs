@@ -759,7 +759,6 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage, same_person: bool) -> 
             }),
         );
     }
-    let session_id = params.get("sessionId").cloned();
     let (tx, mut rx) = relay_connection(hub);
     let initialized = rpc_call(
         &tx,
@@ -783,7 +782,9 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage, same_person: bool) -> 
         // `session resume` operation instead releases a held queue item, so use the same
         // queue-edit path here.
         "resume" => {
-            let info = match rpc_call(&tx, &mut rx, 2, crate::rpc::method::MUX_INFO, params).await {
+            let info = match rpc_call(&tx, &mut rx, 2, crate::rpc::method::MUX_INFO, params.clone())
+                .await
+            {
                 Ok(info) => info,
                 Err(error) => return error.ack(),
             };
@@ -796,18 +797,10 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage, same_person: bool) -> 
                 .map(str::to_owned);
             match held {
                 Some(prompt_id) => {
-                    rpc_call(
-                        &tx,
-                        &mut rx,
-                        3,
-                        crate::rpc::method::MUX_QUEUE_EDIT,
-                        serde_json::json!({
-                            "sessionId": session_id,
-                            "promptId": prompt_id,
-                            "op": "resume"
-                        }),
-                    )
-                    .await
+                    // Keep the same server-derived provenance on the write after the read.
+                    params["promptId"] = serde_json::json!(prompt_id);
+                    params["op"] = serde_json::json!("resume");
+                    rpc_call(&tx, &mut rx, 3, crate::rpc::method::MUX_QUEUE_EDIT, params).await
                 }
                 None => Ok(serde_json::json!({"resumed": false})),
             }

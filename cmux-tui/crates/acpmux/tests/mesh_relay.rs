@@ -940,7 +940,8 @@ async fn mesh_control_resume_releases_held_queue_by_id_and_name() {
     let config = seed.config.read().await.clone();
     seed.shutdown_all().await;
     meta.status = SessionStatus::Idle;
-    for by_name in [false, true] {
+    for (by_name, owner_boundary) in [(false, false), (true, false), (false, true), (true, true)] {
+        meta.vm_boundary = owner_boundary;
         let store = MemoryStore::default();
         store.save(&meta).unwrap();
         for (seq, kind, msg) in [
@@ -982,8 +983,14 @@ async fn mesh_control_resume_releases_held_queue_by_id_and_name() {
             Some(ledger_dir.path().join("mesh-controls.json")),
         );
         let ack = hook.control(&receiver, &resume).await.unwrap();
-        assert_eq!(ack.state, AckState::Delivered, "{ack:?}");
-        assert!(!receiver.resolve(&id).unwrap().queue_paused());
+        // This hook has an explicit daemon grant, not a same-person grant. Its read may
+        // inspect a boundary session, but the subsequent queue write must retain that mark.
+        assert_eq!(
+            ack.state,
+            if owner_boundary { AckState::Refused } else { AckState::Delivered },
+            "{ack:?}"
+        );
+        assert_eq!(receiver.resolve(&id).unwrap().queue_paused(), owner_boundary);
         receiver.shutdown_all().await;
     }
 }

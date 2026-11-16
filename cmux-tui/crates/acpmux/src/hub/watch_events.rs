@@ -101,7 +101,13 @@ fn selected(until: &[String], s: &Value) -> Option<&'static str> {
 /// Each candidate is journal-backed. Two turns ending between handler runs
 /// yield two entries; a later turn cannot hide an earlier permission/resolve.
 pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>, bool), RpcError> {
-    let s = summary(hub, key);
+    let mut s = summary(hub, key);
+    // A start's reply can beat the linked peer's inventory notification. The watch
+    // already holds the returned exact id: ask its journal before calling it closed.
+    let linked = hub.resolve_remote(key).map(|(peer, id, _)| (peer, id)).or_else(|| {
+        let (host, id) = key.split_once('/')?;
+        Some((hub.peer(host)?, id.to_owned()))
+    });
     let c = w
         .cursors
         .get_mut(key)
@@ -114,13 +120,25 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
     {
         let events: Vec<crate::store::EventRecord> = if let Ok(local) = hub.resolve(key) {
             hub.events(&local.id, c.seq, 256).map_err(|e| RpcError::internal(e.to_string()))?
-        } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
-            let page = tokio::time::timeout(
+        } else if let Some((peer, id)) = linked {
+            let answer = tokio::time::timeout(
                 std::time::Duration::from_millis(250),
                 peer.request(method::MUX_EVENTS, remote_page(&id, c.seq, w.match_text.as_deref())),
             )
             .await
-            .map_err(|_| RpcError::internal("peer watch page timed out"))??;
+            .map_err(|_| RpcError::internal("peer watch page timed out"))?;
+            let page = match answer {
+                Ok(page) => {
+                    s["missing"] = json!(false);
+                    page
+                }
+                Err(error)
+                    if error.code == RpcError::not_found("").code && s["missing"] == true =>
+                {
+                    json!({"events": []})
+                }
+                Err(error) => return Err(error),
+            };
             end = page["lastSeq"].as_u64();
             more = page["hasMore"] == true;
             let events: Vec<crate::store::EventRecord> =
@@ -131,6 +149,24 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
             // them and the next page never asks for them again.
             through = page.get("pageThrough").and_then(Value::as_u64);
             events
+        } else if let Some(row) = hub.mesh_book_row(key)
+            && let Some(mesh) = hub.mesh.get()
+            && hub.mesh_may_route(key)
+        {
+            let id = &row.receipt.mux_session_id;
+            let page = crate::server::mesh_relay::read::read(
+                mesh.as_ref(),
+                &row.peer,
+                id,
+                method::MUX_EVENTS,
+                &remote_page(id, c.seq, w.match_text.as_deref()),
+            )
+            .await?;
+            end = page["lastSeq"].as_u64();
+            more = page["hasMore"] == true;
+            through = page.get("pageThrough").and_then(Value::as_u64);
+            serde_json::from_value(page["events"].clone())
+                .map_err(|e| RpcError::internal(format!("hub watch events: {e}")))?
         } else {
             Vec::new()
         };

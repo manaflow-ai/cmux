@@ -58,6 +58,7 @@ fn remote_refusal(update: &Value) -> Option<String> {
                 || line.contains("Operation not permitted")
                 || line.contains("Read-only file system");
             if line.contains("state path ancestor owned by another user")
+                || line.contains("Read-only file system")
                 || (denied && (line.contains(".git") || line.contains(".sock")))
             {
                 return Some(offset);
@@ -283,6 +284,10 @@ mod tests {
         let denied = "mkdir .git: Permission denied";
         assert!(remote_refusal(&result("completed", denied)).is_none());
         assert!(remote_refusal(&result("failed", denied)).is_some());
+        assert!(
+            remote_refusal(&result("failed", "Read-only file system: /home/user/.cache/state"))
+                .is_some()
+        );
     }
 
     fn meta(id: &str) -> crate::store::SessionMeta {
