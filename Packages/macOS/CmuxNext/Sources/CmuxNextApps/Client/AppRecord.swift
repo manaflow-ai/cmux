@@ -60,12 +60,21 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         public var op: String
         public var title: AppLocalizedText
         public var when: String?
+        /// The single keys that run it on a browser page (`page_keys`: `f`, `shift+f`, `/`), the
+        /// person's bindings already applied by the daemon (`apps/page_keys.rs`).
+        public var pageKeys: [String]
         public var id: String { op }
 
-        public init(op: String, title: AppLocalizedText, when: String? = nil) {
+        public init(op: String, title: AppLocalizedText, when: String? = nil, pageKeys: [String] = []) {
             self.op = op
             self.title = title
             self.when = when
+            self.pageKeys = pageKeys
+        }
+
+        /// Whether `key` (a page key: the lowercase character, Shift apart) runs this command.
+        public func answers(pageKey character: String, shift: Bool) -> Bool {
+            pageKeys.contains(shift ? "shift+\(character)" : character)
         }
     }
 
@@ -120,7 +129,8 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         instance = AppInstance(json: json["instance"])
         commands = (json["commands"]?.arrayValue ?? []).compactMap { entry in
             guard let op = entry["op"]?.stringValue else { return nil }
-            return Command(op: op, title: AppLocalizedText(json: entry["title"]) ?? AppLocalizedText(op), when: entry["when"]?.stringValue)
+            return Command(op: op, title: AppLocalizedText(json: entry["title"]) ?? AppLocalizedText(op), when: entry["when"]?.stringValue,
+                           pageKeys: entry["page_keys"]?.arrayValue?.compactMap(\.stringValue) ?? [])
         }
     }
 
@@ -133,7 +143,7 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
             "grants": .array(grants.sorted().map(AppJSON.string)), "manifest": manifest.raw, "available": .bool(available),
             "bundle_dir": bundleDirectory.map { .string($0.path) } ?? .null,
             "revision": revision.map { .number(Double($0)) } ?? .null,
-            "commands": .array(commands.map { ["op": .string($0.op), "title": .string($0.title.english)] }),
+            "commands": .array(commands.map { ["op": .string($0.op), "title": .string($0.title.english), "page_keys": .array($0.pageKeys.map(AppJSON.string))] }),
         ]
     }
 }

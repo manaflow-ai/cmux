@@ -292,7 +292,17 @@ export function generate(): Record<string, string> {
     "memory.search": { scope: "memory:read", class: "read" },
     // The older name of chat.list for a customize section's thread list: the daemon answers it
     // from the same chat index as chat.list (apps/routing.rs), shaped {chats: [...]}.
-    "agent_chat.list": { scope: "agent_chat:read", class: "read" }
+    "agent_chat.list": { scope: "agent_chat:read", class: "read" },
+    // The pages of the browser tabs the Mac app draws (BrowserPageAppOps in CmuxNextApp, the app's
+    // `browser.page.*` page service). `eval` runs a script in the page the person sees, so it takes
+    // browser:execute (sensitive), the scope of input to the daemon's own browsers.
+    "browser.page.eval": { scope: "browser:execute", class: "mutation" },
+    "browser.page.state": { scope: "browser:read", class: "read" },
+    "browser.page.back": { scope: "browser:write", class: "mutation" },
+    "browser.page.forward": { scope: "browser:write", class: "mutation" },
+    "browser.page.reload": { scope: "browser:write", class: "mutation" },
+    "browser.page.navigate": { scope: "browser:write", class: "mutation" },
+    "browser.page.new_tab": { scope: "browser:write", class: "mutation" }
   }
   Object.assign(scopes, hostOps)
   const signals = loadSignals(scopes, types)

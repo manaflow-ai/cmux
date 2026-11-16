@@ -668,6 +668,7 @@ class Client : public CefClient,
   // to Chromium's own accelerators.
   bool OnKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle os_event) override {
     constexpr int kEscape = 0x1B;
+    constexpr int kSlash = 0xBF;  // VK_OEM_2: `/` (BrowserPageKey.slashKeyCode), an extension's page key
     constexpr uint32_t kModifiers = EVENTFLAG_SHIFT_DOWN | EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN |
                                     EVENTFLAG_COMMAND_DOWN;
     constexpr uint32_t kChordModifiers = EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN | EVENTFLAG_COMMAND_DOWN;
@@ -681,8 +682,8 @@ class Client : public CefClient,
     }
     if (event.windows_key_code == kEscape && !(event.modifiers & kModifiers)) {
       Emit(CMUX_SHIM_KEY_UNHANDLED, browser->GetIdentifier(), 0, kEscape);
-    } else if (event.windows_key_code >= 'A' && event.windows_key_code <= 'Z' && !(event.modifiers & kChordModifiers) &&
-               !event.focus_on_editable_field && !event.is_system_key) {
+    } else if (((event.windows_key_code >= 'A' && event.windows_key_code <= 'Z') || event.windows_key_code == kSlash) &&
+               !(event.modifiers & kChordModifiers) && !event.focus_on_editable_field && !event.is_system_key) {
       const int64_t shift = (event.modifiers & EVENTFLAG_SHIFT_DOWN) ? 1 : 0;
       Emit(CMUX_SHIM_KEY_UNHANDLED, browser->GetIdentifier(), 0, event.windows_key_code, shift);
     }
