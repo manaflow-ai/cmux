@@ -40,6 +40,7 @@ final class WindowRecordSaver {
     var saves = WindowRecordSaves()
     /// The daemon's window records of this install (`window-records-v1`).
     private let recordMirror = WindowRecordMirror()
+    private(set) lazy var launchRecord = AppLaunchRecord(services: manager.services)
     private var selectedTabsCache: [String: TabSelectionRecord] = [:]
     /// Panes whose remembered tab a record build read on the main thread (`SpaceSwitchRecordSaveTests`).
     var paneReads: Int { selectedTabsCache.values.reduce(0) { $0 + $1.paneReads } }
@@ -98,7 +99,7 @@ final class WindowRecordSaver {
     }
 
     private func requestSave() {
-        services.launchRecord.schedule()
+        launchRecord.schedule()
         saves.requested = true
         if let ticket = services.daemon.openTicket() { saves.tickets.append(ticket) }
         scheduleDrain()
