@@ -764,3 +764,35 @@ fn a_store_that_an_owner_opens_after_its_release_takes_no_write() {
          and wrote it: its write: {late:?}"
     );
 }
+
+/// The record file is read with a bound. A file with that name that is
+/// longer than the bound is not taken as the word of the owner before: the
+/// next owner starts, and its start line says that the record cannot be
+/// read.
+#[test]
+fn a_record_file_past_the_read_bound_does_not_go_into_the_next_owners_start_line() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-long-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "release-long";
+    let mux = open_owner(&root, session);
+    let folder = session_folder(&mux);
+    mux.shutdown();
+    mux.release_ownership(&root.join("control.sock"));
+    drop(mux);
+    // A record in the right form, 128 KiB long.
+    let long = serde_json::json!({"release": "released", "alive": ["x".repeat(128 * 1024)]});
+    std::fs::write(folder.join(RELEASE_RECORD_FILE), long.to_string()).unwrap();
+
+    let next = open_owner(&root, session);
+    let line = start_line(&next, &folder);
+    drop(next);
+    let _ = std::fs::remove_dir_all(&root);
+    let record = line.get(RELEASE_RECORD_KEY).map(ToString::to_string).unwrap_or_default();
+    assert!(
+        record.contains("unreadable") && record.len() < 1024,
+        "the next owner read a record file of 128 KiB whole into its start line: field \
+         `{RELEASE_RECORD_KEY}` has {} bytes; the line's keys: {:?}",
+        record.len(),
+        keys(&line)
+    );
+}
