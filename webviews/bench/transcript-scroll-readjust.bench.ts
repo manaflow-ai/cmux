@@ -25,8 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Browser } from "playwright";
 import { chromium, webkit } from "./browsers";
-import { createServer } from "vite";
-import { warmViteServer } from "../test/support/warmDevServer";
+import { buildLabel, devRequested, requireProductionReact, serveBenchPage } from "./support/benchPage";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { perfRow } from "./perfRow";
 
@@ -59,6 +58,8 @@ const SETTLE_FRAMES = 90;
 /// A move under this (px) is rounding.
 export const MOVE_PX = 1;
 const webviews = path.resolve(import.meta.dir, "..");
+/// `--dev` takes the numbers from a dev server, labelled `dev`, instead of the build.
+const DEV = devRequested();
 
 export type Seen = { id: string; y: number };
 export type ScrollFrame = { at: number; top: number; max: number; rows: Seen[] };
@@ -119,6 +120,7 @@ async function round(browser: Browser, url: string): Promise<Round> {
   try {
     await installPaintedFrames(page);
     await page.goto(url);
+    await requireProductionReact(page, { dev: DEV });
     await page.waitForFunction(() => "__debug" in window);
     await page.evaluate(`window.__debug.seedRows(${ROWS})`);
     // START_PX above the latest row, and rest there: the offset and height held for 12 painted frames.
@@ -179,20 +181,14 @@ async function round(browser: Browser, url: string): Promise<Round> {
 }
 
 if (import.meta.main) {
-  const vite = await createServer({
-    root: webviews,
-    configFile: path.join(webviews, "vite.config.ts"),
-    server: { port: 0, host: "127.0.0.1", strictPort: false },
-    logLevel: "error",
-  });
-  await vite.listen();
   const pagePath = "/test/browser/transcript-fling.html";
+  // A build by default; `--dev` takes a dev server and labels every number `dev`
+  // (bench/support/benchPage.ts).
+  const served = await serveBenchPage(pagePath);
   let failed = 0;
   const report: Record<string, Round[]> = {};
   try {
-    await warmViteServer(vite, pagePath);
-    const { port } = vite.httpServer!.address() as { port: number };
-    const url = `http://127.0.0.1:${port}${pagePath}`;
+    const url = served.url;
     for (const engine of ENGINES) {
       const isChromium = engine === "chromium";
       let browser: Browser;
@@ -223,6 +219,7 @@ if (import.meta.main) {
       console.log(
         `transcript-scroll-readjust: ${engine}, ${rounds.length} rounds, ${ROWS} rows, ${STEPS} steps of ${STEP_PX} px from ${START_PX} px up`,
       );
+      console.log(`transcript-scroll-readjust build=${buildLabel({ dev: DEV })}`);
       console.log("round | readjust frames | settle moves | anchor shifts | frames | reached bottom");
       for (const [index, r] of rounds.entries())
         console.log(
@@ -249,6 +246,6 @@ if (import.meta.main) {
     if (JSON_OUT) fs.writeFileSync(JSON_OUT, JSON.stringify({ rows: ROWS, startPx: START_PX, report }, null, 2));
     if (failed) process.exitCode = 1;
   } finally {
-    await vite.close();
+    await served.close();
   }
 }

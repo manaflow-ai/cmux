@@ -14,8 +14,7 @@
 /// <reference types="bun" />
 import path from "node:path";
 import { webkit } from "./browsers";
-import { createServer } from "vite";
-import { warmViteServer } from "../test/support/warmDevServer";
+import { buildLabel, gotoBenchPage, requireProductionReact, serveBenchPage } from "./support/benchPage";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { frameStats } from "../src/agent-session/acpmux/perf";
 import { perfRow, TARGET_MS } from "./perfRow";
@@ -29,24 +28,22 @@ if (!Number.isInteger(ROWS) || ROWS < 3 || !Number.isInteger(ROUNDS) || ROUNDS <
   throw new Error("usage: transcript-scroll-frame.bench.ts [rows>=3] [rounds>=1] [hz>0]");
 const webviews = path.resolve(import.meta.dir, "..");
 
-const vite = await createServer({
-  root: webviews,
-  configFile: path.join(webviews, "vite.config.ts"),
-  server: { port: 0, host: "127.0.0.1", strictPort: false },
-  logLevel: "error",
-});
-await vite.listen();
 const pagePath = "/test/browser/transcript-fling.html";
-await warmViteServer(vite, pagePath);
+// A build by default; `--dev` takes a dev server and labels every number `dev`
+// (bench/support/benchPage.ts).
+const served = await serveBenchPage(pagePath);
 const browser = await webkit.launch({ headless: true });
 try {
-  const { port } = vite.httpServer!.address() as { port: number };
   const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
   await installPaintedFrames(page);
-  await page.goto(`http://127.0.0.1:${port}${pagePath}`);
+  await gotoBenchPage(page, served);
+  await requireProductionReact(page, { dev: served.dev });
   await page.waitForFunction(() => "__debug" in window);
   const seeded = await page.evaluate(`window.__debug.seedRows(${ROWS})`);
-  console.log(`transcript-scroll-frame fixture=${JSON.stringify(seeded)} nominal_hz=${HZ} coverage=${COVERAGE}`);
+  console.log(
+    `transcript-scroll-frame build=${buildLabel(served)} fixture=${JSON.stringify(seeded)} nominal_hz=${HZ}` +
+      ` coverage=${COVERAGE}`,
+  );
   await page.locator(".acpmux-scroll").hover();
 
   /// What debug.ts's flingStats and perf.ts's stats report, as far as this bench reads them.
@@ -218,5 +215,5 @@ try {
         });
 } finally {
   await browser.close();
-  await vite.close();
+  await served.close();
 }
