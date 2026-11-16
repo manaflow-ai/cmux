@@ -40,7 +40,9 @@ fn the_hook_outlasts_the_wait_it_runs() {
 
 #[test]
 fn a_launch_counts_as_gated_only_with_both_the_switch_and_its_own_hook() {
-    let os = |args: &[String]| args.iter().map(OsStr::new).collect::<Vec<_>>();
+    fn os(args: &[String]) -> Vec<&OsStr> {
+        args.iter().map(OsStr::new).collect()
+    }
     let app_server = vec!["app-server".to_owned()];
     let gated = gated_args(&app_server).unwrap();
     assert_eq!(gated.last().map(String::as_str), Some("app-server"), "options go first");
