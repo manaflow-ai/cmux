@@ -4,7 +4,7 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
-import { Journey, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
+import { clientPlatformOrigin, Journey, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
@@ -2274,5 +2274,36 @@ describe("claudeTranscriptModelsProgram", () => {
     expect(warmSpareRefusal({ code: 1, stdout, stderr: "" })).toBe("warm-spare refused (exit 1): team_unresolved: the install token names no team");
     expect(warmSpareRefusal({ code: 64, stdout: "", stderr: "usage: cmux link start-chat ...\nunknown flag --x\n" })).toBe("warm-spare refused (exit 64): unknown flag --x");
     expect(warmSpareRefusal({ code: 1, stdout: "", stderr: "" })).toBe("warm-spare refused (exit 1)");
+  });
+
+  test("the preclaim burst warms at client-config's platform_origin, not the API host", async () => {
+    // cloud-api forwards a fixed list of platform paths; /v1/cloud/spare/warm is not one, so a warm sent to the API
+    // host gets an empty 404 (runs 43804741509 and 43809949753). The app sends it to client-config's platform_origin.
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-platform-test-"));
+    try {
+      const cmux = join(dir, "cmux");
+      writeFileSync(cmux, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/argv"\necho '{"ok":false,"error":"stub refused","error_code":"stub"}'\nexit 1\n`, { mode: 0o755 });
+      const api: any = {
+        origin: "https://cloud-api-staging.cmux.dev",
+        bearer: "session-token",
+        raw: async (method: string, route: string) => route === "/v1/client-config"
+          ? { status: 200, body: { platform_origin: "https://cmux-platform-staging.debussy.workers.dev" } }
+          : { status: 200, body: { ok: true } },
+      };
+      const journey = new Journey(resolveBackend("staging"), null, {}, true);
+      const code = runPreclaimBurst({
+        backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: "install-token" }, account: "user-1/team_0123456789abcdef0123",
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 1, tag: "t", journey, outDir: null, team: "team_0123456789abcdef0123", user: {},
+      });
+      await expect(code).rejects.toThrow("warm-spare refused (exit 1): stub: stub refused");
+      const argv = readFileSync(join(dir, "argv"), "utf8").split("\n");
+      const request = JSON.parse(argv[argv.indexOf("--request") + 1]);
+      expect(request.platform).toBe("https://cmux-platform-staging.debussy.workers.dev");
+      expect(request.scope.platform).toBe("https://cmux-platform-staging.debussy.workers.dev");
+      expect(() => clientPlatformOrigin({})).toThrow("client-config names no https platform_origin");
+      expect(() => clientPlatformOrigin({ platform_origin: "http://x.test" })).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
