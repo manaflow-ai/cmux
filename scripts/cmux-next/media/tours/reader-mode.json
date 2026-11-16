@@ -37,6 +37,21 @@
       "wait": 3
     },
     {
+      "title": "Its page in Extensions: a local extension starts with read scopes only, so browser:execute is off",
+      "rpc": { "method": "debug.page", "params": { "page": "cmux.apps", "action": "open", "route": "#/installed?app=local/reader-mode" } },
+      "wait": 4
+    },
+    {
+      "title": "Allow browser:execute",
+      "rpc": { "method": "debug.page", "params": { "page": "cmux.apps", "action": "click", "selector": ".apps-grants .apps-grant:nth-child(2) button[role=switch]" } },
+      "wait": 2
+    },
+    {
+      "title": "Confirm the grant",
+      "rpc": { "method": "debug.dialog", "params": { "press": "confirm" } },
+      "wait": 3
+    },
+    {
       "title": "A news article in a browser tab",
       "cmux": ["tab", "create", "browser", "--url", "https://www.bbc.co.uk/news/articles/cmdx1vpprk9vo", "--name", "News", "--workspace", "name:Reading"],
       "wait": 8

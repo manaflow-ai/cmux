@@ -12,7 +12,8 @@ or reloads the page, so the scroll position and anything you typed stay.
   blocks of the same story, cleans a copy and draws it in a shadow root, so the page's own styles
   never reach it. Only a small answer (`{reader, title, words, minutes}`) comes back.
 - **It asks for one scope, `browser:execute`.** It lets the extension run a script in the page you
-  are reading. cmux highlights it on the install card, and you can take it back in Settings.
+  are reading. cmux highlights it on the install card. A local extension starts with read scopes
+  only, so turn it on in the extension's page under Extensions; you can turn it off there too.
 - **The key is a page key** (`catalog.json`, `"when": "browserFocused"`): it never fires while you
   type in a field. Rebind it like any page key of an extension.
 - **Light and dark** follow the system.
@@ -24,7 +25,8 @@ cd examples/extensions/reader-mode
 cmux ext dev
 ```
 
-Then open an article in a browser tab and press Shift+R.
+Accept the install card, allow `browser:execute` on the extension's page under Extensions, then
+open an article in a browser tab and press Shift+R.
 
 ## Tests
 
