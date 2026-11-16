@@ -289,7 +289,7 @@ pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
     let mode = info.pointer("/modes/currentModeId").and_then(Value::as_str);
     let default_only = own.is_none() && policy != PermissionPolicy::Review;
     let family = crate::web_modes::mode_family_of_detail(info).unwrap_or_default();
-    let japanese = || crate::cli::sender::japanese(|k| std::env::var(k).ok());
+    let japanese = || crate::sender_env::japanese(|k| std::env::var(k).ok());
     if let Some(mode) = mode.filter(|m| default_only && runs_everything_unasked(&family, m)) {
         return Some(if japanese() {
             format!(
