@@ -1,5 +1,5 @@
 import CmuxNextActions
-import CmuxNextDaemon
+public import CmuxNextDaemon
 
 /// The focus of the window that shows a pane, for an act that makes a pane there. The focus state is the app's: the
 /// app gives the 2 functions of its window.
@@ -76,7 +76,7 @@ struct NewFloatingPane {
     ///   registry, so a key run shows the failure and a caller that waits gets it.
     static func start(on daemon: DaemonService, beside pane: PaneID, window: NewPaneFocus?) -> ActionWork {
         let label = "new-floating-pane"
-        let focus = window?.started() ?? { _ in }
+        let focus: @MainActor (SurfaceID) -> Void = window?.started() ?? { _ in }
         let options = SpawnOptions(workspace: daemon.store.workspace(containing: pane)?.key)
         // The ticket opens now, as `send` opens it: a caller that waits for the action's scope waits for the 2 requests.
         let ticket = daemon.openTicket(label)
