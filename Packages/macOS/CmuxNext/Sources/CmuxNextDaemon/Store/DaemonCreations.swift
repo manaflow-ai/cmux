@@ -1,5 +1,16 @@
 import Foundation
 
+/// What became of a creation's stand-in tab that its pane no longer lists, by the store's record of the creation.
+public enum StandInFate: Equatable, Sendable {
+    /// The daemon's tab that the creation made, by its id: the creation's reply or its echo named it for the
+    /// creation's transaction, and the pane's records hold it.
+    case became(String)
+    /// Not answered and not closed by the person: its tab can still arrive.
+    case underway
+    /// Closed by the person, refused or failed, or its tab left the pane: no tab of the pane takes its place.
+    case ended
+}
+
 /// The store's pending creations as a close sees them (``CancelledCreation``): a close of a
 /// provisional tab or pane cancels its creation, the creator asks whether it was cancelled, and
 /// a split's reply names the daemon's surface for that close.

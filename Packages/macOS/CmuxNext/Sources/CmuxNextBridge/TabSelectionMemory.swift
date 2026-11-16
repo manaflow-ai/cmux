@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextTabs
 public import Observation
@@ -112,8 +112,11 @@ public final class TabSelectionMemory {
     /// close-selection rule; a member of a collapsed group in `hidden` is
     /// skipped while a shown tab survives). `closing`: the tabs a pending close hides
     /// (`DaemonStore.closingTabIDs`); asked only when a tab with an opener relation is no longer listed.
+    /// `standIn`: what became of a creation's stand-in tab that `tabs` no longer lists, by the store's record of the
+    /// creation. Not read yet.
     public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = [], groups: [String: String] = [:],
-                        replaced: [StripTabID: StripTabID] = [:], closing: () -> Set<String> = { [] }) -> String? {
+                        replaced: [StripTabID: StripTabID] = [:], closing: () -> Set<String> = { [] },
+                        standIn fate: (String) -> StandInFate = { _ in .ended }) -> String? {
         let earlierGroups = lastGroups[pane] ?? [:]
         lastGroups[pane] = groups.isEmpty ? nil : groups
         closeRule.adopt(replaced)
