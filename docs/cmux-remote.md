@@ -23,15 +23,22 @@ cmux.app (the person's app; serves attached cmux.rd/1 + WebRTC sessions,
 ```
 
 - **Identity.** One signed bundle, `cmux Remote.app` (`com.cmuxterm.remote`;
-  DEV and NIGHTLY builds currently use the pinned `cmux Remote (dev).app`,
-  `com.cmuxterm.remote.dev`), with the cmux icon on a remote-screen badge. Its
-  designated requirement (bundle id + team) stays the same across builds, so a
-  grant survives every update. The Release phase embeds the pinned asset from
-  `scripts/cmux-next/cmux-remote-dev.pin.json`; a Release build fails without
-  it, and a mismatched asset fails each build. Only with
-  `CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1`, a Release build on a Mac with no source
-  for the asset prints one `NOT EMBEDDED` warning line and has no cmux Remote.
-  A DEV build warns in the build log and fails only when
+  DEV builds, and a NIGHTLY build that is asked to embed it, currently use the
+  pinned `cmux Remote (dev).app`, `com.cmuxterm.remote.dev`), with the cmux
+  icon on a remote-screen badge. Its designated requirement (bundle id + team)
+  stays the same across builds, so a grant survives every update. A Release
+  build embeds the pinned asset from
+  `scripts/cmux-next/cmux-remote-dev.pin.json` only with
+  `CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1` (decision of 2026-11-16). No build
+  sets the variable, so a NIGHTLY build has no cmux Remote: the third-party
+  notices and the load-command check of a published build do not cover the
+  embedded bundle yet. Without the variable a Release build prints one note
+  line and embeds nothing; with `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1` and not the
+  variable it fails. With the variable a Release build fails without the
+  asset, and a mismatched asset fails each build that embeds. Only with
+  `CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1` added, a Release build on a Mac with no
+  source for the asset prints one `NOT EMBEDDED` warning line and has no cmux
+  Remote. A DEV build warns in the build log and fails only when
   `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1`.
 - **Responsibility.** The daemon starts the Remote host with
   `responsibility_spawnattrs_setdisclaim`, so the host is its own responsible

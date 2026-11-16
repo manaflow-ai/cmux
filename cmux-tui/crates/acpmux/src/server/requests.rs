@@ -2632,10 +2632,13 @@ async fn dispatch_request_with_identity(
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         }
-        // Names every machine and its numbers: this machine's own clients only.
-        "_acpmux/place" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
-            "_acpmux/place answers on this machine's unix socket only",
-        )),
+        // Names every machine and its numbers: this machine's own clients only, its unix socket
+        // and the app's own pane (the composer's Auto row and busy chip), never the Web or a peer.
+        "_acpmux/place" if !matches!(conn.origin, Origin::Local | Origin::LocalApp) => {
+            Err(RpcError::invalid_params(
+                "_acpmux/place answers on this machine's unix socket and the app's own pane only",
+            ))
+        }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
