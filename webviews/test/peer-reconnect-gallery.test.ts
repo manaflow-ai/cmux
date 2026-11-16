@@ -123,11 +123,8 @@ await requireBrowserLane("peer-reconnect-gallery.test.ts", async () => {
           } else {
             await row.waitFor({ state: "visible" });
             const label = await paintedLabel(row);
-            if (variant === "baseline-1s") expect(label.text).toContain("Reconnecting to walk-remote");
-            else {
-              const seconds = variant === "outage-long-name" ? "3" : variant.slice(7, -1);
-              expect(label.text).toContain(` · ${seconds} s`);
-            }
+            const seconds = variant === "outage-long-name" ? "3" : variant.slice(7, -1);
+            expect(label.text).toContain(` · ${seconds} s`);
             expect(label.painted, `reconnect label is not painted for ${variant} at ${width}px`).toBe(true);
             expect(await page.locator(".acpmux-machine-link").getAttribute("data-quiet")).toBeNull();
           }
@@ -135,10 +132,6 @@ await requireBrowserLane("peer-reconnect-gallery.test.ts", async () => {
             variant,
             width,
             text: await row.allTextContents(),
-          });
-          await page.emulateMedia({ reducedMotion: "reduce" });
-          await page.screenshot({
-            path: path.join(out, `${variant}-${width}.png`),
           });
         } finally {
           await page.close();

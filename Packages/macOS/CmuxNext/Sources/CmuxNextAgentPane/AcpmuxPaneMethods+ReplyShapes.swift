@@ -26,10 +26,14 @@ nonisolated extension AcpmuxPaneMethods {
     /// peerConnectedFromStatus), and its link `state`, `lastSeen` (ms) and failed `attempts`, which
     /// tell a chat on a machine that is not connected (with when it was last seen) from a deleted
     /// one, and from one whose machine is still connecting (chatUnavailable.ts).
+    /// State snapshots keep the same display-only link fields as daemon state notifications, so
+    /// opening a chat during an outage retains its original elapsed time across later reads.
     public static let replyShapes: [String: ReplyShape] = [
         // The local/app connection's peer state snapshot; never transport URLs or credentials.
         "_acpmux/peers": .object(["peers": .list(.object([
             "name": .string, "state": .string, "lastSeen": .number, "error": .string,
+            "link": .string, "carrier": .string, "cause": .string,
+            "since": .number, "downSince": .number, "nextRetryAt": .number,
         ]))]),
         "_acpmux/status": .object([
             // What kind of device this machine is (`mac-mini`; cmux-device-kind): the glyph
@@ -38,6 +42,8 @@ nonisolated extension AcpmuxPaneMethods {
             "peers": .list(.object([
                 "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
                 "state": .string, "lastSeen": .number, "attempts": .number,
+                "link": .string, "carrier": .string, "cause": .string,
+                "since": .number, "downSince": .number, "nextRetryAt": .number,
                 // The same cached, one-minute health reading the native remote-machine sidebar
                 // displays. Keep only values needed for a warning and the budget verdict;
                 // URLs, host labels, disk readings and session counts stay out of the page.
@@ -64,6 +70,8 @@ nonisolated extension AcpmuxPaneMethods {
             "peers": .list(.object([
                 "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
                 "state": .string, "lastSeen": .number, "attempts": .number, "error": .string,
+                "link": .string, "carrier": .string, "cause": .string,
+                "since": .number, "downSince": .number, "nextRetryAt": .number,
             ])),
         ]),
     ]

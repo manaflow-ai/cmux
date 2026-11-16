@@ -21,6 +21,26 @@ import Testing
         #expect(peer["error"] as? String == "removed")
     }
 
+    @Test func everyPeerReadKeepsTheOriginalOutageAndDropsPrivateFields() throws {
+        for method in ["_acpmux/peers", "_acpmux/status", "_acpmux/peer_reconnect"] {
+            let shape = try #require(AcpmuxPaneMethods.replyShapes[method])
+            let value: [String: Any] = ["peers": [[
+                "name": "studio", "state": "reconnecting", "link": "reconnecting",
+                "carrier": "ssh", "cause": "remote", "since": 200, "downSince": 100,
+                "nextRetryAt": 300, "url": "ssh://private", "token": "secret",
+            ]]]
+            let filtered = try #require(AcpmuxPaneMethods.filtered(value, to: shape) as? [String: Any])
+            let peer = try #require((filtered["peers"] as? [[String: Any]])?.first)
+            #expect(peer["link"] as? String == "reconnecting")
+            #expect(peer["since"] as? Int == 200)
+            #expect(peer["downSince"] as? Int == 100)
+            #expect(peer["nextRetryAt"] as? Int == 300)
+            #expect(peer["carrier"] as? String == "ssh")
+            #expect(peer["cause"] as? String == "remote")
+            #expect(peer["url"] == nil && peer["token"] == nil)
+        }
+    }
+
     /// The device kinds reach the page (each machine's glyph), and nothing else rides along.
     @Test func statusKeepsDeviceKindsOnly() throws {
         let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/status"])
