@@ -279,7 +279,7 @@ mod tests {
     fn job(target_kbps: u32, halve_first: bool) -> Job {
         let damage = Rect { x: 0, y: 0, width: 16, height: 16 };
         let req = EncodeRequest { stream: 0, frame: 1, damage, force_idr: true, target_kbps };
-        Job { req, halve_first }
+        Job { req, released_us: 0, halve_first }
     }
 
     #[test]
