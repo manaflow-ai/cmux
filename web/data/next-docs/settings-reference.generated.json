@@ -2582,6 +2582,18 @@
           ]
         },
         {
+          "key": "appearance.fontSmoothing",
+          "title": "Text Smoothing",
+          "help": "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts.",
+          "kind": "choice",
+          "default": "antialiased",
+          "group": "Density and Motion",
+          "values": [
+            "antialiased",
+            "system"
+          ]
+        },
+        {
           "key": "appearance.highlightColor",
           "title": "Highlight Color",
           "help": "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color.",
@@ -3762,7 +3774,7 @@
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
           "kind": "number",
-          "default": 400,
+          "default": 1300,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3783,7 +3795,7 @@
           "title": "Group Card Delay",
           "help": "How long the pointer rests on a group before its summary card opens.",
           "kind": "number",
-          "default": 1500,
+          "default": 1300,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3944,7 +3956,7 @@
         {
           "key": "sidebar.minimal",
           "title": "Minimal Mode",
-          "help": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
+          "help": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
