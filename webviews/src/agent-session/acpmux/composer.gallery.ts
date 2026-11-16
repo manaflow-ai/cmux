@@ -3079,7 +3079,7 @@ export default agentPaneEntry({
       },
     },
     "slash-menu-cmux-descriptions": {
-      note: "Play: type /; import starts a new chat with the transcript as its first prompt, and fork opens a new chat.",
+      note: "Play: type /; import starts a new chat with the transcript as its first prompt, fork opens a new chat, and side reads as fork does (a side chat, no argument hint).",
       snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], { commands: [] }),
       play: async (ctx) => {
         await ctx.click({ selector: "[contenteditable='true']" });
@@ -3088,14 +3088,23 @@ export default agentPaneEntry({
           [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].find(
             (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
           );
-        await ctx.waitFor(() => !!row("import") && !!row("fork"));
+        await ctx.waitFor(() => !!row("import") && !!row("fork") && !!row("side"));
         if (
           row("import")?.querySelector(".acpmux-slash-description")?.textContent !==
           "Start a new chat with this transcript as its first prompt"
         )
           throw new Error("/import description does not explain the transcript's first prompt");
-        if (!row("fork")?.querySelector(".acpmux-slash-description")?.textContent?.includes("new chat"))
+        if (
+          row("fork")?.querySelector(".acpmux-slash-description")?.textContent !== "Fork this turn into a new chat tab"
+        )
           throw new Error("/fork description does not describe its new chat");
+        // /side reads as /fork does (#43977): the same wording, and no dim argument hint between
+        // its name and its description.
+        if (row("side")?.querySelector(".acpmux-slash-description")?.textContent !== "Fork this turn into a side chat")
+          throw new Error("/side description does not match /fork's wording");
+        for (const name of ["fork", "side"])
+          if (row(name)?.querySelector(".acpmux-slash-hint"))
+            throw new Error(`/${name} shows an argument hint the other row does not`);
       },
     },
     "reasoning-claude": {
