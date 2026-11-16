@@ -171,11 +171,11 @@ fn assert_family(page: &IndexPage) {
 }
 
 fn sample_bytes(index: &SummaryIndex, root: &RowKey) -> usize {
-    let before = super::snapshot::read_probe();
+    let before = snapshot::read_probe();
     let page = index
         .read_page(None, ReadSide::After, false, 8, 256 * 1024, Some(&cold_filter(root)))
         .unwrap();
-    let after = super::snapshot::read_probe();
+    let after = snapshot::read_probe();
     assert_family(&page);
     assert_eq!(after.1 - before.1, 1);
     assert_eq!(after.2, before.2);
@@ -186,13 +186,13 @@ fn sample_bytes(index: &SummaryIndex, root: &RowKey) -> usize {
 }
 
 fn sample_wall(index: &SummaryIndex, root: &RowKey) -> u128 {
-    let before = super::snapshot::read_probe();
+    let before = snapshot::read_probe();
     let started = Instant::now();
     let page = index
         .read_page(None, ReadSide::After, false, 8, 256 * 1024, Some(&cold_filter(root)))
         .unwrap();
     let elapsed = started.elapsed().as_nanos();
-    let after = super::snapshot::read_probe();
+    let after = snapshot::read_probe();
     assert_family(&page);
     assert_eq!(after.1 - before.1, 1);
     assert_eq!(after.2, before.2);
@@ -200,7 +200,7 @@ fn sample_wall(index: &SummaryIndex, root: &RowKey) -> u128 {
 }
 
 fn sample_unread(index: &SummaryIndex, root: &RowKey) -> u128 {
-    let before = super::snapshot::read_probe();
+    let before = snapshot::read_probe();
     let started = Instant::now();
     let page = index
         .read_page(
@@ -213,7 +213,7 @@ fn sample_unread(index: &SummaryIndex, root: &RowKey) -> u128 {
         )
         .unwrap();
     let elapsed = started.elapsed().as_nanos();
-    let after = super::snapshot::read_probe();
+    let after = snapshot::read_probe();
     assert!(!page.cold_unread);
     assert_eq!(after.0 - before.0, 8192);
     assert_eq!(after.1 - before.1, 1);

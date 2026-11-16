@@ -150,13 +150,14 @@ fn cold_table_prefix_failure_continues_with_the_pager_cursor() {
     assert_eq!(after.2 - before.2, 1);
     assert_eq!(first.rows.len(), 254);
     assert_eq!(first.after_key, first.rows.last().map(|row| SortKey::of(row)));
-    assert!(!first.closure, "a damaged table page cannot claim closure");
+    assert!(first.closure, "every returned row is from the verified table prefix");
     assert!(first.has_after);
     assert!(first.bytes_read <= PAGE_BYTES);
     let continuation = first.after_key.clone().expect("verified prefix cursor");
     let second = indexed
         .read_page(Some(&continuation), ReadSide::After, false, 400, PAGE_BYTES, Some(&filter))
         .unwrap();
+    assert!(!second.closure, "the next page uses the pager after set-aside");
     let mut ids: Vec<_> =
         first.rows.iter().chain(second.rows.iter()).map(|row| row.chat_id.clone()).collect();
     ids.sort();
@@ -297,7 +298,7 @@ fn hot_child_under_cold_row_is_reported_in_deeper() {
     let page =
         indexed.read_page(None, ReadSide::After, false, 400, 256 * 1024, Some(&filter)).unwrap();
     assert!(page.rows.iter().any(|row| row.chat_id == "cold-parent"));
-    assert!(page.deeper.iter().any(|key| key.row.chat_id == "cold-parent"));
+    assert!(page.deeper.iter().any(|key| key.row.chat_id.as_ref() == "cold-parent"));
 }
 
 #[test]
@@ -376,7 +377,7 @@ fn cold_depth_64_entry_names_the_next_family_walk() {
     assert_eq!(page.rows.len(), 64);
     assert_eq!(page.deeper.len(), 1);
     let continuation = page.deeper.first().unwrap();
-    assert_eq!(continuation.row.chat_id, "depth-64");
+    assert_eq!(continuation.row.chat_id.as_ref(), "depth-64");
     let next = restored
         .read_page(
             None,
@@ -393,7 +394,7 @@ fn cold_depth_64_entry_names_the_next_family_walk() {
 
 #[test]
 fn cold_family_random_forest_matches_whole_pager_reference() {
-    fn build(with_table: bool) -> (tempfile::TempDir, SummaryIndex, RowKey, Vec<String>) {
+    fn build(with_table: bool) -> (TempDir, SummaryIndex, RowKey, Vec<String>) {
         let dir = tempfile::tempdir().unwrap();
         let snapshot = dir.path().join("index.snap");
         let table = dir.path().join("index.snap.kin");

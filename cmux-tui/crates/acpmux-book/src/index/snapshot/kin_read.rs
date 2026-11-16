@@ -133,7 +133,9 @@ fn verified_prefix(
     }
     // Unavailable comes from read_page, which already disables/counts/logs
     // once. Budget exhaustion keeps the table usable. Neither is retried here.
-    KinPiece { rows, has_before, has_after: true, closure: false }
+    // All returned rows still came from the closure table. If it was set
+    // aside, the next pager page clears closure for the client's whole walk.
+    KinPiece { rows, has_before, has_after: true, closure: true }
 }
 
 fn finish<T>(
@@ -298,6 +300,24 @@ mod tests {
             disk.read_cold_family(request(&disk, &root, None)).result,
             KinResult::Ready(_)
         ));
+    }
+
+    #[test]
+    fn cold_kin_budget_limited_prefix_retains_closure() {
+        let (_directory, disk, root) = fixture(2);
+        let mut one_row = request(&disk, &root, None);
+        one_row.limit = 1;
+        let first = disk.read_cold_family(one_row);
+        assert!(matches!(first.result, KinResult::Ready(_)));
+        let mut bounded = request(&disk, &root, None);
+        bounded.physical_bytes = first.io.bytes;
+        let answer = disk.read_cold_family(bounded);
+        let KinResult::Ready(piece) = answer.result else { panic!("lost verified prefix") };
+        assert_eq!(piece.rows.len(), 1);
+        assert!(piece.has_after);
+        assert!(piece.closure);
+        assert!(disk.has_kin_table());
+        assert_eq!(answer.io.bytes, first.io.bytes);
     }
 
     #[test]
