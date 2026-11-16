@@ -400,6 +400,21 @@ impl MediaEngine {
         }
     }
 
+    /// A paced datagram from `encoded` really left now: the controller times it from
+    /// here, so pacing is not read as path delay. Other datagrams need no call.
+    pub fn datagram_sent(&mut self, datagram: &[u8], now_us: u64) {
+        if let Ok((header, _)) = DatagramHeader::decode(datagram) {
+            if matches!(header.kind, DatagramKind::Video | DatagramKind::Fec) {
+                self.cc.on_departed(header.transport_seq, now_us);
+            }
+        }
+    }
+
+    /// The controller's target now (all display streams together).
+    pub fn target_bps(&self) -> u64 {
+        self.cc.target_bps()
+    }
+
     /// Adds a lossless tile stream (rd change C3) for surface stream `of`:
     /// the source encodes tile top-offs of static regions into its requests'
     /// access units; every frame carries `flags::TILE` and the surface

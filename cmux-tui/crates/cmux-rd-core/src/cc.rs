@@ -356,6 +356,14 @@ impl CongestionController {
         self.on_sent_bytes(transport_seq, now_us, 0);
     }
 
+    /// A datagram recorded by `on_sent_bytes` really left now (a pacer held it): its
+    /// delay counts from here. Unknown sequences are ignored.
+    pub fn on_departed(&mut self, transport_seq: u16, now_us: u64) {
+        if let Some(sent) = self.sent.get_mut(&transport_seq) {
+            sent.at_us = now_us;
+        }
+    }
+
     /// Records the send time and size of a datagram.
     pub fn on_sent_bytes(&mut self, transport_seq: u16, now_us: u64, bytes: usize) {
         let bytes = u32::try_from(bytes).unwrap_or(u32::MAX);

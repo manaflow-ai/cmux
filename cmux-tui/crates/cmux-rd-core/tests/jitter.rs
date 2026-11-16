@@ -1,9 +1,10 @@
 //! The congestion controller against synthetic delay traces: a wired LAN, a Wi-Fi
 //! radio's jitter and aggregation, real congestion at a bottleneck, a quiet screen
-//! between motion, and a capacity that rises. Each trace sends each frame as one burst into a
+//! between motion, and a capacity that rises. Each trace runs the real pacer and a
 //! simulated bottleneck queue, with feedback every 50 ms as the viewer sends it.
 
 use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind};
+use cmux_rd_core::pacer::Pacer;
 use cmux_rd_proto::Arrival;
 use std::collections::VecDeque;
 
@@ -46,6 +47,7 @@ struct Path {
 
 struct Sim {
     cc: CongestionController,
+    pacer: Pacer,
     rng: Rng,
     now: u64,
     seq: u16,
@@ -73,6 +75,7 @@ impl Sim {
     fn new(cc: CongestionController) -> Self {
         Self {
             cc,
+            pacer: Pacer::new(),
             rng: Rng(0x2026_1116),
             now: 0,
             seq: 0,
@@ -104,10 +107,11 @@ impl Sim {
                 let rate = (self.cc.target_bps() as f64).min(demand_bps);
                 let bytes = (rate / 8.0 / FPS as f64) as usize;
                 let n = bytes.div_ceil(MTU).max(1);
-                // One burst per frame, as the host sends it today.
-                for _ in 0..n {
-                    self.send(path, MTU);
-                }
+                let frame: Vec<Vec<u8>> = (0..n).map(|_| vec![0; MTU]).collect();
+                self.pacer.push_frame(frame, self.cc.target_bps(), 1_000_000 / FPS, self.now);
+            }
+            for d in self.pacer.due(self.now) {
+                self.send(path, d.len());
             }
             if self.now >= self.next_feedback {
                 self.next_feedback += FEEDBACK_US;
