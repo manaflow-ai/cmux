@@ -4,7 +4,7 @@
 //! enrollment writes this authority before redeem. Arbitrary branch-only old
 //! ACPMUX_HOME state has no cross-tag upgrade path and must rejoin; inspecting
 //! the current daemon's state below is defense in depth, not global discovery.
-use super::cloud_join::{Consent, ConsentState, HeldLock};
+use crate::machine_record::{Consent, ConsentState, HeldLock};
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -101,7 +101,7 @@ impl Authority {
             .and_then(|file| serde_json::from_reader::<_, Value>(file).ok())
             .is_some_and(|marker| {
                 marker.get("by").and_then(Value::as_str)
-                    == Some(super::cloud_join::JOINED_BY_SIGN_IN)
+                    == Some(crate::machine_record::JOINED_BY_SIGN_IN)
             })
     }
 
@@ -166,8 +166,8 @@ impl Authority {
     pub(super) fn retain_own_requirement(&self) -> Result<()> {
         if has_own_requirement(&self.legacy)? {
             let sign_in = !exists(&self.legacy.join("consent.json"))?
-                && super::cloud_join::load_at(&self.legacy)?.is_some_and(|record| {
-                    record.joined_by.as_deref() == Some(super::cloud_join::JOINED_BY_SIGN_IN)
+                && crate::machine_record::load_at(&self.legacy)?.is_some_and(|record| {
+                    record.joined_by.as_deref() == Some(crate::machine_record::JOINED_BY_SIGN_IN)
                 });
             self.enroll_as(sign_in)?;
         }
@@ -177,7 +177,7 @@ impl Authority {
     fn required(&self) -> Result<bool> {
         self.validate_namespace()?;
         self.retain_own_requirement()?;
-        super::cloud_join::load_at(&self.legacy)?;
+        crate::machine_record::load_at(&self.legacy)?;
         if exists(&self.root.join("enrolled.json"))? {
             self.validate_marker()?;
         }
@@ -212,8 +212,8 @@ impl Authority {
     }
 
     pub(super) fn set(&self, surface: &str, granted: bool) -> Result<Consent> {
-        let user = if surface == super::cloud_join::SIGNED_IN_MACHINES {
-            super::cloud_join::machine_user_id()
+        let user = if surface == crate::machine_record::SIGNED_IN_MACHINES {
+            crate::machine_record::machine_user_id()
         } else {
             None
         };
@@ -229,7 +229,7 @@ impl Authority {
         user: Option<String>,
     ) -> Result<Consent> {
         if matches!(surface, "screen" | "control") {
-            let account = super::cloud_join::machine_user_id();
+            let account = crate::machine_record::machine_user_id();
             return self.set_local(surface, Some(granted), account.as_deref());
         }
         self.prepare()?;
@@ -239,7 +239,7 @@ impl Authority {
         let mut consent = self.consent();
         let state = if granted { ConsentState::Granted } else { ConsentState::None };
         match surface {
-            super::cloud_join::SIGNED_IN_MACHINES => {
+            crate::machine_record::SIGNED_IN_MACHINES => {
                 anyhow::ensure!(
                     !granted || user.is_some(),
                     "this machine is not joined to an account"
@@ -254,10 +254,10 @@ impl Authority {
         }
         // Control and Screen keep what they were, now with their sources, so the file never reads
         // as an older build's (whose values were the person's own).
-        consent.control_local = super::consent_grant::local_of(&consent, "control");
-        consent.screen_local = super::consent_grant::local_of(&consent, "screen");
-        let account = super::cloud_join::machine_user_id();
-        super::consent_grant::recompute(&self.root, &mut consent, account.as_deref());
+        consent.control_local = crate::cli::consent_grant::local_of(&consent, "control");
+        consent.screen_local = crate::cli::consent_grant::local_of(&consent, "screen");
+        let account = crate::machine_record::machine_user_id();
+        crate::cli::consent_grant::recompute(&self.root, &mut consent, account.as_deref());
         if granted {
             consent.granted_at = Some(crate::store::now_ms().to_string());
         }
@@ -266,7 +266,7 @@ impl Authority {
             &serde_json::to_vec(&consent)?,
         )?;
         // The change is made; a log that cannot be written does not undo it.
-        let _ = super::consent_grant::log_local(self, surface, Some(granted));
+        let _ = crate::cli::consent_grant::log_local(self, surface, Some(granted));
         Ok(consent)
     }
 
@@ -282,12 +282,12 @@ impl Authority {
     ) -> Result<Consent> {
         self.prepare()?;
         // Waits a moment for a grant being applied, as `consent_grant::apply` does.
-        let _lock = super::consent_grant::lock_waiting(self)?;
+        let _lock = crate::cli::consent_grant::lock_waiting(self)?;
         let mut consent = self.consent();
         // Read before the change: a file an older build wrote holds its local setting as the value.
         let (control, screen) = (
-            super::consent_grant::local_of(&consent, "control"),
-            super::consent_grant::local_of(&consent, "screen"),
+            crate::cli::consent_grant::local_of(&consent, "control"),
+            crate::cli::consent_grant::local_of(&consent, "screen"),
         );
         consent.control_local = control;
         consent.screen_local = screen;
@@ -296,7 +296,7 @@ impl Authority {
             "control" => consent.control_local = local,
             _ => anyhow::bail!("unknown consent surface"),
         }
-        super::consent_grant::recompute(&self.root, &mut consent, account);
+        crate::cli::consent_grant::recompute(&self.root, &mut consent, account);
         if local == Some(true) {
             consent.granted_at = Some(crate::store::now_ms().to_string());
         }
@@ -304,7 +304,7 @@ impl Authority {
             &self.root.join("consent.json"),
             &serde_json::to_vec(&consent)?,
         )?;
-        let _ = super::consent_grant::log_local(self, surface, local);
+        let _ = crate::cli::consent_grant::log_local(self, surface, local);
         Ok(consent)
     }
 
@@ -326,7 +326,10 @@ impl Authority {
         from: Option<&str>,
         user: Option<&str>,
     ) -> Result<()> {
-        anyhow::ensure!(super::cloud_join::is_consent_surface(surface), "unknown consent surface");
+        anyhow::ensure!(
+            crate::machine_record::is_consent_surface(surface),
+            "unknown consent surface"
+        );
         self.prepare()?;
         let mut record = serde_json::Map::new();
         record.insert("event".into(), json!("consent_refused"));
@@ -369,7 +372,7 @@ impl Authority {
 /// elsewhere (`controlGrantedBy`, `screenGrantedBy`, `consent_grant.rs`) for another account reads
 /// `none`; one granted here is unchanged.
 pub(crate) fn for_account(mut status: Value, account: Option<&str>) -> Value {
-    let sim = super::cloud_join::SIGNED_IN_MACHINES;
+    let sim = crate::machine_record::SIGNED_IN_MACHINES;
     let mine = |user: Option<&Value>| account.is_some() && user.and_then(Value::as_str) == account;
     if let Some(consent) = status.get_mut("consent").and_then(Value::as_object_mut) {
         for (surface, by) in [("control", "controlGrantedBy"), ("screen", "screenGrantedBy")] {
