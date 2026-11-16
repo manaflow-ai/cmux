@@ -6,12 +6,14 @@ import XCTest
 /// and as `agent-cli-frame` cell changes. Prints one `HYBRID_BENCH` line of JSON per run (wire
 /// bytes per second, first frame on attach, cell parity with the Mac's screen) and keeps a
 /// screenshot of each run's attach and end.
-final class AgentCLIHybridBenchUITests: XCTestCase {
+class AgentCLIHybridBenchUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = true
     }
 
-    private static let sessions = ["claude-code-2.1.310", "codex-0.164.0", "opencode-1.19.5"]
+    /// Claude Code and opencode; Codex runs in its own suite (``AgentCLIHybridBenchCodexUITests``),
+    /// so a recording of this one shows only these two.
+    class var sessions: [String] { ["claude-code-2.1.310", "opencode-1.19.5"] }
 
     private func fixture(_ name: String) -> String {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -53,4 +55,9 @@ final class AgentCLIHybridBenchUITests: XCTestCase {
         shot.lifetime = .keepAlways
         add(shot)
     }
+}
+
+/// The Codex session of the bench, apart, so the main suite's recording leaves it out.
+final class AgentCLIHybridBenchCodexUITests: AgentCLIHybridBenchUITests {
+    override class var sessions: [String] { ["codex-0.164.0"] }
 }
