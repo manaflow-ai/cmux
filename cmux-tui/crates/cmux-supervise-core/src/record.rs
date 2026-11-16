@@ -23,14 +23,14 @@ pub struct OwnerRecord {
     pub boot_id: String,
     /// One more than the record it replaced; 1 for the first.
     pub epoch: u64,
-    /// The command line with every value cut out ([`redact`]): the record is served on health
-    /// and status and written to death events, and a daemon's flags carry secrets (`--token`).
+    /// The program only, never an argument ([`redact`]): the record is served on health and
+    /// status and written to death events, and any argument may be a secret (`--token`).
     pub argv: Vec<String>,
 }
 
 impl OwnerRecord {
-    /// The record for `who`, one epoch past `previous`. Of `argv` it keeps only what [`redact`]
-    /// leaves.
+    /// The record for `who`, one epoch past `previous`. Of `argv` it keeps only the program
+    /// ([`redact`]).
     pub fn new(who: Identity, previous: Option<&OwnerRecord>, argv: Vec<String>) -> Self {
         Self {
             pid: who.pid,
@@ -67,36 +67,12 @@ impl OwnerRecord {
     }
 }
 
-/// What [`redact`] puts in place of a value.
-pub const REDACTED: &str = "<redacted>";
-
-/// A command line with no value left in it: the program, flag names (cut at `=`) and bare
-/// subcommand words (`daemon`, `run`). A flag's value, and a positional argument that is not a
-/// plain lowercase word, read [`REDACTED`]: which flags carry a secret is each program's
-/// business, so the record keeps no value at all.
+/// A command line with nothing but its program: no argument is kept. Which arguments carry a
+/// secret (a flag's value, a positional, a value that looks like a flag) is each program's
+/// business and cannot be told from outside, and nothing reads the arguments back, so the
+/// record keeps none.
 pub fn redact(argv: &[String]) -> Vec<String> {
-    let Some((program, rest)) = argv.split_first() else { return Vec::new() };
-    let word = |a: &str| !a.is_empty() && a.bytes().all(|b| b.is_ascii_lowercase() || b == b'-');
-    let mut out = vec![program.clone()];
-    let mut after_flag = false;
-    for arg in rest {
-        if arg.len() > 1 && arg.starts_with('-') {
-            match arg.split_once('=') {
-                Some((name, _)) => {
-                    out.push(format!("{name}={REDACTED}"));
-                    after_flag = false;
-                }
-                None => {
-                    out.push(arg.clone());
-                    after_flag = true;
-                }
-            }
-        } else {
-            out.push(if !after_flag && word(arg) { arg.clone() } else { REDACTED.into() });
-            after_flag = false;
-        }
-    }
-    out
+    argv.first().cloned().into_iter().collect()
 }
 
 /// What reading a record file found.
@@ -243,7 +219,9 @@ mod tests {
     }
 
     #[test]
-    fn the_record_keeps_flag_names_and_subcommands_never_a_value() {
+    fn the_record_keeps_the_program_and_never_an_argument() {
+        // A flag value, a value after `=`, a lowercase positional, and a value that looks like
+        // a flag: none can be told from a non-secret from outside.
         let argv: Vec<String> = [
             "/opt/cmux/acpmux",
             "daemon",
@@ -251,10 +229,9 @@ mod tests {
             "--token",
             "s3cret",
             "--listen=0.0.0.0:47811",
-            "--memory",
-            "-v",
-            "/home/a/x",
-            "plainword",
+            "lowersecret",
+            "--password",
+            "-dashsecret",
         ]
         .map(String::from)
         .to_vec();
@@ -265,23 +242,12 @@ mod tests {
             boot_id: String::new(),
         });
         let record = OwnerRecord::new(who, None, argv);
-        assert_eq!(
-            record.argv,
-            [
-                "/opt/cmux/acpmux",
-                "daemon",
-                "run",
-                "--token",
-                REDACTED,
-                &format!("--listen={REDACTED}"),
-                "--memory",
-                "-v",
-                REDACTED,
-                "plainword",
-            ]
-        );
+        assert_eq!(record.argv, ["/opt/cmux/acpmux"]);
         let json = serde_json::to_string(&record).unwrap();
-        assert!(!json.contains("s3cret") && !json.contains("47811"), "{json}");
+        for secret in ["s3cret", "47811", "lowersecret", "dashsecret"] {
+            assert!(!json.contains(secret), "{secret} in {json}");
+        }
+        assert!(redact(&[]).is_empty());
     }
 
     #[test]
