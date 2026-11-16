@@ -3,6 +3,8 @@
 // route comes from the URL fragment (#/settings/<section>?focus=<key>).
 import { createRoot } from "react-dom/client";
 import { SettingsPage } from "./components/SettingsPage";
+import { preloadCategorySymbols } from "./components/SectionList";
+import { categories } from "./categories";
 import type { SettingsClient } from "./ops";
 import { parseLocation } from "./router";
 import { ensureSection } from "./sectionQueries";
@@ -32,13 +34,16 @@ export async function mountSettingsPage(root: HTMLElement, client: SettingsClien
   const reactRoot = createRoot(root);
   reactRoot.render(<SettingsPage store={store} />);
   const started = store.start();
+  // The sidebar's icons, once the page is claimed (a parked spare has no host drawing to read yet).
+  const icons = started.then(() => preloadCategorySymbols(categories.map((category) => category.symbol)));
   // The host shows the page once its first screen is in: the user's values (no control drawn
   // disabled with its default), the host's lists (no card added after the first frame) and the
   // reads of the section the route opens on (its route's loader draws nothing before them). The
-  // route is read when the host claims the page, which may route it first.
+  // route is read when the host claims the page, which may route it first. The sidebar's icons too, so no
+  // row shows an empty icon slot.
   const opening = () =>
     ensureSection(store.queryClient, store, parseLocation(location.hash.replace(/^#/, "") || "/").section);
-  holdPaintUntil(() => Promise.all([started, opening()]), parked());
+  holdPaintUntil(() => Promise.all([started, opening(), icons]), parked());
   await started;
   return () => {
     reactRoot.unmount();

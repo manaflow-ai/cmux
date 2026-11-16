@@ -31,6 +31,8 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     public var machineSymbol: String?
     /// The host name the daemon runs on (`session-identity-v1`); nil on older daemons.
     public var machineName: String?
+    /// Authenticated local screen worker UUID; independent of machine, mesh, and session IDs.
+    public var screenDeviceID: String?
     public var generation: DaemonGeneration
     public var workspaceRevision: UInt64
     public var lifecycleReady: Bool
@@ -40,6 +42,10 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     /// The absolute path of the binary that serves the socket (`daemon-build-v1`, cmux-tui
     /// `server/daemon_build.rs`); nil on older daemons.
     public var cliPath: String?
+
+    static func normalizedScreenDeviceID(_ value: String?) -> String? {
+        value.flatMap(UUID.init(uuidString:))?.uuidString.lowercased()
+    }
 
     public func supports(_ capability: String) -> Bool { capabilitySet.contains(capability) }
 
@@ -70,6 +76,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         machinePlatform: MachineCatalogPlatform? = nil,
         machineCapabilities: [String] = [],
         machineName: String? = nil,
+        screenDeviceID: String? = nil,
         generation: DaemonGeneration,
         workspaceRevision: UInt64 = 0,
         lifecycleReady: Bool = true,
@@ -91,6 +98,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         self.machinePlatform = machinePlatform
         self.machineCapabilities = machineCapabilities
         self.machineName = machineName
+        self.screenDeviceID = Self.normalizedScreenDeviceID(screenDeviceID)
         self.generation = generation
         self.workspaceRevision = workspaceRevision
         self.lifecycleReady = lifecycleReady
@@ -110,6 +118,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         case machineCapabilities = "machine_capabilities"
         case machineSymbol = "machine_symbol"
         case machineName = "machine_name"
+        case screenDeviceID = "screen_device_id"
         case workspaceRevision = "workspace_revision"
         case lifecycleReady = "lifecycle_ready"
         case launchSnapshotPath = "launch_snapshot_path"
@@ -137,6 +146,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         machineCapabilities = try c.decodeIfPresent([String].self, forKey: .machineCapabilities) ?? []
         machineSymbol = (try? c.decodeIfPresent(String.self, forKey: .machineSymbol)).flatMap { $0 }.flatMap { $0.isEmpty ? nil : $0 }
         machineName = try c.decodeIfPresent(String.self, forKey: .machineName).flatMap { $0.isEmpty ? nil : $0 }
+        screenDeviceID = Self.normalizedScreenDeviceID(try c.decodeIfPresent(String.self, forKey: .screenDeviceID))
         generation = try c.decode(DaemonGeneration.self, forKey: .generation)
         workspaceRevision = try c.decodeIfPresent(UInt64.self, forKey: .workspaceRevision) ?? 0
         lifecycleReady = try c.decodeIfPresent(Bool.self, forKey: .lifecycleReady) ?? true

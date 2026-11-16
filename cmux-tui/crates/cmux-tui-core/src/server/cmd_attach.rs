@@ -6,7 +6,6 @@
 use super::size_state_for_client;
 use crate::panic_free::RecoverPoison;
 
-use super::AGENT_CLI_HYBRID_CAPABILITY;
 use super::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 use super::ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY;
 use super::AttachWireShape;
@@ -47,6 +46,7 @@ use super::spawn_attach_notification_stream_coalesced;
 use super::terminal_colors_json;
 use super::terminal_snapshot;
 use super::wait_for_initial_browser_resize;
+use super::{AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY};
 use crate::Mux;
 use crate::RenderAttachFrame;
 use crate::SurfaceId;
@@ -192,6 +192,8 @@ pub(super) fn attach_surface(
 ) -> anyhow::Result<Value> {
     let hybrid_declared =
         mux.control_clients.supports_capability(client, AGENT_CLI_HYBRID_CAPABILITY);
+    let hybrid_lean =
+        mux.control_clients.supports_capability(client, AGENT_CLI_HYBRID_LEAN_CAPABILITY);
     let hybrid_resume =
         agent_cli_hybrid::resume_request(hybrid_declared, hybrid_stream, hybrid_frame)?;
     anyhow::ensure!(
@@ -557,6 +559,7 @@ pub(super) fn attach_surface(
             attach.rows,
             &[&*attach.replay, &*attach.pending_sequence].concat(),
             hybrid_resume,
+            hybrid_lean,
         );
         let (viewer, first) = match started {
             Ok(started) => started,
