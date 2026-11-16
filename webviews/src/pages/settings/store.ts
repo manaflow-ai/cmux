@@ -653,6 +653,12 @@ export class SettingsStore {
     return reply.ok;
   }
 
+  /** General > Language: Relaunch, so the native menus take the Language setting; false when the host refused. */
+  async runLanguageRelaunch(): Promise<boolean> {
+    const reply = await this.request("cmux.settings.language.relaunch", {});
+    return reply.ok;
+  }
+
   /** Settings > Menus: save `menu`'s arrangement (null resets it), then re-read the host lists.
    * Throws the host's refusal (a managed key, an unreadable cmux.json). */
   async setContextMenuLayout(menu: string, layout: MenuLayout | null): Promise<void> {

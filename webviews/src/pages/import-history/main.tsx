@@ -2,7 +2,7 @@ import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { createStrings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import table from "./generated/strings.json";
 import { ImportHistory } from "./ImportHistory";
 import { ImportHistoryStore } from "./model";
@@ -13,12 +13,15 @@ import "./styles.css";
 
 export function mountImportHistory(root: HTMLElement, client: PageClient | null = defaultClient()): ImportHistoryStore {
   const store = new ImportHistoryStore(client);
-  const strings = createStrings(table);
-  document.title = strings.t("history.title");
-  createRoot(root).render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
-      <ImportHistory store={store} strings={strings} />
-    </UiProvider>,
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => (
+      <UiProvider container={root} dir={languageDirection(strings.language)}>
+        <ImportHistory store={store} strings={strings} />
+      </UiProvider>
+    ),
+    (strings) => strings.t("history.title"),
   );
   void store.start();
   return store;
