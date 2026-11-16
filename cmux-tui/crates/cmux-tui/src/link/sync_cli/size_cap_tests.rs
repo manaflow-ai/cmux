@@ -74,8 +74,10 @@ fn a_folder_past_twenty_gib_sends_a_first_pass_fast_at_the_real_limit() {
 fn a_folder_past_the_file_limit_sends_its_smallest_files_first() {
     let root = tempfile::tempdir().unwrap();
     let top = std::fs::canonicalize(root.path()).unwrap();
+    // 260 files of 1 byte and 40 of 50: the 100 the listing reaches, in whatever order the disk
+    // lists them, hold at least 60 of 1 byte, so the 40 sent are all of 1 byte.
     for index in 0..300 {
-        write(&top, &format!("d{}/f{index:03}.txt", index % 7), 1 + index % 5);
+        write(&top, &format!("d{}/f{index:03}.txt", index % 7), if index < 40 { 50 } else { 1 });
     }
     let set = with_limits(u64::MAX, 100, || with_first(u64::MAX, 40, || capped(&top)));
     assert_eq!(set.files.len(), 40);

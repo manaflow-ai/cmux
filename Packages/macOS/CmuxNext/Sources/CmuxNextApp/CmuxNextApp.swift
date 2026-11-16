@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextMallocZone
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -16,6 +17,9 @@ public struct CmuxNextApp {
     public func main() {
         if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld
         announceBenchHooksBuild()
+        // Before anything reads NSScroller.preferredScrollerStyle (AppKit reads it once): every
+        // scroll view is an overlay one, also with a mouse attached or "Always" (ScrollerStylePin).
+        ScrollerStylePin().apply(to: .standard)
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chromium's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped
