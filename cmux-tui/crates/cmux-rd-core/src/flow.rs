@@ -8,6 +8,20 @@
 //! moment its damage arrives instead of on the next interval; the in-flight bound
 //! still holds, and frames stay [`INPUT_FRAME_MIN_INTERVAL_US`] apart, or the cap's own
 //! interval when that is shorter: the window never sends faster than the cap allows outside it.
+//!
+//! While frames flow, the cap keeps a schedule instead of spacing each frame from the previous
+//! send: a frame's slot is one interval after the previous slot (or after the previous send, if
+//! that was later), and a frame may go up to [`CAP_EARLY_US`] (at most half an interval) before
+//! its slot. A capture that delivers at the display's rate (ScreenCaptureKit) jitters around that
+//! rate, and the session picks frames up a little late or early; spaced from the previous send,
+//! every frame that came a fraction of an interval early waited until the interval ran out (and the
+//! one-shot timer rounds that wait up to the next millisecond). On the schedule it goes at once, and
+//! over any stretch of time the frames still never outnumber the cap's by more than one. The first
+//! frame after an idle gap or an input's window is spaced from the previous send, as before.
+
+/// How far before its slot on the cap's schedule a frame may go while frames flow (at most half
+/// an interval): covers ScreenCaptureKit's delivery jitter and the session's pickup jitter.
+pub const CAP_EARLY_US: u64 = 4_000;
 
 /// How long after an input its frames skip the frame-rate cap: long enough for the app
 /// and the window server to draw the effect and the capture to deliver it.
@@ -57,6 +71,10 @@ pub struct FrameGate {
     last_sent: u32,
     acked: u32,
     last_encode_us: Option<u64>,
+    /// The next frame's slot on the cap's schedule (see the module docs).
+    cap_slot_us: Option<u64>,
+    /// The newest frame went on the schedule, so the next may go [`CAP_EARLY_US`] early.
+    on_schedule: bool,
     pending: Option<Rect>,
     /// When the newest input's window began (frames skip the frame-rate cap for
     /// [`INPUT_FRAME_WINDOW_US`] from then); cleared once the window has passed.
@@ -73,6 +91,8 @@ impl FrameGate {
             last_sent: 0,
             acked: 0,
             last_encode_us: None,
+            cap_slot_us: None,
+            on_schedule: false,
             pending: None,
             input_at_us: None,
         }
@@ -112,6 +132,13 @@ impl FrameGate {
         INPUT_FRAME_MIN_INTERVAL_US.min(self.min_interval_us)
     }
 
+    /// When the cap lets the next frame go: its slot, less [`CAP_EARLY_US`] (at most half an
+    /// interval) while frames flow on the schedule. `None` before the first frame.
+    fn cap_due_us(&self) -> Option<u64> {
+        let early = if self.on_schedule { CAP_EARLY_US.min(self.min_interval_us / 2) } else { 0 };
+        self.cap_slot_us.map(|slot| slot.saturating_sub(early))
+    }
+
     /// Records damage reported by the capture source.
     pub fn damage(&mut self, rect: Rect, now_us: u64) -> FlowAction {
         self.pending = Some(self.pending.map_or(rect, |p| p.union(rect)));
@@ -133,7 +160,7 @@ impl FrameGate {
             return None;
         }
         let Some(last) = self.last_encode_us else { return Some(0) };
-        let capped = last + self.min_interval_us;
+        let capped = self.cap_due_us().unwrap_or(0);
         // Inside an input's window the frame may go at the window's floor, however slow the
         // cap (an earlier wakeup than the cap, never a later one).
         let windowed = self.input_at_us.and_then(|at| {
@@ -154,20 +181,36 @@ impl FrameGate {
         if self.input_until_us().is_some_and(|until| now_us >= until) {
             self.input_at_us = None;
         }
-        let interval = if self.input_at_us.is_some_and(|at| now_us >= at) {
-            self.input_interval_us()
-        } else {
-            self.min_interval_us
-        };
-        if let Some(last) = self.last_encode_us
-            && now_us < last + interval
-        {
-            return FlowAction::Wait;
+        let in_window = self.input_at_us.is_some_and(|at| now_us >= at);
+        let floor_due = self.last_encode_us.map(|last| last + self.input_interval_us());
+        if let Some(capped) = self.cap_due_us() {
+            // Inside an input's window the floor spaces frames from the last send instead.
+            let due = match floor_due {
+                Some(floor) if in_window => capped.min(floor),
+                _ => capped,
+            };
+            if now_us < due {
+                return FlowAction::Wait;
+            }
         }
         self.pending = None;
         // Frame numbers start at 1; at 60 fps u32 lasts over two years per session.
         self.last_sent = self.last_sent.saturating_add(1);
         self.last_encode_us = Some(now_us);
+        match self.cap_slot_us {
+            // On the schedule: the next slot is one interval on, from this slot or from now if
+            // this frame went late (a frame never owes the schedule a burst).
+            Some(slot) if !in_window && now_us < slot + self.min_interval_us => {
+                self.cap_slot_us = Some(slot.max(now_us) + self.min_interval_us);
+                self.on_schedule = true;
+            }
+            // The first frame, one after an idle gap, or one inside an input's window: the next
+            // is spaced from this send, as the cap always did.
+            _ => {
+                self.cap_slot_us = Some(now_us + self.min_interval_us);
+                self.on_schedule = false;
+            }
+        }
         FlowAction::Encode { damage, frame: self.last_sent }
     }
 
