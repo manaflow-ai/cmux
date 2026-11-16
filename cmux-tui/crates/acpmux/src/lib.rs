@@ -14,6 +14,10 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+// Shared integration-test support also runs inside the fixture-capture unit test.
+#[cfg(test)]
+extern crate self as acpmux;
+
 pub mod accept_errors;
 pub mod acp_todo_plan;
 pub mod acpmux_mcp;

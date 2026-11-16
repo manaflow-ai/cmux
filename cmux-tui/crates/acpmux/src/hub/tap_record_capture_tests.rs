@@ -148,6 +148,49 @@ fn replay(capture: &Capture) {
     }
 }
 
+fn assert_capture_coverage(entries: &[CapturedEntry]) {
+    assert!(entries.iter().any(|e| e.message["method"] == "session/prompt"));
+    assert!(entries.iter().any(|e| e.message["method"] == "claude.result"));
+    assert!(entries.iter().any(|e| {
+        e.message["method"] == "claude.stream_event"
+            && e.message.pointer("/params/event/type").and_then(Value::as_str)
+                == Some("content_block_delta")
+            && e.context.awaiting_first_delta
+            && e.table_record.is_some()
+    }));
+    assert!(
+        entries
+            .iter()
+            .any(|e| { e.message["method"] == "claude.stream_event" && e.table_record.is_none() })
+    );
+    assert!(
+        entries.iter().any(|e| {
+            e.message["method"] == "claude.control_response" && e.table_record.is_none()
+        })
+    );
+    let exits: Vec<_> =
+        entries.iter().filter(|e| e.message["method"] == crate::agent::HOST_EXIT).collect();
+    assert_eq!(exits.len(), 4);
+    for (exit, (status, hibernate)) in exits.iter().zip([
+        (SessionStatus::Ready, false),
+        (SessionStatus::Running, false),
+        (SessionStatus::Idle, false),
+        (SessionStatus::Idle, true),
+    ]) {
+        assert_eq!(exit.context.status, status);
+        assert_eq!(exit.context.hibernate, hibernate);
+        assert!(exit.table_record.is_some());
+    }
+    let init: Vec<_> = entries
+        .iter()
+        .filter(|e| e.message["method"] == "claude.system.init")
+        .map(|e| &e.records[e.table_record.unwrap()])
+        .collect();
+    assert_eq!(init.len(), 4);
+    assert!(init[0].msg.get("tools").is_some());
+    assert!(init[1..].iter().all(|record| record.msg.get("tools").is_none()));
+}
+
 /// Exceptional cleanup only, fenced by the live incarnation created by this test.
 struct OwnedHost {
     record: agent_host::HostRecord,
@@ -297,17 +340,21 @@ async fn run_host(
     drain.abort();
     let _ = drain.await;
     drop(owned_host);
-    timeout(
-        DEADLINE,
-        tokio::task::spawn_blocking(move || {
-            use std::os::fd::AsRawFd;
-            // SAFETY: a live-lock descriptor owned by this test; the lock returns when its host exits.
-            assert_eq!(unsafe { libc::flock(live_lock.as_raw_fd(), libc::LOCK_EX) }, 0);
-        }),
-    )
+    timeout(DEADLINE, async {
+        use std::os::fd::AsRawFd;
+        loop {
+            // SAFETY: this test owns the descriptor. Nonblocking acquisition keeps the
+            // deadline effective even if cleanup fails to stop the host.
+            if unsafe { libc::flock(live_lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+                break;
+            }
+            let error = std::io::Error::last_os_error();
+            assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock, "live lock: {error}");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
     .await
-    .expect("fixture host exit deadline")
-    .unwrap();
+    .expect("fixture host exit deadline");
     outcome.expect("fixture run deadline").expect("fixture protocol");
 }
 
@@ -348,30 +395,7 @@ async fn v2_record_capture_fixture_run() {
     }
     TIMING.lock().unwrap().remove(&session.id);
     let entries = captured.lock().unwrap().clone();
-    assert!(entries.iter().any(|e| e.message["method"] == "session/prompt"));
-    assert!(entries.iter().any(|e| e.message["method"] == "claude.result"));
-    assert!(
-        entries
-            .iter()
-            .any(|e| e.message["method"] == "claude.stream_event" && e.table_record.is_none())
-    );
-    assert!(
-        entries
-            .iter()
-            .any(|e| e.message["method"] == "claude.control_response" && e.table_record.is_none())
-    );
-    let exits: Vec<_> =
-        entries.iter().filter(|e| e.message["method"] == crate::agent::HOST_EXIT).collect();
-    assert_eq!(exits.len(), 4);
-    assert_eq!(exits[0].context.status, SessionStatus::Ready);
-    let init: Vec<_> = entries
-        .iter()
-        .filter(|e| e.message["method"] == "claude.system.init")
-        .map(|e| &e.records[e.table_record.unwrap()])
-        .collect();
-    assert_eq!(init.len(), 4);
-    assert!(init[0].msg.get("tools").is_some());
-    assert!(init[1..].iter().all(|record| record.msg.get("tools").is_none()));
+    assert_capture_coverage(&entries);
     let capture = Capture { format:"v2-record-capture/v1-tap-1".into(), base_sha, run_id,
         command:"cargo build --locked -p acpmux --bin acpmux; CARGO_BIN_EXE_acpmux=<same-head binary> V2_RECORD_CAPTURE_BASE_SHA=<sha> cargo test --locked -p acpmux --lib v2_record_capture_fixture_run -- --ignored --nocapture".into(), entries };
     replay(&capture);
