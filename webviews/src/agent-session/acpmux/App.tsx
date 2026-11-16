@@ -460,6 +460,7 @@ import {
   waitingAsks,
   closeTurnRuns,
   turnInsideIds,
+  turnView,
 } from "./conversation/turns";
 import { PendingAsks } from "./conversation/PendingAsks";
 import { forgetInsideTurn } from "./conversation/transcriptDisclosureModel";
@@ -776,8 +777,7 @@ import { SteerQueue, type SteerActions } from "./steerQueue/SteerQueue";
 import { steerQueueExperiment } from "./steerQueue/steerQueue.experiment";
 import { BtwNotes } from "./aside/btwNotes";
 import { askBtwQuestion, supportsBtwGuest } from "./btwCapability";
-import { SecondOpinionContext } from "./conversation/secondOpinion";
-import { canBeGuest, guestMention } from "./mentionItems";
+import { guestMention } from "./mentionItems";
 import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isFastModeOption } from "./heldOptions";
 import { clearHeldFork, sendHeldFork } from "./forkHold";
 import { setSuggestedTasks } from "./offer/offersShown";
@@ -4543,36 +4543,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const turn = cardEdit.turn;
     if (turn) openDiff(turn.rowId, path);
   };
-  const launchSecondOpinion = useCallback(
-    (rowId: string, changedFiles: readonly string[]) => {
-      const sessionId = snapshot.sessionId;
-      const client = directClient.current;
-      if (!sessionId || !client) return;
-      const current = snapshot.summary?.harness;
-      const target = snapshot.catalog.find((entry) => entry.id !== current && canBeGuest(entry));
-      // A second opinion is another harness's: with no other one installed there is nobody to ask.
-      if (!target) return;
-      const files = changedFiles.filter(Boolean).slice(0, 40);
-      const question = [
-        "Give a second opinion on the plan and current diff in this chat.",
-        `The relevant turn is ${rowId}.`,
-        files.length > 0 ? `Changed files: ${files.join(", ")}` : undefined,
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-      const anchor = [...turnRowsShown]
-        .reverse()
-        .find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind));
-      btwNotes.ask(
-        sessionId,
-        question,
-        anchor,
-        (guestQuestion, guestSession, harness) => client.btwInline(guestQuestion, harness ?? target.id, guestSession),
-        target.id,
-      );
-    },
-    [snapshot.catalog, snapshot.sessionId, snapshot.summary?.harness, turnRowsShown, btwNotes],
-  );
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// For a transcript that acts on nothing live (a replay, a read-only subagent's): its recaps draw
   /// no × (ReadOnlyRecapRow), its memory offers no Accept or Dismiss, its prompt coach card no ×, and its
@@ -6330,7 +6300,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const remoteChat = Boolean(snapshot.summary?.peer) || snapshot.summary?.hostKind === "cloud";
   // A guest from another harness runs on this machine's daemon, which the pane reaches only for a
   // local chat (a remote chat's wire refuses `_acpmux/btw`), and only one that serves guests. Else
-  // an @harness is ordinary text and Second opinion is not offered.
+  // an @harness is ordinary text.
   const guestsHere =
     !remoteChat &&
     snapshot.origin !== "remote" &&
@@ -11642,13 +11612,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                               findRef={findRef}
                                                             >
                                                               {(find) => (
-                                                                <SecondOpinionContext.Provider
-                                                                  value={
-                                                                    quick || !guestsHere
-                                                                      ? undefined
-                                                                      : launchSecondOpinion
-                                                                  }
-                                                                >
                                                                   <VirtualTranscript
                                                                     key={chatPresentation}
                                                                     topInset={soloUnder ? tabRow.height : 0}
@@ -11800,7 +11763,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     onOpenDiff={quick ? undefined : openDiff}
                                                                     onToggleActivity={toggleActivity}
                                                                   />
-                                                                </SecondOpinionContext.Provider>
                                                               )}
                                                             </ChatFindScope>
                                                             <SelectionReplyChip />
@@ -13666,9 +13628,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     }
                   : undefined
               }
-              transcript={(rows) => (
+              transcript={(replayed) => (
                 <VirtualTranscript
-                  rows={rows}
+                  // The replayed rows fold into turns as the live chat's do (turnViewFrom above):
+                  // raw, a turn's tool calls sit in activity rows the transcript draws no line for.
+                  rows={turnView(replayed.rows, folds, {
+                    working: replayed.isWorking,
+                    clockOffset: replayed.clockOffsetMs,
+                    turnStartedAtMs: replayed.turnStartedAtMs,
+                    agentFamily: replayed.summary?.family ?? snapshot.summary?.family,
+                  })}
                   sessionId={`replay:${replaying}`}
                   // A replay draws under its chat's view too (conversation/viewFolds.ts), as the live transcript.
                   expanded={folds}
