@@ -62,9 +62,9 @@ struct NewTabPageAtItsFrameTests {
         }
     }
 
-    /// `withAnEmptyPool` with each built page view by its tab, in the order of the builds.
-    private static func withThePagesOfAnEmptyPool(_ install: String,
-                                                  _ body: (AppServices, NSWindow, PaneController, @escaping () -> [BuiltPage]) async throws -> Void) async throws {
+    /// `withAnEmptyPool` with each built page view by its tab, in the order of the builds. `NewTabRepeatKeyTests` runs in it too.
+    static func withThePagesOfAnEmptyPool(_ install: String,
+                                          _ body: (AppServices, NSWindow, PaneController, @escaping () -> [BuiltPage]) async throws -> Void) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: install)
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
@@ -72,6 +72,10 @@ struct NewTabPageAtItsFrameTests {
             let pool = services.newTabSpares, tabs = services.agentTabs
             pool.dropAll()
             pool.makeSpare = { _ in nil }
+            // The next Cmd-N's reservation is idle work of the app (`WorkspaceSpareSlot`): in the app's first idle frame it
+            // builds one page view, for a tab that no pane has. The fixture makes the reservation now, by the app's own
+            // function and before it counts, so that no test counts that page view by chance (decision 2026-11-16).
+            _ = try #require(tabs.reserveWorkspace(on: services.daemon, cwd: nil), "fixture: no Cmd-N workspace was reserved")
             // Each page view that the tab store builds or adopts tells this; the app's own listener still hears it.
             var pages: [BuiltPage] = [], engines: [String] = []
             let wired = tabs.onPageBuilt

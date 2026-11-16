@@ -254,4 +254,89 @@ struct NewTabRepeatKeyTests {
             #expect(pool.spare?.view !== parked, "the parked page is still the pool's after the tab of the hold's end adopted it")
         }
     }
+
+    /// The next Cmd-N's reservation is idle work, and it can come while the key is down (the fixture makes the
+    /// launch's reservation before it counts). The page view of a reservation is for a tab that no pane has: it is no
+    /// page of a repeat's tab, and the hold's end still makes exactly one page, for the selected tab.
+    @Test func aReservationMadeWhileTheKeyIsHeldMakesItsOwnPageAndNoneForARepeatsTab() async throws {
+        try await NewTabPageAtItsFrameTests.withThePagesOfAnEmptyPool("cn-repeat-key-reserve") { services, window, pane, pages in
+            let tabs = services.agentTabs, daemon = services.daemon
+            let built = { pages().count }
+            let held = try await Self.heldNewTabKey(repeats: 3, in: pane, window, services, built)
+            #expect(built() == held, "\(built() - held) page views were made for the tabs of 3 repeats, with the key still down")
+
+            // The reservation goes and is made again in one turn, with the key still down. The pool is empty, so the
+            // reservation builds its page now.
+            tabs.releaseReservedWorkspace(on: daemon.store, .unshown)
+            services.newTabSpares.dropAll()
+            _ = try #require(tabs.reserveWorkspace(on: daemon, cwd: nil), "fixture: no Cmd-N workspace was reserved with the key down")
+            let reserved = try #require(daemon.store.reservedWorkspace?.tabKey, "fixture: the reservation has no tab")
+            let made = pages().dropFirst(held).map { $0.key }
+            #expect(made == [reserved], "the reservation made with the key down built \(made.count) page views; one, for its own tab \(reserved), is right: \(made)")
+            #expect(!pane.pane.tabs.contains { $0.id == reserved }, "the reservation's tab is a tab of the pane")
+            for _ in 0..<3 { await NewTabPageAtItsFrameTests.frame(services) }
+            #expect(built() == held + 1, "\(built() - held - 1) page views were made for the repeats' tabs after the reservation, with the key still down")
+
+            Self.send(try Self.event(.keyUp, in: window), services)
+            #expect(built() == held + 1, "\(built() - held - 1) page views were made in the key-up's own turn, before a frame")
+            await Self.expectOnePageForTheSelectedTab(after: held + 1, "the key-up, after a reservation with the key down", in: pane, services, built)
+        }
+    }
+
+    // MARK: Trace (a branch that never merges)
+
+    /// TRACE: the pane's state in one line of the run's output.
+    private static func trace(_ at: String, _ name: String, in pane: PaneController, _ services: AppServices,
+                              _ pages: () -> [NewTabPageAtItsFrameTests.BuiltPage]) {
+        let tabs = services.agentTabs
+        let selected: String? = pane.stripModel.selectedID?.rawValue
+        let selectedText: String = selected ?? "nil"
+        let shownText: String = pane.currentTabKey ?? "nil"
+        let selectedIsNewTab: Bool = selected.map { tabs.isNewTabPage($0) } ?? false
+        let selectedHasView: Bool = selected.map { tabs.existingView($0) != nil } ?? false
+        let record: [String] = pane.pane.tabs.map { $0.id }
+        let reserved: String = services.daemon.store.reservedWorkspace?.tabKey ?? "none"
+        let holdOn: Bool = services.inputDispatch.newTabHold.isOn
+        // One statement for each part: a long sum of strings is slow to type-check.
+        var line: String = "hold-trace: \(name) | \(at) | built=\(pages().count) holdOn=\(holdOn)"
+        line += " selected=\(selectedText) shown=\(shownText) selectedIsNewTab=\(selectedIsNewTab) selectedHasView=\(selectedHasView)"
+        line += " stale=\(pane.stripIsStale) alive=\(pane.selectedContentIsAlive) suspended=\(pane.isSuspended) focused=\(pane.isFocusedInWorkspace)"
+        line += " stripTabs=\(pane.orderedIDs.count) record=\(record) reserved=\(reserved)"
+        print(line)
+    }
+
+    /// TRACE: each end of a hold 3 times. No assert: the run's output has the pane's state before the press, after
+    /// the repeats, in the end's own turn and at each of the 4 frames after it, then the journal's content records
+    /// (each show of a tab by the pane) since the press. The fixture prints each built page view at its exit.
+    @Test(arguments: HoldEnd.allCases, [1, 2, 3])
+    func traceOfEachEndOfAHeldNewTabKey(end: HoldEnd, round: Int) async throws {
+        let name = "cn-repeat-key-trace-\(end.rawValue)-\(round)"
+        try await NewTabPageAtItsFrameTests.withThePagesOfAnEmptyPool(name) { services, window, pane, pages in
+            let mark = SplitOfPendingSplitTests.journalMark()
+            let built = { pages().count }
+            Self.trace("before the press", name, in: pane, services, pages)
+            _ = try await Self.heldNewTabKey(repeats: 3, in: pane, window, services, built)
+            Self.trace("after 3 repeats", name, in: pane, services, pages)
+            switch end {
+            case .keyUp: Self.send(try Self.event(.keyUp, in: window), services)
+            case .commandUp: Self.send(try Self.event(.flagsChanged, code: 55, flags: [], in: window), services)
+            case .anotherKey: Self.send(try Self.event(.keyDown, code: Self.keyA, flags: [], in: window), services)
+            case .repeatOfAnotherKey: Self.send(try Self.event(.keyDown, code: Self.keyA, repeats: true, flags: [], in: window), services)
+            case .appResignsActive:
+                let center = NotificationCenter()
+                let router = KeyRouter(registry: services.registry, inputDispatch: services.inputDispatch, center: center)
+                withExtendedLifetime(router) { center.post(name: NSApplication.didResignActiveNotification, object: nil) }
+            }
+            Self.trace("the end's own turn", name, in: pane, services, pages)
+            for frame in 1...4 {
+                await NewTabPageAtItsFrameTests.frame(services)
+                Self.trace("frame \(frame) after the end", name, in: pane, services, pages)
+            }
+            for entry in InputJournal.shared.entries() where entry.seq > mark {
+                if case let .content(tab, event) = entry.kind {
+                    print("hold-trace: \(name) | journal \(entry.seq) at \(entry.uptimeNanos / 1_000_000) ms | tab=\(tab) \(event)")
+                }
+            }
+        }
+    }
 }
