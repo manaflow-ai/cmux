@@ -7389,6 +7389,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "promptId": {
+          "description": "The prompt the turn answers (its record's `promptId`): a chat on the row store names a turn\nby its prompt, not by `turnId`. None for a turn whose records carry no `promptId`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "startAt": {
           "format": "uint64",
           "minimum": 0,

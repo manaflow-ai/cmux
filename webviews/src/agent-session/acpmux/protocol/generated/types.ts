@@ -2164,6 +2164,11 @@ export type TimeCategory = {
 export type TimeSpan = {
   category: string;
   endAt: number;
+  /**
+   * The prompt the turn answers (its record's `promptId`): a chat on the row store names a turn
+   * by its prompt, not by `turnId`. None for a turn whose records carry no `promptId`.
+   */
+  promptId?: (string | null);
   startAt: number;
   tokens?: (number | null);
   turnId?: (string | null);
