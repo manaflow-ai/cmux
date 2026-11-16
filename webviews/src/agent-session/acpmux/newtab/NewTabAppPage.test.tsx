@@ -6,7 +6,7 @@ import type { PageClient, PageHandler } from "../../../pages/shared/pageClient";
 import { pageError } from "../../../pages/shared/pageClient";
 import type { SceneEvent } from "../../../apps/scene/panelsClient";
 import { teardownDom } from "../../../../test/support/domTeardown";
-import { newTabHost, pickedNewTabApp } from "../newTabModel";
+import { newTabAppPageKey, newTabHost, pickedNewTabApp } from "../newTabModel";
 import { NEW_TAB_APP_DEADLINE_MS, NewTabAppPage, type NewTabAppFailure } from "./NewTabAppPage";
 import { NewTabAppFailureNotice } from "./NewTabAppFailureNotice";
 
@@ -275,4 +275,16 @@ test("cmux's own page says why the app could not draw, in place", async () => {
   await act(async () => root.render(<NewTabAppFailureNotice app="local/clock" failure={{ kind: "slow" }} />));
   expect(container.querySelector("output")?.textContent).toContain(String(NEW_TAB_APP_DEADLINE_MS / 1000));
   await act(async () => root.unmount());
+});
+
+test("a parked spare whose app gave up draws a fresh app page on the next Cmd-T, not the one that gave up", () => {
+  // The spare's mount failed while parked (visit 0); Cmd-T adopts it with the same screen
+  // generation (7). The app is tried again, under a key the failed page never had, so React mounts
+  // a new page instead of reusing the one that draws nothing.
+  const host = newTabHost({ newTab: { app: "local/clock" } });
+  const before = newTabAppPageKey(7, "local/clock", undefined);
+  expect(pickedNewTabApp(host, 0, 1)).toBe("local/clock");
+  expect(newTabAppPageKey(7, "local/clock", 0)).not.toBe(before);
+  // A page that never failed keeps its key across adopts, so a drawn spare stays drawn.
+  expect(newTabAppPageKey(7, "local/clock", undefined)).toBe(before);
 });

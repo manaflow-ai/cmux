@@ -73,7 +73,14 @@ import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled, knownRefusalText } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { NewTabPage } from "./NewTabPage";
-import { FOCUS_LOCATION_EVENT, newTabHost, type NewTabChat, type NewTabHost, pickedNewTabApp } from "./newTabModel";
+import {
+  FOCUS_LOCATION_EVENT,
+  newTabHost,
+  type NewTabChat,
+  type NewTabHost,
+  newTabAppPageKey,
+  pickedNewTabApp,
+} from "./newTabModel";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
@@ -13347,7 +13354,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           )}
           {newTabApp && !harnessesOpen ? (
             <NewTabAppPage
-              key={`${newTabGeneration}:${newTabApp}`}
+              key={newTabAppPageKey(newTabGeneration, newTabApp, newTabAppGone)}
               app={newTabApp}
               {...(newTab?.cwd ? { cwd: newTab.cwd } : {})}
               onUnavailable={(failure) => {
