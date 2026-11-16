@@ -1,0 +1,145 @@
+{
+  "title": "The Leo look: dusk, daylight and neon, on and off live",
+  "customize": true,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Tour"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Tour workspace",
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "focus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Before: cmux as it ships",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; for i in 0 1 2 3 4 5 6 7; do printf '\\033[4%sm      ' $i; done; printf '\\033[0m\\n'; for i in 0 1 2 3 4 5 6 7; do printf '\\033[10%sm      ' $i; done; printf '\\033[0m\\n\\n'; printf '\\033[32msuccess\\033[0m  \\033[33mwarning\\033[0m  \\033[31mdanger\\033[0m  \\033[34mhighlight\\033[0m  \\033[35maccent\\033[0m  \\033[36mcyan\\033[0m\\n\\n'\r"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "dusk: cmux customize use examples/customize/leo/dusk.json",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "cmux customize use {repo}/examples/customize/leo/dusk.json\r"
+      ],
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "dusk",
+      "cmux": [
+        "customize",
+        "use",
+        "{repo}/examples/customize/leo/dusk.json"
+      ],
+      "wait": 4
+    },
+    {
+      "title": "daylight: off, then on",
+      "cmux": [
+        "customize",
+        "discard"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "daylight",
+      "cmux": [
+        "customize",
+        "use",
+        "{repo}/examples/customize/leo/daylight.json"
+      ],
+      "wait": 4
+    },
+    {
+      "title": "neon: off, then on",
+      "cmux": [
+        "customize",
+        "discard"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "neon",
+      "cmux": [
+        "customize",
+        "use",
+        "{repo}/examples/customize/leo/neon.json"
+      ],
+      "wait": 4
+    },
+    {
+      "title": "Off again: cmux customize discard",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "cmux customize discard\r"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Off again",
+      "cmux": [
+        "customize",
+        "discard"
+      ],
+      "wait": 3
+    }
+  ]
+}
