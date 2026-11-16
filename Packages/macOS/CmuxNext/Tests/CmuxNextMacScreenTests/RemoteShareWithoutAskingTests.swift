@@ -1,0 +1,33 @@
+import CmuxNextActions
+@testable import CmuxNextMacScreen
+import CmuxNextSettings
+import Testing
+
+/// `cmux remote-host share on` asked "Share This Mac?" on every call, even when this Mac already
+/// shared, with no way to say yes for good (Leo, 2026-11-16: "i dont want to have to click share
+/// this mac allow every single time when screen sharing"). The dialog now offers Always Allow,
+/// which turns on the user-only `remote.shareWithoutAsking`; an agent cannot turn it on itself.
+@MainActor
+@Suite struct RemoteShareWithoutAskingTests {
+    @Test func asksOnlyWhenSharingWouldChangeAndThePersonHasNotSaidAlways() {
+        #expect(CmuxRemoteActionEnvironment.asksToShare(alreadyShared: false, withoutAsking: false))
+        #expect(!CmuxRemoteActionEnvironment.asksToShare(alreadyShared: true, withoutAsking: false))
+        #expect(!CmuxRemoteActionEnvironment.asksToShare(alreadyShared: false, withoutAsking: true))
+        #expect(!CmuxRemoteActionEnvironment.asksToShare(alreadyShared: true, withoutAsking: true))
+    }
+
+    @Test func theShareDialogOffersAlwaysAllowAndTheAccessDialogDoesNot() {
+        #expect(CmuxRemoteActionEnvironment.confirmButtons(always: true).map(\.id) == ["cancel", "always", "confirm"])
+        #expect(CmuxRemoteActionEnvironment.confirmButtons(always: false).map(\.id) == ["cancel", "confirm"])
+        #expect(CmuxRemoteActionEnvironment.confirmButtons(always: true).last?.role == .default)
+    }
+
+    @Test func theSettingIsOffByDefaultAndOnlyThePersonTurnsItOn() throws {
+        #expect(RemoteSettings().shareWithoutAsking == false)
+        let descriptor = try #require(SettingsSchema.descriptor(for: RemoteSettings.shareWithoutAskingPath))
+        #expect(SettingWriter.user.mayWrite(descriptor))
+        for origin: SettingWriter in [SettingWriter(.cli), SettingWriter(.mcp), SettingWriter(.script), SettingWriter(.remote)] {
+            #expect(!origin.mayWrite(descriptor))
+        }
+    }
+}

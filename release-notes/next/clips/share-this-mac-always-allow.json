@@ -1,0 +1,10 @@
+{
+  "caption": "Share This Mac Without Asking, in Settings under cmux Remote: on, agents share this Mac without a dialog.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Open Settings at Share This Mac Without Asking", "rpc": {"method": "action.run", "params": {"action": "openSettings", "args": {"setting": "remote.shareWithoutAsking"}, "focus": true}}, "wait": 2.5, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0.25, 0, 0.75, 0.7]
+}

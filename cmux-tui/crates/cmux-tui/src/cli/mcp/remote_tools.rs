@@ -72,7 +72,7 @@ pub(super) const TOOLS: &[RemoteTool] = &[
     },
     RemoteTool {
         name: "remote_share",
-        description: "Share This Mac on the device hub. Off works at once; on asks the person in cmux first.",
+        description: "Share This Mac on the device hub. Off works at once; on asks the person in cmux first, unless this Mac already shares or they chose Always Allow (remote.shareWithoutAsking).",
         schema: share,
     },
     RemoteTool {

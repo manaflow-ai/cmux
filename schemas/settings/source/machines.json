@@ -596,6 +596,32 @@
           ]
         },
         {
+          "key": "remote.shareWithoutAsking",
+          "title": {
+            "key": "settings.remote.shareWithoutAsking",
+            "text": "Share This Mac Without Asking"
+          },
+          "help": {
+            "key": "settings.remote.shareWithoutAsking.help",
+            "text": "On, an agent or the cmux CLI turns on Share This Mac without asking you first. Each device keeps the access it has in Devices. Always Allow on the Share This Mac? dialog turns this on."
+          },
+          "summary": {
+            "key": "settings.remote.shareWithoutAsking.summary",
+            "text": "Agents turn on Share This Mac without asking"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cmux remote",
+            "screen sharing",
+            "share this mac",
+            "always allow",
+            "ask",
+            "confirm",
+            "agents"
+          ]
+        },
+        {
           "key": "remote.ultra",
           "name": "ultra",
           "note": "Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.",

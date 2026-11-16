@@ -11,13 +11,17 @@ import Foundation
 public struct CmuxRemoteActionEnvironment {
     public var remote: CmuxRemoteService
     public var hub: @MainActor () -> DeviceHub?
+    /// Settings: `remote.shareWithoutAsking`, which Always Allow on "Share This Mac?" turns on.
+    public var settings: @MainActor () -> SettingsController?
     public var window: @MainActor () -> NSWindow?
     public var openDevices: @MainActor () -> Void
 
-    public init(remote: CmuxRemoteService, hub: @escaping @MainActor () -> DeviceHub?, window: @escaping @MainActor () -> NSWindow?,
+    public init(remote: CmuxRemoteService, hub: @escaping @MainActor () -> DeviceHub?,
+                settings: @escaping @MainActor () -> SettingsController? = { nil }, window: @escaping @MainActor () -> NSWindow?,
                 openDevices: @escaping @MainActor () -> Void) {
         self.remote = remote
         self.hub = hub
+        self.settings = settings
         self.window = window
         self.openDevices = openDevices
     }
@@ -104,15 +108,39 @@ extension CmuxRemoteActionEnvironment {
                 }
                 guard let hub = environment.hub() else { throw ControlError.invalidParams(CmuxRemoteStrings.signedOut) }
                 let name = hub.devices.first { $0.id == device }?.name ?? device
-                let (title, body) = action == "share" ? CmuxRemoteStrings.confirmShare()
+                let share = action == "share"
+                let (title, body) = share ? CmuxRemoteStrings.confirmShare()
                     : CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
                 let window = environment.window()
                 let remote = environment.remote
+                let settings = environment.settings()
+                let asks = !share || Self.asksToShare(alreadyShared: hub.thisDevice?.macScreenShared == true,
+                                                      withoutAsking: settings?.snapshot.remote.shareWithoutAsking == true)
                 return .followUp(Self.confirmedChange(
-                    confirm: { await Self.confirm(title: title, body: body, in: window) },
+                    confirm: {
+                        guard asks else { return true }
+                        let answer = await Self.confirm(title: title, body: body, always: share, in: window)
+                        if answer == .always, let settings { await Self.shareWithoutAsking(settings) }
+                        return answer != .cancel
+                    },
                     apply: { try await Self.apply(action, device: device, scope: scope, hub: hub, remote: remote) }))
             }.withDeadline(.fixed(.seconds(130))),
         ]
+    }
+
+    /// Whether `remote.confirm {action: share}` shows "Share This Mac?". It does not when this Mac
+    /// already shares (nothing would change) or the person chose Always Allow
+    /// (`remote.shareWithoutAsking`, user-only, so an agent cannot turn it on), Leo, 2026-11-16:
+    /// "i dont want to have to click share this mac allow every single time when screen sharing".
+    nonisolated static func asksToShare(alreadyShared: Bool, withoutAsking: Bool) -> Bool {
+        !alreadyShared && !withoutAsking
+    }
+
+    /// Always Allow: the person's click turns on `remote.shareWithoutAsking` (the user writer: the
+    /// click is in this app's UI). A refused or failed write only means the next request asks again.
+    static func shareWithoutAsking(_ settings: SettingsController) async {
+        guard let descriptor = SettingsSchema.descriptor(for: RemoteSettings.shareWithoutAskingPath) else { return }
+        try? await settings.setSetting(descriptor, to: .bool(true), by: .user)
     }
 
     /// `remote.confirm`'s answer: the person's choice on the dialog, then the change it allows.
@@ -133,16 +161,26 @@ extension CmuxRemoteActionEnvironment {
         }
     }
 
-    /// The person's answer to one dialog (false without a window).
-    static func confirm(title: String, body: String, in window: NSWindow?) async -> Bool {
-        guard let window else { return false }
+    /// A confirm dialog's answer.
+    enum ConfirmAnswer: Equatable {
+        case cancel, allow, always
+    }
+
+    /// The person's answer to one dialog (cancel without a window). `always` adds Always Allow.
+    static func confirm(title: String, body: String, always: Bool = false, in window: NSWindow?) async -> ConfirmAnswer {
+        guard let window else { return .cancel }
         return await withCheckedContinuation { continuation in
-            let spec = CmuxDialogSpec(title: title, lines: [body],
-                                      buttons: [.cancel(), CmuxDialogButton(id: "confirm", title: CmuxRemoteStrings.allow, role: .default)],
+            let spec = CmuxDialogSpec(title: title, lines: [body], buttons: Self.confirmButtons(always: always),
                                       identifier: "cmux.dialog.remote.confirm")
             CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in
-                continuation.resume(returning: answer.button == "confirm")
+                continuation.resume(returning: answer.button == "confirm" ? .allow : answer.button == "always" ? .always : .cancel)
             }
         }
+    }
+
+    /// Cancel, then Always Allow when offered, then Allow (Return).
+    static func confirmButtons(always: Bool) -> [CmuxDialogButton] {
+        let allowAlways = always ? [CmuxDialogButton(id: "always", title: CmuxRemoteStrings.alwaysAllow)] : []
+        return [CmuxDialogButton.cancel()] + allowAlways + [CmuxDialogButton(id: "confirm", title: CmuxRemoteStrings.allow, role: .default)]
     }
 }
