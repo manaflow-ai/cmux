@@ -88,6 +88,14 @@ final class AgentCLIHybridBench {
 
     private func log(_ text: String) { NSLog("[hybrid-bench] %@", text) }
 
+    /// `-CmuxMobileHybridBenchStillMs T`: stop at the daemon's frame of `T` ms (from the
+    /// session's start) and hold the screen: the lean frames up to that frame, or the PTY bytes
+    /// written before it (the frame is the screen of those bytes).
+    static var stillMs: Int? {
+        let value = UserDefaults.standard.integer(forKey: "CmuxMobileHybridBenchStillMs")
+        return value > 0 ? value : nil
+    }
+
     func run() async {
         TerminalBenchProbe.shared = probe
         let clock = ContinuousClock()
@@ -116,6 +124,15 @@ final class AgentCLIHybridBench {
             }
         }
         log("\(mode) attach: first frame \(firstFrameMs.map { "\($0) ms" } ?? "never whole") parity \(firstParity.percent)%")
+        if let stillMs = Self.stillMs {
+            // A still for the pixel diff (`AgentCLIHybridPixelDiffUITests`): the session up to
+            // the frame the daemon sent at `stillMs`, as fast as it goes, then nothing moves.
+            let (daemon, attachMs) = (daemon, session.attachMs)
+            await Task.detached { await daemon.play(until: stillMs, from: 0, attachMs: attachMs, fast: true) }.value
+            _ = await settledScreen(clock)
+            finish(["mode": mode, "stillMs": stillMs, "firstFrameParity": firstParity.percent])
+            return
+        }
         // The rest of the session at its recorded pace, paused at each moment.
         let streamStart = daemon.streamedBytes
         let playStart = CACurrentMediaTime()
@@ -397,7 +414,9 @@ final class HybridBenchDaemon: @unchecked Sendable {
 
     /// Sends the events from the attach moment up to `until` (ms from the session's start) at
     /// their recorded pace, the attach moment at `from`; returns when they are all sent.
-    func play(until: Int, from: CFTimeInterval, attachMs: Int) async {
+    /// `fast`: no pacing, and only the PTY bytes written before `until` (a frame at `until`
+    /// is the screen of those).
+    func play(until: Int, from: CFTimeInterval, attachMs: Int, fast: Bool = false) async {
         guard let session else { return }
         while true {
             let next: (atMs: Int, line: Data)? = lock.withLock {
@@ -409,14 +428,16 @@ final class HybridBenchDaemon: @unchecked Sendable {
                     event["surface"] = 1
                     return (frames[nextFrame].atMs, Self.line(event))
                 }
-                guard nextPTY < session.pty.count, session.pty[nextPTY].atMs <= until else { return nil }
+                guard nextPTY < session.pty.count, fast ? session.pty[nextPTY].atMs < until : session.pty[nextPTY].atMs <= until else {
+                    return nil
+                }
                 defer { nextPTY += 1 }
                 return (session.pty[nextPTY].atMs, Self.outputLine(session.pty[nextPTY].data))
             }
             guard let next else { return }
             let due = from + Double(next.atMs - attachMs) / 1000
             let wait = due - CACurrentMediaTime()
-            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            if !fast, wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
             lock.withLock { _streamed += next.line.count }
             main.push([next.line])
         }

@@ -930,8 +930,8 @@ fn reference_screen(term: &mut ghostty_vt::Terminal) -> (Grid, Vec<Vec<u8>>, vt:
     let mut state = ghostty_vt::RenderState::new().unwrap();
     state.update(term).unwrap();
     let frame = state.build_frame().unwrap();
-    let (cols, _) = frame.size;
-    let widths = frame
+    let (cols, rows) = frame.size;
+    let mut widths: Vec<Vec<u8>> = frame
         .styled_rows()
         .iter()
         .map(|row| {
@@ -947,6 +947,7 @@ fn reference_screen(term: &mut ghostty_vt::Terminal) -> (Grid, Vec<Vec<u8>>, vt:
             widths
         })
         .collect();
+    widths.resize(usize::from(rows), vec![1; usize::from(cols)]);
     let (grid, cursor) = live_screen(term);
     (grid, widths, cursor)
 }
