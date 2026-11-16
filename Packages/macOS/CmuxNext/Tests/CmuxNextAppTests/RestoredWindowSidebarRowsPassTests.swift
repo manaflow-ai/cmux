@@ -22,8 +22,10 @@ import Testing
 ///
 /// The count is the process counter `rebuilds` (`SidebarView.perfCounters`): one for each fill of a sidebar's rows
 /// feed, and the rows pass is the one caller of that fill. Each test sets the counter to zero in its own body, after
-/// the app is made and before the window is made. No other window adds to it: the suite runner starts one process for
-/// each suite, this suite is serialized, and each test makes one window and closes it.
+/// the app is made and before the window is made. No other window adds to it: the suite has a process of its own in
+/// CI (it is in `OWN_PROCESS` of `scripts/cmux-next/main-thread-heavy-suites.py`; in a process that suites share, a
+/// sidebar that another suite left open can run its rows pass in the hops and add to the count), this suite is
+/// serialized, and each test makes one window and closes it.
 ///
 /// Each window here has no workspace: the content swap of a window with a workspace can run the rows pass by its own
 /// rule, and these tests do not count that run. No test waits for time to pass; `hops` says what the drain reaches.

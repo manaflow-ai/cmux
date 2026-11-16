@@ -18,7 +18,7 @@ import Testing
 /// no test here reads them.
 ///
 /// Each test makes a window as the window manager makes it and reads the model after `present` with no suspension,
-/// so no task has run (one test says where it lets the tasks run). The window is never ordered in
+/// so no task has run (two tests say where they let the tasks run). The window is never ordered in
 /// (`ordersWindowsIn`) and no test draws a frame. The session and the band are those of
 /// `NewWindowSidebarFirstFrameTests`, with two spaces.
 @MainActor @Suite(.serialized) struct NewWindowSidebarRowsFirstFrameTests {
@@ -72,7 +72,10 @@ import Testing
 
     /// The window `id` of that app, made and presented by the window manager. `listsTheWorkspace` gives the window
     /// the session's open workspace and takes the pins out of the band, so the list has the workspace's row.
-    static func window(_ id: String, listsTheWorkspace: Bool = false) throws -> Made {
+    /// `creating` is the key of a create in flight into the window: its row is in `PendingWorkspaceRows` under the
+    /// window's id in front of the window's making, as a new window with a new workspace has it from the press. The
+    /// caller takes the row out again (`PendingWorkspaceRows.remove`): the rows are the process's.
+    static func window(_ id: String, listsTheWorkspace: Bool = false, creating: String? = nil) throws -> Made {
         let services = try app()
         if listsTheWorkspace {
             services.sidebarLayout.docLayout = NewWindowSidebarFirstFrameTests.document(pins: [])
@@ -80,6 +83,10 @@ import Testing
         }
         let listed = SidebarSpaceBar.profiles(services.machines.local, window: id, windows: services.windows)
         try #require(listed.map(\.id.rawValue) == spaces, "the fixture is wrong: the rows pass would not list the two spaces")
+        if let creating {
+            PendingWorkspaceRows.shared.add(creating: creating, window: id, machine: CmuxNextSidebar.MachineID(services.machines.local.machineID), name: "created",
+                                            opensPage: true, slot: nil, byDefault: nil)
+        }
         let start = Work.now
         let controller = services.windows.makeController(for: WindowRegistry.Window(id: id)) // it presents a window with no workspace of its own at once
         return Made(services: services, controller: controller, start: start, work: Work.now.since(start))
@@ -145,6 +152,34 @@ import Testing
         let work = Work.now.since(made.start)
         print("NEW-WINDOW-WORK-AFTER-THE-PASS \(work.text)")
         #expect(work.rebuilds >= 1, "the rows pass of the window did not run in the hops (\(work.text))")
+    }
+
+    /// A create in flight into a new window, with the pointer over the window's rows. The seed lists the window's
+    /// rows without the create's row (it passes no rows of creates), and the rows pass's first run lists it: a
+    /// change of the rows that comes after the window's first draw. A change of the rows that nobody in this window
+    /// asked for waits while the pointer is over the rows (`SidebarListView.showModelChange`). The first set of a
+    /// new window's rows pass is part of the window's making, so it must show at once: before the seed wrote the
+    /// window's space, that run was the window's space change, which reloads with no condition. The pointer's answer
+    /// is the list's seam (`pointerIsOverList`), set after the making; the assert reads the list's own state: no
+    /// clock, no poll and no real pointer.
+    @Test func theFirstRowsPassOfANewWindowShowsACreatesRowUnderThePointer() async throws {
+        let created = "rows-first-frame-created"
+        let made = try Self.window("rows-first-frame-pointer", listsTheWorkspace: true, creating: created)
+        defer {
+            made.close()
+            PendingWorkspaceRows.shared.remove(created)
+        }
+        let model = made.model, list = made.controller.sidebar.container.sidebarView.list
+        let lists = { model.sections.flatMap(\.workspaces).contains { $0.id.rawValue == created } }
+        try #require(!list.displayed.rows.isEmpty, "the fixture is wrong: the window's first draw lists no row")
+        try #require(!lists(), "the fixture is wrong: the seed listed the create's row, so the rows pass adds no row")
+        list.pointerIsOverList = { _ in true }
+        await RestoredWindowSidebarRowsPassTests.drain()
+        made.controller.sidebar.sameTurn.syncNow(rows: false) // no rows pass: it draws what the model has
+        try #require(lists(), "the fixture is wrong: the rows pass did not list the create's row in the hops")
+        #expect(!list.holdsModelChange, "the first rows pass of a new window left its rows to wait for the pointer to leave the list")
+        #expect(list.displayed.row(for: .workspace(CmuxNextSidebar.WorkspaceID(created))) != nil,
+                "a new window's list does not draw the create's row while the pointer is over its rows")
     }
 
     /// The debug measure of a new workspace's row (`SidebarNewRowTimer`, the socket method `debug.new_workspace`)
