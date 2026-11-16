@@ -445,3 +445,43 @@ async fn a_silent_media_session_stalls_video_falls_back_and_the_session_is_tried
     assert!(gap < Duration::from_millis(1500), "longest gap without a frame {gap:?}");
     stop_tx.send_replace(true);
 }
+
+/// The app's `kill_media` (`MediaManager::kill`) the moment video is on the
+/// session's track, as the browser test does: the kill reaches the session
+/// that carries the video, however far its manager has got, and video falls
+/// back into the tunnel.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_kill_as_soon_as_video_rides_the_session_moves_it_into_the_tunnel() {
+    let mut pair = hybrid(options(true), options(true)).await;
+    let input = input(&pair.phone);
+    let mut frames = collector(input.subscribe().await);
+    let (stop_tx, stop) = watch::channel(false);
+    let _source = source(out(&pair.mac), stop);
+    let manager = manager(&pair, options(true), Duration::from_secs(30));
+    let _demand = manager.acquire();
+    let mut seen = Seen { frames: Vec::new() };
+    let on = |kind| {
+        move |s: &Seen| {
+            s.frames.last().is_some_and(|(_, f): &(Instant, ReceivedFrame)| f.carrier == Some(kind))
+        }
+    };
+    for round in 0..3 {
+        assert!(
+            collect_until(&mut frames, &mut seen, Duration::from_secs(20), on(CarrierKind::WebRtcTrack))
+                .await,
+            "round {round}: video moved onto the media session: {:?}",
+            seen.carriers()
+        );
+        manager.kill();
+        assert!(
+            collect_until(&mut frames, &mut seen, Duration::from_secs(10), on(CarrierKind::WireGuardUdp))
+                .await,
+            "round {round}: video fell back into the tunnel: {:?}, status {:?}",
+            seen.carriers(),
+            *manager.status().borrow()
+        );
+    }
+    while pair.sessions.try_recv().is_ok() {}
+    seen.assert_switches_at_keyframes();
+    stop_tx.send_replace(true);
+}
