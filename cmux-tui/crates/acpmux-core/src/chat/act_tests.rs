@@ -1,6 +1,7 @@
-use super::*;
+use super::draft::*;
+use super::presence::*;
 use std::fs;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 fn person(id: &str) -> PresencePerson {
     PresencePerson { id: id.into(), name: id.into(), devices: 1, viewing: true, typing: false }
@@ -31,18 +32,10 @@ fn draft_commit_renames_one_complete_file() {
 }
 
 #[test]
-fn presence_replacement_is_sorted_and_coalesced_without_history() {
+fn presence_replacement_is_sorted_without_history() {
     let first =
         PresenceStateOp::replace("chat", "owner", vec![person("z"), person("owner")]).unwrap();
-    let second = PresenceStateOp::replace("chat", "owner", vec![person("a")]).unwrap();
     assert_eq!(first.participants[0].id, "owner");
-
-    let mut queue = PresenceCoalescer::default();
-    assert!(!queue.submit(first).unwrap());
-    assert!(queue.submit(second.clone()).unwrap());
-    assert_eq!(queue.len(), 1);
-    assert_eq!(queue.pop().unwrap(), second);
-    assert!(queue.pop().is_none());
 }
 
 #[test]
@@ -58,15 +51,14 @@ fn presence_bounds_people_and_encoded_bytes() {
 
     let mut huge = person("person");
     huge.name = "x".repeat(MAX_PRESENCE_BYTES);
-    assert!(matches!(
-        PresenceStateOp::replace("chat", "local", vec![huge]),
-        Err(ActError::PresenceTooLarge { .. })
-    ));
+    let trimmed = PresenceStateOp::replace("chat", "local", vec![huge]).unwrap();
+    assert_eq!(trimmed.trimmed, 1);
+    assert!(trimmed.encoded_len() <= MAX_PRESENCE_BYTES);
 }
 
 #[test]
 fn typing_is_rate_limited_per_connection_and_expires() {
-    let start = std::time::Instant::now();
+    let start = Instant::now();
     let mut tracker = TypingTracker::default();
     tracker.update("connection", "person", true, start).unwrap();
     tracker.update("connection", "person", false, start + Duration::from_millis(1)).unwrap();
@@ -78,4 +70,6 @@ fn typing_is_rate_limited_per_connection_and_expires() {
 
     tracker.update("other", "person", true, start).unwrap();
     assert!(tracker.is_typing("other", "person", start + Duration::from_secs(1)));
+    tracker.disconnect("other");
+    assert!(!tracker.is_typing("other", "person", start + Duration::from_secs(1)));
 }
