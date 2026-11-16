@@ -475,7 +475,8 @@ public final class JoinConsentModel {
         // One of the person's other Macs asking for a workspace shows it while that ask is unanswered
         // (acpmux keeps the answer), naming the Mac when acpmux recorded it, unless the sheet already
         // showed that ask here.
-        if shown, let record = reading.consent, let surface = record.lastRefusal, !record.allows(surface) {
+        // Not for another install's record (gating nil): its Allow can never take there.
+        if shown, let record = reading.gating, let surface = record.lastRefusal, !record.allows(surface) {
             if surface == .signedInMachines {
                 if record.signedInMachinesAskOpen, record.lastRefusalAt != shownSignedInAsk,
                    refused(JoinConsentRefusal(requester: record.lastRefusalFrom ?? JoinConsentStrings.otherMac, surface: surface)) {

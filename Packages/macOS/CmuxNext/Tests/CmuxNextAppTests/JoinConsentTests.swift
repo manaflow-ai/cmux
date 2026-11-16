@@ -783,7 +783,7 @@ import Testing
             let isPerson = false
             let supportsConsent = true
             var notProven: JoinConsentUnread? { .notProven(foreignPath: "/Users/me/.local/bin/acpmux", why: "another install's") }
-            func read() async -> JoinConsentRecord? { JoinConsentRecord(screen: true, control: false) }
+            func read() async -> JoinConsentRecord? { JoinConsentRecord(screen: true, control: false, lastRefusal: .control) }
             func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord? { nil }
             func close() {}
         }
@@ -791,6 +791,7 @@ import Testing
             status: { JoinStatus(credentialPresent: true, machineId: "m_1", teamId: "t_1") }, openLine: { ForeignLine() },
             enabled: { true }, askShown: { false }, markAskShown: {}))
         await model.refresh()
+        #expect(model.ask == nil, "its recorded refusal shows no sheet whose Allow could never take")
         let page = try Self.page(model)
         #expect(page["error"] as? String == JoinConsentStrings.otherDaemon("/Users/me/.local/bin/acpmux"))
         #expect(page["known"] as? Bool == false && page["revoke_all"] == nil)
