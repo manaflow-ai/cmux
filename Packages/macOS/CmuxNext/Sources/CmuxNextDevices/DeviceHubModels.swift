@@ -5,9 +5,10 @@ public import Foundation
 /// field is nil, so a newer server never breaks an older app.
 
 /// A device's platform. `linux` is a Linux desktop that hosts its screen
-/// (`cmux-rd linux-host`); it is viewed like a Mac and never views.
+/// (`cmux-rd linux-host`); it is viewed like a Mac and never views. `windows` is a Windows
+/// PC on the account (`cmux-rd windows-host`): listed, not yet viewable.
 public enum DevicePlatform: String, Codable, Sendable, Equatable {
-    case macos, ios, linux
+    case macos, ios, linux, windows
 }
 
 /// What a viewer may do on a host's screen.
