@@ -57,7 +57,7 @@ import Testing
 }
 
 /// The wall clock, moved ahead by hand.
-final class MintStallClock: @unchecked Sendable {
+nonisolated final class MintStallClock: @unchecked Sendable {
     private let lock = NSLock()
     private var offset: TimeInterval = 0
     var now: Date { Date() + lock.withLock { offset } }
