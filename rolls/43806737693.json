@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43806737693",
+  "recorded_at": "2026-11-16T05:02:41Z",
+  "reason": "cmux-tui 2945d17d284f changes the image's cmux-tui (pinned 60a0aa220604)",
+  "dry_run": false,
+  "cmux_tui": "2945d17d284fe09620273487997a5ba9631d26c3",
+  "fixes": [
+    {
+      "sha": "2945d17d284fe09620273487997a5ba9631d26c3",
+      "mergedAt": "2026-11-15T20:36:58-08:00",
+      "subject": "test(acpmux): gate_rounds compares each round with every other round (#44153)"
+    },
+    {
+      "sha": "b84656782cbaaca6aac15b332f2fd86530195c34",
+      "mergedAt": "2026-11-15T20:35:53-08:00",
+      "subject": "Screen sharing one cursor: the host sends its cursor as metadata (rd cap cursor, Rust only) (#44117)"
+    },
+    {
+      "sha": "a18f00d50240d06f1abca7b0cfacc424b209ba20",
+      "mergedAt": "2026-11-15T20:34:46-08:00",
+      "subject": "File menu: Screen Sharing row; every main_menu placement shown or palette-only by reason (#44157)"
+    },
+    {
+      "sha": "0a7c700fd3f5c0645fced21e11a0ee7444433d5b",
+      "mergedAt": "2026-11-16T04:33:03Z",
+      "subject": "customize: library refresh never swaps in a fork's new code unasked (#44143)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T05:02:41Z",
+    "snapshot_id": "sh-c666e2b055514e969a71fc3f5a0abfd5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43806737693): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fd5654e5b7b1836939674ba2abb20daf5e7a86ab",
+    "image": "cloud-native-auto-2945d17d-43806737693-1",
+    "revision": "ci-43806737693-1",
+    "at": "2026-11-16T05:02:41Z"
+  },
+  "rolled_back": false
+}
