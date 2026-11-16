@@ -85,10 +85,12 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
         var upgrade = Data()
         while let bytes = client.takeSend() { upgrade.append(bytes) }
         connection.startBytes(send: upgrade, onBytes: { [weak self] bytes in
-            self?.queue.async { self?.receive(bytes) }
+            guard let self else { return }
+            self.queue.async { self.receive(bytes) }
         }, onClose: { [weak self] in
-            self?.queue.async {
-                guard let self, !self.closed else { return }
+            guard let self else { return }
+            self.queue.async {
+                guard !self.closed else { return }
                 self.closed = true
                 self.client.setSendHandler(nil)
                 _ = self.client.disconnected()

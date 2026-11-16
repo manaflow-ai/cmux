@@ -101,7 +101,9 @@ final class ChatRowsReceiver: Sendable {
 final class FedChatRowsHost: Sendable {
     let receiver = ChatRowsReceiver()
     let host: AcpmuxChatRowsHost
-    private let clients = Mutex<[AcpmuxClient]>([])
+    /// A class, so the connector closures can share it: a `Mutex` itself cannot be copied into them.
+    final class Clients: Sendable { let list = Mutex<[AcpmuxClient]>([]) }
+    private let clients = Clients()
 
     init() {
         let clients = self.clients
@@ -109,20 +111,20 @@ final class FedChatRowsHost: Sendable {
             socketPath: "/nonexistent", deliver: receiver.deliver,
             makeClient: {
                 let client = AcpmuxClient(surfaces: ["chat"])
-                clients.withLock { $0.append(client) }
+                clients.list.withLock { $0.append(client) }
                 return client
             },
             connector: AcpmuxChatRowsHost.Connector(
                 start: { driver, _, onChange, onClose in
                     driver.beginForTesting(onChange: onChange, onClose: onClose)
-                    _ = clients.withLock { $0.last }?.connected()
+                    _ = clients.list.withLock { $0.last }?.connected()
                 },
                 reconnect: { _, _, refused in refused() }))
         receiver.attach(host)
     }
 
-    var clientCount: Int { clients.withLock { $0.count } }
-    var client: AcpmuxClient? { clients.withLock { $0.last } }
+    var clientCount: Int { clients.list.withLock { $0.count } }
+    var client: AcpmuxClient? { clients.list.withLock { $0.last } }
 
     func driver() async -> AcpmuxClientByteConnection? { await host.snapshotForTesting().driver }
 
