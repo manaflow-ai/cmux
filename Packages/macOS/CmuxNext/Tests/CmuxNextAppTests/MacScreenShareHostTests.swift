@@ -71,13 +71,14 @@ struct MacScreenShareHostTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let app = root.appending(path: "cmux TEST.app", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: app.appending(path: "Contents/Library/Other.app"), withIntermediateDirectories: true)
-        #expect(MacScreenHelper.bundled(try #require(Bundle(url: app))) == nil)
+        let bundle = try #require(Bundle(url: app))
+        #expect(MacScreenHelper.bundled(bundle) == nil)
 
         let helper = app.appending(path: "Contents/Library/cmux TEST Screen Sharing.app", directoryHint: .isDirectory)
         let executable = helper.appending(path: "Contents/MacOS/\(MacScreenHelper.executableName)")
         try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
         #expect(FileManager.default.createFile(atPath: executable.path, contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755]))
-        let found = try #require(MacScreenHelper.bundled(try #require(Bundle(url: app))))
+        let found = try #require(MacScreenHelper.bundled(bundle))
         #expect(found.name == "cmux TEST Screen Sharing")
         #expect(found.app.standardizedFileURL == helper.standardizedFileURL)
     }
