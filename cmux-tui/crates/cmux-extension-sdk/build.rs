@@ -103,6 +103,8 @@ fn api(events: &Value, scopes: &Value, signals: &Value, runtime: &str) -> Result
         let scope = ops.get(reads).map(|op| str_at(op, "scope", reads)).transpose()?;
         let scope = scope
             .ok_or_else(|| format!("events.json: {name} reads {reads}, which apps cannot call"))?;
+        // A reads op with a placeholder scope (`integration:<provider>`): the stream names its own.
+        let scope = event.get("scope").and_then(Value::as_str).unwrap_or(scope);
         let docs = str_at(event, "docs", name)?;
         writeln!(
             out,
