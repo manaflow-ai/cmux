@@ -101,7 +101,7 @@ extension CloudHandlers {
                        let source = call.source { params["source"] = source }
                     if chat.running != nil { params["sourceKind"] = "cloud" }
                     guard let data = try? await acpmux.catalogCall("_acpmux/move_targets", params: params),
-                          let reply = try? JSONDecoder().decode(MovePaletteReply.self, from: data) else {
+                          let reply = await CloudMoveTargetRules().paletteReply(data) else {
                         return ActionWorkFailure(SSHChatMoveStrings.failed)
                     }
                     moveChoices = reply.targets.filter { $0.reason == nil }.map {
@@ -141,9 +141,4 @@ extension CloudHandlers {
             }
         }
     }
-}
-
-private struct MovePaletteReply: Decodable {
-    var targets: [Row]
-    struct Row: Decodable { var id: String, label: String, status: String?, reason: String? }
 }

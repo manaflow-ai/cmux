@@ -47,6 +47,20 @@ public nonisolated struct CloudMoveTargetRules: Sendable {
         return CloudMoveCore().call("targets", chat, as: Reply.self)?.targets ?? []
     }
 
+    /// Decodes the daemon-owned target rows away from the UI actor.
+    public func paletteReply(_ data: Data) async -> PaletteReply? {
+        await Task.detached(priority: .high) {
+            try? JSONDecoder().decode(PaletteReply.self, from: data)
+        }.value
+    }
+
+    public struct PaletteReply: Decodable, Sendable {
+        public var targets: [Row]
+        public struct Row: Decodable, Sendable {
+            public var id: String, label: String, status: String?, reason: String?
+        }
+    }
+
     /// Options that resolve one of the move preflight refusals. The UI asks the person once and
     /// invokes the same action again with one of these flags; the Rust move remains the owner of
     /// the running-turn and dirty-worktree checks.
