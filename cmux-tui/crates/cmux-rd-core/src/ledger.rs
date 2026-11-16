@@ -275,7 +275,7 @@ pub fn percentiles(xs: &mut [f64]) -> Option<Percentiles> {
 }
 
 fn num(x: f64) -> String {
-    if x.is_finite() { format!("{:.3}", x) } else { "null".to_owned() }
+    if x.is_finite() { format!("{x:.3}") } else { "null".to_owned() }
 }
 
 fn string(s: &str) -> String {
