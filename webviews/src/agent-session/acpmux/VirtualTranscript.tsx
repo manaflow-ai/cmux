@@ -2489,6 +2489,33 @@ function TranscriptView({
     const besideObserver = new ResizeObserver(paintBeside);
     besideObserver.observe(dock);
     if (scroller) besideObserver.observe(scroller);
+    // A surface can move or change shape with neither box resizing: the card widened by a column
+    // setting with the dock's own size kept, the tray settling in on its entrance translate, its
+    // corners rounding as it turns into a card, the ghost copy of one that left removed. Each surface
+    // is watched itself, motions are read once they end, and the dock's own children and their
+    // `data-card` are read as they change.
+    const watched = new WeakSet<Element>();
+    const watchSurfaces = () => {
+      for (const surface of dock.querySelectorAll(`:scope > .acpmux-running-tray, .acpmux-composer-box`)) {
+        if (watched.has(surface)) continue;
+        watched.add(surface);
+        besideObserver.observe(surface);
+      }
+    };
+    watchSurfaces();
+    const settled = () => paintBeside();
+    dock.addEventListener("animationend", settled);
+    dock.addEventListener("transitionend", settled);
+    const besideMutations = new MutationObserver(() => {
+      watchSurfaces();
+      paintBeside();
+    });
+    besideMutations.observe(dock, {
+      childList: true,
+      attributes: true,
+      attributeFilter: ["data-card"],
+      subtree: false,
+    });
     noteQueue();
     const space = over();
     const fullHeight = height();
@@ -2499,6 +2526,9 @@ function TranscriptView({
     return () => {
       observer.disconnect();
       besideObserver.disconnect();
+      besideMutations.disconnect();
+      dock.removeEventListener("animationend", settled);
+      dock.removeEventListener("transitionend", settled);
       for (const name of ["--acpmux-beside-images", "--acpmux-beside-sizes", "--acpmux-beside-positions"])
         scroller?.style.removeProperty(name);
       dock.removeEventListener("click", toggled, { capture: true });

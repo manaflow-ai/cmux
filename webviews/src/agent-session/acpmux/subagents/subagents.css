@@ -798,12 +798,12 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head > .acpmux-running-tray__time:not(:empty) {
   min-width: 7.5ch;
   font-variant-numeric: tabular-nums;
-  /* Its digits end its box, as every line's time ends its trail: a long title pushes the box
-     against the Stop column, and its time then ends on the lines' one x (Lucas, 2026-11-17: "we also
-     need to align the timestamps here", of a header's "23m 10s" a few pixels left of its line's).
-     A short title keeps the time beside its counts: the free room goes after it, not into it. */
-  flex: 0 0 auto;
-  margin-inline-end: auto;
+}
+/* Open, the header's time stands in the lines' time column: its box takes the row's free room and
+   its digits end it, on the x every line's time ends on (Lucas, 2026-11-17: "we also need to align
+   the timestamps here", of a header's "23m 10s" a few pixels left of its line's). Folded, with no
+   lines under it, it stays one gap after its counts. */
+.acpmux-running-tray__head[aria-expanded="true"] > .acpmux-running-tray__time:not(:empty) {
   text-align: right;
 }
 /* The header's Stop column is the lines' one: the lines space their tracks one tray gap apart, the

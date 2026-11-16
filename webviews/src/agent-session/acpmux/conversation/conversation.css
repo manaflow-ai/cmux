@@ -6680,6 +6680,20 @@ a.cv-sha:focus-visible {
   syntax: "*";
   inherits: false;
 }
+/* The rows beside the bottom stack (besideStack.ts): written on the scroller as the stack moves, and
+   read by its mask alone, so a write restyles the scroller and none of its rows. */
+@property --acpmux-beside-images {
+  syntax: "*";
+  inherits: false;
+}
+@property --acpmux-beside-sizes {
+  syntax: "*";
+  inherits: false;
+}
+@property --acpmux-beside-positions {
+  syntax: "*";
+  inherits: false;
+}
 .acpmux-scroll[data-fade-top] {
   --acpmux-fade-top: 18px;
 }

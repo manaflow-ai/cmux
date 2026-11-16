@@ -36,7 +36,7 @@ export function besideMask(surfaces: readonly StackSurface[], width: number): Be
     sizes.push(`${px(w)} ${px(h)}`);
     positions.push(`${px(x)} ${px(y)}`);
   };
-  const solid = "linear-gradient(#000, #000)";
+  const solid = "linear-gradient(#000, #000)"; // colour-allow: a mask layer's alpha only, never painted
   sorted.forEach((surface, at) => {
     const next = sorted[at + 1];
     const previous = sorted[at - 1];
@@ -53,7 +53,7 @@ export function besideMask(surfaces: readonly StackSurface[], width: number): Be
     const r = surface.radiusLeft;
     if (r > 0)
       add(
-        `radial-gradient(circle ${px(r)} at ${px(r)} ${px(r)}, transparent ${px(r - 0.5)}, #000 ${px(r + 0.5)})`,
+        `radial-gradient(circle ${px(r)} at ${px(r)} ${px(r)}, transparent ${px(r - 0.5)}, #000 ${px(r + 0.5)})`, // colour-allow: mask alpha only
         surface.left,
         surface.top,
         Math.min(r, leftRoom),
@@ -64,7 +64,7 @@ export function besideMask(surfaces: readonly StackSurface[], width: number): Be
       const w = Math.min(q, rightRoom);
       add(
         // The curve's centre is q in from the surface's right edge, so w - q from the piece's left.
-        `radial-gradient(circle ${px(q)} at ${px(w - q)} ${px(q)}, transparent ${px(q - 0.5)}, #000 ${px(q + 0.5)})`,
+        `radial-gradient(circle ${px(q)} at ${px(w - q)} ${px(q)}, transparent ${px(q - 0.5)}, #000 ${px(q + 0.5)})`, // colour-allow: mask alpha only
         surface.right - w,
         surface.top,
         w,
