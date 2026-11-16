@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43836125333",
+  "recorded_at": "2026-11-16T09:14:05Z",
+  "reason": "cmux-tui a9c000eb3a49 changes the image's cmux-tui (pinned 7c9a5e4f7e40)",
+  "dry_run": false,
+  "cmux_tui": "a9c000eb3a494073cbb102614482278242c0dfe8",
+  "fixes": [
+    {
+      "sha": "a9c000eb3a494073cbb102614482278242c0dfe8",
+      "mergedAt": "2026-11-16T00:45:11-08:00",
+      "subject": "perf(cmux-tui): the output store's start reads each snapshot header one time"
+    },
+    {
+      "sha": "e937722b577f353fe931e81625c055a9b434d2c9",
+      "mergedAt": "2026-11-16T00:41:14-08:00",
+      "subject": "measure(screen): publish the two-Mac screen-share-fast probe (#44355)"
+    },
+    {
+      "sha": "2816f1f6770d27a8c1f622205bdc278627165a2a",
+      "mergedAt": "2026-11-16T00:39:52-08:00",
+      "subject": "cmux-rd viewer: a complete frame that needs no waiting frame goes to decode at once (#44307)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T09:14:05Z",
+    "snapshot_id": "sh-93fefee7292c4ef9bb2d238ee6e00a78",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43836125333): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3640f6d8ed9edff0c5e82211c1ec2bd99bd2530b",
+    "image": "cloud-native-auto-a9c000eb-43836125333-1",
+    "revision": "ci-43836125333-1",
+    "at": "2026-11-16T09:14:05Z"
+  },
+  "rolled_back": false
+}
