@@ -135,7 +135,7 @@ impl ScaleGovernor {
 
     /// The current share of each side.
     pub fn scale(&self) -> f64 {
-        SCALES[self.index]
+        SCALES.get(self.index).copied().unwrap_or(1.0)
     }
 
     /// Bits per pixel one frame gets at `scale`.
@@ -166,18 +166,21 @@ impl ScaleGovernor {
         }
         if motion && bpp(self.scale()) < MIN_MOTION_BITS_PER_PIXEL {
             // Down at once, to the largest size that clears the floor (or the smallest).
-            self.index = (self.index..SCALES.len())
-                .find(|&i| bpp(SCALES[i]) >= MIN_MOTION_BITS_PER_PIXEL)
-                .unwrap_or(SCALES.len() - 1);
+            self.index = SCALES
+                .iter()
+                .enumerate()
+                .skip(self.index)
+                .find(|&(_, &scale)| bpp(scale) >= MIN_MOTION_BITS_PER_PIXEL)
+                .map_or(SCALES.len().saturating_sub(1), |(i, _)| i);
             self.room_since_us = None;
             return self.scale();
         }
-        if self.index > 0 {
-            let larger = SCALES[self.index - 1];
+        let larger = self.index.checked_sub(1).and_then(|i| Some((i, *SCALES.get(i)?)));
+        if let Some((larger_index, larger)) = larger {
             if bpp(larger) >= MIN_MOTION_BITS_PER_PIXEL * UP_MARGIN {
                 let since = *self.room_since_us.get_or_insert(now_us);
                 if now_us.saturating_sub(since) >= UP_HOLD_US {
-                    self.index -= 1;
+                    self.index = larger_index;
                     self.room_since_us = None;
                 }
             } else {
