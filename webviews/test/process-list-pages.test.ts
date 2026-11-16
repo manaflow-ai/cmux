@@ -38,6 +38,7 @@ function fakeDaemon(
     changesBetweenPages?: boolean;
     failsPage?: number;
     refusesRecent?: boolean;
+    ignoresRecent?: boolean;
   },
 ) {
   const all = Array.from({ length: count }, (_, n) => process(n));
@@ -64,12 +65,16 @@ function fakeDaemon(
         asked.push(params);
         if (mode.failsPage === asked.length) return FAIL;
         if (mode.keepsNoList) return {};
-        if (params?.recent !== undefined) {
+        if (params?.recent !== undefined && !mode.ignoresRecent) {
           // acpmux `recent` (hub/processes.rs recent_snapshot): every running one, the newest ended.
           if (mode.refusesRecent) return FAIL;
           let ended = all.filter((p) => p.state !== "running").length;
           const kept = all.filter((p) => p.state === "running" || ended-- <= params.recent);
-          return { processes: kept, ...(kept.length < all.length ? { omitted: all.length - kept.length } : {}) };
+          return {
+            processes: kept,
+            recent: params.recent,
+            ...(kept.length < all.length ? { omitted: all.length - kept.length } : {}),
+          };
         }
         if (mode.endlessCursors) return { processes: [], nextCursor: `cursor-${asked.length}` };
         if (!mode.paged || mode.ignoresLimit || params?.limit === undefined) {
@@ -208,6 +213,15 @@ test("a recent read is one request: every running process and only the newest en
 
 test("a daemon or host that refuses recent is read whole, page by page, as before", async () => {
   const daemon = fakeDaemon(2_500, { paged: true, refusesRecent: true });
+  const reply = await (await client(daemon)).listProcesses(CHAT, 100);
+  expect(reply.processes).toHaveLength(2_500);
+  expect(daemon.asked.map((params) => params.recent ?? params.limit)).toEqual([100, 1_000, 1_000, 1_000]);
+});
+
+// An older acpmux ignores `recent` and answers its unpaged list (the newest that fit one reply), which
+// can leave out an old running process: with no `recent` echoed, the list is read whole.
+test("an acpmux that ignores recent is read whole, page by page", async () => {
+  const daemon = fakeDaemon(2_500, { paged: true, ignoresRecent: true, unpagedFits: 300 });
   const reply = await (await client(daemon)).listProcesses(CHAT, 100);
   expect(reply.processes).toHaveLength(2_500);
   expect(daemon.asked.map((params) => params.recent ?? params.limit)).toEqual([100, 1_000, 1_000, 1_000]);

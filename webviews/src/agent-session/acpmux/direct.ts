@@ -6188,14 +6188,16 @@ export class AcpmuxDirectClient {
   /// running process and the newest `recent` ended (processes.ts `PROCESS_LIST_RECENT`), in one reply, `omitted`
   /// counting the older ones (acpmux `recent`, hub/processes.rs `list_recent_processes`). A god
   /// chat's 56,000 shells were 66 MB of JSON parsed and held in the renderer for a tray of a few.
-  /// An acpmux or host that refuses `recent` is read whole, as before.
+  /// An acpmux or host that refuses `recent`, or ignores it (no `recent` echoed), is read whole, as before.
   async listProcesses(sessionId: string, recent?: number): Promise<{ processes?: unknown[]; omitted?: number }> {
     if (recent !== undefined) {
       const reply = await this.request("_acpmux/process/list", { sessionId, recent }).then(
-        (page) => page as { processes?: unknown; nextCursor?: unknown; omitted?: unknown } | undefined,
+        (page) => page as { processes?: unknown; recent?: unknown; omitted?: unknown } | undefined,
         () => undefined,
       );
-      if (Array.isArray(reply?.processes) && reply.nextCursor === undefined) {
+      // Only an acpmux that read `recent` echoes it: an older one ignores the key and answers its
+      // unpaged list, the newest rows that fit one reply, which can leave out an old running one.
+      if (Array.isArray(reply?.processes) && reply.recent === recent) {
         const omitted = reply.omitted;
         return typeof omitted === "number" && omitted > 0
           ? { processes: reply.processes, omitted }
