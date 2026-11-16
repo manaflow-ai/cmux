@@ -1080,6 +1080,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             .unwrap_or(result);
             warn_unstable_handles(method, &value, global.output);
             open_created(global, stream, &params, &value);
+            note_new_tab_app(global, method, &params);
             if global.output == OutputMode::Human
                 && let Some(line) = super::share_cli::human_line(&params, &value)
                     .or_else(|| super::vm::created_line(&params, &value, global))
@@ -1157,6 +1158,22 @@ fn created_target(output: OutputMode, params: &Value, value: &Value) -> Option<S
 }
 
 /// Progress notes go to stderr for a person, never in JSON or quiet output.
+/// After `settings set tabs.newTabApp ID`: a note on stderr when the daemon says ID cannot draw a
+/// New Tab page now (not loaded, not installed, off, hidden, or no `cmux.newtab/1`), so the write
+/// is never a silent no-op. The write itself stands either way.
+fn note_new_tab_app(global: &GlobalArgs, method: &str, params: &Value) {
+    if !output_shows_notes(global.output) {
+        return;
+    }
+    let Some(app) = settings::new_tab_app_written(method, params) else { return };
+    let Ok((socket, _)) = super::wire::resolve_socket_with_origin(global) else { return };
+    let detail =
+        super::apps_list::store_call(&socket, "cmux.apps.catalog.get", json!({ "app": app }));
+    if let Some(note) = settings::new_tab_app_note(&app, detail.as_ref().map_err(String::as_str)) {
+        eprintln!("{note}");
+    }
+}
+
 fn output_shows_notes(output: OutputMode) -> bool {
     output == OutputMode::Human
 }

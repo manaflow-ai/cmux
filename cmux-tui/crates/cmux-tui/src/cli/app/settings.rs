@@ -135,6 +135,49 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     Ok(AppCommand::Call { method, params, timeout, pick: None })
 }
 
+/// The app a `settings set tabs.newTabApp ID` names, when it is a plain id; None for any other write.
+pub(super) fn new_tab_app_written(method: &str, params: &Value) -> Option<String> {
+    (method == "settings.set" && params["path"].as_str() == Some("tabs.newTabApp"))
+        .then(|| params["value"].as_str().map(str::to_owned))
+        .flatten()
+        .filter(|id| !id.is_empty())
+}
+
+/// The note after `settings set tabs.newTabApp ID` when the app cannot draw New Tab pages now:
+/// the setting is kept (an app installed later is picked up), but nothing is silent. `detail` is
+/// the daemon's `apps.catalog.get` answer for ID, or its refusal. None when the app is installed,
+/// enabled, shown and implements `cmux.newtab/1`.
+pub(crate) fn new_tab_app_note(app: &str, detail: Result<&Value, &str>) -> Option<String> {
+    let reset = "cmux draws its own New Tab page until it can; `cmux settings reset tabs.newTabApp` clears it";
+    let detail = match detail {
+        Ok(detail) => detail,
+        Err(error) if error.starts_with("apps.unknown") => {
+            return Some(format!(
+                "note: no extension named {app} is loaded in cmux (`cmux ext list`); {reset}."
+            ));
+        }
+        // The daemon could not say: the write stands and no guess is printed.
+        Err(_) => return None,
+    };
+    let install = &detail["install"];
+    let flag = |name: &str| install[name].as_bool() == Some(true);
+    let problem = if install.is_null() || !flag("installed") {
+        "is not installed (`cmux apps install` it, or run `cmux ext dev` in its folder)"
+    } else if install["enabled"].as_bool() == Some(false) {
+        "is turned off"
+    } else if flag("hidden") {
+        "is hidden"
+    } else if !detail["implements"]
+        .as_array()
+        .is_some_and(|places| places.iter().any(|place| place.as_str() == Some("cmux.newtab/1")))
+    {
+        "has no New Tab page (its cmux-app.json does not implement cmux.newtab/1)"
+    } else {
+        return None;
+    };
+    Some(format!("note: {app} {problem}; {reset}."))
+}
+
 /// The line printed before a `--confirm` wait, so the person knows the
 /// sheet is in the app. None for every other request.
 pub(super) fn waiting_note(method: &str, params: &Value) -> Option<&'static str> {

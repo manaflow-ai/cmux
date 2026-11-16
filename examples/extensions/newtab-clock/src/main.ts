@@ -6,7 +6,8 @@ const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`)
 
-const now = signal(Date.now())
+// signal returns [read, write], as in every cmux extension.
+const [now, setNow] = signal(Date.now())
 const d = () => new Date(now())
 const time = () => {
   const t = d(), h = t.getHours()
@@ -19,7 +20,7 @@ const greeting = () => {
 }
 
 export const renderNewTab = newTab(({ cwd }) => {
-  const id = cmux.timer.every(1000, () => now.set(Date.now()))
+  const id = cmux.timer.every(1000, () => setNow(Date.now()))
   onCleanup(() => cmux.timer.clear(id))
   return VStack([
     Spacer(),

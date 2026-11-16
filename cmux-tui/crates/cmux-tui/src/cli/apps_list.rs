@@ -188,39 +188,43 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(run(&global, &request))
 }
 
+/// One App Store read (`apps-store` OP with ARGS) on the daemon at `socket`: its `data`, or the
+/// refusal as `code: message`.
+pub(super) fn store_call(socket: &std::path::Path, op: &str, args: Value) -> Result<Value, String> {
+    let stream = UnixStream::connect(socket).map_err(|error| {
+        format!("cannot connect to the session socket {}: {error}", socket.display())
+    })?;
+    stream.set_read_timeout(Some(Duration::from_secs(15))).map_err(|e| e.to_string())?;
+    let mut reader = BufReader::new(stream);
+    let line =
+        json!({"id": "apps-list-1", "cmd": "apps-store", "op": op, "args": args}).to_string();
+    writeln!(reader.get_mut(), "{line}").map_err(|e| e.to_string())?;
+    loop {
+        let mut reply = String::new();
+        if reader.read_line(&mut reply).map_err(|e| e.to_string())? == 0 {
+            return Err("the daemon closed the connection".into());
+        }
+        let Ok(value) = serde_json::from_str::<Value>(&reply) else { continue };
+        if value.get("id").and_then(Value::as_str) != Some("apps-list-1") {
+            continue;
+        }
+        if value.get("ok").and_then(Value::as_bool) == Some(true) {
+            return Ok(value.get("data").cloned().unwrap_or(Value::Null));
+        }
+        return Err(format!(
+            "{}: {}",
+            value.get("error_code").and_then(Value::as_str).unwrap_or("error"),
+            value.get("error").and_then(Value::as_str).unwrap_or("")
+        ));
+    }
+}
+
 fn run(global: &GlobalArgs, request: &Request) -> i32 {
     let socket = match super::wire::resolve_socket_or_report(global) {
         Ok((socket, _)) => socket,
         Err(code) => return code,
     };
-    let answer = |op: &str, args: Value| -> Result<Value, String> {
-        let stream = UnixStream::connect(&socket).map_err(|error| {
-            format!("cannot connect to the session socket {}: {error}", socket.display())
-        })?;
-        stream.set_read_timeout(Some(Duration::from_secs(15))).map_err(|e| e.to_string())?;
-        let mut reader = BufReader::new(stream);
-        let line =
-            json!({"id": "apps-list-1", "cmd": "apps-store", "op": op, "args": args}).to_string();
-        writeln!(reader.get_mut(), "{line}").map_err(|e| e.to_string())?;
-        loop {
-            let mut reply = String::new();
-            if reader.read_line(&mut reply).map_err(|e| e.to_string())? == 0 {
-                return Err("the daemon closed the connection".into());
-            }
-            let Ok(value) = serde_json::from_str::<Value>(&reply) else { continue };
-            if value.get("id").and_then(Value::as_str) != Some("apps-list-1") {
-                continue;
-            }
-            if value.get("ok").and_then(Value::as_bool) == Some(true) {
-                return Ok(value.get("data").cloned().unwrap_or(Value::Null));
-            }
-            return Err(format!(
-                "{}: {}",
-                value.get("error_code").and_then(Value::as_str).unwrap_or("error"),
-                value.get("error").and_then(Value::as_str).unwrap_or("")
-            ));
-        }
-    };
+    let answer = |op: &str, args: Value| store_call(&socket, op, args);
     let json_out = matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
     let result = match request {
         Request::List { installed, query } => {

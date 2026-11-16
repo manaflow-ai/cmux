@@ -1547,7 +1547,221 @@
     }
     return [...byId.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
-  var READERS = { "github.pulls": githubPulls };
+  var ETAGS = new Map;
+  var ETAG_CAP = 256;
+  function keep(path, etag, body, at) {
+    ETAGS.delete(path);
+    ETAGS.set(path, { etag, body, at });
+    while (ETAGS.size > ETAG_CAP)
+      ETAGS.delete(ETAGS.keys().next().value);
+  }
+  var PUBLIC_LIST_AGE_MS = 300000;
+  var PUBLIC_DETAIL_AGE_MS = 900000;
+  var PUBLIC_ROWS = 5;
+  var NO_GATEWAY = new Set(["integration.unavailable", "integration.not_connected", "scope.missing", "operation.unsupported", "op.unknown", "method.not_found"]);
+  function githubGetter(call, signalName) {
+    let viaGateway = true;
+    let gatewayError = null;
+    const refused = () => {
+      if (gatewayError instanceof CmuxError && gatewayError.retryable)
+        return gatewayError;
+      const code = codeOf(gatewayError);
+      return new CmuxError(code === "scope.missing" ? "scope.missing" : "integration.unavailable", "Sign in to GitHub (gh auth login), or set a GitHub login for public repositories.", { signal: signalName, gateway: code }, code !== "scope.missing");
+    };
+    const get = async (path) => {
+      if (viaGateway) {
+        try {
+          return await call("integration.request", { provider: "github", method: "GET", path });
+        } catch (e) {
+          if (!NO_GATEWAY.has(codeOf(e)))
+            throw e;
+          viaGateway = false;
+          gatewayError = e;
+        }
+      }
+      if (path.includes("%40me"))
+        throw refused();
+      const known = ETAGS.get(path);
+      const now = Date.now();
+      const age = path.startsWith("/search/") || /\/pulls\?/.test(path) ? PUBLIC_LIST_AGE_MS : PUBLIC_DETAIL_AGE_MS;
+      if (known && now - known.at < age)
+        return known.body;
+      let r;
+      try {
+        r = await call("net.fetch", {
+          url: `https://api.github.com${path}`,
+          method: "GET",
+          headers: { Accept: "application/vnd.github+json", ...known?.etag ? { "If-None-Match": known.etag } : {} },
+          body: null
+        });
+      } catch (e) {
+        if (e instanceof CmuxError && e.code === "scope.missing")
+          throw refused();
+        throw e;
+      }
+      if (r.status === 304 && known?.etag) {
+        keep(path, known.etag, known.body, now);
+        return known.body;
+      }
+      if (r.status < 200 || r.status >= 300)
+        throw new CmuxError("upstream.failed", `GitHub answered ${r.status}`, { status: r.status }, r.status === 403 || r.status === 429 || r.status >= 500);
+      const body = JSON.parse(r.body || "null");
+      const etag = Object.entries(r.headers ?? {}).find(([k]) => k.toLowerCase() === "etag")?.[1];
+      keep(path, etag ?? "", body, now);
+      return body;
+    };
+    return { get, onGateway: () => viaGateway };
+  }
+  async function pool(items, n, job) {
+    const out = new Array(items.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await job(items[i]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+    return out;
+  }
+  var FAILED = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"]);
+  function rollup(runs, statuses) {
+    let failing = 0;
+    let pending = 0;
+    let passing = 0;
+    for (const r of runs) {
+      if (r.status !== "completed")
+        pending++;
+      else if (FAILED.has(String(r.conclusion)))
+        failing++;
+      else
+        passing++;
+    }
+    for (const s of statuses) {
+      if (s.state === "failure" || s.state === "error")
+        failing++;
+      else if (s.state === "pending")
+        pending++;
+      else if (s.state === "success")
+        passing++;
+    }
+    const state = failing ? "failing" : pending ? "pending" : passing ? "passing" : "none";
+    return { state, failing, pending, passing };
+  }
+  function decision(reviews, requested) {
+    const latest = new Map;
+    let commented = false;
+    for (const r of reviews) {
+      const who = String(r.user?.login ?? "");
+      const s = String(r.state ?? "");
+      if (s === "COMMENTED")
+        commented = true;
+      else if (s === "DISMISSED")
+        latest.delete(who);
+      else if (s === "APPROVED" || s === "CHANGES_REQUESTED")
+        latest.set(who, s);
+    }
+    const states = [...latest.values()];
+    if (states.includes("CHANGES_REQUESTED"))
+      return "changes-requested";
+    if (states.includes("APPROVED"))
+      return "approved";
+    if (requested > 0)
+      return "review-required";
+    return commented ? "commented" : "none";
+  }
+  function searchQuery(params, who) {
+    const show = params.show ?? "mine";
+    const parts = ["is:pr"];
+    if (params.include !== "open-and-merged")
+      parts.push("is:open");
+    if (params.repo)
+      parts.push(`repo:${params.repo}`);
+    if (show === "mine")
+      parts.push(`author:${who}`);
+    else if (show === "mentions")
+      parts.push(`mentions:${who}`);
+    else if (show === "review-requested")
+      parts.push(`review-requested:${who}`);
+    else if (show === "search")
+      parts.push(String(params.query ?? "").replace(/\bis:pr\b/g, "").trim());
+    return parts.filter(Boolean).join(" ");
+  }
+  async function githubChanges(params, call) {
+    const show = params.show ?? "mine";
+    const limit = typeof params.limit === "number" ? params.limit : 10;
+    const login = typeof params.login === "string" ? params.login.trim() : "";
+    const gh = githubGetter(call, "github.changes");
+    const merged = params.include === "open-and-merged";
+    const wanted = (p) => p.state === "open" || merged && !!p.merged_at;
+    let refs;
+    if (show === "branch") {
+      if (!params.repo || !params.branch)
+        throw new CmuxError("signal.params", "github.changes: show: branch needs repo and branch", { signal: "github.changes" });
+      const owner = String(params.repo).split("/")[0];
+      const state = params.include === "open-and-merged" ? "all" : "open";
+      const head = encodeURIComponent(`${owner}:${params.branch}`);
+      const pulls = await gh.get(`/repos/${params.repo}/pulls?head=${head}&state=${state}&per_page=${limit}`);
+      refs = (pulls ?? []).filter(wanted).map((p) => ({ repo: String(params.repo), number: Number(p.number) }));
+    } else {
+      if (show === "search" && !String(params.query ?? "").trim())
+        throw new CmuxError("signal.params", "github.changes: show: search needs query", { signal: "github.changes" });
+      const path = (who) => `/search/issues?q=${encodeURIComponent(searchQuery(params, who))}&sort=updated&order=desc&per_page=${limit}`;
+      let found;
+      try {
+        found = await gh.get(path("@me"));
+      } catch (e) {
+        if (gh.onGateway() || !login)
+          throw e;
+        found = await gh.get(path(login || "@me"));
+      }
+      refs = (found?.items ?? []).filter((i) => wanted({ state: i.state, merged_at: i.pull_request?.merged_at })).map((i) => ({ repo: repoOf(i.repository_url), number: Number(i.number) }));
+    }
+    const signedIn = gh.onGateway();
+    const rows = await pool(refs.slice(0, signedIn ? limit : Math.min(limit, PUBLIC_ROWS)), 4, async ({ repo, number }) => {
+      const p = await gh.get(`/repos/${repo}/pulls/${number}`);
+      const state = p.merged_at ? "merged" : p.state === "closed" ? "closed" : "open";
+      const sha = String(p.head?.sha ?? "");
+      let checks = { state: "none", failing: 0, pending: 0, passing: 0 };
+      let review = "none";
+      if (state === "open" && sha) {
+        const part = async (path) => {
+          try {
+            return await gh.get(path);
+          } catch (e) {
+            if (e instanceof CmuxError && e.retryable)
+              throw e;
+            return null;
+          }
+        };
+        const runs = await part(`/repos/${repo}/commits/${sha}/check-runs?filter=latest&per_page=100`);
+        const status = signedIn ? await part(`/repos/${repo}/commits/${sha}/status`) : null;
+        checks = rollup(runs?.check_runs ?? [], status?.statuses ?? []);
+        const requested = (p.requested_reviewers?.length ?? 0) + (p.requested_teams?.length ?? 0);
+        const reviews = signedIn ? await part(`/repos/${repo}/pulls/${number}/reviews?per_page=100`) : null;
+        review = decision(reviews ?? [], requested);
+      }
+      return {
+        id: Number(p.id),
+        number,
+        title: String(p.title ?? ""),
+        url: String(p.html_url ?? ""),
+        repo,
+        author: String(p.user?.login ?? ""),
+        draft: !!p.draft,
+        state,
+        headRef: String(p.head?.ref ?? ""),
+        headSha: sha,
+        additions: Number(p.additions ?? 0),
+        deletions: Number(p.deletions ?? 0),
+        checks,
+        review,
+        updatedAt: String(p.updated_at ?? "")
+      };
+    });
+    return rows.filter((r) => r.state === "open" || merged && r.state === "merged").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  var READERS = { "github.pulls": githubPulls, "github.changes": githubChanges };
   var pointer = (base, key) => `${base}/${String(key).replace(/~/g, "~0").replace(/\//g, "~1")}`;
   var typeOf = (v) => {
     if (v === null)
@@ -1707,7 +1921,6 @@
       }
     }
   }
-  // cmux-tui/crates/cmux-app-host/generated/signals.json
   var signals_default = {
     version: 1,
     signals: {
@@ -1763,6 +1976,193 @@
           "chat.changed"
         ],
         pollFloorSeconds: 5,
+        staleAfterSeconds: 60
+      },
+      "github.changes": {
+        docs: "Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag).",
+        scopes: [
+          "integration:github:read",
+          "net:api.github.com"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            show: {
+              enum: [
+                "branch",
+                "mine",
+                "mentions",
+                "review-requested",
+                "search"
+              ],
+              description: "branch: the pull requests whose head is `branch` in `repo`. mine (default): the ones the person opened. mentions: the ones that mention them. review-requested: the ones that ask for their review. search: `query`, a GitHub search (is:pr is added)."
+            },
+            repo: {
+              type: "string",
+              maxLength: 140,
+              pattern: "^[A-Za-z0-9][A-Za-z0-9-]*/(\\.?[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.\\.[A-Za-z0-9._-]+)$",
+              description: "owner/name: the repository for show: branch; for the others it narrows the list to that repository."
+            },
+            branch: {
+              type: "string",
+              maxLength: 255,
+              description: "The head branch for show: branch."
+            },
+            query: {
+              type: "string",
+              maxLength: 256,
+              description: "The GitHub search for show: search, for example `repo:manaflow-ai/cmux label:bug`."
+            },
+            include: {
+              enum: [
+                "open",
+                "open-and-merged"
+              ],
+              description: "open (default) or open-and-merged (closed unmerged ones are left out)."
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 30,
+              description: "At most this many pull requests (default 10). Each costs four conditional reads."
+            },
+            login: {
+              type: "string",
+              maxLength: 39,
+              description: "The GitHub login the public fallback reads as the person, when no GitHub sign-in answers (needs net:api.github.com)."
+            }
+          }
+        },
+        value: {
+          type: "array",
+          items: {
+            type: "object",
+            required: [
+              "id",
+              "number",
+              "title",
+              "url",
+              "repo",
+              "author",
+              "draft",
+              "state",
+              "headRef",
+              "headSha",
+              "additions",
+              "deletions",
+              "checks",
+              "review",
+              "updatedAt"
+            ],
+            properties: {
+              id: {
+                type: "integer"
+              },
+              number: {
+                type: "integer"
+              },
+              title: {
+                type: "string"
+              },
+              url: {
+                type: "string"
+              },
+              repo: {
+                type: "string",
+                description: "owner/name"
+              },
+              author: {
+                type: "string"
+              },
+              draft: {
+                type: "boolean"
+              },
+              state: {
+                enum: [
+                  "open",
+                  "merged",
+                  "closed"
+                ]
+              },
+              headRef: {
+                type: "string",
+                description: "The head branch."
+              },
+              headSha: {
+                type: "string"
+              },
+              additions: {
+                type: "integer",
+                description: "Lines added."
+              },
+              deletions: {
+                type: "integer",
+                description: "Lines removed."
+              },
+              checks: {
+                type: "object",
+                required: [
+                  "state",
+                  "failing",
+                  "pending",
+                  "passing"
+                ],
+                properties: {
+                  state: {
+                    enum: [
+                      "failing",
+                      "pending",
+                      "passing",
+                      "none"
+                    ],
+                    description: "failing when any check failed, else pending when any runs, else passing; none with no checks."
+                  },
+                  failing: {
+                    type: "integer"
+                  },
+                  pending: {
+                    type: "integer"
+                  },
+                  passing: {
+                    type: "integer"
+                  }
+                },
+                description: "The head commit's check runs and commit statuses, the latest of each."
+              },
+              review: {
+                enum: [
+                  "approved",
+                  "changes-requested",
+                  "review-required",
+                  "commented",
+                  "none"
+                ],
+                description: "Each reviewer's latest review: changes-requested wins, then approved; review-required while a review is requested and none came."
+              },
+              updatedAt: {
+                type: "string"
+              }
+            }
+          }
+        },
+        read: {
+          reader: "github.changes",
+          ops: [
+            {
+              op: "integration.request",
+              scope: "integration:github:read",
+              docs: "GET /search/issues or /repos/{repo}/pulls, then each pull request, its reviews, and its head's check runs and status, through the person's GitHub sign-in; the gateway sends If-None-Match and replays an unchanged body."
+            },
+            {
+              op: "net.fetch",
+              scope: "net:api.github.com",
+              docs: "The same reads on the public API when the gateway refuses, each with If-None-Match from the runtime's own ETag cache."
+            }
+          ]
+        },
+        push: [],
+        pollFloorSeconds: 30,
         staleAfterSeconds: 60
       },
       "github.pulls": {
@@ -2265,6 +2665,7 @@
   var RUNTIME_VERSION = "1.2.0";
   var exportsOf2 = () => g.__cmuxAppExports ?? {};
   var describe2 = (e) => e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e);
+  var scriptLine = (e) => e instanceof Error && typeof e.stack === "string" ? /\(?([^\s()]+\.js:\d+(?::\d+)?)\)?/.exec(e.stack)?.[1] ?? "" : "";
   function entry(name, fn, fallback) {
     try {
       return batch(fn);
@@ -2329,7 +2730,8 @@
       } catch (e) {
         state.context = null;
         unmount(mountId);
-        const message = describe2(e);
+        const at = scriptLine(e);
+        const message = at ? `${describe2(e)} (${at})` : describe2(e);
         log("error", `mount ${exportName}: ${message}`);
         return message || "render failed";
       } finally {

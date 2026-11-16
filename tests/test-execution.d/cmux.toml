@@ -314,6 +314,10 @@ path = "tests/test_cmux_next_static_capability_runtime_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_tab_switch_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_tip_swift_suite.py"
 lane = "linux-guard"
 

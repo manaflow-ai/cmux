@@ -12,7 +12,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     let style: WorkspaceTabHoverCardStyle
     /// The list, reaching `fillOutset` past this view's edges.
     private let container = WorkspaceTabHoverDocument()
-    private let scrollView = NSScrollView()
+    private let scrollView = OverlayScrollView()
     private let document = WorkspaceTabHoverDocument()
     private(set) var rowViews: [WorkspaceTabHoverCardRow] = []
     /// The kind groups' labels (`style.groupsByKind`), reused.

@@ -115,6 +115,10 @@ pub(crate) struct AppDetail {
     #[serde(flatten)]
     listing: Listing,
     scopes: Vec<ScopeRow>,
+    /// The places the app draws or serves (its `implements` keys: `cmux.newtab/1`,
+    /// `cmux.section/1`, ...), so a client can say whether it fits where the person named it
+    /// (`tabs.newTabApp`).
+    implements: Vec<String>,
     /// Absent for an app with no `deploy` block.
     #[serde(skip_serializing_if = "Option::is_none")]
     deploy: Option<DeployFacts>,
@@ -422,7 +426,11 @@ impl Supervisor {
         }
         let mut listing = listing(package, inner.mirror.apps.get(&p.app));
         annotate(&inner, &p.app, listing.install.as_mut());
-        Ok(AppDetail { listing, scopes, deploy: deploy_facts(&package.manifest) })
+        let implements = package.manifest["implements"]
+            .as_object()
+            .map(|places| places.keys().cloned().collect())
+            .unwrap_or_default();
+        Ok(AppDetail { listing, scopes, implements, deploy: deploy_facts(&package.manifest) })
     }
 
     fn installed_list(&self) -> InstalledListResult {

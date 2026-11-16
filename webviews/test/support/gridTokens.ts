@@ -22,3 +22,7 @@ export function designTokenCss(): string {
   if (blocks.length === 0) throw new Error("pages/shared/desktop.css has no :root token blocks");
   return blocks.join("\n");
 }
+
+/** A px/ms token's value as its sheet defines it (`designTokenValue("--grid-half-step")` is "2px"), so a test
+ *  asserts the token, not a hand-typed copy of its number (check-design-tokens.ts `token-copy`). */
+export { designTokenValue } from "../../scripts/design-token-values";

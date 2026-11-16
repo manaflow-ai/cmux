@@ -32,6 +32,7 @@ import { VoiceInputCard } from "./VoiceInputCard";
 import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
 import { SharedLinksCard } from "./SharedLinksCard";
+import { CustomizeLibraryCard } from "./CustomizeLibraryCard";
 import { KeysCard } from "./KeysCard";
 import { TailnetCard } from "./TailnetCard";
 import { SectionActions } from "./SectionActions";
@@ -81,6 +82,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   server: () => <ServerCard />,
   cloudEnvironments: () => <CloudEnvironmentsCard />,
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
+  customizeLibrary: (_focus, _workspace, reveal) => <CustomizeLibraryCard reveal={reveal} />,
   keys: (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />,
   tailnet: () => <TailnetCard />,
   worktreeSetup: () => <WorktreeSetupCard />,
