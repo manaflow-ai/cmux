@@ -7,19 +7,21 @@ import XCTest
 /// frames (`AgentCLIHybridBench` still mode), diffed here pixel by pixel.
 ///
 /// Tolerance: a pixel differs when a channel differs by more than 24 of 255, and a pair fails
-/// when more than 0.05% of the compared pixels differ (about five terminal cells of a
-/// 100-column grid on an iPhone). Both images come from the same Ghostty renderer drawing the
-/// same cells in the same font, so glyph antialiasing is identical; the channel tolerance covers
-/// GPU blend rounding and the bench's 1%-opacity result label, the share covers the cursor's
-/// blink phase. Compared: the terminal grid, from just below the navigation bar to just above
-/// the home indicator. Left out: the status bar (its clock) and the navigation bar, which is
-/// translucent: in PTY mode the scrollback above the grid shows through it, and lean frames
-/// carry the visible screen only (scrollback is not part of the hybrid contract). Each pair
-/// and its diff image (red: differs) are kept as attachments.
+/// when more than 0.1% of the compared pixels differ (about ten terminal cells of a 100-column
+/// grid on an iPhone). Both images come from the same Ghostty renderer drawing the same cells in
+/// the same font, so glyph antialiasing is identical; the channel tolerance covers GPU blend
+/// rounding and the bench's 1%-opacity result label, the share covers the cursor's blink phase
+/// (one cell, 0.04-0.05% on the fleet). Breaking one SGR code (bold drawn dim) reads 0.21-0.46%.
+/// Compared: the terminal grid from its second row to just above the home indicator. Left out:
+/// the status bar, the navigation bar and the grid's first row under it, which iOS's scroll
+/// edge blur blends with what lies above the grid: PTY scrollback, which lean frames do not
+/// carry (scrollback is not part of the hybrid contract). The first row is still checked cell
+/// for cell by `AgentCLIHybridProofTests`. Each pair and its diff image (red: differs) are kept
+/// as attachments.
 final class AgentCLIHybridPixelDiffUITests: XCTestCase {
     static let sessions = ["claude-code-2.1.310", "codex-0.164.0", "opencode-1.19.5"]
     static let channelTolerance = 24
-    static let maxDifferingShare = 0.0005
+    static let maxDifferingShare = 0.001
 
     override func setUp() {
         continueAfterFailure = true
@@ -113,7 +115,7 @@ final class AgentCLIHybridPixelDiffUITests: XCTestCase {
             return nil
         }
         let (width, height) = (first.width, first.height)
-        let top = Int(Double(height) * 0.135)
+        let top = Int(Double(height) * 0.155)
         let bottom = height - Int(Double(height) * 0.03)
         var out = [UInt8](repeating: 0, count: width * height * 4)
         var differing = 0

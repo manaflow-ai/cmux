@@ -51,7 +51,7 @@ import Testing
         let text = String(decoding: try #require(frame.terminalBytes), as: UTF8.self)
         // The empty cell first, then the glyph over it: Ghostty decides whether 界 covers it
         // (cmux-tui `vt::tests::a_wide_glyph_never_depends_on_a_width_table`).
-        #expect(text.contains("\u{1b}[1;1H\u{1b}[1;2H\u{1b}[0;4;38;2;1;2;3;101m \u{1b}[1;1H界\u{1b}[0m"), text)
+        #expect(text.contains("\u{1b}[1;1H\u{1b}[1;2H\u{1b}[0;4;38;2;1;2;3;101m \u{1b}[1;1H界\u{1b}[0m"), "\(text)")
     }
 
     @Test func truncatedOrTrailingBytesAreNotADelta() {

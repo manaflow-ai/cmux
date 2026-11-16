@@ -1,3 +1,4 @@
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -47,10 +48,10 @@ import Testing
             #expect(events.last == .hybridFrame(stream: fixture.stream, frame: step.frame,
                                                 resumed: firstOfConnection && step.base != nil), "\(label)")
             let decodedFrame = decoder.decode(step.lean)
-            let decoded = try #require(decodedFrame, label)
-            let v1 = try #require(AgentCLIHybridFrame.Delta(step.delta), label)
+            let decoded = try #require(decodedFrame, "\(label)")
+            let v1 = try #require(AgentCLIHybridFrame.Delta(step.delta), "\(label)")
             #expect(decoded.delta?.shift == v1.shift && decoded.delta?.spans == v1.spans, "\(label): lean and v1 differ")
-            #expect(decoded.base == step.base && decoded.columns == step.columns && decoded.rows == step.rows, label)
+            #expect(decoded.base == step.base && decoded.columns == step.columns && decoded.rows == step.rows, "\(label)")
             if step.base == nil || model == nil {
                 model = HybridScreenModel(columns: step.columns, rows: step.rows, widths: fixture.widths)
             }
@@ -59,7 +60,7 @@ import Testing
             let differences = screen.differences(from: step.screen)
             if !differences.isEmpty { mismatched += 1 }
             #expect(differences.isEmpty, "\(label): \(differences)")
-            #expect(HybridParityFixture.Cursor(x: screen.x, y: screen.y, visible: screen.cursorVisible) == step.cursor, label)
+            #expect(HybridParityFixture.Cursor(x: screen.x, y: screen.y, visible: screen.cursorVisible) == step.cursor, "\(label)")
             cells += step.columns * step.rows
             shown = (fixture.stream, step.frame)
             firstOfConnection = false

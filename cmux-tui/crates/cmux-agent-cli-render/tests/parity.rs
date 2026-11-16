@@ -1153,6 +1153,9 @@ impl PhoneRun {
     }
 }
 
+/// A session's PTY chunk (`Some`) or resize (`None`, to the size) at a time.
+type SessionEvent<'a> = (u64, Option<&'a [u8]>, (u16, u16));
+
 /// `session`'s parity fixture for the phone (see the section's note).
 fn phone_parity(name: &'static str, session: &Session) -> Value {
     let origin = std::time::Instant::now();
@@ -1182,7 +1185,7 @@ fn phone_parity(name: &'static str, session: &Session) -> Value {
     run.hybrid.update(&real, 0);
     let key = run.hybrid.keyframe(0);
     run.deliver(&key, cursor, start);
-    let mut events: Vec<(u64, Option<&[u8]>, (u16, u16))> = session
+    let mut events: Vec<SessionEvent<'_>> = session
         .chunks
         .iter()
         .map(|(t, bytes)| (*t, Some(bytes.as_slice()), (0, 0)))
