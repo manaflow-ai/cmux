@@ -361,7 +361,7 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
     const screensAbove = (scroller: HTMLElement) => {
       const origin =
         Number.parseFloat(
-          scroller.querySelector<HTMLElement>(".acpmux-thread")?.style.getPropertyValue("--acpmux-scroll-origin") ?? "",
+          scroller.querySelector<HTMLElement>(".acpmux-thread")?.style.getPropertyValue("margin-top") ?? "",
         ) || 0;
       return scroller.clientHeight > 0 ? (scroller.scrollTop - origin) / scroller.clientHeight : null;
     };

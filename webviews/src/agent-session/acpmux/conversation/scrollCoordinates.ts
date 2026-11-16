@@ -5,7 +5,15 @@ export type ScrollCoordinateNode = {
 };
 
 const origins = new WeakMap<ScrollCoordinateNode, number>();
-export const SCROLL_ORIGIN_PROPERTY = "--acpmux-scroll-origin";
+/**
+ * The origin is the thread's top margin: it moves the thread (absolutely placed at its `top`) by the
+ * remainder in layout, as an offset of its `top` would. A plain property, not a custom one: Chromium
+ * restyles an element and its children when an inline custom property changes (276 elements on a
+ * 1,480-element chat, registered and non-inherited alike), and an element alone for a plain one (4).
+ * Written on the scroller as an inherited custom property, each write restyled every element under it
+ * (1,972), per streamed token.
+ */
+export const SCROLL_ORIGIN_PROPERTY = "margin-top";
 
 export function scrollOrigin(node: ScrollCoordinateNode): number {
   return origins.get(node) ?? 0;
@@ -23,9 +31,8 @@ export function physicalScrollTop(node: ScrollCoordinateNode, logicalTop: number
 
 /**
  * Where the origin is written: the transcript's thread (VirtualTranscript `.acpmux-thread`, the
- * scroller's spacer's child), whose `top` is its one reader, so a write restyles that element alone
- * (conversation.css `@property --acpmux-scroll-origin`, which does not inherit). A node with no thread
- * (a test's) holds it itself.
+ * scroller's spacer's child), the element it moves, so a write restyles that element alone. A node
+ * with no thread (a test's) holds it itself.
  */
 function originStyle(node: ScrollCoordinateNode): ScrollCoordinateNode["style"] {
   const thread =
