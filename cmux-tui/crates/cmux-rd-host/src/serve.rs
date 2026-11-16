@@ -334,7 +334,10 @@ pub fn run(opts: &Opts) -> Res<()> {
         local: keys,
         expected_remote: peer_key,
         stun,
-        bind: "0.0.0.0:0".parse()?,
+        // `--link-bind IP:PORT` (measurement only): the link's UDP socket on one interface's
+        // address, so a Mac with Ethernet and Wi-Fi on one subnet sends from Wi-Fi when asked
+        // (scripts/screen-share-vs.py --link wifi). The app never passes it.
+        bind: opts.str_or("link-bind", "0.0.0.0:0").parse()?,
         turn: crate::carrier::turn_servers(&setup.turn),
         relay_only: setup.relay_only,
     })?;
@@ -453,7 +456,11 @@ fn serve_session(
         return Ok(status.message);
     }
     let sink = crate::upstream::session_sink(None, 0);
-    let host_caps = crate::upstream::offered_caps(&*sink);
+    let mut host_caps = crate::upstream::offered_caps(&*sink);
+    // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
+    if crate::desktop::reports_cursor() {
+        host_caps.push(cmux_rd_core::service::caps::CURSOR);
+    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {

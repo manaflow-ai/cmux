@@ -4,8 +4,8 @@
 // that reported its reasoning levels and access modes, so the model menu's Effort submenu and the
 // access menu show. `?template=cards` draws the Cards page, the app's default, with Claude Code's
 // split (the mode and the one model button in the quiet row under the box); with no template it
-// draws Default, the stage layout
-// (the composer at the foot of the page).
+// draws Default, the stage layout (the composer at the foot of the page). `?longSuggestions` gives the
+// omnibar rows of every kind with long titles (new-tab-row-truncation.test.ts).
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { noChat } from "../../src/gallery/fixtures/acpmux";
@@ -71,6 +71,14 @@ document.documentElement.style.height = document.body.style.height = "100%";
 document.body.style.margin = "0";
 Object.assign(root.style, { height: "100%", display: "flex", flexDirection: "column" });
 
+// The pane's English strings for `?longSuggestions`: its test measures the words a row draws (a key
+// such as "newTab.row.searchFor" is short and never cut).
+if (query.has("longSuggestions")) {
+  globalThis.__cmuxPaneStrings ??= (await import("../../src/agent-session/acpmux/generated/strings.json")).default;
+  const { setPaneLanguage } = await import("../../src/agent-session/acpmux/i18n");
+  setPaneLanguage("en");
+}
+
 createRoot(root).render(
   <QueryClientProvider client={client}>
     <NewTabScreen
@@ -100,6 +108,30 @@ createRoot(root).render(
                 url: `https://example.com/project-${index}`,
                 title: `Project notes ${index + 1}`,
               })),
+            },
+          }
+        : {})}
+      {...(query.has("longSuggestions")
+        ? {
+            onCreate: noop,
+            // Rows of every kind whose titles are longer than any row: each must run to the row's end.
+            omnibar: {
+              tabs: [
+                {
+                  id: "t1",
+                  kind: "terminal" as const,
+                  title: `workspaces ${"spawn at the top of the sidebar ".repeat(6)}`,
+                  detail: "workspace-1 · ~/fun/cmux",
+                  workspace: "w1",
+                },
+              ],
+              workspaces: [{ id: "w1", name: `workspaces ${"that spawn at the bottom ".repeat(6)}` }],
+              sessions: [],
+              folders: [],
+              commands: [],
+              history: [
+                { url: "https://example.com/workspaces", title: `workspaces ${"history page title ".repeat(8)}` },
+              ],
             },
           }
         : {})}

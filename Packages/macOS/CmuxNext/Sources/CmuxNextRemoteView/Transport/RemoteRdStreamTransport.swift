@@ -41,6 +41,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var statsReports = 0
         /// rb/1 popup surface streams and their buffered units.
         var surfaces = RemoteRdSurfaceStreams()
+        /// The remote cursor as metadata (cap `cursor`).
+        var cursorFeed = RemoteCursorFeed()
         var status = RemoteViewStatus(state: .connecting)
     }
 
@@ -289,11 +291,27 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                 default:
                     break
                 }
+                if case let .cursorShape(message) = control, let shape = message.cursorShape {
+                    state.withLock { state in
+                        if let cursor = state.cursorFeed.receive(shape: shape) { state.cursors?.yield(cursor) }
+                    }
+                }
                 engine.handshake.receive(control)
                 handleUpstream(control)
             case let .datagram(datagram):
-                // Upstream feedback goes to its sender; InputAck datagrams to
-                // the input channel; any other datagram is refused without a state change.
+                // Cursor positions to the pane (latest wins); upstream feedback goes to its
+                // sender; InputAck datagrams to the input channel; any other datagram is
+                // refused without a state change.
+                let cursor = state.withLock { state -> Bool in
+                    switch state.cursorFeed.receive(datagram: datagram) {
+                    case .notCursor: return false
+                    case .dropped: return true
+                    case let .state(cursor):
+                        state.cursors?.yield(cursor)
+                        return true
+                    }
+                }
+                if cursor { continue }
                 let senders = engine.upstream?.activeSenders ?? []
                 if senders.contains(where: { (try? $0.receive(datagram: datagram, nowMicros: now)) == true }) { continue }
                 try? engine.input.acknowledge(datagram: datagram)
