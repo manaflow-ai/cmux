@@ -45,6 +45,15 @@ case "$PYTHON3_BIN" in
         exit 1
         ;;
 esac
+# PATH's python3 is recorded when it imports yaml; else the first of the hooks' candidates that does; else PATH's
+# (scripts/git-hooks/hook_python.sh, the same picker pre-push runs each time).
+# shellcheck source=git-hooks/hook_python.sh
+source "$REPO_ROOT/scripts/git-hooks/hook_python.sh"
+if ! hook_python_pick 1 "$PYTHON3_BIN" "$REPO_ROOT" "$(cd "$GIT_COMMON_DIR" && pwd -P)"; then
+    echo "error: no Python 3.9+ here runs the hooks. Tried: $HOOK_PYTHON_TRIED." >&2
+    exit 1
+fi
+PYTHON3_BIN="$HOOK_PYTHON"
 # One install at a time per clone. post-merge runs this in every worktree that pulls a hook change, and every
 # worktree shares this hook folder and .git/config: two at once collide on `git config` (its lock file), and
 # two cleanups would remove one tree together. The installer runs as the child of a python3 that holds an
@@ -157,6 +166,8 @@ install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
 install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
 # pre-push always runs the web lint and the cmux-next checks gate; its namespace autofix part runs only when
 # the --namespace-fix helpers below are installed.
+# Its per-host Python picker first, so a push that starts mid-install never finds the new hook without it.
+install -m 0644 scripts/git-hooks/hook_python.sh "$TRUSTED_HOOK_DIR/hook_python.sh"
 install -m 0755 scripts/git-hooks/pre-push "$TRUSTED_HOOK_DIR/pre-push"
 install -m 0644 scripts/web_lint_prepush.py "$TRUSTED_HOOK_DIR/web_lint_prepush.py"
 install -m 0644 scripts/cmux-next/prepush-gate.py "$TRUSTED_HOOK_DIR/cmux_next_prepush_gate.py"
