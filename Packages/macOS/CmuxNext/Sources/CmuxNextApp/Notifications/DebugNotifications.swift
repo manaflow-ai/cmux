@@ -87,18 +87,11 @@ enum DebugNotifications {
         ]
     }
 
-    /// One banner the app asked for, with its status badge (`attachment`:
-    /// byte count and the PNG as base64, null when the banner had none).
+    /// One banner the app asked for, as `notifications.banners` lists it (`Posted.controlJSON`), with
+    /// its status badge (`attachment`: byte count and the PNG as base64, null when the banner had none).
     static func banner(_ banner: DesktopNotifier.Posted) -> JSONValue {
-        [
-            "id": .string(banner.id), "title": .string(banner.title),
-            "subtitle": banner.subtitle.map(JSONValue.string) ?? .null, "body": .string(banner.body),
-            "surface": banner.surface.map { .number(Double($0)) } ?? .null,
-            "reply": .bool(banner.reply), "approval": .bool(banner.approval),
-            "category": banner.category.map(JSONValue.string) ?? .null,
-            "attachment": banner.attachment.map { data in
-                ["bytes": .number(Double(data.count)), "png_base64": .string(data.base64EncodedString())]
-            } ?? .null,
-        ]
+        var fields = banner.controlJSON.objectValue ?? [:]
+        fields["attachment"] = banner.attachment.map { ["bytes": .number(Double($0.count)), "png_base64": .string($0.base64EncodedString())] } ?? .null
+        return .object(fields)
     }
 }

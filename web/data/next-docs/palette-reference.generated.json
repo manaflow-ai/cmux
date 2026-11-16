@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1408,
+    "entries": 1409,
     "shortcuts": 192
   },
   "sections": [
@@ -132,6 +132,12 @@
         {
           "id": "home.conversationInfo",
           "title": "Conversation Info…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "customize.open",
+          "title": "Customize…",
           "shortcut": null,
           "command": null
         },
@@ -1260,7 +1266,7 @@
         {
           "id": "space.new",
           "title": "New Space",
-          "shortcut": null,
+          "shortcut": "⌃⌥⌘N",
           "command": null
         },
         {
@@ -6918,7 +6924,7 @@
         {
           "id": "palette.toggleTerminalChat",
           "title": "Toggle Terminal and Chat",
-          "shortcut": "⌥⌘`",
+          "shortcut": null,
           "command": null
         },
         {

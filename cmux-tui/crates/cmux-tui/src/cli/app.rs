@@ -39,6 +39,7 @@ mod classic;
 mod events;
 mod group_create;
 mod keybinding;
+mod launch_times;
 mod live;
 mod nightly;
 mod open;
@@ -85,6 +86,9 @@ pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
 /// The app method `cmux app remote-views` reads; the app registers it in every
 /// build (RemoteViewTabsControl.releaseMethods, whose test reads this line).
 pub(super) const REMOTE_VIEWS_METHOD: &str = "remote_view.state";
+/// The app method `cmux app mac-screens` reads; the app registers it in every
+/// build (MacScreenPages.releaseMethods, whose test reads this line).
+pub(super) const MAC_SCREENS_METHOD: &str = "mac_screen.state";
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// The app methods `cmux app machines` and `cmux app join-line` send; the app
 /// registers both in every build (AppControl+Remote.swift). A list read or a
@@ -203,6 +207,8 @@ pub(super) enum AppCommand {
     /// `cmux live start|stop|status`: edit cmux's web UI while it runs (app/live.rs).
     Live(live::Command),
     Try(try_cmd::Command), // `cmux app try <PR|branch|sha>|undo|status` (app/try_cmd.rs)
+    /// `cmux app launch-times`: the app's recorded launches, read from its file (app/launch_times.rs).
+    LaunchTimes(launch_times::Command),
 }
 
 /// Whether `args` (after the global options) is the classic `cmux identify`,
@@ -307,6 +313,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("app", Some("renderers")) => renderers::parse(rest)?,
+        ("app", Some("launch-times")) => launch_times::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
         }
@@ -320,6 +327,17 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 params.insert("tab".into(), json!(tab));
             }
             call(REMOTE_VIEWS_METHOD, Value::Object(params))
+        }
+        // The Mac Screen tabs (`mac_screen.state`, every build): per device tab its
+        // phase, whether a picture is up, time to first frame, fps, round trip and
+        // dropped frames; read-only, never a credential or a pixel of the screen.
+        ("app", Some("mac-screens")) => {
+            let options = Options::parse(rest.get(1..).unwrap_or_default(), &["tab"], &[])?;
+            let mut params = Map::new();
+            if let Some(tab) = options.value("tab") {
+                params.insert("tab".into(), json!(tab));
+            }
+            call(MAC_SCREENS_METHOD, Value::Object(params))
         }
         // The Machines section's machines (`machine.list`, every build): this Mac,
         // Cloud, SSH, server and hub-joined machines with their link state. It reads
@@ -843,6 +861,7 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, command)),
         AppCommand::Live(command) => return Ran::Done(live::run(command)),
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
+        AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
         _ => {}
     }
     let mut stream = match connect_command(global) {
@@ -974,6 +993,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
         AppCommand::Live(command) => return Ran::Done(live::run(&command)),
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
+        AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {

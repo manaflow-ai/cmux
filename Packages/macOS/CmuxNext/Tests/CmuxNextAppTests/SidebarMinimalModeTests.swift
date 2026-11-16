@@ -5,10 +5,9 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
-/// Minimal mode (`sidebar.minimal`, cx-w1r5): "Workspace rows show only their icon, name and
-/// unread mark, and section titles become thin lines." Dogfood nxdog93 (cx-7swgy): with it on, a
-/// sidebar of quiet rows and a New Group header looked exactly as with it off. On, the list is
-/// visibly compact: every row is shorter, a group's header is a shorter solid bar, a status line goes.
+/// Minimal mode (`sidebar.minimal`, cx-w1r5) hides chrome until hover and never changes the list
+/// (Lawrence 2026-11-15: "minimal mode should not change density at all"). Before, it shortened every
+/// row and group header and dropped a row's status line (dogfood nxdog93, cx-7swgy).
 @MainActor
 struct SidebarMinimalModeTests {
     private static let reported = ResourceID(rawValue: "ws-reported")
@@ -67,27 +66,28 @@ struct SidebarMinimalModeTests {
         return read()
     }
 
-    @Test func minimalModeMakesTheListVisiblyCompact() async throws {
+    @Test func minimalModeKeepsTheListAsItIs() async throws {
         let (sidebar, design, quiet, reported) = Self.sidebar()
         let ids = (quiet: quiet, reported: reported)
         let line = SidebarLayoutMetrics.standard.rowHeight
         // Off: the status entry draws under build's name.
         let off = try #require(await Self.heights(sidebar, ids) { $0.reported > line })
         design.sidebarSections.minimal = true
-        let on = try #require(await Self.heights(sidebar, ids) { $0.reported <= line })
-        // Shorter rows, a shorter group header, and no status line.
-        #expect(on.quiet < off.quiet)
-        #expect(on.header < off.header)
-        #expect(on.reported == on.quiet)
-        #expect(sidebar.list.displayed.row(for: .workspace(reported))?.content?.status == nil)
-        // The shorter header keeps its solid bar (Lawrence 2026-10-18): the editor opens from it.
+        // Give the settings' observation its run-loop turns; nothing in the list may change.
+        for _ in 0..<10 {
+            try? await Task.sleep(for: .milliseconds(10))
+            sidebar.layoutSubtreeIfNeeded()
+        }
+        let on = try #require(await Self.heights(sidebar, ids) { _ in true })
+        #expect(on == off, "Minimal Mode changed the list's heights: off \(off), on \(on)")
+        #expect(sidebar.list.displayed.row(for: .workspace(reported))?.content?.status != nil, "Minimal Mode dropped the status line")
+        // The group header keeps its solid bar (Lawrence 2026-10-18): the editor opens from it.
         sidebar.layoutSubtreeIfNeeded()
         let header = try #require(sidebar.list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
         header.layoutSubtreeIfNeeded()
         #expect(header.labelFrame.width == header.bounds.width)
         #expect(header.labelFrame.height > Metrics.dividerThickness * 4)
         #expect(header.labelFrame.minX <= header.titleFrame.minX)
-        // Off again: the list is as it was.
         design.sidebarSections.minimal = false
         #expect(await Self.heights(sidebar, ids) { $0 == off } == off)
     }

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/{{NAME}}",
+  "name": "{{TITLE}}",
+  "version": "0.1.0",
+  "description": "A command made with cmux ext new.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "catalog": "catalog.json",
+  "cli": { "name": "{{NAME}}" },
+  "files": ["dist/", "catalog.json"]
+}

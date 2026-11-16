@@ -123,7 +123,7 @@ import PackageDescription
 //   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, Devices, CmuxScreenKit (Mac Screen tabs: another
 //     Mac's screen as a WebRTC stream, the user's devices from the device hub, pairing home page (DEV), Share This Mac host,
 //     host approval prompt, Settings > Devices state; CmuxScreenKit links WebRTC.framework)
-//   CmuxNextDevices -> Compat, Wakeups (the device hub: Secure Enclave device identity, the signed
+//   CmuxNextDevices -> Compat, Wakeups, CCmuxAppFFI (the device hub: Secure Enclave device identity, the signed
 //     HTTP client, the User DO socket, relay sealing and the @Observable DeviceHub; no UI; the App
 //     supplies the account token and the hub URL; docs/device-hub/PROTOCOL.md)
 //   CmuxVNC (Shared) -> system frameworks and libz only (RFB client; CmuxNextRemoteViewSessions adapts it to the pane
@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: a0e82b130ac60cc80136af3e58b22ed6f4a4917054b72fcfac644e60a15feb5e
+// app-ffi-pin-checksum: 0560b17915d54916cdc539a98607ef63d67bee1781ae049633ca3c89669b5af1
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -360,6 +360,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
                 "CmuxNextKeepAwake",
+                "CmuxNextKeys",
                 "CmuxNextLayout",
                 "CmuxNextLiveCode",
                 "CmuxNextMacScreen",
@@ -1267,6 +1268,34 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Safe keys (design/settings-keys.md): an agent's `cmux keys request` (control method
+        // `keys.request`) waits in memory for the person, behind one banner; Settings > Keys answers
+        // it and lists the keys `cmux keys ls` reports. A value goes only to the bundled
+        // `cmux keys put` on stdin. The App constructs ``KeyRequests`` once and routes to it.
+        .target(
+            name: "CmuxNextKeys",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextControl",
+                "CmuxNextDaemon",
+                "CmuxNextNotifications",
+                "CmuxNextPages",
+                "CmuxNextSettings",
+                "CmuxNextWakeups",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextKeysTests",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextKeys",
+                "CmuxNextPages",
+                "CmuxNextSettings",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // Host pressure (cmuxterm-hq#2995): the shared host budget's verdict (acpmux's
         // `host_pressure`, else the same formula locally) as a level that does not flicker.
         // The memory pressure dispatch source, plus one 15 s timer for load and swap.
@@ -1674,6 +1703,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextDevices",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],
@@ -1729,12 +1759,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextServer",
             // CmuxNextWakeups: the joined rows' one-shot heartbeat deadline (JoinedMachineStore aging).
             // CmuxNextPages, CmuxNextSettings: the Machines section's React page host and its provider.
+            // CmuxNextActions, CmuxNextPalette: the palette's joined-machine pick (JoinedMachineStore+Palette).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
                 "CmuxNextPages",
+                "CmuxNextPalette",
                 "CmuxNextRemote",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
@@ -2597,6 +2630,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
                 "CmuxNextKeepAwake",
+                "CmuxNextKeys",
                 "CmuxNextLayout",
                 "CmuxNextMacScreen",
                 "CmuxNextMobile",

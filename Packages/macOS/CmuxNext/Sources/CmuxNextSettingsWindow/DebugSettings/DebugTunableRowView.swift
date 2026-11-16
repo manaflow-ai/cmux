@@ -34,7 +34,7 @@ struct DebugTunableRowView: View {
             Button { model.reset(descriptor) } label: {
                 Icon(.actionUndo, size: 12)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .foregroundStyle(SettingsStyle.secondary)
             .themedHelp(SettingsWindowStrings.reset)
             .accessibilityLabel(SettingsWindowStrings.reset)

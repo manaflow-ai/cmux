@@ -198,7 +198,7 @@ export class AcpmuxPerf {
   private handshakeAttempts = 0;
   private keyListener: ((event: KeyboardEvent) => void) | undefined;
 
-  /** Turns measurement on; installs the composer key listener once. */
+  /** Turns measurement on; installs the composer key listener once (the chat's and New Tab's). */
   enable(
     target: Pick<Document, "addEventListener" | "removeEventListener"> | undefined = typeof document === "undefined"
       ? undefined
@@ -209,7 +209,8 @@ export class AcpmuxPerf {
     const page = target;
     this.keyListener = (event) => {
       const element = event.target as Element | null;
-      if (!element?.closest?.(".acpmux-composer")) return;
+      // The chat's composer and the New Tab page's (its omnibar's keys, Lawrence 2026-11-13).
+      if (!element?.closest?.(".acpmux-composer, .nt-composer")) return;
       const start = event.timeStamp;
       const sample: TypingSample = { frame: 0, paint: 0, listener: performance.now() - start };
       // The key's edit: its `input` event, then the microtasks the field and React run it in.
