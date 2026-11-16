@@ -6,8 +6,8 @@
 //! already do anything on the Mac, so this widens nothing a non-admin could reach; a same-user
 //! shell with no admin rights is still refused by the daemon's person check
 //! (`server/pairing.rs` `machine_consent`). The write lands in the account sudo ran from
-//! (`SUDO_UID`), as that account: the process drops to its uid and gid first, so the consent
-//! file stays owned by the account and the authority resolves that account's home.
+//! (`SUDO_UID`), as that account: the process drops to its uid and gid for good first, so the
+//! consent file stays owned by the account and the authority resolves that account's home.
 use super::cloud_join::Consent;
 use anyhow::{Result, anyhow};
 
@@ -28,46 +28,38 @@ fn sudo_account() -> Result<Option<(libc::uid_t, libc::gid_t)>> {
     Ok(Some((uid, gid)))
 }
 
-#[cfg(unix)]
-fn home_of(uid: libc::uid_t) -> Result<std::path::PathBuf> {
-    use std::ffi::{CStr, OsStr};
-    use std::os::unix::ffi::OsStrExt;
-    let mut entry = std::mem::MaybeUninit::<libc::passwd>::uninit();
-    let mut result = std::ptr::null_mut();
-    let mut buffer = vec![0u8; 64 * 1024];
-    // SAFETY: all output pointers refer to live buffers; the returned strings stay valid while
-    // `buffer` lives, and are copied out before it drops.
-    let code = unsafe {
-        libc::getpwuid_r(
-            uid,
-            entry.as_mut_ptr(),
-            buffer.as_mut_ptr().cast(),
-            buffer.len(),
-            &mut result,
-        )
-    };
-    anyhow::ensure!(code == 0 && !result.is_null(), "no account for uid {uid}");
-    // SAFETY: getpwuid_r succeeded, so `entry` is initialized and pw_dir is a C string in `buffer`.
-    let dir = unsafe { CStr::from_ptr(entry.assume_init().pw_dir) };
-    Ok(std::path::PathBuf::from(OsStr::from_bytes(dir.to_bytes())))
-}
-
 /// Sets `surface` as this Mac's admin when the process runs under sudo, and `None` otherwise (the
 /// caller then asks the daemon, which only the app's person proof may change).
 #[cfg(unix)]
 pub(crate) fn set_if_admin(surface: &str, granted: bool) -> Result<Option<Consent>> {
     let Some((uid, gid)) = sudo_account()? else { return Ok(None) };
-    let home = home_of(uid)?;
+    let home = super::machine_consent::home_of_uid(uid)?;
     // The account's own acpmux home: its join (for `signedInMachines`) and legacy consent live there.
     crate::config::set_home_override(home.join(".acpmux"));
-    // SAFETY: plain syscalls; group first, since dropping the uid first loses the right to.
-    unsafe {
-        anyhow::ensure!(libc::setegid(gid) == 0, "could not switch to the account's group");
-        anyhow::ensure!(libc::seteuid(uid) == 0, "could not switch to the account");
-    }
+    drop_to(uid, gid)?;
     let consent = super::cloud_join::set_consent_for_person(surface, granted)?;
     tracing::info!(surface, granted, uid, "machine consent set by this Mac's admin (sudo)");
     Ok(Some(consent))
+}
+
+/// Becomes the account for good: its group alone, then its gid, then its uid (real, effective and
+/// saved), so the private-state checks, which compare owners with the real uid, see the account,
+/// and nothing after this can act as root again.
+#[cfg(unix)]
+fn drop_to(uid: libc::uid_t, gid: libc::gid_t) -> Result<()> {
+    // SAFETY: plain syscalls on values we own; groups before gid before uid, since each later
+    // step gives up the right to the earlier ones.
+    unsafe {
+        anyhow::ensure!(libc::setgroups(1, &gid) == 0, "could not switch to the account's groups");
+        anyhow::ensure!(libc::setgid(gid) == 0, "could not switch to the account's group");
+        anyhow::ensure!(libc::setuid(uid) == 0, "could not switch to the account");
+        anyhow::ensure!(
+            libc::getuid() == uid && libc::geteuid() == uid && libc::getgid() == gid,
+            "still running as root after switching to the account"
+        );
+        anyhow::ensure!(libc::setuid(0) != 0, "could switch back to root after the switch");
+    }
+    Ok(())
 }
 
 #[cfg(not(unix))]

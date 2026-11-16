@@ -940,12 +940,23 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     json!({"surface":surface,"granted":granted}),
                 )
                 .await
-                .map_err(|error| {
-                    anyhow!(
-                        "{error}\nas this Mac's admin, run it with sudo instead: sudo acpmux machine consent {} --{}",
-                        if granted { "grant" } else { "revoke" },
-                        if surface == crate::cli::cloud_join::SIGNED_IN_MACHINES { "signed-in-machines" } else { surface }
-                    )
+                .inspect_err(|error| {
+                    // Only the person check's refusal: say how this Mac's admin does it instead.
+                    let person = error.downcast_ref::<crate::client::DaemonError>().is_some_and(|e| {
+                        e.0.data.as_ref().and_then(|d| d["reason"].as_str())
+                            == Some(crate::hub::person::REASON)
+                    });
+                    if person && cfg!(unix) {
+                        eprintln!(
+                            "as this Mac's admin, run it with sudo instead: sudo acpmux machine consent {} --{}",
+                            if granted { "grant" } else { "revoke" },
+                            if surface == crate::cli::cloud_join::SIGNED_IN_MACHINES {
+                                "signed-in-machines"
+                            } else {
+                                surface
+                            }
+                        );
+                    }
                 })?;
             if json_out {
                 print_json(&value);
