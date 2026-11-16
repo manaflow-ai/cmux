@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43826058255",
+  "recorded_at": "2026-11-16T07:53:50Z",
+  "reason": "cmux-tui 6b4c16bebe65 changes the image's cmux-tui (pinned b5d3cbe8d294)",
+  "dry_run": false,
+  "cmux_tui": "6b4c16bebe651bfb2e9b0754b8235106fbb02787",
+  "fixes": [
+    {
+      "sha": "6b4c16bebe651bfb2e9b0754b8235106fbb02787",
+      "mergedAt": "2026-11-15T23:29:39-08:00",
+      "subject": "Shared customize views get only their reads until you approve more (#44268)"
+    },
+    {
+      "sha": "0ac9c32ae441c7b5446e021686605ce6fd71ee16",
+      "mergedAt": "2026-11-15T23:28:08-08:00",
+      "subject": "Settings: the daemon's cmux-config is the only writer of cmux-next.json (#43787)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T07:53:50Z",
+    "snapshot_id": "sh-b2b6616a4a984efd8bea911a0ec1a4ad",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43826058255): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c7cc6aeaba6c60c98f11817681e34e41034c88cb",
+    "image": "cloud-native-auto-6b4c16be-43826058255-1",
+    "revision": "ci-43826058255-1",
+    "at": "2026-11-16T07:53:50Z"
+  },
+  "rolled_back": false
+}
