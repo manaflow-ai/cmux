@@ -9,6 +9,126 @@
             "state": "translated",
             "value": "This Cloud machine's software could not be updated to match this app, so its agents can't reach models yet. Try again, or start the chat on a new machine."
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحديث برنامج جهاز Cloud هذا ليتوافق مع هذا التطبيق، لذا لا يستطيع وكلاؤه الوصول إلى النماذج بعد. حاول مرة أخرى، أو ابدأ المحادثة على جهاز جديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Softver ove Cloud mašine nije bilo moguće ažurirati da odgovara ovoj aplikaciji, pa njeni agenti još ne mogu pristupiti modelima. Pokušaj ponovo ili započni chat na novoj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Softwaren på denne Cloud-maskine kunne ikke opdateres, så den passer til denne app, så dens agenter kan endnu ikke nå modellerne. Prøv igen, eller start chatten på en ny maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Software dieser Cloud-Maschine konnte nicht passend zu dieser App aktualisiert werden, daher erreichen ihre Agenten noch keine Modelle. Versuche es erneut oder starte den Chat auf einer neuen Maschine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo actualizar el software de esta máquina de Cloud para que coincida con esta app, así que sus agentes aún no pueden acceder a los modelos. Vuelve a intentarlo o inicia el chat en una máquina nueva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le logiciel de cette machine Cloud n'a pas pu être mis à jour pour correspondre à cette app, ses agents ne peuvent donc pas encore accéder aux modèles. Réessayez ou démarrez la discussion sur une nouvelle machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile aggiornare il software di questa macchina Cloud per allinearlo a questa app, quindi i suoi agenti non possono ancora raggiungere i modelli. Riprova oppure avvia la chat su una nuova macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンのソフトウェアをこのアプリに合わせて更新できなかったため、エージェントはまだモデルにアクセスできません。もう一度お試しいただくか、新しいマシンでチャットを開始してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចធ្វើបច្ចុប្បន្នភាពកម្មវិធីរបស់ម៉ាស៊ីន Cloud នេះឱ្យត្រូវនឹងកម្មវិធីនេះបានទេ ដូច្នេះភ្នាក់ងាររបស់វាមិនទាន់អាចភ្ជាប់ទៅម៉ូដែលបាននៅឡើយ។ ព្យាយាមម្តងទៀត ឬចាប់ផ្តើមការជជែកនៅលើម៉ាស៊ីនថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신의 소프트웨어를 이 앱에 맞게 업데이트하지 못해 에이전트가 아직 모델에 연결할 수 없습니다. 다시 시도하거나 새 머신에서 채팅을 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Programvaren på denne Cloud-maskinen kunne ikke oppdateres til å passe med denne appen, så agentene på den når ikke modellene ennå. Prøv igjen, eller start chatten på en ny maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się zaktualizować oprogramowania tej maszyny Cloud do wersji zgodnej z tą aplikacją, więc jej agenci nie mogą jeszcze łączyć się z modelami. Spróbuj ponownie albo rozpocznij czat na nowej maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível atualizar o software desta máquina do Cloud para corresponder a este app, então os agentes dela ainda não conseguem acessar os modelos. Tente de novo ou inicie o chat em uma nova máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось обновить программное обеспечение этой машины Cloud до версии этого приложения, поэтому её агенты пока не могут обращаться к моделям. Повторите попытку или начните чат на новой машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดตซอฟต์แวร์ของเครื่อง Cloud นี้ให้ตรงกับแอปนี้ไม่ได้ เอเจนต์บนเครื่องจึงยังเข้าถึงโมเดลไม่ได้ ลองอีกครั้ง หรือเริ่มแชทบนเครื่องใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Cloud makinesinin yazılımı bu uygulamayla eşleşecek şekilde güncellenemedi, bu yüzden ajanları henüz modellere ulaşamıyor. Yeniden deneyin veya sohbeti yeni bir makinede başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося оновити програмне забезпечення цієї машини Cloud до версії цього застосунку, тому її агенти поки не можуть звертатися до моделей. Спробуйте ще раз або почніть чат на новій машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể cập nhật phần mềm của máy Cloud này cho khớp với ứng dụng này, nên các tác tử của nó chưa thể truy cập mô hình. Hãy thử lại hoặc bắt đầu cuộc trò chuyện trên một máy mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将这台 Cloud 机器的软件更新到与此应用匹配的版本，因此其代理暂时无法访问模型。请重试，或在新机器上开始对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法將這台 Cloud 機器的軟體更新到與此 App 相符的版本，因此其代理程式暫時無法存取模型。請再試一次，或在新機器上開始對話。"
+          }
         }
       }
     },
@@ -19,6 +139,126 @@
           "stringUnit": {
             "state": "translated",
             "value": "The agent service on this Cloud machine didn't start. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تبدأ خدمة الوكيل على جهاز Cloud هذا. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usluga agenta na ovoj Cloud mašini se nije pokrenula. Pokušaj ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenttjenesten på denne Cloud-maskine startede ikke. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agentendienst auf dieser Cloud-Maschine ist nicht gestartet. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de agentes de esta máquina de Cloud no se inició. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service d'agents de cette machine Cloud n'a pas démarré. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio degli agenti su questa macchina Cloud non si è avviato. Riprova tra poco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンのエージェントサービスが起動しませんでした。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាភ្នាក់ងារនៅលើម៉ាស៊ីន Cloud នេះមិនបានចាប់ផ្តើមទេ។ ព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신의 에이전트 서비스가 시작되지 않았습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenttjenesten på denne Cloud-maskinen startet ikke. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa agentów na tej maszynie Cloud nie uruchomiła się. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de agentes desta máquina do Cloud não iniciou. Tente de novo em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба агентов на этой машине Cloud не запустилась. Повторите чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการเอเจนต์บนเครื่อง Cloud นี้ไม่ได้เริ่มทำงาน ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Cloud makinesindeki ajan hizmeti başlamadı. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба агентів на цій машині Cloud не запустилася. Спробуйте трохи згодом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ tác tử trên máy Cloud này chưa khởi động. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Cloud 机器上的代理服务未启动。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Cloud 機器上的代理程式服務未啟動。請稍後再試。"
           }
         }
       }
@@ -31,6 +271,126 @@
             "state": "translated",
             "value": "This Cloud machine holds its own provider sign-in, so its agents would not use the Cloud service's model route. Start the chat on a new machine."
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتفظ جهاز Cloud هذا بتسجيل دخول خاص به لدى المزوّد، لذا لن يستخدم وكلاؤه مسار النماذج عبر الخدمة السحابية. ابدأ المحادثة على جهاز جديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova Cloud mašina ima vlastitu prijavu kod pružaoca, pa njeni agenti ne bi koristili rutu do modela preko Cloud usluge. Započni chat na novoj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-maskine har sit eget login hos udbyderen, så dens agenter ville ikke bruge Cloud-tjenestens modelrute. Start chatten på en ny maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Cloud-Maschine hat eine eigene Anmeldung beim Anbieter, daher würden ihre Agenten nicht den Modellweg über den Cloud-Dienst nutzen. Starte den Chat auf einer neuen Maschine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina de Cloud tiene su propio inicio de sesión con el proveedor, así que sus agentes no usarían la ruta a los modelos del servicio en la nube. Inicia el chat en una máquina nueva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine Cloud possède sa propre connexion au fournisseur, ses agents n'utiliseraient donc pas l'accès aux modèles du service Cloud. Démarrez la discussion sur une nouvelle machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa macchina Cloud ha un proprio accesso al provider, quindi i suoi agenti non userebbero il percorso verso i modelli del servizio Cloud. Avvia la chat su una nuova macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンには独自のプロバイダのサインイン情報があるため、エージェントは Cloud サービス経由のモデル接続を使いません。新しいマシンでチャットを開始してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud នេះមានការចូលគណនីអ្នកផ្តល់សេវាផ្ទាល់ខ្លួន ដូច្នេះភ្នាក់ងាររបស់វានឹងមិនប្រើផ្លូវភ្ជាប់ម៉ូដែលរបស់សេវា Cloud ទេ។ ចាប់ផ្តើមការជជែកនៅលើម៉ាស៊ីនថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신에는 자체 제공업체 로그인이 있어 에이전트가 Cloud 서비스의 모델 경로를 사용하지 않습니다. 새 머신에서 채팅을 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-maskinen har sin egen pålogging hos leverandøren, så agentene på den ville ikke bruke Cloud-tjenestens modellrute. Start chatten på en ny maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta maszyna Cloud ma własne logowanie u dostawcy, więc jej agenci nie korzystaliby z dostępu do modeli przez usługę Cloud. Rozpocznij czat na nowej maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina do Cloud tem o próprio login no provedor, então os agentes dela não usariam a rota de modelos do serviço Cloud. Inicie o chat em uma nova máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На этой машине Cloud есть собственный вход у поставщика, поэтому её агенты не будут обращаться к моделям через облачный сервис. Начните чат на новой машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud นี้มีการลงชื่อเข้าใช้ผู้ให้บริการของตัวเอง เอเจนต์บนเครื่องจึงจะไม่ใช้เส้นทางโมเดลของบริการ Cloud เริ่มแชทบนเครื่องใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Cloud makinesinin kendi sağlayıcı oturumu var, bu yüzden ajanları Cloud hizmetinin model yolunu kullanmaz. Sohbeti yeni bir makinede başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На цій машині Cloud є власний вхід у постачальника, тому її агенти не звертатимуться до моделей через хмарний сервіс. Почніть чат на новій машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Cloud này có thông tin đăng nhập nhà cung cấp riêng, nên các tác tử của nó sẽ không dùng đường truy cập mô hình của dịch vụ Cloud. Hãy bắt đầu cuộc trò chuyện trên một máy mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Cloud 机器有自己的提供商登录，因此其代理不会使用 Cloud 服务的模型路由。请在新机器上开始对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Cloud 機器有自己的供應商登入，因此其代理程式不會使用 Cloud 服務的模型路由。請在新機器上開始對話。"
+          }
         }
       }
     },
@@ -41,6 +401,126 @@
           "stringUnit": {
             "state": "translated",
             "value": "This Cloud machine's agents aren't routed through the Cloud service yet. Try again, or start the chat on a new machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم توجيه وكلاء جهاز Cloud هذا عبر الخدمة السحابية بعد. حاول مرة أخرى، أو ابدأ المحادثة على جهاز جديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti ove Cloud mašine još nisu usmjereni preko Cloud usluge. Pokušaj ponovo ili započni chat na novoj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenterne på denne Cloud-maskine går endnu ikke gennem Cloud-tjenesten. Prøv igen, eller start chatten på en ny maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Agenten dieser Cloud-Maschine werden noch nicht über den Cloud-Dienst geleitet. Versuche es erneut oder starte den Chat auf einer neuen Maschine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes de esta máquina de Cloud todavía no pasan por el servicio en la nube. Vuelve a intentarlo o inicia el chat en una máquina nueva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents de cette machine Cloud ne passent pas encore par le service Cloud. Réessayez ou démarrez la discussion sur une nouvelle machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti di questa macchina Cloud non passano ancora dal servizio Cloud. Riprova oppure avvia la chat su una nuova macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンのエージェントは、まだ Cloud サービス経由で接続されていません。もう一度お試しいただくか、新しいマシンでチャットを開始してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងាររបស់ម៉ាស៊ីន Cloud នេះមិនទាន់ត្រូវបានបញ្ជូនតាមរយៈសេវា Cloud នៅឡើយទេ។ ព្យាយាមម្តងទៀត ឬចាប់ផ្តើមការជជែកនៅលើម៉ាស៊ីនថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신의 에이전트는 아직 Cloud 서비스를 거치도록 연결되지 않았습니다. 다시 시도하거나 새 머신에서 채팅을 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentene på denne Cloud-maskinen går ennå ikke via Cloud-tjenesten. Prøv igjen, eller start chatten på en ny maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci tej maszyny Cloud nie są jeszcze kierowani przez usługę Cloud. Spróbuj ponownie albo rozpocznij czat na nowej maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os agentes desta máquina do Cloud ainda não passam pelo serviço Cloud. Tente de novo ou inicie o chat em uma nova máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты этой машины Cloud пока не работают через облачный сервис. Повторите попытку или начните чат на новой машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ของเครื่อง Cloud นี้ยังไม่ได้เชื่อมต่อผ่านบริการ Cloud ลองอีกครั้ง หรือเริ่มแชทบนเครื่องใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Cloud makinesinin ajanları henüz Cloud hizmeti üzerinden yönlendirilmiyor. Yeniden deneyin veya sohbeti yeni bir makinede başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти цієї машини Cloud поки не працюють через хмарний сервіс. Спробуйте ще раз або почніть чат на новій машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tác tử của máy Cloud này chưa được định tuyến qua dịch vụ Cloud. Hãy thử lại hoặc bắt đầu cuộc trò chuyện trên một máy mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Cloud 机器的代理尚未通过 Cloud 服务路由。请重试，或在新机器上开始对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Cloud 機器的代理程式尚未透過 Cloud 服務路由。請再試一次，或在新機器上開始對話。"
           }
         }
       }

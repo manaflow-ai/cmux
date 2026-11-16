@@ -434,7 +434,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Nube"
           }
         },
         "fr": {
@@ -452,7 +452,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "クラウド"
           }
         },
         "km": {
@@ -464,7 +464,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "클라우드"
           }
         },
         "nb": {
@@ -518,13 +518,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "云端"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "雲端"
           }
         }
       }
