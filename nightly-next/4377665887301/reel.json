@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4377665887301",
+  "notes": "notes/4377665887301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43935,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-5f9ffecdcf029c42ed5de9840f5cfeb2021e7ae4",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43999,
+      "title": "bench(terminal-throughput): --breakdown reads CPU per process and thread mid-burst and leaves idle waits out (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43989,
+      "title": "Agent chat: the message menu's time header reads in the items' label color",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43944,
+      "title": "cmux-action-catalog: Unpin Workspace from Space, a catalog request row (batch 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43987,
+      "title": "hover-instant bench: a pointer route counts only with proof; the bench pointer app gets a full Info.plist",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
