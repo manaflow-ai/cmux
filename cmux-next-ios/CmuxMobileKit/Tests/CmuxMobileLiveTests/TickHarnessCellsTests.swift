@@ -127,7 +127,7 @@ private func runReconnects(drops target: Int, seed: UInt64) -> ReconnectRun {
                 }
             case .scheduleRetry(let gen, let after):
                 clock.schedule(.machine(.retryDue(generation: gen)), after: after)
-            case .close, .probe, .quickProbe:
+            case .close, .probe, .quickProbe, .park, .resumeParked:
                 break
             }
         }

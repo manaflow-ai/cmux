@@ -1043,6 +1043,7 @@ public final class LiveCoordinator {
     /// seeded with it now (a sign-in made in front has no scene change to start it).
     public func followApplicationState() {
         incidents.followApplicationState()
+        LinkController.useApplicationBackgroundTasks()
     }
 
     /// Before sign-out, while the token works: open connectivity incidents end and are sent.

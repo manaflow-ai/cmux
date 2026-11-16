@@ -425,6 +425,9 @@ async fn finish(
     });
     Ok(Dialed {
         stream: Box::new(DataChannelStream { inner: stream }),
+        // A data channel cannot be held: ICE consent ends it after 30 s of
+        // silence whatever the link does.
+        hold: None,
         path: path_rx,
         guard: Box::new(Guard {
             pc,

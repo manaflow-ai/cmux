@@ -458,6 +458,35 @@ impl LinkHandle {
         Ok(rtt.map(|rtt| u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX)))
     }
 
+    /// Before the OS suspends the app: ask the Mac to hold this link for up
+    /// to `hold_ms` (at most 10 minutes) while the phone is silent, waiting
+    /// at most `timeout_ms` for the answer (PROTOCOL.md "Parked link").
+    /// `true`: parked, and nothing on the link wakes the phone until
+    /// `resume`. `false`: an older Mac, no answer in time, or a WebRTC link,
+    /// which cannot be held; the link closes on silence as before.
+    pub async fn park(&self, hold_ms: u32, timeout_ms: u32) -> Result<bool, CmuxMobileError> {
+        if self.transport != Transport::WireGuard {
+            return Ok(false);
+        }
+        let link = self.link.clone();
+        let hold = Duration::from_millis(u64::from(hold_ms));
+        let timeout = Duration::from_millis(u64::from(timeout_ms));
+        Ok(on_runtime(async move { link.park(hold, timeout).await }).await?)
+    }
+
+    /// Back from the background: the link expects the Mac again. `true` when
+    /// it was parked and its hold has not passed. The tunnel then moves onto
+    /// a fresh socket (as on a network change) and the caller probes; the
+    /// first frame back ends the park on both sides.
+    pub fn resume(&self) -> bool {
+        if !self.link.resume() {
+            return false;
+        }
+        let _runtime = runtime().enter();
+        cmux_mobile_link::dial::wireguard::resume_session(&self.session_id);
+        true
+    }
+
     pub fn transport(&self) -> Transport {
         self.transport
     }

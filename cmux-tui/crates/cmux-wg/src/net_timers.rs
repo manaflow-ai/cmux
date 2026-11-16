@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use boringtun::noise::TunnResult;
-use cmux_transport::{DatagramClass, classify};
+use cmux_transport::{DatagramClass, WG_DATA_MIN_LEN, classify};
 use tokio::time::Instant;
 
 use super::Driver;
@@ -214,6 +214,12 @@ impl Driver {
 
     pub(super) fn update_timers(&mut self) {
         if let TunnResult::WriteToNetwork(packet) = self.tunn.update_timers(&mut self.scratch) {
+            // A held tunnel's peer is suspended on purpose (`WgNet::hold`):
+            // its keepalives, persistent or passive, would only wake its
+            // radio. Not sending one is a lost datagram to boringtun.
+            if self.stack.hold().is_some() && packet.len() == WG_DATA_MIN_LEN {
+                return;
+            }
             // A handshake retry keeps the timers running until boringtun
             // gives up; a keepalive alone does not.
             let retry = classify(packet) == DatagramClass::WireGuardInitiation;

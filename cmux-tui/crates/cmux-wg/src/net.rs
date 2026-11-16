@@ -258,6 +258,23 @@ impl WgNet {
         self.send_rebind(Rebind::Keep).await
     }
 
+    /// Hold the tunnel for a peer that goes silent on purpose (a phone the OS
+    /// suspends in the background), or release it with `None`. While held,
+    /// nothing goes out on its own: no TCP keepalive probe, no WireGuard
+    /// keepalive (persistent or passive), so a parked peer's radio is never
+    /// woken; and a TCP connection waits `hold` for the peer instead of its
+    /// user timeout. Data the owner writes, a rebind's reassertion and a
+    /// handshake retry still go out. Release once the peer was heard again
+    /// ([`crate::tcp_stack::TcpStack::set_hold`] says why).
+    pub async fn hold(&self, hold: Option<Duration>) -> Result<(), WgError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.commands
+            .send(Command::Hold { hold, reply: reply_tx })
+            .await
+            .map_err(|_| WgError::Shutdown)?;
+        reply_rx.await.map_err(|_| WgError::Shutdown)
+    }
+
     async fn send_rebind(&self, rebind: Rebind) -> Result<(), WgError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.commands
@@ -342,6 +359,7 @@ enum Command {
     Connect { remote: SocketAddr, reply: oneshot::Sender<Result<WgStream, WgError>> },
     Listen { port: u16, reply: oneshot::Sender<Result<WgListener, WgError>> },
     LastHandshake { reply: oneshot::Sender<Option<Duration>> },
+    Hold { hold: Option<Duration>, reply: oneshot::Sender<()> },
     BindDatagram { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<Datagram>, WgError>> },
     UnbindDatagram { port: u16 },
     SendDatagram { from_port: u16, to: SocketAddr, payload: Vec<u8>, priority: Priority },
@@ -721,6 +739,12 @@ impl Driver {
             }
             Command::LastHandshake { reply } => {
                 let _ = reply.send(self.tunn.time_since_last_handshake());
+            }
+            Command::Hold { hold, reply } => {
+                self.stack.set_hold(hold);
+                let keepalive = self.config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
+                self.schedule.set_persistent_keepalive(keepalive && hold.is_none());
+                let _ = reply.send(());
             }
             Command::BindDatagram { port, reply } => {
                 let _ = reply.send(self.bind_datagram(port));

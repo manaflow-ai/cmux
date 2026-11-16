@@ -151,6 +151,9 @@ pub(crate) struct TcpStack {
     /// Congestion control for new connections: Cubic, or none when ultra
     /// mode holds the rate through loss (`CMUX_WG_ULTRA_CC=none`).
     pub(crate) congestion: tcp::CongestionControl,
+    /// [`TcpStack::set_hold`]: how long a peer that went silent on purpose
+    /// is waited for, while it is held.
+    hold: Option<Duration>,
 }
 
 impl TcpStack {
@@ -197,7 +200,27 @@ impl TcpStack {
             syn_origins: tagged.then(HashMap::new),
             closing: false,
             congestion: tcp::CongestionControl::Cubic,
+            hold: None,
         })
+    }
+
+    /// Hold every connection for a peer that goes silent on purpose (a phone
+    /// suspended in the background): no keepalive probe goes out, and a
+    /// connection is aborted only after `hold` without a segment from the
+    /// peer instead of its usual user timeout. `None` restores both. Release
+    /// the hold only once the peer was heard again: the timeout counts from
+    /// the peer's last segment, so a restored 60 s on a peer silent for
+    /// minutes aborts at the next poll.
+    pub(crate) fn set_hold(&mut self, hold: Option<Duration>) {
+        self.hold = hold;
+        for conn in &self.conns {
+            apply_hold(self.sockets.get_mut::<tcp::Socket>(conn.handle), hold);
+        }
+    }
+
+    /// The hold in force ([`TcpStack::set_hold`]).
+    pub(crate) fn hold(&self) -> Option<Duration> {
+        self.hold
     }
 
     pub(crate) fn now(&self) -> SmolInstant {
@@ -427,6 +450,26 @@ fn syn_flow(packet: &[u8]) -> Option<FlowKey> {
     let local = SocketAddr::new(segment.destination.0, segment.destination.1);
     let remote = SocketAddr::new(segment.source.0, segment.source.1);
     Some((local, remote))
+}
+
+/// A held socket sends no keepalive probe and waits `hold` for its peer; an
+/// unheld one has the keepalive and user timeout it was created with.
+fn apply_hold(socket: &mut tcp::Socket<'static>, hold: Option<Duration>) {
+    let (timeout, keep_alive) = match hold {
+        Some(hold) => (hold, None),
+        None => {
+            let timeout = socket_flow(socket).map_or(TCP_TIMEOUT, |(local, remote)| {
+                user_timeout(local.port()).max(user_timeout(remote.port()))
+            });
+            (timeout, Some(TCP_KEEP_ALIVE))
+        }
+    };
+    socket.set_timeout(Some(smol_duration(timeout)));
+    socket.set_keep_alive(keep_alive.map(smol_duration));
+}
+
+fn smol_duration(duration: Duration) -> smoltcp::time::Duration {
+    smoltcp::time::Duration::from_micros(u64::try_from(duration.as_micros()).unwrap_or(u64::MAX))
 }
 
 /// A socket's flow, once it has both endpoints.

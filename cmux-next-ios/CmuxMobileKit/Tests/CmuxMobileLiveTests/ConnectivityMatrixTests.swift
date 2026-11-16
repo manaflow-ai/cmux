@@ -88,7 +88,7 @@ private struct Timeline {
                 pending.append((now + outcome.after, result))
             case .scheduleRetry(let generation, let after):
                 pending.append((now + after, .retryDue(generation: generation)))
-            case .close, .probe, .quickProbe:
+            case .close, .probe, .quickProbe, .park, .resumeParked:
                 break
             }
         }

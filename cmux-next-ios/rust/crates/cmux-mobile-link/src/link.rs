@@ -53,6 +53,38 @@ const CHANNEL_STALL: Duration = Duration::from_secs(3);
 /// never holds the others; still a bound on what one channel can hold.
 const CHANNEL_BUFFER_BYTES: usize = 64 * 1024 * 1024;
 
+/// The service a phone opens to park the link before the OS suspends it
+/// (PROTOCOL.md "Parked link"). A side that knows it answers `close` with
+/// [`PARKED`]; an older one answers `unknown_service`.
+pub const PARK_SERVICE: &str = "_link.park";
+/// The `close` code that accepts a park.
+pub const PARKED: &str = "parked";
+/// The longest hold a side grants; a longer ask is cut to this.
+pub const MAX_PARK_HOLD: Duration = Duration::from_secs(10 * 60);
+/// The tunnel holds its connections this much past the park, so the link's
+/// own expiry (a clean close) comes first.
+const PARK_TRANSPORT_MARGIN: Duration = Duration::from_secs(30);
+
+/// Applies a park to the transport under the link: `Some(hold)` holds the
+/// tunnel's connections for a silent peer (`cmux_wg::WgNet::hold`), `None`
+/// releases them. Calls arrive in order, one at a time.
+pub type HoldHook =
+    Arc<dyn Fn(Option<Duration>) -> futures_util::future::BoxFuture<'static, ()> + Send + Sync>;
+
+/// Whether the link is parked (PROTOCOL.md "Parked link").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Park {
+    Off,
+    /// Neither side expects the other until `until`: no keepalive, and the
+    /// Mac sends only control frames. Past `until` the link closes.
+    Parked {
+        until: Instant,
+    },
+    /// The phone is back ([`Link::resume`]); the first frame from the Mac
+    /// ends the park on this side.
+    Resuming,
+}
+
 /// Which end of the link this is: the phone opens odd channel ids, the Mac
 /// even ones. Channel 0 carries pings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -314,11 +346,15 @@ impl Outbox {
         }
     }
 
-    /// The next frame by priority, without waiting.
-    fn pop(&self) -> Option<Next> {
+    /// The next frame by priority, without waiting. `held`: only control
+    /// frames go (a parked Mac's writer; channel data waits in its queue).
+    fn pop(&self, held: bool) -> Option<Next> {
         let mut queues = self.lock();
         if let Some(frame) = queues.control.pop_front() {
             return Some(Next::Frame(frame));
+        }
+        if held && !queues.shutdown {
+            return None;
         }
         let frame = if let Some(frame) = queues.input.pop_front() {
             frame
@@ -347,12 +383,12 @@ impl Outbox {
         Some(Next::Frame(frame))
     }
 
-    async fn next(&self) -> Next {
+    async fn next(&self, held: &AtomicBool) -> Next {
         loop {
             let ready = self.ready.notified();
             tokio::pin!(ready);
             ready.as_mut().enable();
-            if let Some(next) = self.pop() {
+            if let Some(next) = self.pop(held.load(Ordering::Acquire)) {
                 return next;
             }
             ready.await;
@@ -500,6 +536,11 @@ struct Inner {
     transport: Mutex<Option<Box<dyn Any + Send>>>,
     /// The media lane, when the dial negotiated one.
     media: Mutex<Option<crate::media::MediaLane>>,
+    park: watch::Sender<Park>,
+    /// A parked Mac sends only control frames (the writers read this).
+    writes_held: AtomicBool,
+    /// What the transport should hold ([`HoldHook`]); one task applies it.
+    transport_hold: watch::Sender<Option<Duration>>,
 }
 
 impl Inner {
@@ -538,6 +579,43 @@ impl Inner {
 
     fn last_received(&self) -> Instant {
         *self.last_rx.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Park for `hold`: no keepalive on either side, the transport held, and
+    /// on the Mac only control frames written, until the peer is heard again
+    /// or `hold` passes (then the link closes).
+    fn set_parked(&self, hold: Duration) {
+        let hold = hold.min(MAX_PARK_HOLD);
+        if self.role == Role::Mac {
+            self.writes_held.store(true, Ordering::Release);
+        }
+        self.park.send_replace(Park::Parked { until: Instant::now() + hold });
+        self.transport_hold.send_replace(Some(hold + PARK_TRANSPORT_MARGIN));
+        tracing::debug!(role = ?self.role, ?hold, "link parked");
+    }
+
+    /// End a park: the keepalive, the transport's own timeouts and every
+    /// queued write resume. Called only once the peer was heard (a frame
+    /// just arrived), so the transport's restored timeouts start fresh.
+    fn unpark(&self) {
+        let was = self.park.send_replace(Park::Off);
+        if was == Park::Off {
+            return;
+        }
+        self.writes_held.store(false, Ordering::Release);
+        for outbox in &self.outboxes {
+            outbox.ready.notify_one();
+        }
+        self.transport_hold.send_replace(None);
+        tracing::debug!(role = ?self.role, "link unparked");
+    }
+
+    /// The park's deadline, while parked.
+    fn parked_until(&self) -> Option<Instant> {
+        match *self.park.borrow() {
+            Park::Parked { until } => Some(until),
+            Park::Off | Park::Resuming => None,
+        }
     }
 
     /// Mark the link closed (once) and tell every channel.
@@ -625,6 +703,9 @@ impl Link {
             tasks: Mutex::new(Vec::new()),
             transport: Mutex::new(transport),
             media: Mutex::new(None),
+            park: watch::channel(Park::Off).0,
+            writes_held: AtomicBool::new(false),
+            transport_hold: watch::channel(None).0,
         });
         let (read_half, write_half) = tokio::io::split(stream);
         let writer =
@@ -650,6 +731,9 @@ impl Link {
                         () = tokio::time::sleep(interval) => {}
                         _ = closed.wait_for(Option::is_some) => return,
                     }
+                    if !wait_out_park(&link).await {
+                        return;
+                    }
                     let sent = Instant::now();
                     let ping = link.ping();
                     tokio::pin!(ping);
@@ -665,6 +749,10 @@ impl Link {
                                 break;
                             }
                             () = tokio::time::sleep_until(deadline) => {
+                                // Parked since the ping: its pong may never come.
+                                if link.inner.parked_until().is_some() {
+                                    break;
+                                }
                                 let quiet_since = link.inner.last_received().max(sent);
                                 if quiet_since + config.keepalive_timeout <= Instant::now() {
                                     link.inner.shut("keepalive timed out");
@@ -933,6 +1021,68 @@ impl Link {
     pub fn close(&self, reason: &str) {
         self.inner.shut(reason);
     }
+
+    /// Phone, before the OS suspends the app: ask the Mac to hold this link
+    /// for up to `hold` (at most [`MAX_PARK_HOLD`]) while the phone is
+    /// silent, waiting at most `timeout` for the answer. On `Ok(true)` both
+    /// sides are parked: no keepalives, the transport held, and the Mac
+    /// writes only control frames until [`Link::resume`] and a ping. `Ok(false)`:
+    /// the Mac predates parking or did not answer in time; nothing changed,
+    /// and the link closes on silence as before.
+    pub async fn park(&self, hold: Duration, timeout: Duration) -> Result<bool, LinkError> {
+        let hold = hold.min(MAX_PARK_HOLD);
+        let millis = u64::try_from(hold.as_millis()).unwrap_or(u64::MAX);
+        let mut channel = self.open(PARK_SERVICE, serde_json::json!({ "hold_ms": millis })).await?;
+        let parked = matches!(
+            tokio::time::timeout(timeout, channel.recv()).await,
+            Ok(Some(ChannelEvent::Closed(info))) if info.code == PARKED
+        );
+        if parked {
+            self.inner.set_parked(hold);
+        }
+        Ok(parked)
+    }
+
+    /// Phone, back from the background: this side expects the Mac again.
+    /// The keepalive restarts from now, and the park ends here at the first
+    /// frame from the Mac; send a ping (a probe) so the Mac ends its own.
+    /// `false` when the link was not parked (or its park already expired).
+    pub fn resume(&self) -> bool {
+        if self.inner.parked_until().is_none_or(|until| until <= Instant::now()) {
+            return false;
+        }
+        self.inner.received();
+        self.inner.park.send_replace(Park::Resuming);
+        true
+    }
+
+    /// Whether the link is parked (resuming counts as parked until the peer
+    /// is heard).
+    pub fn is_parked(&self) -> bool {
+        *self.inner.park.borrow() != Park::Off
+    }
+
+    /// Run `hook` whenever the park changes what the transport should hold,
+    /// in order, one call at a time (the WireGuard dialer's `WgNet::hold`).
+    pub fn set_hold_hook(&self, hook: HoldHook) {
+        let mut hold = self.inner.transport_hold.subscribe();
+        let mut closed = self.inner.closed.subscribe();
+        let task = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    changed = hold.changed() => {
+                        if changed.is_err() {
+                            return;
+                        }
+                    }
+                    _ = closed.wait_for(Option::is_some) => return,
+                }
+                let wanted = *hold.borrow_and_update();
+                hook(wanted).await;
+            }
+        });
+        self.inner.tasks.lock().unwrap_or_else(PoisonError::into_inner).push(task);
+    }
 }
 
 async fn write_loop<W>(inner: Arc<Inner>, stream: usize, mut sink: FramedWrite<W, FrameCodec>)
@@ -943,7 +1093,7 @@ where
     loop {
         // Highest priority first; feed what is queued, flushing every
         // FLUSH_BYTES so the transport sees frames in priority order.
-        let frame = match outbox.next().await {
+        let frame = match outbox.next(&inner.writes_held).await {
             Next::Frame(frame) => frame,
             Next::Shutdown => {
                 let _ = sink.close().await;
@@ -953,7 +1103,7 @@ where
         let mut pending = frame.payload.len();
         let mut result = sink.feed(frame).await;
         while result.is_ok() && pending < FLUSH_BYTES {
-            match outbox.pop() {
+            match outbox.pop(inner.writes_held.load(Ordering::Acquire)) {
                 Some(Next::Frame(frame)) => {
                     pending += frame.payload.len();
                     result = sink.feed(frame).await;
@@ -973,6 +1123,32 @@ where
     }
 }
 
+/// While the link is parked, wait for the park to end. `false` when the link
+/// ended instead: it closed, or the park expired and it is closed here.
+async fn wait_out_park(link: &Link) -> bool {
+    let mut park = link.inner.park.subscribe();
+    let mut closed = link.inner.closed.subscribe();
+    loop {
+        let Some(until) = link.inner.parked_until() else {
+            return !link.is_closed();
+        };
+        tokio::select! {
+            _ = closed.wait_for(Option::is_some) => return false,
+            changed = park.changed() => {
+                if changed.is_err() {
+                    return false;
+                }
+            }
+            () = tokio::time::sleep_until(until) => {
+                if link.inner.parked_until().is_some_and(|until| until <= Instant::now()) {
+                    link.inner.shut("park expired");
+                    return false;
+                }
+            }
+        }
+    }
+}
+
 /// The keepalive with Align Keepalives on: a ping on every beat of
 /// `interval` ([`crate::keepalive::next_beat`]), whether or not the last one
 /// was answered, so the link's datagrams keep the beat even while a pong is
@@ -985,6 +1161,13 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
     let mut unanswered: Option<Instant> = None;
     let mut beat = crate::keepalive::next_beat(Instant::now(), interval);
     loop {
+        if link.inner.parked_until().is_some() {
+            if !wait_out_park(&link).await {
+                return;
+            }
+            unanswered = None;
+            beat = crate::keepalive::next_beat(Instant::now(), interval);
+        }
         if unanswered.is_some_and(|sent| link.inner.last_received() >= sent) {
             unanswered = None;
         }
@@ -992,6 +1175,9 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
         tokio::select! {
             _ = closed.wait_for(Option::is_some) => return,
             () = tokio::time::sleep_until(beat) => {
+                if link.inner.parked_until().is_some() {
+                    continue;
+                }
                 // The pinger waits one beat for its pong (the RTT it reports);
                 // any frame, the pong too, counts as the answer above.
                 let pinger = link.clone();
@@ -1003,6 +1189,7 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
             }
             () = tokio::time::sleep_until(deadline.unwrap_or(beat)), if deadline.is_some() => {
                 if let Some(sent) = unanswered
+                    && link.inner.parked_until().is_none()
                     && link.inner.last_received() < sent
                     && sent + timeout <= Instant::now()
                 {
@@ -1031,6 +1218,15 @@ async fn read_loop<R>(
         inner.received();
         if !matches!(frame.kind, FrameType::Ping | FrameType::Pong) {
             inner.received_traffic();
+        }
+        // A park ends when the peer is back: on the Mac its first ping (the
+        // phone may still send channel data in the moments before the OS
+        // suspends it), on a resuming phone the first frame from the Mac.
+        let park = *inner.park.borrow();
+        match park {
+            Park::Parked { .. } if frame.kind == FrameType::Ping => inner.unpark(),
+            Park::Resuming => inner.unpark(),
+            Park::Parked { .. } | Park::Off => {}
         }
         if stream == INPUT {
             // The peer is heard on the lane: use it.
@@ -1071,6 +1267,18 @@ async fn read_loop<R>(
                     refuse(&inner, stream, frame.channel, "bad_request", "open payload is not JSON");
                     continue;
                 };
+                // The peer is about to be suspended: hold the link for it.
+                // The answer is a control frame, so it goes out while parked.
+                if request.service == PARK_SERVICE {
+                    match request.args.get("hold_ms").and_then(serde_json::Value::as_u64) {
+                        Some(millis) if millis > 0 => {
+                            inner.set_parked(Duration::from_millis(millis));
+                            refuse(&inner, stream, frame.channel, PARKED, "");
+                        }
+                        _ => refuse(&inner, stream, frame.channel, "bad_request", "hold_ms must be positive"),
+                    }
+                    continue;
+                }
                 // Replies go back on the stream the open came on, at the
                 // priority of the lane the peer asked for.
                 let class = Class::from(request.lane);
@@ -1887,6 +2095,7 @@ mod tests {
         assert!(phone.ping().await.is_ok());
         assert!(!mac.is_closed());
     }
+
     /// Link keepalive tight enough to close a silent peer within a second.
     fn quick_keepalive() -> LinkConfig {
         LinkConfig {
@@ -1955,5 +2164,72 @@ mod tests {
         assert!(got.contains(&(0, FrameType::Pong, Bytes::from(7u64.to_be_bytes().to_vec()))), "{got:?}");
         assert!(got.contains(&(1, FrameType::Data, Bytes::from_static(b"held"))), "{got:?}");
         assert!(!mac.is_closed());
+    }
+
+    /// A park is bounded: once its hold passes with nothing heard, the Mac
+    /// closes the link as a dead one closes.
+    #[tokio::test(start_paused = true)]
+    async fn a_parked_link_closes_when_its_hold_passes() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let mac = Link::new(a, Role::Mac, quick_keepalive(), None);
+        let (read, write) = tokio::io::split(b);
+        let mut from_mac = FramedRead::new(read, FrameCodec);
+        let mut to_mac = FramedWrite::new(write, FrameCodec);
+        to_mac
+            .send(Frame::new(
+                1,
+                FrameType::Open,
+                br#"{"service":"_link.park","args":{"hold_ms":2000}}"#.to_vec(),
+            ))
+            .await
+            .unwrap();
+        let answer = next_from_mac(&mut from_mac).await.expect("the Mac answers the park");
+        assert_eq!(answer.kind, FrameType::Close);
+        let started = Instant::now();
+        let reason = tokio::time::timeout(Duration::from_secs(5), mac.closed()).await.expect("closes");
+        assert_eq!(reason, "park expired");
+        assert!(started.elapsed() >= Duration::from_millis(1900), "closed after {:?}", started.elapsed());
+    }
+
+    /// Both ends: the phone parks, both outlive their keepalives while
+    /// silent, and resume plus one probe brings the link back with no redial.
+    #[tokio::test(start_paused = true)]
+    async fn park_then_resume_keeps_the_link() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let phone = Link::new(a, Role::Phone, quick_keepalive(), None);
+        let mac = Link::new(b, Role::Mac, quick_keepalive(), None);
+        assert!(phone.park(Duration::from_secs(5), Duration::from_secs(1)).await.unwrap());
+        assert!(phone.is_parked() && mac.is_parked());
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert!(!phone.is_closed() && !mac.is_closed(), "a parked link closed");
+        assert!(phone.resume());
+        assert!(phone.probe(Duration::from_secs(1)).await.is_ok());
+        assert!(!phone.is_parked() && !mac.is_parked(), "the park did not end");
+        // Unparked, the keepalives run again and the link stays up.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(!phone.is_closed() && !mac.is_closed());
+    }
+
+    /// A Mac that predates parking refuses the service: the phone is told,
+    /// and nothing on its side is parked.
+    #[tokio::test]
+    async fn an_older_mac_refuses_the_park() {
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, LinkConfig::default(), None);
+        let (read, write) = tokio::io::split(b);
+        let mut from_phone = FramedRead::new(read, FrameCodec);
+        let mut to_phone = FramedWrite::new(write, FrameCodec);
+        let older_mac = tokio::spawn(async move {
+            while let Some(Ok(frame)) = from_phone.next().await {
+                if frame.kind == FrameType::Open {
+                    let refusal = br#"{"code":"unknown_service","reason":"no service _link.park"}"#.to_vec();
+                    to_phone.send(Frame::new(frame.channel, FrameType::Close, refusal)).await.unwrap();
+                }
+            }
+        });
+        assert!(!phone.park(Duration::from_secs(60), Duration::from_secs(1)).await.unwrap());
+        assert!(!phone.is_parked());
+        assert!(!phone.resume());
+        older_mac.abort();
     }
 }
