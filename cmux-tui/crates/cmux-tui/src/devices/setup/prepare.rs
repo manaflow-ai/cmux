@@ -12,10 +12,10 @@ const USAGE: &str = "usage: cmux share prepare [--json] [--on MACHINE]";
 /// The words after `share prepare` when `raw_args` is that verb (output flags may come first).
 pub(crate) fn requested(raw_args: &[String]) -> Option<Vec<String>> {
     let lead = raw_args.iter().take_while(|w| *w == "--json").count();
-    let rest = raw_args.get(lead..)?;
+    let (flags, rest) = (raw_args.get(..lead)?, raw_args.get(lead..)?);
     match rest {
         [share, prepare, after @ ..] if share == "share" && prepare == "prepare" => {
-            Some(raw_args[..lead].iter().chain(after).cloned().collect())
+            Some(flags.iter().chain(after).cloned().collect())
         }
         _ => None,
     }

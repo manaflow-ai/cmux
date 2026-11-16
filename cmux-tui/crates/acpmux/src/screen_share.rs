@@ -467,14 +467,7 @@ mod platform {
         {
             let mut file =
                 std::fs::File::open(app.join(part)).map_err(|e| format!("{part}: {e}"))?;
-            let mut buffer = vec![0_u8; 1 << 20];
-            loop {
-                let count = file.read(&mut buffer).map_err(|e| format!("{part}: {e}"))?;
-                if count == 0 {
-                    break;
-                }
-                hasher.update(&buffer[..count]);
-            }
+            std::io::copy(&mut file, &mut hasher).map_err(|e| format!("{part}: {e}"))?;
         }
         Ok(format!("{:x}", hasher.finalize()))
     }
