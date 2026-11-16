@@ -1592,7 +1592,7 @@ export function AcpmuxApp({ initialChat }: { initialChat?: InitialChat } = {}) {
 const NO_PROJECTS: Project[] = [];
 
 /// Experiment switch for the spare's parked chat view (App `parkedVisible`), set by the bench before load.
-const SPARE_PARK_VISIBLE =
+const spareParkVisible = () =>
   typeof window !== "undefined" && (window as { __cmuxSparePark?: unknown }).__cmuxSparePark === "visible";
 const PARKED_STYLE = {
   visibility: "hidden",
@@ -11020,7 +11020,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   chatViewMount.current.shown = showsChatView;
   /// Experiment (bench `PARK=visible`): park the view drawn but invisible and inert instead of under
   /// `<Activity mode="hidden">`, so its effects run while parked and its reveal runs none.
-  const parkedVisible = premountsChatView && !showsChatView && SPARE_PARK_VISIBLE;
+  const [parkVisible] = useState(spareParkVisible);
+  const parkedVisible = premountsChatView && !showsChatView && parkVisible;
   const parkStyle = parkedVisible ? PARKED_STYLE : undefined;
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
@@ -13712,7 +13713,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             />
           ) : null}
           {(showsChatView || premountsChatView) && (
-            <Activity key={chatViewMount.current.key} mode={showsChatView || SPARE_PARK_VISIBLE ? "visible" : "hidden"}>
+            <Activity key={chatViewMount.current.key} mode={showsChatView || parkVisible ? "visible" : "hidden"}>
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
