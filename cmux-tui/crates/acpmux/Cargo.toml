@@ -88,6 +88,8 @@ cmux-transport = { path = "../cmux-transport" }
 cmux-tui-platform.workspace = true
 cmux-file-lock.workspace = true
 cmux-git.workspace = true
+# The trusted session-flag hook a Codex start at a repository head gets (src/codex_repo_gate.rs).
+cmux-tui-hooks.workspace = true
 cmux-worktree-care.workspace = true
 cmux-wg.workspace = true
 anyhow = "1"

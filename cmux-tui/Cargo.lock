@@ -54,6 +54,7 @@ dependencies = [
  "cmux-source-scan",
  "cmux-tailnet",
  "cmux-transport",
+ "cmux-tui-hooks",
  "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-usage-patterns",

@@ -1849,8 +1849,8 @@ pub use nested_env::{
 };
 pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
-pub(crate) use launchers::which;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
+pub(crate) use launchers::{which, which_in};
 mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};

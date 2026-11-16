@@ -84,7 +84,7 @@ root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }
 # or no systemd-run, clones the whole repository as before. So does a start with a bootstrap
 # script (anything but machine_bootstrap.rs `NO_SCRIPT`): the runner runs it right after this
 # step, and nothing holds it at the barrier.
-head_dirs=".claude .codex .cursor .gemini .github .vscode .devcontainer"
+head_dirs=".agents .claude .codex .cursor .gemini .github .vscode .devcontainer"
 # The start runs no bootstrap script of its own (machine_bootstrap.rs `NO_SCRIPT`).
 no_script() { printf '#!/bin/sh\nexit 0\n' | cmp -s - "$d/script"; }
 holder() {

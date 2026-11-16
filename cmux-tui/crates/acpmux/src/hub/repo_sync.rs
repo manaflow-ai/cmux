@@ -1,11 +1,15 @@
 //! A Cloud seed must finish before the harness or its file-write tools run.
 //!
 //! One exception, for a harness start ([`wait_for_start`]): a Claude Code session runs every tool
-//! through the `cmux-repo-sync` PreToolUse callback (`claude_stdio/hook_callback.rs`), which waits
-//! for the whole checkout. Its start may go ahead once the seed says the head is in place
-//! (`Probe::HeadReady`), so its first prompt waits on the root and instruction files only, never on
-//! the whole clone (cmuxterm-hq goals/cloud-no-network-wait.md). Every other harness, and every
-//! tool and write, still waits for the whole checkout.
+//! through the `cmux-repo-sync` PreToolUse callback (`claude_stdio/hook_callback.rs`), and a
+//! `codex app-server` acpmux starts in a filling checkout through a PreToolUse hook
+//! (`codex_repo_gate.rs`), each of which waits for the whole checkout. Such a start may go ahead
+//! once the seed says the head is in place (`Probe::HeadReady`), so its first prompt waits on the
+//! root and instruction files only, never on the whole clone (cmuxterm-hq
+//! goals/cloud-no-network-wait.md). A Codex that started without the hook (too old, or its own
+//! command line names hooks) waits for the whole checkout before its first prompt
+//! ([`start_waits_for_all`]). Every other harness, and every tool and write, still waits for the
+//! whole checkout.
 use super::*;
 
 #[cfg(unix)]
@@ -38,19 +42,39 @@ pub(super) async fn wait_for_start(
     wait_until(session, path, head_ok, cancelled).await
 }
 
-/// Whether a harness of this kind runs every tool through the sync gate itself: Claude Code over
-/// its stream registers the `cmux-repo-sync` PreToolUse callback for every tool (matcher `*`,
-/// `claude_stdio::outbound::initialize_request`, on unix). Another harness may run a read or a
+/// Whether a harness started from `profile` may run every tool through the sync gate itself:
+/// Claude Code over its stream registers the `cmux-repo-sync` PreToolUse callback for every tool
+/// (matcher `*`, `claude_stdio::outbound::initialize_request`, on unix), and a local
+/// `codex app-server` may start with the repository hook (`codex_repo_gate.rs`; whether it did
+/// is known once it started, [`start_waits_for_all`]). Another harness may run a read or a
 /// full-access tool that no permission request shows, so it waits for the whole checkout.
-pub(super) fn gates_its_tools(kind: crate::config::HarnessKind) -> bool {
-    cfg!(unix) && kind == crate::config::HarnessKind::ClaudeStdio
+pub(super) fn gates_its_tools(profile: &crate::config::HarnessProfile) -> bool {
+    let remote = profile.env.get(crate::agent::REMOTE_ENV_POLICY_KEY).is_some_and(|v| v == "1");
+    cfg!(unix)
+        && (profile.kind == crate::config::HarnessKind::ClaudeStdio
+            || (!remote && crate::codex_app_server::is_profile_launch(&profile.argv)))
 }
 
-/// [`gates_its_tools`] for a running agent, from what it speaks rather than the profile: a
-/// reload may change the profile's harness without replacing the agent. Only a stream it
-/// translates itself registers the callback; a hosted agent's is not known here, so it waits.
+/// [`gates_its_tools`] for a running agent, from what it speaks and how it started rather than
+/// the profile: a reload may change the profile's harness without replacing the agent. Only a
+/// stream it translates itself registers the callback, and only a Codex started with the hook
+/// runs it; a hosted agent's is not known here, so it waits.
 pub(super) fn child_gates_its_tools(child: &crate::agent::ChildAgent) -> bool {
-    cfg!(unix) && child.translator.is_some()
+    cfg!(unix) && (child.translator.is_some() || child.codex_repo_gated)
+}
+
+/// Whether a start that went ahead at the head (`head_ok`) by its Codex profile must still wait
+/// for the whole checkout before its first prompt: the Codex it started has no repository hook
+/// (older than `codex_repo_gate::MIN_VERSION`, its command line names hooks, a hosted agent).
+/// A Claude Code start keeps its own rule (its hosted agent answers the callback itself).
+pub(super) fn start_waits_for_all(
+    head_ok: bool,
+    profile: &crate::config::HarnessProfile,
+    child: &crate::agent::ChildAgent,
+) -> bool {
+    head_ok
+        && profile.kind != crate::config::HarnessKind::ClaudeStdio
+        && !child_gates_its_tools(child)
 }
 
 async fn wait_until(

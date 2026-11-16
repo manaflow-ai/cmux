@@ -65,6 +65,7 @@ pub mod codex_app_server;
 mod codex_auth_file;
 mod codex_cloud_auth;
 pub mod codex_desktop;
+pub mod codex_repo_gate;
 pub mod complete;
 pub mod config;
 pub mod conn_origin;

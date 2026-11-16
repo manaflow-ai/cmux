@@ -613,7 +613,7 @@ impl Hub {
         super::full_access_bound::operation_entry(self);
         // Harness startup can itself run repository hooks and write files. A harness that gates
         // every tool on the sync itself starts at the repository's head (repo_sync.rs).
-        let head_ok = super::repo_sync::gates_its_tools(profile.kind);
+        let head_ok = super::repo_sync::gates_its_tools(profile);
         let cwd = session.meta().cwd;
         let _repo_ready = super::repo_sync::wait_for_start(session, cwd, head_ok, || {
             session.stops.load(Ordering::SeqCst) != stops
@@ -671,6 +671,14 @@ impl Hub {
         self.wake_ended(session, wake, None);
         // The start is over: its harness runs at its CPU class from now on (`cpu_class.rs`).
         child.enter_run_class().await;
+        // A Codex that went ahead at the head but started without the repository hook gets no
+        // prompt before the whole checkout is in (repo_sync.rs).
+        if super::repo_sync::start_waits_for_all(head_ok, profile, &child) {
+            let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+                session.stops.load(Ordering::SeqCst) != stops
+            })
+            .await?;
+        }
         Ok(child)
     }
 
@@ -1728,7 +1736,7 @@ impl Hub {
                 let meta = session.meta();
                 let cfg = self.config.read().await;
                 super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
-                    .is_ok_and(|p| super::repo_sync::gates_its_tools(p.kind))
+                    .is_ok_and(|p| super::repo_sync::gates_its_tools(&p))
             }
         };
         let cwd = session.meta().cwd;

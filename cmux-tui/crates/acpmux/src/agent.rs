@@ -850,6 +850,9 @@ pub struct ChildAgent {
     /// Present when the child is `codex app-server`, bridged in process
     /// (`codex_app_server.rs`) and run directly under acpmux.
     codex: Option<CodexLink>,
+    /// That `codex app-server` started with the PreToolUse hook that holds each of its tools until
+    /// the repository sync is done (`codex_repo_gate.rs`), read from the argv it started with.
+    pub(crate) codex_repo_gated: bool,
     hosted: Option<Hosted>,
     /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
     /// decided at its session/new or load), for a fork through it.
@@ -912,6 +915,8 @@ struct Spawned {
     launch: Option<crate::sidecar_census::LaunchServers>,
     preview_format: Option<crate::questions::PreviewFormat>,
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
+    /// Its command line carries the repository hook (`codex_repo_gate::in_args`).
+    repo_gated: bool,
     #[cfg(windows)]
     job: Option<crate::job::Job>,
     #[cfg(feature = "sim")]
@@ -936,6 +941,7 @@ impl Spawned {
         )
         .await;
         let preview_format = Some(pinned_preview_format(&cmd));
+        let repo_gated = crate::codex_repo_gate::in_args(cmd.as_std().get_args());
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
         // Never at background class while it starts; its class, from the harness's own env (its
@@ -984,6 +990,7 @@ impl Spawned {
             launch: Some(launch),
             preview_format,
             run_class: std::sync::OnceLock::from(run_class),
+            repo_gated,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
@@ -1004,6 +1011,7 @@ impl Spawned {
             launch: None,
             preview_format: None,
             run_class: std::sync::OnceLock::new(),
+            repo_gated: false,
             #[cfg(windows)]
             job: None,
             sim_alive: Some(pipes.alive),
@@ -1094,6 +1102,7 @@ impl ChildAgent {
             launch,
             preview_format,
             run_class,
+            repo_gated,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
@@ -1116,6 +1125,7 @@ impl ChildAgent {
             inbound: inbound.clone(),
             pid,
             translator: translator.clone(),
+            codex_repo_gated: repo_gated && codex.is_some(),
             codex,
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
@@ -2460,6 +2470,7 @@ impl ChildAgent {
             pid: adopted.harness_pid,
             translator: None,
             codex: None,
+            codex_repo_gated: false,
             hosted: Some(Hosted {
                 link: std::sync::RwLock::new(link.clone()),
                 inbound,
