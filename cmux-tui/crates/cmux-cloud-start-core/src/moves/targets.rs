@@ -256,11 +256,11 @@ fn ssh(chat: &Chat, source: Option<&Source<'_>>) -> Vec<Target> {
                 && !is_source(machine, source)
         })
         .map(|machine| Target {
-            id: machine.id.clone(),
+            id: machine.id,
             label: if machine.title.is_empty() {
                 machine.names.first().cloned().unwrap_or_default()
             } else {
-                machine.title.clone()
+                machine.title
             },
             status: String::new(),
             kind: "ssh",
