@@ -1,5 +1,5 @@
 public import CoreGraphics
-import Foundation
+public import Foundation
 
 /// The transport-neutral input of the pane. The App adapts a `cmux.rd/1`
 /// session (overlay datagrams, the DO relay, or a test) to this; the mock

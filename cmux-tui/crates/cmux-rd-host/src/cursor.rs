@@ -56,7 +56,7 @@ const SENT_SHAPES: usize = 64;
 
 /// What one sample asks the session to send, in order: the shape first (control), then
 /// the position (datagram).
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default)]
 pub struct CursorOut {
     pub shape: Option<Control>,
     pub datagram: Option<Vec<u8>>,

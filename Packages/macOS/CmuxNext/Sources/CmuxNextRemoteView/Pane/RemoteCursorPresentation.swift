@@ -1,4 +1,4 @@
-import CoreGraphics
+package import CoreGraphics
 
 /// Which cursor the pane shows (cap `cursor`: the host leaves its cursor out of the
 /// pictures). One cursor that feels local: in Full Control, while the pointer is over the
