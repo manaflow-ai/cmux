@@ -22,8 +22,9 @@ Example:
 
 ```sh
 cat >"$RUNNER_TEMP/remote-selftest.tsv" <<'EOF'
-linux-join	1	./fleet-driver join-linux
-first-reply	1	./fleet-driver chat-first-reply
+door-a-cli	1	./fleet-driver join-linux-over-ssh
+door-a-gui	1	cmux action run --fleet-host "$LEASED_MAC" remote.join --queue-prompt
+first-reply	0	./fleet-driver chat-first-reply
 drop-10s	1	./fleet-driver drop-link 10
 drop-60s	1	./fleet-driver drop-link 60
 remove	1	./fleet-driver remove
@@ -32,6 +33,8 @@ acpmux machine selftest --scenario "$RUNNER_TEMP/remote-selftest.tsv" \
   --max-actions 2 --max-seconds 30
 ```
 
-The first implementation is CLI-driver friendly. The GUI driver uses the same
-scenario contract and is supplied by the owned fleet Mac job; no GUI
-automation runs on Blacksmith or a developer Mac.
+Both Door A rows are mandatory. The GUI row must use a leased owned fleet Mac
+(`cmux-ci lease take ... --for 1h`) and drive the machine menu's **Yours** row;
+the queued prompt during setup is part of that step. A missing or failing Door
+A row fails the run. No GUI automation runs on cmux16, Blacksmith, or a
+developer Mac.

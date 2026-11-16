@@ -15,6 +15,7 @@ use std::process::Command;
 use std::time::Instant;
 
 const DEFAULT_SCENARIO_ENV: &str = "CMUX_MACHINE_SELFTEST_SCENARIO";
+const REQUIRED_DOOR_A_STEPS: [&str; 2] = ["door-a-cli", "door-a-gui"];
 
 #[derive(Debug, Clone)]
 struct ScenarioStep {
@@ -61,10 +62,23 @@ fn parse_scenario(text: &str) -> Result<Vec<ScenarioStep>> {
         let actions: u32 = actions
             .parse()
             .map_err(|_| anyhow!("scenario line {} has invalid action count", line_no + 1))?;
+        if command.to_ascii_lowercase().contains("cmux16") {
+            return Err(anyhow!(
+                "scenario line {} targets cmux16; lease an owned fleet Mac instead",
+                line_no + 1
+            ));
+        }
         steps.push(ScenarioStep { name: name.to_owned(), actions, command: command.to_owned() });
     }
     if steps.is_empty() {
         return Err(anyhow!("scenario has no steps"));
+    }
+    for required in REQUIRED_DOOR_A_STEPS {
+        if !steps.iter().any(|step| step.name == required) {
+            return Err(anyhow!(
+                "scenario is missing required {required} step (Door A is a required failing check)"
+            ));
+        }
     }
     Ok(steps)
 }
@@ -165,5 +179,19 @@ mod tests {
     #[test]
     fn allows_wait_steps_without_an_action() {
         assert_eq!(parse_scenario("wait\t0\ttrue\n").unwrap()[0].actions, 0);
+    }
+
+    #[test]
+    fn requires_both_door_a_paths() {
+        assert!(parse_scenario("door-a-cli\t1\tssh vm true\n").is_err());
+        assert!(
+            parse_scenario("door-a-cli\t1\tssh vm true\ndoor-a-gui\t1\tcmux action run gui\n")
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_cmux16() {
+        assert!(parse_scenario("door-a-cli\t1\tssh vm true\ndoor-a-gui\t1\tcmux16\n").is_err());
     }
 }

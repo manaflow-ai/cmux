@@ -4,6 +4,11 @@ use super::*;
 
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::Host(crate::cli::command_host::PeerCmd::Selftest {
+            scenario,
+            max_actions,
+            max_seconds,
+        }) => crate::cli::machine_selftest::run(scenario, max_actions, max_seconds, json_out),
         Command::Retention(args) => {
             let client = connect(true).await?;
             let archive = args.archive.map(std::path::absolute).transpose()?;
