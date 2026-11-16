@@ -119,6 +119,19 @@ class SdkSingleSourceTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("disagree about ir_sha256", errors)
 
+    def test_a_second_typed_sdk_package_list_fails(self) -> None:
+        # Built from the checker's own list so this file types no copy of it.
+        typed = "PACKAGES = (" + ", ".join(f'"{name}"' for name in CHECK.SDK_PACKAGES) + ")\n"
+        self.write("cmux-tui/bindings/rust/scripts/sync.py", typed)
+        self.assertEqual(self.run_check(), (0, ""), "one home for the list is fine")
+        self.write("cmux-tui/scripts/check-boundary.py", typed.replace('"', "'").replace(", ", ",\t"))
+        status, errors = self.run_check()
+        self.assertEqual(status, 1)
+        self.assertIn("cmux-tui/scripts/check-boundary.py: types the SDK package list", errors)
+        self.assertIn("cmux-tui/bindings/rust/scripts/sync.py: types the SDK package list", errors)
+
+    # Fails on feat-cmux-next before this change: seven committed descriptors and
+    # the package list typed in three files.
     def test_this_repository_has_one_source_each(self) -> None:
         errors = io.StringIO()
         with contextlib.redirect_stderr(errors):

@@ -21,6 +21,12 @@
    the files they list) that names the IR SHA-256, and on manifests that
    disagree about it.
 
+3. The list of high-level SDK packages. `sync-resource-api.py` and
+   `check-resource-api-boundary.py` each typed it ("keep in step with"), and
+   their test typed it a third time. Fails when more than one tracked file
+   types the seven package names as one quoted list; a script that needs the
+   list imports it from the file that keeps it.
+
 Exit 0 when every fact has its one source, 1 naming each copy otherwise.
 """
 
@@ -38,6 +44,13 @@ CATALOG = "cmux-tui/spec/resource-operations-v2.json"
 RETIRED_DESCRIPTOR = ".cmux-resource-api.json"
 SDK_MANIFEST = ".cmux-sdk-manifest.json"
 BINDINGS = "cmux-tui/bindings/"
+# The high-level SDK packages, in the order a sorted list types them. A file that
+# types all seven as one quoted list holds a copy of the list; one such file may
+# be the list's home, a second is a copy.
+SDK_PACKAGES = ("cpp", "go", "java", "python", "rust", "typescript", "zig")
+SDK_PACKAGE_LIST_RE = r"[[:space:]]*,[[:space:]]*".join(
+    f"[\"']{name}[\"']" for name in SDK_PACKAGES
+)
 
 
 def catalog_digests(raw: bytes) -> tuple[str, str]:
@@ -65,8 +78,8 @@ def _tracked(root: Path) -> list[tuple[str, str]] | str:
     return entries
 
 
-def _files_naming(root: Path, *needles: str) -> list[str] | str:
-    arguments = ["grep", "-l", "-z", "-F"]
+def _files_naming(root: Path, *needles: str, regex: bool = False) -> list[str] | str:
+    arguments = ["grep", "-l", "-z", "-E" if regex else "-F"]
     for needle in needles:
         arguments += ["-e", needle]
     found = _git(root, *arguments)
@@ -137,12 +150,27 @@ def ir_hash_copies(root: Path, tracked: list[tuple[str, str]]) -> list[str]:
     return problems
 
 
+def package_list_copies(root: Path) -> list[str]:
+    hits = _files_naming(root, SDK_PACKAGE_LIST_RE, regex=True)
+    if isinstance(hits, str):
+        return [hits]
+    if len(hits) < 2:
+        return []
+    return [
+        f"{path}: types the SDK package list, as {len(hits) - 1} other file(s) do "
+        f"({', '.join(other for other in hits if other != path)}); keep one and import it"
+        for path in hits
+    ]
+
+
 def copies(root: Path) -> list[str]:
     """Every problem, one line each; empty when each fact has its one source."""
     tracked = _tracked(root)
     if isinstance(tracked, str):
         return [tracked]
-    return sorted(catalog_copies(root, tracked) + ir_hash_copies(root, tracked))
+    return sorted(
+        catalog_copies(root, tracked) + ir_hash_copies(root, tracked) + package_list_copies(root)
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
