@@ -59,14 +59,19 @@ public nonisolated final class QuitDeadline: Sendable {
     private let firesAt = Mutex<ContinuousClock.Instant?>(nil)
     private let end: @Sendable () -> Void
     private let reason: String
+    private let schedule: @Sendable (Duration, @escaping @Sendable () -> Void) -> Void
 
     /// - Parameters:
     ///   - reason: What the limit counts from, for the fault log line ("quit still running N s after
     ///     <reason>"); the default is the engine stop's.
     ///   - end: Runs on the deadline thread; the default ends the process.
-    public init(reason: String = "the engines began to stop", end: (@Sendable () -> Void)? = nil) {
+    ///   - schedule: Runs its second argument once its limit passed; the default waits on a dedicated
+    ///     thread (tests run it by hand).
+    public init(reason: String = "the engines began to stop", end: (@Sendable () -> Void)? = nil,
+                schedule: (@Sendable (Duration, @escaping @Sendable () -> Void) -> Void)? = nil) {
         self.reason = reason
         self.end = end ?? { _exit(0) }
+        self.schedule = schedule ?? Self.onDeadlineThread
     }
 
     /// The time left before the deadline ends the process, less `margin`;
@@ -100,15 +105,22 @@ public nonisolated final class QuitDeadline: Sendable {
     private func start(_ limit: Duration, reason: String) {
         let end = end
         let seconds = Double(limit.components.seconds) + Double(limit.components.attoseconds) / 1e18
+        schedule(limit) {
+            guard self.ended.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
+            Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
+                .fault("quit still running \(seconds, privacy: .public) s after \(reason, privacy: .public); ending the process")
+            end()
+        }
+    }
+
+    private static func onDeadlineThread(_ limit: Duration, _ fire: @escaping @Sendable () -> Void) {
+        let seconds = Double(limit.components.seconds) + Double(limit.components.attoseconds) / 1e18
         let thread = Thread {
             // concurrency-allow: the dedicated quit-deadline thread waits out the limit; never the main thread.
             let never = DispatchSemaphore(value: 0)
             // concurrency-allow: same dedicated thread; nothing signals it, so this is the deadline.
             _ = never.wait(timeout: .now() + seconds)
-            guard self.ended.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
-            Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
-                .fault("quit still running \(seconds, privacy: .public) s after \(reason, privacy: .public); ending the process")
-            end()
+            fire()
         }
         thread.name = "cmux-next quit deadline"
         thread.qualityOfService = .userInteractive

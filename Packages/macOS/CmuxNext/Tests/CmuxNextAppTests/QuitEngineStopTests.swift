@@ -7,72 +7,57 @@ import Testing
 /// Restart to Update waits for the old process to exit, and the quit's last step, CefShutdown on the main
 /// thread, never returned before the 4 s keep-quit deadline ended the process: 11 of Leo's 20 NIGHTLY hang
 /// files (cmuxterm-hq#8608) and 10 of 10 fleet quits (hq#11994, Chromium's thread pool waiting on a Keychain
-/// prompt nobody answers). The engine stop now drains the closing pages' drafts, then gives CefShutdown
-/// `engineShutdownLimit` before the deadline ends the process.
+/// prompt nobody answers). Right before CefShutdown the quit now hides its windows, drains the closing pages'
+/// drafts, and gives CefShutdown `engineShutdownLimit`, so a stuck one ends the process then.
 ///
-/// Harness: the keep quit's deadline is armed as `QuitCoordinator.complete` arms it, the engine stop runs,
-/// then the test blocks the main thread as a CefShutdown that never returns does, and reads when the
-/// deadline's end ran.
+/// No clock decides this test: the deadline's limits are recorded and passed by hand (``DeadlineWaits``),
+/// and the draft waits behind a held save only the drain lets go (``DrainGate``).
 @MainActor
 @Suite(.serialized)
 struct QuitEngineStopTests {
-    @Test func aCefShutdownThatNeverReturnsEndsTheQuitWithinItsLimitNotTheKeepDeadline() async throws {
+    @Test func aStuckCefShutdownEndsTheQuitAtItsOwnLimitNotTheKeepDeadline() async throws {
         let directory = try QuitStateFilesTests.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let gate = DrainGate()
         defer { gate.releaseHeldSave() }
         let services = QuitStateFilesTests.services(gate)
         let written = QuitStateFilesTests.queueDraft(in: directory, gate: gate)
-        let end = EndMark()
-        services.quit.deadline = QuitDeadline(reason: "a quit test", end: { end.mark() })
+        let waits = DeadlineWaits()
+        services.quit.deadline = waits.deadline()
+        // A keep quit armed its deadline when it was decided (`QuitCoordinator.complete`).
         services.quit.deadline.arm(after: QuitDeadline.keepQuitLimit)
 
-        let began = ContinuousClock.now
         await services.quit.engineWillStop(hide: { gate.log("hide") })
+
         #expect(gate.events() == ["hide", "drain began"], "the engine stop's order was \(gate.events())")
-        #expect(written(), "CefShutdown began before the draft a closing page queued was on disk")
-        let ended = try #require(Self.blockMainUntil(end, from: began), "the quit never ended")
-
-        print("QuitEngineStop: Restart to Update waits \(ended) from the engine stop to the exit (CefShutdown never returns)")
-        #expect(ended < QuitDeadline.engineShutdownLimit + .milliseconds(500), "the quit ended \(ended) after CefShutdown began")
-        #expect(end.count() == 1, "the end ran \(end.count()) times")
-    }
-
-    /// The same harness without the engine stop's bound (as before): the keep quit's 4 s deadline ends it.
-    @Test func withoutTheBoundTheKeepDeadlineEndsAStuckCefShutdown() throws {
-        let end = EndMark()
-        let deadline = QuitDeadline(reason: "a quit test", end: { end.mark() })
-        let began = ContinuousClock.now
-        deadline.arm(after: QuitDeadline.keepQuitLimit)
-        let ended = try #require(Self.blockMainUntil(end, from: began), "the quit never ended")
-
-        print("QuitEngineStop: without the bound the exit waits \(ended) (the keep-quit deadline)")
-        #expect(ended >= QuitDeadline.keepQuitLimit)
-    }
-
-    /// Blocks the main thread, as CefShutdown does, until `end` ran or 1 s past the keep-quit deadline;
-    /// the time from `start` to the end.
-    private static func blockMainUntil(_ end: EndMark, from start: ContinuousClock.Instant) -> Duration? {
-        while end.at() == nil, ContinuousClock.now - start < QuitDeadline.keepQuitLimit + .seconds(1) {
-            // concurrency-allow: test only; stands in for CefShutdown holding the main thread
-            usleep(5_000)
-        }
-        return end.at().map { $0 - start }
+        #expect(written(), "CefShutdown would begin before the draft a closing page queued was on disk")
+        #expect(waits.limits() == [QuitDeadline.keepQuitLimit, QuitDeadline.engineShutdownLimit],
+                "CefShutdown got no limit of its own: a stuck one holds the exit until the keep deadline")
+        #expect(QuitDeadline.engineShutdownLimit < QuitDeadline.keepQuitLimit)
+        // CefShutdown never returns: its limit passes first and ends the quit, once.
+        waits.pass(QuitDeadline.engineShutdownLimit)
+        #expect(waits.ends() == 1)
+        waits.pass(QuitDeadline.keepQuitLimit)
+        #expect(waits.ends() == 1, "the keep deadline ended the quit a second time")
     }
 }
 
-/// When a quit deadline's end ran (on the deadline's thread), and how often.
-nonisolated final class EndMark: Sendable {
-    private let state = Mutex<(at: ContinuousClock.Instant?, count: Int)>((nil, 0))
+/// A ``QuitDeadline``'s limits, recorded instead of waited out; ``pass(_:)`` ends one's wait. Its ends counted.
+private nonisolated final class DeadlineWaits: Sendable {
+    private let state = Mutex<(waits: [(Duration, @Sendable () -> Void)], ends: Int)>(([], 0))
 
-    func mark() {
-        state.withLock { state in
-            state.count += 1
-            if state.at == nil { state.at = .now }
-        }
+    func deadline() -> QuitDeadline {
+        QuitDeadline(reason: "a quit test", end: { self.state.withLock { $0.ends += 1 } },
+                     schedule: { limit, fire in self.state.withLock { $0.waits.append((limit, fire)) } })
     }
 
-    func at() -> ContinuousClock.Instant? { state.withLock { $0.at } }
+    func limits() -> [Duration] { state.withLock { $0.waits.map(\.0) } }
 
-    func count() -> Int { state.withLock { $0.count } }
+    func ends() -> Int { state.withLock { $0.ends } }
+
+    /// Every wait of `limit` passes now.
+    func pass(_ limit: Duration) {
+        let fires = state.withLock { $0.waits.filter { $0.0 == limit }.map(\.1) }
+        for fire in fires { fire() }
+    }
 }

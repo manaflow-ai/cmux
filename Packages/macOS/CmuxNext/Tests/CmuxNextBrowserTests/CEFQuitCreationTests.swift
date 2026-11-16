@@ -209,7 +209,7 @@ import Testing
 
         await runtime.shutdown(timeout: .seconds(2), beforeEngineStop: {
             SpyShim.calls.append("hide")
-            try? await Task.sleep(for: .milliseconds(50))
+            await Task.yield()
             SpyShim.calls.append("drained")
         })
 
