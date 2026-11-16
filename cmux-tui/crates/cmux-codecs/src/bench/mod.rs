@@ -330,6 +330,7 @@ pub fn run_row(cfg: &RowCfg) -> Res<Value> {
                     access_unit: bytes,
                     idr,
                     t_capture_us: t_capture,
+                    ltr_token: None,
                 });
                 match engine.encoded(&req, result, now) {
                     Ok(out) => {

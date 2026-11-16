@@ -59,8 +59,12 @@ fn header_rejects_bad_input() {
 
 #[test]
 fn frame_body_ignores_padding() {
-    let body =
-        FrameBody { t_capture_us: 42, ref_frame: REF_NONE, access_unit: vec![0, 0, 0, 1, 0x65] };
+    let body = FrameBody {
+        t_capture_us: 42,
+        ref_frame: REF_NONE,
+        ltr_token: None,
+        access_unit: vec![0, 0, 0, 1, 0x65],
+    };
     let mut bytes = body.encode();
     bytes.resize(bytes.len() + 100, 0);
     assert_eq!(FrameBody::decode(&bytes).expect("decode"), body);
@@ -128,6 +132,7 @@ proptest! {
             acked_frame: acked,
             decode_us,
             need_recovery: need,
+            acked_ltr_tokens: vec![],
             arrivals: arrivals.into_iter().map(|(transport_seq, arrival_us)| Arrival { transport_seq, arrival_us }).collect(),
             nacks: nacks.into_iter().map(|(frame, indexes)| Nack { frame, indexes }).collect(),
         };

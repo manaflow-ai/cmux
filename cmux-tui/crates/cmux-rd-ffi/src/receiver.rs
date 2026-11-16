@@ -66,6 +66,7 @@ pub struct Receiver {
     reassembler: Reassembler,
     deframer: StreamDeframer,
     ready: VecDeque<CompleteFrame>,
+    acknowledged_ltr_tokens: VecDeque<u64>,
     messages: VecDeque<Message>,
     message_bytes: usize,
     arrivals: VecDeque<Arrival>,
@@ -104,6 +105,7 @@ impl Receiver {
             reassembler: Reassembler::new(deadline_us),
             deframer: StreamDeframer::default(),
             ready: VecDeque::new(),
+            acknowledged_ltr_tokens: VecDeque::new(),
             messages: VecDeque::new(),
             message_bytes: 0,
             arrivals: VecDeque::new(),
@@ -265,7 +267,10 @@ impl Receiver {
         let fb = if overflow {
             // Arrivals beyond one message go out first, without the rest.
             Feedback {
-                acked_frame: self.reassembler.last_released(),
+                acked_frame: (!self.keyframe_requested)
+                    .then(|| self.reassembler.last_released())
+                    .unwrap_or(0),
+                acked_ltr_tokens: self.acknowledged_ltr_tokens(),
                 arrivals,
                 ..Feedback::default()
             }
@@ -273,14 +278,21 @@ impl Receiver {
             self.last_feedback_us = Some(now_us);
             self.released_since_feedback = false;
             Feedback {
-                acked_frame: self.reassembler.last_released(),
+                acked_frame: (!self.keyframe_requested)
+                    .then(|| self.reassembler.last_released())
+                    .unwrap_or(0),
                 decode_us: self.median_decode_us(),
                 need_recovery: self.need_recovery(),
+                acked_ltr_tokens: self.acknowledged_ltr_tokens(),
                 arrivals,
                 nacks: self.nacks(now_us),
             }
         };
         Some(self.frame_datagram(&fb.encode()))
+    }
+
+    fn acknowledged_ltr_tokens(&self) -> Vec<u64> {
+        self.acknowledged_ltr_tokens.iter().copied().collect()
     }
 
     fn median_decode_us(&self) -> u32 {
@@ -358,6 +370,14 @@ impl Receiver {
     fn on_released(&mut self, frame: CompleteFrame) {
         self.released_since_feedback = true;
         self.frames_released += 1;
+        if let Some(token) = frame.body.ltr_token
+            && !self.acknowledged_ltr_tokens.contains(&token)
+        {
+            self.acknowledged_ltr_tokens.push_back(token);
+            while self.acknowledged_ltr_tokens.len() > 16 {
+                self.acknowledged_ltr_tokens.pop_front();
+            }
+        }
         let keyframe = frame.flags & flags::KEYFRAME != 0 || frame.body.ref_frame == REF_NONE;
         if keyframe {
             self.keyframe_requested = false;

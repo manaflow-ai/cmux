@@ -61,6 +61,12 @@ pub trait VideoEncoder: Send {
     fn set_bitrate(&mut self, kbps: u32);
     fn kbps(&self) -> u32;
     fn name(&self) -> String;
+    /// Supplies tokens the receiver has confirmed as fully received.
+    fn set_acknowledged_ltr_tokens(&mut self, _tokens: &[u64]) {}
+    /// Token emitted for the most recent long-term-reference frame.
+    fn ltr_token(&self) -> Option<u64> {
+        None
+    }
     /// The codec of the access units [`VideoEncoder::encode`] emits.
     fn codec(&self) -> Codec {
         Codec::H264

@@ -1,7 +1,7 @@
 use crate::error::{DecodeError, Reader};
 
 /// Size of the prefix in front of the access unit in a [`FrameBody`].
-pub const FRAME_PREFIX_LEN: usize = 16;
+pub const FRAME_PREFIX_LEN: usize = 24;
 
 /// `ref_frame` value of a frame that references no earlier frame (a keyframe).
 pub const REF_NONE: u32 = u32::MAX;
@@ -19,6 +19,8 @@ pub struct FrameBody {
     /// The frame this frame predicts from, or [`REF_NONE`]. A normal P-frame
     /// names the previous frame; a recovery frame names an acknowledged one.
     pub ref_frame: u32,
+    /// VideoToolbox's long-term-reference acknowledgement token, when present.
+    pub ltr_token: Option<u64>,
     /// The access unit (Annex-B).
     pub access_unit: Vec<u8>,
 }
@@ -31,6 +33,7 @@ impl FrameBody {
         out.extend_from_slice(&len.to_le_bytes());
         out.extend_from_slice(&self.t_capture_us.to_le_bytes());
         out.extend_from_slice(&self.ref_frame.to_le_bytes());
+        out.extend_from_slice(&self.ltr_token.unwrap_or(u64::MAX).to_le_bytes());
         out.extend_from_slice(&self.access_unit);
         out
     }
@@ -41,7 +44,11 @@ impl FrameBody {
         let len = r.u32()? as usize;
         let t_capture_us = r.u64()?;
         let ref_frame = r.u32()?;
+        let ltr_token = match r.u64()? {
+            u64::MAX => None,
+            token => Some(token),
+        };
         let access_unit = r.take(len)?.to_vec();
-        Ok(Self { t_capture_us, ref_frame, access_unit })
+        Ok(Self { t_capture_us, ref_frame, ltr_token, access_unit })
     }
 }

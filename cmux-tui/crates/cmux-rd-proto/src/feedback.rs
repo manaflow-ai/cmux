@@ -33,6 +33,8 @@ pub struct Feedback {
     pub decode_us: u32,
     /// The viewer could not decode from `acked_frame` on and asks for recovery.
     pub need_recovery: bool,
+    /// VideoToolbox LTR tokens for frames the viewer has fully received.
+    pub acked_ltr_tokens: Vec<u64>,
     pub arrivals: Vec<Arrival>,
     pub nacks: Vec<Nack>,
 }
@@ -44,6 +46,11 @@ impl Feedback {
         out.extend_from_slice(&self.acked_frame.to_le_bytes());
         out.extend_from_slice(&self.decode_us.to_le_bytes());
         out.push(u8::from(self.need_recovery));
+        let tokens = self.acked_ltr_tokens.get(..16).unwrap_or(&self.acked_ltr_tokens);
+        out.push(tokens.len() as u8);
+        for token in tokens {
+            out.extend_from_slice(&token.to_le_bytes());
+        }
         let arrivals = self.arrivals.get(..MAX_ARRIVALS).unwrap_or(&self.arrivals);
         out.extend_from_slice(&(arrivals.len() as u16).to_le_bytes());
         for a in arrivals {
@@ -73,6 +80,11 @@ impl Feedback {
             1 => true,
             _ => return Err(DecodeError::Invalid("bool")),
         };
+        let n_tokens = r.u8()? as usize;
+        let mut acked_ltr_tokens = Vec::with_capacity(n_tokens.min(16));
+        for _ in 0..n_tokens {
+            acked_ltr_tokens.push(r.u64()?);
+        }
         let n_arrivals = r.u16()? as usize;
         let mut arrivals = Vec::with_capacity(n_arrivals.min(1024));
         for _ in 0..n_arrivals {
@@ -92,6 +104,6 @@ impl Feedback {
         if !r.is_empty() {
             return Err(DecodeError::Invalid("trailing bytes"));
         }
-        Ok(Self { acked_frame, decode_us, need_recovery, arrivals, nacks })
+        Ok(Self { acked_frame, decode_us, need_recovery, acked_ltr_tokens, arrivals, nacks })
     }
 }

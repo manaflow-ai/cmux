@@ -75,6 +75,8 @@ pub struct EngineConfig {
     /// (`cmux_rd_core::flow::INPUT_FRAME_WINDOW_US`), so the input's effect goes out as soon
     /// as the capture delivers it instead of on the next interval.
     pub input_frame_now: bool,
+    /// Enable VideoToolbox long-term-reference recovery when the viewer negotiated it.
+    pub ltr_enabled: bool,
 }
 
 impl Default for EngineConfig {
@@ -92,6 +94,7 @@ impl Default for EngineConfig {
             stream: 0,
             frames_in_flight: 1,
             input_frame_now: false,
+            ltr_enabled: false,
         }
     }
 }
@@ -106,6 +109,10 @@ pub struct EncodeRequest {
     pub damage: Rect,
     /// Encode an IDR (first frame, recovery, or after a dropped frame).
     pub force_idr: bool,
+    /// Ask the encoder for a refresh P-frame from an acknowledged LTR.
+    pub force_ltr_refresh: bool,
+    /// Tokens the viewer has confirmed as fully received.
+    pub acknowledged_ltr_tokens: Vec<u64>,
     /// The congestion controller's target for this frame.
     pub target_kbps: u32,
 }
@@ -119,6 +126,8 @@ pub struct Encoded {
     pub idr: bool,
     /// Source monotonic time of the pixels.
     pub t_capture_us: u64,
+    /// VideoToolbox's token for this frame when it became an LTR reference.
+    pub ltr_token: Option<u64>,
 }
 
 /// What the source does after one engine call.
@@ -234,6 +243,7 @@ impl Upstream {
             acked_frame: self.reassembler.last_released(),
             decode_us: 0,
             need_recovery: self.reassembler.need_recovery(),
+            acked_ltr_tokens: Vec::new(),
             arrivals: self.arrivals.drain(..take).collect(),
             nacks,
         };
@@ -279,6 +289,9 @@ struct StreamState {
     history: BTreeMap<u32, Vec<Vec<u8>>>,
     last_frame: u32,
     force_idr: bool,
+    force_ltr_refresh: bool,
+    last_acked_frame: u32,
+    acknowledged_ltr_tokens: Vec<u64>,
     last_forced_idr_us: Option<u64>,
     /// The first damage covers the whole stream.
     started: bool,
@@ -303,6 +316,9 @@ impl StreamState {
             history: BTreeMap::new(),
             last_frame: 0,
             force_idr: true,
+            force_ltr_refresh: false,
+            last_acked_frame: 0,
+            acknowledged_ltr_tokens: Vec::new(),
             last_forced_idr_us: None,
             started: false,
             tile_of: None,
@@ -476,6 +492,8 @@ impl MediaEngine {
                 frame,
                 damage,
                 force_idr: state.force_idr,
+                force_ltr_refresh: state.force_ltr_refresh,
+                acknowledged_ltr_tokens: state.acknowledged_ltr_tokens.clone(),
                 target_kbps: self.target_kbps(stream),
             }),
             FlowAction::Wait => None,
@@ -552,8 +570,12 @@ impl MediaEngine {
             ref_frame: match surface_frame {
                 Some(video_frame) => video_frame,
                 None if enc.idr => REF_NONE,
+                None if req.force_ltr_refresh && state.last_acked_frame != 0 => {
+                    state.last_acked_frame
+                }
                 None => state.last_frame,
             },
+            ltr_token: enc.ltr_token,
             access_unit: enc.access_unit,
         };
         let data_shards =
@@ -564,6 +586,8 @@ impl MediaEngine {
             flags::TILE
         } else if enc.idr {
             flags::KEYFRAME
+        } else if req.force_ltr_refresh {
+            flags::RECOVERY
         } else {
             0
         };
@@ -593,6 +617,7 @@ impl MediaEngine {
             state.history.pop_first();
         }
         state.force_idr = false;
+        state.force_ltr_refresh = false;
         state.last_frame = req.frame;
         state.probe_from_us = Some(now_us);
         state.probes = 0;
@@ -655,7 +680,15 @@ impl MediaEngine {
         let congestion_loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
         self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
         self.last_feedback_us = now_us;
+        let ltr_enabled = self.cfg.ltr_enabled;
         let Some(state) = self.streams.get_mut(&stream) else { return };
+        state.last_acked_frame = state.last_acked_frame.max(fb.acked_frame);
+        for token in &fb.acked_ltr_tokens {
+            if !state.acknowledged_ltr_tokens.contains(token) {
+                state.acknowledged_ltr_tokens.push(*token);
+            }
+        }
+        state.acknowledged_ltr_tokens.truncate(16);
         if fb.acked_frame > 0
             && let Some(sent_at_us) = state.sent_at_us.remove(&fb.acked_frame)
         {
@@ -691,7 +724,10 @@ impl MediaEngine {
             .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
         if fb.need_recovery && idr_allowed {
             state.last_forced_idr_us = Some(now_us);
-            state.force_idr = true;
+            let use_ltr =
+                ltr_enabled && fb.acked_frame > 0 && !state.acknowledged_ltr_tokens.is_empty();
+            state.force_ltr_refresh = use_ltr;
+            state.force_idr = !use_ltr;
             state.gate.clear_in_flight();
             let full = state.full();
             action = state.gate.damage(full, now_us);

@@ -169,6 +169,14 @@ impl FrameSource for MacFrames {
         SurfaceEncoder::set_bitrate(&mut self.encoder, kbps);
     }
 
+    fn set_acknowledged_ltr_tokens(&mut self, tokens: &[u64]) {
+        self.encoder.set_acknowledged_ltr_tokens(tokens);
+    }
+
+    fn ltr_token(&self) -> Option<u64> {
+        self.encoder.ltr_token()
+    }
+
     fn kbps(&self) -> u32 {
         SurfaceEncoder::kbps(&self.encoder)
     }

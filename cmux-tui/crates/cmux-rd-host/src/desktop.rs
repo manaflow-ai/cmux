@@ -24,6 +24,10 @@ pub trait FrameSource: Send {
     }
     /// Encodes the captured picture into `out` as Annex-B. Returns true for an IDR.
     fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool>;
+    fn set_acknowledged_ltr_tokens(&mut self, _tokens: &[u64]) {}
+    fn ltr_token(&self) -> Option<u64> {
+        None
+    }
     fn set_bitrate(&mut self, kbps: u32);
     fn kbps(&self) -> u32;
     fn encoder_name(&self) -> String;

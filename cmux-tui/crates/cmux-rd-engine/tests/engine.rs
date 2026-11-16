@@ -48,9 +48,13 @@ fn input(packet: &InputPacket) -> Vec<u8> {
 }
 
 fn send(e: &mut MediaEngine, req: &EncodeRequest, idr: bool, len: usize, now: u64) -> Vec<Vec<u8>> {
-    e.encoded(req, Some(Encoded { access_unit: au(len), idr, t_capture_us: now }), now)
-        .expect("encoded")
-        .datagrams
+    e.encoded(
+        req,
+        Some(Encoded { access_unit: au(len), idr, t_capture_us: now, ltr_token: None }),
+        now,
+    )
+    .expect("encoded")
+    .datagrams
 }
 
 #[test]
@@ -81,6 +85,38 @@ fn one_frame_in_flight_until_the_viewer_acknowledges() {
     let next = out.encode.expect("the ack releases the coalesced damage");
     assert!(!next.force_idr);
     assert!(next.frame > first.frame);
+}
+
+#[test]
+fn loss_after_an_acknowledged_ltr_requests_refresh_instead_of_idr() {
+    let mut e = MediaEngine::new(
+        EngineConfig { width: 640, height: 480, ltr_enabled: true, ..EngineConfig::default() },
+        0,
+    );
+    let first = e.start(0).expect("first");
+    let mut encoded =
+        Encoded { access_unit: au(1_000), idr: true, t_capture_us: 0, ltr_token: Some(7) };
+    e.encoded(&first, Some(encoded.clone()), 0).expect("first packet");
+    let out = e.on_datagram(
+        &feedback(&Feedback {
+            acked_frame: first.frame,
+            acked_ltr_tokens: vec![7],
+            need_recovery: true,
+            ..Feedback::default()
+        }),
+        true,
+        30_000,
+    );
+    let recovery = out.encode.expect("loss asks for recovery");
+    assert!(recovery.force_ltr_refresh);
+    assert!(!recovery.force_idr);
+    encoded =
+        Encoded { access_unit: au(900), idr: false, t_capture_us: 30_000, ltr_token: Some(8) };
+    let packets = e.encoded(&recovery, Some(encoded), 30_000).expect("recovery packet");
+    let (header, payload) = DatagramHeader::decode(&packets.datagrams[0]).expect("header");
+    assert_ne!(header.flags & flags::RECOVERY, 0);
+    let body = cmux_rd_proto::FrameBody::decode(payload).expect("body");
+    assert_eq!(body.ref_frame, first.frame);
 }
 
 #[test]
@@ -293,7 +329,11 @@ fn a_frame_too_large_halves_the_bitrate_and_restarts_from_a_keyframe() {
     let first = e.start(0).expect("first");
     // 4096 shards of 48 bytes is the limit at this datagram size.
     let out = e
-        .encoded(&first, Some(Encoded { access_unit: au(300_000), idr: true, t_capture_us: 0 }), 0)
+        .encoded(
+            &first,
+            Some(Encoded { access_unit: au(300_000), idr: true, t_capture_us: 0, ltr_token: None }),
+            0,
+        )
         .expect("ok");
     assert!(out.datagrams.is_empty());
     assert!(out.halve_bitrate);

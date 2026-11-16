@@ -282,6 +282,7 @@ impl Host {
             access_unit: access_unit(self.seq, now, echo, size),
             idr: request.force_idr,
             t_capture_us: now,
+            ltr_token: None,
         };
         let Ok(out) = engine.encoded(&request, Some(encoded), now) else { return };
         if !out.datagrams.is_empty() {
