@@ -10,6 +10,7 @@ import { agentPaneEntry } from "../../gallery/format";
 import { assistant, CATALOG, chat, summary, user } from "../../gallery/fixtures/acpmux";
 import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
+import { MODEL_PICKER } from "./composerSelectors";
 
 const finished = [
   user("Add retries with backoff to the fetch helper", 10),
@@ -90,7 +91,7 @@ function toggleFast(current: "on" | "off"): Play {
         picks.push(message.params.value);
       return original(message);
     };
-    const button = { selector: ".acpmux-model .acpmux-picker-button" } as const;
+    const button = { selector: MODEL_PICKER } as const;
     const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" } as const;
     try {
       await ctx.waitFor(() => ctx.document.querySelector(button.selector));
