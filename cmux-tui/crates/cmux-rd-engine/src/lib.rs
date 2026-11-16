@@ -12,7 +12,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind};
+use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind, UltraConfig};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
@@ -384,6 +384,15 @@ impl MediaEngine {
     /// The encoder profile requests carry from now on. Leaving ultra drops any refinement
     /// that was due.
     pub fn set_profile(&mut self, profile: EncodeProfile) {
+        self.cc.configure_ultra(UltraConfig {
+            max_wire_bps: u64::from(cmux_rd_core::profile::max_kbps(
+                profile,
+                Some(self.cfg.max_bps.saturating_div(1000) as u32),
+                cmux_rd_core::profile::ULTRA_MAX_KBPS,
+            )) * 1000,
+            ..UltraConfig::default()
+        });
+        self.cc.set_profile(profile);
         self.profile = profile;
         if !profile.is_ultra() {
             for state in self.streams.values_mut() {
@@ -519,7 +528,7 @@ impl MediaEngine {
 
     fn request(&mut self, stream: u16, action: FlowAction) -> Option<EncodeRequest> {
         let target_kbps = self.target_kbps(stream);
-        let profile = self.profile;
+        let profile = self.cc.profile();
         let state = self.streams.get_mut(&stream)?;
         match action {
             FlowAction::Encode { damage, frame } => {
