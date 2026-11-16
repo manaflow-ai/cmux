@@ -1594,6 +1594,13 @@ async fn dispatch_request_with_identity(
                 let mut p = params.clone();
                 super::peer_forward::strip_new_meta(&mut p);
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
+                // The caller's boundary claim is never forwarded verbatim. Reassert the
+                // server-derived value below only when this lease/registry and owner proof
+                // authorize it; this also covers older callers that put the field at a
+                // compatibility location before `strip_new_meta` runs.
+                if let Some(meta) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+                    meta.remove(crate::hub::vm_boundary::FIELD);
+                }
                 // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
                 let unattended =
                     hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
