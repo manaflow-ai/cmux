@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "chat-rows-frame-apply": {
+      "what": "one slice of a v2 chat's row batch in the frame lane (webviews rows/receiver.ts drain): parse and apply changes one at a time, give way to a pending key, commit and answer taken at the batch's end",
+      "bench": "cd webviews && bun bench/page-row-store.bench.ts (v2.frame_paced: apply ms per batch, taken per frame, longest task, one 256 KiB change)",
+      "owner": "agent chat"
+    },
     "terminal-host-output": {
       "what": "one PTY read in a terminal host (terminal_host_runtime/shared): publish_pty_frame makes the one shared Output frame, and the client writer sends the frames queued at each wake in one vectored write",
       "bench": "cmux-tui/scripts/bench-terminal-perf.py (throughput and busy sections: MB/s and host CPU %), on the bench Mac with cmux-tui and cmux-tui-host built",

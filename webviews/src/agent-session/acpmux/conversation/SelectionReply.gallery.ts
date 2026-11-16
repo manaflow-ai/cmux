@@ -6,7 +6,6 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
-import { selectionReplyWrap } from "./selectionReplyWrap.experiment";
 
 const PHRASE = "retry only on 429 and 503";
 const rows = [
@@ -265,7 +264,7 @@ export default agentPaneEntry({
     "chip-right-edge": {
       ...variant(
         "chip",
-        "A selection that ends at a line's right edge mid-paragraph: no free spot near, so the chip covers the selection's own last words, never other text or the margin.",
+        "A selection that ends at a line's right edge mid-paragraph: no free spot near it, so the chip goes above or below the selection, never over any text or into the margin.",
         rightEdge,
         chat(longRows),
       ),
@@ -274,7 +273,7 @@ export default agentPaneEntry({
     "chip-multi-line": {
       ...variant(
         "chip",
-        "A selection over three lines ending mid-line: the chip takes the nearest spot that covers no other text.",
+        "A selection over three lines ending mid-line: the chip takes the nearest spot above or below it that covers no text.",
         multiLine,
         chat(longRows),
       ),
@@ -301,7 +300,7 @@ export default agentPaneEntry({
     "chip-mid-line": {
       ...variant(
         "chip",
-        "Two words mid-paragraph, text all around: the chip takes the nearest spot with no text under it, or covers only the selection's own words.",
+        "Two words mid-paragraph, text all around: the chip takes the nearest spot above or below the selection with no text under it, the selection's own included.",
         midLine,
         chat(longRows),
       ),
@@ -310,7 +309,7 @@ export default agentPaneEntry({
     "chip-short-mid": {
       ...variant(
         "chip",
-        "Two words mid-paragraph in a dense reply: every spot near holds text, so the chip is its glyph alone over the selected words.",
+        "Two words mid-paragraph in a dense reply: every spot near holds text, so the chip goes over or under the paragraph, never over a word.",
         shortMid,
         chat(denseRows),
       ),
@@ -351,19 +350,5 @@ export default agentPaneEntry({
         await ctx.hover({ selector: '[data-row-id="gallery-reply-answer"]' });
       },
     ),
-  },
-  // Where the chip goes when no spot near the selection's end is free of other text
-  // (selectionReplyWrap): compare the arms on chip-right-edge, at the narrow width too.
-  experiment: {
-    definition: selectionReplyWrap,
-    script: [
-      {
-        // Only the stages with the long reply have that line; the others keep their own selection.
-        name: "Select to the line's right edge",
-        run: async (ctx) => {
-          if (ctx.document.querySelector('[data-row-id="gallery-reply-long"]')) await rightEdge(ctx);
-        },
-      },
-    ],
   },
 });
