@@ -196,7 +196,7 @@ impl Peer {
                 || value["permissionId"] != permission
                 || value.get("personInstance").and_then(Value::as_str)
                     != self.person_instance().as_deref()
-                || value.get("decisionNonce").and_then(Value::as_str).is_none())
+                || value.get("decisionNonce").and_then(Value::as_str).is_none_or(str::is_empty))
         {
             return Err(RpcError::invalid_params("control ask does not belong to this owner run"));
         }

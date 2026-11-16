@@ -110,6 +110,7 @@ async fn controls_refuses_unknown_kinds_and_cursor_shapes() {
         json!({"kinds": []}),
         json!({"kinds": ["asks"], "live": true}),
         json!({"kinds": ["asks"], "extra": 1}),
+        json!({"kinds": ["asks"], "sessionId": "remote/chat"}),
     ] {
         let reply = wire.call(METHOD, params).await;
         assert_eq!(reply["error"]["code"], -32602, "{reply}");
