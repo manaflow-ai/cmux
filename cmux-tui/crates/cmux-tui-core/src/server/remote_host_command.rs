@@ -42,13 +42,13 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
 }
 
 /// Who is asking: a local Unix connection, and whether it is the verified app.
-struct Caller {
-    verified_app: bool,
+pub(super) struct Caller {
+    pub(super) verified_app: bool,
     peer_pid: Option<u32>,
     peer_token: Option<cmux_link::app_caller::PeerToken>,
 }
 
-fn caller(mux: &Mux, client: u64) -> Result<Caller, RemoteRefused> {
+pub(super) fn caller(mux: &Mux, client: u64) -> Result<Caller, RemoteRefused> {
     let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let record = state
         .clients

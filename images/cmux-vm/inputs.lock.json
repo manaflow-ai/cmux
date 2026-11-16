@@ -183,6 +183,7 @@
           "libthai-data": "0.1.29-2build1",
           "libthai0": "0.1.29-2build1",
           "libtiff6": "4.5.1+git230720-4ubuntu2.5",
+          "libutempter0": "1.2.1-3build1",
           "libwebp7": "1.3.2-0.4build3",
           "libwebpdemux2": "1.3.2-0.4build3",
           "libxcb-render0": "1.15-1ubuntu2",
@@ -193,8 +194,10 @@
           "libxinerama1": "2:1.1.4-3build1",
           "openbox": "3.6.1-12build5",
           "poppler-data": "0.4.12-1",
+          "xbitmaps": "1.1.1-2.2",
           "xfonts-encodings": "1:1.0.5-0ubuntu2",
-          "xfonts-utils": "1:7.7+6build3"
+          "xfonts-utils": "1:7.7+6build3",
+          "xterm": "390-1ubuntu3"
         },
         "cua-video": {
           "ffmpeg": "7:6.1.1-3ubuntu5",
@@ -634,7 +637,7 @@
   "roles": {
     "fonts": { "default": "on", "apt": ["fonts-noto-cjk"] },
     "display": { "default": "off", "apt": ["xvfb", "xauth", "at-spi2-core", "libxtst6", "libxi6", "libxkbcommon0"] },
-    "display-wm": { "default": "off", "firstUse": true, "apt": ["openbox"] },
+    "display-wm": { "default": "off", "firstUse": true, "apt": ["openbox", "xterm"] },
     "cua-video": { "default": "off", "firstUse": true, "apt": ["ffmpeg"] },
     "browser": {
       "default": "off",
