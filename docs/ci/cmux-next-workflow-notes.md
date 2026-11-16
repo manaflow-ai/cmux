@@ -3564,3 +3564,27 @@ system" (cmux#43892 daemon test, job 132938818634, cmux11s-mac-mini-glaeda-8, 20
 seeds that cache for CmuxNext's whole package graph with scripts/ci/swiftpm_prefetch_binary_artifacts.py:
 a checksum-keyed store under one host lock, atomic renames into the cache, so SwiftPM only reads it. The
 cache stays shared and warm. tests/test_ci_swiftpm_prefetch_shared_cache.py is the detector.
+
+## note-386
+
+Above `borrow_runner` in `jobs.macos-placement.outputs` and above `BORROW_JOBS` in its `Place the macOS jobs` step
+of `.github/workflows/cmux-next.yml`.
+
+Borrowing an idle pool beside a backed-up one (scripts/ci/side_lane_placement.py borrow_route()). On 2026-11-16
+at 03:16Z macos-pool-load showed glaeda-std-xcode-26.6 48 queued and glaeda-side-std-xcode-26.6 44 (oldest 113
+min) while glaeda-gui-std-xcode-26.6 had 0 queued, and the slowest PR verdicts ended on the Release compile. A
+same-repo PR's Release compile that no idle side or light runner took takes the gui label (`borrow_runner`,
+listed in `borrow_jobs`) only while the side route has a queue, the gui label has nothing queued, more idle
+runners than the reserve (1) plus this run's own GUI jobs, and fewer than BORROW_CAP (2) gui runners already run a
+borrowed job. The gui pool's own jobs keep first claim; a stale or unread reading borrows nothing. The job's
+runs-on reads it only in the attempt the placement ran. The detector is
+tests/test_ci_side_lane_placement.py::BorrowIdlePool.
+
+## note-387
+
+Above `GATEWAY_LABEL` in the `Place the macOS jobs` step of `.github/workflows/cmux-next.yml`.
+
+The build-fleet compiles' gateway, taken (or a wider class of it) only while a runner is idle
+(gateway_runner). With none idle, swift-canary-fleet does not run and swift-canary cascades. The PR's app
+compile took its gateway before the quiet period ended (app-compile-placement); with none, its Mac Release
+compile, which runs when app-compile-fleet gives no verdict, is in CASCADE_RUNS above.

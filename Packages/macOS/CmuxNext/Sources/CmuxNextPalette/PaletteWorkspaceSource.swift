@@ -79,9 +79,16 @@ public protocol PaletteWorkspaceSource: AnyObject {
     func selectWorkspace(id: String)
     func renameWorkspace(id: String, to title: String)
     func closeWorkspace(id: String)
+    /// Follows the workspace list: `changed` runs after each change from this call on (a workspace added,
+    /// removed or renamed), so an open Go to Workspace lists it. Returns a token; dropping it ends the follow.
+    /// Nil: the source never changes while the palette shows.
+    func followChanges(_ changed: @escaping @MainActor () -> Void) -> AnyObject?
 }
 
 public extension PaletteWorkspaceSource {
+    /// A source that never changes while the palette shows (tests, small fakes).
+    func followChanges(_ changed: @escaping @MainActor () -> Void) -> AnyObject? { nil }
+
     /// A source with no lookup of its own (tests, small fakes) answers from its list.
     func hasWorkspace(id: String) -> Bool { workspaces.contains { $0.id == id } }
 }
