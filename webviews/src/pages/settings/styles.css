@@ -2899,11 +2899,21 @@ button.menu-disclosure {
   height: var(--ds-icon-12);
 }
 
-.row-layout-add {
+/* The + beside a line's chips: a square the chips' height, its glyph centered. */
+.row-layout-add.button:not(.ui-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: var(--ds-control-compact);
   height: var(--ds-control-compact);
+  min-height: 0;
   padding: 0;
-  justify-content: center;
+  border-color: var(--border);
+}
+
+.row-layout-add .icon {
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
 }
 
 .row-layout-add-line {
