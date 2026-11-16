@@ -317,11 +317,11 @@
 /* Scene motion (sceneMotion.tsx): `transition` in and out, `contentTransition` on Text and
    `animation` on a node's own prop changes. The motion gate (WebTheme `data-cmux-motion`,
    `data-agent-motion`, Reduce Motion): off draws the end state; reduced crossfades instead of
-   moving. Leaves last 240 ms (SCENE_LEAVE_MS). */
+   moving. On the motion scale: entering standard, leaving quick (SCENE_LEAVE_MS). */
 .cmux-app-scene-root {
-  --cmux-app-scene-enter: 280ms;
-  --cmux-app-scene-leave: 240ms;
-  --cmux-app-scene-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --cmux-app-scene-enter: var(--cmux-motion-standard);
+  --cmux-app-scene-leave: var(--cmux-motion-quick);
+  --cmux-app-scene-ease: var(--cmux-ease-out);
 }
 .cmux-app-scene-node[data-leaving] {
   pointer-events: none;
@@ -370,19 +370,19 @@
 }
 :root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-animation="smooth"] {
   transition:
-    opacity 350ms ease,
-    color 350ms ease,
-    background-color 350ms ease,
-    transform 350ms ease,
-    text-decoration-color 350ms ease;
+    opacity var(--cmux-motion-standard) ease,
+    color var(--cmux-motion-standard) ease,
+    background-color var(--cmux-motion-standard) ease,
+    transform var(--cmux-motion-standard) ease,
+    text-decoration-color var(--cmux-motion-standard) ease;
 }
 :root:not([data-cmux-motion="off"]):not([data-agent-motion="off"]) .cmux-app-scene-node[data-animation="snappy"] {
   transition:
-    opacity 200ms ease,
-    color 200ms ease,
-    background-color 200ms ease,
-    transform 200ms ease,
-    text-decoration-color 200ms ease;
+    opacity var(--cmux-motion-micro) ease,
+    color var(--cmux-motion-micro) ease,
+    background-color var(--cmux-motion-micro) ease,
+    transform var(--cmux-motion-micro) ease,
+    text-decoration-color var(--cmux-motion-micro) ease;
 }
 /* Full motion moves; reduced keeps the crossfades above. */
 @media (prefers-reduced-motion: no-preference) {

@@ -6,10 +6,23 @@
 // WebTheme's `data-cmux-motion` off draws the end state at once; reduced (Reduce Motion, calm
 // motion) turns each movement into a crossfade.
 import { createContext, useContext, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
+import { MOTION_MS } from "../../motion/scale.generated";
 import type { SceneNode, SceneStore } from "./store";
 
-/** How long a removed node stays to leave; scene.css's leave animations match it. */
-export const SCENE_LEAVE_MS = 240;
+/** How long a removed node stays to leave: the motion scale's `quick` step, as scene.css's leave animations. */
+export const SCENE_LEAVE_MS = MOTION_MS.quick;
+
+/** The leave's length now: `--cmux-motion-quick` as the page computes it (ui.animationSpeed scales it). */
+function leaveMs(): number {
+  try {
+    const value = getComputedStyle(document.documentElement).getPropertyValue("--cmux-motion-quick").trim();
+    const number = Number.parseFloat(value);
+    if (!Number.isFinite(number) || number < 0) return SCENE_LEAVE_MS;
+    return value.endsWith("ms") ? number : value.endsWith("s") ? number * 1000 : number;
+  } catch {
+    return SCENE_LEAVE_MS;
+  }
+}
 
 export type SceneMotion = "full" | "reduced" | "off";
 
@@ -93,7 +106,7 @@ export function useSceneChildren(store: SceneStore, ids: readonly string[]): Sce
         s.leaving.delete(id);
         s.transitions.delete(id);
         redraw();
-      }, SCENE_LEAVE_MS);
+      }, leaveMs());
       timers.current.add(timer);
     }
   });

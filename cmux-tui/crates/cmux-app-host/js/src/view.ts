@@ -83,7 +83,7 @@ export class ViewNode {
    * the number grows, down when it shrinks), `opacity` crossfades. */
   contentTransition(v: "numericText" | "opacity") { return this.set("contentTransition", v) }
   /** Animates this node's own prop changes (opacity, colors, rotation, strikethrough) with a
-   * curve: `smooth` (about 0.35 s), `snappy` (about 0.2 s), `none`. */
+   * curve: `smooth` (the motion scale's standard step), `snappy` (its micro step), `none`. */
   animation(v: "smooth" | "snappy" | "none" = "smooth") { return this.set("animation", v) }
   // Behavior
   fixed() { return this.set("fixed", true) }
