@@ -5,7 +5,7 @@
 //!            (Linux, the production Cloud mode: the socket comes from systemd; src/systemd.rs;
 //!            media moves to a UDP link when the viewer offers one: src/hybrid.rs)
 //!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--max-width PX (macOS)] [--codec openh264|x264|videotoolbox] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
-//!            [--source synthetic|synthetic-still|synthetic-tick [--synthetic-size WxH]] (macOS bench builds, `host` and `serve`:
+//!            [--source synthetic|synthetic-still|synthetic-tick [--synthetic-size WxH] [--synthetic-scene bars|text|noise]] (macOS bench builds, `host` and `serve`:
 //!            a generated picture with the marker instead of the display; no grants needed; src/synthetic.rs)
 //!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
 //!   observe  --mode passive --pid VIEWER_PID --window CGWINDOW_ID --start-file PATH --marker-origin X,Y --cell-size N [--expected-nonce 32 lowercase hex] [--duration-s 10] [--interval-ms 1000]

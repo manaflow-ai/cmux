@@ -7,7 +7,7 @@
 use super::sys::{cf, cv, CFDictionaryRef, CFStringRef, CFTypeRef, CVPixelBufferRef};
 use crate::desktop::{Desktop, FrameSource, Halves};
 use crate::stream::SessionCfg;
-use crate::synthetic::{self, Motion, Nv12, Synthetic};
+use crate::synthetic::{self, Motion, Nv12, Painter, Synthetic};
 use crate::Res;
 use cmux_encode::framework;
 use cmux_encode::videotoolbox::{
@@ -77,6 +77,7 @@ pub struct SyntheticDesktop {
 pub struct SyntheticFrames {
     shared: Arc<Shared>,
     surface: PixelBuffer,
+    painter: Painter,
     size: (u32, u32),
     motion: Motion,
     /// Frames the bars have moved.
@@ -145,8 +146,8 @@ impl PixelBuffer {
         Ok(Self(buffer))
     }
 
-    /// Paints one picture (`synthetic::paint`) with the buffer locked for writing.
-    fn paint(&mut self, size: (u32, u32), counter: u32, phase: u32) -> Res<()> {
+    /// Paints one picture (`Painter::paint`) with the buffer locked for writing.
+    fn paint(&mut self, painter: &Painter, size: (u32, u32), counter: u32, phase: u32) -> Res<()> {
         let buffer = self.0;
         // SAFETY: our own pixel buffer, locked for the writes and unlocked before return;
         // the plane slices cover rows x bytes-per-row of each plane and end with the lock.
@@ -156,7 +157,7 @@ impl PixelBuffer {
             }
             let result = match (plane(buffer, 0), plane(buffer, 1)) {
                 (Some((y, y_stride)), Some((uv, uv_stride))) => {
-                    synthetic::paint(
+                    painter.paint(
                         &mut Nv12 {
                             y,
                             y_stride,
@@ -265,10 +266,14 @@ pub fn open(cfg: &SessionCfg, source: Synthetic) -> Res<Halves> {
         })
     });
     let ticker = ticker.transpose()?;
-    eprintln!("cmux-rd host: synthetic source {width}x{height}, {fps} fps, {:?}", source.motion);
+    eprintln!(
+        "cmux-rd host: synthetic source {width}x{height}, {fps} fps, {:?}, {:?}",
+        source.motion, source.scene
+    );
     let frames = SyntheticFrames {
         shared: shared.clone(),
         surface,
+        painter: Painter::new(source.scene, width as usize, height as usize),
         size: (width, height),
         motion: source.motion,
         moved: 0,
@@ -362,7 +367,7 @@ impl FrameSource for SyntheticFrames {
         if self.motion != Motion::Still {
             self.moved += 1;
         }
-        self.surface.paint(self.size, counter, synthetic::phase(self.moved))?;
+        self.surface.paint(&self.painter, self.size, counter, synthetic::phase(self.moved))?;
         // The picture exists the moment it is painted: shown and handed over at once.
         let now = crate::clock::now_ns() / 1000;
         self.picked = Some(damage);
@@ -410,7 +415,8 @@ mod tests {
         super::super::sys::load().expect("frameworks");
         let mut surface = PixelBuffer::new(1280, 720).expect("IOSurface-backed 420v buffer");
         assert!(surface.io_surface().is_some());
-        surface.paint((1280, 720), 41, 0).expect("paint");
+        let painter = Painter::new(crate::synthetic::Scene::Bars, 1280, 720);
+        surface.paint(&painter, (1280, 720), 41, 0).expect("paint");
         assert_eq!(surface.marker(), Some(41));
 
         // The desktop half: a key press bumps the counter and makes a frame due; a release,
@@ -438,7 +444,8 @@ mod tests {
         desktop.drain(&mut damage).expect("drain");
         assert_eq!(damage.len(), 1, "the press made one frame due");
         assert_eq!(damage[0].height, crate::marker::CELL);
-        surface.paint((1280, 720), shared.counter.load(Ordering::Relaxed), 0).expect("paint");
+        let counter = shared.counter.load(Ordering::Relaxed);
+        surface.paint(&painter, (1280, 720), counter, 0).expect("paint");
         assert_eq!(surface.marker(), Some(1));
     }
 }

@@ -11,6 +11,13 @@
 //!   synthetic-still  nothing moves; a frame goes out only when input bumps the counter
 //!   synthetic-tick   bars move and the counter also counts every frame (the fps probe, as
 //!                    the marker app's `--tick --motion`)
+//!
+//! `--synthetic-scene` picks what is under the marker. Flat bars compress to almost nothing, so
+//! the encoder spends far below any target; the harder scenes make it spend:
+//!
+//!   bars   flat bars moving 8 px a frame (the default)
+//!   text   dense pseudo-text, 8x16 glyph cells with tinted tokens, scrolling up 4 px a frame
+//!   noise  the bars with per-pixel grain baked in, moving 8 px a frame
 // Only the macOS host streams it; elsewhere `--source synthetic` is refused and the generator
 // runs in tests.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -41,10 +48,19 @@ pub enum Motion {
     Tick,
 }
 
+/// What the picture shows under the marker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scene {
+    Bars,
+    Text,
+    Noise,
+}
+
 /// The synthetic source of a host process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Synthetic {
     pub motion: Motion,
+    pub scene: Scene,
     pub size: (u32, u32),
 }
 
@@ -55,11 +71,13 @@ pub fn selected() -> Option<Synthetic> {
     SELECTED.get().copied()
 }
 
-/// Reads `--source` (and `--synthetic-size`) for `host` and `serve`. `screen` (the default)
-/// captures the display; the synthetic words need a macOS host, which encodes the generated
-/// surfaces with VideoToolbox.
+/// Reads `--source` (and `--synthetic-size`, `--synthetic-scene`) for `host` and `serve`.
+/// `screen` (the default) captures the display; the synthetic words need a macOS host, which
+/// encodes the generated surfaces with VideoToolbox.
 pub fn configure(opts: &Opts) -> Result<(), String> {
-    let Some(source) = parse(opts.get("source"), opts.get("synthetic-size"))? else {
+    let Some(source) =
+        parse(opts.get("source"), opts.get("synthetic-size"), opts.get("synthetic-scene"))?
+    else {
         return Ok(());
     };
     if !cfg!(target_os = "macos") {
@@ -70,10 +88,11 @@ pub fn configure(opts: &Opts) -> Result<(), String> {
     }
     let _ = SELECTED.set(source);
     eprintln!(
-        "cmux-rd: measurement only: --source {} streams a generated {}x{} picture, and viewer input bumps its marker instead of reaching this Mac",
+        "cmux-rd: measurement only: --source {} streams a generated {}x{} {:?} picture, and viewer input bumps its marker instead of reaching this Mac",
         name(source.motion),
         source.size.0,
-        source.size.1
+        source.size.1,
+        source.scene
     );
     Ok(())
 }
@@ -86,13 +105,19 @@ fn name(motion: Motion) -> &'static str {
     }
 }
 
-/// `--source` and `--synthetic-size` as a synthetic source; None for the display.
-pub fn parse(source: Option<&str>, size: Option<&str>) -> Result<Option<Synthetic>, String> {
+/// `--source`, `--synthetic-size` and `--synthetic-scene` as a synthetic source; None for the
+/// display.
+pub fn parse(
+    source: Option<&str>,
+    size: Option<&str>,
+    scene: Option<&str>,
+) -> Result<Option<Synthetic>, String> {
     let motion = match source.map(str::trim) {
         None | Some("screen") => {
-            return match size {
-                Some(_) => Err("--synthetic-size needs --source synthetic".into()),
-                None => Ok(None),
+            return match (size, scene) {
+                (Some(_), _) => Err("--synthetic-size needs --source synthetic".into()),
+                (_, Some(_)) => Err("--synthetic-scene needs --source synthetic".into()),
+                (None, None) => Ok(None),
             }
         }
         Some("synthetic") => Motion::Moving,
@@ -125,7 +150,13 @@ pub fn parse(source: Option<&str>, size: Option<&str>) -> Result<Option<Syntheti
             (w, h)
         }
     };
-    Ok(Some(Synthetic { motion, size }))
+    let scene = match scene.map(str::trim) {
+        None | Some("bars") => Scene::Bars,
+        Some("text") => Scene::Text,
+        Some("noise") => Scene::Noise,
+        Some(other) => return Err(format!("--synthetic-scene {other}: use bars, text or noise")),
+    };
+    Ok(Some(Synthetic { motion, scene, size }))
 }
 
 /// The marker row and a band of bars under it.
@@ -166,9 +197,180 @@ pub struct Nv12<'a> {
     pub height: usize,
 }
 
-/// Paints one picture: the marker showing `counter` at (0,0), a quiet band to the bars, and
-/// bars shifted by `phase` pixels below it. Every pixel is written, so a reused surface
-/// carries nothing from the last frame.
+/// Paints a scene: the marker at (0,0) over a quiet band, the scene under it. The text and
+/// noise scenes are a texture made once for the picture size and copied each frame at an
+/// offset, so painting costs one copy of the picture whatever the scene.
+pub struct Painter {
+    scene: Scene,
+    texture: Option<Texture>,
+}
+
+impl Painter {
+    pub fn new(scene: Scene, width: usize, height: usize) -> Self {
+        let rows = height.saturating_sub(BAND_ROWS).max(2) & !1;
+        let texture = match scene {
+            Scene::Bars => None,
+            Scene::Text => Some(Texture::text(width & !1, TEXT_ROWS)),
+            Scene::Noise => Some(Texture::noise(NOISE_TILE, rows)),
+        };
+        Self { scene, texture }
+    }
+
+    /// Paints one picture: the marker showing `counter`, and the scene moved on by `phase`
+    /// (frames x 8 px). Every pixel is written, so a reused surface carries nothing from the
+    /// last frame.
+    pub fn paint(&self, p: &mut Nv12<'_>, counter: u32, phase: u32) {
+        let Some(texture) = &self.texture else { return paint(p, counter, phase) };
+        band_and_marker(p, counter);
+        match self.scene {
+            // Scrolls up 4 px a frame (even, so chroma rows stay with their luma).
+            Scene::Text => texture.copy_into(p, 0, phase as usize / 2),
+            Scene::Bars | Scene::Noise => texture.copy_into(p, phase as usize, 0),
+        }
+    }
+}
+
+/// Text texture rows: 128 lines of 16 px, so the scroll repeats after 512 frames.
+const TEXT_ROWS: usize = 2048;
+/// The noise texture's width: it repeats every 1024 px across, with bars of 64.
+const NOISE_TILE: usize = 1024;
+
+/// A scene's texture: NV12 planes that wrap in both directions.
+struct Texture {
+    y: Vec<u8>,
+    uv: Vec<u8>,
+    /// Luma columns and rows, both even; chroma is half of each, interleaved, so a chroma row
+    /// is also `width` bytes.
+    width: usize,
+    rows: usize,
+}
+
+/// A pseudo-random 64-bit value for a key (splitmix64), so textures are the same every run.
+fn mix(key: u64) -> u64 {
+    let mut z = key.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
+}
+
+impl Texture {
+    /// Code-like text: lines of 8x16 glyph cells with ragged indents and ends, glyphs of
+    /// random strokes in a 5x9 box, each token tinted one of a few hues.
+    fn text(width: usize, rows: usize) -> Self {
+        const FG: u8 = 210;
+        const BG: u8 = 22;
+        let cols = width / 8;
+        let mut y = vec![BG; width * rows];
+        let mut uv = vec![NEUTRAL; width * rows / 2];
+        let tints: [(u8, u8); 4] = [(NEUTRAL, NEUTRAL), (170, 100), (90, 170), (160, 160)];
+        for line in 0..rows / 16 {
+            let seed = mix(line as u64);
+            let indent = (seed % 6) as usize * 2;
+            let room = cols.saturating_sub(indent + 12).max(1);
+            let end = (indent + 12 + (seed >> 8) as usize % room).min(cols);
+            let mut tint = tints[0];
+            for col in indent..end {
+                let cell = mix(seed ^ ((col as u64) << 20));
+                if cell.is_multiple_of(7) {
+                    // A space; the next token takes a new tint.
+                    tint = tints[(cell >> 8) as usize % tints.len()];
+                    continue;
+                }
+                for gy in 0..9 {
+                    let bits = mix(cell ^ (gy as u64 + 1));
+                    for gx in 0..5 {
+                        if (bits >> (gx * 7)) & 3 == 0 {
+                            y[(line * 16 + 3 + gy) * width + col * 8 + 1 + gx] = FG;
+                        }
+                    }
+                }
+                for cy in 0..8 {
+                    let at = (line * 8 + cy) * width + col * 8;
+                    for pair in uv[at..at + 8].chunks_exact_mut(2) {
+                        pair.copy_from_slice(&[tint.0, tint.1]);
+                    }
+                }
+            }
+        }
+        Self { y, uv, width, rows }
+    }
+
+    /// Bars 64 px wide (two row templates) with per-pixel grain of up to +/-28.
+    fn noise(width: usize, rows: usize) -> Self {
+        let mut y = vec![0; width * rows];
+        for row in 0..rows {
+            let lift = if (row / 64).is_multiple_of(2) { 0 } else { 12 };
+            for x in 0..width {
+                let k = x / 64;
+                let base = if k.is_multiple_of(2) { 40 } else { 60 + (k / 2 * 37) % 150 } + lift;
+                let grain = (mix(((row as u64) << 32) | x as u64) % 57) as i32 - 28;
+                y[row * width + x] = (base as i32 + grain).clamp(16, 235) as u8;
+            }
+        }
+        let chroma: Vec<u8> = (0..width / 2)
+            .flat_map(|cx| {
+                let k = cx * 2 / 64;
+                if k.is_multiple_of(2) {
+                    [NEUTRAL, NEUTRAL]
+                } else {
+                    [(64 + (k * 53) % 128) as u8, (64 + (k * 91) % 128) as u8]
+                }
+            })
+            .collect();
+        let uv = chroma.repeat(rows / 2);
+        Self { y, uv, width, rows }
+    }
+
+    /// Fills the picture under the band from the texture, `dx` columns across and `dy` rows
+    /// down into it, wrapping.
+    fn copy_into(&self, p: &mut Nv12<'_>, dx: usize, dy: usize) {
+        let (width, height) = (p.width, p.height);
+        for row in BAND_ROWS..height {
+            let src = (row - BAND_ROWS + dy) % self.rows * self.width;
+            let line = &mut p.y[row * p.y_stride..row * p.y_stride + width];
+            copy_wrapped(line, &self.y[src..src + self.width], dx);
+        }
+        for row in BAND_ROWS / 2..height / 2 {
+            let src = (row - BAND_ROWS / 2 + dy / 2) % (self.rows / 2) * self.width;
+            let line = &mut p.uv[row * p.uv_stride..row * p.uv_stride + width];
+            copy_wrapped(line, &self.uv[src..src + self.width], dx & !1);
+        }
+    }
+}
+
+/// Fills `dst` from `src` starting at `start`, wrapping to its beginning.
+fn copy_wrapped(dst: &mut [u8], src: &[u8], start: usize) {
+    let (mut at, mut out) = (start % src.len(), 0);
+    while out < dst.len() {
+        let n = (src.len() - at).min(dst.len() - out);
+        dst[out..out + n].copy_from_slice(&src[at..at + n]);
+        out += n;
+        at = 0;
+    }
+}
+
+/// The quiet band at the top with the marker showing `counter` over it, luma and chroma.
+fn band_and_marker(p: &mut Nv12<'_>, counter: u32) {
+    let width = p.width;
+    for row in 0..BAND_ROWS.min(p.height) {
+        p.y[row * p.y_stride..row * p.y_stride + width].fill(BAND);
+    }
+    let marker = cells(counter);
+    for row in 0..CELL as usize {
+        let line = &mut p.y[row * p.y_stride..row * p.y_stride + width];
+        for (i, white) in marker.iter().enumerate() {
+            let x = i * CELL as usize;
+            line[x..x + CELL as usize].fill(if *white { WHITE } else { BLACK });
+        }
+    }
+    for row in 0..(BAND_ROWS / 2).min(p.height / 2) {
+        p.uv[row * p.uv_stride..row * p.uv_stride + width].fill(NEUTRAL);
+    }
+}
+
+/// Paints one picture of the bars scene: the marker showing `counter` at (0,0), a quiet band
+/// to the bars, and bars shifted by `phase` pixels below it. Every pixel is written, so a
+/// reused surface carries nothing from the last frame.
 pub fn paint(p: &mut Nv12<'_>, counter: u32, phase: u32) {
     let (width, height) = (p.width, p.height);
     debug_assert!(width >= MIN_SIZE.0 as usize && height >= MIN_SIZE.1 as usize);
@@ -276,25 +478,92 @@ mod tests {
 
     #[test]
     fn source_words_and_sizes_parse() {
-        assert_eq!(parse(None, None), Ok(None));
-        assert_eq!(parse(Some("screen"), None), Ok(None));
-        assert!(parse(Some("screen"), Some("1280x720")).is_err());
+        assert_eq!(parse(None, None, None), Ok(None));
+        assert_eq!(parse(Some("screen"), None, None), Ok(None));
+        assert!(parse(Some("screen"), Some("1280x720"), None).is_err());
+        assert!(parse(Some("screen"), None, Some("text")).is_err());
         assert_eq!(
-            parse(Some("synthetic"), None),
-            Ok(Some(Synthetic { motion: Motion::Moving, size: DEFAULT_SIZE }))
+            parse(Some("synthetic"), None, None),
+            Ok(Some(Synthetic { motion: Motion::Moving, scene: Scene::Bars, size: DEFAULT_SIZE }))
         );
         assert_eq!(
-            parse(Some("synthetic-tick"), Some("1280x720")),
-            Ok(Some(Synthetic { motion: Motion::Tick, size: (1280, 720) }))
+            parse(Some("synthetic-tick"), Some("1280x720"), Some("text")),
+            Ok(Some(Synthetic { motion: Motion::Tick, scene: Scene::Text, size: (1280, 720) }))
         );
         assert_eq!(
-            parse(Some("synthetic-still"), None).map(|s| s.map(|s| s.motion)),
-            Ok(Some(Motion::Still))
+            parse(Some("synthetic-still"), None, Some("noise"))
+                .map(|s| s.map(|s| (s.motion, s.scene))),
+            Ok(Some((Motion::Still, Scene::Noise)))
         );
         for bad in ["1280", "1281x720", "320x240", "axb", "9000x720"] {
-            assert!(parse(Some("synthetic"), Some(bad)).is_err(), "{bad}");
+            assert!(parse(Some("synthetic"), Some(bad), None).is_err(), "{bad}");
         }
-        assert!(parse(Some("camera"), None).is_err());
+        assert!(parse(Some("camera"), None, None).is_err());
+        assert!(parse(Some("synthetic"), None, Some("video")).is_err());
+    }
+
+    fn scene_picture(painter: &Painter, w: usize, h: usize, counter: u32, ph: u32) -> Vec<u8> {
+        let (y_stride, uv_stride) = (w + 64, w + 64);
+        let mut y = vec![0xAA; y_stride * h];
+        let mut uv = vec![0xAA; uv_stride * h / 2];
+        painter.paint(
+            &mut Nv12 { y: &mut y, y_stride, uv: &mut uv, uv_stride, width: w, height: h },
+            counter,
+            ph,
+        );
+        // Every pixel was written, luma and chroma.
+        for r in 0..h {
+            assert!(y[r * y_stride..r * y_stride + w].iter().all(|&v| v != 0xAA), "y row {r}");
+        }
+        for r in 0..h / 2 {
+            assert!(uv[r * uv_stride..r * uv_stride + w].iter().all(|&v| v != 0xAA), "uv row {r}");
+        }
+        y
+    }
+
+    #[test]
+    fn every_scene_carries_the_marker_and_moves_under_it() {
+        let (w, h, stride) = (1280, 720, 1280 + 64);
+        for scene in [Scene::Bars, Scene::Text, Scene::Noise] {
+            let painter = Painter::new(scene, w, h);
+            let a = scene_picture(&painter, w, h, 0x2a5, phase(0));
+            let b = scene_picture(&painter, w, h, 0x2a5, phase(1));
+            assert_eq!(crate::marker::decode_luma_at(&a, stride, true, (0, 0)), Some(0x2a5));
+            assert_eq!(a[..BAND_ROWS * stride], b[..BAND_ROWS * stride], "{scene:?} band");
+            assert_ne!(a[BAND_ROWS * stride..], b[BAND_ROWS * stride..], "{scene:?} moved");
+        }
+    }
+
+    #[test]
+    fn text_scrolls_up_four_rows_a_frame_and_noise_slides_eight_columns() {
+        let (w, h, stride) = (1280, 720, 1280 + 64);
+        let text = Painter::new(Scene::Text, w, h);
+        let (a, b) =
+            (scene_picture(&text, w, h, 0, phase(0)), scene_picture(&text, w, h, 0, phase(1)));
+        for r in [BAND_ROWS, 300, h - 5] {
+            assert_eq!(b[r * stride..r * stride + w], a[(r + 4) * stride..(r + 4) * stride + w]);
+        }
+        let noise = Painter::new(Scene::Noise, w, h);
+        let (a, b) =
+            (scene_picture(&noise, w, h, 0, phase(0)), scene_picture(&noise, w, h, 0, phase(1)));
+        let r = 400 * stride;
+        assert_eq!(b[r..r + w - 8], a[r + 8..r + w]);
+    }
+
+    #[test]
+    fn text_and_noise_are_dense_and_bars_are_not() {
+        // Luma steps along a row: what makes a scene costly to encode.
+        let (w, h, stride) = (1920, 1080, 1920 + 64);
+        let steps = |scene| {
+            let y = scene_picture(&Painter::new(scene, w, h), w, h, 0, 0);
+            (BAND_ROWS..h)
+                .map(|r| y[r * stride..r * stride + w].windows(2).filter(|p| p[0] != p[1]).count())
+                .sum::<usize>()
+        };
+        let (bars, text, noise) = (steps(Scene::Bars), steps(Scene::Text), steps(Scene::Noise));
+        assert!(bars < (h - BAND_ROWS) * 50, "bars {bars}");
+        assert!(text > bars * 3, "text {text} vs bars {bars}");
+        assert!(noise > bars * 20, "noise {noise} vs bars {bars}");
     }
 
     #[test]
