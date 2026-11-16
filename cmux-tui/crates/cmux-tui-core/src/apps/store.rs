@@ -136,6 +136,9 @@ pub(crate) struct Listing {
     app: String,
     name: String,
     summary: String,
+    /// One line on what the person gets (manifest `tagline`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tagline: Option<String>,
     publisher: String,
     tier: Tier,
     version: String,
@@ -156,12 +159,16 @@ enum IconRef {
     Symbol(String),
 }
 
-/// `catalog.get`: the listing plus the scopes the app asks for and, for an
-/// app with a `deploy` block, where it runs.
+/// `catalog.get`: the listing plus its screenshots, the places the app shows
+/// up, the scopes it asks for and, for an app with a `deploy` block, where it
+/// runs.
 #[derive(Debug, Serialize)]
 pub(crate) struct AppDetail {
     #[serde(flatten)]
     listing: Listing,
+    /// Package paths; the page loads each through `asset.get`.
+    screenshots: Vec<String>,
+    contributes: Vec<Contribution>,
     scopes: Vec<ScopeRow>,
     /// Absent for an app with no `deploy` block.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -176,6 +183,87 @@ pub(crate) struct AppDetail {
 struct DeployFacts {
     targets: Vec<String>,
     tenancy: Vec<String>,
+}
+
+/// One place the app shows up: an interface it implements (`section`,
+/// `statusItem`, `pane`, `newTab`, `sessionInfo`) or a palette command
+/// (`command`). `title` is the interface's en title, else the app name; a
+/// command's is its palette title.
+#[derive(Debug, Serialize)]
+struct Contribution {
+    kind: &'static str,
+    title: String,
+}
+
+/// The interfaces a listing names, in the order the page shows them.
+const CONTRIBUTION_KINDS: [(&str, &str); 5] = [
+    ("cmux.section/1", "section"),
+    ("cmux.status/1", "statusItem"),
+    ("cmux.pane/1", "pane"),
+    ("cmux.newtab/1", "newTab"),
+    ("cmux.session.info.section/1", "sessionInfo"),
+];
+
+/// Where `package` shows up. Reads the catalog fragment from disk, so it
+/// runs outside the supervisor lock.
+fn contributions(package: &Package) -> Vec<Contribution> {
+    let m = &package.manifest;
+    let name = text(&m["name"]);
+    let mut rows: Vec<Contribution> = CONTRIBUTION_KINDS
+        .iter()
+        .filter_map(|&(interface, kind)| {
+            let implementation = m["implements"].get(interface)?;
+            let title = Some(text(&implementation["title"])).filter(|t| !t.is_empty());
+            Some(Contribution { kind, title: title.unwrap_or_else(|| name.clone()) })
+        })
+        .collect();
+    rows.extend(widget_contributions(&m["implements"]["cmux.widget/1"], &name));
+    rows.extend(
+        package
+            .palette_commands()
+            .iter()
+            .map(|command| Contribution { kind: "command", title: text(&command["title"]) }),
+    );
+    rows
+}
+
+/// A widget (`cmux.widget/1`) shows up once per place in `options.places`:
+/// `newtab` (kind `newTab`) and `sidebar` (kind `sidebarWidget`). With no
+/// `places` it shows up in both; a place this daemon does not know is
+/// skipped.
+fn widget_contributions(widget: &Value, name: &str) -> Vec<Contribution> {
+    if !widget.is_object() {
+        return Vec::new();
+    }
+    let title = Some(text(&widget["title"])).filter(|t| !t.is_empty());
+    let title = title.unwrap_or_else(|| name.to_string());
+    let Some(places) = widget["options"]["places"].as_array() else {
+        return ["newTab", "sidebarWidget"]
+            .into_iter()
+            .map(|kind| Contribution { kind, title: title.clone() })
+            .collect();
+    };
+    let mut kinds: Vec<&'static str> = Vec::new();
+    for place in places.iter().filter_map(Value::as_str) {
+        let kind = match place {
+            "newtab" => "newTab",
+            "sidebar" => "sidebarWidget",
+            _ => continue,
+        };
+        if !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
+    }
+    kinds.into_iter().map(|kind| Contribution { kind, title: title.clone() }).collect()
+}
+
+fn screenshots(manifest: &Value) -> Vec<String> {
+    manifest["screenshots"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|path| path.as_str().map(str::to_string))
+        .collect()
 }
 
 fn deploy_facts(manifest: &Value) -> Option<DeployFacts> {
@@ -304,6 +392,7 @@ fn listing(package: &Package, record: Option<&Record>) -> Listing {
         app: package.id.clone(),
         name: text(&m["name"]),
         summary: text(&m["description"]),
+        tagline: Some(text(&m["tagline"])).filter(|t| !t.is_empty()),
         publisher: package.id.split('/').next().unwrap_or_default().to_string(),
         tier: package.tier,
         version: package.version.clone(),
@@ -479,7 +568,16 @@ impl Supervisor {
         }
         let mut listing = listing(package, inner.mirror.apps.get(&p.app));
         annotate(&inner, &p.app, listing.install.as_mut());
-        Ok(AppDetail { listing, scopes, deploy: deploy_facts(&package.manifest) })
+        let package = package.clone();
+        // The catalog fragment is a file read: never under the supervisor lock.
+        drop(inner);
+        Ok(AppDetail {
+            listing,
+            screenshots: screenshots(&package.manifest),
+            contributes: contributions(&package),
+            scopes,
+            deploy: deploy_facts(&package.manifest),
+        })
     }
 
     fn installed_list(&self) -> InstalledListResult {
@@ -591,5 +689,35 @@ impl Supervisor {
             result.set("instance", self.deploy_start(&p.app, &key, target, spec));
         }
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn kinds(widget: Value) -> Vec<(&'static str, String)> {
+        widget_contributions(&widget, "Clock")
+            .into_iter()
+            .map(|row| (row.kind, row.title))
+            .collect()
+    }
+
+    /// A widget shows up once per place it names, in both places when it
+    /// names none; a place cmux does not know is skipped, not an error.
+    #[test]
+    fn a_widget_shows_up_once_per_place() {
+        let clock = |kind| (kind, "Clock".to_string());
+        let sidebar = json!({ "options": { "places": ["sidebar"], "sizes": ["small"] } });
+        assert_eq!(kinds(sidebar), [clock("sidebarWidget")]);
+        assert_eq!(kinds(json!({})), [clock("newTab"), clock("sidebarWidget")]);
+        let titled = json!({
+            "title": { "en": "World Clock", "ja": "世界時計" },
+            "options": { "places": ["newtab", "sidebar", "newtab", "dock"] },
+        });
+        let world = |kind| (kind, "World Clock".to_string());
+        assert_eq!(kinds(titled), [world("newTab"), world("sidebarWidget")]);
+        assert!(kinds(Value::Null).is_empty());
     }
 }

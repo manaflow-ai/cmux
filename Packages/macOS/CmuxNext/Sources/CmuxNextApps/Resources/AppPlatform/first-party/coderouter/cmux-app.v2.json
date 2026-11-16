@@ -8,8 +8,12 @@
   },
   "version": "0.2.0",
   "description": {
-    "en": "Set up and watch CodeRouter, the cmux model router: provider accounts, sharing, API keys, usage, failover order and a test request.",
-    "ja": "cmux のモデルルーター CodeRouter の設定と状況確認: プロバイダーアカウント、共有、API キー、使用量、フェイルオーバー順、テストリクエスト。"
+    "en": "Set up CodeRouter, the cmux model router, in a few steps: connect your provider accounts, share them with your team and route your agents through it. See health, usage, spend and failover order at a glance, create API keys and send a test request. Your keys and sign-ins stay with cmux; this app never sees them.",
+    "ja": "cmux のモデルルーター CodeRouter を数ステップで設定: プロバイダーのアカウントをつなぎ、チームと共有して、エージェントを CodeRouter 経由で動かします。状態、使用量、費用、フェイルオーバー順をひと目で確認し、API キーの作成やテストリクエストの送信もできます。キーとサインイン情報は cmux が保持し、このアプリが見ることはありません。"
+  },
+  "tagline": {
+    "en": "Connect your model accounts and route your agents through CodeRouter",
+    "ja": "モデルのアカウントをつなぎ、エージェントを CodeRouter 経由で動かします"
   },
   "publisher": {
     "name": "cmux",
@@ -78,13 +82,13 @@
     "hiddenByDefault": true
   },
   "scopes": {
-    "coderouter:read": "See CodeRouter status, your connected accounts, API key names, usage and failover order. Never a key or token.",
-    "coderouter:write": "Ask cmux to connect, share or remove an account and to route your agents through CodeRouter. cmux asks you and handles the secret.",
-    "actions:run": "Open the Accounts screen, sign in, and start a provider's own login when you click."
+    "coderouter:read": "See whether CodeRouter is healthy, which accounts are connected, the names of your API keys, your usage and the failover order. It never sees a key or token.",
+    "coderouter:write": "Ask cmux to connect, share or remove an account and to send your agents through CodeRouter. cmux asks you first and keeps the secret.",
+    "actions:run": "Open the Accounts screen and sign-in windows, and start a provider's own login when you click."
   },
   "optionalScopes": {
     "coderouter:execute": "Send one tiny test prompt through CodeRouter when you click Test. It uses a few tokens.",
-    "coderouter:keys": "Create and revoke CodeRouter API keys. cmux shows the new key once in its own window; this app never sees it."
+    "coderouter:keys": "Create and revoke CodeRouter API keys. cmux shows a new key once in its own window; this app never sees it."
   },
   "settings": {
     "type": "object",
