@@ -53,6 +53,7 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-source-scan",
+ "cmux-supervise-core",
  "cmux-tailnet",
  "cmux-transport",
  "cmux-tui-platform",
@@ -1675,6 +1676,7 @@ dependencies = [
  "cmux-link",
  "cmux-server",
  "cmux-server-core",
+ "cmux-supervise-core",
  "cmux-unix-socket",
  "flate2",
  "libc",
@@ -2133,6 +2135,17 @@ dependencies = [
  "regex",
  "syn 2.0.119",
  "toml",
+]
+
+[[package]]
+name = "cmux-supervise-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "cmux-tui-platform",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
