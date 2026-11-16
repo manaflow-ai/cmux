@@ -18,7 +18,7 @@ import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneSymbol } from "./SceneSymbol";
 import { SceneParticles } from "./SceneParticles";
 import { loopStyle, trimRange } from "./motionProps";
-import { sceneColor, sceneNumber, sceneStyle, sceneText, textStyle, sceneRecord } from "./sceneStyle";
+import { sceneColor, sceneNumber, sceneRecord, sceneStyle, sceneText, textStyle } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import { currentMotionEnv, useSceneMotion, type MotionPart } from "./useSceneMotion";
 import "./scene.css";
@@ -381,7 +381,6 @@ function contentOf(
       // An animated bar is a track and a fill the value scales, so the value runs on `animation`.
       if (props.animation !== undefined) {
         const fraction = Math.max(0, Math.min(1, value));
-        // oxlint-disable jsx-a11y/prefer-tag-over-role -- a native <progress> cannot spring its fill: the fill is a span the value scales, so the track carries the progressbar role.
         return (
           <span
             className="cmux-app-scene-progress-track"
@@ -399,7 +398,6 @@ function contentOf(
             />
           </span>
         );
-        // oxlint-enable jsx-a11y/prefer-tag-over-role
       }
       return (
         <progress
