@@ -53,6 +53,12 @@ pub struct SubOpts {
     /// Follows the chat's transcript rows (`_acpmux/rows` `follow`): each live record's row
     /// changes go out as `_acpmux/rows_patch` (`rows/serve.rs`).
     pub rows: Option<Arc<crate::rows::Following>>,
+    /// The client draws nothing of the chat while it is `hidden` (`_acpmux/attach`
+    /// `quietHidden`, the app's pane): its agent's `session/update` stream is left out until a
+    /// view shows it, which then says how much in one `_acpmux/lagged` (`view.rs`).
+    pub quiet_hidden: bool,
+    /// Stream records left out since the chat was last shown here (`quiet_hidden`).
+    pub left_out: u64,
 }
 
 /// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
@@ -684,6 +690,22 @@ impl Conn {
 
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
+    }
+
+    /// Whether a live stream record of `session_id` is left out here: its attachment draws nothing
+    /// while hidden (`SubOpts::quiet_hidden`) and is hidden now. Counted under the lock
+    /// `_acpmux/view` shows it under, so the `_acpmux/lagged` of that show covers every record
+    /// left out, and every record after it goes out (`view.rs` `view`).
+    // perf-hot: 1us acpmux-token-fanout (every streamed token, per hidden quiet attachment)
+    fn leaves_out_hidden(&self, session_id: &str) -> bool {
+        let mut subs = self.subs.lock_or_recover();
+        match subs.get_mut(session_id) {
+            Some(sub) if sub.quiet_hidden && sub.hidden && !sub.remote => {
+                sub.left_out += 1;
+                true
+            }
+            _ => false,
+        }
     }
     /// This daemon's own chats this connection is attached to.
     fn local_attached_ids(&self) -> Vec<String> {
@@ -2148,8 +2170,17 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Whether this record went out (or a replay sent it): a peer daemon's link hears of one
         // that did not by its seq alone (`MUX_UNSENT`).
         let mut sent = repeat || sub.event_stream;
-        if repeat {
-            // Sent by the replay.
+        // The agent's stream to a client that draws nothing of the chat while hidden: left out,
+        // and read again from its cursor once shown (`SubOpts::quiet_hidden`). Every other record
+        // (status, turn ends, asks, the queue) still goes, so its row and its asks stay current.
+        let quiet = sub.quiet_hidden
+            && sub.hidden
+            && rec.dir == "in"
+            && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
+            && (!sub.event_stream || sub.filter.matches_live(rec))
+            && conn.leaves_out_hidden(&ev.session_id);
+        if repeat || quiet {
+            // Sent by the replay, or left out while hidden.
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
                 conn.send(&Message::notification(
@@ -2219,6 +2250,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             ));
         }
         if let Some(following) = &sub.rows
+            && !quiet
             && ev.remote.is_none()
             && let Some((notice, params)) = crate::rows::live(hub, &ev.session_id, rec, following)
         {

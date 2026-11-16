@@ -190,6 +190,16 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         let before = look(sub);
         sub.hidden = !visible;
         sub.idle = visible && !attending;
+        // Shown again after its stream was left out (`SubOpts::quiet_hidden`): one lag notice,
+        // queued under this lock so it goes before any record the show lets through, and the
+        // client reads what it missed from its cursor, as after any other lag.
+        if visible && sub.left_out > 0 {
+            let dropped = std::mem::take(&mut sub.left_out);
+            conn.send(&Message::notification(
+                "_acpmux/lagged",
+                json!({"dropped": dropped, "reason": "hidden", "sessionIds": [s.id]}),
+            ));
+        }
         // Under the lock, so a detach racing this one counts the same look.
         back = hub.look_changed(&s, before, look(sub), seen_through);
     }

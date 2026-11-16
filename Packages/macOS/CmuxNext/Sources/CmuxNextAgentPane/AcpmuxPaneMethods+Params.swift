@@ -49,9 +49,11 @@ nonisolated extension AcpmuxPaneMethods {
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
         // `settled`: a cold open asks for acpmux's settled view (direct.ts sendAttach,
         // settled-attach-v1); refused, no chat opens once the daemon names it (#42185).
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled"], []),
+        // `attending`: the reader's hand on a shown chat, apart from `visible` (on screen); `quietHidden`: the
+        // page draws nothing while hidden, so acpmux leaves the agent's stream out until it shows (CMUX-571).
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "quietHidden", "waitLogs", "settled"], []),
         "_acpmux/detach": (["sessionId"], []),
-        "_acpmux/view": (["sessionId", "visible"], []),
+        "_acpmux/view": (["sessionId", "visible", "attending"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
         "_acpmux/typing": (["sessionId", "on"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),

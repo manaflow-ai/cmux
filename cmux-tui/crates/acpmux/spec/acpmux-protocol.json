@@ -2624,6 +2624,13 @@
             "null"
           ]
         },
+        "quietHidden": {
+          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "sessionId": {
           "type": "string"
         },
