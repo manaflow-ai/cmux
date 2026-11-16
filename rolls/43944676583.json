@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43944676583",
+  "recorded_at": "2026-11-16T20:01:27Z",
+  "reason": "cmux-tui af3da25de129 changes the image's cmux-tui (pinned c2ccb8326c93)",
+  "dry_run": false,
+  "cmux_tui": "af3da25de129b6b4c1783e2fee8633182c41f48b",
+  "fixes": [
+    {
+      "sha": "55a89d91b5f74d406e39000754bccadd7d0b44dd",
+      "mergedAt": "2026-11-16T11:20:24-08:00",
+      "subject": "sign-in: Rust owns the install token lease (renew at 2/3 of life, bounded mint, a named stall) (#44577)"
+    },
+    {
+      "sha": "74f0f65a2cdf60f8d397050121e8e5a57e9cbfe7",
+      "mergedAt": "2026-11-16T11:18:25-08:00",
+      "subject": "v2 row 11a: act wire and durable receipt ring (#44568)"
+    },
+    {
+      "sha": "03e5b034af0a8275e32839cca27ffd996dc4c2a6",
+      "mergedAt": "2026-11-16T11:16:30-08:00",
+      "subject": "agent pane: a v2 host for a chat's rows (#44353)"
+    },
+    {
+      "sha": "5cc5b32ec6f1f663d7aadba384cd4ae1364cb1f0",
+      "mergedAt": "2026-11-16T19:06:48Z",
+      "subject": "chore(next): base autofix at 0d1548863d8d"
+    },
+    {
+      "sha": "0d1548863d8d0799c4455e62436810b53456d2f6",
+      "mergedAt": "2026-11-16T11:03:39-08:00",
+      "subject": "fix(cmux NEXT): mark the three context-menu icon changes as awaiting the app FFI re-pin"
+    },
+    {
+      "sha": "466589340325a6c13d6e305421f9865df3363d35",
+      "mergedAt": "2026-11-16T10:59:10-08:00",
+      "subject": "8c A: owner-routed selector resolution (#44461)"
+    },
+    {
+      "sha": "5a586be13578ffafb85ed5512dc27665edff3986",
+      "mergedAt": "2026-11-16T10:53:03-08:00",
+      "subject": "cmux-rd view: view and control a Mac from Linux through the device hub (#44540)"
+    },
+    {
+      "sha": "47254fcf65a9b4498432fd9949a8b72db445636c",
+      "mergedAt": "2026-11-16T10:38:40-08:00",
+      "subject": "cmux device setup: agents install, start and keep cmux NIGHTLY running on your Macs (#43385)"
+    },
+    {
+      "sha": "9bbe07477705bcbd20cb61c852d494aec6749fd8",
+      "mergedAt": "2026-11-16T10:33:38-08:00",
+      "subject": "fix(cmux NEXT): no two rows of one context menu share an icon"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T20:01:27Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
