@@ -462,6 +462,41 @@ pub(super) fn keeps(git_dir: &Path, root: &Path, common_dir: &Path) -> bool {
     OwnFolder::open(git_dir).is_of(root, common_dir)
 }
 
+/// What the check of a worktree's git folder gives ([`kept`]).
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Kept {
+    /// The repository keeps the folder for the worktree, and git has no lock
+    /// on the worktree.
+    Yes,
+    /// The repository keeps the folder for the worktree, and git has its
+    /// lock on the worktree.
+    Locked,
+    /// The folder is open, and the repository does not keep it for the
+    /// worktree.
+    No,
+    /// The folder is not open: the kind of the error of its open.
+    NotOpened(std::io::ErrorKind),
+}
+
+/// The name that git gives the lock of a worktree in the worktree's git
+/// folder. `git worktree add` keeps the lock while it checks the files out.
+const LOCKED: &str = "locked";
+
+/// [`keeps`], and whether git has its lock on the worktree. The folder is
+/// opened here one time: the check and the look for the lock are at the
+/// folder that was opened, and the lock is read by its name in that folder,
+/// not by a path. A thing at the name is a lock; a link is not followed.
+pub(super) fn kept(git_dir: &Path, root: &Path, common_dir: &Path) -> Kept {
+    let folder = OwnFolder::open(git_dir);
+    if let Some(kind) = folder.not_opened() {
+        return Kept::NotOpened(kind);
+    }
+    if !folder.is_of(root, common_dir) {
+        return Kept::No;
+    }
+    if folder.has(LOCKED) { Kept::Locked } else { Kept::Yes }
+}
+
 /// A worktree folder with its links resolved, as the setup and its ports
 /// are kept by it (`~/.cmux/worktrees` is a link on macOS).
 pub(super) fn resolved(root: &Path) -> PathBuf {
