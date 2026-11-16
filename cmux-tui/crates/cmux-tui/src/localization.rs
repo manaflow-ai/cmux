@@ -277,7 +277,19 @@ static JAPANESE: Catalog = Catalog {
 
 pub(crate) fn catalog() -> &'static Catalog {
     static CATALOG: OnceLock<&'static Catalog> = OnceLock::new();
-    CATALOG.get_or_init(|| catalog_for_locale(&system_locale()))
+    CATALOG.get_or_init(|| {
+        catalog_for_settings(crate::feature_flags::settings().as_ref(), &system_locale())
+    })
+}
+
+/// The catalog for `app.language` in a settings document when it names a
+/// shipped locale, else for the environment's `locale`.
+pub(crate) fn catalog_for_settings(
+    settings: Option<&serde_json::Value>,
+    locale: &str,
+) -> &'static Catalog {
+    let chosen = settings.and_then(cmux_config::language::from_settings);
+    catalog_for_locale(cmux_config::language::resolve(chosen, &[locale]))
 }
 
 pub(crate) fn catalog_for_locale(locale: &str) -> &'static Catalog {
