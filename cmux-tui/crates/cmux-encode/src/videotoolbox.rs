@@ -149,6 +149,12 @@ crate::framework! {
     }
 }
 
+crate::framework! {
+    mod vt_qp_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        static kVTCompressionPropertyKey_MinAllowedFrameQP: CFStringRef;
+    }
+}
+
 /// Loads the frameworks the encoder binds at run time (crate::dynlib); an error says which
 /// framework or symbol is missing.
 // Each module's `available` also arrives through its glob import; the path names which one.
@@ -376,6 +382,15 @@ fn create_session(
             let no_delay = number_i32(0);
             set(vt_speed_sys::kVTCompressionPropertyKey_MaxFrameDelayCount(), no_delay);
             CFRelease(no_delay);
+        }
+        // PROBE (scratch): a fixed QP floor of 45 on the standard session.
+        if vt_qp_sys::available().is_ok() {
+            let floor = number_i32(45);
+            let st = set(vt_qp_sys::kVTCompressionPropertyKey_MinAllowedFrameQP(), floor);
+            eprintln!("probe: MinAllowedFrameQP=45 set status {st}");
+            CFRelease(floor);
+        } else {
+            eprintln!("probe: MinAllowedFrameQP symbol missing");
         }
     }
     Ok(session)
