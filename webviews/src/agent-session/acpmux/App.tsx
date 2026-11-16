@@ -4994,6 +4994,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// draft (CloudStartChat `openUploaded`). On failure the prompt comes back in front of it. A start
   /// the host has said nothing about for minutes (cloudStartProgress.ts `CLOUD_START_STALL_MS`)
   /// stalled: the card says so, and the start is still out.
+  /// The chat view shows the start (CloudStartView: the sent prompt, its steps, a failure and Retry) in place
+  /// of the new chat: one with no session, or an empty local chat the start replaces (`emptyLocalChat`).
+  const cloudStartShown = cloudStart !== undefined && (!snapshot.sessionId || emptyLocalChat);
   const cloudStarting = cloudStart?.state === "starting";
   /// Nothing that starts a chat goes from this tab while a Cloud start is out, stalled or not: if it
   /// still opens its chat, the host closes this tab, with a chat started here in it.
@@ -14108,7 +14111,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   />
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
-                ) : cloudStart && !snapshot.sessionId ? (
+                ) : cloudStartShown ? (
                   <CloudStartView
                     start={cloudStart}
                     onAnswer={answerCloudStart}
@@ -14173,7 +14176,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {/* Between the hero and the docked composer. */}
                 {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
                     Neither does a Cloud start's chat, which shows its sent message (CloudStartView). */}
-                {freshView && !sandboxHoldsChat && !viewedSandbox && !(cloudStart && !snapshot.sessionId) && (
+                {freshView && !sandboxHoldsChat && !viewedSandbox && !cloudStartShown && (
                   <div className="acpmux-home-area">
                     <HomeLists
                       sessions={snapshot.sessions}

@@ -134,12 +134,13 @@ type Debug = {
 const debug = () => (dom.window as unknown as { cmuxAcpmuxDebug?: Debug }).cmuxAcpmuxDebug!;
 const actions = () => (dom.window as unknown as { cmuxAcpmuxActions?: Record<string, unknown> }).cmuxAcpmuxActions;
 
-/// A new chat on the mock daemon whose host offers Cloud. `cloud.startChat` waits forever (the start is
-/// out); `holdCheck` keeps the tab's `sandbox.state` read unanswered until `check()`.
+/// A new chat on the mock daemon whose host offers Cloud. `cloud.startChat` waits until `fail` (the start
+/// is out); `holdCheck` keeps the tab's `sandbox.state` read unanswered until `check()`.
 async function mount(ready: Record<string, unknown> = {}, holdCheck = false) {
   if (!restoreAnswer) await trustFolder();
   const starts: Record<string, unknown>[] = [];
   let answerCheck: (() => void) | undefined;
+  let settle: ((reply: unknown) => void) | undefined;
   Object.assign(dom.window, {
     webkit: {
       messageHandlers: {
@@ -147,7 +148,7 @@ async function mount(ready: Record<string, unknown> = {}, holdCheck = false) {
           postMessage: (message: { method: string; params?: Record<string, unknown> }) => {
             if (message.method === "cloud.startChat") {
               starts.push({ ...message.params });
-              return new Promise(() => undefined);
+              return new Promise((done) => (settle = done));
             }
             if (message.method === "sandbox.state" && holdCheck && !answerCheck)
               return new Promise((done) => (answerCheck = () => done({ ok: true, value: {} })));
@@ -180,7 +181,17 @@ async function mount(ready: Record<string, unknown> = {}, holdCheck = false) {
   root = createRoot(host);
   await act(async () => root!.render(<AcpmuxApp />));
   await until(() => actions() !== undefined && promptField() !== undefined, "the new chat connects");
-  return { starts, check: () => act(async () => answerCheck?.()) };
+  return {
+    starts,
+    check: () => act(async () => answerCheck?.()),
+    fail: () =>
+      act(async () =>
+        settle?.({
+          ok: false,
+          error: { code: "cloud_start_failed", userMessage: "The machine stopped answering.", retryable: true },
+        }),
+      ),
+  };
 }
 
 /// The inherited agent starts at once, as New Agent Chat beside a chat does: an idle local chat shows.
@@ -191,6 +202,9 @@ async function openEmptyLocalChat(): Promise<string> {
   for (let step = 0; step < 10; step += 1) await tick();
   return debug().chatState().sessionId!;
 }
+
+const startCard = () => host.querySelector<HTMLElement>(".acpmux-cloud-start");
+const bubbles = () => [...host.querySelectorAll(".cv-user__bubble")].map((bubble) => bubble.textContent ?? "");
 
 async function pressSend() {
   const editable = promptElement()!.querySelector<HTMLElement>("[contenteditable]")!;
@@ -217,6 +231,21 @@ test("an empty chat whose local session opened first picks Cloud in place, and i
   // The empty local chat never got the prompt.
   expect(daemonCalls.filter((method) => method === "session/prompt").length).toBe(prompts);
   expect(debug().chatState().rows).toBe(0);
+  // The chat view shows the start as the no-session path does: the sent prompt and its card, not the hero.
+  await until(() => startCard()?.dataset.state === "starting", "the start card shows while the start is out");
+  expect(bubbles().some((text) => text.includes(PROMPT))).toBe(true);
+  expect(host.querySelector(".acpmux-home-area")).toBeNull();
+  // A failure says why and offers Retry, which sends the start again for the same empty chat.
+  await pane.fail();
+  await until(() => startCard()?.dataset.state === "failed", "the card shows the failure");
+  expect(startCard()!.textContent).toContain("The machine stopped answering.");
+  const retry = () => host.querySelector<HTMLButtonElement>(".acpmux-cloud-start__retry");
+  await until(() => retry() !== null, "the failure offers Retry");
+  await act(async () => retry()!.click());
+  await until(() => pane.starts.length === 2, "Retry starts again");
+  expect(pane.starts[1]!.task).toBe(PROMPT);
+  expect(pane.starts[1]!.replacesChat).toBe(session);
+  await until(() => startCard()?.dataset.state === "starting", "the card shows the retried start");
 }, 60_000);
 
 test("New Cloud Chat's pick is taken once Cloud is offered, also after the empty local chat opened", async () => {
