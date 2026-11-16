@@ -56,6 +56,8 @@ sys.path.insert(0, HERE)
 import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 import tab_switch_judge as judge  # noqa: E402
+sys.path.append(os.path.join(HERE, "..", "ci"))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 TURNS_AGENT = ("tab-switch-turns", os.path.join(HERE, "chat_open_agent.py"))
 STREAM_AGENT = ("tab-switch-stream", os.path.join(HERE, "idle_cost_agent.py"))
@@ -232,7 +234,9 @@ class Recorder:
                 self.send("quit")
                 self.process.wait(timeout=10)
             except (OSError, subprocess.TimeoutExpired):
-                os.killpg(self.process.pid, signal.SIGKILL)  # this run's own recorder, by its own process group
+                pass
+        # this run's own recorder, by its own process group, whatever its leader's state: a child would outlive it
+        kill_group(self.process, signal.SIGKILL)
 
 
 # ---------------------------------------------------------------------------------------------------------------

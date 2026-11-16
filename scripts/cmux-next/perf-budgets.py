@@ -36,8 +36,6 @@ Local, on a built app (never on a laptop that is in use):
   perf-budgets.py --tag T --app "<...>/cmux DEV T.app" --out DIR --json DIR/report.json
 """
 import argparse, importlib.util, json, os, platform, re, statistics, subprocess, sys, time
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
-from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUDGETS_FILE = os.path.join(HERE, "perf-budgets.json")
@@ -163,6 +161,10 @@ def start_load(tier, scratch):
 
 def stop_load(procs, scratch):
     import signal
+    # Imported here, not at the top: the perf cron's report job loads this module from a sparse checkout without
+    # scripts/ci, only to compare rows, and never stops a load (cmux#43836 review P1-F1).
+    sys.path.append(os.path.join(HERE, '..', 'ci'))
+    from ci_process_tree import kill_group  # a refused killpg still kills the leader
     for proc in procs:
         kill_group(proc, signal.SIGTERM)
     for proc in procs:
