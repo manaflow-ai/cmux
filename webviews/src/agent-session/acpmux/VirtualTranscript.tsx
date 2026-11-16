@@ -5523,14 +5523,23 @@ function TranscriptView({
   const anchorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latestLayout = useRef({ layout, rows });
   latestLayout.current = { layout, rows };
-  /// Lets the room above the loaded rows go when the view is within a viewport of their top with no
-  /// page there yet (`roomGone` above). Runs after each placement and on every scroll event.
+  /// Lets the room above the loaded rows go when they are a tail shorter than the view and the view is
+  /// within a viewport of their top with no page there yet (`roomGone` above). Runs after each
+  /// placement and on every scroll event.
+  ///
+  /// Rows that fill the view keep the room: the reader stops at the loaded rows' top (`handleScroll`)
+  /// until the page lands into it. Given up there, the room went at every page the reader caught up
+  /// with and came back whole, the chat's estimated height, when the next page landed: the thumb leapt
+  /// from the top to the bottom and back once a page, and the row on screen jumped by up to a viewport
+  /// as the room came back (Leo, 2026-11-15: "this is super wack the way we're scrolling up
+  /// infinitely :("; test/transcript-older-pages-anchor.test.ts).
   const giveRoomNearTop = () => {
     const node = ref.current;
     const room = layout.origin ?? 0;
     const first = rows[0];
     if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current || node.clientHeight === 0) return;
     if (userScrollIntent(node).isScrollbarDragging()) return;
+    if (node.scrollHeight - room >= node.clientHeight) return;
     if (layoutScrollTop(node) - room >= node.clientHeight * OLDER_LATE_VIEWPORTS) return;
     // A tail shorter than the view keeps its place at the view's foot: the room left is what lies
     // between the view's top and the rows, so nothing scrolls (read from the scroller itself, whose
@@ -5799,11 +5808,15 @@ function TranscriptView({
     const gone = roomGone !== undefined && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId;
     const room = gone ? 0 : (latestLayout.current.layout.origin ?? 0);
     if (room > 0 && layoutScrollTop(node) < room && !userScrollIntent(node).isScrollbarDragging()) {
+      // Only a pointer held on the scroller (a thumb drag the scrollbar check missed) keeps its target
+      // for the page to bring into reach. A wheel's step into the room is given back here and stays
+      // given back: kept, it was replayed in one frame when the page landed, and the row being read
+      // leapt by that step on top of the wheel's own (test/transcript-older-pages-anchor.test.ts).
       olderScrollTarget.current = noteOlderScrollTarget(
         olderScrollTarget.current,
         layoutScrollTop(node),
         room,
-        userScrollIntent(node).isHeld(),
+        userScrollIntent(node).isPressed(),
       );
       wheelGlide.current?.stop();
       node.scrollTop = physicalScrollTop(node, room);
@@ -6643,6 +6656,8 @@ function TranscriptView({
   // A wheel up with the view already at the loaded rows' top moves nothing, so no scroll event says the reader
   // wants more: it asks itself, unless an ask is still out.
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    // Held at the loaded rows' top, a wheel up moves nothing: the reader is still scrolling up (`rising`).
+    if (event.deltaY < 0) olderAhead.wheeledUp(performance.now());
     const loadedTop = layout.origin ?? 0;
     if (event.deltaY >= 0 || layoutScrollTop(event.currentTarget) > loadedTop + 0.5 || olderAsking.current) return;
     olderLoadRequested.current = undefined;
