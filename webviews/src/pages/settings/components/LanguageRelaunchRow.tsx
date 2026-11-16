@@ -1,6 +1,6 @@
-// Settings > General > Language: the web UI switches language live, but the app's native menus
-// keep the language the app launched in. While the two differ, a row under the Language row offers
-// to relaunch (the host op cmux.settings.language.relaunch).
+// Settings > General > Language: the web UI and native text switch language live, but the menu bar
+// and command names keep the language the app launched in. While the two differ, a row under the
+// Language row offers to relaunch (the host op cmux.settings.language.relaunch).
 import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import { rowsByKey } from "../schema";
@@ -31,7 +31,7 @@ export function menusNeedRelaunch(
   return chosen !== launch;
 }
 
-/** "Relaunch to update menus" with its Relaunch button, only while the menus' language differs. */
+/** The relaunch row with its Relaunch button, only while the menus' language differs. */
 export function LanguageRelaunchRow() {
   const store = useStore();
   const state = useSettingsState();

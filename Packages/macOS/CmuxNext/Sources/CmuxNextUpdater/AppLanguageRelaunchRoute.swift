@@ -3,7 +3,8 @@ public import CmuxNextSettings
 public import Foundation
 
 /// Settings > General > Language's relaunch row (`app.language`): `cmux.settings.language.relaunch {}`
-/// relaunches the app so the menus and native text take the new language, keeping every session.
+/// relaunches the app so the menu bar and command names (made once per launch) take the new language,
+/// keeping every session; the rest of the native text and the pages switch live.
 @MainActor
 public final class AppLanguageRelaunchRoute: PageProvider {
     public static let prefix = "cmux.settings.language."

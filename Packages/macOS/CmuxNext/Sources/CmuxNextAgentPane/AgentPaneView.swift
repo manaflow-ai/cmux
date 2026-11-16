@@ -114,6 +114,8 @@ public final class AgentPaneView: NSView {
         self?.evaluateScript($0)
     }
     private var uiScaleObservation: Task<Void, Never>?
+    /// Hands the old host's document `app.language` on every change (``observeLanguage()``).
+    private var languageObservation: Task<Void, Never>?
     /// The indicator while Computer use can act as me is on; it has no pill until the grant is on (``showActAsMe(_:)``).
     let actAsMePill = AgentPaneActAsMePill()
     public var zoom: Double = 1 {
@@ -366,6 +368,7 @@ public final class AgentPaneView: NSView {
         observeMotion()
         observeUIScale()
         observeIconFamily()
+        observeLanguage()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
@@ -394,6 +397,30 @@ public final class AgentPaneView: NSView {
             for await _ in ObservationStream({ IconFamily.tunable.value }) {
                 guard let self else { return }
                 self.applyIconFamily()
+            }
+        }
+    }
+
+    /// Hands the page `app.language` (nil: System): the page host's ``PageWebView`` takes it
+    /// itself; the old host's document gets the same call (``PageWebView/languageScript(_:)``) on
+    /// load, on the handshake and on every change, so the chat switches language live.
+    func applyLanguage() {
+        if let page {
+            page.applyLanguage()
+            return
+        }
+        evaluateScript(PageWebView.languageScript(DesignSettings.shared.appLanguage))
+    }
+
+    /// The old host only: `AppLanguageApplier` pushes every change to the registered pages, which
+    /// the page host's ``PageWebView`` is and the old host's web view is not.
+    private func observeLanguage() {
+        guard page == nil else { return }
+        // task-owner: this pane (cancelled in close()); event-driven (Observation).
+        languageObservation = Task { [weak self] in
+            for await _ in ObservationStream({ DesignSettings.shared.appLanguage }) {
+                guard let self else { return }
+                self.applyLanguage()
             }
         }
     }
@@ -442,6 +469,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            languageObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
             model.sessionInfo.hostObservation?.cancel()
@@ -536,6 +564,8 @@ public final class AgentPaneView: NSView {
         motionObservation = nil
         iconFamilyObservation?.cancel()
         iconFamilyObservation = nil
+        languageObservation?.cancel()
+        languageObservation = nil
         sessionStatusObservation?.cancel()
         model.sessionInfo.hostObservation?.cancel()
         model.sessionInfo.hostObservation = nil

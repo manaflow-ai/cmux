@@ -102,7 +102,8 @@ extension SidebarBridge {
             // the workspaces tiles and top rows name. The selected item comes from the one selection.
             for await (layout, unread, homeUnread, shortcuts, workspaces, picture) in ObservationStream({
                 () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?) in
-                _ = (apps.apps, ChiefSidebar.shared.status)
+                // The language too: the items' titles are looked up below, outside this observation.
+                _ = (apps.apps, ChiefSidebar.shared.status, AppLanguage.shared.code)
                 return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
                         Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs, autoNames: settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true, pageFace: pageFace, faces: faces), chiefPicture())
             }) {

@@ -9,7 +9,7 @@ import CmuxNextSettings
 extension PageWebView {
     /// The call that hands a page its language: the code as a JSON string, or `null` for System.
     /// Optional-called: a page bundle older than the global ignores it.
-    nonisolated static func languageScript(_ code: String?) -> String {
+    public nonisolated static func languageScript(_ code: String?) -> String {
         "window.__cmuxSetAppLanguage?.(\(code.map { JSONValue.string($0).compactText } ?? "null"));"
     }
 

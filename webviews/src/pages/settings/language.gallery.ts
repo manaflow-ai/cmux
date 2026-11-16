@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // Settings > General > Language (`app.language`): the language picker (System and every shipped
 // locale, each in its own name) and, while the app's menus still use the language it launched in
-// (English here), the Relaunch to update menus row under it.
+// (English here), the Relaunch to update menus and command names row under it.
 import { settingsPageEntry, type SettingsPageVariant } from "../../gallery/format";
 
 const variant = (value: string, note: string, relaunch: boolean): SettingsPageVariant => ({
@@ -22,6 +22,6 @@ export default settingsPageEntry({
   variants: {
     english: variant("en", "English, the language the app launched in: no Relaunch row.", false),
     japanese: variant("ja", "日本語 picked: the menus keep English until Relaunch.", true),
-    german: variant("de", "Deutsch picked: the Relaunch to update menus row under Language.", true),
+    german: variant("de", "Deutsch picked: the Relaunch to update menus and command names row under Language.", true),
   },
 });

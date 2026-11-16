@@ -5,11 +5,13 @@ public import Foundation
 
 /// Applies `app.language` (Leo, 2026-11-16: "we gotta add settings for changing languages"). The
 /// language logic is cmux-config's and the pages'; this only hands the chosen code (nil: System) to
-/// the two readers:
-/// - the app's own `AppleLanguages`, in its defaults domain and never the global one: the menus,
-///   `Bundle` and every `String(localized:)` read it at the next launch, so native text switches
-///   after a relaunch (Settings' relaunch row, `AppLanguageRelaunchRoute`);
-/// - every first-party page (``PageWebView/applyLanguage()``), which switches at once.
+/// its readers:
+/// - cmux's own string bundles (``AppLanguage``), so native text switches at once: every view
+///   that looked up a cmux string in an observation scope runs again;
+/// - every first-party page (``PageWebView/applyLanguage()``), which switches at once;
+/// - the app's own `AppleLanguages`, in its defaults domain and never the global one: the menu bar
+///   and the action catalog (command titles), made once per launch, take it at the next launch
+///   (Settings' relaunch row, `AppLanguageRelaunchRoute`).
 @MainActor
 public final class AppLanguageApplier {
     static let languagesKey = "AppleLanguages"
@@ -57,8 +59,9 @@ public final class AppLanguageApplier {
         defaults.removeObject(forKey: Self.appliedKey)
     }
 
-    /// The code for every later document, and now to every live one.
+    /// The code for cmux's native text, every later document, and now every live one.
     private static func pushToPages(_ code: String?) {
+        AppLanguage.shared.set(code)
         guard DesignSettings.shared.appLanguage != code else { return }
         DesignSettings.shared.appLanguage = code
         for page in PageRegistry.pages() { page.applyLanguage() }
