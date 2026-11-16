@@ -537,6 +537,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn serve_preserves_frame_boundaries_before_the_link_connects() {
+        let local = KeyPair::generate().unwrap();
+        let peer = KeyPair::generate().unwrap();
+        let net = Net::start(NetConfig {
+            role: Role::Responder,
+            session: b"serve-queue-test".to_vec(),
+            local,
+            expected_remote: peer.public,
+            stun: Vec::new(),
+            bind: "127.0.0.1:0".parse().unwrap(),
+            turn: Vec::new(),
+            relay_only: false,
+        })
+        .unwrap();
+        let mut carrier = ServeCarrier {
+            link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
+            app: AppLines { buf: Vec::new() },
+        };
+        carrier.send_datagram_frame(vec![vec![1], vec![2]], true).unwrap();
+        carrier.send_datagram_frame(vec![vec![3]], true).unwrap();
+        let stats = carrier.media_queue_stats().unwrap();
+        assert_eq!(stats.queue_frames, 1);
+        assert_eq!(stats.queue_datagrams, 1);
+        assert_eq!(stats.dropped_replaced_frames, 1);
+        assert_eq!(stats.dropped_replaced_datagrams, 2);
+    }
+
+    #[test]
     fn portal_sessions_control_only_with_a_remote_desktop_grant() {
         // Without the grant the portal drops input: a control session there would not be one.
         let x11 = CaptureBackend::X11.applies_input_with(false);

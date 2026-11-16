@@ -67,6 +67,43 @@ fn a_session_runs_over_real_udp_sockets() {
 }
 
 #[test]
+fn queued_frames_replace_whole_frames_without_dropping_control_or_input() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public);
+    let viewer = start(Role::Initiator, &v, h.public);
+    // No route exists yet, so the driver cannot race the replacement.
+    host.send_datagram_frame(vec![b"old-a".to_vec(), b"old-b".to_vec()], true);
+    host.send_control(b"control".to_vec());
+    host.send_datagram_frame(vec![b"new-a".to_vec(), b"new-b".to_vec()], true);
+    assert_eq!(host.stats().dropped_frames, 1);
+    assert_eq!(host.stats().dropped_datagrams, 2);
+    assert_eq!(host.stats().queue_frames, 1);
+    // These commands are queued only after the handshake below; they must
+    // not evict media while preserving the legacy pre-handshake semantics.
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    host.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: viewer.local_addr() });
+    let mut at_host = Vec::new();
+    assert!(wait(&host, &mut at_host, |events| events
+        .contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)))));
+    host.send_datagram(b"input".to_vec());
+    host.send_datagram(b"repair".to_vec());
+    let mut received = Vec::new();
+    let control = NetEvent::Endpoint(EndpointEvent::Link(Event::Control(b"control".to_vec())));
+    let packets = [b"input".to_vec(), b"repair".to_vec(), b"new-a".to_vec(), b"new-b".to_vec()];
+    assert!(wait(&viewer, &mut received, |events| {
+        events.contains(&control)
+            && packets.iter().all(|data| {
+                events.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(
+                    data.clone(),
+                ))))
+            })
+    }));
+    assert!(!received.iter().any(|event| matches!(event,
+        NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(data)))
+        if data.starts_with(b"old-"))));
+}
+
+#[test]
 fn a_stun_server_that_resolves_after_start_still_gives_the_reflexive_candidate() {
     // A STUN server on loopback that answers every binding request with a fixed address.
     let server = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
