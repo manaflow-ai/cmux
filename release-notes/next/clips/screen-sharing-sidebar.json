@@ -4,6 +4,8 @@
   "settings": {"sidebar": {"groupByComputer": false}},
   "steps": [
     {"title": "Launch", "wait": 2},
+    {"title": "A workspace, so the sidebar lists Projects (a fresh launch shows only Home)", "cmux": ["workspace", "new", "--name", "Build"]},
+    {"title": "Show it (a new workspace takes no focus)", "cmux": ["workspace", "name:Build", "focus"], "wait": 1.5},
     {"title": "Share beside Projects", "wait": 1.5, "clip": true},
     {
       "title": "Share beside This Mac in the grouped layout",
