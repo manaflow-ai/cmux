@@ -197,6 +197,25 @@ impl Entry {
     }
 }
 
+/// Convert a transport entry at the row-9 seam. The core record builder remains independent of
+/// the host/controller implementation and receives no `Session` or hub handle.
+impl From<Entry> for acpmux_core::chat::record::RecordEntry {
+    fn from(entry: Entry) -> Self {
+        match entry {
+            Entry::Tap { dir, msg } => Self::Tap {
+                dir: match dir {
+                    TapDir::In => acpmux_core::chat::record::TapDirection::In,
+                    TapDir::Out => acpmux_core::chat::record::TapDirection::Out,
+                },
+                msg,
+            },
+            Entry::In { msg } => Self::In { msg },
+            Entry::Err { line } => Self::Err { line },
+            Entry::Exit { code } => Self::Exit { code },
+        }
+    }
+}
+
 /// What the controller asks the host to run. Sent once on the private
 /// bootstrap pipe; never written to disk (it carries the environment), but
 /// for the caller token the host keeps in its record (`HostRecord::caller_token`).
