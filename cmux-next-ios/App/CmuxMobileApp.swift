@@ -53,6 +53,8 @@ struct CmuxMobileApp: App {
                 ShellScreenSharingDemo()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
+            } else if TerminalHistoryWindowDemoRoot.isRequested {
+                TerminalHistoryWindowDemoRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
                 TerminalDemoRoot()
             } else {
