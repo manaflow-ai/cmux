@@ -25,14 +25,18 @@ class ParseTests(unittest.TestCase):
 
     def test_passive_series_gives_mbps_and_target_per_second(self):
         report = {'seconds': 2.0, 'bytes': 2_000_000, 'fps': 30, 'decoded_frames': 60, 'ended': None,
-                  'series': [{'bytes': 1_250_000, 'duration_ms': 1000, 'host_stats': {'kbps': 8000, 'keyframes': 1}},
-                             {'bytes': 750_000, 'duration_ms': 500, 'host_stats': {'kbps': 1100, 'keyframes': 3}},
+                  'series': [{'bytes': 1_250_000, 'duration_ms': 1000, 'decoded_frames': 30,
+                              'host_stats': {'kbps': 8000, 'keyframes': 1}},
+                             {'bytes': 1_000_000, 'duration_ms': 500, 'decoded_frames': 10,
+                              'host_stats': {'kbps': 16000, 'keyframes': 3}},
                              {'bytes': 0, 'duration_ms': 1000, 'host_stats': None}],
                   'stage_ledger': LEDGER}
         s = rdnl.summarize_passive(report)
         self.assertTrue(s['ok'])
-        self.assertEqual(s['mbps_per_s'], [10.0, 12.0, 0.0])
-        self.assertEqual(s['target_kbps_per_s'], [8000, 1100, None])
+        self.assertEqual(s['mbps_per_s'], [10.0, 16.0, 0.0])
+        self.assertEqual(s['target_kbps_per_s'], [8000, 16000, None])
+        self.assertEqual(s['decoded_fps_per_s'], [30.0, 20.0, None])
+        self.assertEqual((s['target_s_to_15mbps'], s['received_s_to_15mbps']), (2, 2))
         self.assertEqual(s['host_keyframes_delta'], 2)
         self.assertEqual(s['mbps_mean'], 8.0)
         self.assertEqual(s['stage_ledger'], LEDGER)
@@ -57,20 +61,36 @@ class ParseTests(unittest.TestCase):
                  {'release_us': 2, 'encoded_bytes': 100, 'idr': False},
                  {'release_us': 3, 'encoded_bytes': 0, 'idr': True}]
         text = ''.join(json.dumps(x) + '\n' for x in lines) + '{"release_us": 4, "enco'
-        self.assertEqual(rdnl.count_idrs(text), {'frames': 2, 'idrs': 1})
+        self.assertEqual(rdnl.count_idrs(text), {'frames': 2, 'idrs': 1, 'reasons': {'unlogged': 1}})
+
+    def test_idr_reasons_when_the_host_logs_them(self):
+        lines = [{'encoded_bytes': 9, 'idr': True, 'idr_reason': 'loss'},
+                 {'encoded_bytes': 9, 'idr': True, 'idr_reason': 'loss'},
+                 {'encoded_bytes': 9, 'idr': True, 'force_idr': False},
+                 {'encoded_bytes': 9, 'idr': True, 'force_idr': True}]
+        self.assertEqual(rdnl.count_idrs(''.join(json.dumps(x) + '\n' for x in lines))['reasons'],
+                         {'loss': 2, 'encoder': 1, 'requested': 1})
+
+    def test_seconds_to_level(self):
+        self.assertEqual(rdnl.seconds_to([None, 9, 15, 20], 15), 3)
+        self.assertIsNone(rdnl.seconds_to([1, 2], 15))
 
 
 class TableTests(unittest.TestCase):
     def test_table_has_one_row_per_result_and_marks_errors(self):
         good = {'commit': 'a' * 40, 'profile': 'jitter-5',
                 'key': {'p50_ms': 20.0, 'p95_ms': 40.0, 'lost': 0, 'stage_ledger': LEDGER},
-                'passive': {'mbps_per_s': [8.0, 1.0, 1.2], 'target_kbps_per_s': [8000, 1000, 1000]},
-                'idr_passive': {'idrs': 1}, 'idr_key': {'idrs': 3}}
+                'passive': {'mbps_per_s': [8.0, 1.0, 1.2], 'target_kbps_per_s': [8000, 1000, 1000],
+                            'decoded_fps_per_s': [30.0, 10.0, 20.0], 'target_s_to_15mbps': None,
+                            'received_s_to_15mbps': None},
+                'idr_passive': {'idrs': 1, 'frames': 60, 'reasons': {'unlogged': 1}},
+                'idr_key': {'idrs': 3, 'frames': 40}}
         bad = {'commit': 'b' * 40, 'profile': 'clean', 'error': 'host did not\nlisten\n'}
         table = rdnl.markdown_table([good, bad])
         lines = table.strip().splitlines()
         self.assertEqual(len(lines), 4)
-        self.assertIn('| `aaaaaaaaaaaa` | 5±5 ms | 20.0 / 40.0 (0) | 1.20 (1.00–8.00) | 8.0 1.0 1.2 | 8000 1000 1000 | 1 / 3 | yes |',
+        self.assertIn('| `aaaaaaaaaaaa` | 5±5 ms | 20.0 / 40.0 (0) | 1.20 (1.00–8.00) | 8.0 1.0 1.2 | 8000 1000 1000 '
+                      '| – / – | 20.0 | 1/60 (unlogged 1), 3/40 | yes |',
                       lines[2])
         self.assertIn('error: host did not listen', lines[3])
 

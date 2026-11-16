@@ -105,10 +105,12 @@ def summarize_passive(report: dict | None) -> dict:
     """Per-second received Mbps and host target kbps from a `--input none` bench line."""
     if not report:
         return {"ok": False}
-    mbps, target, keyframes = [], [], []
+    mbps, target, keyframes, fps = [], [], [], []
     for row in report.get("series") or []:
         b, ms = _num(row.get("bytes")), _num(row.get("duration_ms"))
         mbps.append(round(b * 8 / (ms / 1000) / 1e6, 3) if b is not None and ms else None)
+        n = _num(row.get("decoded_frames"))
+        fps.append(round(n / (ms / 1000), 2) if n is not None and ms else None)
         stats = row.get("host_stats") or {}
         target.append(_num(stats.get("kbps")))
         keyframes.append(_num(stats.get("keyframes")))
@@ -121,6 +123,9 @@ def summarize_passive(report: dict | None) -> dict:
         "mbps_per_s": mbps,
         "mbps_mean": round(total * 8 / seconds / 1e6, 3) if total is not None and seconds else None,
         "target_kbps_per_s": target,
+        "decoded_fps_per_s": fps,
+        "target_s_to_15mbps": seconds_to(target, 15_000),
+        "received_s_to_15mbps": seconds_to(mbps, 15),
         "host_keyframes_delta": (seen[-1] - seen[0]) if len(seen) >= 2 else None,
         "fps": _num(report.get("fps")),
         "decoded_frames": _num(report.get("decoded_frames")),
@@ -129,6 +134,11 @@ def summarize_passive(report: dict | None) -> dict:
         "ended": report.get("ended"),
         "stage_ledger": ledger_of(report),
     }
+
+
+def seconds_to(series: list, level: float):
+    """The 1-based second in which a per-second series first reaches level, or None."""
+    return next((i + 1 for i, v in enumerate(series) if v is not None and v >= level), None)
 
 
 def summarize_key(report: dict | None) -> dict:
@@ -154,8 +164,12 @@ def summarize_key(report: dict | None) -> dict:
 
 
 def count_idrs(timing_text: str) -> dict:
-    """Encoded frames and IDRs in a slice of the host's CMUX_RD_TIMING_LOG."""
+    """Encoded frames and IDRs in a slice of the host's CMUX_RD_TIMING_LOG.
+
+    `reasons` counts each IDR's `idr_reason` (or `force_idr`) when the host logs one; a host that
+    logs neither counts it under "unlogged"."""
     frames = idrs = 0
+    reasons: dict[str, int] = {}
     for line in timing_text.splitlines():
         try:
             row = json.loads(line)
@@ -167,7 +181,13 @@ def count_idrs(timing_text: str) -> dict:
             continue
         frames += 1
         idrs += row["idr"]
-    return {"frames": frames, "idrs": idrs}
+        if row["idr"]:
+            reason = row.get("idr_reason")
+            if reason is None and isinstance(row.get("force_idr"), bool):
+                reason = "requested" if row["force_idr"] else "encoder"
+            reason = str(reason) if reason is not None else "unlogged"
+            reasons[reason] = reasons.get(reason, 0) + 1
+    return {"frames": frames, "idrs": idrs, "reasons": reasons}
 
 
 def _fmt(value, digits=1):
@@ -185,25 +205,33 @@ def _series(values, digits=1, limit=30):
 
 def markdown_table(rows: list[dict]) -> str:
     head = ("| cmux-rd | profile | key p50 / p95 ms (lost) | Mbps median (min–max) | Mbps per second "
-            "| target kbps per second | IDRs passive / key | stage ledger |")
-    out = [head, "|" + "---|" * 8]
+            "| target kbps per second | s to 15 Mbps target / received | decoded fps median "
+            "| IDRs / frames passive, key (reasons) | stage ledger |")
+    out = [head, "|" + "---|" * 10]
     for r in rows:
         if r.get("error"):
             out.append(f"| `{r.get('commit', '?')[:12]}` | {PROFILE_LABELS.get(r.get('profile'), r.get('profile'))} "
-                       f"| error: {' '.join(str(r['error']).split())[:120]} | | | | | |")
+                       f"| error: {' '.join(str(r['error']).split())[:120]} | | | | | | | |")
             continue
         key, passive = r.get("key") or {}, r.get("passive") or {}
         mbps = [v for v in passive.get("mbps_per_s") or [] if v is not None]
         target = [v for v in passive.get("target_kbps_per_s") or []]
         spread = (f"{statistics.median(mbps):.2f} ({min(mbps):.2f}–{max(mbps):.2f})" if mbps else "–")
-        idr = f"{_fmt((r.get('idr_passive') or {}).get('idrs'))} / {_fmt((r.get('idr_key') or {}).get('idrs'))}"
+        def idr_cell(c):
+            c = c or {}
+            why = ", ".join(f"{k} {v}" for k, v in sorted((c.get("reasons") or {}).items()))
+            return f"{_fmt(c.get('idrs'))}/{_fmt(c.get('frames'))}" + (f" ({why})" if why else "")
+        idr = f"{idr_cell(r.get('idr_passive'))}, {idr_cell(r.get('idr_key'))}"
+        fps = [v for v in passive.get("decoded_fps_per_s") or [] if v is not None]
+        fps_cell = f"{statistics.median(fps):.1f}" if fps else _fmt(passive.get("fps"))
+        t15 = f"{_fmt(passive.get('target_s_to_15mbps'))} / {_fmt(passive.get('received_s_to_15mbps'))}"
         ledgers = [x for x in (passive.get("stage_ledger"), key.get("stage_ledger")) if x]
         ledger = "yes" if ledgers else "no"
         out.append(
             f"| `{r['commit'][:12]}` | {PROFILE_LABELS.get(r['profile'], r['profile'])} "
             f"| {_fmt(key.get('p50_ms'))} / {_fmt(key.get('p95_ms'))} ({_fmt(key.get('lost'))}) "
             f"| {spread} | {_series(passive.get('mbps_per_s') or [], 1)} "
-            f"| {_series(target, 0)} | {idr} | {ledger} |")
+            f"| {_series(target, 0)} | {t15} | {fps_cell} | {idr} | {ledger} |")
     return "\n".join(out) + "\n"
 
 
