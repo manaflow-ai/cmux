@@ -59,26 +59,14 @@ fn name_segment(s: &str) -> bool {
 /// A commit SHA or a branch or tag name in one segment (its slashes as
 /// `%2F`).
 fn ref_segment(s: &str) -> bool {
-    if s.is_empty() || s == "." || s == ".." {
-        return false;
-    }
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'%' {
-            if !bytes.get(i + 1..i + 3).is_some_and(|hex| hex.eq_ignore_ascii_case(b"2F")) {
-                return false;
-            }
-            i += 3;
-            continue;
-        }
-        if !(b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')) {
-            return false;
-        }
-        i += 1;
-    }
-    true
+    // Every part between the `%2F`s is a plain name part; any other `%`
+    // escape is left in a part and refused there.
+    s.replace("%2f", "%2F").split("%2F").all(|part| {
+        !part.is_empty()
+            && part != "."
+            && part != ".."
+            && part.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    })
 }
 
 fn number_segment(s: &str) -> bool {
@@ -147,7 +135,7 @@ fn rate_remaining(output: &[u8]) -> Option<u64> {
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
         .or_else(|| output.windows(2).position(|w| w == b"\n\n"))?;
-    String::from_utf8_lossy(&output[..end])
+    String::from_utf8_lossy(output.get(..end)?)
         .lines()
         .filter_map(|line| line.split_once(':'))
         .filter(|(name, _)| name.trim().eq_ignore_ascii_case("x-ratelimit-remaining"))
