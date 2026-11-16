@@ -30,7 +30,7 @@ final class NewTabSparePool {
     private unowned let services: AppServices
     /// One spare: each is a renderer and an acpmux client at idle (Home idle memory, Leo 2026-11-14); `debug.new_tab capacity` raises it.
     private var slot = AgentPaneSpareSlot<AgentPaneView>(capacity: 1)
-    private lazy var refills = AgentPaneSpareRefiller(on: services.mainWork) { [weak self] in
+    private lazy var refills = AgentPaneSpareRefiller(on: services.mainWork, inInput: { [weak self] in self?.services.inputDispatch.event != nil }) { [weak self] in
         self?.prepareParked()
         self?.warmNow()
     }
@@ -138,7 +138,7 @@ final class NewTabSparePool {
                 AgentPaneSpareOutcome.unready.trace()
                 return nil
             }
-            return take(for: window, size: nil, refill: .whenQuiet)?.view
+            return take(for: window, size: nil, refill: .afterPaint)?.view
         }
         observeWindows()
         if let window = services.keyWindowSource().flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
@@ -276,7 +276,7 @@ final class NewTabSparePool {
         // as the backstop. The next spare already has its own cover: the key's turn captures nothing.
         defer {
             scheduleWarm()
-            if refill != .whenQuiet { refills.afterOpen(shown: refill == .now ? view : nil, still: still) } // .idle: its page draws no frame yet
+            if refill == .afterPaint { refills.afterPaint(of: view) } else { refills.afterOpen(shown: refill == .now ? view : nil, still: still) } // .idle: its page draws no frame yet
         }
         covers.forget(view)
         view.isHidden = false
