@@ -88,9 +88,7 @@ struct PageFactory {
     /// The App Store's `cmux.apps.*` calls: the daemon relay behind the native consent card of
     /// ``AppsPageConfirmations`` (the card reads the listing first so it can name the scopes). The
     /// App Store page and the `app.install` / `app.remove` actions (CLI, palette, MCP) share it, so
-    /// every install shows the same card and only the person's click makes it the user's. On the
-    /// page (`fromPage`) a plain Install click is itself that click: no card
-    /// (``AppsPageConfirmations/confirmation(op:params:detail:fromPage:)``).
+    /// cards match; on the page (`fromPage`) a plain Install click is the person's own, so no card.
     func appsStoreProvider(fromPage: Bool = false) -> ConfirmingPageProvider {
         // The organization's DisabledFeatures `apps` turns the store off (the same transport state
         // the native store reads), checked on every call.
@@ -98,8 +96,7 @@ struct PageFactory {
             apps?.transport.turnedOff
         }
         return ConfirmingPageProvider(inner: relay, presenter: DialogPageConfirmationPresenter()) { op, params in
-            guard AppsPageConfirmations().needsDetail(op, params: params, fromPage: fromPage),
-                  let app = params["app"]?.stringValue else { return nil }
+            guard AppsPageConfirmations().needsDetail(op, params: params, fromPage: fromPage), let app = params["app"]?.stringValue else { return nil }
             let detail = try? await relay.call("cmux.apps.catalog.get", params: ["app": .string(app)],
                                                context: PageCallContext(page: PageDescriptor.apps.id))
             return AppsPageConfirmations().confirmation(op: op, params: params, detail: detail, fromPage: fromPage)
