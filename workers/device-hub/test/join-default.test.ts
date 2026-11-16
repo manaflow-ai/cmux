@@ -19,9 +19,9 @@ async function joinedMachine(sub: string) {
   return credential;
 }
 
-/** The joined machine's own device, signed in with its machine credential (not registered yet). */
-async function machineDevice(person: { userId: string }, credential: string, platform: "macos" | "linux" = "macos") {
-  const host = await Device.create({ userId: person.userId, session: "" }, "Mini", platform);
+/** The joined machine's own device, signed in with its machine credential; `again` signs that device in once more. */
+async function machineDevice(person: { userId: string }, credential: string, platform: "macos" | "linux" = "macos", again?: Device) {
+  const host = again ?? (await Device.create({ userId: person.userId, session: "" }, "Mini", platform));
   mockOutbound();
   const res = await rawCall("POST", "/v1/auth/machine", { body: { credential, deviceId: host.id } });
   expect(res.status, JSON.stringify(res.json)).toBe(200);
@@ -64,8 +64,7 @@ describe("join turns Mac Screen sharing on", () => {
     expect(off.json.device.macScreenShared).toBe(false);
     // A daemon restart, an update and a second join all register again with shareByJoin.
     expect((await registerAs(mini, true)).macScreenShared).toBe(false);
-    const rejoined = await machineDevice(person, credential);
-    Object.assign(rejoined, { id: mini.id, signing: mini.signing, signingKey: mini.signingKey, agreementKey: mini.agreementKey });
+    const rejoined = await machineDevice(person, credential, "macos", mini);
     expect((await registerAs(rejoined, true)).macScreenShared).toBe(false);
     const laptop = await Device.create(person, "Laptop", "macos");
     await laptop.register();
