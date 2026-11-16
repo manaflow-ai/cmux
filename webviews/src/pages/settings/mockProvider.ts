@@ -287,6 +287,7 @@ export class MockSettingsProvider {
         return {};
       },
       "cmux.settings.devices.join_consent": (params) => {
+        if (this.joinConsentRefusal) throw new ProtocolError("cmux.app.user_only", this.joinConsentRefusal);
         const join = this.host.devices_join;
         if (join)
           this.setHost({
@@ -1179,6 +1180,8 @@ export class MockSettingsProvider {
   wentBack: string | null = null;
   /** The build the card's last Switch asked for. */
   switchedTo: string | null = null;
+  /** The host's refusal of every join consent switch press (`cmux.app.user_only`); null: it runs. */
+  joinConsentRefusal: string | null = null;
   /** The host's refusal of every Switch; null: Switch runs. */
   switchRefusal: string | null = null;
   /** Why Open Theme File's export failed (the CLI's last stderr line); null: the file opens. */
