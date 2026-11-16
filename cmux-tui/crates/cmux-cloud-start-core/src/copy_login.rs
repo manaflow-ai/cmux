@@ -282,7 +282,7 @@ fn base64_decode(text: &str) -> Option<Vec<u8>> {
         } as u32)
     }
     let bytes = text.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return None;
     }
     let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
@@ -925,7 +925,7 @@ impl Run<'_> {
                 }
                 match self.left() {
                     Some(left) => {
-                        self.exec(Phase::KindMissing, KIND_MISSING.to_owned(), Some(left))
+                        self.exec(Phase::KindMissing, KIND_MISSING.to_owned(), Some(left));
                     }
                     None => self.fail(Failure::MachineNotReady),
                 }
@@ -948,7 +948,7 @@ impl Run<'_> {
                 }
             }
             (Phase::Guest | Phase::KindMissing | Phase::Pause, Event::Cutoff) => {
-                self.fail(Failure::MachineNotReady)
+                self.fail(Failure::MachineNotReady);
             }
             (Phase::Pause, Event::Paused) => {
                 if !self.in_scope() {
