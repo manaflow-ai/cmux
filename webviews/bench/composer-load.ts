@@ -41,7 +41,10 @@ export async function runComposerLoad(
 ) {
   const { port, mode, length, keys, gap } = options;
   await page.goto(`http://127.0.0.1:${port}/?mock`);
-  const rows = await seedComposer(page, Math.ceil((mode === "L3" ? 100000 : length) / 3));
+  // A light turn reduces to prompt, reply and turnSummary (direct.ts turn_result).
+  // Always report/check the actual model count too; the old fixture comment omits the summary.
+  const requestedRows = mode === "L3" ? 100000 : length;
+  const rows = await seedComposer(page, Math.ceil(requestedRows / 3));
   const backgrounds: Frame[] = [];
   if (mode === "L2") {
     await page.evaluate((port) => {
@@ -54,6 +57,18 @@ export async function runComposerLoad(
         document.body.append(frame);
       }
     }, port);
+    // Resolve the documents only after all frame navigations install the app's debug surface.
+    await page.waitForFunction(
+      () => {
+        const frames = [...document.querySelectorAll<HTMLIFrameElement>("iframe[name^='typing-background-']")];
+        return (
+          frames.length === 10 &&
+          frames.every((frame) => frame.contentWindow && "cmuxAcpmuxDebug" in frame.contentWindow)
+        );
+      },
+      null,
+      { timeout: 60_000 },
+    );
     // Sequential fixture creation bounds setup pressure; all streams start after all documents exist.
     for (let i = 0; i < 10; i++) {
       const element = page.locator(`iframe[name="typing-background-${i}"]`);
@@ -201,9 +216,12 @@ export async function runComposerLoad(
     errors.push("missing or invalid timing samples");
   return {
     mode,
+    requested_rows: requestedRows,
     rows,
     keys: samples.length,
     valid: errors.length === 0,
+    acceptance_eligible: errors.length === 0 && keys >= 200,
+    minimum_acceptance_keys: 200,
     errors,
     measurement: "DOM-keydown-to-rAF; after-frame is a paint proxy; mock daemon",
     load_topology:

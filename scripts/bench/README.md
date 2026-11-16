@@ -103,3 +103,7 @@ load/cadence receipts never meet the target. Budgets are report-only (16 ms p95 
 rows cannot certify native admission or physical presentation. Long Tasks observes
 only tasks of at least 50 ms: zero means none observed above that threshold, and
 unsupported engines (including WebKit) report null, never a fabricated zero.
+`valid` establishes experiment integrity, not a latency pass. Short diagnostic runs remain
+valid but are not `acceptance_eligible`; acceptance requires `target_met` (valid load,
+at least 200 keys, and both latency limits). Consumers must never interpret `valid` alone
+as a budget pass.
