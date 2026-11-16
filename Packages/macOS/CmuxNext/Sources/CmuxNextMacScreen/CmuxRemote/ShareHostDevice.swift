@@ -18,6 +18,15 @@ public nonisolated enum ShareHostDevice {
         acpmuxHome.appending(path: "share-host/device.sock", directoryHint: .notDirectory).path
     }
 
+    /// `<acpmux home>/share-host/device.sock` for `build` (`~/.acpmux` for NIGHTLY, the join's
+    /// daemon; `~/.acpmux/builds/<key>` for others), the home found from the user's password entry
+    /// (`getpwuid`), never `HOME` or `ACPMUX_HOME`, as JoinConsent+App.swift finds acpmux's consent
+    /// folder; nil without one.
+    static func socketPath(build: BuildIdentity) -> String? {
+        guard let home = getpwuid(geteuid())?.pointee.pw_dir else { return nil }
+        return socketPath(acpmuxHome: build.acpmuxHome(userHome: URL(fileURLWithPath: String(cString: home), isDirectory: true)))
+    }
+
     /// The daemon's channel at `path`: a Unix socket whose peer runs as this user. The connect runs
     /// on a detached task (a channel may open from a main-actor caller).
     static func channel(socketPath path: String) -> CmuxRemoteDevices {
@@ -74,8 +83,15 @@ public nonisolated enum ShareHostDevice {
     /// polled. Else it uses what it used before: the cmux Remote worker's device when this build runs
     /// it (the `makeRemoteHub` already set), else the app's own Secure Enclave identity. Call after
     /// cmux Remote set its hooks and before ``DeviceHubService/start(settings:)``.
-    @MainActor public static func prefer(in deviceHub: DeviceHubService, socketPath path: String, bundleID: String, loginKeychain: LoginKeychain,
-                              tokens: @escaping @Sendable () async throws -> String) {
+    @MainActor public static func prefer(in deviceHub: DeviceHubService, build: BuildIdentity, bundleID: String?, loginKeychain: LoginKeychain,
+                                         tokens: @escaping @Sendable () async throws -> String) {
+        guard let path = socketPath(build: build) else { return }
+        prefer(in: deviceHub, socketPath: path, bundleID: bundleID ?? "com.cmuxterm.app.next", loginKeychain: loginKeychain, tokens: tokens)
+    }
+
+    /// ``prefer(in:build:bundleID:loginKeychain:tokens:)`` with the daemon's channel at `path`.
+    @MainActor static func prefer(in deviceHub: DeviceHubService, socketPath path: String, bundleID: String, loginKeychain: LoginKeychain,
+                                  tokens: @escaping @Sendable () async throws -> String) {
         let devices = channel(socketPath: path)
         let link = Link()
         let worker = deviceHub.makeRemoteHub, workerChanged = deviceHub.hubChanged

@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCompat
@@ -204,9 +203,8 @@ extension AppServices {
     /// cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen
     /// Sharing; ``CmuxRemoteService`` does the work, this only passes it the app's parts.
     func startCmuxRemote(_ settings: SettingsController) {
-        let bundleID = environment.launch.bundleID ?? "com.cmuxterm.app.next"
         let auth = cloud.auth
-        guard let devices = cmuxRemote.start(bundleID: bundleID, loginKeychain: loginKeychain, deviceHub: deviceHub, pages: macScreenPages,
+        guard let devices = cmuxRemote.start(bundleID: environment.launch.bundleID ?? "com.cmuxterm.app.next", loginKeychain: loginKeychain, deviceHub: deviceHub, pages: macScreenPages,
                                              computerUse: ComputerUseHelperDaemon.shared.upstream,
                                              tokens: { try await auth.tokens().access }) else { return }
         let consent = joinConsent, previous = consent.changed
@@ -225,25 +223,11 @@ extension AppServices {
         }
     }
 
-    /// The acpmux daemon's share host (ShareHostDevice): its device channel is under this build's
-    /// acpmux home (`~/.acpmux` for NIGHTLY, the join's daemon; `~/.acpmux/builds/<key>` for others),
-    /// found from the user's password entry (`getpwuid`), never `HOME` or `ACPMUX_HOME`, as
-    /// JoinConsent+App.swift finds acpmux's consent folder.
-    func preferShareHostDevice() {
-        guard let home = getpwuid(geteuid())?.pointee.pw_dir else { return }
-        let root = AcpmuxEnvironment.appHome(userHome: URL(fileURLWithPath: String(cString: home), isDirectory: true))
-        let auth = cloud.auth
-        ShareHostDevice.prefer(in: deviceHub, socketPath: ShareHostDevice.socketPath(acpmuxHome: environment.build.acpmuxHome(root: root)),
-                               bundleID: environment.launch.bundleID ?? "com.cmuxterm.app.next", loginKeychain: loginKeychain,
-                               tokens: { try await auth.tokens().access })
-    }
-
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.
     func startDeviceHub(_ settings: SettingsController) {
-        // cmux Remote first: the hub it serves is made with its device identity.
+        // cmux Remote (its hub is made with its device identity), then the acpmux daemon's share host, which owns this Mac's device.
         startCmuxRemote(settings)
-        // The acpmux daemon's share host before both, when it runs: it owns this Mac's device.
-        preferShareHostDevice()
+        ShareHostDevice.prefer(in: deviceHub, build: environment.build, bundleID: environment.launch.bundleID, loginKeychain: loginKeychain) { [auth = cloud.auth] in try await auth.tokens().access }
         deviceHub.start(settings: settings)
         cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }
     }
