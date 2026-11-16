@@ -4,6 +4,7 @@
 //! lease; it stops at `FeedClient::shutdown`.
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use cmux_feed_core::client::{
@@ -97,7 +98,7 @@ fn run(inner: &Inner, cloud: &CloudConversations) {
 
 /// The socket closed or never opened: cloud items refuse changes until the
 /// next snapshot; a sign-out also takes them away.
-fn disconnect(inner: &Inner, reason: &str, signed_out: bool) {
+pub(super) fn disconnect(inner: &Inner, reason: &str, signed_out: bool) {
     let now = inner.now();
     let events = {
         let mut state = inner.lock();
@@ -114,6 +115,9 @@ fn disconnect(inner: &Inner, reason: &str, signed_out: bool) {
                 .set_connection(Connection::Disconnected(reason.to_owned()))
                 .map(view_event),
         );
+        if inner.github_push_live.swap(false, Ordering::SeqCst) {
+            events.push(FeedEvent::GitHubChanged { live: Some(false) });
+        }
         events
     };
     inner.wake.notify_all();
@@ -306,6 +310,17 @@ pub(super) fn apply(inner: &Inner, text: &str, current: impl Fn() -> bool) -> Ap
                 CloudAction::Settled { key, reject } => {
                     events.extend(Inner::settle(&mut state, &key, reject, now));
                 }
+                // Only GitHub is watched (WATCHED_PROVIDERS); a change proves the push works.
+                CloudAction::IntegrationChanged { provider } if provider == "github" => {
+                    inner.github_push_live.store(true, Ordering::SeqCst);
+                    events.push(FeedEvent::GitHubChanged { live: None });
+                }
+                CloudAction::IntegrationLive { provider, live } if provider == "github" => {
+                    if inner.github_push_live.swap(live, Ordering::SeqCst) != live {
+                        events.push(FeedEvent::GitHubChanged { live: Some(live) });
+                    }
+                }
+                CloudAction::IntegrationChanged { .. } | CloudAction::IntegrationLive { .. } => {}
             }
         }
         events
