@@ -32,6 +32,7 @@ mod config;
 mod cua_recovery;
 mod customize_library_tool;
 mod customize_tools;
+mod device_tools;
 mod keybinding_tools;
 mod keys_tools;
 mod live_code_tools;
@@ -1112,6 +1113,9 @@ impl<B: Backend> Server<B> {
             return Ok(result);
         }
         if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = device_tools::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(tool) = remote_tools::find(name) {
