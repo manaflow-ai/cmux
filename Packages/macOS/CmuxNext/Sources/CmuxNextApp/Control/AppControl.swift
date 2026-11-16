@@ -171,6 +171,7 @@ final class AppControl {
             // `cmux app call debug.focus_log '{"limit": 50}'` (plans/cmux-next/focus-loss-AUDIT.md).
             .mainActor("debug.focus_log") { [weak services] call in
                 let entries = services?.focusLog.recent(limit: call.params["limit"]?.intValue ?? FocusLog.recentLimit) ?? []
+                // main-actor-ok: at most FocusLog.recentLimit (200) entries, a debug call only.
                 return .value((try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: JSONEncoder().encode(["changes": entries]))) ?? .null)
             },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
