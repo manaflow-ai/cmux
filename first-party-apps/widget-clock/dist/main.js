@@ -2560,7 +2560,7 @@
         bigTime(time, period, twelve, size)
       ]);
     }
-    const list = () => VStack({ spacing: size === "large" ? 10 : 8, alignment: "leading" }, [
+    const list = () => VStack({ spacing: size === "large" ? 16 : 8, alignment: "leading" }, [
       ForEach({ items: others, key: (c) => c.zone }, (c) => cityRow(c, twelve))
     ]);
     if (size === "medium") {
@@ -2574,12 +2574,11 @@
         list()
       ]);
     }
-    return VStack({ spacing: 12, alignment: "leading" }, [
+    return VStack({ spacing: 20, alignment: "leading" }, [
       VStack({ spacing: 0, alignment: "leading" }, [
         Text(() => dateLine(here())).font("headline").weight("semibold").secondary(),
         bigTime(time, period, twelve, size)
       ]),
-      Spacer(),
       list()
     ]);
   }
