@@ -268,11 +268,11 @@ async fn a_login_install_starts_a_claude_spare_that_a_chat_takes_with_no_model_c
     );
     assert!(!kinds.iter().any(|k| k == "user"), "no model call before a prompt: {kinds:?}");
 
-    let session = chat(&mut rpc, &daemon.home(), json!({"mode": "acceptEdits"})).await;
+    let session = chat(&mut rpc, &daemon.home(), json!({"mode": "plan"})).await;
     assert!(daemon.taken(&session), "the chat took the login spare");
     assert_eq!(daemon.harness_pid(&session), pooled["harness_pid"], "on the spare's agent");
     let info = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
-    assert_eq!(info["modes"]["currentModeId"], "acceptEdits", "the chat's mode: {info}");
+    assert_eq!(info["modes"]["currentModeId"], "plan", "the chat's mode: {info}");
     let kinds = daemon.stdin_kinds();
     assert!(!kinds.iter().any(|k| k == "user"), "no model call at the take: {kinds:?}");
     // The mode went to the started agent, not into its command line.
@@ -282,7 +282,7 @@ async fn a_login_install_starts_a_claude_spare_that_a_chat_takes_with_no_model_c
         .split(|b| *b == 0)
         .map(|w| String::from_utf8_lossy(w).into_owned())
         .collect();
-    assert!(!argv.iter().any(|w| w == "acceptEdits"), "the mode reached the argv: {argv:?}");
+    assert!(!argv.iter().any(|w| w == "plan"), "the mode reached the argv: {argv:?}");
 
     // The person's first prompt is the first model call.
     let answer = rpc
@@ -304,7 +304,8 @@ async fn with_the_login_spare_off_a_login_install_starts_no_agent() {
     tokio::time::sleep(Duration::from_secs(2)).await;
     let status = rpc.call("_acpmux/status", json!({})).await;
     assert_eq!(status["pool"]["entries"], json!([]), "{status}");
-    assert!(daemon.stdin_kinds().is_empty(), "no agent started");
+    // The daemon's own launcher and model probes may run the stand-in; no pooled agent starts.
+    assert!(daemon.pool_records().is_empty(), "no pooled agent started");
 }
 
 /// The switch is read again by `_acpmux/reload_config` (`acpmux daemon reload`): turned on with a
