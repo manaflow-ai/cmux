@@ -57,6 +57,7 @@ export default componentEntry<Props>({
             <span
               className={`acpmux-md-inline-chip ${PASTE_LOADING_CLASS}`}
               data-state="loading"
+              data-kind="image"
               data-paste-look="glass-ring"
               aria-busy="true"
               aria-label="Image"
@@ -65,7 +66,13 @@ export default componentEntry<Props>({
             </span>
           );
           const chip = (
-            <span className="acpmux-md-inline-chip" data-state="ready" data-chip="strip" data-loaded="">
+            <span
+              className="acpmux-md-inline-chip"
+              data-state="ready"
+              data-chip="strip"
+              data-kind="image"
+              data-loaded=""
+            >
               <span className="acpmux-attachment acpmux-attachment-image">
                 <img alt="Screenshot of the settings page" draggable={false} src={picture} />
               </span>

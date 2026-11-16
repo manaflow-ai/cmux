@@ -913,9 +913,9 @@ final class ComposeView: UIView {
     /// 1-line and 5-line fields 1.9 pt short (29.1 for 31, 93.1 for 95), so 295.5 pt, about 17.5
     /// lines (the 8-line limit was Catalyst's guess). Past it the text scrolls.
     static let maxHeight: CGFloat = 295.5
-    /// The field's height for the draft in a window WIDTH pt wide (compact attachments stay in the text line).
+    /// The field's height for the draft in a window WIDTH pt wide (the attachment row on top).
     private func height(for text: String, width: CGFloat) -> CGFloat {
-        // cmux: compact picture chips fit the existing line; typed text remains the growth source.
+        // cmux: attachments in the text: the lines that hold them are as tall as their thumbnails.
         if !chips.isEmpty, let storage = textView.view.textStorage, storage.string == text {
             let extra = ComposeInlineText.extraHeight(storage, width: ComposeView.fieldWidth(width) - 24 - trailingReserve)
             return min(ComposeView.height(lines: 1, chips: false) + extra, ComposeView.maxHeight) + strip.height
@@ -1213,7 +1213,8 @@ final class ComposeView: UIView {
         strip.update(stripChips, width: ComposeView.fieldWidth(bounds.width), scale: renderScale)
     }
 
-    // cmux: attachments sit in the field's text at the caret (Draft+InlineMarks.swift).
+    // cmux: attachments sit in the field's text at the caret (Draft+InlineMarks.swift), not in a
+    // strip above it; the strip stays empty.
     private var stripChips: [Attachment] { [] }
     /// The field's inline attachments by id (made once each).
     private(set) var inlineAttachments: [ID: ComposeInlineAttachment] = [:]

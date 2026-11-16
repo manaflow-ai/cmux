@@ -110,7 +110,7 @@ import UniformTypeIdentifiers
         h.field.setSelectedRange(NSRange(location: caret, length: 0))
     }
 
-    /// Every entry point puts one compact image thumbnail in the field's text.
+    /// Every entry point puts one image thumbnail in the field's text, not in a row above it.
     @Test(arguments: Path.allCases)
     func aPictureSitsInTheText(_ path: Path) async throws {
         let h = try await home()
@@ -126,7 +126,7 @@ import UniformTypeIdentifiers
         a.loadThumbnailNow(scale: 2)
         #expect(a.thumbnail != nil, "the thumbnail decodes")
         #expect(h.compose.strip.tiles.isEmpty, "no thumbnail row above the text")
-        #expect(h.compose.fieldRect.height <= Fixture.lineHeight + 1, "the picture keeps the composer at one text line")
+        #expect(h.compose.fieldRect.height >= a.pictureSize.height + Fixture.lineHeight, "the field holds the picture and a text line under it")
     }
 
     /// A paste in the middle of the text goes in at the caret; the text around it stays, and the caret follows it.
@@ -261,8 +261,10 @@ import UniformTypeIdentifiers
         #expect(hover.button.isHidden, "an edit hides the button")
     }
 
-    /// A pasted picture is a compact chip: the caret and text stay on the same line.
-    @Test func textAfterAPictureStaysOnTheSameLine() async throws {
+    /// As in Messages, a picture is a block: the caret right after a paste, and the text typed
+    /// then, start the line under the picture at its left (Austin 2026-10-20, with Messages'
+    /// capture: the text sat beside the picture).
+    @Test func textAfterAPictureStartsTheLineUnderIt() async throws {
         let h = try await home()
         defer { h.close() }
         try await attach(.pastePicture, to: h.view)
@@ -270,18 +272,17 @@ import UniformTypeIdentifiers
         let picture = try #require(h.compose.inlineHover.attachmentRects().first).rect
         #expect(picture.width < 245 && picture.height <= ComposeInlineAttachment.pictureMaxHeight + 0.5, "the picture's own size (\(picture))")
         let afterPaste = try #require(h.field.caretRects(at: [1]).fresh.first ?? nil)
-        #expect(afterPaste.minX >= picture.maxX - 1, "the caret follows the chip (\(afterPaste), picture \(picture))")
-        #expect(abs(afterPaste.midY - picture.midY) < Fixture.lineHeight, "on the chip's line (\(afterPaste), picture \(picture))")
+        #expect(afterPaste.minX < 4, "the caret is at the left (\(afterPaste))")
+        #expect(afterPaste.minY >= picture.maxY - 1, "under the picture (\(afterPaste), picture \(picture))")
         h.field.insertText("hi", replacementRange: h.field.selectedRange())
         h.view.layoutSubtreeIfNeeded()
         let firstLetter = try #require(h.field.caretRects(at: [1]).fresh.first ?? nil)
-        #expect(firstLetter.minX >= picture.maxX - 1 && abs(firstLetter.midY - picture.midY) < Fixture.lineHeight,
-                "the text stays beside the chip (\(firstLetter), picture \(picture))")
+        #expect(firstLetter.minX < 4 && firstLetter.minY >= picture.maxY - 1, "the text starts under the picture (\(firstLetter))")
         #expect(h.view.transcript.draftText == "\u{FFFC}hi", "the draft holds no extra line break")
     }
 
-    /// Text before a picture and the compact chip share the same line.
-    @Test func textBeforeAPictureStaysOnItsLine() async throws {
+    /// Text before a picture stays on its line above the picture.
+    @Test func textBeforeAPictureStaysAboveIt() async throws {
         let h = try await home()
         defer { h.close() }
         type("hello", caret: 5, in: h)
@@ -289,12 +290,13 @@ import UniformTypeIdentifiers
         h.field.layoutSubtreeIfNeeded()
         let picture = try #require(h.compose.inlineHover.attachmentRects().first).rect
         let text = try #require(h.field.caretRects(at: [0]).fresh.first ?? nil)
-        #expect(picture.minX > text.maxX - 2, "the chip follows the text (\(picture), text \(text))")
-        #expect(abs(picture.midY - text.midY) < Fixture.lineHeight, "on the text line (\(picture), text \(text))")
-        #expect(h.compose.fieldRect.height <= Fixture.lineHeight + 1, "the chip keeps the one-line field")
+        #expect(picture.minX < 4, "the picture starts its own line (\(picture))")
+        #expect(picture.minY >= text.maxY - 4, "under the text line (\(picture), text \(text))")
+        #expect(h.compose.fieldRect.height >= picture.height + 2 * Fixture.lineHeight, "the field holds the text, the picture and the caret's line")
     }
 
-    /// Just before a picture that follows text, the caret remains on the same line.
+    /// Just before a picture that follows text, the caret ends the text's line above the picture,
+    /// where a typed character goes (not over the picture's corner).
     @Test func theCaretBeforeAPictureEndsTheTextAbove() async throws {
         let h = try await home()
         defer { h.close() }
@@ -303,24 +305,27 @@ import UniformTypeIdentifiers
         h.field.layoutSubtreeIfNeeded()
         let picture = try #require(h.compose.inlineHover.attachmentRects().first).rect
         let caret = try #require(h.field.caretRects(at: [5]).fresh.first ?? nil)
-        #expect(abs(caret.midY - picture.midY) < Fixture.lineHeight, "on the chip's line (\(caret), picture \(picture))")
+        #expect(caret.maxY <= picture.minY + 4, "on the text line above (\(caret), picture \(picture))")
         #expect(caret.minX > 10, "after the text (\(caret))")
     }
 
-    /// Multiple compact pictures share the field's text line and do not add blank lines.
-    @Test func theFieldKeepsPicturesOnTheTextLine() async throws {
+    /// The field measures each picture as its own line, as it lays them out: no blank line between
+    /// two pictures, and the caret's line after a picture that ends with a line break.
+    @Test func theFieldMeasuresPicturesAsTheirOwnLines() async throws {
         let h = try await home()
         defer { h.close() }
         #expect(h.view.handlePaste(Board(items: [.png: try Self.png()])))
         await h.view.attachmentsReady()
         #expect(h.view.handlePaste(Board(items: [.png: try Self.png(red: 0.8)])))
         await h.view.attachmentsReady()
+        let two = try #require(h.field.textStorage)
+        #expect(ComposeInlineText.blockLines(two).string == "\u{FFFC}\n\u{FFFC}\n ")
         let pictures = try #require(h.compose.inlineHover.attachmentRects().map(\.rect) as [CGRect]?)
         #expect(pictures.count == 2)
-        if pictures.count == 2 { #expect(abs(pictures[1].midY - pictures[0].midY) < Fixture.lineHeight, "same text line (\(pictures))") }
-        #expect(h.compose.fieldRect.height <= Fixture.lineHeight + 1, "pictures do not grow the field")
+        if pictures.count == 2 { #expect(pictures[1].minY - pictures[0].maxY < Fixture.lineHeight, "no blank line between them (\(pictures))") }
         h.field.insertText("\n", replacementRange: h.field.selectedRange())
-        #expect(h.compose.fieldRect.height > Fixture.lineHeight + 1, "a typed line still grows the field")
+        let trailing = try #require(h.field.textStorage)
+        #expect(ComposeInlineText.blockLines(trailing).string.hasSuffix("\u{FFFC}\n "), "the caret's line after the break is measured")
     }
 
     /// Hovering a picture in the field shows a remove button at its top right; the button takes
@@ -361,7 +366,8 @@ import UniformTypeIdentifiers
         #expect(h.inline.count == 2, "the field's text holds both pictures")
     }
 
-    /// After a picture the caret sits on the same compact text line.
+    /// After a picture the caret sits on the text's line at the bottom of the picture's tall line,
+    /// not halfway up the picture (Austin 2026-10-20: the caret floated above the text).
     @Test func theCaretSitsOnTheTextBesideAPicture() async throws {
         let h = try await home()
         defer { h.close() }
@@ -377,7 +383,7 @@ import UniformTypeIdentifiers
             return false
         }
         let bottom = line.maxY + h.field.textContainerOrigin.y
-        #expect(line.height <= Fixture.lineHeight + 4, "the picture does not make the line taller (\(line))")
-        #expect(caret.maxY > bottom - Fixture.lineHeight - 2, "the caret is on the text line (caret \(caret), line \(line))")
+        #expect(line.height > Fixture.lineHeight + 4, "the picture makes the line taller (\(line))")
+        #expect(caret.maxY > bottom - Fixture.lineHeight - 2, "the caret is on the bottom text line (caret \(caret), line \(line))")
     }
 }

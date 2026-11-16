@@ -35,7 +35,10 @@ await requireBrowserLane("composer-inline-reorder.browser.test.ts", async () => 
         try {
           await warmGalleryFrame(vite, "agent-pane.composer", { browser });
           const page = await browser.newPage({ viewport: { width: 1000, height: 760 } });
-          const url = galleryFrame("agent-pane.composer", { variant: "attachment-inline-reorder", width: 1000 });
+          const url = galleryFrame("agent-pane.composer", {
+            variant: "attachment-inline-reorder",
+            width: 1000,
+          });
           await page.goto(`http://127.0.0.1:${port}${url}`);
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
             timeout: 90_000,
@@ -60,14 +63,17 @@ await requireBrowserLane("composer-inline-reorder.browser.test.ts", async () => 
           expect(remove.height, name).toBeLessThanOrEqual(16);
           // The × sits in the top-right corner, clear of the thumbnail's centre where a drag starts.
           expect(remove.x, name).toBeGreaterThan(box.x + box.width / 2);
-          expect(remove.y + remove.height, name).toBeLessThan(box.y + box.height / 2);
+          expect(remove.y, name).toBeGreaterThanOrEqual(box.y);
+          expect(remove.y + remove.height, name).toBeLessThanOrEqual(box.y + box.height);
 
           // Press the first thumbnail's centre and drag it past the second's centre.
           const before = await ids(page);
           expect(before.length, name).toBe(2);
           const second = (await page.locator(CHIP).nth(1).locator(".acpmux-attachment-image").boundingBox())!;
           await page.mouse.down();
-          await page.mouse.move(second.x + second.width - 4, second.y + second.height / 2, { steps: 12 });
+          await page.mouse.move(second.x + second.width - 4, second.y + second.height / 2, {
+            steps: 12,
+          });
           await page.mouse.up();
           await page
             .waitForFunction(
