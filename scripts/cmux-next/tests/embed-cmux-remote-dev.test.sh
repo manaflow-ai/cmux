@@ -149,6 +149,9 @@ name="Release with the opt-in that is not asked to embed prints the one note lin
 stale
 run Release "${allow[@]}"
 if release_not_asked; then pass "$name"; else fail "$name"; fi
+name="Release with the opt-in and CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 that is not asked to embed fails with one line that names the variable"
+run Release "${allow[@]}" CMUX_NEXT_REQUIRE_CMUX_REMOTE=1
+if require_not_asked; then pass "$name"; else fail "$name"; fi
 name="Debug with no asset warns one time, embeds nothing and passes"
 stale
 run Debug
