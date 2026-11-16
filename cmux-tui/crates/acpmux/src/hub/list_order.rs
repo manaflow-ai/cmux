@@ -145,15 +145,6 @@ impl Hub {
         *order = Order::default();
     }
 
-    /// Tells chat `id`'s row changed, as a change no record carries does: the order's next read
-    /// patches it. Panics when no chat has that id: a renamed fixture row would otherwise take
-    /// the patch out of a gate's timed samples unseen.
-    #[cfg(test)]
-    pub(crate) fn tell_row_for_test(&self, id: &str) {
-        let session = self.session_by_id(id).unwrap_or_else(|| panic!("no chat {id} to tell"));
-        self.events.row_changed(&session);
-    }
-
     /// How many times the order sorted every chat (its first read, a cursor the log could not
     /// follow, a count that did not match): a gate's timed read must be none of those.
     #[cfg(test)]
