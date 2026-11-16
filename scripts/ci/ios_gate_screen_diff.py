@@ -41,12 +41,14 @@ import deadline_http  # noqa: E402
 # A pixel differs when some channel moves by more than this (of 255): the
 # simulator's text antialiasing moves edge pixels by a few levels between two
 # walks of the same build. A screen is "changed" when more than CHANGED_RATIO
-# of its pixels differ: that keeps the status-bar clock (a few thousand pixels
-# of a three-million-pixel iPhone still) out, and a moved control or a changed
-# label in. Assumed, not yet measured on two walks of one commit; every
-# matched screen's ratio is printed so the next run can check it.
+# of its pixels differ. Measured on cmux#44149's first gate run, a change with
+# no app code against push run 43795095024: 216 screens matched, the largest
+# unchanged moved 0.18%, and seven others moved 0.25-0.51% (the status bar and
+# a Chief or Workspaces list) with nothing changed. The walk now freezes the
+# status bar (ios-review-gate.yml), and 1% stays above that noise while a moved
+# control, a changed label or a new row is far over it.
 CHANNEL_TOLERANCE = 16
-CHANGED_RATIO = 0.002
+CHANGED_RATIO = 0.01
 
 WORKFLOW_FILE = "ios-review-gate.yml"
 BASE_BRANCH = "feat-cmux-next"
@@ -61,9 +63,9 @@ DOWNLOAD_BUDGET_S = 150
 # Listing the runs and their artifacts, together.
 LISTING_BUDGET_S = 90
 
-UUID_SUFFIX = re.compile(
-    r"^(?P<name>.+?)_\d+_[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
-)
+# xcresulttool adds `_<index>_<UUID>` before what it takes for the name's extension, so
+# `walk-x-DEAD-setup.teams.personal` exports as `walk-x-DEAD-setup.teams_0_<UUID>.personal`.
+UUID_PART = re.compile(r"_\d+_[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".heic"}
 VISUAL_CHANGE = re.compile(r"^\s*Visual-change:\s*(?P<id>[^:]+?)\s*:\s*(?P<why>.+?)\s*$", re.MULTILINE)
 
@@ -274,13 +276,13 @@ def diff_images(base_bytes: bytes, head_bytes: bytes, tolerance: int = CHANNEL_T
 # --- Screens ---------------------------------------------------------------
 
 def screen_name(human_name: str) -> str:
-    """`gate-iphone-home-01_0_<UUID>.png` -> `gate-iphone-home-01`."""
+    """`gate-iphone-home-01_0_<UUID>.png` -> `gate-iphone-home-01`, and
+    `walk-x-DEAD-setup.teams_0_<UUID>.personal` -> `walk-x-DEAD-setup.teams.personal`."""
     stem = human_name
     suffix = Path(human_name).suffix
     if suffix.lower() in IMAGE_SUFFIXES or suffix.lower() in {".txt", ".json"}:
         stem = human_name[: -len(suffix)]
-    match = UUID_SUFFIX.match(stem)
-    return match.group("name") if match else stem
+    return UUID_PART.sub("", stem, count=1)
 
 
 def load_screens(directory: Path | None) -> dict[str, Path]:
@@ -332,7 +334,18 @@ def find_family_dir(root: Path | None, family: str) -> Path | None:
 
 
 def justifications(body: str) -> list[tuple[str, str]]:
-    return [(m.group("id").strip().strip("`"), m.group("why").strip()) for m in VISUAL_CHANGE.finditer(body or "")]
+    """The body's `Visual-change:` lines, outside fenced code (an example in a fence justifies nothing)."""
+    kept: list[str] = []
+    fence = ""
+    for line in (body or "").splitlines():
+        marker = line.lstrip()[:3]
+        if marker in ("```", "~~~"):
+            fence = "" if fence == marker else (fence or marker)
+            continue
+        if not fence:
+            kept.append(line)
+    text = "\n".join(kept)
+    return [(m.group("id").strip().strip("`"), m.group("why").strip()) for m in VISUAL_CHANGE.finditer(text)]
 
 
 def justify(family: str, name: str, lines: list[tuple[str, str]]) -> str | None:

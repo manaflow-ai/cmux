@@ -508,6 +508,10 @@ jobs:
           xctestrun="$(find "$DERIVED/Build/Products" -name '*.xctestrun' | head -n 1)"
           xcrun simctl boot "$udid" 2>/dev/null || true
           xcrun simctl bootstatus "$udid" -b
+          # A fixed status bar: the clock and battery are not the app, and the
+          # report's screen diff against feat-cmux-next counted them as changes.
+          xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 \
+            --cellularMode active --cellularBars 4 --wifiBars 3 || true
           # iPad runs in dark mode, iPhone and Duo in light, so both
           # appearances are walked every run.
           if [ "$family" = ipad ]; then xcrun simctl ui "$udid" appearance dark || true; fi
