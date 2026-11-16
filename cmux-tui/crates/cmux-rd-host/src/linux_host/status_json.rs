@@ -19,7 +19,7 @@ pub fn gather(now_ms: u64) -> Facts {
     let dir = identity::config_dir().ok();
     let device = dir.as_deref().map(Device::load);
     // An unreadable device file is an identity to set up again, not "never enabled".
-    let enabled = matches!(device, Some(Ok(Some(_)) | Some(Err(_))));
+    let enabled = matches!(device, Some(Ok(Some(_)) | Err(_)));
     let backend = super::host_capture(identity::runtime_dir().ok().as_deref());
     let idle = Capture { backend, usable: false, size: None, portal_granted: false };
     let Some(dir) = dir.filter(|_| enabled) else {
