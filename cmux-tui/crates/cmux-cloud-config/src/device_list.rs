@@ -15,9 +15,12 @@
 //! this device (its other builds) and are not listed as remotes. Every other group lists once, as
 //! the record a connect should reach: online, then sharing, then the newest seen.
 //!
-//! What it cannot tell: two physical devices with the same Computer Name on one account read as
-//! one. macOS keeps Computer Names unique on a network, and the hub has no machine id to tell
-//! them apart (a hub-side machine id is the follow-up that removes the name rule).
+//! Machine keys first: the hub lists each record's `machine` (its per-account key for the machine
+//! the record's client runs on, PROTOCOL.md "One record per machine"). Records with one key are
+//! one device, records with two keys are two devices whatever their names, and the name rule
+//! above only places records that carry no key (clients from before machine ids), joining the
+//! first machine whose records carry the same name. Two Macs with one Computer Name read as one
+//! only while one of them runs a build that sends no machine id.
 
 use std::collections::HashMap;
 
@@ -43,6 +46,11 @@ pub struct Device {
     /// Epoch seconds.
     #[serde(default)]
     pub created_at: Option<f64>,
+    /// The hub's per-account key for the record's machine (`machine`, PROTOCOL.md "One record
+    /// per machine"): one key is one machine, two keys are two machines whatever their names.
+    /// Absent for records from clients that send no machine id.
+    #[serde(default)]
+    pub machine: Option<String>,
 }
 
 /// This device: its id, and its name and platform for before the hub lists its record.
@@ -111,6 +119,18 @@ pub fn listing(this: &This, devices: &[Device]) -> Listing {
         .filter(|name| name.chars().any(char::is_alphanumeric))
         .map(|name| key(&this.id, name, platform))
         .collect();
+    let this_machine = own.and_then(|d| d.machine.as_deref()).filter(|m| !m.is_empty());
+    let machine_of = |d: &Device| d.machine.clone().filter(|m| !m.is_empty());
+    // A record with a machine key is that machine's. A record without one (a client from before
+    // machine ids) joins the first machine whose records carry its name, else its name's group.
+    let mut name_to_machine: HashMap<String, String> = HashMap::new();
+    for device in devices {
+        if let Some(machine) = machine_of(device) {
+            name_to_machine
+                .entry(key(&device.id, &device.name, device.platform.as_deref()))
+                .or_insert(format!("machine\u{0}{machine}"));
+        }
+    }
     let mut this_device = vec![this.id.clone()];
     let mut order: Vec<String> = Vec::new();
     let mut groups: HashMap<String, Vec<&Device>> = HashMap::new();
@@ -118,11 +138,21 @@ pub fn listing(this: &This, devices: &[Device]) -> Listing {
         if device.id == this.id {
             continue;
         }
-        let k = key(&device.id, &device.name, device.platform.as_deref());
-        if this_keys.contains(&k) {
+        let name_key = key(&device.id, &device.name, device.platform.as_deref());
+        let mine = match (machine_of(device), this_machine) {
+            // Another machine's key is another machine, even with this one's name.
+            (Some(machine), Some(own)) => machine == own,
+            // This build sends no machine id: the name is all it can go by.
+            (_, None) | (None, _) => this_keys.contains(&name_key),
+        };
+        if mine {
             this_device.push(device.id.clone());
             continue;
         }
+        let k = match machine_of(device) {
+            Some(machine) => format!("machine\u{0}{machine}"),
+            None => name_to_machine.get(&name_key).cloned().unwrap_or(name_key),
+        };
         groups
             .entry(k.clone())
             .or_insert_with(|| {

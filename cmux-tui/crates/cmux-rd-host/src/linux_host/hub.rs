@@ -56,6 +56,28 @@ pub fn signing_string(method: &str, target: &str, ts: u64, body: Option<&[u8]>) 
     format!("{method}\n{target}\n{ts}\n{digest}")
 }
 
+/// The `machineId` this host sends at registration: one value for every cmux build and identity on
+/// this machine, so the hub keeps one record per machine (PROTOCOL.md, One record per machine).
+/// A SHA-256 of the systemd machine id, never the id itself; the hub hashes it again with the
+/// account. None without a valid machine id (the hub then folds records by name).
+pub fn machine_id() -> Option<String> {
+    ["/etc/machine-id", "/var/lib/dbus/machine-id"]
+        .iter()
+        .find_map(|path| machine_id_from(&std::fs::read_to_string(path).ok()?))
+}
+
+/// `machine_id` for one file's text: 32 hex, not systemd's all-zero placeholder.
+pub fn machine_id_from(text: &str) -> Option<String> {
+    let value = text.trim();
+    let valid = value.len() == 32
+        && value.bytes().all(|b| b.is_ascii_hexdigit())
+        && value.bytes().any(|b| b != b'0');
+    valid.then(|| {
+        let raw = format!("cmux device hub machine v1\0{}", value.to_ascii_uppercase());
+        crate::serve::hex(ring::digest::digest(&ring::digest::SHA256, raw.as_bytes()).as_ref())
+    })
+}
+
 pub fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
@@ -185,13 +207,16 @@ impl Hub {
 
     /// `POST /v1/devices`: registers this device as `linux`.
     pub fn register(&self) -> Res<Value> {
-        let body = json!({
+        let mut body = json!({
             "id": self.device.id,
             "name": self.device.name,
             "platform": "linux",
             "signingKey": self.signer.public_key(),
             "agreementKey": self.device.agreement_key()?,
         });
+        if let Some(machine) = machine_id() {
+            body["machineId"] = json!(machine);
+        }
         self.call("POST", "/v1/devices", Some(&body))
     }
 
@@ -284,6 +309,19 @@ mod tests {
             signing_string("POST", "/v1/devices", 7, Some(b"{}")),
             "POST\n/v1/devices\n7\n44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
         );
+    }
+
+    #[test]
+    fn machine_id_is_a_hash_of_a_valid_machine_id_only() {
+        let id = machine_id_from("0123456789abcdef0123456789abcdef\n").unwrap();
+        assert_eq!(id.len(), 64);
+        assert!(id.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert!(!id.contains("0123456789abcdef"));
+        // Case does not matter: the same machine is the same id.
+        assert_eq!(machine_id_from("0123456789ABCDEF0123456789ABCDEF"), Some(id));
+        assert_eq!(machine_id_from("00000000000000000000000000000000"), None);
+        assert_eq!(machine_id_from("uninitialized"), None);
+        assert_eq!(machine_id_from(""), None);
     }
 
     #[test]

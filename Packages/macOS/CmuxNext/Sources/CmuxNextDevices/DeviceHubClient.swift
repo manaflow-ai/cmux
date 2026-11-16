@@ -134,12 +134,15 @@ public actor DeviceHubClient {
         try await call("GET", "/v1/me", as: HubMe.self)
     }
 
-    /// Registers or updates this device, signed by the key it registers.
+    /// Registers or updates this device, signed by the key it registers. `machineId` is the same
+    /// for every cmux build on this machine, so the hub keeps one record per machine.
     public func registerDevice(name: String, platform: DevicePlatform) async throws -> HubDevice {
-        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String }
+        struct Body: Encodable {
+            var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String; var machineId: String?
+        }
         let identity = signer.identity
         let body = Body(id: identity.id, name: name, platform: platform, signingKey: identity.signingKey,
-                        agreementKey: identity.agreementKey)
+                        agreementKey: identity.agreementKey, machineId: DeviceMachineID.current)
         return try await call("POST", "/v1/devices", body: body, as: DeviceAnswer.self).device
     }
 
