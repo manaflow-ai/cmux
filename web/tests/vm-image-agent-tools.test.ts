@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -849,12 +849,12 @@ describe("refusedFirstUsePackages", () => {
 });
 
 describe("browserStallDiagnosticsCommand", () => {
-  test("parses as shell, and prints only the host env values it names", () => {
+  test("parses as shell, and prints only the host env values it names", async () => {
     const command = browserStallDiagnosticsCommand();
-    expect(spawnSync("bash", ["-n", "-c", command]).status).toBe(0);
+    expect((await runChild("bash", ["-n", "-c", command], { timeout: 20_000 })).status).toBe(0);
     const env = "DISPLAY=:99\nCMUX_BROWSER_HOST_EGRESS=isolated\nGITHUB_TOKEN=ghp_secret\nFONTCONFIG_FILE=/etc/fonts/fonts.conf\n";
     const sed = /sed -E '([^']+)'/.exec(command)?.[1] ?? "";
-    const out = spawnSync("sed", ["-E", sed], { input: env, encoding: "utf8" }).stdout;
+    const out = (await runChild("sed", ["-E", sed], { input: env, timeout: 20_000 })).stdout;
     expect(out).toBe("DISPLAY=:99\nCMUX_BROWSER_HOST_EGRESS=isolated\nGITHUB_TOKEN=(set)\nFONTCONFIG_FILE=/etc/fonts/fonts.conf\n");
   });
 });
