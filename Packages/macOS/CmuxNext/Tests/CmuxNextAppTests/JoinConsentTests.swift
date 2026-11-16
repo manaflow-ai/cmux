@@ -777,7 +777,7 @@ import Testing
 
     /// The incident's Mac once the line reads another install's acpmux: the switches show what it holds,
     /// disabled, with no Turn All Off (it takes no off from this app either), and the page names that
-    /// acpmux. Mac Screen follows the record it read.
+    /// acpmux. Mac Screen never serves on it: any same-user process may bind that socket and say granted.
     @Test func aRecordReadButNotProvenShowsItsStateAndNamesTheDaemon() async throws {
         final class ForeignLine: JoinConsentLine {
             let isPerson = false
@@ -796,7 +796,8 @@ import Testing
         #expect(page["known"] as? Bool == false && page["revoke_all"] == nil)
         let switches = try #require(page["switches"] as? [[String: Any]])
         #expect(switches.first { $0["surface"] as? String == "screen" }?["on"] as? Bool == true, "shows what acpmux holds")
-        #expect(model.permitsMacScreen(control: false) && !model.permitsMacScreen(control: true))
+        #expect(!model.permitsMacScreen(control: false) && !model.permitsMacScreen(control: true), "Mac Screen never follows another install's record")
+        #expect(!(await model.allowsMacScreen(control: false, requester: "lane-vm-3")))
     }
 
     @Test func noAcpmuxIsAFailureNeverAnOn() async {

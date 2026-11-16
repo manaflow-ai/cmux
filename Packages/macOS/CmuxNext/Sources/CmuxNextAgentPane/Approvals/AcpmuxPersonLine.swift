@@ -88,15 +88,14 @@ public final class AcpmuxPersonLine {
         case .noKey?, .refused?: break
         default: return first
         }
+        // Once per daemon instance (pid): a daemon that keeps refusing (a DEV one with another launch's key)
+        // is not enrolled again on every read, app activation or Mac Screen ticket, and its first line answers.
+        guard let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: .seconds(5)),
+              status.serves(home: environment.home), let pid = status.pid,
+              AcpmuxPersonKey.claimReenroll(for: environment.socketPath, pid: pid) else { return first }
         // The first line's deadline runs from its connect: closed here, and the answer is a fresh line.
         line.close()
-        // Once per daemon instance (pid): a daemon that keeps refusing (a DEV one with another launch's key)
-        // is not enrolled again on every read, app activation or Mac Screen ticket.
-        if let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: .seconds(5)),
-           status.serves(home: environment.home), let pid = status.pid,
-           AcpmuxPersonKey.claimReenroll(for: environment.socketPath, pid: pid) {
-            _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
-        }
+        _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
         return await connect(environment, allowForeign: true)
     }
 
@@ -112,6 +111,8 @@ public final class AcpmuxPersonLine {
         connection.timer.schedule(after: deadline) { @MainActor [weak connection] in connection?.close() }
         guard let initialized = await connection.start() else {
             connection.close()
+            // A socket file nothing answers on (left by a daemon that exited) is no acpmux, not a refused one.
+            if connection.line.unreachable { return .failure(.noSocket(path: environment.socketPath)) }
             return .failure(connection.line.refusal.map(OpenFailure.refused) ?? .noAnswer)
         }
         let meta = (initialized["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]

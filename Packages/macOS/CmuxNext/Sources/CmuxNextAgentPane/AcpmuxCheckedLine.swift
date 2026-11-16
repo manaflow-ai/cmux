@@ -33,7 +33,7 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     private let ownPeer = Atomic<Bool>(false)
     /// Why the connect failed (the refusal's words) and a foreign peer's executable, for the caller
     /// to log and show.
-    private let facts = Mutex<(refusal: String?, foreignPath: String?)>((nil, nil))
+    private let facts = Mutex<(refusal: String?, foreignPath: String?, unreachable: Bool)>((nil, nil, false))
     /// Largest line accepted: past acpmux's largest message (`rpc::MAX_MESSAGE_BYTES`, 31 MiB), which
     /// it sends as one line. A cap below it closed on a reply the daemon may send, and the reconnect
     /// asked for the same reply again.
@@ -53,6 +53,8 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     /// The executable of another install's daemon that answered (only with `allowForeign`); nil for
     /// this app's own acpmux or before the connect.
     public var foreignPeerPath: String? { facts.withLock { $0.foreignPath } }
+    /// Nothing answered on the socket (a file left behind by a daemon that exited): no acpmux runs.
+    public var unreachable: Bool { facts.withLock { $0.unreachable } }
     /// The peer passed as the acpmux this app runs.
     public var isOwnPeer: Bool { ownPeer.load(ordering: .acquiring) }
 
@@ -75,7 +77,8 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
                     facts.withLock { $0.foreignPath = path }
                 }
             } catch {
-                facts.withLock { $0.refusal = String(describing: error) }
+                let unreachable = (error as? AcpmuxServerPeer.Refusal)?.isTransientRestart == true
+                facts.withLock { $0 = (String(describing: error), $0.foreignPath, unreachable) }
                 return finish()
             }
             let fd = descriptor

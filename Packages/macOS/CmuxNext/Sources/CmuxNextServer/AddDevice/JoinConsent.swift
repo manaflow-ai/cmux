@@ -383,6 +383,12 @@ public final class JoinConsentModel {
         var consent: JoinConsentRecord?
         var supported: Bool?
         var unread: JoinConsentUnread?
+        /// SECURITY: the record Mac Screen may serve on: nil for one another install's acpmux answered (any
+        /// same-user process may bind the socket and say granted), which the page only shows.
+        var gating: JoinConsentRecord? {
+            if case .notProven(foreignPath: _?, _)? = unread { return nil }
+            return consent
+        }
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "join-consent")
@@ -457,7 +463,7 @@ public final class JoinConsentModel {
     private func apply(_ reading: Reading) {
         status = reading.status
         consent = reading.consent
-        verified = reading.consent
+        verified = reading.gating
         consentSupported = reading.supported
         unread = reading.unread
         changed()
@@ -606,7 +612,7 @@ public final class JoinConsentModel {
     }
 
     private static func permits(_ reading: Reading, control: Bool) -> Bool {
-        guard reading.supported == true, let consent = reading.consent else { return false }
+        guard reading.supported == true, let consent = reading.gating else { return false }
         if consent.consentRequired == false { return true }
         return consent.screen && (!control || consent.control)
     }

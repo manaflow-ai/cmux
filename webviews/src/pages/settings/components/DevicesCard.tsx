@@ -52,7 +52,10 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
   const [setting, setSetting] = useState<string | null>(null);
   // The host's refusal of the last switch press itself (not the person's own click): shown, never silent.
   const [refusal, setRefusal] = useState<string | null>(null);
-  const error = refusal ?? join.error;
+  // Both when they differ: a later host error (a failed read) never hides behind an older refusal.
+  const errors = [refusal, join.error].filter(
+    (text, index, all): text is string => !!text && all.indexOf(text) === index,
+  );
   const titleId = useId();
   return (
     <section className="group" data-devices-group="join">
@@ -93,13 +96,13 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
             </div>
           </div>
         ))}
-        {error && (
-          <div className="row">
+        {errors.map((error) => (
+          <div className="row" key={error}>
             <div className="row-help" role="alert">
               {error}
             </div>
           </div>
-        )}
+        ))}
         {join.revoke_all && (
           <div className="row">
             <div className="row-control">
