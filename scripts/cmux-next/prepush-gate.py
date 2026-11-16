@@ -2464,10 +2464,13 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
     if resolver is None and b"load_workflow_jobs" in script:
         return [NoVerdict(f"prepush-gate: {STALE_INSTALL} (it has no {Path(FALLBACKS_RESOLVER).name}, which "
                           f"{Path(FALLBACKS_SCRIPT).name} reads runs-on through).")]
-    # The checker runs under this interpreter: the hook's own Python (its python3-path), as every other layer does.
+    # The checker runs under this interpreter: the one the hook picked (scripts/git-hooks/hook_python.sh), which
+    # imports yaml whenever any candidate on this host does. When none does, the refusal names each it tried.
     if not has_pyyaml(sys.executable):
         fix = pyyaml_install_command(sys.executable)
-        return [f"PyYAML missing: {fix}" if "externally managed" in fix else f"PyYAML missing: run {fix}"]
+        tried = os.environ.get("CMUX_HOOK_PYTHON_TRIED", "").strip()
+        also = f" (no Python the hook tried imports yaml: {tried})" if tried else ""
+        return [(f"PyYAML missing: {fix}" if "externally managed" in fix else f"PyYAML missing: run {fix}") + also]
     with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
         work = absolute(Path(tmp))
         (work / "check.py").write_bytes(script)
