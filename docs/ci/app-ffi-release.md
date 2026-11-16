@@ -180,9 +180,10 @@ release workflow's push paths, the router, `build_class.py` and
    for a new action, `shortcut/<id>` and `shortcut-removal/<id>` for a default
    shortcut added or dropped, `fields/<id>` (one JSON pointer per line) for
    changed fields of an existing action, `family/<family>/<id>` for a new palette
-   family member. Text after a `#` is a note. `swift_parity` names the file to
-   create when an export lacks a change, and the file to delete once the re-pin
-   carries it. One file per id means two pull requests that mark or clear
+   family member, `duplicate/<id>` for a new declared palette duplicate
+   (`palette::DUPLICATES`). Text after a `#` is a note. `swift_parity` names
+   the file to create when an export lacks a change, and the file to delete
+   once the re-pin carries it. One file per id means two pull requests that mark or clear
    different ids never touch the same path, so they never conflict there.
 2. **Step B: the Swift change,** after the re-pin merges. Its FFI inputs then
    equal the pinned source, so the pin check passes.

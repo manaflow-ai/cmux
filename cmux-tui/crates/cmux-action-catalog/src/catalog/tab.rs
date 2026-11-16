@@ -215,7 +215,7 @@ pub static ACTIONS: &[Action] = &[
         title: t("ActionCatalog", "action.macScreen.stopViewing", "Stop Viewing Shared Screen"),
         keywords: &["mac", "screen", "sharing", "screen share", "share screen", "remote desktop", "vnc", "stop", "end", "disconnect", "viewer", "leave", "close"],
         category: "tab",
-        symbol: "display",
+        symbol: "eye.slash",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("tab", "close", 600)], ..SurfacePlan::DEFAULT },
         targets: &["tab"],

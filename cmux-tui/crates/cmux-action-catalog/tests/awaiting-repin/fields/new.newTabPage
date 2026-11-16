@@ -1,0 +1,4 @@
+# palette-duplicates: one name per command and one icon per menu row (PaletteMenuVocabularyTests, ContextMenuStandardTests)
+/title
+/surfacePlan/contextMenus
+/computed/canonical_action_id

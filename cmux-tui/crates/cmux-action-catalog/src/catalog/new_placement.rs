@@ -451,12 +451,15 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "new.newTabPage",
         group: GROUP,
-        title: t("ActionCatalog", "action.new.newTabPage", "New Tab Page"),
+        // Runs New Tab Page to the Right (`NewAtPlacement`), so it carries that row's name and is its
+        // declared duplicate (`palette::DUPLICATES`); the New menu keeps "New Tab Page" as its label.
+        // Titled "New Tab Page" it read like the tab bar's New Tab Page (`newTab.page`), another command.
+        title: t("ActionCatalog", "action.new.newTabPage.right", "New Tab Page to the Right"),
         keywords: &["new", "new tab page", "page"],
         category: "pane",
         symbol: "square.grid.2x2",
         surfaces: CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("pane", "create", -160).style("submenu").folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("pane", "create", -160).style("submenu").folder("new").label(t("ActionCatalog", "action.new.newTabPage", "New Tab Page"))], ..SurfacePlan::DEFAULT },
         targets: &["pane"],
         cli_name: "action new-new-tab-page",
         ..Action::DEFAULT
