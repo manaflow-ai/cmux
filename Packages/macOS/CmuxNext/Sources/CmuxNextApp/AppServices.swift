@@ -401,7 +401,7 @@ final class AppServices {
     /// read (within `pollInterval`).
     private(set) lazy var verificationAutofill = VerificationAutofillCoordinator(
         inbox: VerificationInbox(policy: VerificationOfferPolicy(publicSuffixes: PublicSuffixList.bundled() ?? PublicSuffixList(listText: ""))),
-        source: CombinedVerificationSource([
+        source: CombinedVerificationSource(Self.debugVerificationSources + [
             GmailFeedVerificationSource(fetcher: CEFGmailFeedFetcher { [weak self] in
                 self?.verificationAutofill.waitingTabs.first { $0 is CEFTab }
             }),
@@ -410,6 +410,16 @@ final class AppServices {
         isEnabled: { [weak self] in self?.settings.map { BrowserVerificationAutofillSetting.current($0).enabled } ?? false },
         accounts: { [weak self] in Set(self?.settings.map { BrowserVerificationAutofillSetting.current($0).accounts } ?? []) }
     )
+    /// Debug builds: a fixture mail file for a live check (`CMUX_VERIFICATION_FIXTURE_MAIL`); none otherwise.
+    private static var debugVerificationSources: [any VerificationEmailSource] {
+        #if DEBUG
+        if let path = ProcessInfo.processInfo.environment["CMUX_VERIFICATION_FIXTURE_MAIL"], !path.isEmpty {
+            return [DebugVerificationFixtureSource(url: URL(fileURLWithPath: path))]
+        }
+        #endif
+        return []
+    }
+
     /// Design mode in browser panes: highlights become cards in an agent chat
     /// (plans/cmux-next/design-mode-DESIGN.md).
     private(set) lazy var designMode = BrowserDesignModeController(services: self)
