@@ -277,7 +277,7 @@ jobs:
           name: cmux-next-web-bundles
           path: ${{ runner.temp }}/web-bundles-publish
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # The PR layer's pointer: the layer facts, its key and the web ABI it needs. Handed on
       # even when the key was already published, so the pointer always moves to this head.
@@ -305,7 +305,7 @@ jobs:
           name: cmux-next-web-pr-layer
           path: ${{ runner.temp }}/pr-layer
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   publish:
     needs: build

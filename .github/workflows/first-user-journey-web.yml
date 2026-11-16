@@ -102,6 +102,6 @@ jobs:
         with:
           name: first-user-journey-web
           path: ${{ runner.temp }}/first-user-journey-web
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           if-no-files-found: warn
           overwrite: true

@@ -962,7 +962,7 @@ jobs:
           name: cmux-beta-testflight-${{ github.sha }}
           path: ${{ runner.temp }}/cmux-ios-upload/export/cmux-resigned.ipa
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       - name: Package prepared candidate
         id: package_candidate
@@ -997,7 +997,7 @@ jobs:
         with:
           name: ios-testflight-candidate-${{ github.run_id }}
           path: ${{ runner.temp }}/ios-candidate/
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           if-no-files-found: error
 
       - name: Bound iOS compilation cache size
@@ -1064,7 +1064,7 @@ jobs:
           name: testflight-notes-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/testflight-notes.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       - name: Upload the archive log
         # Only on failure: on the success path this is 15-20 minutes of
@@ -1078,7 +1078,7 @@ jobs:
           # A step that failed before the build started leaves no log, and
           # failing the upload of a failure report helps nobody.
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       - name: Summary
         if: always()
@@ -1141,7 +1141,7 @@ jobs:
           # therefore skip logic + notes ranges) independent per app.
           name: ${{ steps.distribution.outputs.metadata_artifact }}
           path: ${{ runner.temp }}/ios-testflight-build.json
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       - name: Persist dSYM bundle as run artifact
         # The runner is ephemeral, so the archive's dSYMs are the only durable
@@ -1162,7 +1162,7 @@ jobs:
           name: ios-dsyms-${{ needs.decide.outputs.variant }}-${{ steps.upload.outputs.final_build_number }}
           path: ${{ runner.temp }}/cmux-ios-upload/cmux.xcarchive/dSYMs
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       - name: Upload dSYMs to Sentry
         # Sentry symbolicates crashes server-side from its own dSYM store; the

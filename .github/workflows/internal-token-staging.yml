@@ -116,5 +116,5 @@ jobs:
         with:
           name: sealed-secrets
           path: ${{ runner.temp }}/sealed-secrets.json
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           if-no-files-found: error

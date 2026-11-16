@@ -300,7 +300,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.pool.outputs.jobs }}-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       # The simulator jobs the run will hold, for the janitor's glaeda-ios-sim
       # count (queue_janitor.capability_marker), before those jobs exist.
@@ -311,7 +311,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.pool.outputs.sim_jobs }}-glaeda-ios-sim
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       # The owned-pool rescue sweeper (ci-owned-pool-rescue.yml) finds the runs
       # it watches by this fixed name, one listing for all of them.
@@ -322,7 +322,7 @@ jobs:
         with:
           name: owned-pool-watch
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   detect-ios-changes:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
@@ -1095,7 +1095,7 @@ jobs:
         with:
           name: ios-simulator-build-log
           path: ${{ env.IOS_DERIVED_DATA }}/logs/*.log
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Remove compatibility simulator
         # Also a simulator select_ios_simulator.py created for this run, which

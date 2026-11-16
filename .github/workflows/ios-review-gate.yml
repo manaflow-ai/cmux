@@ -212,7 +212,7 @@ jobs:
           name: review-gate-planned-skips-${{ steps.plan.outputs.lane }}
           path: ${{ runner.temp }}/planned/*.skipped.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   lint:
     needs: plan
@@ -294,7 +294,7 @@ jobs:
         with:
           name: review-gate-lint-${{ env.LANE }}
           path: lint-${{ env.LANE }}.json
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   reviewer-path:
     needs: plan
@@ -474,7 +474,7 @@ jobs:
         with:
           name: ios-link-ffi-framework
           path: ${{ runner.temp }}/link-ffi-out
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           if-no-files-found: ignore
       - name: Build the app and the gate for testing
         if: env.UDID != ''
@@ -597,7 +597,7 @@ jobs:
             ${{ env.RESULTS }}/screens
             ${{ env.RESULTS }}/agent-pass
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       # The xcresult bundles (about 1 GB) are not uploaded: their test results,
       # logs and screenshots are exported above, which is all the report reads.
 
@@ -683,7 +683,7 @@ jobs:
         with:
           name: review-gate-asc
           path: asc-*.json
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # Writes the framework a leg built into cmux NEXT's R2 bucket, which the
   # legs read with no credential. The write credentials live in the
@@ -843,4 +843,4 @@ jobs:
         with:
           name: review-gate-report
           path: review-gate.md
-          retention-days: 3
+          retention-days: 3  # retention-class: report

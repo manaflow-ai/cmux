@@ -67,7 +67,7 @@ jobs:
           name: cloud-newlink-e2e-${{ github.sha }}
           path: ${{ runner.temp }}/cloud-dev-e2e/e2e.json
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Remove credentials
         if: always()

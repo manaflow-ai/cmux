@@ -230,7 +230,7 @@ jobs:
         with:
           name: cmux-next-quality-metrics
           path: ${{ runner.temp }}/quality/quality-metrics.json
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # Issues write on cmuxterm-hq only, for the sticky report.
       - name: Mint the cmuxterm-hq issues write token

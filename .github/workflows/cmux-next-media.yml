@@ -647,7 +647,7 @@ jobs:
           path: ${{ runner.temp }}/media-app/app.tar
           if-no-files-found: ignore
           compression-level: 1
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Capture before and after interactions
         id: capture
@@ -762,7 +762,7 @@ jobs:
           name: cmux-next-media
           path: ${{ runner.temp }}/media
           if-no-files-found: ignore
-          retention-days: 1  # the hand-off job dispatches the publish run at once; 140 MB a run
+          retention-days: 1  # retention-class: handoff; the hand-off job dispatches the publish run at once; 140 MB a run
 
       - name: Unregister the base worktree
         if: ${{ always() }}
@@ -863,7 +863,7 @@ jobs:
         with:
           name: cmux-next-media-context
           path: ${{ runner.temp }}/context/context.json
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       - name: Start the publisher on feat-cmux-next
         env:
           GH_TOKEN: ${{ github.token }}

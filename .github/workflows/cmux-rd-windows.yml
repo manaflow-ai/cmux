@@ -306,4 +306,4 @@ jobs:
             ${{ runner.temp }}/cmux-rd-live.json
             ${{ runner.temp }}/cmux-rd-live.log
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report

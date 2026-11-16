@@ -222,7 +222,7 @@ jobs:
             ${{ runner.temp }}/message.txt
             ${{ runner.temp }}/approve.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # The record and, on a red gate or promotion, the loud part: an ::error, the summary and a comment on the
   # one open cloud-image-roll issue. The GITHUB_TOKEN writes both; its push to the record branch starts nothing.

@@ -173,7 +173,7 @@ jobs:
         with:
           name: cmux-mobile-internal-archive-${{ github.run_id }}
           path: ${{ runner.temp }}/handoff/
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           if-no-files-found: error
 
       - name: Clear the hand-off copy
@@ -268,7 +268,7 @@ jobs:
         with:
           name: cnx-ios-internal-notes-${{ github.run_id }}
           path: ${{ runner.temp }}/notes/what-to-test.txt
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           if-no-files-found: ignore
 
   upload:
@@ -403,7 +403,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-mobile-internal-${{ github.run_id }}
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           path: |
             ${{ runner.temp }}/cmux-mobile-builds/*-testflight/MANIFEST.md
             ${{ runner.temp }}/cmux-mobile-builds/*-testflight/ExportOptions.plist

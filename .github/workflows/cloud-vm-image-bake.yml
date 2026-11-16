@@ -621,7 +621,7 @@ jobs:
           name: cmux-vm-image-first-build-before-${{ github.run_id }}
           path: ${{ github.workspace }}/cmux-vm-image-out
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # The before/after table in the run summary (first-build.ts --report; no Freestyle access).
   first-build-report:

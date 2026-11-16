@@ -65,7 +65,7 @@ jobs:
             backend/catalog/cloud-operations.json
             clients/ts/cloud/src/generated.ts
             cmux-tui/crates/cmux-cloud-wire/src/generated/*.rs
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
       - name: Cloud tenant and adapter behavior
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/team-vm-api

@@ -255,7 +255,7 @@ jobs:
           # results.json and summary.md at the artifact root.
           path: ${{ env.OUT }}
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       - name: Remove the run's simulator
         if: always()
         run: |

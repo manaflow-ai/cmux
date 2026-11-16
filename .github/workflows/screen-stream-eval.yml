@@ -128,4 +128,4 @@ jobs:
             artifacts/screen-stream-eval/summary.md
             artifacts/screen-stream-eval/probe.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report

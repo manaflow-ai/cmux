@@ -240,7 +240,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Upload the owned-pool watch marker
         if: ${{ steps.marker.outputs.path != '' }}
@@ -249,7 +249,7 @@ jobs:
         with:
           name: owned-pool-watch
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   mac:
     needs: [e2e, runner]

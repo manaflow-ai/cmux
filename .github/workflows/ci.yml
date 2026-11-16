@@ -843,7 +843,7 @@ jobs:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.macos-pool.outputs.jobs }}p${{ steps.macos-pool.outputs.placed }}-${{ steps.macos-pool.outputs.runner }}
           path: ${{ steps.macos-pool-marker.outputs.path }}
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           compression-level: 0
 
       # The owned-pool rescue sweeper (ci-owned-pool-rescue.yml) finds the runs
@@ -855,7 +855,7 @@ jobs:
         with:
           name: owned-pool-watch
           path: ${{ steps.macos-pool-marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           compression-level: 0
 
       - name: Route Linux guard suites
@@ -1038,7 +1038,7 @@ jobs:
         with:
           name: build-inputs-${{ steps.inputs.outputs.fingerprint }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/build-inputs.txt
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
       # compile_admitted only matters while the macOS route is on. next-route
@@ -1496,7 +1496,7 @@ jobs:
           name: dogfood-app-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
           path: ${{ steps.artifact.outputs.archive }}
           if-no-files-found: error
-          retention-days: 2
+          retention-days: 2  # retention-class: rerun
           compression-level: 0
 
   ci-status:

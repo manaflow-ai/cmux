@@ -550,7 +550,7 @@ jobs:
           name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/app-host-products.tar.gz
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           compression-level: 0
 
       # macOS jobs start their checkout from these objects, so a pull request

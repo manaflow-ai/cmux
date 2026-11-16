@@ -772,4 +772,4 @@ jobs:
           name: panic-clippy-pr-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/panic-clippy.jsonl
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report

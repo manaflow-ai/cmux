@@ -63,7 +63,7 @@ jobs:
         with:
           name: cmux-actions-bun-lock
           path: workers/cmux-actions/bun.lock
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       - name: Typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck

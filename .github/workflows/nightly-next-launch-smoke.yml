@@ -312,7 +312,7 @@ jobs:
           name: launch-smoke-${{ env.BUILD }}
           path: ${{ runner.temp }}/launch-smoke
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # A crash: roll the feed back (only while the build is still its newest) and
   # file the evidence. A pull request's run does neither.

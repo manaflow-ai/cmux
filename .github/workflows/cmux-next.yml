@@ -1213,7 +1213,7 @@ jobs:
         with:
           name: cmux-next-tree-wait-${{ steps.tree.outputs.tree_key }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 2
+          retention-days: 2  # retention-class: rerun
           overwrite: true
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-103
@@ -1529,7 +1529,7 @@ jobs:
         with:
           name: ${{ steps.place.outputs.free_retry_runner == '' && 'owned-pool-watch-refusals' || 'owned-pool-watch' }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-25
   portable-placement:
@@ -2790,7 +2790,7 @@ jobs:
           name: cmux-next-web-bundles-${{ steps.web-bundle-key.outputs.key }}
           path: web-bundles-out
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
       # The Mac jobs read the bundles from R2's CDN first: the minis download
@@ -2903,7 +2903,7 @@ jobs:
         with:
           name: cmux-next-tree-wait-${{ steps.unavailable.outputs.key }}
           path: ${{ steps.unavailable.outputs.marker }}
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
   # The build fleet's compile verdict for the Swift canary. Opt-in: with the
@@ -3718,7 +3718,7 @@ jobs:
           name: cmux-next-fast-tier-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-42
       - name: Record this pass for the same inputs
@@ -3735,7 +3735,7 @@ jobs:
           name: ${{ steps.reuse-key.outputs.key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-205
@@ -3882,7 +3882,7 @@ jobs:
           name: cmux-next-fast-tier-cargo-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-fast-tier-cargo.json
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-212
       - name: Record rebuild mirror outcome
@@ -3905,7 +3905,7 @@ jobs:
           name: ci-rebuild-mirror-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ci-rebuild-result.json
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Save observed candidate pass
         if: ${{ success() && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.rebuild-mirror.outputs.key != '' }}
@@ -3915,7 +3915,7 @@ jobs:
           name: ${{ steps.rebuild-mirror.outputs.key }}
           path: ${{ runner.temp }}/ci-rebuild-result.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-45
@@ -3933,7 +3933,7 @@ jobs:
           name: ${{ steps.reuse-key.outputs.key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-373
@@ -4226,7 +4226,7 @@ jobs:
           name: cmux-next-build-metrics-swift-test-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-build-metrics
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-230
       - name: Check generated action catalog, surfaces and inventory
@@ -4491,7 +4491,7 @@ jobs:
           name: cmux-next-generated-patch
           path: ${{ runner.temp }}/generated/files
           include-hidden-files: true
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-236
       - name: Give the generated files verdict
@@ -4551,7 +4551,7 @@ jobs:
           name: swift-test-crash-reports-${{ github.run_attempt }}
           path: ${{ runner.temp }}/swift-test-crash-reports
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       # Why: docs/ci/cmux-next-workflow-notes.md#note-54
       - name: Record this pass for the same inputs
         if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -4567,7 +4567,7 @@ jobs:
           name: ${{ steps.reuse-key.outputs.key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-55
@@ -4772,7 +4772,7 @@ jobs:
           name: cmux-next-build-metrics-daemon-test-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-build-metrics
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-257
       - name: Check generated action catalog, surfaces and inventory
@@ -4820,7 +4820,7 @@ jobs:
           name: ${{ steps.base-exports.outputs.name }}
           path: ${{ runner.temp }}/base-exports
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Compile string catalogs into the resource bundles
         working-directory: Packages/macOS/CmuxNext
@@ -4907,7 +4907,7 @@ jobs:
           name: cmux-next-generated-patch
           path: ${{ runner.temp }}/generated/files
           include-hidden-files: true
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-261
       - name: Give the generated files verdict
@@ -4965,7 +4965,7 @@ jobs:
           name: daemon-test-crash-reports-${{ github.run_attempt }}
           path: ${{ runner.temp }}/swift-test-crash-reports
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-59
   generated-files:
@@ -5222,7 +5222,7 @@ jobs:
           name: cmux-next-build-metrics-generated-files-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-build-metrics
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Check generated action catalog, surfaces and inventory
         if: ${{ steps.reuse.outputs.hit != 'true' }}
@@ -5274,7 +5274,7 @@ jobs:
           name: ${{ steps.base-exports.outputs.name }}
           path: ${{ runner.temp }}/base-exports
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-277
       - name: Regenerate stale files
@@ -5316,7 +5316,7 @@ jobs:
           name: cmux-next-generated-patch
           path: ${{ runner.temp }}/generated/files
           include-hidden-files: true
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Fail on stale generated files
         if: ${{ (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') && steps.reuse.outputs.hit != 'true' }}
@@ -5375,7 +5375,7 @@ jobs:
           name: ${{ steps.reuse-key.outputs.key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-63
@@ -5711,7 +5711,7 @@ jobs:
           name: cmux-next-release-compile-timing-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-build-metrics/release
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-68
       - name: Fetch the Chromium engine
@@ -5765,7 +5765,7 @@ jobs:
           name: ${{ steps.reuse-key.outputs.key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-70
@@ -6199,7 +6199,7 @@ jobs:
           name: cmux-next-scheme-compile-timing-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-build-metrics/scheme
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-76
       - name: Key the DEV compile cache (Blacksmith)
@@ -6291,7 +6291,7 @@ jobs:
           name: cmux-next-dev-cas-holder-${{ steps.dev-holder.outputs.holder }}
           path: ${{ runner.temp }}/cmux-next-dev-cas-holder/holder.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
       - name: Upload DEV daily compile timing
@@ -6302,7 +6302,7 @@ jobs:
           name: cmux-next-dev-daily-compile-timing-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Upload the cmux NEXT DEV Release app
         if: steps.compile-cmux-next-dev-release.outcome == 'success'
@@ -6311,7 +6311,7 @@ jobs:
           name: cmux-next-dev-daily-unsigned-${{ inputs.dev_daily_sha || github.sha }}
           path: ${{ steps.compile-cmux-next-dev-release.outputs.archive }}
           if-no-files-found: error
-          retention-days: 2
+          retention-days: 2  # retention-class: rerun
           compression-level: 0
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-322
@@ -6344,7 +6344,7 @@ jobs:
           path: ${{ runner.temp }}/cmux-next-dev-product-record/manifest.json
           if-no-files-found: error
           # As long as the product artifact it names.
-          retention-days: 2
+          retention-days: 2  # retention-class: rerun
           overwrite: true
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-77
@@ -6372,7 +6372,7 @@ jobs:
           name: cmux-next-crash-gate-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/crash-gate/out
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-78
       - name: Package the trusted cmux-next dogfood artifact
@@ -6403,7 +6403,7 @@ jobs:
           name: ${{ steps.dogfood-artifact.outputs.artifact_name }}
           path: ${{ steps.dogfood-artifact.outputs.archive }}
           if-no-files-found: error
-          retention-days: 2
+          retention-days: 2  # retention-class: rerun
           compression-level: 0
       # Why: docs/ci/cmux-next-workflow-notes.md#note-79
       - name: Capture the fleet build's REF
@@ -6459,7 +6459,7 @@ jobs:
           name: ${{ steps.hybrid-ref-capture.outputs.complete != 'true' && 'hybrid-ref-capture-incomplete-' || 'hybrid-ref-capture-' }}${{ steps.hybrid-ref.outputs.key }}
           path: ${{ steps.hybrid-ref-capture.outputs.manifest }}
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-326
   crash-ends-app:
@@ -6836,7 +6836,7 @@ jobs:
           name: ${{ steps.cas-seed.outputs.record }}
           path: ${{ runner.temp }}/cmux-next-dev-cas-record/manifest.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       - name: Upload DEV landing compile timing
         if: ${{ always() && steps.compile.outcome != 'skipped' }}
         continue-on-error: true
@@ -6845,14 +6845,14 @@ jobs:
           name: cmux-next-dev-landing-compile-timing-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-build-metrics/dev-landing
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       - name: Upload the cmux NEXT DEV Release app
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-dev-daily-unsigned-${{ github.sha }}
           path: ${{ steps.compile.outputs.archive }}
           if-no-files-found: error
-          retention-days: 2
+          retention-days: 2  # retention-class: rerun
           compression-level: 0
       - name: Record the DEV Release app under its input key
         id: dev-product-record
@@ -6880,7 +6880,7 @@ jobs:
           name: cmux-next-dev-release-product-${{ steps.dev-product.outputs.key }}
           path: ${{ runner.temp }}/cmux-next-dev-product-record/manifest.json
           if-no-files-found: error
-          retention-days: 2
+          retention-days: 2  # retention-class: rerun
           overwrite: true
       # Why: docs/ci/cmux-next-workflow-notes.md#note-335
       - name: Report the landing compile
@@ -6914,7 +6914,7 @@ jobs:
           name: cmux-next-dev-cas-holder-${{ steps.report.outputs.holder }}
           path: ${{ runner.temp }}/cmux-next-dev-cas-holder/holder.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
   request-cmux-next-dev-publish:
@@ -6990,7 +6990,7 @@ jobs:
           name: cmux-next-dev-handoff-${{ inputs.dev_daily_sha }}
           path: ${{ runner.temp }}/cmux-next-dev-handoff/receipt.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
       - name: Dispatch the exact source run to the publisher
         id: app-dispatch

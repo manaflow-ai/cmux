@@ -243,7 +243,7 @@ jobs:
           name: dogfood-capture-head-${{ steps.pr.outputs.pr }}-${{ steps.pr.outputs.sha }}
           path: ${{ steps.artifact.outputs.archive }}
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           compression-level: 0
 
   capture:
@@ -354,7 +354,7 @@ jobs:
           name: cmux-next-capture-${{ needs.publish.outputs.pr }}-${{ needs.publish.outputs.sha }}
           path: ${{ runner.temp }}/capture/output
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
 
       - name: Post before/after capture link

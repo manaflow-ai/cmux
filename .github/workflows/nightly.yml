@@ -1597,7 +1597,7 @@ jobs:
           name: cmux-nightly-ghostty-cli-helper
           path: nightly-helper/ghostty
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   build-nightly-ghostty-cli-helper:
     permissions:
@@ -1704,7 +1704,7 @@ jobs:
           name: cmux-nightly-ghostty-cli-helper
           path: nightly-helper/ghostty
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           # A reuse upload that failed part-way may have left the name taken.
           overwrite: true
 
@@ -1715,7 +1715,7 @@ jobs:
           name: cmux-nightly-ghostty-cli-helper
           path: nightly-helper/ghostty
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
       - &x4
@@ -1741,7 +1741,7 @@ jobs:
           name: cmux-next-source-archive
           path: ${{ runner.temp }}/source-archive
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           # A re-run of pick-nightly-build-runner re-runs this job after a success
           # (owned_pool_rescue.repick_job()); its second upload replaces the first.
           overwrite: true
@@ -1754,7 +1754,7 @@ jobs:
           name: cmux-next-source-archive
           path: ${{ runner.temp }}/source-archive
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
       # Signing only embeds the license trees. Keep that handoff separate from
@@ -1769,7 +1769,7 @@ jobs:
           name: cmux-next-license-trees
           path: ${{ runner.temp }}/source-archive/*-licenses
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           # A re-run of pick-nightly-build-runner re-runs this job after a success
           # (owned_pool_rescue.repick_job()); its second upload replaces the first.
           overwrite: true
@@ -1781,7 +1781,7 @@ jobs:
           name: cmux-next-license-trees
           path: ${{ runner.temp }}/source-archive/*-licenses
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
   # Why: docs/ci/nightly-workflow-notes.md#note-9
@@ -1849,7 +1849,7 @@ jobs:
           name: cmux-nightly-web-bundles
           path: ${{ runner.temp }}/nightly-inputs/web
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Upload the web bundles (retry)
         if: "!cancelled() && steps.upload-the-web-bundles.outcome == 'failure'"
@@ -1858,7 +1858,7 @@ jobs:
           name: cmux-nightly-web-bundles
           path: ${{ runner.temp }}/nightly-inputs/web
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
       - name: Set up Rust for the third-party notices
@@ -1880,7 +1880,7 @@ jobs:
           name: cmux-nightly-notices
           path: ${{ runner.temp }}/nightly-inputs/notices
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Upload the third-party notices (retry)
         if: "!cancelled() && steps.upload-the-third-party-notices.outcome == 'failure'"
@@ -1889,7 +1889,7 @@ jobs:
           name: cmux-nightly-notices
           path: ${{ runner.temp }}/nightly-inputs/notices
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
   # The route for build-nightly-app on nightly-next, read right before it queues
@@ -2013,7 +2013,7 @@ jobs:
         with:
           name: owned-pool-watch
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
   build-nightly-app:
@@ -2116,7 +2116,7 @@ jobs:
           name: cmux-nightly-unsigned-app
           path: unsigned-resume/app/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
 
       - name: Retain resumed cmux-nightly-unsigned-app (retry)
@@ -2126,7 +2126,7 @@ jobs:
           name: cmux-nightly-unsigned-app
           path: unsigned-resume/app/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
           overwrite: true
 
@@ -2139,7 +2139,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: unsigned-resume/daemon/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
 
       - name: Retain resumed cmux-nightly-remote-daemon (retry)
@@ -2149,7 +2149,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: unsigned-resume/daemon/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
           overwrite: true
 
@@ -2162,7 +2162,7 @@ jobs:
           name: cmux-nightly-ghostty-cli-helper
           path: unsigned-resume/ghostty/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
 
       - name: Retain resumed cmux-nightly-ghostty-cli-helper (retry)
@@ -2172,7 +2172,7 @@ jobs:
           name: cmux-nightly-ghostty-cli-helper
           path: unsigned-resume/ghostty/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
           overwrite: true
 
@@ -2185,7 +2185,7 @@ jobs:
           name: cmux-next-license-trees
           path: unsigned-resume/licenses/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
 
       - name: Retain resumed cmux-next-license-trees (retry)
@@ -2195,7 +2195,7 @@ jobs:
           name: cmux-next-license-trees
           path: unsigned-resume/licenses/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
           overwrite: true
 
@@ -2208,7 +2208,7 @@ jobs:
           name: cmux-next-source-archive
           path: unsigned-resume/source/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
 
       - name: Retain resumed cmux-next-source-archive (retry)
@@ -2218,7 +2218,7 @@ jobs:
           name: cmux-next-source-archive
           path: unsigned-resume/source/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
           overwrite: true
 
@@ -2236,7 +2236,7 @@ jobs:
           path: unsigned-resume/prepared/cmux-prepared-app.tar.gz
           compression-level: 0
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Retain the resumed prepared app (retry)
         if: "!cancelled() && steps.upload-retain-resumed-prepared-app.outcome == 'failure' && (steps.resume.outputs.prepared == 'true')"
@@ -2247,7 +2247,7 @@ jobs:
           path: unsigned-resume/prepared/cmux-prepared-app.tar.gz
           compression-level: 0
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
       - name: Retain unsigned resume provenance
@@ -2259,7 +2259,7 @@ jobs:
           name: cmux-nightly-unsigned-resume-receipt
           path: unsigned-resume/receipt.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       - name: Retain unsigned resume provenance (retry)
         if: "!cancelled() && steps.upload-retain-unsigned-resume-provenance.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '')"
@@ -2268,7 +2268,7 @@ jobs:
           name: cmux-nightly-unsigned-resume-receipt
           path: unsigned-resume/receipt.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
       - *clear-stale-git-locks-self-hos-2
@@ -2909,7 +2909,7 @@ jobs:
           # The tar.gz is already compressed; avoid wasting runner CPU on outer deflate.
           compression-level: 0
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Upload unsigned nightly app (retry)
         if: "!cancelled() && steps.upload-unsigned.outcome == 'failure' && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true'))"
@@ -2921,7 +2921,7 @@ jobs:
           path: ${{ runner.temp }}/cmux-nightly-unsigned.tar.gz
           compression-level: 0
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
       # Every nightly-next build's dSYMs: sentry-dsyms-nightly uploads them, and keep-published-dsyms
@@ -2939,7 +2939,7 @@ jobs:
           name: nightly-next-dsyms-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           path: build-universal/Build/Products/Release/**/*.dSYM
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 6
           # A failed-jobs re-run recompiles under the same build number; the newest symbols win.
           overwrite: true
@@ -2958,7 +2958,7 @@ jobs:
             cmux-tui/target/aarch64-apple-darwin/release/cmux-tui-host.dSYM
             cmux-tui/target/aarch64-apple-darwin/release/cmux-holder.dSYM
           if-no-files-found: ignore
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
       - name: Finish the dSYM upload to Sentry
@@ -2994,7 +2994,7 @@ jobs:
           name: cmux-nightly-next-release-archive-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           path: ${{ steps.nightly-product-pack.outputs.archive }}
           if-no-files-found: error
-          retention-days: 2
+          retention-days: 2  # retention-class: rerun
           compression-level: 0
 
       - name: Upload the nightly app record
@@ -3006,7 +3006,7 @@ jobs:
           path: ${{ steps.nightly-product-pack.outputs.manifest }}
           if-no-files-found: error
           # As long as the archive it names.
-          retention-days: 2
+          retention-days: 2  # retention-class: rerun
           overwrite: true
 
       - name: Collect the light-job placement
@@ -3075,7 +3075,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           # A picker re-run (owned-pool rescue) re-runs this job after it succeeded beside a stuck app build.
           overwrite: true
 
@@ -3087,7 +3087,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
   attest-nightly-remote-daemon:
@@ -3281,7 +3281,7 @@ jobs:
           path: ${{ steps.tree-source.outputs.path }}
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       - name: Compute portable OptChat Chief input key
         id: chief-key
         if: needs.decide.outputs.track == 'nightly-next' && inputs.nightly_next_unsigned_run == ''
@@ -3576,7 +3576,7 @@ jobs:
           path: prepared-app-handoff/cmux-prepared-app.tar.gz
           compression-level: 0
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - &upload-prepared-app-for-signin-retry
         if: "!cancelled() && steps.upload-prepared-app-for-signing.outcome == 'failure' && (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true')"
@@ -3588,7 +3588,7 @@ jobs:
           path: prepared-app-handoff/cmux-prepared-app.tar.gz
           compression-level: 0
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
 
@@ -4309,7 +4309,7 @@ jobs:
           overwrite: true
           path: ${{ runner.temp }}/cef-runtime
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       - name: Upload the Chromium runtime pack (retry)
         if: "!cancelled() && steps.upload-the-chromium-runtime-pack.outcome == 'failure' && (needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1')"
@@ -4318,7 +4318,7 @@ jobs:
           name: cef-runtime-pack
           path: ${{ runner.temp }}/cef-runtime
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
       # Onboarding grants Accessibility and Screen Recording only to a helper
@@ -4417,7 +4417,7 @@ jobs:
           path: signed-app-handoff/*
           compression-level: 0
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
       - name: Upload signed app for the verify job (retry)
@@ -4429,7 +4429,7 @@ jobs:
           path: signed-app-handoff/*
           compression-level: 0
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
 
@@ -4443,7 +4443,7 @@ jobs:
           overwrite: true
           path: ${{ runner.temp }}/signed-unnotarized/*.zip
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
 
       - name: Package signed fast dogfood DMG
@@ -4607,7 +4607,7 @@ jobs:
             remote-daemon-assets/cmuxd-remote-*
             recovery-source-archive/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       - name: Upload pending notarization recovery artifact (retry)
         if: "!cancelled() && steps.upload-pending-notarization-recovery-artifact.outcome == 'failure' && (always() && steps.prepare-notarization-recovery.outcome == 'success')"
@@ -4624,7 +4624,7 @@ jobs:
             remote-daemon-assets/cmuxd-remote-*
             recovery-source-archive/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
 
@@ -4680,7 +4680,7 @@ jobs:
             ${{ needs.decide.outputs.dmg_prefix }}-*.delta
             appcast*.xml
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
       - name: Upload nightly variant artifacts (retry)
@@ -4693,7 +4693,7 @@ jobs:
             ${{ needs.decide.outputs.dmg_prefix }}-*.delta
             appcast*.xml
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
 
@@ -4710,7 +4710,7 @@ jobs:
             ${{ needs.decide.outputs.dmg_prefix }}-arm64-*.dmg
             remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Upload fast arm64 dogfood artifact (retry)
         if: "!cancelled() && steps.upload-fast-arm64-dogfood-artifact.outcome == 'failure' && (needs.decide.outputs.fast_build == 'true')"
@@ -4722,7 +4722,7 @@ jobs:
             ${{ needs.decide.outputs.dmg_prefix }}-arm64-*.dmg
             remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
 
@@ -4751,7 +4751,7 @@ jobs:
           overwrite: true
           path: notary-receipt/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       - name: Upload notary test receipt (retry)
         if: "!cancelled() && steps.upload-notary-test-receipt.outcome == 'failure' && (always() && steps.notary-receipt.outcome == 'success')"
@@ -4760,7 +4760,7 @@ jobs:
           name: cmux-notary-test-receipt-${{ needs.decide.outputs.import_variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: notary-receipt/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
 
@@ -5006,7 +5006,7 @@ jobs:
           overwrite: true
           path: tested/tested-${{ matrix.variant }}.sha256
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Upload tested DMG digests (retry)
         if: "!cancelled() && steps.upload-tested-dmg-digests.outcome == 'failure' && (needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true')"
@@ -5015,7 +5015,7 @@ jobs:
           name: cmux-nightly-tested-${{ matrix.variant }}
           path: tested/tested-${{ matrix.variant }}.sha256
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
   find-nightly-next-recovery:
@@ -5205,7 +5205,7 @@ jobs:
           name: cmux-nightly-recovered-variant-arm64
           path: recovered/
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Upload the recovered variant (retry)
         if: "!cancelled() && steps.upload-the-recovered-variant.outcome == 'failure' && (steps.continue.outputs.accepted == 'true')"
@@ -5214,7 +5214,7 @@ jobs:
           name: cmux-nightly-recovered-variant-arm64
           path: recovered/
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
   # No environment and no secrets: verifies the DMG that
@@ -5269,7 +5269,7 @@ jobs:
           name: cmux-nightly-recovered-tested-arm64
           path: tested/tested-recovered-arm64.sha256
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Upload tested DMG digests (retry)
         if: "!cancelled() && steps.upload-tested-dmg-digests.outcome == 'failure'"
@@ -5278,7 +5278,7 @@ jobs:
           name: cmux-nightly-recovered-tested-arm64
           path: tested/tested-recovered-arm64.sha256
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
   # nightly_next_republish_run: no secrets and no build. Fetches that completed nightly-next push run's
@@ -5323,7 +5323,7 @@ jobs:
           name: cmux-nightly-republished-variant-arm64
           path: ${{ runner.temp }}/republished/variant/
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Upload the republished variant (retry)
         if: "!cancelled() && steps.upload-the-republished-variant.outcome == 'failure'"
@@ -5332,7 +5332,7 @@ jobs:
           name: cmux-nightly-republished-variant-arm64
           path: ${{ runner.temp }}/republished/variant/
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
       - name: Upload the republished build's tested DMG digests
@@ -5343,7 +5343,7 @@ jobs:
           name: cmux-nightly-republished-tested-arm64
           path: ${{ runner.temp }}/republished/tested/
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Upload the republished build's tested DMG digests (retry)
         if: "!cancelled() && steps.upload-the-republished-build-s-tested-dmg-digest.outcome == 'failure'"
@@ -5352,7 +5352,7 @@ jobs:
           name: cmux-nightly-republished-tested-arm64
           path: ${{ runner.temp }}/republished/tested/
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
       # publish-nightly reads the pack by this run's name when the source build has one (its cef
@@ -5366,7 +5366,7 @@ jobs:
           name: cef-runtime-pack
           path: ${{ runner.temp }}/republished/cef-runtime/
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Upload the republished build's Chromium runtime pack (retry)
         if: "!cancelled() && steps.upload-the-republished-build-s-chromium-runtime.outcome == 'failure' && (steps.fetch.outputs.cef == 'true')"
@@ -5375,7 +5375,7 @@ jobs:
           name: cef-runtime-pack
           path: ${{ runner.temp }}/republished/cef-runtime/
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
   # The visual gate (docs/ci/nightly-next-visual-gate.md): light and dark stills of a DEV build of
@@ -5544,7 +5544,7 @@ jobs:
           name: nightly-next-visual-gate-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: ${{ runner.temp }}/visual-gate
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Keep the stills and the report (retry)
         if: "!cancelled() && steps.upload-keep-the-stills-and-the-report.outcome == 'failure' && (always())"
@@ -5553,7 +5553,7 @@ jobs:
           name: nightly-next-visual-gate-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: ${{ runner.temp }}/visual-gate
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
       # visual-gate-nightly-verdict reads this step's conclusion: it runs only when the gate holds the build.
@@ -5980,7 +5980,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-${{ steps.source.outputs.build_short_sha }}
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
           path: |
             nightly-out/${{ needs.decide.outputs.dmg_prefix }}*.dmg
@@ -5994,7 +5994,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-${{ steps.source.outputs.build_short_sha }}
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           path: |
             nightly-out/${{ needs.decide.outputs.dmg_prefix }}*.dmg
             nightly-out/${{ needs.decide.outputs.dmg_prefix }}*.delta
@@ -6190,7 +6190,7 @@ jobs:
           name: nightly-next-github-${{ github.run_id }}-${{ github.run_attempt }}
           path: next-github/*
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - &x97
         name: Upload the published feed for the GitHub release job (retry)
@@ -6200,7 +6200,7 @@ jobs:
           name: nightly-next-github-${{ github.run_id }}-${{ github.run_attempt }}
           path: next-github/*
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
 
       - name: Record verified nightly publication
@@ -6683,7 +6683,7 @@ jobs:
           name: cmux-nightly-prebuilt-deltas-${{ matrix.variant }}
           path: nightly-delta/prebuilt/*.delta
           if-no-files-found: ignore
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Upload the prebuilt deltas (retry)
         if: "!cancelled() && steps.upload-the-prebuilt-deltas.outcome == 'failure'"
@@ -6692,7 +6692,7 @@ jobs:
           name: cmux-nightly-prebuilt-deltas-${{ matrix.variant }}
           path: nightly-delta/prebuilt/*.delta
           if-no-files-found: ignore
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           overwrite: true
       # Before the keyed job asks for the signer Mac; scripts/ci/nightly_deltas_yield.py.
       - name: Yield the signer Mac to the nightly-next build loop
@@ -6853,7 +6853,7 @@ jobs:
           name: cmux-nightly-deltas-${{ matrix.variant }}
           path: nightly-delta/output/*
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Upload delta result (retry)
         if: "!cancelled() && steps.upload-delta-result.outcome == 'failure'"
@@ -6862,7 +6862,7 @@ jobs:
           name: cmux-nightly-deltas-${{ matrix.variant }}
           path: nightly-delta/output/*
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
 
   republish-nightly-deltas:
@@ -7450,12 +7450,12 @@ jobs:
           name: cmux-nightly-variant-arm64
           path: final-dmg/*
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
       - name: Upload nightly variant artifacts (retry)
         if: "!cancelled() && steps.one-up-variant.outcome == 'failure' && (!env.LEFT_SLOT)"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with: {name: cmux-nightly-variant-arm64, path: "final-dmg/*", if-no-files-found: error, retention-days: 3, overwrite: true}
+        with: {name: cmux-nightly-variant-arm64, path: "final-dmg/*", if-no-files-found: error, retention-days: 3, overwrite: true}  # retention-class: report
       - name: Upload tested DMG digests
         if: ${{ !env.LEFT_SLOT }}
         id: one-up-tested
@@ -7465,12 +7465,12 @@ jobs:
           name: cmux-nightly-tested-arm64
           path: tested/tested-arm64.sha256
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
       - name: Upload tested DMG digests (retry)
         if: "!cancelled() && steps.one-up-tested.outcome == 'failure' && (!env.LEFT_SLOT)"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with: {name: cmux-nightly-tested-arm64, path: "tested/tested-arm64.sha256", if-no-files-found: error, retention-days: 3, overwrite: true}
+        with: {name: cmux-nightly-tested-arm64, path: "tested/tested-arm64.sha256", if-no-files-found: error, retention-days: 3, overwrite: true}  # retention-class: report
       - *x53
       - *x54
       - *x6
@@ -7683,7 +7683,7 @@ jobs:
           name: nightly-published-build-${{ github.run_attempt }}
           path: ${{ runner.temp }}/published-build/published-build.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       - name: Upload the record (retry)
         if: "!cancelled() && steps.upload-record.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -7691,7 +7691,7 @@ jobs:
           name: nightly-published-build-${{ github.run_attempt }}
           path: ${{ runner.temp }}/published-build/published-build.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           overwrite: true
       - name: Ask for this build's post-publication run
         # One try, no loop (tests/test_ci_no_github_token_polling.py): a failed dispatch fails this job, which
@@ -7796,7 +7796,7 @@ jobs:
         with:
           name: release-notes
           path: notes/
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       - name: Upload the signed release notes (retry)
         if: "!cancelled() && steps.upload-the-signed-release-notes.outcome == 'failure'"
@@ -7804,7 +7804,7 @@ jobs:
         with:
           name: release-notes
           path: notes/
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           overwrite: true
 
   publish-release-notes:

@@ -276,7 +276,7 @@ jobs:
           name: promote-${{ inputs.channel }}-${{ inputs.snapshot }}.diff
           path: ${{ steps.diff.outputs.file }}
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Job summary
         if: steps.inputs.outputs.promote == 'true' && steps.diff.outcome == 'success'

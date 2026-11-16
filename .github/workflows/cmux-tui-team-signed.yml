@@ -187,7 +187,7 @@ jobs:
           name: cmux-tui-team-signed-${{ needs.plan.outputs.key }}
           path: team-signed
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   publish:
     name: publish Team-signed tree

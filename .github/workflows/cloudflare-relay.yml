@@ -404,7 +404,7 @@ jobs:
         with:
           name: relay-journey-cmux
           path: ${{ runner.temp }}/journey-cmux/cmux-tui
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           if-no-files-found: error
 
   # The staging Cloud journey (scripts/cmux-next/cloud-journey-ci.sh, as backend.yml's
@@ -510,7 +510,7 @@ jobs:
         with:
           name: relay-journey-production-baseline
           path: ${{ runner.temp }}/cloud-journey
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           if-no-files-found: warn
 
   deploy-production:

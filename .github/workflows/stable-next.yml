@@ -594,7 +594,7 @@ jobs:
           path: stable-signed/
           compression-level: 0
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Cleanup keychain
         if: always() && env.SIGN == 'developer-id'
@@ -656,7 +656,7 @@ jobs:
           name: stable-next-smoke-macos27
           path: ${{ runner.temp }}/launch-smoke
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   smoke-26:
     needs: [plan, sign]
@@ -706,7 +706,7 @@ jobs:
           name: stable-next-smoke-macos26
           path: ${{ runner.temp }}/launch-smoke
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # Still on the feed, never pulled, no fail verdict, and no new crash in Sentry for its release.
   soak:

@@ -90,4 +90,4 @@ jobs:
             ${{ runner.temp }}/classic-migration-proof/proof.json
             ${{ runner.temp }}/classic-migration-proof/*/ledger.jsonl
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report

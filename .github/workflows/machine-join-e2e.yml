@@ -301,7 +301,7 @@ jobs:
           name: machine-join-e2e-evidence
           path: ${{ runner.temp }}/machine-join-e2e/evidence.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # The user's processes, the user and its home, and its socket directory. `kill -1` run as the
       # disposable user signals exactly the processes that user owns (all started by this job), nothing else.

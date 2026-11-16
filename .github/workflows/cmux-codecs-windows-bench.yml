@@ -47,7 +47,7 @@ jobs:
         with:
           name: codec-bench-windows-exe
           path: cmux-tui/crates/cmux-codecs/target/release/codec-bench.exe
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # Windows Server ships Media Foundation (and its software H.264 MFT) as an optional
       # feature; client Windows has it built in. Without it the h264-mf rows say so.

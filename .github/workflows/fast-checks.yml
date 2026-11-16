@@ -431,7 +431,7 @@ jobs:
           name: fast-checks-receipt
           path: ${{ runner.temp }}/fast-checks.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Save command output files
         if: always()
@@ -440,4 +440,4 @@ jobs:
           name: fast-checks-output
           path: ${{ runner.temp }}/fast-checks-out/
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report

@@ -151,7 +151,7 @@ jobs:
             ${{ runner.temp }}/session/session.enc
             ${{ runner.temp }}/session/key.enc
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   resolve:
     # The published DEV release is a moving tag. Resolve its zip once here, as a plain output (an asset
@@ -466,7 +466,7 @@ jobs:
           name: cloud-chat-proof-app
           path: ${{ runner.temp }}/cloud-chat-proof-app.zip
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Staging Cloud chat and reply
         if: inputs.cleanup_machine == '' && !inputs.matrix && !inputs.paused_capture
@@ -503,7 +503,7 @@ jobs:
           name: cloud-paused-price-staging
           path: ${{ runner.temp }}/cloud-chat-proof/paused-price/*.png
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Staging Cloud workspace matrix
         if: inputs.cleanup_machine == '' && inputs.matrix
@@ -529,7 +529,7 @@ jobs:
           name: cloud-workspace-matrix-staging
           path: ${{ runner.temp }}/cloud-chat-proof/matrix-staging/
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Machine status and kill
         if: inputs.cleanup_machine != ''
@@ -578,7 +578,7 @@ jobs:
           name: cloud-chat-proof-evidence-staging
           path: ${{ runner.temp }}/cloud-chat-proof/*evidence.json
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
 
       - name: Remove the auth profile
@@ -747,7 +747,7 @@ jobs:
           name: cloud-workspace-matrix-prod
           path: ${{ runner.temp }}/cloud-chat-proof/matrix-prod/
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Summarize the evidence
         id: evidence
@@ -785,7 +785,7 @@ jobs:
           name: cloud-chat-proof-evidence-prod
           path: ${{ runner.temp }}/cloud-chat-proof/*evidence.json
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
 
       - name: Remove the auth profile

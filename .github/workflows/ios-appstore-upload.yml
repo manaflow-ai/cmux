@@ -529,7 +529,7 @@ jobs:
           name: testflight-notes-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/testflight-notes.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       - name: Record completed upload before group assignment
         id: record_upload
@@ -591,7 +591,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-app-testflight-upload
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           if-no-files-found: error
           path: ${{ runner.temp }}/cmux-app-upload-marker/upload.json
 
@@ -600,7 +600,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-app-testflight-${{ github.sha }}
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           if-no-files-found: ignore
           path: |
             ${{ runner.temp }}/cmux-final-build-number.txt

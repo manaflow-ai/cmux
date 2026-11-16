@@ -306,7 +306,7 @@ jobs:
         with:
           name: next-batch-regen
           path: ${{ runner.temp }}/result/
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   regen-linux:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'regen-linux' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
@@ -375,7 +375,7 @@ jobs:
         with:
           name: next-batch-regen-linux
           path: ${{ runner.temp }}/result/
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   build:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'build' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
@@ -445,4 +445,4 @@ jobs:
         with:
           name: next-batch-build
           path: ${{ runner.temp }}/result/result.json
-          retention-days: 3
+          retention-days: 3  # retention-class: report

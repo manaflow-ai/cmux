@@ -305,7 +305,7 @@ jobs:
           name: ios-e2e-backend-logs-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/e2e-backend/logs
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # Runs after the log upload. Blacksmith runners are ephemeral, but the
       # job must not rely on that: stop every process and delete the files
@@ -535,7 +535,7 @@ jobs:
           name: ios-e2e-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/e2e-evidence
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       - name: Stop tagged Mac app
         if: always()

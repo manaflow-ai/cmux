@@ -316,5 +316,5 @@ jobs:
         with:
           name: devbox-rebake-${{ github.run_id }}
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           path: ${{ runner.temp }}/devbox-promotion.json

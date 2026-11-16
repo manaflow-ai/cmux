@@ -439,7 +439,7 @@ jobs:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       # The next job on this runner starts from the git seed at its own depth, not from
       # this job's all-branch partial clone (a later job's missing blob would be fetched
@@ -720,7 +720,7 @@ jobs:
             ${{ runner.temp }}/pr-autofix.patch
             ${{ runner.temp }}/pr-autofix.txt
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   # A pull request carries only the generated files its own changes caused
   # (scripts/cmux-next/generated_outputs.py, #21946). An output changed without

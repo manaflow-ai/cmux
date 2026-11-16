@@ -135,4 +135,4 @@ jobs:
           if-no-files-found: ignore
           # A later run diffs against it; the baseline is report-only, so a run
           # more than 3 days after the last one just shows no diff.
-          retention-days: 3
+          retention-days: 3  # retention-class: report

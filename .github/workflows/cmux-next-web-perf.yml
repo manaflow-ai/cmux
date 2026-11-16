@@ -121,7 +121,7 @@ jobs:
             ${{ runner.temp }}/web-perf-results.json
             ${{ runner.temp }}/web-perf-traces
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   validate:
     name: Linux Chromium performance gate
@@ -195,4 +195,4 @@ jobs:
           name: web-perf-validation-${{ github.run_id }}-${{ env.HEAD_SHA }}
           path: ${{ runner.temp }}/web-perf-validation
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report

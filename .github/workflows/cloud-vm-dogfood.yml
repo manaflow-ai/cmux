@@ -65,7 +65,7 @@ jobs:
           name: cloud-vm-dogfood-public-cmux
           path: ${{ runner.temp }}/public-cmux-artifact
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   # Authenticate the exact bytes produced by the public installer. This job
   # still receives no repository secret and never executes the downloaded
@@ -129,7 +129,7 @@ jobs:
           name: cloud-vm-dogfood-cmux
           path: ${{ runner.temp }}/trusted-cmux
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   journey:
     needs: installer
@@ -241,4 +241,4 @@ jobs:
           name: cloud-vm-dogfood-${{ inputs.target }}
           path: ${{ runner.temp }}/dogfood
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report

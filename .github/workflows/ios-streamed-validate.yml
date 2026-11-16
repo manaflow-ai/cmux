@@ -379,7 +379,7 @@ jobs:
             /tmp/streamed-ci
             /tmp/webdev.log
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       - name: Remove dev secret bundle
         # The runner user's home outlives the job on a reused machine; never

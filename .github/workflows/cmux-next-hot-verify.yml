@@ -388,7 +388,7 @@ jobs:
           name: cmux-next-hot-verify-${{ needs.target.outputs.pr }}-${{ needs.target.outputs.head }}
           path: ${{ runner.temp }}/look/out.tar
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   # One more look when this one failed on the fleet. A failed `look` job returned no out.tar: the look never
   # judged the change, the fleet or its runner lost it. On 2026-11-16 that was a lent Mac's disk decline

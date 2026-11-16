@@ -113,7 +113,7 @@ jobs:
             ${{ runner.temp }}/webviews-durations/base-reds.json
           if-no-files-found: error
           # A same-run handoff: the cache keeps the manifest between runs.
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   web-typecheck:
     needs: web-subarea-scope
@@ -261,7 +261,7 @@ jobs:
           name: web-test-junit-shard${{ steps.shard.outputs.index }}-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/junit.xml
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   web-instant-navigation:
     needs: web-subarea-scope
@@ -609,7 +609,7 @@ jobs:
           overwrite: true
           path: ${{ runner.temp }}/webviews-head-results/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
       # A push's verdicts feed the base's flake history (the webviews-test-history job), which a
       # pull request's base replay reads so a test that flips by itself on the base only warns.
@@ -627,7 +627,7 @@ jobs:
             ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
             ${{ runner.temp }}/webviews-head-results/webviews-inputs-key
           if-no-files-found: ignore
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       # Every event: push runs on feat-cmux-next keep the manifest fresh for everyone.
       # Optional upkeep: an artifact-service failure or stall never fails the
@@ -643,7 +643,7 @@ jobs:
           overwrite: true
           path: ${{ runner.temp }}/webviews-durations-out/
           if-no-files-found: ignore
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Fail on the gate checks
         if: ${{ !cancelled() }}
@@ -847,7 +847,7 @@ jobs:
           path: ${{ runner.temp }}/base-early/out/
           if-no-files-found: ignore
           # A same-run handoff to react-apps-base-check (a failed-job re-run of it reads it again the same day).
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   # A pull request's base comparison is deliberately separate from the head
   # shards. Replaying the base's failed files requires its own install and bundle
@@ -1422,7 +1422,7 @@ jobs:
           overwrite: true
           path: ${{ runner.temp }}/webviews-test-history/history.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # A base red is excused on every pull request, so nothing made it anyone's: react-apps-check was red on every
       # completed push run from 2026-11-11 16:59 UTC to 2026-11-13 and model-picker-scaling on 62 recorded pushes in

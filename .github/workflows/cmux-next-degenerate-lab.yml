@@ -111,7 +111,7 @@ jobs:
           path: |
             ${{ runner.temp }}/degenerate-lab/god-small.json
             ${{ runner.temp }}/degenerate-lab/summary.md
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           if-no-files-found: warn
 
       - name: Keep the results
@@ -120,7 +120,7 @@ jobs:
         with:
           name: degenerate-lab-results
           path: ${{ runner.temp }}/degenerate-lab
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           if-no-files-found: warn
 
       - name: Mark tonight's run done

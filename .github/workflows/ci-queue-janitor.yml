@@ -172,5 +172,5 @@ jobs:
         with:
           name: macos-pool-load
           path: ${{ runner.temp }}/macos-pool-load.json
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           if-no-files-found: ignore

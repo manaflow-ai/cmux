@@ -131,7 +131,7 @@ jobs:
           name: cmux-next-iphone-clips
           path: ${{ runner.temp }}/media/whats-new-clips
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # As cmux-next-media.yml's whats-new-clips job: rendered on Linux, published through the privacy-checked
   # action in the pr-media environment (which admits nightly-next).

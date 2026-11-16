@@ -192,7 +192,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the simulator capacity marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -200,7 +200,7 @@ jobs:
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-glaeda-ios-sim
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
       - name: Upload the owned-pool watch marker
         if: steps.marker.outputs.path != ''
         continue-on-error: true
@@ -208,7 +208,7 @@ jobs:
         with:
           name: owned-pool-watch
           path: ${{ steps.marker.outputs.path }}
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   kit-tests:
     needs: [runner]
@@ -406,4 +406,4 @@ jobs:
           name: instant-perf-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/instant-perf/*.jsonl
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report

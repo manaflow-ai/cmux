@@ -332,7 +332,7 @@ jobs:
           name: machine-vault-e2e-evidence
           path: ${{ runner.temp }}/machine-vault-e2e-evidence/evidence.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
       # The user's processes (its acpmux daemon, its agents), the user, its home (keychain, ssh key,
       # vault items) and the runner's private work directory (the ssh key's private half, the CLI).

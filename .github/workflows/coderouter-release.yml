@@ -437,7 +437,7 @@ jobs:
             coderouter/dist/coderouter-${{ matrix.npm_target }}*
             coderouter/dist/*.whl
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
           compression-level: 0
       - name: Remove macOS signing material
         if: always() && runner.os == 'macOS'
@@ -609,7 +609,7 @@ jobs:
             coderouter/dist/coderouter-linux-x64
             coderouter/dist/*.whl
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
           compression-level: 0
 
   sign-linux:

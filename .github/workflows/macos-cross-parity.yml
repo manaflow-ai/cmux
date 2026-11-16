@@ -126,7 +126,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-cross-parity
-          retention-days: 3
+          retention-days: 3  # retention-class: report
           path: ${{ runner.temp }}/macos-cross/reports/
           if-no-files-found: warn
 
@@ -137,7 +137,7 @@ jobs:
           name: macos-cross-binaries
           path: ${{ runner.temp }}/macos-cross/linux/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   runtime-x86_64:
     name: run-time check (x86_64 under Rosetta)

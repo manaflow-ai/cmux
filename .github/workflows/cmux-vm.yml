@@ -362,7 +362,7 @@ jobs:
           name: cmux-vm-openapi
           path: workers/cmux-vm/dist/openapi.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   # Read-only: confirms the repository Cloudflare token works and can see
   # Workers scripts and Hyperdrive configs. Prints HTTP codes and counts only.
@@ -1498,7 +1498,7 @@ jobs:
           name: cmux-vm-migrate-production-receipts
           path: ${{ runner.temp }}/receipts
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   db-connections-staging:
     name: staging database connections
@@ -1614,4 +1614,4 @@ jobs:
           name: cmux-vm-migrate-staging-receipts
           path: ${{ runner.temp }}/receipts
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
