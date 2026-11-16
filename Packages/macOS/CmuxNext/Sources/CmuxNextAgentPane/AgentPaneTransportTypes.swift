@@ -63,10 +63,7 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
     public var closed: AgentPaneTransportClose?
     /// The push's number on its transport: the page acks it by this once it applied it
     /// (``AgentPaneTransport/acked(connection:seq:inputPending:)``). Nil: no ack wanted.
-    public var seq: Int? = nil
-
-    /// The frames' bytes, so a large push is encoded off the main actor (``AgentPaneView``).
-    var frameBytes: Int { frames.reduce(0) { $0 + $1.utf8.count } }
+    public var seq: Int?
 
     /// The push as the page host sends it, built without a Foundation round trip.
     var value: JSONValue {

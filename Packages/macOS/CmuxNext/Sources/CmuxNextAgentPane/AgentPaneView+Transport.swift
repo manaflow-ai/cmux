@@ -140,27 +140,12 @@ extension AgentPaneView {
                     // task-owner: one completion for the pacer, on the main actor
                     Task { @MainActor in done() }
                 }
-            } else if event.frameBytes <= Self.inlinePushBytes {
+            } else {
                 // The completion runs once the page has run the push.
                 self.webView.evaluateJavaScript(event.script) { _, _ in done() }
-            } else {
-                // A large push's JSON is built off the main actor; one push is in flight at a time,
-                // so pushes keep their order.
-                let webView = self.webView
-                // task-owner: one push's encode and evaluate; the pacer waits on its completion
-                Task { @MainActor [weak webView] in
-                    let script = await Self.encodedScript(event)
-                    guard let webView else { return done() }
-                    webView.evaluateJavaScript(script) { _, _ in done() }
-                }
             }
         }
     }
-
-    /// Above this many frame bytes a WebKit push's script is built off the main actor.
-    nonisolated static let inlinePushBytes = 16 << 10
-
-    @concurrent nonisolated static func encodedScript(_ event: AgentPaneTransportEvent) async -> String { event.script }
 
     /// The native sheet for `asked`: the option and the value it would take.
     static func confirmationSpec(_ asked: AgentPaneModeConfirmation) -> CmuxDialogSpec {
