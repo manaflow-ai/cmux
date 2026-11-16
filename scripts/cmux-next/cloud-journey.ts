@@ -2877,7 +2877,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const preclaim = argv.includes("--preclaim");
   const preclaimClaims = Number(argValue("--claims", argv) ?? 10);
   // --ensure-bench N (with --preclaim): time acp ensure on one fresh machine instead of the burst (runEnsureBench).
-  const ensureBench = argValue("--ensure-bench", argv);
+  // PRECLAIM_ENSURE_BENCH=N does the same, so the dispatch sets it from its env without changing the burst's command line.
+  const ensureBench = argValue("--ensure-bench", argv) ?? (process.env.PRECLAIM_ENSURE_BENCH || undefined);
   // --machine ID: run on that existing machine and keep it (no create, pause, resume or delete).
   const reuse = argValue("--machine", argv);
   const keyedStart = argv.includes("--keyed-start");
