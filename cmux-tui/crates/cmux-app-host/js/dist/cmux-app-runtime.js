@@ -57,6 +57,7 @@
     LazyVStack: () => LazyVStack,
     Menu: () => Menu,
     Panel: () => Panel,
+    Particles: () => Particles,
     ProgressView: () => ProgressView,
     Rectangle: () => Rectangle,
     Reorderable: () => Reorderable,
@@ -697,6 +698,33 @@
     rotation(degrees) {
       return this.set("rotation", degrees);
     }
+    animation(v) {
+      return this.set("animation", v);
+    }
+    scale(v) {
+      return this.set("scale", v);
+    }
+    offset(v) {
+      return this.set("offset", v);
+    }
+    blur(v) {
+      return this.set("blur", v);
+    }
+    glow(v) {
+      return this.set("glow", v);
+    }
+    gradient(v) {
+      return this.set("gradient", v);
+    }
+    trim(v) {
+      return this.set("trim", v);
+    }
+    loop(v) {
+      return this.set("loop", v);
+    }
+    transition(v) {
+      return this.set("transition", v);
+    }
     cursor(v) {
       return this.set("cursor", v);
     }
@@ -773,6 +801,9 @@
   var Capsule = (props = {}) => new ViewNode("Capsule").withProps(props);
   var Rectangle = (props = {}) => new ViewNode("Rectangle").withProps(props);
   var RoundedRectangle = (props = {}) => new ViewNode("RoundedRectangle").withProps(props);
+  function Particles(props) {
+    return new ViewNode("Particles").withProps(props);
+  }
   function ProgressView(value) {
     const node = new ViewNode("ProgressView");
     if (value !== undefined)
@@ -2697,7 +2728,7 @@
     return untracked(e);
   };
   var g = globalThis;
-  var RUNTIME_VERSION = "1.2.0";
+  var RUNTIME_VERSION = "1.3.0";
   var exportsOf2 = () => g.__cmuxAppExports ?? {};
   var describe2 = (e) => e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e);
   function entry(name, fn, fallback) {
