@@ -99,14 +99,14 @@ fn content_text(raw: &RawValue, filter_context: bool) -> Result<Option<String>, 
     Ok((!text.is_empty()).then(|| text.to_owned()))
 }
 
-fn identity<'a>(record: &Record<'a>, payload: &Payload<'a>) -> &'a str {
+fn identity<'a>(record: &'a Record<'a>, payload: &'a Payload<'a>) -> &'a str {
     [payload.id.as_ref(), payload.message_id.as_ref(), record.id.as_ref()]
         .into_iter()
         .find(|id| !id.is_empty())
         .unwrap_or("codex")
 }
 
-fn turn_key<'a>(record: &Record<'a>, payload: &Payload<'a>) -> &'a str {
+fn turn_key<'a>(record: &'a Record<'a>, payload: &'a Payload<'a>) -> &'a str {
     [payload.turn_id.as_ref(), record.id.as_ref(), payload.id.as_ref()]
         .into_iter()
         .find(|id| !id.is_empty())
