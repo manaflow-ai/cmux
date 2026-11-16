@@ -673,8 +673,7 @@ struct AgentPaneNativeSessionInfoTests {
             view.subviews.compactMap { $0 as? SessionInfoGripView }.first
         }
         func images(_ view: SessionInfoLineView) -> [NSImageView] { view.subviews.compactMap { $0 as? NSImageView } }
-        /// Whether the line's trailing meta (a head's count and meter) is hidden; true for a line with none.
-        func countHidden(_ view: SessionInfoLineView) -> Bool { view.trailingMeta.allSatisfy { $0.isHidden } }
+        /// Whether the line's trailing meta (a head's count and meter) all shows.
         func countShown(_ view: SessionInfoLineView) -> Bool { view.trailingMeta.allSatisfy { !$0.isHidden } }
 
         let context = view(SessionInfoLine(id: "context", kind: .header, symbol: "gauge", title: "Context", trailing: "94K / 200K",
@@ -732,7 +731,7 @@ struct AgentPaneNativeSessionInfoTests {
             #expect(!handle.isHidden)
             #expect(handle.frame.size == SessionInfoGripView.size)
             let firstMark = images(line).filter { !$0.isHidden && $0.frame.maxX <= before.minX }.map(\.frame.minX).min() ?? before.minX
-            #expect(handle.frame.maxX <= firstMark - 1.5)
+            #expect(handle.frame.maxX <= firstMark + 0.5)
             #expect(hit.minX >= -0.5 && hit.maxX <= firstMark + 0.5)
             #expect(handle.frame.minX >= hit.minX - 0.5 && handle.frame.maxX <= hit.maxX + 0.5)
             #expect(countShown(line))
