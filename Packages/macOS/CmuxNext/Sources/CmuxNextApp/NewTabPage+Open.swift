@@ -235,7 +235,7 @@ extension NewTabPage {
                 return false
             }
         }
-        services.linkOpener.open(from: pane, kind: request.kind.rightColumnKind, make)
+        services.linkOpener.open(from: pane, kind: request.kind.rightColumnKind, opening: .tool, make)
     }
 
     /// Whether a pick on a page beside a lone chat (the main pane) docks the chat left once it lands, so the
@@ -369,7 +369,7 @@ extension NewTabPage {
 
     private static func servicesOpenNativeTool(_ request: AgentPaneOpenTab, from page: PaneController) -> Bool {
         let services = page.services
-        return services.linkOpener.open(from: page, kind: request.kind.rightColumnKind) { target, placed in
+        return services.linkOpener.open(from: page, kind: request.kind.rightColumnKind, opening: .tool) { target, placed in
             switch request.kind {
             case .terminal:
                 let typing = nativeTerminalTyping(request)

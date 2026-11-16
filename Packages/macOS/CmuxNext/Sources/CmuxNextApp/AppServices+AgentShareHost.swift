@@ -74,7 +74,7 @@ enum AgentShareConsentSheet {
                                                     expiresInMs: Int(limit.components.seconds) * 1000) else { return }
                 switch await feed.waitClosed(item, until: deadline).flatMap(FeedPendingConfirm.confirmed) {
                 case false?: center.dismiss(id)
-                case true?: NSApp.activate()
+                case true?: FocusRoute(.system, "share consent ask").activateApp()
                 case nil: break
                 }
             }
