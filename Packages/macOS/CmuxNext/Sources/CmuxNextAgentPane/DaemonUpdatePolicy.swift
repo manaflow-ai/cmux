@@ -15,9 +15,9 @@ import os
 ///   (someone's own), is left alone;
 /// - no wait for a quiet moment: a target is updated mid-turn from the first ask, since a machine
 ///   where agents always work never has an idle moment, and the restarted daemon resumes what it
-///   interrupted (Leo: "OUR SHIT IS HARDLY EVER GOING TO GO IDLE. IT JUST WONT. YOU'LL JUST HAVE TO
-///   ACCEPT IT BREAKING AT SOME POINT BUT IT RESUMES WHATEVER IT INTERRUPTED. END OF STORY FOR THE
-///   DAEMON UPDATE."). One that cannot update now (unreachable, another update running) is asked
+///   interrupted (the rule of the daemon update, in the code since 2026-10-26: no wait for an idle
+///   machine, and an interrupted turn is accepted because the daemon resumes it).
+///   One that cannot update now (unreachable, another update running) is asked
 ///   again with backoff (2 minutes, doubling, at most 30 minutes apart; a busy one at most 4, as
 ///   a Cloud start holds it a minute or two) and is left for the next launch after 6 hours; an
 ///   unreachable one shows as offline, never as a failure, and is asked again at once when it
@@ -57,7 +57,7 @@ public actor DaemonUpdatePolicy {
         public var busyMaximum: Duration = .seconds(240)
         /// A target busy for this long is updated mid-turn
         /// (``DaemonUpdateTarget/update(to:whileBusy:)``); before, only at a quiet moment. Zero,
-        /// the default (Leo's order above): every update runs mid-turn from the first ask.
+        /// the default (the rule above): every update runs mid-turn from the first ask.
         public var updateBusyAfter: Duration = .zero
         /// A target that answers busy this long, also to updates while busy, is left for the next
         /// launch.
@@ -452,7 +452,11 @@ public actor DaemonUpdatePolicy {
         let outcome = await target.update(to: local, whileBusy: whileBusy)
         updating = nil
         Self.logger.info("\(Self.logLine(target.displayName, to: local.hash, whileBusy: whileBusy, outcome), privacy: .public)")
-        if outcome == .busy || outcome == .unreachable {
+        // A host whose daemon an update restarted within the hour (#43709) is asked again like a
+        // busy one; its line says until when.
+        var window: DaemonUpdateOutcome.Kept?
+        if case .kept(let kept) = outcome, case .restartWindow = kept { window = kept }
+        if outcome == .busy || outcome == .unreachable || window != nil {
             var again = pending
             let now = elapsed()
             let since = again.firstBusy ?? now
@@ -473,7 +477,9 @@ public actor DaemonUpdatePolicy {
                 await deps.report(DaemonUpdateEvent(target, .cleared))
                 return nil
             }
-            await deps.report(DaemonUpdateEvent(target, again.offline ? .offline : .retrying))
+            // A restart window says until when it keeps its build, not a bare "will try again".
+            let state: DaemonUpdateEvent.State = if again.offline { .offline } else if let window { .kept(window) } else { .retrying }
+            await deps.report(DaemonUpdateEvent(target, state))
             // The first update while busy runs at the cap, not after a backoff that passes it.
             let cap = since + deps.updateBusyAfter
             again.due = now < cap ? min(now + delay, cap) : now + delay
@@ -538,6 +544,8 @@ public actor DaemonUpdatePolicy {
         switch outcome {
         case .updated: "updated"
         case .current: "current"
+        case .kept(.restartWindow): nil
+        case .kept: "kept"
         case .rolledBack: "rolledBack"
         case .unsupported: "unsupported"
         case .failed: "failed"
@@ -561,6 +569,8 @@ public actor DaemonUpdatePolicy {
         return switch outcome {
         case .updated(let reported): DaemonUpdateEvent(target, .updated(build: reported ?? build), build: build)
         case .current: DaemonUpdateEvent(target, .updated(build: build), build: build)
+        // It refused the build: never "updated" (a host keeping a newer commit, #43770).
+        case .kept(let kept): DaemonUpdateEvent(target, .kept(kept), build: build)
         case .busy: DaemonUpdateEvent(target, .retrying)
         case .unreachable: DaemonUpdateEvent(target, .offline)
         case .needsBinary(let triple): DaemonUpdateEvent(target, .failed(reason: "no build for \(triple)", rolledBack: false), build: build)

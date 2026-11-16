@@ -663,15 +663,19 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
-                    // The app's Cloud machines and the team's joined machines join the
-                    // daemon's machine list.
+                    // The app's Cloud machines, the team's joined machines and the machines
+                    // acpmux reaches itself join the daemon's machine list: each is a
+                    // `cmux chat --on` target.
                     #[cfg(unix)]
                     let result = match &plan.operation {
                         WireOperation::Typed(
                             cmux_tui_core::resource::ResourceOperation::MachineList,
-                        ) => super::machine_join::merge(
+                        ) => super::machine_join::merge_peers(
                             global,
-                            super::cloud_machines::merge(global, result),
+                            super::machine_join::merge(
+                                global,
+                                super::cloud_machines::merge(global, result),
+                            ),
                         ),
                         // The app's Cloud machines' workspaces join the daemon's list.
                         WireOperation::Typed(

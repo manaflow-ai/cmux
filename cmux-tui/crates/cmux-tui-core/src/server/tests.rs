@@ -543,6 +543,8 @@ mod agent_hook_at_rest_receipt;
 mod agent_reply_append;
 mod detach_and_browser;
 mod detector_journal_filter_at_rest;
+#[cfg(unix)]
+mod detector_wake_streams_guard;
 mod divider_menu;
 mod event_shape_tests;
 mod host_size_policy;

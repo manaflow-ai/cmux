@@ -45,9 +45,9 @@
 //!   set-up snapshot once that is ready (zero-setup hot start), keyed by the
 //!   chosen cloud environment (`cloud.startChat`'s `environment`; absent: the
 //!   personal Default).
-//! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: a folder
-//!   in git goes on; a plain one past the copy's limits is refused with `copy.too_large`, naming
-//!   the git working copies right inside it (`repos`) to start in instead ([`preflight`]).
+//! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: every
+//!   absolute folder goes on, whatever its size; one past the copy's limits goes as a first pass
+//!   ([`preflight`], `sync_cli::size_cap`).
 //! - `import --entries JSON`: takes in the sends the App kept in its user
 //!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!

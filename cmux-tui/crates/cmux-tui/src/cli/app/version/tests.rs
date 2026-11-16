@@ -69,6 +69,8 @@ fn the_report_names_the_customize_layers_that_are_on() {
     std::fs::create_dir_all(&layer_dir).unwrap();
     std::fs::write(layer_dir.join("manifest.json"), "{}").unwrap();
     let layer = CodeLayer {
+        kind: Default::default(),
+        source: String::new(),
         repo: "manaflow-ai/cmux".to_owned(),
         pr: 43496,
         title: "probe".to_owned(),
@@ -249,4 +251,41 @@ fn the_bundle_is_found_from_the_bundled_cli_path() {
     let exe = Path::new("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux");
     assert_eq!(bundle_of(exe), Some(PathBuf::from("/Applications/cmux NIGHTLY.app")));
     assert_eq!(bundle_of(Path::new("/usr/local/bin/cmux")), None);
+}
+
+/// Leo's NIGHTLY had an overlay put there by hand that the app refused for
+/// another web ABI, while the library read as empty: the report names it.
+#[test]
+fn the_report_names_a_hand_installed_overlay_the_app_refuses() {
+    use cmux_customize::{Customize, Roots};
+    let dir = tempfile::tempdir().unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    let overlay = dir.path().join("web-overlay");
+    std::fs::create_dir_all(&overlay).unwrap();
+    std::fs::write(
+        overlay.join("manifest.json"),
+        json!({"stamp": "20261112T081500Z-1", "commit": "0119230412", "abi": 4}).to_string(),
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.path().join("config")).unwrap();
+    std::fs::write(
+        dir.path().join("config/web-dev.json"),
+        json!({"overlay": overlay, "enabled": true}).to_string(),
+    )
+    .unwrap();
+
+    let mut inputs = inputs(Ok(nightly_identify()), None, "/usr/local/bin/cmux");
+    let now = 1_794_733_200_000; // 2026-11-15T09:00Z
+    inputs.customize = serde_json::to_value(customize.layers_at(Some(7), now)).unwrap();
+    let report = report(&inputs);
+    assert_eq!(report["customize"]["web_dev"]["refused"], true);
+    assert_eq!(report["customize"]["web_dev"]["library"], false);
+    let labels = &crate::localization::catalog_for_locale("en_US.UTF-8").app_control.version;
+    let text = human(&report, labels);
+    assert!(
+        text.contains(
+            "customize        0 on; web-dev overlay 01192304 (3 days, refused: abi 4, app 7)\n"
+        ),
+        "{text}"
+    );
 }

@@ -36,7 +36,7 @@ Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-p
 --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
-import argparse, collections, datetime, hashlib, importlib.util, io, json, os, re, subprocess, sys, time, urllib.error
+import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, subprocess, sys, time, urllib.error
 import urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -173,9 +173,12 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
-    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals.
-    {"name": "throughput", "args": [*MEASURE, "--suite=terminal-throughput"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput"},
+    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
+    # bench configuration (Release optimization, split-spring.sh --config=bench), since Ghostty is its optimized
+    # release; the default Debug build made the ratio a Debug-against-Release one. Rows before this were Debug.
+    {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
+     "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -189,7 +192,8 @@ PARTS = [
     {"name": "web-ui-growth", "where": "linux", "kind": "webui", "needs": "web-ui-growth"},
     # The chat benches on the god session (webviews/bench/godFixture.ts) beside their ordinary run, on one runner at one
     # commit: each god row, and its god_ratio row (god p95 / ordinary p95, target GOD_RATIO_MAX). Its own part: the
-    # six benches take about 13 minutes.
+    # six benches take about 13 minutes. Then the paired transcript-replay rounds (GOD_PAIRED_*): the god and small
+    # chats played at once, whose median per-round ratio replaces the transcript_replay god_ratio rows.
     {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god"},
     # Infinite items (scripts/measure/infinite-items.py, CMUX-571): a release acpmux and headless cmux-tui with 10, 100
     # and 1,000 workspaces (a terminal tab and an agent chat each) through simulated days; memory vs empty, idle CPU
@@ -228,8 +232,11 @@ ROW_PARTS = [
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
 # here reads a higher p95 as worse. The memory-agents breakdown (memory-agents-cron.py) says where the judged totals'
-# memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged.
-REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.)")
+# memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged. The chat
+# composer's typing stages (acp.<engine>.typing.to_listener and .to_work, perf-budgets.py STAGE_ROW_RE) say where
+# the judged to_frame time goes: shown, not judged (measurement only, no new gate).
+REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
+                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -579,22 +586,81 @@ def rows_of_part(part, report, budgets_mod, budgets):
     elif part["kind"] == "webui":
         # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
         # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
-        for r in report.get("rows") or []:
-            name, p95 = r.get("name") if isinstance(r, dict) else None, r.get("p95") if isinstance(r, dict) else None
-            if not (isinstance(name, str) and WEBUI_ROW_RE.match(name) and isinstance(p95, (int, float))):
-                continue
-            p50 = r.get("p50") if isinstance(r.get("p50"), (int, float)) else p95
-            floor = r.get("floor") if isinstance(r.get("floor"), (int, float)) else max(round(0.1 * p95, 4), 0.0001)
-            out[f"webui.{name}"] = {"p50": p50, "p95": p95, "unit": r.get("unit") or "ms",
-                                    "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
-                                    "floor": floor,
-                                    "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
+        out.update(webui_rows(report.get("rows")))
         if part.get("name") == "web-ui-god":
             # The ordinary twins ran here only to pair at one commit on one runner; the web-ui part owns their rows.
             ratios = god_ratio_rows(out)
             out = {n: r for n, r in out.items() if part_for_row(n) == "web-ui-god"}
             out.update(ratios)
+            # The paired rounds' median ratio replaces the one-run ratio of the same row (cmuxterm-hq's
+            # god_chat_replay_ratio_max reads webui.god_ratio.transcript_replay.long.{heap_mb,thought_ms,token_ms}).
+            paired = report.get("paired") if isinstance(report.get("paired"), dict) else {}
+            out.update(paired_ratio_rows(paired.get("rounds") or []))
     return out
+
+
+def webui_rows(rows):
+    """{webui.<name>: row} of a list of PERF_ROW objects (pure): a row's target is its budget, its floor the noise on
+    a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule)."""
+    out = {}
+    for r in rows or []:
+        name, p95 = r.get("name") if isinstance(r, dict) else None, r.get("p95") if isinstance(r, dict) else None
+        if not (isinstance(name, str) and WEBUI_ROW_RE.match(name) and isinstance(p95, (int, float))):
+            continue
+        p50 = r.get("p50") if isinstance(r.get("p50"), (int, float)) else p95
+        floor = r.get("floor") if isinstance(r.get("floor"), (int, float)) else max(round(0.1 * p95, 4), 0.0001)
+        out[f"webui.{name}"] = {"p50": p50, "p95": p95, "unit": r.get("unit") or "ms",
+                                "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
+                                "floor": floor,
+                                "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
+    return out
+
+
+def median(values):
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    return ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def median_interval(values, draws=4000):
+    """The 95% interval of VALUES' median (pure): a seeded bootstrap, as webviews/bench/god-ratio-ab.sh computes it."""
+    rng = random.Random(1)
+    meds = sorted(median(rng.choices(values, k=len(values))) for _ in range(draws))
+    return meds[int(draws * 0.025)], meds[int(draws * 0.975)]
+
+
+def paired_ratio_rows(rounds):
+    """{webui.god_ratio.<twin>: row} from the web-ui-god part's paired transcript-replay rounds (pure): each round's
+    god / small ratio (god_ratio_rows over that round's PERF_ROW lines, both chats played at once), and the row is the
+    median over the rounds, with its 95% interval (ci_lo, ci_hi, ci_width), the per-round ratios and their count. A row
+    needs GOD_PAIRED_MIN_ROUNDS rounds that measured it. Run one after the other, a round's ratio swung 0.5x to 1.9x on
+    the same code; paired, about 0.08x (cmux#43874)."""
+    per = {}
+    for each in rounds:
+        rows = each.get("rows") if isinstance(each, dict) else None
+        for name, r in god_ratio_rows(webui_rows(rows)).items():
+            per.setdefault(name, []).append(r)
+    out = {}
+    for name, rs in sorted(per.items()):
+        if len(rs) < GOD_PAIRED_MIN_ROUNDS:
+            continue
+        ratios = [r["p95"] for r in rs]
+        mid = round(median(ratios), 3)
+        lo, hi = median_interval(ratios)
+        out[name] = {**rs[0], "p50": mid, "p95": mid, "god_p95": round(median([r["god_p95"] for r in rs]), 4),
+                     "small_p95": round(median([r["small_p95"] for r in rs]), 4), "paired": True, "rounds": len(rs),
+                     "ci_lo": round(lo, 3), "ci_hi": round(hi, 3), "ci_width": round(hi - lo, 3),
+                     "round_ratios": ratios, "measure_version": max(r["measure_version"] for r in rs)}
+    return out
+
+
+def paired_settled(rounds):
+    """Whether the paired rounds so far are enough (pure): each board row (GOD_PAIRED_BOARD_RE) has a median over
+    GOD_PAIRED_MIN_ROUNDS or more rounds whose 95% interval is narrower than GOD_PAIRED_CI_WIDTH."""
+    if len(rounds) < GOD_PAIRED_MIN_ROUNDS:
+        return False
+    board = [r for n, r in paired_ratio_rows(rounds).items() if GOD_PAIRED_BOARD_RE.match(n)]
+    return bool(board) and all(r["ci_width"] < GOD_PAIRED_CI_WIDTH for r in board)
 
 
 def god_ratio_rows(rows):
@@ -823,7 +889,11 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "state-growth"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-god":
         only = ",".join(GOD_BENCHES + [f"{b}-god" for b in GOD_BENCHES])
-        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
+        # `paired` runs in rounds (run_paired_rounds): the god and small chats at once, as god-ratio-ab.sh plays them.
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {}),
+                "paired": (["bun", "bench/transcript-replay.bench.ts", "--turns", "600", "--only", "long"],
+                           os.path.join(root, "webviews"),
+                           {"PAIRED": "1", "GOD_PAIRED_ROUNDS": f"{GOD_PAIRED_MIN_ROUNDS}-{GOD_PAIRED_MAX_ROUNDS}"})}
     if part == "web-ui-million":
         only = "million-event-chat,million-event-chat-short"
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
@@ -1751,6 +1821,18 @@ GOD_RATIO_UNITS = ("ms", "MB", "KB", "score")
 GOD_RATIO_MIN = {"ms": 5.0, "MB": 1.0, "KB": 16.0, "score": 0.01}
 GOD_RATIO_MIN_RATE = 0.5  # a rate (idle_ms_per_s): main-thread ms per second at rest
 GOD_RATIO_SKIP_RE = re.compile(r"(slope|_per_(?!s$)[a-z]+$)")  # a rate per second (idle_ms_per_s) keeps its ratio
+# The web-ui-god part's paired transcript-replay rounds (transcript-replay.bench.ts PAIRED=1, cmux#43874): at least MIN
+# rounds, then more until each board row's (GOD_PAIRED_BOARD_RE, cmuxterm-hq god_chat_replay_ratio_max) median has a
+# 95% interval narrower than CI_WIDTH, up to MAX rounds. A round starts only while the part's benches have run under
+# DEADLINE_S with room for one more round as long as the longest so far (the Linux job's cap is 40 minutes with about
+# 5 of setup); each round is cut at ROUND_TIMEOUT_S.
+GOD_PAIRED_MIN_ROUNDS = 5
+GOD_PAIRED_MAX_ROUNDS = 12
+GOD_PAIRED_CI_WIDTH = 0.1
+GOD_PAIRED_DEADLINE_S = 1950
+GOD_PAIRED_ROUND_TIMEOUT_S = 600
+GOD_PAIRED_BOARD_RE = re.compile(r"^webui\.god_ratio\.transcript_replay\.long\.(heap_mb|thought_ms|token_ms)$")
+PERF_ROW_MARK = "PERF_ROW "
 WEBUI_ROW_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_-]+)*$")
 DIFF_BENCH_FILES = {"sidecar": "Native/DiffSidecar/src/benchmark.rs", "stream": "webviews/bench/diff-stream.bench.ts"}
 DIFF_BENCH_VERSION_RE = re.compile(r"\bDIFF_BENCH_VERSION\s*(?::\s*u32\s*)?=\s*(\d+)")
@@ -3034,6 +3116,10 @@ def cmd_run_linux_part(o):
     report, tail, ok = {}, [], True
     load = {}
     for name, (argv, cwd, extra) in runs.items():
+        if name == "paired":
+            report["paired"] = run_paired_rounds(argv, cwd, {**env, **extra}, started)
+            tail += [f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
+            continue
         before = host_contention() if part != "web-ui" else []
         try:
             proc = subprocess.run(argv, cwd=cwd, env={**env, **extra}, capture_output=True, text=True, timeout=1800)
@@ -3066,6 +3152,48 @@ def cmd_run_linux_part(o):
               "worker": o.runner_class}
     json.dump(result, open(os.path.join(o.out, "result.json"), "w"), indent=1)
     print(f"perf-cron linux part: {json.dumps({k: v for k, v in result.items() if k != 'tail'})} {json.dumps(report)[:600]}")
+
+
+def perf_rows(text):
+    """The PERF_ROW objects a bench printed (pure)."""
+    out = []
+    for line in (text or "").splitlines():
+        if line.startswith(PERF_ROW_MARK):
+            try:
+                row = json.loads(line[len(PERF_ROW_MARK):])
+            except ValueError:
+                continue
+            if isinstance(row, dict):
+                out.append(row)
+    return out
+
+
+def run_paired_rounds(argv, cwd, env, started, clock=time.monotonic, run=subprocess.run):
+    """The web-ui-god part's paired rounds (GOD_PAIRED_*), until settled, the deadline or MAX rounds:
+    {"rounds": [{"rows", "seconds", "exit"}], "stopped"}. STARTED is the part's start on CLOCK."""
+    rounds, longest, stopped = [], 0.0, "max rounds"
+    for _ in range(GOD_PAIRED_MAX_ROUNDS):
+        if paired_settled(rounds):
+            stopped = "settled"
+            break
+        if clock() - started + longest > GOD_PAIRED_DEADLINE_S:
+            stopped = "deadline"
+            break
+        at = clock()
+        try:
+            proc = run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=GOD_PAIRED_ROUND_TIMEOUT_S)
+            rows, code = perf_rows(proc.stdout), proc.returncode
+        except subprocess.TimeoutExpired:
+            rows, code = [], f"timeout ({GOD_PAIRED_ROUND_TIMEOUT_S} s)"
+        seconds = clock() - at
+        longest = max(longest, seconds)
+        rounds.append({"rows": rows, "seconds": round(seconds), "exit": code})
+        print(f"perf-cron web-ui-god: paired round {len(rounds)}: exit {code}, {round(seconds)} s, {len(rows)} rows")
+    else:
+        stopped = "settled" if paired_settled(rounds) else stopped
+    for name, r in paired_ratio_rows(rounds).items():
+        print(f"perf-cron web-ui-god: paired {name} {r['p95']} [{r['ci_lo']}, {r['ci_hi']}] over {r['rounds']} rounds")
+    return {"rounds": rounds, "stopped": stopped}
 
 
 def manage_issue(repo, state, event, now, run_url, summary, set_changed):
