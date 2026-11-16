@@ -42,8 +42,11 @@ main() {
   cp scripts/measure/launch-ready-profile.py "$out/profile.py"
   local sides=(head)
   if [[ "$dmg" == build ]]; then
-    # nightly-fresh-launch.sh's build_dmg, without running its main.
-    source <(sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh)
+    # nightly-fresh-launch.sh's build_dmg, without running its main. From a file: macOS's bash 3.2 sources nothing
+    # from a process substitution.
+    sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh >"$out/nightly-fresh-launch-lib.sh"
+    source "$out/nightly-fresh-launch-lib.sh"
+    declare -F build_dmg >/dev/null || { echo "LR build_dmg missing from nightly-fresh-launch.sh"; exit 3; }
     local here; here="$(git rev-parse HEAD)"
     local head="${headsha:-$here}" want
     for want in $base $head; do
