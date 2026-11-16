@@ -30,12 +30,7 @@ fn files_under(root: &Path, dir: &Path, files: &mut BTreeMap<String, String>) {
         if path.is_dir() {
             files_under(root, &path, files);
         } else {
-            let rel = path
-                .strip_prefix(root)
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .replace('\\', "/");
+            let rel = path.strip_prefix(root).unwrap().to_str().unwrap().replace('\\', "/");
             if rel != "profile.json" {
                 files.insert(rel, fs::read_to_string(&path).unwrap());
             }
@@ -102,17 +97,10 @@ fn every_setup_previews_on_a_fresh_machine_with_nothing_to_fix() {
             .unwrap_or_else(|error| panic!("{name} does not preview: {error}"));
         assert_eq!(begun.draft.asks[0].text, format!("profile {name}"));
         let status = customize.status().unwrap();
-        assert!(
-            status.problems.is_empty(),
-            "{name} would not apply: {:?}",
-            status.problems
-        );
+        assert!(status.problems.is_empty(), "{name} would not apply: {:?}", status.problems);
         for (path, text) in &profile.files {
             let live = fs::read_to_string(home.path().join("config").join(path)).unwrap();
-            assert_eq!(
-                &live, text,
-                "{name}: {path} is not what the profile carries"
-            );
+            assert_eq!(&live, text, "{name}: {path} is not what the profile carries");
         }
     }
 }
