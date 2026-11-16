@@ -325,10 +325,12 @@ fn add_json_prints_the_env_form_line_and_the_token_only_in_line_and_token() {
 }
 
 #[test]
-fn device_invite_uses_the_hub_join_script_and_pins_the_minter_channel() {
+fn device_invite_uses_the_hub_join_script_and_names_its_channel() {
     let (origin, requests) = fake(joining(vec![json!([])], far()));
-    let value =
+    let invite =
         mint_invite(&platform(&origin), Some("build-box"), Some(300), "nightly-next").unwrap();
+    assert!(invite.expiry.starts_with("expires at "), "{}", invite.expiry);
+    let value = invite.json;
     assert_eq!(
         value["line"],
         format!(
@@ -345,6 +347,17 @@ fn device_invite_uses_the_hub_join_script_and_pins_the_minter_channel() {
         serde_json::from_str::<Value>(body).unwrap(),
         json!({"label": "build-box", "ttlSeconds": 300})
     );
+}
+
+#[test]
+fn invite_channels_are_the_names_the_join_script_accepts() {
+    for ok in [DEFAULT_INVITE_CHANNEL, "nightly-next", "rc-2"] {
+        assert!(check_channel(ok).is_ok(), "{ok}");
+    }
+    let long = "a".repeat(65);
+    for bad in ["", "Nightly", "feat/next", "a b", "x;rm", long.as_str()] {
+        assert!(check_channel(bad).is_err(), "{bad:?}");
+    }
 }
 
 #[test]

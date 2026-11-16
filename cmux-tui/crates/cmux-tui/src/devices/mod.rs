@@ -9,6 +9,8 @@ use cmux_json::JsonSet as _;
 
 #[cfg(test)]
 mod credential_env_tests;
+#[cfg(all(test, unix))]
+mod invite_tests;
 mod model;
 mod network;
 mod removal;
@@ -30,8 +32,8 @@ use network::{Choice, TailscaleNetwork, WeftNetwork};
 const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device list [--json] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
        cmux device add HOST --yes [--name NAME] [--json]
-       cmux device invite [--role client|read-only] [--ttl 10m] [--label TEXT] [--platform URL]
-         [--cloud-token-file PATH | --cloud-token-stdin] [--json]
+       cmux device invite [--ttl 10m] [--label TEXT] [--channel feat-cmux-next] [--platform URL]
+         [--cloud-token-file PATH | --cloud-token-stdin] [--json]   (signed-in app by default)
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
        cmux device network [--json]
@@ -581,50 +583,68 @@ fn add(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `cmux device invite`: mints a one-use join line on the cmux platform for a new computer to
+/// join this account as a machine that runs agents. The caller's credential is
+/// `--cloud-token-stdin`, `--cloud-token-file` or `CMUX_CLOUD_ACCESS_TOKEN`, else the signed-in
+/// cmux app's (as `cmux auth token`), so a plain `cmux device invite` works wherever the app is
+/// signed in.
 #[cfg(unix)]
 fn invite(args: &[String]) -> anyhow::Result<()> {
     let flags = Flags::parse(
         args,
-        &["role", "ttl", "label", "platform", "cloud-token-file"],
+        &["role", "ttl", "label", "channel", "platform", "cloud-token-file"],
         &["json", "cloud-token-stdin"],
     )?;
-    let role = flags.value("role").unwrap_or("client");
-    if !matches!(role, "client" | "read-only") {
-        return Err(usage("--role must be client or read-only"));
+    // The platform's join token carries no role: the machine joins as a full member of the team.
+    // A role it cannot enforce is refused before anything is minted, never echoed back.
+    match flags.value("role") {
+        None | Some("client") => {}
+        Some("read-only") => {
+            return Err(usage(
+                "--role read-only cannot be enforced by a join line (the computer joins as a full \
+                 member of your team); for a watch-only device run `cmux acp host ticket new --role \
+                 read-only`",
+            ));
+        }
+        Some(_) => return Err(usage("--role takes client (the default and only join-line role)")),
     }
+    let channel = flags.value("channel").unwrap_or(crate::cli::DEFAULT_INVITE_CHANNEL);
+    crate::cli::check_invite_channel(channel).map_err(|e| usage(e.0))?;
+    let ttl = flags.value("ttl").map(crate::cli::parse_ttl).transpose().map_err(|e| usage(e.0))?;
     let auth = crate::cli::PlatformAuth {
         platform: flags.value("platform").map(str::to_owned),
         token_file: flags.value("cloud-token-file").map(PathBuf::from),
         token_stdin: flags.has("cloud-token-stdin"),
     };
     let env = |key: &str| std::env::var(key).ok();
-    let credential =
-        crate::cli::read_platform_credential(&auth, &env, &mut std::io::stdin().lock())
-            .map_err(usage)?
-            .ok_or_else(|| {
-                usage("sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN)")
-            })?;
     let origin = crate::cli::platform_origin(auth.platform.as_deref(), &env).map_err(usage)?;
+    let given = crate::cli::read_platform_credential(&auth, &env, &mut std::io::stdin().lock())
+        .map_err(usage)?;
+    let credential = match given {
+        Some(credential) => credential,
+        None => crate::cli::app_access_token().map_err(|why| {
+            anyhow!(
+                "{why}. Next: sign in to the cmux app (or run `cmux login`), then run this again; \
+                 or pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN)"
+            )
+        })?,
+    };
     let platform =
         crate::cli::Platform::new(origin, credential, std::time::Duration::from_secs(20))?;
-    let ttl =
-        flags.value("ttl").map(crate::cli::parse_ttl).transpose().map_err(anyhow::Error::from)?;
-    let mut v =
-        crate::cli::mint_invite(&platform, flags.value("label"), ttl, crate::cli::invite_channel())
-            .map_err(anyhow::Error::from)?;
-    v.set("role", json!(role));
+    let invite = crate::cli::mint_invite(&platform, flags.value("label"), ttl, channel)?;
+    let v = invite.json;
     record(
         "device.invited",
-        json!({"invite": v["joinTokenId"], "role": role, "label": v["name"], "expires_at": v["expiresAt"]}),
+        json!({"invite": v["joinTokenId"], "label": v["name"], "expires_at": v["expiresAt"], "channel": channel}),
     );
     if flags.has("json") {
         println!("{v}");
     } else {
         println!("On the new computer, run:\n\n  {}\n", v["line"].as_str().unwrap_or_default());
         println!(
-            "It installs the {} channel for that computer and works once, until {}.",
-            v["channel"].as_str().unwrap_or_default(),
-            v["expiresAt"].as_str().unwrap_or_default(),
+            "It installs acpmux from the {channel} channel (that channel's current build), joins \
+             your team and works once; it {}.",
+            invite.expiry
         );
     }
     Ok(())

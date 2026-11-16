@@ -71,15 +71,24 @@ const REVOKE_BOUND: &str = "30 seconds";
 const DEFAULT_TTL_SECS: u64 = 600;
 /// The longest a pasted line lives (the platform's range).
 const MAX_TTL_SECS: u64 = 600;
-/// The channel whose signed manifest installs the daemon that minted a join line.
-/// Release and nightly builds may override this at compile time; development builds use
-/// the integration branch's channel.
-pub(crate) const DEFAULT_JOIN_CHANNEL: &str = "feat-cmux-next";
+/// The channel an invite's line installs acpmux from when `--channel` names none: the one
+/// `machine-join.sh` defaults to, which moves to each daemon-tested feat-cmux-next build. It is a
+/// channel, not a build pin: a line pasted after the channel moved installs the newer build.
+pub(crate) const DEFAULT_INVITE_CHANNEL: &str = "feat-cmux-next";
 
-/// The build pipeline can stamp the channel into the binary; source builds use the integration
-/// channel that `machine-join.sh` serves by default.
-pub(crate) fn invite_channel() -> &'static str {
-    option_env!("CMUX_TUI_CHANNEL").unwrap_or(DEFAULT_JOIN_CHANNEL)
+/// A channel name `machine-join.sh` accepts (lowercase letters, digits and `-`), checked here so
+/// a bad one fails before a token is minted, not on the new machine.
+pub(crate) fn check_channel(channel: &str) -> Result<(), UsageError> {
+    let ok = !channel.is_empty()
+        && channel.len() <= 64
+        && channel.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    if ok {
+        Ok(())
+    } else {
+        Err(UsageError::new(
+            "--channel takes lowercase letters, digits and - (for example nightly-next)",
+        ))
+    }
 }
 /// A stick's line: its default life, the platform's longest (a longer one is a platform change).
 pub(super) const USB_TTL_SECS: u64 = MAX_TTL_SECS;
@@ -151,6 +160,14 @@ pub(crate) struct Failure {
     pub message: String,
     pub exit: i32,
 }
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Failure {}
 
 impl Failure {
     fn new(code: &'static str, message: impl Into<String>) -> Self {
@@ -884,8 +901,9 @@ pub(super) fn join_line(origin: &str, token: &str) -> String {
     format!(" curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN={token} sh")
 }
 
-/// The invite line names the channel explicitly so it cannot silently install a different
-/// build when the channel pointer moves between minting and redemption.
+/// `cmux device invite`'s line: the hub's join script with the acpmux channel written out, so
+/// the line says which channel it installs from. Whatever build that channel names when the line
+/// runs is what installs (and the script's cmux CLI step follows `latest`).
 pub(crate) fn invite_join_line(origin: &str, token: &str, channel: &str) -> String {
     format!(
         " curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN_CHANNEL={channel} CMUX_JOIN={token} sh"
@@ -976,6 +994,12 @@ pub(super) fn mint_for(platform: &Platform, add: &Add<'_>) -> Result<Minted, Fai
     minted(&answer, &platform.credential)
 }
 
+/// One minted `cmux device invite`: its `--json` value and the human expiry words.
+pub(crate) struct Invite {
+    pub json: Value,
+    pub expiry: String,
+}
+
 /// Mint the hub join line used by `cmux device invite`. Keeping this beside `machine add` means
 /// both surfaces validate the token and send the same platform request.
 pub(crate) fn mint_invite(
@@ -983,11 +1007,12 @@ pub(crate) fn mint_invite(
     label: Option<&str>,
     ttl: Option<u64>,
     channel: &str,
-) -> Result<Value, Failure> {
+) -> Result<Invite, Failure> {
     let add = Add { name: label, ttl, wait: false, every: WAIT_EVERY, vault: false };
     let minted = mint_for(platform, &add)?;
     let line = invite_join_line(&platform.origin, &minted.token, channel);
-    Ok(json!({
+    let expiry = expiry_words(minted.expires_at_ms, now_ms());
+    let json = json!({
         "line": line,
         "token": minted.token,
         "joinTokenId": minted.join_token_id,
@@ -996,7 +1021,8 @@ pub(crate) fn mint_invite(
         "name": minted.label.clone().or_else(|| label.map(str::to_owned)),
         "scriptUrl": format!("{}/v1/machines/join.sh", platform.origin),
         "channel": channel,
-    }))
+    });
+    Ok(Invite { json, expiry })
 }
 
 fn add_machine(

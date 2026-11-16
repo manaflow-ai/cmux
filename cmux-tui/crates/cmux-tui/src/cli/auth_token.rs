@@ -64,6 +64,28 @@ pub(crate) fn app_token(team: &str) -> Result<AppToken, String> {
     }
 }
 
+/// The signed-in app's short-lived token for its current team (`auth.token` with no team, as
+/// `cmux auth token`): the fallback when a command is given no `CMUX_CLOUD_ACCESS_TOKEN`,
+/// `--cloud-token-file` or `--cloud-token-stdin`. `Err` says why there is none.
+pub(super) fn signed_in_token(global: &GlobalArgs) -> Result<String, String> {
+    let mut stream = super::app::connect_command(global)
+        .map_err(|_| "not signed in: no CMUX_CLOUD_ACCESS_TOKEN and no cmux app".to_owned())?;
+    let params = Value::Object(request(None));
+    let answer = super::app::request(&mut stream, "auth.token", params, AUTH_TOKEN_TIMEOUT)?
+        .map_err(|error| {
+            error.get("message").and_then(Value::as_str).unwrap_or("not signed in").to_owned()
+        })?;
+    token_line(&answer)
+        .map(|line| line.trim().to_owned())
+        .ok_or_else(|| "the cmux app gave no token".to_owned())
+}
+
+/// [`signed_in_token`] for callers outside `cli` (`cmux device invite`), with the default app.
+#[cfg(unix)]
+pub(crate) fn app_access_token() -> Result<String, String> {
+    signed_in_token(&GlobalArgs::default())
+}
+
 /// `cmux auth …`. `None` for any other command.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
