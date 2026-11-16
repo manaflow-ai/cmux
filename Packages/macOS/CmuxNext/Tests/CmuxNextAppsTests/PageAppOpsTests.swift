@@ -12,6 +12,8 @@ struct PageAppOpsTests {
         var calls: [(method: String, params: [String: JSONValue])] = []
         /// The labels' token on the page now (`dataset.cmuxApp`).
         var token: JSONValue = .null
+        /// The built-in `f` session's labels (an overlay with no token) are up.
+        var builtIn = false
         var targets = #"[{"x":10,"y":20,"left":5,"top":15,"href":"https://example.com/a","text":"First link"},{"x":40,"y":20,"left":35,"top":15,"href":null,"text":"Menu"}]"#
         var page = #"{"url":"https://example.com/","title":"Example","article":{"title":"Example","byline":null,"site":"Ex","blocks":[{"kind":"paragraph","text":"Hello"}]},"links":[{"text":"First link","href":"https://example.com/a"}]}"#
 
@@ -29,13 +31,16 @@ struct PageAppOpsTests {
             } else if script.contains("const selector = 'a[href]") {
                 value = .string(targets)
             } else if script.contains("host.dataset.cmuxApp = ") {
+                if builtIn { return ["tab": tab, "value": "busy"] }
                 token = .string(script.components(separatedBy: "host.dataset.cmuxApp = \"")[1].components(separatedBy: "\"")[0])
                 value = true
-            } else if script.contains("?.dataset.cmuxApp ?? null") {
-                value = token
-            } else if script.contains("host.remove()") {
+            } else if script.contains("tokens.includes(token)") {
+                // The take script: removes the labels only when their token is listed.
+                let list = script.components(separatedBy: "})(").last?.dropLast() ?? ""
+                let tokens = (try? JSONDecoder().decode([String].self, from: Data(list.utf8))) ?? []
+                guard let shown = token.stringValue, tokens.contains(shown) else { return ["tab": tab, "value": .null] }
                 token = .null
-                value = true
+                value = .string(shown)
             } else if script.contains("elementFromPoint(") {
                 value = true
             } else {
@@ -51,8 +56,8 @@ struct PageAppOpsTests {
         PageAppOps { method, params throws(AppHostCapabilityError) in try browser.answer(method, params) }
     }
 
-    private func request(_ op: String, _ params: AppJSON = [:], origin: String = "user") -> AppHostCapabilityRequest {
-        AppHostCapabilityRequest(app: "local/reader", op: op, params: params, origin: origin, idempotencyKey: "app:local/reader:k1")
+    private func request(_ op: String, _ params: AppJSON = [:], origin: String = "user", app: String = "local/reader") -> AppHostCapabilityRequest {
+        AppHostCapabilityRequest(app: app, op: op, params: params, origin: origin, idempotencyKey: "app:local/reader:k1")
     }
 
     @Test func readAnswersTheReaderScriptsPageWithTheTab() async throws {
@@ -144,7 +149,35 @@ struct PageAppOpsTests {
         _ = try await ops.handle(request("page.hints", ["action": "show"]))
         let value = try await ops.handle(request("page.hints", ["action": "clear"]))
         #expect(value == ["tab": "tab_focused", "hints": []])
-        #expect(browser.evals.last?.contains("!host.dataset.cmuxApp") == true, "the built-in f session's labels stay")
+        #expect(browser.token == .null, "the app's labels are gone")
+        #expect(browser.evals.last?.contains("if (!token || !tokens.includes(token)) return null") == true, "the built-in f session's labels stay")
+    }
+
+    @Test func anotherAppCanNeitherFollowNorClearTheLabels() async throws {
+        let browser = Browser()
+        let ops = makeOps(browser)
+        _ = try await ops.handle(request("page.hints", ["action": "show"]))
+        let drawn = browser.token
+        let followed = try await ops.handle(request("page.follow", ["label": "a"], app: "local/other"))
+        #expect(followed["followed"] == false)
+        _ = try await ops.handle(request("page.hints", ["action": "clear"], app: "local/other"))
+        #expect(browser.token == drawn, "the drawing app's labels are still up")
+        #expect(!browser.evals.contains { $0.contains("elementFromPoint(") })
+        let mine = try await ops.handle(request("page.follow", ["label": "a"]))
+        #expect(mine["followed"] == true, "the drawing app still follows its own label")
+    }
+
+    @Test func showNeverTakesDownTheBuiltInLinkHints() async {
+        let browser = Browser()
+        browser.builtIn = true
+        do {
+            _ = try await makeOps(browser).handle(request("page.hints", ["action": "show"]))
+            Issue.record("expected a refusal")
+        } catch {
+            #expect(error.code == "operation.failed")
+            #expect(error.message.contains("built-in link hints"))
+        }
+        #expect(browser.token == .null)
     }
 
     @Test func badParamsAreRefusedBeforeThePageIsTouched() async {

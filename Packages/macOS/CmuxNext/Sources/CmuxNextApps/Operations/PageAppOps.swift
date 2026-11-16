@@ -11,8 +11,9 @@ import Foundation
 /// - `page.read {tab?}` (scope `page:read`): ``readerScript``'s main text and links, plus `tab`.
 /// - `page.hints {tab?, action: show|clear}` (scope `page:write`, a gesture): `show` labels the
 ///   clickable elements in view with the built-in link hints' own collect script, labels and drawing
-///   (`LinkHintSession`, the `f` key), and answers `{tab, hints: [{label, text, href}]}`; `clear`
-///   removes an app's labels (never the built-in `f` session's).
+///   (`LinkHintSession`, the `f` key), and answers `{tab, hints: [{label, text, href}]}`; it refuses
+///   while the built-in `f` session's labels are up. `clear` removes the calling app's labels (never
+///   the built-in `f` session's or another app's).
 /// - `page.follow {tab?, label, new_split?}` (scope `page:write`, a gesture): clears the labels, then
 ///   clicks the hint's element with the built-in click script, or opens its link in a new browser
 ///   split (`browser.link.openInSplit`, what `F` does); `{tab, followed, href}`. `followed` is false
@@ -51,8 +52,8 @@ public nonisolated struct PageAppOps: AppHostCapabilityHandler {
             return try await read(tab: tab)
         case "page.hints":
             switch request.params["action"]?.stringValue {
-            case "show": return try await showHints(tab: tab)
-            case "clear": return try await clearHints(tab: tab)
+            case "show": return try await showHints(tab: tab, app: request.app)
+            case "clear": return try await clearHints(tab: tab, app: request.app)
             default: throw Self.invalid("page.hints needs action show or clear")
             }
         case "page.follow":
@@ -76,45 +77,48 @@ public nonisolated struct PageAppOps: AppHostCapabilityHandler {
         return .object(page)
     }
 
-    private func showHints(tab: String?) async throws(AppHostCapabilityError) -> AppJSON {
+    private func showHints(tab: String?, app: String) async throws(AppHostCapabilityError) -> AppJSON {
         let (id, value) = try await eval(LinkHintSession.collectScript, tab: tab)
         let targets = Self.targets(value.stringValue ?? "")
         let labels = LinkHintSession.labels(count: targets.count)
         let hints = zip(labels, targets).map { (label: $0.0, target: $0.1.target, text: $0.1.text) }
         guard !hints.isEmpty else {
-            _ = try await eval(Self.clearScript, tab: id)
-            await board.set(nil, tab: id)
+            _ = try await eval(Self.takeScript(await board.tokens(app: app)), tab: id)
+            await board.forget(tab: id, app: app)
             return ["tab": .string(id), "hints": []]
         }
         let token = UUID().uuidString
         let draw = LinkHintSession.drawScript(hints.map { (label: $0.label, target: $0.target) })
         let drawn = try await eval(Self.tagged(draw, token: token), tab: id).value
+        if drawn.stringValue == "busy" { throw Self.failed("the built-in link hints are showing in this tab") }
         guard drawn.boolValue == true else { throw Self.failed("the page did not draw the hints") }
-        await board.set(PageHintBoard.Shown(token: token, targets: Dictionary(hints.map { ($0.label, $0.target) }, uniquingKeysWith: { first, _ in first })), tab: id)
+        let shown = PageHintBoard.Shown(app: app, token: token, targets: Dictionary(hints.map { ($0.label, $0.target) }, uniquingKeysWith: { first, _ in first }))
+        await board.set(shown, tab: id)
         return ["tab": .string(id), "hints": .array(hints.map { hint -> AppJSON in
             ["label": .string(hint.label), "text": .string(hint.text), "href": hint.target.href.map { AppJSON.string($0.absoluteString) } ?? AppJSON.null]
         })]
     }
 
-    private func clearHints(tab: String?) async throws(AppHostCapabilityError) -> AppJSON {
-        let (id, _) = try await eval(Self.clearScript, tab: tab)
-        await board.set(nil, tab: id)
+    private func clearHints(tab: String?, app: String) async throws(AppHostCapabilityError) -> AppJSON {
+        let (id, _) = try await eval(Self.takeScript(await board.tokens(app: app)), tab: tab)
+        await board.forget(tab: id, app: app)
         return ["tab": .string(id), "hints": []]
     }
 
     private func follow(tab: String?, label: String, newSplit: Bool, request: AppHostCapabilityRequest) async throws(AppHostCapabilityError) -> AppJSON {
-        let (id, shownToken) = try await eval(Self.tokenScript, tab: tab)
+        // One page call checks the overlay is this app's labels with `label` (and a link for a split) and
+        // removes it: no other session's labels can come in between.
+        let tokens = await board.tokens(app: request.app, label: label, link: newSplit)
+        let (id, taken) = try await eval(Self.takeScript(tokens), tab: tab)
         let notFollowed: AppJSON = ["tab": .string(id), "followed": false, "href": .null]
-        guard let shown = await board.shown(tab: id), shownToken.stringValue == shown.token else {
-            // The labels are gone (a scroll, a new page) or are another session's.
-            await board.set(nil, tab: id)
+        guard let shown = await board.shown(tab: id), shown.app == request.app, let target = shown.targets[label],
+              taken.stringValue == shown.token else {
+            // The labels are gone (a scroll, a new page), are another session's, or have no such label.
+            if taken == .null, let mine = await board.shown(tab: id), tokens.contains(mine.token) { await board.forget(tab: id, app: request.app) }
             return notFollowed
         }
-        guard let target = shown.targets[label] else { return notFollowed }
         let href: AppJSON = target.href.map { AppJSON.string($0.absoluteString) } ?? .null
-        if newSplit, target.href == nil { return notFollowed }
-        _ = try await eval(LinkHintSession.removeScript, tab: id)
-        await board.set(nil, tab: id)
+        await board.forget(tab: id, app: request.app)
         if newSplit, let url = target.href {
             var params: [String: JSONValue] = [
                 "action": "browser.link.openInSplit",
@@ -149,10 +153,13 @@ public nonisolated struct PageAppOps: AppHostCapabilityHandler {
     static let overlayTag = "cmux-link-hints"
 
     /// `draw`, then the overlay marked with `token`: an app's labels, told apart from the built-in `f`
-    /// session's and from another draw's.
+    /// session's and from another draw's. Answers `"busy"` and draws nothing while the built-in `f`
+    /// session's labels (an overlay with no token) are up: an app never takes them down.
     static func tagged(_ draw: String, token: String) -> String {
         """
         (() => {
+          const shown = document.querySelector('\(overlayTag)');
+          if (shown && !shown.dataset.cmuxApp) return 'busy';
           const drawn = \(draw);
           const host = document.querySelector('\(overlayTag)');
           if (!host) return false;
@@ -162,18 +169,20 @@ public nonisolated struct PageAppOps: AppHostCapabilityHandler {
         """
     }
 
-    /// The token of the labels on the page, or null (none, or the built-in `f` session's).
-    static let tokenScript = "(() => document.querySelector('\(overlayTag)')?.dataset.cmuxApp ?? null)()"
-
-    /// Removes an app's labels; the built-in `f` session's stay.
-    static let clearScript = """
-    (() => {
-      const host = document.querySelector('\(overlayTag)');
-      if (!host || !host.dataset.cmuxApp) return false;
-      host.remove();
-      return true;
-    })()
-    """
+    /// Removes the labels on the page only when their token is one of `tokens` (the calling app's), and
+    /// answers that token, else null: the built-in `f` session's labels and another app's stay.
+    static func takeScript(_ tokens: [String]) -> String {
+        let list = (try? JSONSerialization.data(withJSONObject: tokens)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        return """
+        ((tokens) => {
+          const host = document.querySelector('\(overlayTag)');
+          const token = host?.dataset.cmuxApp;
+          if (!token || !tokens.includes(token)) return null;
+          host.remove();
+          return token;
+        })(\(list))
+        """
+    }
 
     /// The collect script's targets with the text that names each.
     static func targets(_ json: String) -> [(target: LinkHintTarget, text: String)] {
@@ -201,10 +210,11 @@ public nonisolated struct PageAppOps: AppHostCapabilityHandler {
     static func failed(_ message: String) -> AppHostCapabilityError { AppHostCapabilityError(code: "operation.failed", message: message, retryable: true) }
 }
 
-/// The link-hint labels each tab shows for apps (``PageAppOps``): label to click point, and the token
-/// its overlay carries. A bounded number of tabs; the oldest is forgotten first.
+/// The link-hint labels each tab shows for apps (``PageAppOps``): the app that drew them, label to click
+/// point, and the token its overlay carries. A bounded number of tabs; the oldest is forgotten first.
 actor PageHintBoard {
     nonisolated struct Shown: Sendable {
+        var app: String
         var token: String
         var targets: [String: LinkHintTarget]
     }
@@ -214,6 +224,22 @@ actor PageHintBoard {
     private var order: [String] = []
 
     func shown(tab: String) -> Shown? { shown[tab] }
+
+    /// The tokens of `app`'s labels, only those with `label` (and a link to open, when `link`) if given.
+    func tokens(app: String, label: String? = nil, link: Bool = false) -> [String] {
+        shown.values.filter { shown in
+            guard shown.app == app else { return false }
+            guard let label else { return true }
+            guard let target = shown.targets[label] else { return false }
+            return !link || target.href != nil
+        }.map(\.token)
+    }
+
+    /// Forgets `tab`'s labels if `app` drew them.
+    func forget(tab: String, app: String) {
+        guard shown[tab]?.app == app else { return }
+        set(nil, tab: tab)
+    }
 
     func set(_ value: Shown?, tab: String) {
         order.removeAll { $0 == tab }

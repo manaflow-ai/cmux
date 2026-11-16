@@ -33,8 +33,12 @@ public nonisolated extension LinkHintSession {
         const href = typeof element.href === 'string' ? element.href : null;
         const named = (element.getAttribute('aria-labelledby') || '').split(/\\s+/)
           .map((id) => document.getElementById(id)?.innerText || '').join(' ').trim();
+        // A field's text is what the person typed (a password, a draft): never a label. Only a button-type
+        // input's value is its visible caption.
+        const typed = element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
+        const caption = element.tagName === 'INPUT' && /^(button|submit|reset)$/i.test(element.type) ? element.value : '';
         const text = (element.getAttribute('aria-label') || named || element.labels?.[0]?.innerText || element.title ||
-          element.innerText || element.value || '').toString().trim().slice(0, 80);
+          (typed ? '' : element.innerText) || caption || '').toString().trim().slice(0, 80);
         out.push({ x: Math.round(x), y: Math.round(y), left: Math.round(left), top: Math.round(top), href, text });
         if (out.length >= 1000) break;
       }
