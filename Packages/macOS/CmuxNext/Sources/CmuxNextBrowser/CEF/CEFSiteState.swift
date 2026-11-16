@@ -17,6 +17,13 @@ nonisolated enum CEFContentSetting: Int32, Sendable, Equatable {
         }
     }
 
+    /// What Chromium stores for a Page Info decision: the kind's default clears its exception, and
+    /// nil for automatic downloads, which stay with cmux's gate (`AutomaticDownloadGate`).
+    static func forDecision(_ kind: SitePermissionKind, _ setting: SitePermissionSetting) -> CEFContentSetting? {
+        guard kind != .automaticDownloads else { return nil }
+        return setting == kind.defaultSetting ? .default : CEFContentSetting(setting)
+    }
+
     /// As a Page Info setting; `sessionOnly` (cookies) counts as allowed,
     /// `detectImportantContent` (legacy plugins) as ask.
     var siteSetting: SitePermissionSetting? {

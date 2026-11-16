@@ -103,7 +103,9 @@ public nonisolated struct SiteStyleSnapshot: Sendable {
     public init() {}
 
     /// Replaces the snapshot with `payload`'s `styles` (always the full set). Returns every entry,
-    /// removals included, to run on open tabs of its origin now; removals are then forgotten.
+    /// removals included, to run on open tabs of its origin now; removals are then forgotten. A
+    /// pair this snapshot held that the new one lacks (dropped while the daemon could not tell this
+    /// app, so no removal came) gets a removal too, so no open tab keeps its style.
     @discardableResult
     public mutating func replace(with payload: AppJSON) -> [SiteStyleEntry] {
         let all = (payload["styles"]?.arrayValue ?? []).compactMap { item -> SiteStyleEntry? in
@@ -111,21 +113,40 @@ public nonisolated struct SiteStyleSnapshot: Sendable {
                   let css = item["css"]?.stringValue, let source = item["source"]?.stringValue, !source.isEmpty else { return nil }
             return SiteStyleEntry(app: app, origin: origin, css: css, source: source)
         }
+        let named = Set(all.map { Pair(app: $0.app, origin: $0.origin) })
+        var vanished = Set<Pair>()
+        let removals = entries.compactMap { held -> SiteStyleEntry? in
+            let pair = Pair(app: held.app, origin: held.origin)
+            guard !named.contains(pair), vanished.insert(pair).inserted else { return nil }
+            return SiteStyleEntry(app: held.app, origin: held.origin, css: "", source: Self.removal(app: held.app))
+        }
         entries = all.filter { !$0.isRemoval }
-        return all
+        return all + removals
     }
 
-    /// An `apps-site-styles` payload as each origin's installers in order: `now` to run on open tabs
-    /// (removals included), `kept` for later document commits (removals dropped).
-    public static func installers(_ payload: AppJSON) -> (now: [String: [String]], kept: [String: [String]]) {
-        var snapshot = SiteStyleSnapshot()
-        let now = snapshot.replace(with: payload)
+    /// What this snapshot's next payload runs, as each origin's installers in order: `now` on open
+    /// tabs (removals included), `kept` for later document commits (removals dropped).
+    public mutating func installers(for payload: AppJSON) -> (now: [String: [String]], kept: [String: [String]]) {
+        let now = replace(with: payload)
         func byOrigin(_ entries: [SiteStyleEntry]) -> [String: [String]] { Dictionary(grouping: entries, by: \.origin).mapValues { $0.map(\.source) } }
-        return (byOrigin(now), byOrigin(snapshot.entries))
+        return (byOrigin(now), byOrigin(entries))
     }
 
     /// The installers a document of `origin` runs at commit.
     public func sources(for origin: String) -> [String] {
         entries.filter { $0.origin == origin }.map(\.source)
+    }
+
+    private struct Pair: Hashable {
+        var app: String
+        var origin: String
+    }
+
+    /// Removes `app`'s style element, as the daemon's installer does with no css (apps/page_ops.rs
+    /// `installer`): for a pair the daemon no longer names, so it sent no installer for it.
+    static func removal(app: String) -> String {
+        let literal = (try? JSONEncoder().encode(app)).flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+        return "(()=>{const app=\(literal);const root=document.documentElement;if(!root)return;"
+            + "for(const s of root.querySelectorAll('style[data-cmux-site-style]'))if(s.getAttribute('data-cmux-site-style')===app)s.remove()})()"
     }
 }

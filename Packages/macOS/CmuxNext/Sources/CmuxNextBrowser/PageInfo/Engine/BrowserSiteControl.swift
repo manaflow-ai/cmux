@@ -56,17 +56,15 @@ public final class BrowserSiteControl {
         await store.whenLoaded()
         let setting: SitePermissionSetting = allowed ? .allow : .block
         store.set(setting, .javascript, for: origin)
-        var chromiumTold = false
-        for page in pages().values where page.profileID == profile {
-            let shown = page.state.url.flatMap(PageInfoSite.origin(of:)) == origin
-            // One Chromium page of the profile sets its content setting (the profile's request context).
-            guard shown || (!chromiumTold && page.engineKind == .cef) else { continue }
+        // Chromium's content setting, on every context of the profile, whether or not one of its
+        // pages is open; a context made later gets the store's decisions before its first page.
+        CEFRuntime.shared.pushSiteDecision(.javascript, setting, origin: origin, profile: profile)
+        for page in pages().values where page.profileID == profile && page.state.url.flatMap(PageInfoSite.origin(of:)) == origin {
             if let provider = page as? any PageInfoProviding {
-                if shown { provider.pageInfoActivity.recordChange(.javascript) }
+                provider.pageInfoActivity.recordChange(.javascript)
                 await provider.pageInfoDidChange(.javascript, to: setting, origin: origin)
             }
-            if page.engineKind == .cef { chromiumTold = true }
-            if shown { page.reload() }
+            page.reload()
         }
     }
 

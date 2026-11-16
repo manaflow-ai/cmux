@@ -74,7 +74,9 @@ final class AppsService {
         }, index: BundledAgentMemoryIndex.bundled())
         let site = BrowserSiteControl(stores: services.browserStores, pages: { [weak self] in self?.services.cache.browsers.mapValues(\.tab) ?? [:] },
                                       selected: { [weak self] in self?.services.windows.active?.focusedPane.flatMap { pane in pane.stripModel.selectedID.flatMap(pane.tab)?.id } })
-        transport.provider.onSiteStyles = { site.applyStyles(SiteStyleSnapshot.installers($0)) }
+        // The last snapshot, so a pair the next one lacks is removed from open tabs too.
+        var styles = SiteStyleSnapshot()
+        transport.provider.onSiteStyles = { site.applyStyles(styles.installers(for: $0)) }
         let siteOps = SiteAppOps(host: SiteAppHost(tabOrigin: { site.tabOrigin($0) }, origin: { BrowserSiteControl.webOrigin($0) },
                                                    javaScriptAllowed: { site.javaScriptAllowed($0, tab: $1) }, setJavaScript: { await site.setJavaScript($2, origin: $0, tab: $1) }))
         transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(),

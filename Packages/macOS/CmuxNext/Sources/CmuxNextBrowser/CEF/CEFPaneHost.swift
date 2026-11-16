@@ -265,6 +265,9 @@ final class CEFPaneHost {
             ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
             #endif
             let initialURL = tab.takeInitialURLString()
+            // The window's context gets the profile's Page Info decisions before its first page
+            // loads, also those taken while none of its Chromium pages was open.
+            runtime.pushSiteDecisions(for: key)
             let create = {
                 CEFStartSteps.shared.createWindow {
                     shim.createWindow(request, Unmanaged.passUnretained(self.hostView).toOpaque(),

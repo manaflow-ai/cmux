@@ -96,14 +96,44 @@ struct SiteAppOpsTests {
             ["app": "local/y", "origin": "https://a.test", "css": "header{position:static}", "source": "install-a2"],
         ]]
         let run = snapshot.replace(with: second)
-        #expect(run.map(\.source) == ["remove-a", "install-a2"], "the removal runs on open tabs now")
+        #expect(run.map(\.source).prefix(2) == ["remove-a", "install-a2"], "the removal runs on open tabs now")
         #expect(run.first?.isRemoval == true)
+        // local/x on b.test is not in the new snapshot and came with no removal: it gets one.
+        #expect(run.count == 3)
+        #expect(run.last.map { [$0.app, $0.origin, $0.css] } == ["local/x", "https://b.test", ""])
+        #expect(run.last?.source.contains("\"local/x\"") == true)
         #expect(snapshot.sources(for: "https://a.test") == ["install-a2"], "and is not kept for later commits")
         #expect(snapshot.sources(for: "https://b.test").isEmpty, "the full snapshot replaces the last one")
-        let installers = SiteStyleSnapshot.installers(second)
+        var fresh = SiteStyleSnapshot()
+        let installers = fresh.installers(for: second)
         #expect(installers.now == ["https://a.test": ["remove-a", "install-a2"]], "what runs on open tabs, in order")
         #expect(installers.kept == ["https://a.test": ["install-a2"]], "what later commits run")
-        #expect(snapshot.replace(with: ["styles": []]).isEmpty)
+        // Everything dropped (a new daemon connection that names nothing): each held pair is removed.
+        let cleared = snapshot.replace(with: ["styles": []])
+        #expect(cleared.map { [$0.app, $0.origin] } == [["local/y", "https://a.test"]])
+        #expect(cleared.allSatisfy(\.isRemoval))
         #expect(snapshot.entries.isEmpty)
+        #expect(snapshot.replace(with: ["styles": []]).isEmpty, "nothing held, nothing to remove")
+    }
+
+    @Test func aPairThatVanishedAcrossAReconnectIsRemovedOnce() {
+        var snapshot = SiteStyleSnapshot()
+        _ = snapshot.installers(for: ["styles": [
+            ["app": "local/x", "origin": "https://a.test", "css": ".ad{display:none}", "source": "install-x"],
+            ["app": "local/y", "origin": "https://a.test", "css": ".b{display:none}", "source": "install-y"],
+        ]])
+        // The daemon restarted after local/x was uninstalled: its full snapshot names only local/y.
+        let next = snapshot.installers(for: ["styles": [
+            ["app": "local/y", "origin": "https://a.test", "css": ".b{display:none}", "source": "install-y"],
+        ]])
+        #expect(next.now["https://a.test"]?.first == "install-y")
+        #expect(next.now["https://a.test"]?.count == 2)
+        #expect(next.now["https://a.test"]?.last?.contains("data-cmux-site-style") == true)
+        #expect(next.kept == ["https://a.test": ["install-y"]])
+        // Already removed: the snapshot after that removes nothing again.
+        let again = snapshot.installers(for: ["styles": [
+            ["app": "local/y", "origin": "https://a.test", "css": ".b{display:none}", "source": "install-y"],
+        ]])
+        #expect(again.now == ["https://a.test": ["install-y"]])
     }
 }

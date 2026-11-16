@@ -304,6 +304,23 @@ int cmux_shim_set_content_setting(int browser_id, const char* url, const char* t
   return 1;
 }
 
+int cmux_shim_set_context_content_setting(const char* context_key, const char* url, const char* type, int value) {
+  cef_content_setting_types_t content_type;
+  if (!context_key || !*context_key || !url || !*url || !LookupType(type, &content_type) || value < 0 ||
+      value >= CEF_CONTENT_SETTING_VALUE_NUM_VALUES) {
+    return 0;
+  }
+  // The context of a profile with no browser open (made here when it has none yet), so a
+  // decision taken in Page Info or by an extension holds for the profile's next first load.
+  CefRefPtr<CefRequestContext> context = RequestContextFor(context_key);
+  if (!context) {
+    return 0;
+  }
+  CefString target(url);
+  context->SetContentSetting(target, target, content_type, static_cast<cef_content_setting_values_t>(value));
+  return 1;
+}
+
 int cmux_shim_visit_cookies(int browser_id, int reply) {
   CefRefPtr<CefRequestContext> context = ContextOf(browser_id);
   CefRefPtr<CefCookieManager> manager = context ? context->GetCookieManager(nullptr) : nullptr;

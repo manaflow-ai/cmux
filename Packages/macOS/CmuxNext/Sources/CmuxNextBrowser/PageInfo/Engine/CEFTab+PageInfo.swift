@@ -113,8 +113,7 @@ extension CEFTab: PageInfoProviding {
     /// others store one. Automatic downloads stay with cmux's gate, which
     /// reads the shared store itself (`leaveAutomaticDownloadsToCmux`).
     private func applyToChromium(_ kind: SitePermissionKind, _ setting: SitePermissionSetting, origin: String) {
-        guard let browserID, kind != .automaticDownloads else { return }
-        let value: CEFContentSetting = setting == kind.defaultSetting ? .default : CEFContentSetting(setting)
+        guard let browserID, let value = CEFContentSetting.forDecision(kind, setting) else { return }
         runtime.setContentSetting(browserID, url: origin, kind: kind, value: value)
     }
 

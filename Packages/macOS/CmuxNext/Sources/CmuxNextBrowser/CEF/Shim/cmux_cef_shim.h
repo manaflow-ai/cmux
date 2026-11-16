@@ -666,6 +666,10 @@ CMUX_SHIM_EXPORT int cmux_shim_content_setting(int browser_id, const char* url, 
 // url "" sets the profile default (not for an incognito context). Returns 1
 // when handed to CEF.
 CMUX_SHIM_EXPORT int cmux_shim_set_content_setting(int browser_id, const char* url, const char* type, int value);
+// As cmux_shim_set_content_setting, for the request context of context_key (a
+// profile cache path, or an off-the-record key) whether or not a browser of it
+// is open; url must name a site. Returns 1 when handed to CEF.
+CMUX_SHIM_EXPORT int cmux_shim_set_context_content_setting(const char* context_key, const char* url, const char* type, int value);
 // Visits every cookie of the browser's request context. REPLY with `reply`
 // follows, s1 = [{"name","domain","path"}]. Returns 0 when not started.
 CMUX_SHIM_EXPORT int cmux_shim_visit_cookies(int browser_id, int reply);
