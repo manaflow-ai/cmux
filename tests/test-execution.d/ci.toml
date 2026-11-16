@@ -219,6 +219,11 @@ lane = "manual"
 reason = "Portable unit tests for the overflow watch's hosted light rescue (main runs the script at a pinned commit). Run python3 -m unittest tests.test_ci_hosted_light_rescue. No new CI gate."
 
 [[test]]
+path = "tests/test_ci_ios_bot_rerun_route.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Evaluates test-ios.yml's mobile-core-package and ios-simulator-build routes: a bot's re-run on a cmux-next lane takes Blacksmith, a person's stays owned (#44697). Run python3 tests/test_ci_ios_bot_rerun_route.py yourself after changing test-ios.yml's runner job or those routes (under a second, no build)."
+
+[[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
 

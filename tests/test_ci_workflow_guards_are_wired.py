@@ -183,6 +183,11 @@ UNWIRED: set[str] = {
     # cmux-tui-build-package.yml as data: the shipped fat-LTO legs' warm sticky disks and their
     # restore/record calls. Run it by hand after changing those steps. Exit: as above.
     "tests/test_ci_cmux_tui_fat_warm_target.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It evaluates test-ios.yml's
+    # runs-on and REQUESTED_RUNNER for mobile-core-package and ios-simulator-build: a bot's re-run on a cmux-next
+    # lane takes the picker's Blacksmith route, a person's stays owned (#44697). Run it by hand after changing
+    # test-ios.yml's runner job or those routes (under a second, no build). Exit: as above.
+    "tests/test_ci_ios_bot_rerun_route.py",
 }
 
 

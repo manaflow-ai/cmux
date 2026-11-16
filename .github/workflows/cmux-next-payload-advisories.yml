@@ -22,6 +22,15 @@ on:
       - scripts/cmux-next/ext-store/extensions.json
       - scripts/cmux-next/payload_advisories.py
       - .github/workflows/cmux-next-payload-advisories.yml
+  # A pull request that moves a pin gets the same verdict before it merges
+  # (tests/test_ci_post_merge_checks.py). The issue step stays base-only: it reads github.ref.
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/fetch-ublock.sh
+      - scripts/cmux-next/ext-store/extensions.json
+      - scripts/cmux-next/payload_advisories.py
+      - .github/workflows/cmux-next-payload-advisories.yml
   workflow_dispatch:
 
 permissions:
