@@ -2306,4 +2306,15 @@ describe("claudeTranscriptModelsProgram", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("a preclaim reply wait that fails names the turn's error, not only its exit code", async () => {
+    // run 43817240410 recorded only "reply wait exit 1"; the turn_error in `acp tail` says why.
+    const replies = ["@@exit 0", "@@exit 0", "@@wait 1\n", '{"kind":"turn_error","error":"Authentication required"}\n'];
+    const run = runPreclaimChat(async () => {
+      const stdout = replies.shift();
+      if (stdout === undefined) throw new Error("unexpected extra command");
+      return { code: 0, stdout, stderr: "" };
+    }, "fixture-session", "Reply once", 1000);
+    await expect(run).rejects.toThrow("preclaim fixture-session: reply wait exit 1: Authentication required");
+  });
 });

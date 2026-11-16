@@ -595,9 +595,19 @@ export async function runPreclaimChat(exec: Exec, session: string, prompt: strin
     const text = reply.stdout.replace(/@@wait \d+\n?/, "").trim();
     if (wait === "0" && text) return { chatMs, replyMs: Date.now() - waitStarted };
     // The send is queued: an idle exit before the turn starts is not a failed reply.
-    if (wait && wait !== "0" && wait !== "3") throw new Error(`preclaim ${session}: reply wait exit ${wait}`);
+    if (wait && wait !== "0" && wait !== "3") throw new Error(`preclaim ${session}: reply wait exit ${wait}: ${await failedTurnWhy(exec, session, text)}`);
   }
   throw new Error(`preclaim ${session}: no reply within ${budgetMs / 1000} s`);
+}
+
+/**
+ * Why a turn failed: a failed turn (`acp wait` exit 1) prints no reply, so this names the session's last turn_error
+ * (e.g. a harness with no sign-in on the machine), else the last message (run 43817240410 recorded only "exit 1").
+ */
+export async function failedTurnWhy(exec: Exec, session: string, last: string): Promise<string> {
+  const h = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -E '"kind":"turn_error"' | tail -1`, 45_000).catch(() => null);
+  const why = /"error":"((?:[^"\\]|\\.)*)"/.exec(h?.stdout ?? "")?.[1] ?? "";
+  return (why || last).slice(-300);
 }
 
 /** A cold claim has no warm receipt, so it uses the same credential transfer after bind. */
@@ -3254,10 +3264,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (wait === "0" && last) return last;
         if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);
         if (wait && wait !== "3" && wait !== "0") {
-          // A failed turn (exit 1) prints no reply: name its error, e.g. a harness with no sign-in on the machine.
-          const h = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -E '"kind":"turn_error"' | tail -1`, 45_000).catch(() => null);
-          const why = /"error":"((?:[^"\\]|\\.)*)"/.exec(h?.stdout ?? "")?.[1] ?? "";
-          throw new Error(`acp wait exit ${wait}: ${(why || last).slice(-300)}`);
+          throw new Error(`acp wait exit ${wait}: ${await failedTurnWhy(exec, session, last)}`);
         }
       }
       throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
