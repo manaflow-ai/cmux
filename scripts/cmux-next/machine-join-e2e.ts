@@ -686,14 +686,6 @@ export async function runE2E(
     expect(j.teamId === evidence.teamId, "join team differs from the mint's team")
     say(`joined as machine ${evidence.machineId} in ${evidence.joinSeconds}s`)
 
-    // The join's own doctor is the machine-readable readiness receipt. It may return 1 for a
-    // signed-out harness or an unavailable optional sandbox, but it must always emit its report.
-    const doctor = await deps.run(asUserTool(["host", "doctor", "--here", "--json"]), { env: childEnv, timeoutMs: 30_000 })
-    childText.push(doctor.stdout, doctor.stderr)
-    const doctorLines = doctor.stdout.split("\n").filter((line) => line.trim())
-    const doctorReport = doctorLines.map((line) => { try { return JSON.parse(line) } catch { return null } }).find((v: any) => v?.report)
-    expect(doctorReport?.report?.steps instanceof Array, "doctor: no machine-readable report")
-
     // The stored credential is masked before anything else could print it.
     const pre = await status()
     if (pre.credentialPath !== credentialFile) throw new Failed("status: credential path is not the disposable home's credential file")
@@ -753,6 +745,13 @@ export async function runE2E(
     expect(evidence.status.heartbeatAgeSeconds !== null && evidence.status.heartbeatAgeSeconds < HEARTBEAT_LIMIT_S, `no heartbeat within ${HEARTBEAT_LIMIT_S} s${strangeBeat ? " (status showed a heartbeat time outside the daemon's run)" : ""}`)
     expect(s.machineId === evidence.machineId, "status: machine differs from the join's")
     expect(evidence.consent.screen === "none" && evidence.consent.control === "none", "consent is not none for both screen and control")
+
+    // The join's own doctor is the machine-readable readiness receipt. It may return 1 for a
+    // signed-out harness or an unavailable optional sandbox, but it must always emit its report.
+    const doctor = await acpmux(["host", "doctor", "--here", "--json"], undefined, inFlight.signal, 60_000)
+    const doctorLines = doctor.stdout.split("\n").filter((line) => line.trim())
+    const doctorReport = doctorLines.map((line) => { try { return JSON.parse(line) } catch { return null } }).find((v: any) => v?.report)
+    expect(doctorReport?.report?.steps instanceof Array, "doctor: no machine-readable report")
 
     // 5. The platform's list, by join token id. Its heartbeat (RFC 3339, or epoch s or ms) must fall in the
     // daemon's run, with a minute's slack for the platform's clock.

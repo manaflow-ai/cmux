@@ -141,7 +141,7 @@ pub(crate) fn local_probe() -> Option<Found> {
 }
 
 /// Whether `acpmux harness install ID` can install it on a machine with this kernel: Claude
-/// Code's installer runs on macOS and Linux; the managed Codex release is macOS only.
+/// Code and the managed Codex release both support macOS and Linux.
 fn installable(id: &str, os: &str) -> bool {
     match id {
         "claude" => matches!(os, "Darwin" | "Linux"),
