@@ -51,6 +51,7 @@ Mac) and never from argv. Without them it is skipped and the table says so.
 import argparse
 import json
 import os
+import queue
 import select
 import shlex
 import signal
@@ -59,6 +60,7 @@ import statistics
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 MONO = time.CLOCK_MONOTONIC  # the clock cmux-rd's now_ns() reads (clock.rs)
@@ -115,11 +117,13 @@ def read_marker_rgb(rgb, width, origin, cell):
 def cmd_clock_serve(args):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind((args.bind, args.port))
-    print(json.dumps({"listening": args.port}), flush=True)
+    print(json.dumps({"listening": s.getsockname()[1]}), flush=True)
     end = time.time() + args.seconds
     while time.time() < end:
-        r, _, _ = select.select([s], [], [], 0.5)
-        if not r:
+        r, _, _ = select.select([s, sys.stdin], [], [], 0.5)
+        if sys.stdin in r and not os.read(sys.stdin.fileno(), 4096):
+            return  # the orchestrator went away
+        if s not in r:
             continue
         data, peer = s.recvfrom(64)
         s.sendto(data[:8] + struct.pack("!Q", mono_ns()), peer)
@@ -131,12 +135,16 @@ def cmd_clock_probe(args):
     s.settimeout(0.5)
     best = None
     rtts = []
+    misses = 0
     for i in range(args.count):
         t0 = mono_ns()
         s.sendto(struct.pack("!Q", i), (host, int(port)))
         try:
             data, _ = s.recvfrom(64)
         except socket.timeout:
+            misses += 1
+            if misses >= 10 and not rtts:
+                break  # nothing is answering
             continue
         t1 = mono_ns()
         if struct.unpack("!Q", data[:8])[0] != i:
@@ -210,6 +218,7 @@ def cmd_rig(args):
         try:
             req = json.loads(f.readline() or b"{}")
         except ValueError:
+            f.close()
             conn.close()
             continue
         cmd = req.get("cmd")
@@ -259,6 +268,7 @@ def cmd_rig(args):
                 procs["serve"] = p
                 bridge(conn, p)
                 stop("serve")
+                f.close()
                 conn.close()
                 continue
             elif cmd == "timing":
@@ -273,6 +283,7 @@ def cmd_rig(args):
                     stop(name)
             elif cmd == "quit":
                 f.write((json.dumps(reply) + "\n").encode())
+                f.close()
                 conn.close()
                 quit_rig()
             else:
@@ -283,6 +294,7 @@ def cmd_rig(args):
             f.write((json.dumps(reply) + "\n").encode())
         except OSError:
             pass
+        f.close()
         conn.close()
 
 
@@ -472,8 +484,19 @@ class Remote:
         return p.stdout
 
     def popen(self, cmd):
-        return subprocess.Popen(self.argv(cmd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, text=True, bufsize=1)
+        p = subprocess.Popen(self.argv(cmd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, bufsize=1)
+        # A reader thread owns stdout. select() on a buffered pipe misses lines that one
+        # read already pulled into the buffer (a signaling line then never gets relayed).
+        p.lines = queue.Queue()
+
+        def pump():
+            for line in p.stdout:
+                p.lines.put(line)
+            p.lines.put(None)
+
+        threading.Thread(target=pump, daemon=True).start()
+        return p
 
     def put(self, local, remote_path, mode="0755"):
         with open(local, "rb") as f:
@@ -488,13 +511,14 @@ class Remote:
 
 
 def readline(proc, deadline):
-    while True:
-        left = deadline - time.time()
-        if left <= 0:
-            return None
-        r, _, _ = select.select([proc.stdout], [], [], left)
-        if r:
-            return proc.stdout.readline()
+    """The next stdout line of a Remote.popen process, or None at EOF or the deadline."""
+    left = deadline - time.time()
+    if left <= 0:
+        return None
+    try:
+        return proc.lines.get(timeout=left)
+    except queue.Empty:
+        return None
 
 
 class Orchestrator:
@@ -561,11 +585,14 @@ class Orchestrator:
                 raise SystemExit("the rig did not start in cmux NEXT")
 
     def clock(self):
-        port = 47123
+        # Port 0: a clock server still draining from the last probe never collides.
         srv = self.host.popen(f"{self.py} {self.me} clock-serve --bind {self.a.host_ip} "
-                              f"--port {port} --seconds 30")
-        readline(srv, time.time() + 15)
+                              f"--port 0 --seconds 120")
+        line = readline(srv, time.time() + 15)
         try:
+            port = json.loads(line or "{}").get("listening")
+            if not port:
+                raise RuntimeError(f"clock-serve on {self.a.host} did not start: {line!r}")
             out = self.viewer.run(f"{self.py} {self.me} clock-probe --addr {self.a.host_ip}:{port} "
                                   f"--count {self.a.clock_count}", timeout=60)
         finally:
@@ -615,20 +642,21 @@ class Orchestrator:
             viewer.stdin.write(json.dumps({"session": session, "peer_key": host_key, "stun": [],
                                            "candidates": cands}) + "\n")
             viewer.stdin.flush()
-            streams = {host.stdout: "host", viewer.stdout: "viewer"}
+            streams = {"host": host, "viewer": viewer}
             deadline = t0 + self.a.timeout
             while streams and time.time() < deadline and "report" not in rec:
-                r, _, _ = select.select(list(streams), [], [], 0.05)
-                for s in r:
-                    line = s.readline()
-                    if not line:
-                        del streams[s]
+                for who, p in list(streams.items()):
+                    try:
+                        line = p.lines.get(timeout=0.01)
+                    except queue.Empty:
+                        continue
+                    if line is None:
+                        del streams[who]
                         continue
                     try:
                         msg = json.loads(line)
                     except ValueError:
                         continue
-                    who = streams[s]
                     if who == "viewer" and "candidate" in msg:
                         host.stdin.write(json.dumps(msg) + "\n")
                         host.stdin.flush()
@@ -719,11 +747,17 @@ class Orchestrator:
 
     def run_cmux(self, clock):
         firsts, g2g, fps, rows = [], [], [], []
-        for n in range(1, self.a.trials + 1):
+        # The first session after the rig starts can miss every key (the marker window is
+        # not key yet), so warm-up attempts are logged but not counted.
+        for n in range(1 - self.a.warmup, self.a.trials + 1):
             origin = self.rig({"cmd": "marker", "flags": []})["origin"]
             time.sleep(0.5)
             rec = self.cmux_attempt(origin, "key")
             timing = self.rig({"cmd": "timing"}, timeout=60).get("lines", [])
+            if n < 1:
+                rec.pop("sample_times", None)
+                self.log(dict(rec, warmup=True))
+                continue
             rec["trial"] = n
             if rec["ok"]:
                 firsts.append(rec["first_frame_ms"])
@@ -753,7 +787,7 @@ class Orchestrator:
                f"VNC_PASSWORD_FILE={shlex.quote(self.a.vnc_password_file)} ")
         for mode, trials, flags in (("key", self.a.trials, []),
                                     ("fps", self.a.fps_trials, ["--tick", "--motion"])):
-            for n in range(1, trials + 1):
+            for n in range(1 - (self.a.warmup if mode == "key" else 0), trials + 1):
                 origin = self.rig({"cmd": "marker", "flags": flags})["origin"]
                 time.sleep(0.5)
                 cmd = (env + f"{self.py} {self.me} rfb-bench --host {self.a.host_ip} "
@@ -767,7 +801,12 @@ class Orchestrator:
                     rec["ok"] = "error" not in rep
                 except Exception as e:  # noqa: BLE001
                     rec.update({"ok": False, "error": repr(e)[-400:]})
+                if n < 1:
+                    rec["warmup"] = True
                 self.log(rec)
+                if n < 1:
+                    time.sleep(2)
+                    continue
                 if rec["ok"]:
                     firsts.append(rec["first_frame_ms"])
                     if mode == "key":
@@ -793,8 +832,12 @@ class Orchestrator:
         if "apple" in stacks:
             r = self.run_apple()
             results["macOS Screen Sharing"] = r
-        clock1 = self.clock()
-        self.log({"clock_end": clock1, "drift_ms": (clock1["offset_ns"] - clock0["offset_ns"]) / 1e6})
+        try:
+            clock1 = self.clock()
+            self.log({"clock_end": clock1,
+                      "drift_ms": (clock1["offset_ns"] - clock0["offset_ns"]) / 1e6})
+        except Exception as e:  # noqa: BLE001 - the drift check never costs the table
+            self.log({"clock_end_error": repr(e)[-400:]})
         self.table(results, clock0, rows)
 
     def table(self, results, clock, rows):
@@ -854,6 +897,7 @@ def main():
     r.add_argument("--rig-launch", choices=["cmux-next"], help="start the rig in cmux NEXT")
     r.add_argument("--stacks", default="cmux,apple")
     r.add_argument("--trials", type=int, default=10)
+    r.add_argument("--warmup", type=int, default=1, help="uncounted key attempts first")
     r.add_argument("--fps-trials", type=int, default=3)
     r.add_argument("--samples", type=int, default=30)
     r.add_argument("--fps-seconds", type=int, default=10)
