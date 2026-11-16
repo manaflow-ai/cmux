@@ -135,16 +135,92 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
   return roll;
 }
 
+/// Whether the live line's boxes may have moved since its last commit: the two hooks below read
+/// layout (a forced layout when the commit wrote the DOM) only then, never on a commit that changed
+/// nothing drawn, as each streamed chunk does (its new `quietKey` and `heardKey`). They move when
+/// what the line draws changes (`drawn`: its words, time, counts and look, compared as effect deps
+/// are) or its node is new, both known in the commit itself; or when a box resizes with no commit
+/// of the line (the pane's width, a font, a theme's slot), which a ResizeObserver on the line and
+/// its boxes marks for the next commit. Read in layout effects only, after this hook's own.
+function useLineMoved(line: RefObject<HTMLDivElement | null>, drawn: readonly unknown[]): RefObject<boolean> {
+  const moved = useRef(true);
+  const seen = useRef<{
+    node?: HTMLDivElement;
+    drawn?: readonly unknown[];
+    resized: boolean;
+    observer?: ResizeObserver;
+    boxes: Map<Element, string>;
+  }>({ resized: false, boxes: new Map() });
+  // One observer for the line's life, disconnected when it unmounts.
+  useLayoutEffect(() => {
+    const state = seen.current;
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const box = entry.borderBoxSize?.[0];
+        const size = box
+          ? `${box.inlineSize}x${box.blockSize}`
+          : `${entry.contentRect.width}x${entry.contentRect.height}`;
+        const before = state.boxes.get(entry.target);
+        state.boxes.set(entry.target, size);
+        // A box's first report is its size when observed, already read in that commit.
+        if (before !== undefined && before !== size) state.resized = true;
+      }
+    });
+    state.observer = observer;
+    return () => {
+      observer.disconnect();
+      state.observer = undefined;
+      state.boxes = new Map();
+      // A remount (Strict Mode's second pass) reads and observes again.
+      state.drawn = undefined;
+    };
+  }, []);
+  useLayoutEffect(() => {
+    const state = seen.current;
+    const node = line.current ?? undefined;
+    const changed =
+      node !== state.node ||
+      state.drawn === undefined ||
+      state.drawn.length !== drawn.length ||
+      drawn.some((value, index) => !Object.is(value, state.drawn![index]));
+    moved.current = changed || state.resized;
+    state.resized = false;
+    state.node = node;
+    state.drawn = drawn;
+    // What is drawn changed, so the boxes may be new: observe the line, its direct boxes (whose
+    // sizes place the counts) and the words' own box; let go of those gone.
+    if (!changed || !state.observer) return;
+    const boxes = new Set<Element>();
+    if (node) {
+      boxes.add(node);
+      for (const child of node.children) boxes.add(child);
+      const words = node.querySelector("output.cv-thinking");
+      if (words) boxes.add(words);
+    }
+    for (const box of state.boxes.keys())
+      if (!boxes.has(box)) {
+        state.observer.unobserve(box);
+        state.boxes.delete(box);
+      }
+    for (const box of boxes) if (!state.boxes.has(box)) state.observer.observe(box);
+  });
+  return moved;
+}
+
 /// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
 /// (ellipsis and all), their time and counts from where they sat, never the full words running their
-/// tail on past it. The width as last committed, one read of the line's own box a commit, set on the
-/// roll's copies in the commit that makes them, before paint; refs only in the effect.
-function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) {
+/// tail on past it. The width as last committed, one read of the line's own box a commit that moved
+/// it (`useLineMoved`), set on the roll's copies in the commit that makes them, before paint; refs
+/// only in the effect.
+function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, moved: RefObject<boolean>) {
   const drawn = useRef<{ turns: number; width?: number }>({ turns });
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
     const last = drawn.current;
+    // Nothing drawn moved: the width read last still holds.
+    if (turns === last.turns && !moved.current) return;
     if (turns !== last.turns && last.width !== undefined) {
       const px = `${last.width}px`;
       const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
@@ -162,11 +238,13 @@ function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) 
 /// time grows a digit, its words change width under one key) slides from where it was drawn on the
 /// arrival step, transform only, so it never jumps a frame. A roll moves it with the words instead
 /// (`useRoll`), and the gates that stop the roll stop this too.
-function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number) {
+function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, moved: RefObject<boolean>) {
   const drawn = useRef<{ turns: number; lefts: number[] }>({ turns, lefts: [] });
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
+    // Nothing drawn moved: the counts sit where they were read last, so none glides.
+    if (turns === drawn.current.turns && !moved.current) return;
     const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
     const lefts = counts.map((count) => count.offsetLeft);
     const before = drawn.current;
@@ -534,8 +612,30 @@ export function Thinking({
   const lineRef = useRef<HTMLDivElement>(null);
   // A wait draws its words plainly, like a calm compaction: no sweep says work goes on.
   const calm = compactLook === "calm" || silent;
-  useRollOutWidth(lineRef, roll.turns);
-  useCountGlide(lineRef, roll.turns);
+  // Everything the line draws that sizes or places its words and counts; a streamed chunk changes
+  // none of it (its `quietKey` and `heardKey` only time the line).
+  const moved = useLineMoved(lineRef, [
+    below,
+    waiting,
+    asked,
+    answered,
+    calm,
+    decorative,
+    compacting,
+    label,
+    lead?.lead,
+    lead?.rest,
+    verbs,
+    elapsed,
+    own,
+    turnClock,
+    timesLook,
+    tail,
+    roll.out?.tail,
+    command && !done && doing !== undefined ? doingAt : undefined,
+  ]);
+  useRollOutWidth(lineRef, roll.turns, moved);
+  useCountGlide(lineRef, roll.turns, moved);
   // The question card already asks for an answer above the composer.
   if (waiting === "question") return null;
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
