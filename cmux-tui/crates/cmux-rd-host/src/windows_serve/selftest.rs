@@ -34,7 +34,8 @@ pub fn run(opts: &Opts) -> Res<()> {
     let mut stdin = child.stdin.take().ok_or("no stdin")?;
     let stdout = child.stdout.take().ok_or("no stdout")?;
     let (tx, lines) = mpsc::channel::<Value>();
-    std::thread::spawn(move || {
+    // Ends with the child: its stdout closes when the child exits (waited or killed below).
+    std::thread::Builder::new().name("rd-selftest-out".into()).spawn(move || {
         for line in BufReader::new(stdout).lines() {
             let Ok(line) = line else { break };
             if let Ok(value) = serde_json::from_str::<Value>(&line) {
@@ -43,7 +44,7 @@ pub fn run(opts: &Opts) -> Res<()> {
                 }
             }
         }
-    });
+    })?;
     let mut send = |value: Value| -> Res<()> {
         writeln!(stdin, "{value}")?;
         stdin.flush()?;

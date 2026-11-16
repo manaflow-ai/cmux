@@ -14,6 +14,8 @@ use crate::Res;
 use cmux_encode::{bgrx_rect_to_i420, I420};
 use cmux_rd_proto::control::Control;
 use cmux_rd_proto::{InputEvent, MAX_DATAGRAM_DEFAULT};
+// `loopback` (feature bench) reads it through `use super::*`.
+#[cfg(feature = "bench")]
 use std::collections::BTreeSet;
 use std::io::{self, Read, Write};
 use std::mem::{size_of, zeroed};
