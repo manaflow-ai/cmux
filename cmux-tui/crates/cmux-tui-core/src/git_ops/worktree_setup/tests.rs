@@ -729,6 +729,46 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_that_is_not_a_list() {
     fs::remove_dir_all(top).unwrap();
 }
 
+/// A list of ports that is not written gives the worktree no block: no later allocation of
+/// the repository knows a block that no list has. The `.partial` file of the write is not made
+/// here, because a folder has its name. No ports file is made, and the folder stays.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_ports_file_that_is_not_written_gives_no_block() {
+    let top = folder_with_a_git_folder();
+    let (common, root) = (top.join("git-folder"), top.join("root"));
+    let partial = common.join("cmux-worktree-ports.json.partial");
+    fs::create_dir(&partial).unwrap();
+
+    let allocated = ports::allocate_within(&common, &root, Duration::ZERO);
+    let listed = ports::lookup(&common, &root);
+    let made = common.join("cmux-worktree-ports.json").exists();
+    let folder_stays = partial.is_dir();
+
+    fs::remove_dir_all(top).unwrap();
+    assert!(allocated.is_err(), "a block that no list has: {allocated:?}");
+    assert_eq!((listed, made, folder_stays), (None, false, true));
+}
+
+/// A list of ports that is not written: the setup does not start, and its log says why.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_setup_does_not_start_with_a_ports_file_that_is_not_written() {
+    let top = folder_with_a_git_folder();
+    let git_dir = top.join("git-folder");
+    fs::create_dir(git_dir.join("cmux-worktree-ports.json.partial")).unwrap();
+    let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
+
+    let reply = start(place_in(&top), recipe);
+
+    assert_eq!(reply, json!({"state": "failed", "port": null}));
+    assert_eq!(read_status(&git_dir).map(|status| status.state), Some("failed".to_string()));
+    let log = fs::read_to_string(git_dir.join(LOG_FILE)).unwrap_or_default();
+    assert!(log.contains("is not written"), "{log}");
+    assert!(!top.join("root/started").exists(), "the setup ran");
+    fs::remove_dir_all(top).unwrap();
+}
+
 /// The read of a worktree's port opens no port lock: no lock file is there after it.
 #[cfg(unix)]
 #[test]
