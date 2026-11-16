@@ -211,13 +211,13 @@ impl Grant {
         )
     }
 
-    /// Whether this grant is for every machine of the account (`*`).
     /// The sign-in's default account grant: both surfaces `default`, signed with no gesture. It
     /// ranks below every explicit account grant and every per-machine record.
     pub fn is_default(&self) -> bool {
         self.account_wide() && self.control == Change::Default
     }
 
+    /// Whether this grant is for every machine of the account (`*`).
     pub fn account_wide(&self) -> bool {
         self.machine_id == ANY
     }
@@ -227,10 +227,17 @@ impl Grant {
         if surface == "control" { self.control } else { self.screen }
     }
 
-    /// The counter this grant is checked against: one per grantor for per-machine grants and one
-    /// for its account-wide grants, so neither kind holds the other back.
+    /// The counter this grant is checked against: one per grantor for per-machine grants, one for
+    /// its explicit account-wide grants and one for its sign-in defaults, so no kind holds another
+    /// back. SECURITY: a default that arrives first never makes the same Mac's older Off replayed.
     fn seq_key(&self) -> String {
-        if self.account_wide() { format!("{}/{ANY}", self.grantor) } else { self.grantor.clone() }
+        if self.is_default() {
+            format!("{}/{ANY}/default", self.grantor)
+        } else if self.account_wide() {
+            format!("{}/{ANY}", self.grantor)
+        } else {
+            self.grantor.clone()
+        }
     }
 }
 
