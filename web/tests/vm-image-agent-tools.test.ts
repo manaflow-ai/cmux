@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, requiredTools, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, browserStallDiagnosticsCommand, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, requiredTools, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -845,5 +845,16 @@ describe("refusedFirstUsePackages", () => {
     expect(refused).not.toContain("xterm");
     expect(refused).toContain("ffmpeg");
     expect(refused).toEqual(all.filter((name) => !(name in closures.browser) && !(name in closures["display-wm"])));
+  });
+});
+
+describe("browserStallDiagnosticsCommand", () => {
+  test("parses as shell, and prints only the host env values it names", () => {
+    const command = browserStallDiagnosticsCommand();
+    expect(spawnSync("bash", ["-n", "-c", command]).status).toBe(0);
+    const env = "DISPLAY=:99\nCMUX_BROWSER_HOST_EGRESS=isolated\nGITHUB_TOKEN=ghp_secret\nFONTCONFIG_FILE=/etc/fonts/fonts.conf\n";
+    const sed = /sed -E '([^']+)'/.exec(command)?.[1] ?? "";
+    const out = spawnSync("sed", ["-E", sed], { input: env, encoding: "utf8" }).stdout;
+    expect(out).toBe("DISPLAY=:99\nCMUX_BROWSER_HOST_EGRESS=isolated\nGITHUB_TOKEN=(set)\nFONTCONFIG_FILE=/etc/fonts/fonts.conf\n");
   });
 });
