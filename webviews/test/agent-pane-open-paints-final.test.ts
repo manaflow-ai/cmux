@@ -7,7 +7,7 @@
 // from nothing (no saved copy drew, or it was refused): the page attaches, and the rows, the
 // composer and the folds must land where they stay, with no row moving and none popping in later.
 //
-// Every transcript row and the composer box is read on every painted frame from the page's start
+// Every transcript row, the composer box and each of its controls is read on every painted frame from the page's start
 // until the view rests, and scored with the shared box-shift measure (src/gallery/shift.ts,
 // CLS-style). The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in
 // acpmux that answers the attach with a long finished chat.
@@ -183,6 +183,16 @@ await requireBrowserLane("agent-pane-open-paints-final.test.ts", async () => {
       const box = composer?.getBoundingClientRect();
       if (box && box.height > 0)
         frame.push({ id: "composer", x: box.x, y: box.y, width: box.width, height: box.height });
+      // Each of the composer's controls too (the model chip, the other chips, the context ring): one
+      // that resizes or comes in after the first frame moves the row without moving the composer's box.
+      // The Model chip widened 143 to 154 px and the ring came in late after a relaunch (ask-66b7d014c3).
+      const controls = document.querySelectorAll<HTMLElement>(".acpmux-chips > *, .acpmux-context-ring");
+      controls.forEach((control, index) => {
+        const box = control.getBoundingClientRect();
+        if (box.width <= 0 || box.height <= 0) return;
+        const name = control.classList[0] ?? control.tagName.toLowerCase();
+        frame.push({ id: `control ${index} ${name}`, x: box.x, y: box.y, width: box.width, height: box.height });
+      });
       if (frame.some((sample) => sample.id.startsWith("row "))) w.__frames.push(frame);
     };
     const start = () =>
