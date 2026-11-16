@@ -12,7 +12,7 @@ import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from ".
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, claimTookSpare, anyCloudSpareReady, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 
 describe("cloud journey", () => {
@@ -107,7 +107,7 @@ describe("cloud journey", () => {
     const sleeps: number[] = [];
     const out = await waitForReadySpare(async () => ({ spare: answers.shift() ?? null }), 120_000, { pollMs: 15_000, now: () => t, sleep: async (ms) => { sleeps.push(ms); t += ms; } });
     expect(out.prepared.spare).toBe("vm_spare");
-    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: false });
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: false, ready_by: "warm" });
     expect(sleeps).toEqual([15_000, 15_000]);
   });
 
@@ -116,12 +116,55 @@ describe("cloud journey", () => {
     let calls = 0;
     const out = await waitForReadySpare(async () => { calls++; return { spare: null }; }, 40_000, { pollMs: 15_000, now: () => t, sleep: async (ms) => { t += ms; } });
     expect(out.prepared.spare).toBeNull();
-    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: true });
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: true, ready_by: null });
     expect(calls).toBe(3);
     calls = 0;
     const once = await waitForReadySpare(async () => { calls++; return { spare: null }; }, 0);
     expect(once.wait).toBeNull();
     expect(calls).toBe(1);
+  });
+
+  test("the wait ends when the claim path reports a ready spare the warm did not name, and says so", async () => {
+    // Burst 43951741299: the warm named no spare for 300 s before 9 of 9 claims, and 7 of those claims took a ready spare.
+    let t = 0;
+    const listened: number[] = [];
+    const seen = [null, "vm_Ready0123456789"];
+    const out = await waitForReadySpare(async () => ({ spare: null }), 120_000, {
+      pollMs: 15_000, now: () => t, sleep: async () => { throw new Error("a claim-path probe replaces the sleep"); },
+      ready: async (ms) => { listened.push(ms); t += ms; return seen.shift() ?? null; },
+    });
+    expect(out.prepared.spare).toBeNull();
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 2, cold_after_wait: false, ready_by: "claim_path" });
+    expect(listened).toEqual([15_000, 15_000]);
+  });
+
+  test("a hit is read from the claim answer: a claim object and no fallback, whatever the warm named", () => {
+    expect(claimTookSpare({ machine: { id: "vm_x" }, claim: { behind: false } })).toBe(true);
+    expect(claimTookSpare({ machine: { id: "vm_x" }, claim: { behind: true }, spare_skips: { image: 1 } })).toBe(true);
+    expect(claimTookSpare({ machine: { id: "vm_x" }, spare_fallback: "no_spare", spare_skips: {} })).toBe(false);
+    expect(claimTookSpare({ machine: { id: "vm_x" }, claim: { behind: false }, spare_fallback: "all_skipped" })).toBe(false);
+    expect(claimTookSpare({ machine: { id: "vm_x" } })).toBeNull();
+    const taken = preclaimClaimRecord({ claim: 0, machine: "vm_x", answer: { claim: { behind: false } }, warmNamed: false, warmReason: "spare.none", spareWait: { waited_ms: 15_000, attempts: 2, cold_after_wait: false, ready_by: "claim_path" } });
+    expect(taken).toMatchObject({ lease_hit: true, warm_named: false, warm_reason: "spare.none", spare_ready_by: "claim_path" });
+    const named = preclaimClaimRecord({ claim: 1, machine: "vm_y", spare: "vm_y", answer: { claim: { behind: false } }, spareWait: { waited_ms: 0, attempts: 1, cold_after_wait: false, ready_by: "warm" } });
+    expect(named).toMatchObject({ lease_hit: true, warm_named: true, warm_reason: null, spare_ready_by: "warm" });
+    const cold = preclaimClaimRecord({ claim: 2, machine: "vm_z", answer: { spare_fallback: "no_spare" }, warmNamed: false, warmReason: "vm_private id" });
+    expect(cold).toMatchObject({ lease_hit: false, warm_named: false, warm_reason: null });
+    expect(preclaimSummary([taken, named, cold])).toMatchObject({ lease_hits: 2, lease_misses: 1, claim_taken: 2, warm_named: 1, warm_missed_hits: 1 });
+    const md = preclaimSummaryMarkdown([taken, named, cold]);
+    expect(md).toContain("- claim took a spare (from the claim answer): 2");
+    expect(md).toContain("- warm named a spare: 1");
+    expect(md).toContain("- hits the warm did not name (no login attached in advance): 1");
+    expect(md).toContain("| warm named |");
+  });
+
+  test("the claim path's ready spare: a cloud.spare.ready frame or a snapshot's spares_needing_login on the team's stream", () => {
+    const team = "team_0123456789abcdef0123";
+    expect(anyCloudSpareReady({ t: "ephemeral", stream: `cloud:${team}`, event: "cloud.spare.ready", data: { machine: "vm_A1234567", team } }, team)).toBe("vm_A1234567");
+    expect(anyCloudSpareReady({ t: "snapshot", stream: `cloud:${team}`, spares_needing_login: ["vm_B1234567"] }, team)).toBe("vm_B1234567");
+    expect(anyCloudSpareReady({ t: "snapshot", stream: `cloud:${team}`, spares_needing_login: [] }, team)).toBeNull();
+    expect(anyCloudSpareReady({ t: "ephemeral", stream: "cloud:team_other0123456789", event: "cloud.spare.ready", data: { machine: "vm_C1234567" } }, team)).toBeNull();
+    expect(anyCloudSpareReady({ t: "ephemeral", stream: `cloud:${team}`, event: "cloud.machine.updated", data: { machine: "vm_D1234567" } }, team)).toBeNull();
   });
 
   test("cold creates after a ready spare was reported count apart from claims made after the wait ran out", () => {
@@ -2689,6 +2732,68 @@ describe("preclaim MET table fields", () => {
       expect(summary).toContain("| hold minutes at t0 | 90 | - | - |");
       expect(summary).toContain("| aaaaaaa1111a | yes |");
       for (const id of [spare, team, "install-1", "host-1", "platform.example"]) expect(summary).not.toContain(id);
+    } finally {
+      (globalThis as any).WebSocket = realWebSocket;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("preclaim burst: the claim answer says the hit, the warm's naming is its own field", () => {
+  test("a warm that names no spare while the claim path reports one ready: the wait ends, the claim's take is a hit, the warm miss is kept", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-claim-hit-test-"));
+    const team = "team_0123456789abcdef0123";
+    const taken = "vm_Taken0123456789";
+    const frame = { t: "ephemeral", stream: `cloud:${team}`, event: "cloud.spare.ready", data: { machine: taken, team, at: 4_000 } };
+    class FakeWire {
+      private on: Record<string, Array<(e: unknown) => void>> = {};
+      constructor() { setTimeout(() => this.emit("open", {}), 0); }
+      addEventListener(type: string, fn: (e: unknown) => void) { (this.on[type] ??= []).push(fn); }
+      send() { setTimeout(() => this.emit("message", { data: JSON.stringify(frame) }), 0); }
+      close() {}
+      private emit(type: string, e: unknown) { for (const fn of this.on[type] ?? []) fn(e); }
+    }
+    const realWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = FakeWire;
+    try {
+      const cmux = join(dir, "cmux");
+      const warms = join(dir, "warms");
+      writeFileSync(cmux, `#!/bin/sh\ncat >/dev/null\ncase "$*" in\n  *loginReceipt*) echo '{"installed":false}' ;;\n  *) echo x >> '${warms}'; echo '{"ok":true,"machine":null,"fresh":false,"reason":"spare.none"}' ;;\nesac\n`, { mode: 0o755 });
+      const guest = (command: string) => command.includes("acp wait") ? "@@wait 0\nThe measured reply." : command.includes("acp ensure") || command.includes("acp send") ? "@@exit 0" : command.includes("own-login") ? "own-login" : "";
+      let claims = 0;
+      const api: any = {
+        origin: "https://cloud-api-staging.cmux.dev",
+        bearer: "session-token",
+        team,
+        raw: async (_method: string, route: string, body: any) => route === "/v1/client-config" ? { status: 200, body: { platform_origin: "https://platform.example" } }
+          : route === "/v1/health" ? { status: 200, body: { ok: true, environment: "staging", version: "0.1.0" } }
+          : route.endsWith("/client-session") ? { status: 501, body: { ok: false, error: { code: "cloud.provider.unsupported" } } }
+          : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: guest(String(body?.command ?? "")) } } }
+          : { status: 200, body: { ok: true } },
+        read: async (op: string) => op === "cloud.plan.get" ? { usage: { active: 0, saved: 0, vm_hours_used: 4 } } : { status: "running", host: "host-1", created_at: 1_000, running_since: 9_000 },
+        // Claim 0 takes the ready spare; claim 1 finds none and falls back to a create.
+        op: async () => claims++ === 0 ? { machine: { id: taken, status: "running" }, claim: { behind: false } } : { machine: { id: "vm_Cold0123456789", status: "running" }, spare_fallback: "no_spare", spare_skips: {} },
+        deleteMachine: async () => undefined,
+      };
+      const fetchJson = async () => ({ status: 200, body: { ok: true, commit: "aaaaaaa1111aaaa" } });
+      const rowsPath = join(dir, "rows.json");
+      const journey = new Journey(resolveBackend("staging"), dir, {}, true);
+      await runPreclaimBurst({
+        backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: "install-token" }, account: `user-1/${team}`,
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 2, tag: "t", journey, outDir: dir, privateRowsPath: rowsPath, team, user: {}, fetchJson: fetchJson as never,
+        spareWaitMs: 60_000,
+      });
+      const written = JSON.parse(readFileSync(rowsPath, "utf8"));
+      expect(written.failures).toEqual([]);
+      const [hit, cold] = written.rows;
+      expect(hit).toMatchObject({ lease_hit: true, warm_named: false, warm_reason: "spare.none", spare_ready_by: "claim_path", cold_after_wait: false, post_bind_login: "post-bind" });
+      expect(cold).toMatchObject({ lease_hit: false, warm_named: false, spare_ready_by: "claim_path" });
+      // One warm per claim: the claim path's ready frame ended each wait at its first probe.
+      expect(readFileSync(warms, "utf8").trim().split("\n")).toHaveLength(2);
+      expect(written.header.summary).toMatchObject({ lease_hits: 1, claim_taken: 1, warm_named: 0, warm_missed_hits: 1, cold_creates: 1 });
+      const summary = readFileSync(join(dir, "summary.md"), "utf8");
+      expect(summary).toContain("- hits the warm did not name (no login attached in advance): 1");
+      for (const id of [taken, team, "install-1", "host-1", "platform.example"]) expect(summary).not.toContain(id);
     } finally {
       (globalThis as any).WebSocket = realWebSocket;
       rmSync(dir, { recursive: true, force: true });
