@@ -272,7 +272,7 @@ pub enum Usage {
 }
 
 /// The shipped usage and long-term references for screen content.
-pub const SHIPPED_USAGE: Usage = Usage::Switch;
+pub const SHIPPED_USAGE: Usage = Usage::Camera;
 pub const SHIPPED_LTR: u8 = 0;
 
 impl Default for OpenH264Options {
