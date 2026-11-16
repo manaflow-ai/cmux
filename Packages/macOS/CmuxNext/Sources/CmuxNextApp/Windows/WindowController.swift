@@ -233,7 +233,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             let names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
             let title = workspace.map { names.reader.titlebarName($0) { self.state.selection.selection(in: $0.id) } }
             return (spaceName: self.services.machines.local.store.profile(self.state.profileID)?.name,
-                    workspaceName: title, incognito: self.services.windows.isIncognito(window: self.state.id),
+                    workspaceName: title, incognito: workspace.map { self.services.windows.isIncognito(workspace: $0) }
+                        ?? self.services.windows.isIncognito(window: self.state.id),
                     showsWorkspaceChrome: self.state.page == nil && self.content != nil)
         }, fallbackName: Strings.appName, incognitoName: RoomStrings.incognitoName) { [weak self] title, workspace, showsChrome in
             self?.window?.title = title
