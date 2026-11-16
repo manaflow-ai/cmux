@@ -133,7 +133,7 @@ public final class TabCloseSelection {
         let mapped = Dictionary(groups.map { (id($0.key), $0.value) }, uniquingKeysWith: { first, _ in first })
         let pick = openers.successor(ofTab: id(closed), old: old.map { id($0) }, surviving: tabs.map { id($0) }, shown: Set(shown.map { id($0) }),
                                      groups: mapped)
-        return pick.map { shownAs[$0] ?? $0 }
+        return pick.map { item in tabs.contains(item) ? item : shownAs[item] ?? item } // the strip may still show its first id
     }
 
     /// Same, for a strip's own ids (`TabStripModel.closeSuccessor`).
@@ -185,11 +185,13 @@ public final class TabCloseSelection {
         let live = Set(tabs).union(old)
         // The store's tab counts even while the strip hides it (a new daemon tab waits for its answer, `NewTabSuccession`).
         var swapped: Set<String> = []
+        // An item is listed under its first id (a stand-in the strip still shows) or the id it is shown as now: the store
+        // names a stand-in's daemon tab before the strip swaps them, and the item is in the pane all along.
         for item in held {
             let shown = shownAs[item] ?? item
             if !tabs.contains(shown), let now = became(shown) { adopt(now, inPlaceOf: shown); swapped.insert(item) } // before the pick too: a close in the update that swaps its opener's stand-in picks that opener
         }
-        let gone = held.filter { !swapped.contains($0) && !live.contains(shownAs[$0] ?? $0) }
+        let gone = held.filter { !swapped.contains($0) && !live.contains($0) && !live.contains(shownAs[$0] ?? $0) }
         if !gone.isEmpty {
             let pending = closing()
             for item in gone where !pending.contains(shownAs[item] ?? item) { left(item) }
