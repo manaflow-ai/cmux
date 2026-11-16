@@ -1086,8 +1086,9 @@ function historyInbox(text: string): { notice: AgentNotice; body: string } | und
   return { notice: { sender: "inbox", severity: "info", title, links: [] }, body };
 }
 
-/// Claude Code's line before an envelope it delivers, by itself or with the agent busy.
-const PREFACE = /^Another Claude session sent a message(?: while you were working)?:\s*/;
+/// Claude Code's line before an envelope it delivers, by itself or with the agent busy, in either
+/// wording it uses ("Another Claude session …" or "A peer session …").
+const PREFACE = /^(?:Another Claude session|A peer session) sent a message(?: while you were working)?:\s*/;
 
 /// `<cross-session-message from="…" from-name="…" from-mode="…">body</cross-session-message>`,
 /// closed by the first closing tag.

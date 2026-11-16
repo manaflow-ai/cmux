@@ -264,17 +264,41 @@ if ! git cat-file -e "$SHA^{commit}" 2>/dev/null; then
     echo "push-from-host: $HOSTNAME does not have $SHA after the bundle; nothing was pushed." >&2
     exit 2
 fi
-# The gate is this clone's installed hook. A clone with none gets the reviewed one, from the fetched
-# feat-cmux-next, never from the commit being pushed.
-HOOKS="$(git config --get core.hooksPath || true)"
-if [[ -z "$HOOKS" || ! -x "$HOOKS/pre-push" ]]; then
-    echo "push-from-host: $HOSTNAME has no cmux hooks; installing them from origin/feat-cmux-next." >&2
+# The gate is cmux's own pre-push hook (scripts/git-hooks/pre-push, which runs prepush-gate), installed in the clone's
+# cmux-git-hooks. Git runs it when core.hooksPath is that folder, or when core.hooksPath is a shared hooks folder whose
+# pre-push runs each repo's own hooks (run_repo_hooks). Any other executable pre-push is not the gate: on 2026-11-16
+# cmux16's clones had a shared hooks folder's pre-push and no cmux pre-push in cmux-git-hooks (installed 2026-10-18),
+# so every push from there ran no prepush-gate, and a merge that dropped five settings exports' keys
+# (cmux#43562 885211f5) was pushed as "gate ran on cmux16". A clone without it gets the reviewed hooks from the
+# fetched feat-cmux-next, never from the commit being pushed.
+# BEGIN gate_hook_runs
+gate_hook_runs() {
+    local hooks common own
+    # --type=path: git expands a `~/...` value the same way when it runs the hook.
+    hooks="$(git config --type=path --get core.hooksPath || true)"
+    common="$(git rev-parse --path-format=absolute --git-common-dir)" || return 1
+    own="$common/cmux-git-hooks"
+    [[ -x "$own/pre-push" ]] && grep -q 'prepush[-_]gate' "$own/pre-push" || return 1
+    # A relative core.hooksPath is resolved where the hook runs, the pushed tree, so a check made here would read
+    # other files than the ones git runs: refused.
+    [[ "$hooks" == /* && -x "$hooks/pre-push" ]] || return 1
+    [[ "$(cd "$hooks" && pwd -P)" == "$(cd "$own" && pwd -P)" ]] && return 0
+    # The wiring install-git-hooks.sh prints for a clone with hooks of its own: a pre-push that calls this one.
+    grep -qF "$own/pre-push" "$hooks/pre-push" && return 0
+    # A shared hooks folder that runs each repo's own hooks (run_repo_hooks, defined in the repo-hook beside it).
+    [[ -f "$hooks/repo-hook" ]] && grep -q 'run_repo_hooks' "$hooks/pre-push" && grep -q '^run_repo_hooks()' "$hooks/repo-hook"
+}
+# END gate_hook_runs
+if ! gate_hook_runs; then
+    echo "push-from-host: $HOSTNAME's clone would run no cmux pre-push gate; installing the hooks from" \
+        "origin/feat-cmux-next." >&2
     git -c core.hooksPath=/dev/null worktree add --quiet --detach "$TREE.hooks" refs/remotes/origin/feat-cmux-next
     "$TREE.hooks/scripts/install-git-hooks.sh" >&2
     git worktree remove --force "$TREE.hooks"
-    HOOKS="$(git config --get core.hooksPath || true)"
-    if [[ -z "$HOOKS" || ! -x "$HOOKS/pre-push" ]]; then
-        echo "push-from-host: the hooks did not install on $HOSTNAME; nothing was pushed." >&2
+    if ! gate_hook_runs; then
+        echo "push-from-host: $HOSTNAME's clone still would not run cmux's pre-push gate (core.hooksPath:" \
+            "$(git config --type=path --get core.hooksPath || echo none)); nothing was pushed. Point it at the clone's" \
+            "cmux-git-hooks or at a hooks folder that runs each repo's own hooks." >&2
         exit 2
     fi
 fi

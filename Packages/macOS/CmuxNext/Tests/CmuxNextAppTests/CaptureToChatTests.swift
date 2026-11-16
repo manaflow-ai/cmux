@@ -62,7 +62,7 @@ import Testing
         let box = Box()
         CaptureToChat(take: { box.picks.append($0); return .cancelled }, attach: { box.attached.append(($0, $1)) },
                       session: { nil }, source: "com.cmuxterm.app.next").bind(into: registry)
-        #expect(registry.globalHotKeys()[CaptureToChat.action] == Self.key, "bound: the catalog offers its key")
+        #expect(registry.globalHotKeys()[CaptureToChat.action] == [Self.key], "bound: the catalog offers its key")
 
         var enabled = false
         let recorder = Recorder()
