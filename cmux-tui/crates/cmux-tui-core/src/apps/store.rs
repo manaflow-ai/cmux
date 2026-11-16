@@ -452,8 +452,9 @@ impl Supervisor {
         // A cursor is a wire value: never overflow on it.
         let end = offset.saturating_add(limit);
         let next_cursor = (end < rows.len()).then(|| end.to_string());
-        let examples = p.developer == Some(true)
-            || inner.catalog.packages.values().any(|package| package.source == Source::Local);
+        // Offered only when there are examples to show (the Mac app ships none to its daemon).
+        let has = |source: Source| inner.catalog.packages.values().any(|p| p.source == source);
+        let examples = has(Source::Bundled) && (p.developer == Some(true) || has(Source::Local));
         Ok(CatalogListResult { listings, next_cursor, revision: inner.mirror.revision, examples })
     }
 
