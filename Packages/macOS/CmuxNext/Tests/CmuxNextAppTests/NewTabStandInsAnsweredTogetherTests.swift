@@ -16,6 +16,9 @@ import Testing
 /// The second case adds an open of the pane that has no stand-in and no answer yet (a terminal tab, a duplicate).
 /// The strip holds back a pane's new tabs for such an open, because one of them can be the open's own tab. The tab
 /// of the selected stand-in is not: the store's record names its creation. The pane selects and shows it all the same.
+/// The tab of the stand-in that is not selected stays held back for that open, as before.
+///
+/// In both cases each tab is in its stand-in's place in the strip, and no other tab of the strip moves.
 ///
 /// One pane in a window with no daemon. The test has no wait: each step is one call, and the pane's own
 /// observation of the store cannot run before the test's apply.
@@ -83,6 +86,7 @@ import Testing
         ProvisionalTab.created(second.transaction, surface: SurfaceID(rawValue: 4), in: store)
         store.apply(snapshot: Self.tree([1, 2, 3, 4]))
         let made = try #require(store.tab(surface: SurfaceID(rawValue: 4)), "setup: the store has no tab for the newer creation")
+        let older = try #require(store.tab(surface: SurfaceID(rawValue: 3)), "setup: the store has no tab for the older creation")
         let records = model.tabs.map(\.id)
         try #require(!records.contains(first.id) && !records.contains(second.id), "setup: a stand-in is still in the records: \(records)")
         try #require(pane.stripModel.selectedID?.rawValue == second.id, "setup: the pane applied the change before the test's apply")
@@ -92,5 +96,15 @@ import Testing
         let selected = pane.stripModel.selectedID?.rawValue ?? "none", shown = pane.currentTabKey ?? "none"
         #expect(selected == made.id, "the pane selects \(selected), want the tab of the selected stand-in \(made.id); strip \(pane.orderedIDs.map(\.rawValue))")
         #expect(shown == made.id, "the pane shows \(shown) after the apply, want the tab of the selected stand-in \(made.id)")
+        // Each tab is in its stand-in's place, and no other tab moved. The tab of the stand-in that is not selected is
+        // held back while the other open has no answer.
+        if anotherOpenWaits { try #require(NewTabSuccession.isOpen(in: model), "setup: the other open ended before the check") }
+        let want: [String] = listed.compactMap { id -> String? in
+            if id == second.id { return made.id }
+            if id == first.id { return anotherOpenWaits ? nil : older.id }
+            return id
+        }
+        let strip = pane.orderedIDs.map(\.rawValue)
+        #expect(strip == want, "the strip lists \(strip), want \(want)")
     }
 }
