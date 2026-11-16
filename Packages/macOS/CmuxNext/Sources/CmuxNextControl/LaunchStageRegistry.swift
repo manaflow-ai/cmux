@@ -15,15 +15,17 @@ public struct LaunchTask: Sendable, Equatable {
     }
 }
 
-/// The launch task inventory is intentionally explicit. A new stage-0 task must
-/// either be one of the five shell operations or make this list's validation fail.
+/// The launch task inventory is intentionally explicit metadata for the current
+/// launch plan. Adding a stage-0 declaration outside the shell operations makes
+/// the registry test fail; this registry does not instrument runtime call sites.
 public enum LaunchStageRegistry {
     public static let stageZeroAllowlist: Set<String> = [
         "read_launch_record", "make_window", "put_saved_image", "commit_first_frame", "finish_launching",
     ]
 
-    /// The work currently performed by ``AppDelegate.finishLaunching``.
-    /// Existing behavior is unchanged; these declarations make its ordering auditable.
+    /// The work currently performed by ``AppDelegate.finishLaunching``. Existing
+    /// behavior is unchanged; these declarations make the intended stage plan
+    /// reviewable until the first-frame reorder wires each task to a phase.
     public static let finishLaunching: [LaunchTask] = [
         .init("read_launch_record", .shell), .init("make_window", .shell),
         .init("put_saved_image", .shell), .init("commit_first_frame", .shell), .init("finish_launching", .shell),
