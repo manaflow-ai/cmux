@@ -24,6 +24,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | footprint | read-only probes (`ps`, rusage, `vmmap`) of a running app; `perf-bench.sh` cmux-budget on the fleet | Footprint per process kind. |
 | xbench | `perf-bench.sh` (`scripts/perf-bench/xbench.py`); `--import` reads `results.json` and `scripts/perf-bench/baseline/*.json` | Against other browsers, and the resource budget rows. |
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
+| tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
 
 
 ## Launch and update
@@ -119,6 +120,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `infinite-items.py` | Time-compressed run of N workspaces, tabs and chats against the daemons. | CMUX-571 | 2026-11-15 | active |
 | `infinite-items-linux.sh` | Infinite items on Linux, daemons plus headless chat pages. | CMUX-571 | 2026-11-15 | active |
 | `infinite-items-profile.sh` | dhat heap profile of the daemons per item. | CMUX-571 | 2026-11-15 | active |
+| `tui-idle-ram.sh` | Idle cmux-tui daemon memory on Linux at commits (bench tui-idle). | CMUX-571 | 2026-11-16 | active |
+| `tui-idle-ram.py` | One idle headless daemon: smaps, threads, mappings, children. | CMUX-571 | 2026-11-16 | active |
 | `chat-disk-growth.py` | One live chat's history bytes per simulated hour. | - | 2026-11-15 | active |
 | `chat-disk-growth-linux.sh` | Linux entry for chat-disk-growth.py at 100,000 rows. | - | 2026-11-15 | active |
 | `journal-writes.py` | Bytes the acpmux journal writes per hour and write amplification. | hq#11322 | 2026-11-15 | active |
@@ -218,6 +221,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
 | `quiet-host.sh` | Runs one measurement on a quiet host and records other CPU use. | - | 2026-10-31 | active |
+| `require-chromium.sh` | Sourced by an entry that builds its app: the build requires the Chromium engine unless `--allow-no-chromium`. Measures nothing. | - | 2026-11-16 | active |
 | `bench-ab` | Interleaved A/B driver for fleet benches with A/A self-test and intervals. | - | 2026-11-06 | active |
 | `crash-gate.sh` | Fleet run of the "crash ends the app" gate. | - | 2026-10-30 | active |
 | `blocking-checks.sh` | Checks the main-thread blocking detector's build configurations. | - | 2026-10-24 | active |

@@ -263,4 +263,44 @@ import CmuxNextWakeupsTestSupport
         try await Self.settle(until: { previews.asked == 2 })
         #expect(previews.asked == 2, "the card kept its picture from the other theme")
     }
+
+    /// Lawrence 2026-11-15 (msg 34360): the card snapped taller when its tab's picture landed. A card
+    /// that opened with no picture frame grows to hold the picture on the card's spring (its fixed
+    /// corner stays on the tab) while the picture fades in.
+    @Test func aPictureLandingGrowsTheCardOnItsSpring() async throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let s = Self.strip()
+        defer { s.tearDown() }
+        let previews = HeldPreviews()
+        s.strip.hoverCard.previewProvider = previews
+        try await Self.open("a", s)
+        try await Self.settle(until: { previews.waiting })
+        try #require(previews.waiting, "the card asked for no picture")
+        // Counted, not read off a morph in flight: with no display its spring may end before the next check.
+        let before = HoverCardPanel.morphGeneration
+        previews.release()
+        try await Self.settle(until: { s.strip.hoverCard.shownThumbnail != nil })
+        try #require(s.strip.hoverCard.shownThumbnail != nil, "the picture never landed")
+        // A growth still running when it lands (the first show's) ends first; the picture's follows it.
+        try await Self.settle(until: { HoverCardPanel.morphGeneration > before })
+        #expect(HoverCardPanel.morphGeneration > before, "the card took the picture's height at once")
+    }
+
+    /// A picture that lands when the test says so.
+    private final class HeldPreviews: TabPreviewProvider {
+        private var held: CheckedContinuation<Void, Never>?
+        var waiting: Bool { held != nil }
+        let image: CGImage? = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+                                        space: CGColorSpaceCreateDeviceRGB(),
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage()
+        func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? {
+            await withCheckedContinuation { held = $0 }
+            return image
+        }
+        func release() {
+            held?.resume()
+            held = nil
+        }
+    }
 }
