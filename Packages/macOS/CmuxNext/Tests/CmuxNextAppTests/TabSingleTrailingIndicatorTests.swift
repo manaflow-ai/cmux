@@ -32,11 +32,12 @@ import Testing
     }
 
     private static func cell(_ kind: Kind, unread: Bool = true, status: TabStatus = .none, busy: Bool = false,
-                             audio: Bool = false, selected: Bool = false, width: CGFloat = 220) -> TabCell {
+                             audio: Bool = false, selected: Bool = false, width: CGFloat = 220, scale: CGFloat = 1) -> TabCell {
         var item = TabItem(id: TabID(kind.rawValue), title: "A page title", icon: icon(kind), isUnread: unread, isBusy: busy, status: status)
         if busy { item.indicator = kind == .agentChat ? .working(progress: nil) : .busy(progress: nil) }
         if audio { item.audio = .playing }
         let cell = TabCell(item: item)
+        cell.scale = scale
         cell.isSelected = selected
         cell.frame = CGRect(x: 0, y: 0, width: width, height: 32)
         cell.layoutLayers()
@@ -114,13 +115,16 @@ import Testing
         }
     }
 
-    /// Every density scales Default's 7 pt favicon-to-title gap on the half-point grid.
-    @Test(arguments: DensityPreset.allCases) func theIconToTitleGapIsChromeLike(preset: DensityPreset) {
+    /// Every density scales Default's 7 pt gap, with the title origin on its display's pixel grid.
+    @Test(arguments: DensityPreset.allCases, [CGFloat(1), 2])
+    func theIconToTitleGapIsChromeLike(preset: DensityPreset, scale: CGFloat) {
         DensityTokens.$scoped.withValue(preset.tokens) {
-            let cell = Self.cell(.browserWithFavicon)
-            let gap = cell.titleLayer.frame.minX - Self.iconFrame(cell).maxX
-            let expected = (7 * CGFloat(preset.scaleFactor) * 2).rounded() / 2
-            #expect(gap == expected, "\(preset): gap \(gap), expected \(expected)")
+            let cell = Self.cell(.browserWithFavicon, scale: scale)
+            let iconEnd = Self.iconFrame(cell).maxX
+            let gap = cell.titleLayer.frame.minX - iconEnd
+            let reference = (7 * CGFloat(preset.scaleFactor) * 2).rounded() / 2
+            let expected = ((iconEnd + reference) * scale).rounded() / scale - iconEnd
+            #expect(gap == expected, "\(preset) at \(scale)x: gap \(gap), expected \(expected)")
         }
     }
 }
