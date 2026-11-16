@@ -17,6 +17,7 @@ test("events go out in one batch with their time, and mounts count", () => {
   const sent: FlickerEvent[][] = [];
   let clock = 1_000;
   const timers: (() => void)[] = [];
+  const ends: (() => void)[] = [];
   const log = new FlickerLog(
     (events) => sent.push(events),
     () => clock,
@@ -24,14 +25,18 @@ test("events go out in one batch with their time, and mounts count", () => {
       timers.push(run);
       return 0 as unknown as ReturnType<typeof setTimeout>;
     },
+    // The end of the recording task, run when the test says.
+    (run) => ends.push(run),
   );
   log.record("visibility", { state: "hidden" });
   clock = 1_200;
   log.transcriptMounted();
   log.transcriptMounted();
-  expect(timers).toHaveLength(1);
+  // One batch at the end of the task, and no timer: nothing went out in the second before.
+  expect(timers).toHaveLength(0);
+  expect(ends).toHaveLength(1);
   expect(sent).toHaveLength(0);
-  timers[0]!();
+  ends[0]!();
   expect(sent).toEqual([
     [
       { kind: "visibility", at: 1_000, state: "hidden" },
@@ -239,9 +244,12 @@ test("the default timer runs with the global receiver, as Chromium requires", ()
   try {
     const sent: FlickerEvent[][] = [];
     const log = new FlickerLog((events) => sent.push(events));
+    log.transcriptMounted();
+    log.flush();
+    // A record within a second of that batch waits on the default timer.
     expect(() => log.transcriptMounted()).not.toThrow();
     log.flush();
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
     expect(receivers).toHaveLength(1);
   } finally {
     globalThis.setTimeout = real;

@@ -50,7 +50,7 @@ export function useEndedReplyCheck({
     const timer = window.setTimeout(() => {
       const view = scroller.current;
       const thread = host.current;
-      if (!view || !thread || document.visibilityState !== "visible" || !follow.current.atLatest) return;
+      if (!view || !thread || document.visibilityState !== "visible" || !following(follow)) return;
       judged.current = id;
       const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
       const node = thread.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
@@ -61,3 +61,6 @@ export function useEndedReplyCheck({
     return () => window.clearTimeout(timer);
   }, [rows, sessionId, working, loading, dockSpace, scroller, host]);
 }
+
+/// Whether the reader follows the newest row now, read when the check runs.
+const following = (follow: RefObject<{ atLatest: boolean }>) => follow.current.atLatest;
