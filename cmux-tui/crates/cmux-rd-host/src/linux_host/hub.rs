@@ -151,6 +151,26 @@ impl Hub {
         Ok(user)
     }
 
+    /// `POST /v1/auth/machine`: the session of a machine the person joined to cmux, from the
+    /// machine credential the join keeps. The hub asks cmux-platform whose it is and answers a
+    /// session for this device alone (it may register, anchor and share it). The account.
+    pub fn sign_in_with_machine(&self, credential: &str) -> Res<String> {
+        let answer = self.send(
+            "POST",
+            "/v1/auth/machine",
+            Some(&json!({ "credential": credential, "deviceId": self.device.id })),
+            None,
+            false,
+        )?;
+        let session =
+            answer["session"].as_str().ok_or("no session in the hub's answer")?.to_owned();
+        let user = answer["userId"].as_str().ok_or("no userId in the hub's answer")?.to_owned();
+        let expires = answer["expiresAt"].as_u64().unwrap_or(now_ms() + 30 * 60 * 1000);
+        *self.user_id.lock().unwrap_or_else(|e| e.into_inner()) = Some(user.clone());
+        *self.session.lock().unwrap_or_else(|e| e.into_inner()) = Some((session, expires));
+        Ok(user)
+    }
+
     /// `POST /v1/auth/device`: a host-scoped session from the device key alone (the anchor
     /// that `enable` recorded lets this device renew for 30 days).
     fn renew(&self) -> Res<(String, u64)> {

@@ -44,6 +44,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rustls-native-certs = "0.8"
 # The host's `cmux-rd serve` children: owned, ended with their session.
 cmux-process = { path = "../cmux-process" }
+# Where the join keeps its machine credential (src/linux_host/machine_credential.rs): the home a
+# standalone acpmux resolves, from the resolver every cmux host asks.
+cmux-agent-pane-policy = { path = "../cmux-agent-pane-policy" }
 # Wayland capture (features `portal-dbus` and `portal`: src/portal.rs, src/pipewire_capture.rs):
 # the xdg-desktop-portal ScreenCast and RemoteDesktop handshakes over D-Bus and the PipeWire
 # stream they open.

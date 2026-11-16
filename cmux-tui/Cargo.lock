@@ -1916,6 +1916,7 @@ name = "cmux-rd-host"
 version = "0.2.4"
 dependencies = [
  "cc",
+ "cmux-agent-pane-policy",
  "cmux-encode",
  "cmux-process",
  "cmux-rd-core",

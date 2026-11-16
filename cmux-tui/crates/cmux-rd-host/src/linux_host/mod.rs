@@ -2,7 +2,7 @@
 //! a Mac exactly like a shared Mac (docs/device-hub/PROTOCOL.md). The Mac app holds a Mac's
 //! device key and hub link and drives `cmux-rd serve`; on Linux this command does that job.
 //!
-//!   enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--view-only] [--non-interactive]
+//!   enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--view-only] [--non-interactive [--machine-credential-file PATH]]
 //!       Signs in once with a cmux (Stack Auth) access token (without a token file, through
 //!       a browser sign-in link: stack_login.rs), registers this desktop as a
 //!       `linux` device, anchors it (it renews its own host session for 30 days with its
@@ -12,7 +12,9 @@
 //!       `--non-interactive` (the machine join, often over ssh): takes no account token and opens
 //!       no browser, finds the desktop through logind, waits a minute at most on the portal
 //!       dialog, starts a virtual X display when there is no graphical session, installs the host
-//!       unit on a desktop still enabled, else prints one `not_installed:` line (setup.rs).
+//!       unit. It signs in only with the credential the join keeps (`machine-credential.json` in
+//!       the home its acpmux resolves, or `--machine-credential-file`) through the hub's
+//!       `POST /v1/auth/machine`, and prints one `not_installed:` line when it cannot.
 //!   grant [--control]
 //!       Wayland: asks the xdg-desktop-portal once (its dialog, on this screen) for the screen
 //!       and, with `--control`, keyboard and pointer, and saves the restore token in
@@ -38,6 +40,7 @@ mod b64;
 mod consent;
 mod hub;
 mod identity;
+mod machine_credential;
 mod net;
 mod rd_doc;
 mod session;
@@ -61,7 +64,7 @@ use std::time::{Duration, Instant};
 const DEFAULT_HUB: &str = "https://cmux-device-hub.debussy.workers.dev";
 const PING_EVERY: Duration = Duration::from_secs(30);
 
-const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--view-only] [--non-interactive]
+const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--view-only] [--non-interactive [--machine-credential-file PATH]]
        cmux-rd linux-host grant [--control]
        cmux-rd linux-host share on [--stack-token-file PATH|-] | share off
        cmux-rd linux-host run [--display :0] [--xauthority PATH] [--capture x11|portal]
@@ -200,6 +203,17 @@ fn ask_line(r: &consent::Request) -> String {
     )
 }
 
+/// The options of `enable`.
+const ENABLE_OPTIONS: &[&str] = &[
+    "stack-token-file",
+    "hub",
+    "name",
+    "allow-control",
+    "view-only",
+    "non-interactive",
+    "machine-credential-file",
+];
+
 /// Flags that take no value.
 const FLAGS: &[&str] =
     &["always", "allow-control", "control", "view-only", "json", "non-interactive"];
@@ -253,17 +267,9 @@ pub fn run_cli(args: &[String]) -> i32 {
     };
     let words: Vec<&str> = parsed.positional.iter().map(String::as_str).collect();
     let result = match words.as_slice() {
-        ["enable"] => parsed
-            .only(&[
-                "stack-token-file",
-                "hub",
-                "name",
-                "allow-control",
-                "view-only",
-                "non-interactive",
-            ])
-            .map_err(Into::into)
-            .and_then(|()| enable(&parsed)),
+        ["enable"] => {
+            parsed.only(ENABLE_OPTIONS).map_err(Into::into).and_then(|()| enable(&parsed))
+        }
         ["grant"] => parsed
             .only(&["control"])
             .map_err(Into::into)
@@ -319,10 +325,10 @@ fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
     Ok((dir, hub, account))
 }
 
-/// The line `enable --non-interactive` prints on a machine it could not sign in: the hub has no
-/// sign-in yet for the credential the join keeps, and no person's token ever lands on a joined
-/// machine (hq docs/design/remote-spin-up.md section 5), so nothing else is asked for.
-const NOT_INSTALLED: &str = "not_installed: screen sharing is set up on this machine but not signed in: the device hub cannot sign a joined machine in with its machine credential yet";
+/// Why `enable --non-interactive` signed nothing in: the machine was never joined. It signs in
+/// only with the credential the join keeps (machine_credential.rs), never a person's token
+/// (hq docs/design/remote-spin-up.md section 5).
+const NOT_JOINED: &str = "this machine is not joined to cmux (no machine credential); join it, then run enable --non-interactive again";
 
 /// How long `enable --non-interactive` leaves the portal's dialog up for someone at the screen;
 /// past it the join goes on and the first share asks once.
@@ -377,11 +383,16 @@ fn set_up_for_join(args: &Args) -> Res<()> {
         println!("{}", setup::virtual_display_line(display));
     }
     // Signed in by an earlier `enable` and still anchored: the host renews by its device key.
+    // Otherwise the machine signs itself in with the credential the join keeps.
     let device = match (Account::load(&dir)?, Device::load(&dir)?) {
         (Some(account), Some(device)) if account.anchored_until > now_ms() => device,
         _ => {
-            println!("{NOT_INSTALLED}");
-            return Ok(());
+            let path = match args.get("machine-credential-file") {
+                Some(path) => std::path::PathBuf::from(path),
+                None => machine_credential::default_path().ok_or(NOT_JOINED)?,
+            };
+            let credential = machine_credential::read(&path)?.ok_or(NOT_JOINED)?;
+            register(args, &dir, |hub| hub.sign_in_with_machine(&credential))?
         }
     };
     setup::install_host(virtual_display)?;
@@ -395,10 +406,19 @@ fn set_up_for_join(args: &Args) -> Res<()> {
     Ok(())
 }
 
-/// Signs in, registers this desktop (a new identity when the hub refuses the old one), anchors
-/// it and turns sharing on; the device.
+/// Signs in with a cmux access token, registers this desktop (a new identity when the hub
+/// refuses the old one), anchors it and turns sharing on; the device.
 fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<Device> {
     let token = stack_token(args)?;
+    register(args, dir, |hub| hub.sign_in_with_stack(&token))
+}
+
+/// [`sign_in_and_register`] with `sign_in`, which signs the hub in and returns the account.
+fn register(
+    args: &Args,
+    dir: &std::path::Path,
+    sign_in: impl Fn(&Hub) -> Res<String>,
+) -> Res<Device> {
     let hub_url = match (args.get("hub"), Account::load(dir)?) {
         (Some(url), _) => url.to_owned(),
         (None, Some(account)) => account.hub,
@@ -418,7 +438,7 @@ fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<Device> {
     let (_, (hub, user_id)) = with_fresh_identity(device, |device| {
         device.save(dir)?;
         let hub = Hub::new(&hub_url, device.clone(), None)?;
-        let user_id = hub.sign_in_with_stack(&token)?;
+        let user_id = sign_in(&hub)?;
         hub.register()?;
         Ok((hub, user_id))
     })?;
@@ -1028,16 +1048,7 @@ mod tests {
             let words: Vec<String> =
                 std::iter::once("enable").chain(extra.iter().copied()).map(String::from).collect();
             let args = Args::parse(&words).unwrap();
-            assert!(args
-                .only(&[
-                    "stack-token-file",
-                    "hub",
-                    "name",
-                    "allow-control",
-                    "view-only",
-                    "non-interactive"
-                ])
-                .is_ok());
+            assert!(args.only(ENABLE_OPTIONS).is_ok());
             enable_consent(&args)
         };
         assert_eq!(enable(&[]), LocalConsent { view: true, full: true });
@@ -1060,7 +1071,15 @@ mod tests {
             let Err(e) = enable_for_join(&args) else { panic!("took a token") };
             assert!(e.to_string().contains("no account token"), "{e}");
         }
-        assert!(NOT_INSTALLED.starts_with("not_installed: "));
+        // The join names where it keeps its credential; the only sign-in a joined machine has.
+        let args = Args::parse(&[
+            "enable".into(),
+            "--non-interactive".into(),
+            "--machine-credential-file".into(),
+            "/nonexistent/machine-credential.json".into(),
+        ])
+        .unwrap();
+        assert!(args.only(ENABLE_OPTIONS).is_ok());
     }
 
     #[test]

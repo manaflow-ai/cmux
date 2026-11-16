@@ -86,10 +86,12 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   has no remote-input portal" when its portal cannot keep one. With no graphical session
   it starts an Xvfb display cmux owns (`cmux-screen-display.service`, :99 or the next free
   one) and says "no graphical session on this machine; started a virtual display at :N for
-  sharing". A desktop still enabled (anchored) gets the host unit installed, enabled and
-  started, with lingering for a virtual display; any other prints one `not_installed:`
-  line until the device hub can sign a joined machine in with its machine credential. It
-  never fails the join.
+  sharing". It signs the machine in as the person who joined it with the credential the join
+  keeps (`machine-credential.json` in the home its acpmux resolves, or
+  `--machine-credential-file PATH`) through the hub's `POST /v1/auth/machine`, unless it is
+  still enabled, then installs, enables and starts the host unit, with lingering for a
+  virtual display. A machine it cannot sign in (never joined, revoked, or its person never
+  signed in to screen sharing) prints one `not_installed:` line. It never fails the join.
 - Viewers: cmux on a Mac (cmux.rd/1). The iPhone's WebRTC viewer is not served by this host
   yet; its session ends with that reason.
 - Relays the person added by hand are sealed to the device's agreement key and not opened
