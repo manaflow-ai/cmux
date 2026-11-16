@@ -255,7 +255,8 @@ export function loadEvents(scopes: Record<string, { scope: string; class: string
   const out: Record<string, { docs: string; reads: string; scope: string }> = {}
   for (const name of Object.keys(file.events).sort()) {
     const { docs, reads, readsParams, scope } = file.events[name]!
-    const family = name.match(/^([a-z][a-z0-9_]*)\.changed$/)?.[1]
+    // A family may be dotted (`app.storage.changed`, the app's own storage).
+    const family = name.match(/^([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*)\.changed$/)?.[1]
     if (!family) throw new Error(`events.json: ${name} is not <family>.changed`)
     const known = scopes[reads]
     if (!known) throw new Error(`events.json: ${name} reads ${reads}, which apps cannot call`)
@@ -273,7 +274,8 @@ export function loadEvents(scopes: Record<string, { scope: string; class: string
 export function generate(): Record<string, string> {
   const { ops, types, generics } = loadCatalog()
   const names = Object.keys(ops).sort()
-  const scopes: Record<string, { scope: string; class: string }> = {}
+  // `alsoScopes`: other grants that allow the op too (`storage:synced` serves app.storage.* from the synced replica).
+  const scopes: Record<string, { scope: string; class: string; alsoScopes?: string[] }> = {}
   const never: string[] = []
   for (const name of names) {
     const s = scopeFor(name, ops[name]!)
@@ -281,13 +283,13 @@ export function generate(): Record<string, string> {
     else never.push(name)
   }
   // Host-provided ops that are not in the catalogs yet.
-  const hostOps: Record<string, { scope: string; class: string }> = {
+  const hostOps: Record<string, { scope: string; class: string; alsoScopes?: string[] }> = {
     "action.run": { scope: "actions:run", class: "mutation" },
     "action.list": { scope: "actions:run", class: "read" },
-    "app.storage.get": { scope: "storage:local", class: "read" },
-    "app.storage.set": { scope: "storage:local", class: "mutation" },
-    "app.storage.delete": { scope: "storage:local", class: "mutation" },
-    "app.storage.keys": { scope: "storage:local", class: "read" },
+    "app.storage.get": { scope: "storage:local", class: "read", alsoScopes: ["storage:synced"] },
+    "app.storage.set": { scope: "storage:local", class: "mutation", alsoScopes: ["storage:synced"] },
+    "app.storage.delete": { scope: "storage:local", class: "mutation", alsoScopes: ["storage:synced"] },
+    "app.storage.keys": { scope: "storage:local", class: "read", alsoScopes: ["storage:synced"] },
     "net.fetch": { scope: "net:<host>", class: "runtime" },
     "clipboard.write": { scope: "clipboard:write", class: "mutation" },
     // A notice in the app's own toast presenter, one slot per app (ToastAppOps in CmuxNextApps). Local and

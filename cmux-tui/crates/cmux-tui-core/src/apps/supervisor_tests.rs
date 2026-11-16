@@ -1133,3 +1133,6 @@ mod activation;
 
 #[path = "supervisor_load_tests.rs"]
 mod under_load;
+
+#[path = "supervisor_synced_tests.rs"]
+mod synced;

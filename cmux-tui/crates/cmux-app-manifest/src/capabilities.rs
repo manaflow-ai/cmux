@@ -207,6 +207,9 @@ pub fn scope_info(scope: &str) -> Option<ScopeInfo> {
 pub struct OpCapability {
     pub scope: OpScope,
     pub class: OpClass,
+    /// Other grants that allow the op too (`alsoScopes` in scopes.json):
+    /// `storage:synced` serves `app.storage.*` from the synced replica.
+    pub also: Vec<String>,
 }
 
 impl OpCapability {
@@ -254,7 +257,14 @@ impl Capabilities {
                     .and_then(Value::as_str)
                     .ok_or_else(|| format!("{name} has no scope"))?;
                 let class = OpClass::parse(entry.get("class").and_then(Value::as_str));
-                Ok((name.clone(), OpCapability { scope: OpScope::parse(scope), class }))
+                let also = entry
+                    .get("alsoScopes")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect();
+                Ok((name.clone(), OpCapability { scope: OpScope::parse(scope), class, also }))
             })
             .collect::<Result<_, String>>()?;
         let never = doc
@@ -306,7 +316,7 @@ impl Capabilities {
         };
         let escalation =
             escalation(name).map(|e| json!({ "scope": e.scope, "whenParams": e.when_params }));
-        Some(json!({
+        let mut row = json!({
             "op": name,
             "scope": op.scope.wire(),
             "class": op.class.as_str(),
@@ -317,7 +327,13 @@ impl Capabilities {
             "external": op.scope.external(),
             "escalation": escalation,
             "never": false,
-        }))
+        });
+        if !op.also.is_empty()
+            && let Some(fields) = row.as_object_mut()
+        {
+            fields.insert("alsoScopes".into(), json!(op.also));
+        }
+        Some(row)
     }
 
     /// The short answer (`apps-capabilities {brief: true}`): the API version
@@ -420,8 +436,10 @@ pub fn cross_check(capabilities: &Capabilities, classes_json: &str) -> Vec<Strin
         }
     }
     let mut used = vec![false; rules.len()];
-    let scopes: BTreeSet<String> =
-        capabilities.ops().flat_map(|(_, op)| op.scope.examples()).collect();
+    let scopes: BTreeSet<String> = capabilities
+        .ops()
+        .flat_map(|(_, op)| op.scope.examples().into_iter().chain(op.also.iter().cloned()))
+        .collect();
     for scope in &scopes {
         let matching: Vec<(usize, &str)> = rules
             .iter()

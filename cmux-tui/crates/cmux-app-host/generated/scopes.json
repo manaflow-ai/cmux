@@ -39,19 +39,31 @@
     },
     "app.storage.delete": {
       "scope": "storage:local",
-      "class": "mutation"
+      "class": "mutation",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.get": {
       "scope": "storage:local",
-      "class": "read"
+      "class": "read",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.keys": {
       "scope": "storage:local",
-      "class": "read"
+      "class": "read",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.set": {
       "scope": "storage:local",
-      "class": "mutation"
+      "class": "mutation",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "automation.audit.list": {
       "scope": "automation:read",

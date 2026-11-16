@@ -325,6 +325,8 @@ pub struct Supervisor {
     /// (`github_gateway.rs`). Unset, the call goes to the provider.
     pub(super) github: OnceLock<Arc<super::github_gateway::GitHubGateway>>,
     pub(super) storage: Mutex<Option<Storage>>,
+    /// Synced app storage's cloud link and outbox sender (`synced.rs`).
+    pub(super) synced: super::synced::SyncState,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
     /// Connector links of the terminal interfaces (`terminal_ops.rs`).
@@ -471,6 +473,7 @@ impl Supervisor {
             fetcher,
             github: OnceLock::new(),
             storage: Mutex::new(None),
+            synced: super::synced::SyncState::default(),
             timers: Timers::default(),
             me: me.clone(),
             terminals: Default::default(),
@@ -644,6 +647,8 @@ impl Supervisor {
         }
         if outcome.changed {
             outs.extend(self.sync_server_locked(inner, &app));
+            // An app that starts syncing here reads the rows other devices wrote.
+            self.appkv_refresh_locked(inner);
         }
         if outcome.changed {
             outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction, "app": app })));

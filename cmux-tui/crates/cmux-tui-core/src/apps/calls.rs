@@ -191,14 +191,25 @@ impl Supervisor {
             if !inner.mirror.apps.get(&app).is_some_and(|r| r.installed) {
                 return Err(error("scope.missing", "the app is not installed"));
             }
-            let storage = self.storage();
-            let storage = storage
-                .as_ref()
-                .ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
-            return storage
-                .call(&app, &op, &params)
-                .map(|value| json!({ "value": value }))
-                .map_err(|e| error(e.code, e.message));
+            // `storage:synced`: the app's replica of its cloud rows (synced.rs).
+            let synced = grant.scopes.contains(super::storage::SYNCED_SCOPE);
+            let answer = {
+                let storage = self.storage();
+                let storage = storage
+                    .as_ref()
+                    .ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
+                storage
+                    .call(&app, &op, &params, synced)
+                    .map(|value| json!({ "value": value }))
+                    .map_err(|e| error(e.code, e.message))
+            };
+            if synced
+                && answer.is_ok()
+                && matches!(op.as_str(), "app.storage.set" | "app.storage.delete")
+            {
+                self.appkv_wrote();
+            }
+            return answer;
         }
         drop(inner);
         if op == "net.fetch" {

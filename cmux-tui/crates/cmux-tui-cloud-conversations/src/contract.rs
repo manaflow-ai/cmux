@@ -61,6 +61,10 @@ pub enum Target {
     /// from the lease's chief token (`CloudSession::agent`), never from a
     /// request.
     Mux(String),
+    /// The person's synced app storage (`appkv:<user>`, a UserDO stream): one
+    /// row per (app, key). The daemon itself is its only subscriber
+    /// (cmux-tui-core apps/synced.rs); its events never reach a client.
+    AppKv,
 }
 
 impl Target {
@@ -69,13 +73,14 @@ impl Target {
             Self::Inbox => "inbox",
             Self::Conversation(_) => "conversation",
             Self::Mux(_) => "mux",
+            Self::AppKv => "appkv",
         }
     }
 
     /// The upstream WebSocket path.
     pub(crate) fn wire_path(&self) -> String {
         match self {
-            Self::Inbox => "/v1/wire/user".to_string(),
+            Self::Inbox | Self::AppKv => "/v1/wire/user".to_string(),
             Self::Conversation(id) => format!("/v1/wire/conv/{id}"),
             Self::Mux(agent) => format!("/v1/wire/mux/{agent}"),
         }
@@ -533,6 +538,135 @@ pub(crate) fn conversation_change(frame: &Value) -> Option<(u64, Value)> {
 pub(crate) fn inbox_entries(frame: &Value) -> Option<Vec<Value>> {
     let effects = frame.get("effects")?;
     Some(upserts(effects, TABLE_ENTRY).cloned().collect())
+}
+
+/// One row of the `appkv:<user>` stream, `{app, key, value, revision,
+/// updated_ms}`, under the owner's row key.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppKvRow {
+    /// The owner's row key: a delete names only this.
+    pub row_key: String,
+    pub app: String,
+    pub key: String,
+    pub value: Value,
+    pub revision: u64,
+    pub updated_ms: u64,
+}
+
+/// One committed change of the `appkv:<user>` stream.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AppKvWrite {
+    Upsert(AppKvRow),
+    /// The row is gone (a delete removes the row).
+    Delete {
+        row_key: String,
+    },
+}
+
+/// A stream row; `None` for a row of another shape (skipped, never fatal).
+fn appkv_row(row_key: &str, row: &Value) -> Option<AppKvRow> {
+    let text = |name: &str| row.get(name).and_then(Value::as_str).filter(|s| !s.is_empty());
+    Some(AppKvRow {
+        row_key: row_key.to_string(),
+        app: text("app")?.to_string(),
+        key: text("key")?.to_string(),
+        value: row.get("value").cloned().unwrap_or(Value::Null),
+        revision: row.get("revision").and_then(Value::as_u64).unwrap_or(0),
+        updated_ms: row.get("updated_ms").and_then(Value::as_u64).unwrap_or(0),
+    })
+}
+
+/// The rows of an `appkv` snapshot frame (`rows.rows[] = {key, row}`); `None`
+/// when the snapshot carries no rows: the replica then keeps what it has.
+pub(crate) fn appkv_snapshot_rows(frame: &Value) -> Option<Vec<AppKvRow>> {
+    let rows = frame.get("rows")?.get("rows")?.as_array()?;
+    Some(
+        rows.iter()
+            .filter_map(|stored| {
+                let key = stored.get("key").and_then(Value::as_str)?;
+                appkv_row(key, stored.get("row")?)
+            })
+            .collect(),
+    )
+}
+
+/// The row writes of an `appkv` event frame, in order; `None` without effects.
+pub(crate) fn appkv_writes(frame: &Value) -> Option<Vec<AppKvWrite>> {
+    let writes = frame.get("effects")?.get("writes")?.as_array()?;
+    Some(
+        writes
+            .iter()
+            .filter_map(|write| {
+                let row_key = write.get("key").and_then(Value::as_str)?;
+                match write.get("op").and_then(Value::as_str)? {
+                    "upsert" => appkv_row(row_key, write.get("row")?).map(AppKvWrite::Upsert),
+                    "delete" => Some(AppKvWrite::Delete { row_key: row_key.to_string() }),
+                    _ => None,
+                }
+            })
+            .collect(),
+    )
+}
+
+/// The `POST /v1/ops` body of one synced storage write: `appkv.set {app, key,
+/// value}`, or `appkv.delete {app, key}` without a value.
+pub fn appkv_op_body(
+    app: &str,
+    key: &str,
+    value: Option<&Value>,
+    idempotency_key: &str,
+) -> Result<Value, CloudError> {
+    if idempotency_key.is_empty() || idempotency_key.chars().count() > MAX_KEY_CHARS {
+        return Err(CloudError::BadRequest(format!(
+            "idempotency_key must be 1-{MAX_KEY_CHARS} characters"
+        )));
+    }
+    if app.is_empty() || key.is_empty() {
+        return Err(CloudError::BadRequest("app and key must not be empty".into()));
+    }
+    Ok(match value {
+        Some(value) => json!({
+            "op": "appkv.set",
+            "params": {"app": app, "key": key, "value": value},
+            "idempotency_key": idempotency_key,
+        }),
+        None => json!({
+            "op": "appkv.delete",
+            "params": {"app": app, "key": key},
+            "idempotency_key": idempotency_key,
+        }),
+    })
+}
+
+#[cfg(test)]
+mod appkv_tests {
+    use super::*;
+
+    #[test]
+    fn appkv_frames_and_op_bodies() {
+        let snapshot = json!({"t":"snapshot","stream":"appkv:u","seq":3,"rows":{"table":"kv","rows":[
+            {"key":"r1","n":null,"row":{"app":"cmux/todo","key":"item:1","value":{"t":"a"},"revision":7,"updated_ms":5}},
+            {"key":"r2","n":null,"row":{"app":"","key":"x"}}]}});
+        let rows = appkv_snapshot_rows(&snapshot).expect("rows");
+        assert_eq!(rows.len(), 1, "a malformed row is skipped");
+        assert_eq!((rows[0].row_key.as_str(), rows[0].revision), ("r1", 7));
+        assert_eq!(appkv_snapshot_rows(&json!({"t":"snapshot","seq":1})), None);
+        let event = json!({"t":"event","effects":{"state":{},"writes":[
+            {"op":"upsert","table":"kv","key":"r1","row":{"app":"a","key":"k","value":1,"revision":2}},
+            {"op":"delete","table":"kv","key":"r9"}]}});
+        let writes = appkv_writes(&event).expect("writes");
+        assert!(matches!(&writes[0], AppKvWrite::Upsert(row) if row.value == json!(1)));
+        assert_eq!(writes[1], AppKvWrite::Delete { row_key: "r9".into() });
+        assert_eq!(appkv_writes(&json!({"t":"event"})), None);
+        let set = appkv_op_body("a", "k", Some(&json!([1])), "key1").unwrap();
+        assert_eq!(
+            set,
+            json!({"op":"appkv.set","params":{"app":"a","key":"k","value":[1]},"idempotency_key":"key1"})
+        );
+        let delete = appkv_op_body("a", "k", None, "key2").unwrap();
+        assert_eq!(delete["op"], "appkv.delete");
+        assert!(appkv_op_body("a", "k", None, "").is_err());
+    }
 }
 
 #[cfg(test)]

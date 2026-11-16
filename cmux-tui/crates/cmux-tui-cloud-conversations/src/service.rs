@@ -267,6 +267,9 @@ struct Subscription {
     /// Frames a client asked the driver to send on the socket (`run.live.get`,
     /// `typing`).
     outbox: Vec<String>,
+    /// A subscriber asked for a snapshot ([`CloudConversations::resync`]): the
+    /// driver asks the owner once its socket is live.
+    resync: bool,
     /// The client whose `cloud-conversation-typing` is on: the indicator is
     /// sent again after a reconnect (the owner turned it off when the old
     /// socket closed), and turned off when that client's connection closes.
@@ -811,6 +814,36 @@ impl CloudConversations {
         mutation_data(self.post("/v1/ops", &body)?)
     }
 
+    /// One synced app storage write (`appkv.set` or `appkv.delete`, the
+    /// daemon's own outbox, cmux-tui-core apps/synced.rs). The caller retries
+    /// an `Unavailable` with the same idempotency key.
+    pub fn appkv_op(
+        &self,
+        app: &str,
+        key: &str,
+        value: Option<&Value>,
+        idempotency_key: &str,
+    ) -> Result<Value, CloudError> {
+        let body = contract::appkv_op_body(app, key, value, idempotency_key)?;
+        mutation_data(self.post("/v1/ops", &body)?)
+    }
+
+    /// Asks `target`'s owner for a snapshot once its socket is live (a
+    /// subscriber that needs every row again). Nothing without a subscription.
+    pub fn resync(&self, target: &Target) {
+        if let Some(subscription) =
+            self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner).get_mut(target)
+        {
+            subscription.resync = true;
+        }
+        self.inner.notify();
+    }
+
+    /// The cloud user id (`sub`) of the current lease, if any.
+    pub fn lease_account(&self) -> Option<String> {
+        self.inner.lease_account()
+    }
+
     /// Validates a `cloud-inbox-op` before it leaves the request loop.
     pub fn check_inbox_op(&self, request: &InboxOpRequest) -> Result<(), CloudError> {
         contract::inbox_op_body(request).map(|_| ())
@@ -969,6 +1002,7 @@ impl CloudConversations {
                         idle_since: None,
                         state: initial,
                         outbox: Vec::new(),
+                        resync: false,
                         typing_by: None,
                         viewing: BTreeSet::new(),
                         presence: None,
@@ -1403,6 +1437,11 @@ impl Inner {
         subscriptions.get_mut(target).map(|s| std::mem::take(&mut s.outbox)).unwrap_or_default()
     }
 
+    fn take_resync(&self, target: &Target) -> bool {
+        let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        subscriptions.get_mut(target).is_some_and(|s| std::mem::take(&mut s.resync))
+    }
+
     fn remove(&self, target: &Target) {
         self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner).remove(target);
     }
@@ -1630,6 +1669,15 @@ fn pump(
                     return Ended::Dropped;
                 }
             }
+            if inner.take_resync(target) {
+                for action in stream.request_snapshot() {
+                    if let StreamAction::Send(frame) = action
+                        && wire.send(&frame).is_err()
+                    {
+                        return Ended::Dropped;
+                    }
+                }
+            }
         }
         let now = inner.now();
         // A snapshot that did not decode is asked for again when its backoff ends.
@@ -1736,6 +1784,7 @@ mod presence_order_tests {
             idle_since: None,
             state: SocketState { state: "live", reason: None, account: None },
             outbox: Vec::new(),
+            resync: false,
             typing_by: None,
             viewing: BTreeSet::new(),
             presence: shown,
