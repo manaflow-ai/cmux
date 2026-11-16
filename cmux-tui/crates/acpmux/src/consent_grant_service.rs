@@ -178,7 +178,8 @@ pub async fn account_set(hub: &Arc<Hub>, grant: &Value) -> Value {
         let request = request.clone();
         asks.spawn(async move {
             let answer = remote(&hub, &daemon, &request).await;
-            let mut row = json!({"daemonId": daemon, "host": host, "ok": answer["ok"] == true});
+            let ok = answer.get("ok").and_then(Value::as_bool) == Some(true);
+            let mut row = json!({"daemonId": daemon, "host": host, "ok": ok});
             if let (Some(reason), Some(fields)) = (answer.get("reason"), row.as_object_mut()) {
                 fields.insert("reason".into(), reason.clone());
             }
@@ -235,7 +236,7 @@ async fn collect_while_open(hub: &Arc<Hub>) {
     let mut done = std::collections::BTreeSet::new();
     loop {
         let pass = collect(hub, &mut done).await;
-        tracing::info!(pinned = %pass["pinned"], "consent: enrollment collection pass");
+        tracing::info!(pinned = %pass.get("pinned").unwrap_or(&Value::Null), "consent: enrollment collection pass");
         let now = crate::store::now_ms();
         let open = with_authority(move |authority| consent_grant::window_open(authority, now))
             .await
@@ -295,14 +296,14 @@ async fn collect(hub: &Arc<Hub>, done: &mut std::collections::BTreeSet<String>) 
             continue;
         }
         let status = remote(hub, &daemon, &json!({"op": "status"})).await;
-        if status["ok"] != true {
+        if status.get("ok").and_then(Value::as_bool) != Some(true) {
             peers.push(json!({"daemonId": daemon, "host": host, "ok": false,
                 "reason": status.get("reason")}));
             continue;
         }
         done.insert(daemon.clone());
         peers.push(json!({"daemonId": daemon, "host": host, "ok": true}));
-        if status["account"].as_str() != Some(account.as_str()) {
+        if status.get("account").and_then(Value::as_str) != Some(account.as_str()) {
             continue;
         }
         // The key the peer's app reported is never pinned here: it becomes an ask the person

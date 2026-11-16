@@ -364,7 +364,8 @@ impl Ask {
 fn read_asks(root: &Path) -> Vec<Ask> {
     match read_json_opt::<Value>(&root.join(ASK)) {
         Some(value) if value.get("asks").is_some() => {
-            serde_json::from_value(value["asks"].clone()).unwrap_or_default()
+            serde_json::from_value(value.get("asks").cloned().unwrap_or_default())
+                .unwrap_or_default()
         }
         Some(value) => serde_json::from_value::<Ask>(value).ok().into_iter().collect(),
         None => Vec::new(),
@@ -1463,7 +1464,7 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
 }
 
 fn remove(path: &Path) -> std::io::Result<()> {
-    match std::fs::remove_file(path) {
+    match crate::home_fs::remove_file(path) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
         _ => Ok(()),
     }
