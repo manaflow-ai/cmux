@@ -116,9 +116,7 @@ impl HeldWriter {
         at_the_commit
             .recv_timeout(WRITER_THREAD_WAIT)
             .expect("the journal writer did not reach its commit");
-        // The step of a shutdown that waits for the writer's end. Limit: the
-        // whole shutdown with a held writer: NOT RUN; which other shutdown
-        // steps wait for the writer: NOT READ.
+        // The step of a shutdown that waits for the writer's end.
         let joined = mux.journal_ingress.close_and_join();
         assert!(
             joined.is_err(),
