@@ -11,7 +11,7 @@ import VideoToolbox
 /// for the stream's own range (after). Off by default; `CMUX_RD_DECODE_BENCH=1` runs it and prints
 /// per-frame decode times.
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["CMUX_RD_DECODE_BENCH"] == "1"))
-struct RemoteDecodeRangeBenchTests {
+nonisolated struct RemoteDecodeRangeBenchTests {
     private static let width = 3840
     private static let height = 2160
     private static let frames = 120
@@ -104,18 +104,18 @@ struct RemoteDecodeRangeBenchTests {
         var times: [Double] = []
         for sample in samples {
             let start = DispatchTime.now().uptimeNanoseconds
-            var got: OSType = 0
+            let got = Mutex<OSType>(0)
             let decoded = VTDecompressionSessionDecodeFrame(decoder, sampleBuffer: sample, flags: [], infoFlagsOut: nil) { status, _, image, _, _ in
-                if status == noErr, let image { got = CVPixelBufferGetPixelFormatType(image) }
+                if status == noErr, let image { got.withLock { $0 = CVPixelBufferGetPixelFormatType(image) } }
             }
             times.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
-            #expect(decoded == noErr && got == pixelFormat)
+            #expect(decoded == noErr && got.withLock { $0 } == pixelFormat)
         }
         return times
     }
 }
 
-private final class Collected: @unchecked Sendable {
+private nonisolated final class Collected: @unchecked Sendable {
     // @unchecked: CMSampleBuffer is not Sendable; each one is only read after the encoder is done with it.
     private let samples = Mutex<[CMSampleBuffer]>([])
     func append(_ sample: CMSampleBuffer) { samples.withLock { $0.append(sample) } }
