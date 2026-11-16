@@ -35,12 +35,21 @@ struct NewTabKeySessionWalkTests {
         var own: Set<String> = []
         private var workspaces = 0
         private var otherTabs = 0
+        private var byWorkspace: [String: Int] = [:]
 
         func source(_ workspace: WorkspaceModel) -> NewTabPlaces.Source {
             let source = NewTabPlaces.Source(workspace)
             workspaces += 1
             otherTabs += source.tabs.filter { !own.contains($0.id) }.count
+            byWorkspace[source.id, default: 0] += 1
             return source
+        }
+
+        /// The maps of each workspace since the last call, by the workspace's id, then none.
+        func takeByWorkspace() -> [String: Int] {
+            let counts = byWorkspace
+            byWorkspace = [:]
+            return counts
         }
 
         /// The counts since the last call, then zero.
@@ -196,6 +205,63 @@ struct NewTabKeySessionWalkTests {
             print("new tab key, \(start.workspaces) workspaces: 10 keys of one turn added \(made) tabs and mapped \(turn.workspaces) workspaces "
                 + "(\(turn.workspaces / max(1, start.workspaces)) whole lists) in the turn, then \(later.workspaces) workspaces "
                 + "(\(later.workspaces / max(1, start.workspaces)) whole lists) in what the main actor had queued")
+        }
+    }
+
+    /// The second cost of the same walk (decision of 2026-11-16): with 3 open New Tab pages and the app's places feed,
+    /// a New Tab key and a title change of one tab map one workspace at most after them (the one that changed).
+    ///
+    /// Before the decision, each change of a workspace's rows started one whole walk of the session for each New Tab
+    /// page that has a view. The feed is the app's own (`NewTabPlacesFeed.wire`). The app starts it after its first
+    /// frame and the fixture does not, so this test starts it. The feed lives as long as the process (the app's rule):
+    /// this test leaves one feed behind.
+    ///
+    /// The sign that the feed ran is a condition of the setup: after the title change, the tab rows of a page are not
+    /// the rows of before. Without the sign, a feed that did not run in the drain reads as `no map`.
+    @Test func aChangeWithThreeOpenPagesMapsOneWorkspaceAtMostAfterIt() async throws {
+        try await Self.withPane { start in
+            let tabs = start.services.agentTabs
+            NewTabPlacesFeed.wire(tabs, services: start.services)
+            for _ in 0..<3 {
+                let opened = Self.newTab(start)
+                try #require(opened.ran && opened.made == 1,
+                             "setup: a New Tab key \(opened.ran ? "ran" : "was refused") and the strip has \(opened.made) new tabs")
+                await LargeSessionWindowFixture.drainMain()
+            }
+            let withViews = tabs.newTabPages.entries.compactMap { tabs.views[$0.key] }
+            try #require(withViews.count == 3, "setup: \(withViews.count) of 3 New Tab pages have a view")
+
+            // One more New Tab key: what the main actor maps after its call.
+            _ = start.visits.takeByWorkspace()
+            let key = Self.newTab(start)
+            try #require(key.ran && key.made == 1,
+                         "setup: the New Tab key \(key.ran ? "ran" : "was refused") and the strip has \(key.made) new tabs")
+            let inCall = start.visits.takeByWorkspace()
+            await LargeSessionWindowFixture.drainMain()
+            let afterKey = start.visits.takeByWorkspace()
+            let keyMaps = afterKey.values.reduce(0, +)
+            print("new tab key, \(start.workspaces) workspaces, 3 open New Tab pages: the key's call mapped \(inCall.count) different workspaces; "
+                + "after the call the main actor mapped \(afterKey.count) different workspaces in \(keyMaps) maps")
+            #expect(afterKey.count <= 1,
+                    "after a New Tab key the main actor mapped \(afterKey.count) workspaces in \(keyMaps) maps, want its own at most")
+
+            // A title change of one terminal of another workspace, with the sign that the feed ran.
+            let terminals = SessionFixtureSize.real.places { $0.isTerminal }
+            let place = try #require(terminals.first, "setup: the session has no terminal")
+            let surface = LargeSessionWindowFixture.surface(workspace: place.workspace, index: place.index)
+            let pages = tabs.newTabPages.entries.compactMap { tabs.views[$0.key] }
+            let before = pages.map { $0.model.newTab?.omnibar.tabs ?? [] }
+            let store = start.services.machines.local.store
+            store.apply(LargeSessionWindowFixture.titleChanged(surface, raw: "feed row", text: "feed row", activity: nil))
+            await LargeSessionWindowFixture.drainMain()
+            let afterTitle = start.visits.takeByWorkspace()
+            let titleMaps = afterTitle.values.reduce(0, +)
+            let after = pages.map { $0.model.newTab?.omnibar.tabs ?? [] }
+            print("new tab key, \(start.workspaces) workspaces, \(pages.count) open New Tab pages: a title change of one tab mapped "
+                + "\(afterTitle.count) different workspaces in \(titleMaps) maps; the tab rows of a page changed: \(after != before)")
+            try #require(after != before, "setup: no New Tab page got the changed row in the drain, so the feed did not run")
+            #expect(afterTitle.count <= 1,
+                    "a title change of one tab mapped \(afterTitle.count) workspaces in \(titleMaps) maps, want the tab's own at most")
         }
     }
 }
