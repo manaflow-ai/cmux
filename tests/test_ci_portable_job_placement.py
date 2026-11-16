@@ -497,9 +497,11 @@ class Decide(unittest.TestCase):
     def test_outputs_delimit_whole_job_keys(self):
         with tempfile.TemporaryDirectory() as scratch:
             output = Path(scratch) / "out"
-            placement.write(placement.Placement("", (), SIDE, ("checks",), "why"), {"GITHUB_OUTPUT": str(output)})
+            placement.write(placement.Placement("", (), SIDE, ("checks",), "why", SMALL, ("size",)),
+                            {"GITHUB_OUTPUT": str(output)})
             self.assertEqual(output.read_text(),
-                             f"linux_runner=\nlinux_jobs=\nmini_runner={SIDE}\nmini_jobs= checks \n")
+                             f"linux_runner=\nlinux_jobs=\nmini_runner={SIDE}\nmini_jobs= checks \n"
+                             f"small_runner={SMALL}\nsmall_jobs= size \n")
 
     def test_main_with_no_tokens_writes_empty_routes(self):
         with tempfile.TemporaryDirectory() as scratch:
