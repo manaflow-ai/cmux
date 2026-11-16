@@ -32,6 +32,32 @@ pub struct AuthConfig {
     pub confirm_url: String,
 }
 
+/// The access token from `token_file` (this user's 0600 file, or `-` for stdin), or without
+/// one from a browser sign-in. Neither is stored.
+pub fn access_token(token_file: Option<&str>) -> Res<String> {
+    access_token_or(token_file, || sign_in(CONFIG_URL, POLL_EVERY, LOGIN_WITHIN, announce))
+}
+
+fn access_token_or(token_file: Option<&str>, sign_in: impl FnOnce() -> Res<String>) -> Res<String> {
+    let Some(path) = token_file else {
+        return sign_in();
+    };
+    let text = if path == "-" {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut text)?;
+        text
+    } else {
+        let bytes = super::identity::read_private(std::path::Path::new(path))?
+            .ok_or_else(|| format!("{path} does not exist"))?;
+        String::from_utf8(bytes).map_err(|_| format!("{path} is not text"))?
+    };
+    let token = text.trim().to_owned();
+    if token.is_empty() || token.contains(char::is_whitespace) {
+        return Err("the access token file must hold one token".into());
+    }
+    Ok(token)
+}
+
 /// Signs in through the browser: shows the confirmation link with `show`, waits for it, and
 /// returns a Stack access token.
 pub fn sign_in(
@@ -490,6 +516,23 @@ mod tests {
             "https://a.example/c?x=1&login_code=k%2F1%2B"
         );
         assert!(confirmation_url("https://a.example/c#f", "k").is_err());
+    }
+
+    #[test]
+    fn without_a_token_file_the_token_comes_from_the_browser_sign_in() {
+        let signed_in = access_token_or(None, || Ok("from-browser".into())).unwrap();
+        assert_eq!(signed_in, "from-browser");
+        // A token file is still read, and then no sign-in starts.
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-screen-host-token-file-{}", std::process::id()));
+        let path = dir.join("token");
+        super::super::identity::write_private(&path, b" tok-1\n").unwrap();
+        let token = access_token_or(Some(path.to_str().unwrap()), || {
+            panic!("signed in despite a token file")
+        })
+        .unwrap();
+        assert_eq!(token, "tok-1");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

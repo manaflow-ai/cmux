@@ -270,37 +270,9 @@ pub fn run_cli(args: &[String]) -> i32 {
     }
 }
 
-/// The access token from `--stack-token-file` (this user's 0600 file, or `-` for stdin), or
-/// without one from a browser sign-in (stack_login.rs). Neither is stored.
+/// The access token: `--stack-token-file`, or a browser sign-in (stack_login.rs).
 fn stack_token(args: &Args) -> Res<String> {
-    stack_token_or(args, || {
-        stack_login::sign_in(
-            stack_login::CONFIG_URL,
-            stack_login::POLL_EVERY,
-            stack_login::LOGIN_WITHIN,
-            stack_login::announce,
-        )
-    })
-}
-
-fn stack_token_or(args: &Args, sign_in: impl FnOnce() -> Res<String>) -> Res<String> {
-    let Some(path) = args.get("stack-token-file") else {
-        return sign_in();
-    };
-    let text = if path == "-" {
-        let mut text = String::new();
-        std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut text)?;
-        text
-    } else {
-        let bytes = identity::read_private(std::path::Path::new(path))?
-            .ok_or_else(|| format!("{path} does not exist"))?;
-        String::from_utf8(bytes).map_err(|_| format!("{path} is not text"))?
-    };
-    let token = text.trim().to_owned();
-    if token.is_empty() || token.contains(char::is_whitespace) {
-        return Err("the access token file must hold one token".into());
-    }
-    Ok(token)
+    stack_login::access_token(args.get("stack-token-file"))
 }
 
 /// The enabled host: its device, account and hub.
@@ -853,25 +825,6 @@ mod tests {
     fn unknown_commands_are_usage_errors() {
         assert_eq!(run_cli(&["frobnicate".into()]), 2);
         assert_eq!(run_cli(&[]), 2);
-    }
-
-    #[test]
-    fn without_a_token_file_the_token_comes_from_the_browser_sign_in() {
-        let none = Args::parse(&["enable".into()]).unwrap();
-        assert_eq!(stack_token_or(&none, || Ok("from-browser".into())).unwrap(), "from-browser");
-        // A token file is still read, and then no sign-in starts.
-        let dir = consent_dir("token-file");
-        let path = dir.join("token");
-        identity::write_private(&path, b" tok-1\n").unwrap();
-        let file = Args::parse(&[
-            "enable".into(),
-            "--stack-token-file".into(),
-            path.to_string_lossy().into_owned(),
-        ])
-        .unwrap();
-        let token = stack_token_or(&file, || panic!("signed in despite a token file")).unwrap();
-        assert_eq!(token, "tok-1");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     const UNIT: &str = include_str!("../../systemd/cmux-screen-host.service");
