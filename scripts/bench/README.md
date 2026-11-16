@@ -45,39 +45,6 @@ One row per metric per run (`benchlib/schema.py`):
 
 A metric is (bench, metric, labels). Compare matches rows on that key.
 
-## Composer typing under load
-
-`cmux-bench typing --build SHA` extends `agent-engine-bench.py` on a fleet Mac with idle,
-three simultaneously streaming chat panes, another pane's turn waking during input, one busy
-process per logical CPU, and a 100,002-row transcript (the fixture emits three-row turns).
-It uses the existing tagged app and 120 Hz display wrapper, 500 native `debug.key` events at
-20 ms intervals, and records each load independently in the shared ledger. It creates and closes
-only its own panes and stress processes. No CI budget or default is changed.
-The tagged app is activated on the isolated fleet Mac, and active state is read back before
-and after each mode; background-app scheduling is not a foreground typing acceptance result.
-For a managed worker reservation, add `--arg worker=WORKER --arg pool=POOL`; the
-shared fleet adapter forwards that reservation to `cmux-ci`.
-
-`dispatch_to_after_frame_p95_ms` and `dispatch_to_after_frame_p99_ms` include native request
-queueing: same-host dispatch wall time is joined to the page's after-frame epoch timestamp.
-The existing `keydown_to_listener`, `keydown_to_work`, `keydown_to_frame`, and
-`keydown_to_paint` rows separate renderer stages. These are after-render proxies, not physical
-display presentation measurements. Keep the display receipt, source SHA, app build, raw samples,
-RPC duration and driver lateness with every comparison. A clock jump or >2 ms clock mismatch
-invalidates the sample set.
-
-Detected by Leo's 2026-11-16 report, "but typing under load is not good enough": an idle benchmark
-and a renderer-only clock can both hide stalls. The detector is `typing-load`: missing or reordered
-keys, unequal final text, absent samples, inadequate CPU saturation, a stream outside the typing
-window or a driver that falls behind makes the run incomplete. Incomplete rows carry diagnostics
-and never produce fast timing values. `scripts/bench/tests/test_typing.py` falsifies that contract.
-The target is p95 ≤16 ms and p99 ≤33 ms in each load with exact key/text integrity; a run receipt
-must establish each load before claiming it meets the target.
-
-The stream loads use the existing in-page mock ACP daemon through the production client/reducer.
-They exercise transcript updates and renderer contention; they do not yet establish live provider
-process, native stream transport or daemon wakeup costs. Retain that distinction in acceptance reports.
-
 ## The ledger
 
 The `bench-ledger` branch of manaflow-ai/cmuxterm-hq holds one JSONL file per run
@@ -113,6 +80,8 @@ with both numbers. It skips an issue with the same title that is still open.
 5. Add the bench to `scripts/measure/README.md`.
 
 Tests: `python3 -m unittest discover -s scripts/bench/tests -p 'test_*.py'` (pure Python, no app).
+
+## Composer typing under load
 
 The canonical browser diagnostic is `webviews/bench/composer-typing.bench.ts`:
 

@@ -32,11 +32,6 @@ import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, require_gui_session  # noqa: E402
 
-# Same tagged build/display wrapper as the existing typing benchmark; only the load driver differs.
-if "--suite=typing-load" in sys.argv:
-    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent-engine-bench.py")
-    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=typing-load"])
-
 # `--suite=launch-check`: only launch the app, wait for its socket and a window, quit (bench_launch.py check): is
 # this worker able to run GUI benches at all. Dispatched before the session gate: `check` names no-gui-session itself.
 if "--suite=launch-check" in sys.argv:
