@@ -2770,7 +2770,7 @@ export function parseDeleteEntries(text: string): DeleteEntry[] {
  * The log is trusted only when the job ran this repo's own code on a protected branch: a run of a pull request
  * (a fork's above all), a merge queue or a workflow_run runs code a contributor wrote, which can print any line.
  * So the run's event must be push or workflow_dispatch (deploy-staging's only triggers), its head repository this
- * repo and its head branch feat-cmux-next or main. backend.yml, cloud-journey-pr.yml and cloudflare-relay.yml run
+ * repo and its head branch feat-cmux-next or main. backend.yml and cloud-journey-pr.yml run
  * the journey on pull requests too, so none of their jobs counts. The jobs API does not say which environment a job
  * ran in; the job name and workflow stand for it (deploy-staging always runs in cmux-vm-staging).
  */

@@ -1867,52 +1867,22 @@ def test_native_tui_releases_do_not_gate_on_separately_deployed_worker() -> None
     them a change to this repository -- could therefore stop cmux-relay
     shipping.
 
-    The Worker now has its own lane, so there is no input left to pass and no
-    caller left to get it wrong.
+    The Worker then got its own lane, and its source and deploy have since left
+    this repository: the production relay is operated separately, and no
+    workflow here may build or verify it again.
     """
     shared = workflow("cmux-tui-build-package.yml")
     assert "build_cloudflare_relay" not in shared
     assert "cloudflare-relay:" not in shared
     assert "cloudflare-do" not in shared
 
+    assert not (ROOT / ".github" / "workflows" / "cloudflare-relay.yml").exists()
     for name in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
-        if name.name == "cloudflare-relay.yml":
-            continue
         text = name.read_text(encoding="utf-8")
         assert "relays/cloudflare-do" not in text, (
-            f"{name.name} references the Worker directory; verifying it outside "
-            "cloudflare-relay.yml risks gating a shipping lane on it again"
+            f"{name.name} references the removed Worker directory; the production "
+            "relay is operated outside this repository"
         )
-
-
-def test_cloudflare_worker_is_verified_on_the_pull_request_that_changes_it() -> None:
-    """The Worker's only lane must be triggered by changes to the Worker.
-
-    Before it had its own workflow the verification ran only during a
-    cmux-relay publish, which last succeeded 2026-08-27 -- so edits to
-    cmux-tui/relays/cloudflare-do went unverified between releases, and the
-    verification was discovered only at the moment it could block one.
-    """
-    document = yaml.safe_load(workflow("cloudflare-relay.yml"))
-    triggers = document.get("on") or document.get(True)
-    assert "pull_request" in triggers, "the Worker must be verified on pull requests"
-
-    component = "cmux-tui/relays/cloudflare-do/**"
-    for event in ("pull_request", "push"):
-        paths = triggers[event]["paths"]
-        assert component in paths, f"{event} must cover {component}"
-        assert ".github/workflows/cloudflare-relay.yml" in paths, (
-            f"{event} must re-run the lane when the lane itself changes"
-        )
-
-    body = workflow("cloudflare-relay.yml")
-    for check in (
-        "python3 tests/validate_wrangler_config.py",
-        "cargo clippy --locked --all-targets -- -D warnings",
-        "npm audit --audit-level=high",
-        "wrangler deploy --dry-run",
-    ):
-        assert check in body, f"the Worker lane lost {check!r}"
 
 
 def test_experimental_windows_is_opt_in_without_blocking_unix_publication() -> None:
@@ -2079,9 +2049,8 @@ def test_package_workflow_uses_no_shared_build_cache() -> None:
 
 PACKAGE_BUILD_JOBS = (
     "build",
-    # cloudflare-relay moved to its own lane; it checks out the pull request
-    # directly rather than a caller-supplied ref, so it is no longer one of the
-    # jobs this invariant applies to.
+    # cloudflare-relay left this workflow (and later this repository), so it is
+    # no longer one of the jobs this invariant applies to.
     "build-windows",
     "package",
     "verify-linux-packages",

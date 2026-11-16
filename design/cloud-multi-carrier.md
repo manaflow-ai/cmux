@@ -49,7 +49,7 @@ same relay.
 - The overlay's underlay paths (direct UDP, VPC tunnel, DO relay) inside one WireGuard session.
 - ssh as a carrier, independent of Cloudflare and of the platform.
 - The mesh/VPC path to a Cloud VM: today the only inbound path to a VM that doesn't go through Cloudflare.
-- Two relay services with one wire: the Durable Object relay (`cmux-tui/relays/cloudflare-do`) and the native
+- Two relay services with one wire: the Durable Object relay (operated separately; its source left this repository) and the native
   `cmux-relay`. This is the basis of a second relay on other infrastructure.
 
 ### Single points of failure today

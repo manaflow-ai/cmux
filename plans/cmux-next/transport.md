@@ -316,7 +316,7 @@ Round 1: Freestyle VM about $0.11, Fly.io about $0.03; round 2: about $0.18 (Fre
 | `cmux-remote` iroh provider (`provider/iroh.rs`, feature `iroh-transport`) | `overlay` provider: a link carrier that is a TCP stream to the host's overlay address through `cmux link` | the overlay provider passes the remote conformance suite |
 | iOS irx transport and the `AccountControlPlane` iroh device routes | in-app overlay endpoint plus `UserDO` tokens and `HostDO` rendezvous | the rewritten iOS app ships (IOS1) |
 | `cmux-terminal-client` with `iroh-transport` | the same client with the overlay carrier (cmux-wg enabled for iOS) | same |
-| Relay v2 Durable Objects (`relays/cloudflare-do`) for cmux-tui | `HostDO` datagram relay | the overlay provider ships |
+| Relay v2 Durable Objects (operated separately) for cmux-tui | `HostDO` datagram relay | the overlay provider ships |
 
 The overlay provider first runs under the existing Noise link (no change above the carrier), so it ships next to the old providers. When the link moves to `cmux.wire/1` with a token `hello`, the overlay's end-to-end WireGuard session replaces the Noise layer for overlay links.
 
