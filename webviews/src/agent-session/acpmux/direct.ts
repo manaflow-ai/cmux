@@ -3653,6 +3653,8 @@ export class AcpmuxDirectClient {
   /// Whether the transcript follows its latest row (the pane says, `setFollowing`): only then are the oldest held
   /// records let go (`shedOlderHeld`), so nothing the reader has in view or scrolled to ever leaves.
   private following = true;
+  /// The oldest row the following view draws (`setKeepFrom`): no shed cuts above it.
+  private keepFromRow?: string;
   /// How many records the chat holds when it next tries to shed inside a turn (`apply`, `HELD_RETRY`).
   private shedRetryAt = 0;
   /// The seq of the record that opened the running turn (its prompt, or its `turn_started` with none open): a turn
@@ -7898,6 +7900,12 @@ export class AcpmuxDirectClient {
     this.following = following;
   }
 
+  /// The oldest row the pane's view draws while it follows the latest row (VirtualTranscript), or null: the oldest
+  /// held records are let go only below it (`shedOlderHeld`). A row no longer held names nothing.
+  setKeepFrom(rowId: string | null): void {
+    this.keepFromRow = rowId ?? undefined;
+  }
+
   /// A chat left open lets go of its oldest records once it holds more than `HELD_RECORDS`, as a chat opened on
   /// its newest page holds only those: what it holds, and the work of each streamed update over the rows drawn
   /// from it, stay the same however long the chat runs (Leo, 2026-11-12: "even if a chat is long, there should
@@ -7943,13 +7951,29 @@ export class AcpmuxDirectClient {
     // end comes later, a subagent that goes on): the cut goes back to where it began, until none does, so the rows
     // kept are what a fold of the records kept draws, and none is folded again.
     const chosen = cut;
-    while (cut > 0) {
-      const { seq } = this.events[cut]!;
-      let from = this.rows.spanningFrom(seq);
-      for (const [id, first] of this.subagentFirstSeen)
-        if (first < seq && (this.subagentLastSeen.get(id) ?? -Infinity) >= seq) from = Math.min(from, first);
-      if (from >= seq) break;
-      cut = firstHeldFrom(this.events, from);
+    const unspanned = (at: number) => {
+      while (at > 0) {
+        const { seq } = this.events[at]!;
+        let from = this.rows.spanningFrom(seq);
+        for (const [id, first] of this.subagentFirstSeen)
+          if (first < seq && (this.subagentLastSeen.get(id) ?? -Infinity) >= seq) from = Math.min(from, first);
+        if (from >= seq) break;
+        at = firstHeldFrom(this.events, from);
+      }
+      return at;
+    };
+    cut = unspanned(cut);
+    // Never above the oldest row the view draws (`setKeepFrom`): a cut past it left less than a screen of rows, the
+    // view read the shed records back as an older page at once, and the next streamed record shed them again (about
+    // 7 times a second at 60 chunks and 2,000 lines a second, each page refolding the held window). Held only while
+    // it keeps at most `HELD_KEPT` records more than the count would: a view whose top row is older than that (one
+    // row drawn from a long run of records) is cut by the count, as with nothing named, never kept whole.
+    // The held index of the oldest record of the row in view; undefined when none is named or held.
+    const keepSeq = this.keepFromRow === undefined ? Infinity : this.rows.orderOf(this.keepFromRow);
+    const keepAt = keepSeq === Infinity ? undefined : firstHeldFrom(this.events, keepSeq);
+    if (keepAt !== undefined && cut > 0 && keepAt < cut) {
+      const kept = unspanned(keepAt);
+      if (cut - kept <= HELD_KEPT) cut = kept;
     }
     if (cut <= 0) return;
     // Moved, the cut starts a turn the one before it ended, or the kept rows open under their turn's prompt.

@@ -1655,6 +1655,7 @@ function TranscriptView({
   onLoadOlder,
   sends = 0,
   onFollowingChange,
+  onKeepFrom,
   onJumpShownChange,
   coldOpen,
   onColdOpenShown,
@@ -1738,6 +1739,9 @@ function TranscriptView({
   sends?: number;
   /// Keeps the parent send path in sync with the reader's current follow state.
   onFollowingChange?: (following: boolean) => void;
+  /// The oldest row the view draws while it follows the latest row, else null: the client lets go of no held record
+  /// above it (direct.ts `setKeepFrom`).
+  onKeepFrom?: (rowId: string | null) => void;
   /// Jump to latest (or the Needs your input pill) shows or hides: the pane lifts its bottom toast
   /// deck above it while it shows (toastLayer.css). Told `false` when the transcript goes.
   onJumpShownChange?: (shown: boolean) => void;
@@ -6639,8 +6643,23 @@ function TranscriptView({
   // scroll back to the top could land in the same frame, so the rendered offset never changed
   // and a check that ran only on a change of it never asked for the next page (the scroll to the
   // first message stalled at the top after a few pages, perf100).
+  const keptFrom = useRef<string | null | undefined>(undefined);
+  /// Tells the client the oldest row in view while the view follows (null once it does not): a chat streaming under
+  /// load sheds its oldest records only below it, so what it keeps still fills the view and no older page is read
+  /// back at the latest row. Runs where `checkOlder` does (each scroll event and commit); says only a change.
+  const keepFromInView = (node: HTMLElement | null) => {
+    if (!onKeepFrom) return;
+    const id =
+      node && followingRef.current && node.clientHeight > 0
+        ? (rows[visibleLayoutRange(layout, layoutScrollTop(node), 0, 0).first]?.id ?? null)
+        : null;
+    if (id === keptFrom.current) return;
+    keptFrom.current = id;
+    onKeepFrom(id);
+  };
   const checkOlder = () => {
     const node = ref.current;
+    keepFromInView(node);
     if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) {
       clearTimeout(olderRecheck.current);
       olderRecheck.current = undefined;
@@ -6651,7 +6670,13 @@ function TranscriptView({
     }
     // Measured from the loaded rows' top, under the room held for the history above them.
     const ahead = olderAhead.ahead(node.clientHeight * OLDER_AHEAD_VIEWPORTS, node.clientHeight, performance.now());
-    if (node.scrollTop - (layout.origin ?? 0) >= ahead) {
+    // A view that follows the latest row reads no older page while its rows fill it: the reader is not moving up.
+    // A chat streaming under load lets go of its oldest records (direct.ts `shedOlderHeld`), and what it keeps can
+    // be a few screens of one call's output; read back at once, the page brought the shed records back, the next
+    // streamed record shed them again, and every page refolded the held window (about 7 a second at 60 chunks and
+    // 2,000 lines a second, a third of the main thread). A scroll up stops following, and its scroll asks here.
+    const fills = node.scrollHeight - (layout.origin ?? 0) > node.clientHeight;
+    if (node.scrollTop - (layout.origin ?? 0) >= ahead || (followingRef.current && fills)) {
       // Allow the next visit to the threshold to request the next page, even when the first row
       // did not change while the reader was away from the top.
       olderLoadRequested.current = undefined;
