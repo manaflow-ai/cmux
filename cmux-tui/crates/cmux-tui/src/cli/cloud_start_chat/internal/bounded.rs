@@ -320,17 +320,21 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_bounded_step_that_answers_at_once_answers_its_output() {
-        let mut command = cmux_process::Command::new("sh");
-        command.arg("-c").arg("echo hi; echo there >&2; exit 3");
+        // Many short steps in a row: the window between a step's pipes ending (its exit event) and its zombie
+        // (macOS posts `NOTE_EXIT` first) is short, so one step alone may miss it.
         let began = Instant::now();
-        let ran = output_by(command, began + Duration::from_secs(30));
-        assert_eq!(
-            (ran.code, ran.stdout.as_str(), ran.stderr.as_str()),
-            (3, "hi\n", "there\n"),
-            "after {:?}",
-            began.elapsed()
-        );
-        assert!(began.elapsed() < Duration::from_secs(10), "{:?}", began.elapsed());
+        for round in 0..100 {
+            let mut command = cmux_process::Command::new("sh");
+            command.arg("-c").arg("echo hi; echo there >&2; exit 3");
+            let ran = output_by(command, began + Duration::from_secs(60));
+            assert_eq!(
+                (ran.code, ran.stdout.as_str(), ran.stderr.as_str()),
+                (3, "hi\n", "there\n"),
+                "step {round}, after {:?}",
+                began.elapsed()
+            );
+        }
+        assert!(began.elapsed() < Duration::from_secs(30), "{:?}", began.elapsed());
     }
 
     /// The marker a re-run of this test binary reads to be the child that ignores `SIGCHLD`.
@@ -357,16 +361,23 @@ mod tests {
             assert!(began.elapsed() < Duration::from_secs(10), "{:?}", began.elapsed());
             return;
         }
-        let status = cmux_process::Command::new(std::env::current_exe().unwrap())
+        let output = cmux_process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
                 "cli::cloud_start_chat::internal::bounded::tests::a_bounded_step_under_an_ignored_sigchld_answers_its_output",
                 "--nocapture",
             ])
             .env(IGNORED_SIGCHLD_CHILD, "1")
-            .status()
+            .output()
             .unwrap();
-        assert!(status.success(), "the child with SIGCHLD ignored failed: {status}");
+        let said = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "the child with SIGCHLD ignored failed: {}: {said}",
+            output.status
+        );
+        // A name that matched no test would pass with 0 run.
+        assert!(said.contains("1 passed"), "the child ran no test: {said}");
     }
 
     /// Under a second left after the kill grace and the dispatch margin, no remote script is sent; otherwise the
