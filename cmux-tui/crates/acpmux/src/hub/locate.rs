@@ -12,13 +12,11 @@ use super::*;
 
 use crate::agent_link::AgentLink;
 
-const OWNER_RESOLVE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 const OWNER_QUERY_BYTES: usize = 1024;
 const OWNER_REPLY_BYTES: usize = 32 * 1024;
-const OWNER_COLLECTOR_BYTES: usize = 1024 * 1024;
 
 impl Hub {
-    /// Validates the selector on every `_acpmux/resolve` ingress, including legacy links.
+    /// Validates the selector on the owner-query `_acpmux/resolve` ingress.
     pub(crate) fn validate_owner_selector(query: &str) -> Result<&str, RpcError> {
         validate_owner_query(query)
     }
@@ -33,247 +31,11 @@ impl Hub {
         names_hosts: bool,
     ) -> Result<Value, RpcError> {
         let query = validate_owner_query(query)?;
-        let own = crate::pairing::machine_name();
-        let shown = names_hosts.then_some(own.as_str());
-        if !bead_only && let Some(id) = crate::opaque_agent_id::find(query) {
-            return self.locate_opaque_owner(query, &id, &own, shown);
+        if exact {
+            return self.locate_exact_owner(query, names_hosts);
         }
-
-        let parsed = if bead_only { None } else { crate::agent_link::find(query) };
-        let mut summaries = self.owner_summaries(false);
-        let mut all = false;
-        if bead_only {
-            if !crate::beads::is_bead_id(query) {
-                return Err(RpcError::invalid_params(format!("{query:?} is not a bead id")));
-            }
-            let mut found = by_bead(&summaries, query);
-            if found.is_empty() {
-                summaries = self.owner_summaries(true);
-                all = true;
-                found = by_bead(&summaries, query);
-            }
-            if found.is_empty() {
-                return Err(RpcError::not_found(self.unfound(query, None, shown))
-                    .with_data(json!({"owner": true, "state": "missing"})));
-            }
-            let reply = self.owner_answer(found, all, &own, shown, None)?;
-            enforce_owner_reply(&reply)?;
-            return Ok(reply);
-        }
-
-        let (mut link, mut found) = match parsed.clone() {
-            Some(Err(error)) => {
-                return Err(RpcError::invalid_params(format!("not a usable agent link: {error}")));
-            }
-            Some(Ok(link)) => {
-                let found = by_link(&summaries, &link, &own);
-                (Some(link), found)
-            }
-            None => {
-                let exact_live =
-                    if exact { by_key_exact(&summaries, query, &own) } else { Vec::new() };
-                if !exact_live.is_empty() {
-                    (None, exact_live)
-                } else {
-                    summaries = self.owner_summaries(true);
-                    all = true;
-                    let exact_all =
-                        if exact { by_key_exact(&summaries, query, &own) } else { Vec::new() };
-                    if !exact_all.is_empty() {
-                        (None, exact_all)
-                    } else if exact {
-                        (None, Vec::new())
-                    } else if (!crate::beads::is_bead_id(query)
-                        || by_bead(&summaries, query).is_empty())
-                        && let Some(route) = self.key_route(query)?.filter(|route| route != query)
-                    {
-                        return self.locate_owner(route, false, false, names_hosts);
-                    } else {
-                        (None, by_key(&summaries, query, &own))
-                    }
-                }
-            }
-        };
-        if found.is_empty() && link.is_some() && !all {
-            summaries = self.owner_summaries(true);
-            all = true;
-            link = match parsed {
-                Some(Ok(link)) => Some(link),
-                _ => None,
-            };
-            found = link.as_ref().map(|link| by_link(&summaries, link, &own)).unwrap_or_default();
-        }
-        if found.is_empty() {
-            return Err(RpcError::not_found(self.unfound(query, link.as_ref(), shown))
-                .with_data(json!({"owner": true, "state": "missing"})));
-        }
-        let answer_link = if names_hosts { link } else { None };
-        let reply = self.owner_answer(found, all, &own, shown, answer_link)?;
+        let reply = self.locate_impl(query, bead_only, names_hosts, true)?;
         enforce_owner_reply(&reply)?;
-        Ok(reply)
-    }
-
-    /// Tries the local index first, then asks every connected owner concurrently under one
-    /// absolute deadline. Disconnected configured peers are unavailable immediately and keep a
-    /// bare miss unknown; they are never turned into a stored no-session result.
-    pub async fn locate_owner_peers(
-        &self,
-        query: &str,
-        bead_only: bool,
-        exact: bool,
-        names_hosts: bool,
-    ) -> Result<Value, RpcError> {
-        let query = validate_owner_query(query)?;
-        // The local index is authoritative for this daemon and is always answered first. A
-        // local miss is the only case that fans out to connected owners; malformed, ambiguous,
-        // or oversized questions remain final here.
-        match self.locate_owner(query, bead_only, exact, names_hosts) {
-            Ok(reply) => return Ok(reply),
-            Err(error) if error.code == -32002 => {}
-            Err(error) => return Err(error),
-        }
-        if crate::opaque_agent_id::find(query).is_some() {
-            return Err(RpcError::not_found(format!("no session matches {query:?}"))
-                .with_data(json!({"owner": true, "state": "missing"})));
-        }
-        let peers: Vec<_> = self
-            .connected_peers()
-            .into_iter()
-            .filter(|peer| peer.lists(crate::link_v2::FEATURE))
-            .collect();
-        let configured: Vec<String> = self
-            .peers()
-            .into_iter()
-            .filter_map(|row| row.get("name").and_then(Value::as_str).map(str::to_owned))
-            .collect();
-        let unavailable: Vec<String> = configured
-            .iter()
-            .filter(|name| !peers.iter().any(|peer| peer.name == **name))
-            .cloned()
-            .collect();
-        let target_peer = query.split_once('/').and_then(|(host, _)| {
-            configured.iter().find(|name| name.eq_ignore_ascii_case(host)).cloned()
-        });
-        if peers.is_empty() {
-            if unavailable.is_empty() {
-                return Err(RpcError::not_found(format!("no session matches {query:?}"))
-                    .with_data(json!({"owner": true, "state": "missing", "answered": []})));
-            }
-            return Err(owner_unknown(unavailable, names_hosts));
-        }
-        let params = json!({
-            "query": query,
-            "bead": bead_only,
-            "exactSessionId": exact,
-            "_meta": {"acpmux": {"ownerQuery": true}},
-        });
-        let request = async {
-            futures::future::join_all(peers.iter().map(|peer| async {
-                let name = peer.name.clone();
-                let result = peer.request(crate::rpc::method::MUX_RESOLVE, params.clone()).await;
-                (name, result)
-            }))
-            .await
-        };
-        let results = match tokio::time::timeout(OWNER_RESOLVE_DEADLINE, request).await {
-            Ok(results) => results,
-            Err(_) => {
-                return Err(owner_unknown(
-                    peers.iter().map(|p| p.name.clone()).collect(),
-                    names_hosts,
-                ));
-            }
-        };
-        let mut matches = Vec::new();
-        let mut missing = Vec::new();
-        let mut unknown = unavailable;
-        let mut collector_bytes = 0usize;
-        for (peer, result) in results {
-            match result {
-                Ok(reply) => {
-                    enforce_owner_reply(&reply)?;
-                    let Some(rows) = reply.get("matches").and_then(Value::as_array) else {
-                        unknown.push(peer);
-                        continue;
-                    };
-                    if rows.is_empty() {
-                        missing.push(peer);
-                    } else {
-                        for row in rows {
-                            let row_bytes = serde_json::to_vec(row)
-                                .map_err(|error| RpcError::internal(error.to_string()))?
-                                .len();
-                            collector_bytes = collector_bytes.saturating_add(row_bytes);
-                            if collector_bytes > OWNER_COLLECTOR_BYTES {
-                                return Err(RpcError::invalid_params(
-                                    "owner resolve result is too large",
-                                )
-                                .with_data(json!({
-                                    "owner": true,
-                                    "state": "ambiguous",
-                                    "count": matches.len() + 1,
-                                    "bytes": collector_bytes,
-                                    "limit": OWNER_COLLECTOR_BYTES,
-                                })));
-                            }
-                            let mut row = row.clone();
-                            if let Some(object) = row.as_object_mut() {
-                                if names_hosts {
-                                    object.insert("peer".into(), Value::String(peer.clone()));
-                                    object.insert("host".into(), Value::String(peer.clone()));
-                                    if let Some(id) =
-                                        object.get("sessionId").and_then(Value::as_str)
-                                    {
-                                        object.insert(
-                                            "qualifiedSessionId".into(),
-                                            Value::String(format!("{peer}/{id}")),
-                                        );
-                                    }
-                                }
-                            }
-                            matches.push(row);
-                        }
-                    }
-                }
-                Err(error) if error.code == -32002 => missing.push(peer),
-                Err(_) => unknown.push(peer),
-            }
-        }
-        if let Some(target) = target_peer
-            && missing.iter().any(|peer| peer.eq_ignore_ascii_case(&target))
-        {
-            let data = if names_hosts {
-                json!({"owner": true, "state": "missing", "peer": target})
-            } else {
-                json!({"owner": true, "state": "missing"})
-            };
-            return Err(
-                RpcError::not_found(format!("no session matches {query:?}")).with_data(data)
-            );
-        }
-        if matches.is_empty() {
-            if !unknown.is_empty() {
-                return Err(owner_unknown(unknown, names_hosts));
-            }
-            return Err(RpcError::not_found(format!("no session matches {query:?}"))
-                .with_data(json!({"owner": true, "state": "missing", "answered": missing})));
-        }
-        let mut reply = json!({"matches": matches});
-        if !unknown.is_empty() {
-            if names_hosts {
-                reply["unknownPeers"] = json!(unknown);
-            } else {
-                reply["unknownCount"] = json!(unknown.len());
-            }
-        }
-        if let Some(first) = reply.get("matches").and_then(Value::as_array).and_then(|v| v.first())
-        {
-            reply["session"] = first.clone();
-        }
-        if serde_json::to_vec(&reply).map_or(true, |bytes| bytes.len() > OWNER_COLLECTOR_BYTES) {
-            return Err(RpcError::invalid_params("owner resolve result is too large")
-                .with_data(json!({"owner": true, "state": "ambiguous", "count": reply["matches"].as_array().map_or(0, Vec::len), "limit": OWNER_COLLECTOR_BYTES})));
-        }
         Ok(reply)
     }
 
@@ -289,6 +51,18 @@ impl Hub {
         bead_only: bool,
         names_hosts: bool,
     ) -> Result<Value, RpcError> {
+        self.locate_impl(query, bead_only, names_hosts, false)
+    }
+
+    /// The v1 resolver with its input restricted to this daemon's own rows. Peer-origin
+    /// requests use this path until fan-out moves to the later watchless cut.
+    fn locate_impl(
+        &self,
+        query: &str,
+        bead_only: bool,
+        names_hosts: bool,
+        own_only: bool,
+    ) -> Result<Value, RpcError> {
         let query = query.trim();
         if query.is_empty() {
             return Err(RpcError::invalid_params(
@@ -298,13 +72,17 @@ impl Hub {
         let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
         let shown = names_hosts.then_some(own.as_str());
         if !bead_only && let Some(id) = crate::opaque_agent_id::find(query) {
-            return self.locate_opaque(query, &id, &own, shown);
+            let reply = self.locate_opaque(query, &id, &own, shown, own_only)?;
+            if own_only {
+                enforce_owner_reply(&reply)?;
+            }
+            return Ok(reply);
         }
         let parsed = if bead_only { None } else { crate::agent_link::find(query) };
         let named = parsed.as_ref().and_then(|link| link.as_ref().ok());
         let names = Names::new(query, named, bead_only);
         let keep = |r: &RemoteSession| names.may_name(r);
-        let mut summaries = self.located_summaries(&keep, false);
+        let mut summaries = self.located_summaries_for(&keep, false, own_only);
         // Whether `summaries` holds closed chats too (moved chats' targets are read as it was).
         let mut all = false;
         if bead_only {
@@ -315,14 +93,18 @@ impl Hub {
             if found.is_empty() {
                 // Closed records are retained for explicit history lookups, but are not part of
                 // the repeated live index walk.
-                summaries = self.located_summaries(&keep, true);
+                summaries = self.located_summaries_for(&keep, true, own_only);
                 found = by_bead(&summaries, query);
             }
             if found.is_empty() {
                 return Err(RpcError::not_found(self.unfound(query, None, shown)));
             }
             let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
-            return Ok(json!({"session": matches.first(), "matches": matches, "link": null}));
+            let reply = json!({"session": matches.first(), "matches": matches, "link": null});
+            if own_only {
+                enforce_owner_reply(&reply)?;
+            }
+            return Ok(reply);
         }
         let (mut link, mut found) = match parsed.clone() {
             Some(Err(e)) => {
@@ -337,7 +119,7 @@ impl Hub {
                 if !exact_live.is_empty() {
                     (None, exact_live)
                 } else {
-                    (summaries, all) = (self.located_summaries(&keep, true), true);
+                    (summaries, all) = (self.located_summaries_for(&keep, true, own_only), true);
                     let exact_all = by_key_exact(&summaries, query, &own);
                     if !exact_all.is_empty() {
                         (None, exact_all)
@@ -350,7 +132,7 @@ impl Hub {
                         // reads those first): the one session every other command finds for it
                         // (`hub/key_route.rs`: another case before a prefix, a prefix here before
                         // a name without separators); several are refused, never picked.
-                        return self.locate(&route, false, names_hosts);
+                        return self.locate_impl(&route, false, names_hosts, own_only);
                     } else {
                         (None, by_key(&summaries, query, &own))
                     }
@@ -360,7 +142,7 @@ impl Hub {
         if found.is_empty() && link.is_some() {
             // A name or id that explicitly asks for a closed chat is resolved on demand. The
             // common live lookup above never walks those records.
-            (summaries, all) = (self.located_summaries(&keep, true), true);
+            (summaries, all) = (self.located_summaries_for(&keep, true, own_only), true);
             (link, found) = match parsed.clone() {
                 Some(Err(e)) => {
                     return Err(RpcError::invalid_params(format!("not a usable agent link: {e}")));
@@ -373,7 +155,7 @@ impl Hub {
             };
         }
         if found.is_empty() && link.is_none() && !all {
-            (summaries, all) = (self.located_summaries(&keep, true), true);
+            (summaries, all) = (self.located_summaries_for(&keep, true, own_only), true);
             found = by_key(&summaries, query, &own);
         }
         if found.is_empty() {
@@ -396,15 +178,14 @@ impl Hub {
             return Err(RpcError::not_found(format!("{}; close matches: {list}", e.message))
                 .with_data(json!({"candidates": shown_close})));
         }
-        self.answer(found, all, &own, shown, link)
+        self.answer_filtered(found, all, own_only, &own, shown, link)
     }
 
-    /// `locate`'s answer for the sessions it found (newest first; `all`: read with closed chats
-    /// too): each chat that moved after where it went (`follow_moves`), as cards, and the link.
-    fn answer(
+    fn answer_filtered(
         &self,
         found: Vec<&Value>,
         all: bool,
+        own_only: bool,
         own: &str,
         shown: Option<&str>,
         link: Option<AgentLink>,
@@ -416,7 +197,7 @@ impl Hub {
             Vec::new()
         } else {
             let to = |r: &RemoteSession| targets.contains(&r.receipt.mux_session_id.as_str());
-            self.located_summaries(&to, all)
+            self.located_summaries_for(&to, all, own_only)
         };
         let found = follow_moves(found, &moved, own);
         let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
@@ -446,6 +227,7 @@ impl Hub {
         id: &str,
         own: &str,
         shown: Option<&str>,
+        own_only: bool,
     ) -> Result<Value, RpcError> {
         let unfound = || RpcError::not_found(self.unfound(query, None, shown));
         let Some(key) = crate::opaque_agent_id::Key::load(&crate::config::home()) else {
@@ -475,7 +257,7 @@ impl Hub {
         };
         let here: Vec<&str> = here.iter().map(String::as_str).collect();
         for all in [false, true] {
-            let summaries = self.located_summaries(&keep, all);
+            let summaries = self.located_summaries_for(&keep, all, own_only);
             let found: Vec<&Value> = summaries
                 .iter()
                 .filter(|s| match s["peer"].as_str() {
@@ -484,111 +266,27 @@ impl Hub {
                 })
                 .collect();
             if !found.is_empty() {
-                return self.answer(found, all, own, shown, None);
+                return self.answer_filtered(found, all, own_only, own, shown, None);
             }
         }
         Err(unfound())
     }
 
-    /// The keyed opaque selector checked on this daemon only. The key never leaves the machine
-    /// that owns it, and the owner request never consults mirrored rows.
-    fn locate_opaque_owner(
+    fn located_summaries_for(
         &self,
-        query: &str,
-        id: &str,
-        own: &str,
-        shown: Option<&str>,
-    ) -> Result<Value, RpcError> {
-        let Some(key) = crate::opaque_agent_id::Key::load(&crate::config::home()) else {
-            return Err(RpcError::not_found(format!("no session matches {query:?}"))
-                .with_data(json!({"owner": true, "state": "missing"})));
-        };
-        let mut hosts = vec![crate::pairing::machine_name()];
-        if let Ok(host) = std::env::var("CMUX_AGENT_HOST")
-            && !host.is_empty()
-            && !hosts.iter().any(|known| known.eq_ignore_ascii_case(&host))
-        {
-            hosts.push(host);
-        }
-        for closed in [false, true] {
-            let summaries = self.owner_summaries(closed);
-            let found: Vec<&Value> = summaries
-                .iter()
-                .filter(|summary| {
-                    summary["agentSessionId"].as_str().is_some_and(|session| {
-                        hosts.iter().any(|host| {
-                            minted_harnesses(family_of(summary))
-                                .any(|harness| key.id(host, harness, session) == id)
-                        })
-                    })
-                })
-                .collect();
-            if !found.is_empty() {
-                let reply = self.owner_answer(found, closed, own, shown, None)?;
-                enforce_owner_reply(&reply)?;
-                return Ok(reply);
-            }
-        }
-        Err(RpcError::not_found(format!("no session matches {query:?}"))
-            .with_data(json!({"owner": true, "state": "missing"})))
-    }
-
-    /// The v1 resolver's local rows only. Owner answers use the same key, link, bead and
-    /// closed-row passes as `locate`, but never copy a peer's mirrored table.
-    fn owner_summaries(&self, closed: bool) -> Vec<Value> {
-        let mut rows = if closed {
-            self.sessions().iter().map(|s| self.cached_closed_summary(s, true)).collect()
-        } else {
-            self.indexed_live_sessions().iter().map(|s| self.session_summary(s)).collect()
-        };
-        super::session_pages::sort_session_summaries(&mut rows);
-        rows
-    }
-
-    /// The v1 move-following pass, constrained to this daemon's own rows. An owner answer must
-    /// never pull a moved target from the mirrored peer table.
-    fn owner_answer(
-        &self,
-        found: Vec<&Value>,
-        all: bool,
-        own: &str,
-        shown: Option<&str>,
-        link: Option<AgentLink>,
-    ) -> Result<Value, RpcError> {
-        let targets: Vec<&str> =
-            found.iter().filter_map(|s| s.pointer("/movedTo/sessionId")?.as_str()).collect();
-        let summaries = self.owner_summaries(all);
-        let moved: Vec<&Value> = summaries
-            .iter()
-            .filter(|s| targets.contains(&s["sessionId"].as_str().unwrap_or_default()))
-            .copied()
-            .collect();
-        let found = follow_moves(found, &moved, own);
-        let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
-        Ok(json!({
-            "session": matches.first(),
-            "matches": matches,
-            "link": link.map(|l| json!({
-                "harness": l.harness,
-                "session": l.session,
-                "host": l.host,
-                "name": l.name,
-                "message": l.message,
-            })),
-        }))
-    }
-
-    /// The sessions `locate` reads, newest first: this daemon's (with `closed`, its closed ones
-    /// too) and the peers' rows `keep` takes, copying no other. The order is the full list's
-    /// (`all_session_summaries`), restricted to them.
-    fn located_summaries(&self, keep: &dyn Fn(&RemoteSession) -> bool, closed: bool) -> Vec<Value> {
+        keep: &dyn Fn(&RemoteSession) -> bool,
+        closed: bool,
+        own_only: bool,
+    ) -> Vec<Value> {
         let mut v: Vec<Value> = if closed {
             self.sessions().iter().map(|s| self.cached_closed_summary(s, true)).collect()
         } else {
             self.indexed_live_sessions().iter().map(|s| self.session_summary(s)).collect()
         };
-        let open = |r: &RemoteSession| !r.summary.closed();
-        self.visit_remote_sessions(|r| (closed || open(r)) && keep(r), |row| v.push(row));
+        if !own_only {
+            let open = |r: &RemoteSession| !r.summary.closed();
+            self.visit_remote_sessions(|r| (closed || open(r)) && keep(r), |row| v.push(row));
+        }
         super::session_pages::sort_session_summaries(&mut v);
         v
     }
@@ -627,6 +325,26 @@ impl Hub {
         // that derived locality with a missing value.
         let session = card(&summary, None);
         Ok(json!({"session": session}))
+    }
+
+    fn locate_exact_owner(&self, query: &str, names_hosts: bool) -> Result<Value, RpcError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Err(RpcError::invalid_params("sessionId is required"));
+        }
+        let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
+        let shown = names_hosts.then_some(own.as_str());
+        let summaries = self.located_summaries_for(&|_| true, true, true);
+        let summary = summaries
+            .iter()
+            .find(|summary| summary["sessionId"].as_str() == Some(query))
+            .ok_or_else(|| {
+                RpcError::not_found(self.unfound(query, None, shown))
+                    .with_data(json!({"owner": true, "state": "missing"}))
+            })?;
+        let reply = json!({"session": card(summary, shown)});
+        enforce_owner_reply(&reply)?;
+        Ok(reply)
     }
 
     /// Where `locate` looked, for its not-found error: this machine and its peers by name, which
@@ -688,15 +406,6 @@ fn enforce_owner_reply(reply: &Value) -> Result<(), RpcError> {
         .with_data(json!({"owner": true, "state": "ambiguous", "bytes": bytes.len(), "limit": OWNER_REPLY_BYTES})));
     }
     Ok(())
-}
-
-fn owner_unknown(peers: Vec<String>, names_hosts: bool) -> RpcError {
-    let data = if names_hosts {
-        json!({"owner": true, "state": "unknown", "peers": peers})
-    } else {
-        json!({"owner": true, "state": "unknown", "peerCount": peers.len()})
-    };
-    RpcError::new(-32000, "owner resolve is unknown; peer answers are incomplete").with_data(data)
 }
 
 /// That nothing `query` names was found `looked` ("on … or its peers").
@@ -1215,14 +924,5 @@ mod tests {
             enforce_owner_reply(&json!({"matches": ["x".repeat(OWNER_REPLY_BYTES)]})).unwrap_err();
         assert_eq!(error.code, -32602);
         assert_eq!(error.data.unwrap()["state"], "ambiguous");
-    }
-
-    #[test]
-    fn owner_unknown_names_peers_not_heard() {
-        let error = owner_unknown(vec!["alpha".into(), "beta".into()], true);
-        assert_eq!(
-            error.data.unwrap(),
-            json!({"owner": true, "state": "unknown", "peers": ["alpha", "beta"]})
-        );
     }
 }

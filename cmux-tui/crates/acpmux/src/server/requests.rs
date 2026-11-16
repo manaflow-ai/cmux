@@ -1263,12 +1263,12 @@ async fn dispatch_request_with_identity(
                 str_param(&params, "query")
                     .ok_or_else(|| RpcError::invalid_params("query is required"))?
             };
-            let query = Hub::validate_owner_selector(query)?;
             let bead_only = params.get("bead").and_then(Value::as_bool) == Some(true);
             // A peer request is always owner-only: it cannot ask this daemon to transit a
             // selector to a third machine. Local callers stay on v1 until cut E removes the
             // watched table; this additive cut must not change what a local reader sees.
             if conn.origin == Origin::Peer {
+                let query = Hub::validate_owner_selector(query)?;
                 hub.locate_owner(query, bead_only, exact, names_hosts)
             } else {
                 if exact {
