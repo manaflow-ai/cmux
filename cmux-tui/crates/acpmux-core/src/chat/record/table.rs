@@ -22,7 +22,8 @@ pub enum Entry<'a> {
     Exit { code: Value },
 }
 
-/// The actor's small record context. Repeat hashes start empty at actor start, as in v1.
+/// A chat's record context. Repeat hashes start empty at daemon start, as in v1.
+/// The registry must retain them across actor retirement and harness restarts in that run.
 /// The timing flag is reset at every harness start, including re-adoption.
 #[derive(Default)]
 pub struct Context {
