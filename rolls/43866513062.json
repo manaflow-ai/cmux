@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43866513062",
+  "recorded_at": "2026-11-16T12:33:18Z",
+  "reason": "cmux-tui 161e276eb151 changes the image's cmux-tui (pinned f12bd4c90023)",
+  "dry_run": false,
+  "cmux_tui": "161e276eb151c9e48ac8511d8304dd9c75cb9046",
+  "fixes": [
+    {
+      "sha": "161e276eb151c9e48ac8511d8304dd9c75cb9046",
+      "mergedAt": "2026-11-16T12:09:13Z",
+      "subject": "Remote desktop Connect card: the machine's name, one line, a status chip and a primary Connect (#44106)"
+    },
+    {
+      "sha": "cbc9d5632a8c748fcc66d179e7a73ea8a41659c0",
+      "mergedAt": "2026-11-16T04:00:05-08:00",
+      "subject": "startup: add bounded launch record foundation (#44351)"
+    },
+    {
+      "sha": "ae5aa80d9466b708b8edfe7f211da0f212ce10b4",
+      "mergedAt": "2026-11-16T03:53:01-08:00",
+      "subject": "Windows PCs join Remote machines with one PowerShell line (#44333)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T12:33:18Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
