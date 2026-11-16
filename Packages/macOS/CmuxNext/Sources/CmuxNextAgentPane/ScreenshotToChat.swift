@@ -57,7 +57,9 @@ public nonisolated struct ScreenshotToChat: Sendable {
         guard numbers.count == 4, numbers.allSatisfy(\.isFinite) else {
             throw BadRegion(message: "region must be four numbers")
         }
-        let rounded = numbers.map { Int($0.rounded()) }
+        // Int(exactly:): a coordinate past Int's range is refused, never a trapping conversion.
+        let rounded = numbers.compactMap { Int(exactly: $0.rounded()) }
+        guard rounded.count == 4 else { throw BadRegion(message: "region numbers must be whole points in range") }
         guard rounded[2] > 0, rounded[3] > 0 else { throw BadRegion(message: "region needs a positive width and height") }
         return .region(x: rounded[0], y: rounded[1], width: rounded[2], height: rounded[3])
     }
