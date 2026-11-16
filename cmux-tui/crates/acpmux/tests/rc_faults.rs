@@ -35,6 +35,9 @@ const ANSWER_BOUND: Duration = Duration::from_secs(30);
 
 struct Daemon {
     home: PathBuf,
+    /// Where every start of the daemon appends its stderr (outside the home, so a failing run
+    /// still reads it after the home is gone).
+    log: PathBuf,
     socket: PathBuf,
     env: Vec<(String, PathBuf)>,
     child: Option<Child>,
@@ -42,7 +45,7 @@ struct Daemon {
 }
 
 impl Daemon {
-    fn new(tag: &str, env: &[(&str, &Path)], trace: &Trace) -> Self {
+    fn new(tag: &str, log: PathBuf, env: &[(&str, &Path)], trace: &Trace) -> Self {
         use std::os::unix::fs::PermissionsExt;
         // Short, under /tmp: the socket path must stay under the macOS limit.
         let home = PathBuf::from("/tmp").join(format!("amx-rcf-{tag}-{}", std::process::id()));
@@ -55,15 +58,23 @@ impl Daemon {
         std::fs::write(home.join("config.json"), config.to_string()).unwrap();
         let socket = home.join("s.sock");
         let env = env.iter().map(|(k, v)| (k.to_string(), v.to_path_buf())).collect();
-        let mut daemon = Self { home, socket, env, child: None, trace: trace.clone() };
+        let mut daemon = Self { home, log, socket, env, child: None, trace: trace.clone() };
         daemon.start();
         daemon
+    }
+
+    fn log(&self) -> Stdio {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.log)
+            .map_or_else(|_| Stdio::null(), Stdio::from)
     }
 
     fn start(&mut self) {
         assert!(self.child.is_none());
         let child = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[])
-            .args(["daemon", "run", "--log", "warn"])
+            .args(["daemon", "run", "--log", "info"])
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
             .env("ACPMUX_CATALOG_FETCH", "0")
@@ -72,7 +83,7 @@ impl Daemon {
             .current_dir(self.home.join("p"))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(self.log())
             .spawn()
             .unwrap();
         self.trace.note(format!("acpmux started (pid {})", child.id()));
@@ -222,6 +233,13 @@ impl Client {
     }
 }
 
+/// The last `lines` lines of a log, indented under a failure.
+fn log_tail(path: &Path, lines: usize) -> String {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let all: Vec<&str> = text.lines().collect();
+    all[all.len().saturating_sub(lines)..].iter().map(|line| format!("    {line}\n")).collect()
+}
+
 fn prompt(session: &str, text: &str) -> Value {
     json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]})
 }
@@ -243,7 +261,8 @@ fn disk_full_mid_turn_loses_nothing() -> Result<(), Failed> {
         let _ = std::fs::remove_dir_all(&scratch);
         std::fs::create_dir_all(&scratch).unwrap();
         let disk = DiskFault::new(&scratch, trace);
-        let mut daemon = Daemon::new(&format!("{seed}"), &[disk.env()], trace);
+        let log = scratch.join("acpmux.log");
+        let mut daemon = Daemon::new(&format!("{seed}"), log, &[disk.env()], trace);
         let pid = daemon.recorded();
         let mut client = daemon.client();
         let session = client.call(
@@ -298,11 +317,12 @@ fn disk_full_mid_turn_loses_nothing() -> Result<(), Failed> {
         trace.note(format!("the journal holds {journal:?}"));
         daemon.stop();
         drop(daemon);
+        let daemon_log = log_tail(&scratch.join("acpmux.log"), 40);
         let _ = std::fs::remove_dir_all(&scratch);
 
         let texts =
             |words: &[(u64, String)]| words.iter().map(|(_, t)| t.clone()).collect::<Vec<_>>();
-        invariants::all([
+        let held = invariants::all([
             match exited {
                 None => Ok(()),
                 Some(status) => Err(format!("acpmux exited after space returned: {status}")),
@@ -322,6 +342,7 @@ fn disk_full_mid_turn_loses_nothing() -> Result<(), Failed> {
                 &texts(&journal),
             ),
             invariants::client_equals_journal(&journal, &seen),
-        ])
+        ]);
+        held.map_err(|why| format!("{why}\n  daemon log (tail):\n{daemon_log}"))
     })
 }
