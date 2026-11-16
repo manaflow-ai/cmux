@@ -46,7 +46,6 @@ use std::time::Duration;
 
 mod auth;
 mod held;
-mod login_spare;
 pub(crate) mod policy;
 mod reaper;
 mod spare;
@@ -401,15 +400,15 @@ impl Hub {
         self.pool_spec_in(harness, preset, cwd, None).await
     }
 
-    /// `pool_spec`; a `spare` (the shape of a session the person started in `cwd`, with that
-    /// session's model request, or a plain chat's start model for the login spare) asks for that
-    /// model and may also start in the home folder off macOS (`protected_folders::spare_refusal`).
+    /// `pool_spec`; a `spare` (the shape of a session the person started in `cwd`, `Some` with
+    /// that session's model request) asks for that model and may also start in the home folder
+    /// off macOS (`protected_folders::spare_refusal`).
     async fn pool_spec_in(
         &self,
         harness: Option<String>,
         preset: Option<String>,
         cwd: PathBuf,
-        spare: Option<spare::SpareModel>,
+        spare: Option<Option<String>>,
     ) -> Result<PoolSpec, RpcError> {
         let r = {
             let cfg = self.config.read().await;
@@ -451,8 +450,8 @@ impl Hub {
             preset: r.preset_name.clone(),
             model_request: match (spawn_model, spare) {
                 (false, _) => None,
-                (true, Some(spare::SpareModel::Asked(model))) => model,
-                (true, Some(spare::SpareModel::StartDefault) | None) => start_model(),
+                (true, Some(model)) => model,
+                (true, None) => start_model(),
             },
             cwd,
             agent_session_id: None,

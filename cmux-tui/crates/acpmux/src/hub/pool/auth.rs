@@ -54,25 +54,7 @@ enum Reader {
     GrokAuth,
     /// No account field (token files): present or not.
     Stat,
-    /// A file that shapes the agent at its start but names no account (Claude Code's user
-    /// `settings.json`, the Cloud launcher's `own`/`team` choice): its whole contents.
-    Contents,
-    /// A Cloud machine's login mark (`~/.config/cmux/agent-auth/<harness>.login`, written by
-    /// every login install, `CloudCredentialInstaller`): the cmux account and the login's digest.
-    /// The install puts the token in `settings.json` and `.credentials.json` and never writes
-    /// `~/.claude.json`, so without it another person's login left the account unchanged.
-    CmuxLogin,
 }
-
-impl Reader {
-    /// Whether the file's part counts toward the account (`fingerprint`'s second half).
-    fn names_account(self) -> bool {
-        !matches!(self, Reader::Stat | Reader::Contents)
-    }
-}
-
-/// Where a Cloud machine's login install leaves its marks, under the agent's HOME.
-pub(crate) const CMUX_AGENT_AUTH: &str = ".config/cmux/agent-auth";
 
 fn files(
     family: &str,
@@ -90,16 +72,8 @@ fn files(
                 Some(d) => d.join(".claude.json"),
                 None => home.join(".claude.json"),
             };
-            let claude_home = dir.unwrap_or_else(|| home.join(".claude"));
-            let marks = home.join(CMUX_AGENT_AUTH);
-            vec![
-                (account, Reader::ClaudeAccount),
-                (claude_home.join(".credentials.json"), Reader::Stat),
-                // Read by Claude Code once, at its start: env, model, hooks, permissions.
-                (claude_home.join("settings.json"), Reader::Contents),
-                (marks.join("claude.login"), Reader::CmuxLogin),
-                (marks.join("claude"), Reader::Contents),
-            ]
+            let creds = dir.unwrap_or_else(|| home.join(".claude")).join(".credentials.json");
+            vec![(account, Reader::ClaudeAccount), (creds, Reader::Stat)]
         }
         "codex" => {
             let dir = env("CODEX_HOME")
@@ -187,7 +161,7 @@ impl AuthCache {
             path.hash(&mut h);
             let part = self.file_part(&path, reader);
             part.hash(&mut h);
-            if reader.names_account() && part != 0 {
+            if reader != Reader::Stat && part != 0 {
                 named = true;
                 part.hash(&mut account);
             }
@@ -228,10 +202,6 @@ impl AuthCache {
 
 fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    if reader == Reader::Contents {
-        bytes.hash(&mut h);
-        return h.finish() | 1;
-    }
     let Ok(v) = serde_json::from_slice::<serde_json::Value>(bytes) else {
         // Unreadable JSON: the bytes themselves, so any change counts.
         bytes.hash(&mut h);
@@ -290,9 +260,8 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
             }
             ids.hash(&mut h);
         }
-        Reader::CmuxLogin => (s(&v, "/account"), s(&v, "/digest")).hash(&mut h),
-        // Never parsed (`file_part` counts presence only; contents are hashed whole above).
-        Reader::Stat | Reader::Contents => {}
+        // Never parsed (`file_part` counts presence only).
+        Reader::Stat => {}
     }
     h.finish() | 1
 }

@@ -211,9 +211,6 @@ impl Hub {
         self.idle_wake.notify_one();
         // Pooled sessions started under the old catalog are never served.
         self.drain_pool();
-        // The login spare starts again under the new catalog (or for the first time, when the
-        // reload turned `pool.loginSpare` on).
-        self.login_spare_start().await;
         // Nor do live agents keep running a profile's old launch: each restarts on the new
         // one between turns (`profile_respawn.rs`).
         self.spawn_profile_respawns();
