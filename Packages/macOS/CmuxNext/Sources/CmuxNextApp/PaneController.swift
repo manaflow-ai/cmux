@@ -464,7 +464,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let elsewhere = key.flatMap { $0 == takesHere ? nil : paneShowingElsewhere($0) } != nil // its one view draws in another window
         let content = BenchSpans.measure("switch.content") { () -> TabContent? in
             guard let key else { return nil }
-            return elsewhere ? elsewhereContent(key) : content(for: key)
+            return elsewhere ? self.elsewhereContent(key) : self.content(for: key)
         }
         if !elsewhere { elsewhereNotice = nil }
         let ownsView = guestTerminal?.key == key || elsewhere // not the cache's surface: the ledger never hears of it
