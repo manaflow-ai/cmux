@@ -14,7 +14,7 @@ import CmuxNextWakeups
 // restore, fork, and snapshot deletion.
 extension CloudHandlers {
     static func bindMachineActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        let cloud = context.services.cloud, rules = CloudHandlerRules()
+        let cloud = context.services.cloud, rules = CloudHandlerRules(), palette = context.services.palette; palette.sources.extraProviders.append(MachinePaletteRows(actions: MachinePaletteRows.standard(targets: { [weak palette] in palette?.sources.targets }, sshDestinations: { [weak services = context.services] in services?.machines.ssh.map(\.host).oneByDestination.map { PaletteTargetOption(id: $0.destination.description, title: $0.label, symbol: "server.rack") } ?? [] })).provider(registry: registry)) // "Connect to Machine: devbox" rows
         bind("cloudOpenMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             // An app link waits for the user after it ended: opening the

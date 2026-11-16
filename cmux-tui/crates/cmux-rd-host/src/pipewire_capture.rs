@@ -137,6 +137,12 @@ pub struct PwStream {
     /// The size negotiated first; the picture keeps it (a later resize is clipped or padded).
     pub width: u32,
     pub height: u32,
+}
+
+/// Reads the newest picture of a [`PwStream`] from another thread (the session's encode
+/// thread) while the stream's owner drains damage.
+pub struct PwFrames {
+    shared: Arc<Shared>,
     scratch: Vec<u8>,
 }
 
@@ -173,14 +179,8 @@ impl PwStream {
                     thread_shared.fail(msg);
                 }
             })?;
-        let mut me = Self {
-            shared,
-            quit: Some(quit_tx),
-            thread: Some(thread),
-            width: 0,
-            height: 0,
-            scratch: Vec::new(),
-        };
+        let mut me =
+            Self { shared, quit: Some(quit_tx), thread: Some(thread), width: 0, height: 0 };
         match ready_rx.recv_timeout(timeout) {
             Ok(Ok((w, h))) => {
                 me.width = w;
@@ -215,6 +215,13 @@ impl PwStream {
         Ok(())
     }
 
+    /// A reader of this stream's newest picture for another thread.
+    pub fn frames(&self) -> PwFrames {
+        PwFrames { shared: self.shared.clone(), scratch: Vec::new() }
+    }
+}
+
+impl PwFrames {
     /// Copies `r` of the newest picture out as BGRX rows with stride `r.w * 4`, like
     /// `Capturer::grab`. `r` is clipped to the picture.
     pub fn grab(&mut self, r: Rect) -> Res<&[u8]> {
