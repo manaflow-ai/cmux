@@ -568,7 +568,7 @@ pub(super) fn attach_surface(
         };
         hybrid_viewer = Some(viewer);
         // What `vt-state` would carry beside the screen: the terminal's colors.
-        let mut colors = initial.colors.clone();
+        let mut colors = initial.colors;
         if let Some(fields) = colors.as_object_mut() {
             fields.insert("event".into(), json!("colors-changed"));
             fields.insert("surface".into(), json!(surface_id));
