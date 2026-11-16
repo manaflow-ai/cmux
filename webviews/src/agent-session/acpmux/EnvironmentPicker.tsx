@@ -24,6 +24,7 @@ import {
 } from "./environments";
 import { TeamTag, type ActiveTeamTag } from "./TeamTag";
 import { isCloudMachineRow } from "./cloudMachines";
+import { useComposerSettings } from "./composerSettings";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
 import { useRowPresence } from "./rowPresence";
@@ -190,6 +191,7 @@ export function EnvironmentPicker({
   /// Gallery seam: the Unavailable group starts open.
   unavailableExpanded?: boolean;
 }) {
+  const { showPeerReconnectStatus } = useComposerSettings();
   // A picked saved environment is the current row: every machine row is then a change. One that is
   // only a folder on this computer leaves This Mac the current row.
   const listedSaved = useMemo(
@@ -658,7 +660,12 @@ export function EnvironmentPicker({
     const action = actions.find((candidate) => candidate.value === value);
     // Offline SSH starts can wait for the peer. Refusals that need a person remain unpickable.
     const machine = positions.get(value)?.environment;
-    if (machine && !environmentReady(machine) && !environmentQueuesStart(machine) && !isCloudMachineRow(machine))
+    if (
+      machine &&
+      !environmentReady(machine) &&
+      !environmentQueuesStart(machine, showPeerReconnectStatus) &&
+      !isCloudMachineRow(machine)
+    )
       return;
     // A move that would refuse is no pick either: its row already says why.
     if (action?.reason) return;
@@ -831,7 +838,8 @@ export function EnvironmentPicker({
     const number = numbers.get(environment.id);
     const ready = environmentReady(environment);
     // An account Cloud machine acpmux does not list is a pick (it resumes or opens), not greyed.
-    const greyed = !ready && !environmentQueuesStart(environment) && !isCloudMachineRow(environment);
+    const greyed =
+      !ready && !environmentQueuesStart(environment, showPeerReconnectStatus) && !isCloudMachineRow(environment);
     return (
       <span
         className="acpmux-location-row acpmux-env-row"
@@ -851,7 +859,9 @@ export function EnvironmentPicker({
         </span>
         {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
             Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
-        {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
+        {!ready && (
+          <span className="acpmux-env-state">{environmentStateLabel(environment, showPeerReconnectStatus)}</span>
+        )}
         {ready && environment.loadWarning && (
           <span className="acpmux-env-state" data-warning="true">
             {environment.loadWarning}

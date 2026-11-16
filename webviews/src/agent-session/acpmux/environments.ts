@@ -130,7 +130,8 @@ export function environmentReady(environment: Environment): boolean {
 
 /// A known SSH machine may keep a start queued while its daemon reconnects. Auth and version
 /// refusals still need their own action; account Cloud machines keep their existing wake path.
-export function environmentQueuesStart(environment: Environment): boolean {
+export function environmentQueuesStart(environment: Environment, showPeerReconnectStatus = false): boolean {
+  if (!showPeerReconnectStatus) return false;
   return (
     environment.kind === "ssh" &&
     !environmentReady(environment) &&

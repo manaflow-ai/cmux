@@ -19,9 +19,13 @@ const STATE_LABELS: Record<string, StringKey> = {
   paused: "composer.envPaused",
   resuming: "composer.envResuming",
 };
-export function environmentStateLabel(environment: Environment): string {
+export function environmentStateLabel(environment: Environment, showPeerReconnectStatus = false): string {
   if (isCloudMachineRow(environment)) return cloudMachineLabel(environment.cloudMachine);
-  if (environmentQueuesStart(environment) && environment.state !== "connecting" && environment.state !== "degraded")
+  if (
+    environmentQueuesStart(environment, showPeerReconnectStatus) &&
+    environment.state !== "connecting" &&
+    environment.state !== "degraded"
+  )
     return t("environment.offlineQueued");
   return t(STATE_LABELS[environment.state ?? ""] ?? "composer.envNotConnected");
 }

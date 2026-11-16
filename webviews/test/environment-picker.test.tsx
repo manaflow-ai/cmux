@@ -10,6 +10,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
+import { DEFAULT_COMPOSER, setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
@@ -96,6 +97,7 @@ beforeAll(() => {
 // environment-picker-cloud-machines.test.tsx's.
 beforeEach(async () => {
   (await import("../src/agent-session/acpmux/cloudMachines")).setCloudMachinesForTestAccount(true);
+  setComposerSettings(DEFAULT_COMPOSER);
 });
 
 afterEach(() => {
@@ -1186,6 +1188,8 @@ const daemonProps = async (extra: Record<string, unknown> = {}) => {
 };
 
 test("previews on: every machine the daemon lists, grouped; offline machines stay selectable", async () => {
+  const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ ...DEFAULT_COMPOSER, showPeerReconnectStatus: true });
   const { computers, props } = await daemonProps();
   await mount(true, props);
   await openMachines();
@@ -1206,6 +1210,7 @@ test("previews on: every machine the daemon lists, grouped; offline machines sta
   await act(async () => target.click());
   expect(computers).toEqual(["gpu-box"]);
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: gpu-box`);
+  setComposerSettings(DEFAULT_COMPOSER);
 });
 
 test("previews on: 20+ machines stay searchable by name and section", async () => {
@@ -1219,7 +1224,9 @@ test("previews on: 20+ machines stay searchable by name and section", async () =
   expect(mine.join(" ")).toBe("build-mini-2 desk-mac home-linux gpu-box");
 });
 
-test("previews off: the plain Computer menu keeps offline machines selectable in the same sections", async () => {
+test("previews off with reconnect status enabled: the plain Computer menu keeps offline machines selectable", async () => {
+  const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ ...DEFAULT_COMPOSER, showPeerReconnectStatus: true });
   const { computers, props } = await daemonProps();
   await mount(false, props);
   await openPicker();
@@ -1245,6 +1252,23 @@ test("previews off: the plain Computer menu keeps offline machines selectable in
   )!;
   await act(async () => ready.click());
   expect(computers).toEqual(["gpu-box", "desk-mac"]);
+  setComposerSettings(DEFAULT_COMPOSER);
+});
+
+test("reconnect status off: the plain Computer menu keeps offline SSH disabled", async () => {
+  const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings(DEFAULT_COMPOSER);
+  const { computers, props } = await daemonProps();
+  await mount(false, props);
+  await openPicker();
+  const offline = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].find(
+    (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
+  )!;
+  expect(offline.querySelector(".acpmux-location-name")?.getAttribute("data-ready")).toBe("false");
+  expect(offline.querySelector('.acpmux-location-name[aria-disabled="true"]')).not.toBeNull();
+  expect(offline.querySelector(".acpmux-menu-description")?.textContent).toBe(t("composer.envNotConnected"));
+  await act(async () => offline.click());
+  expect(computers).toEqual([]);
 });
 
 for (const environments of [false, true])
@@ -1375,7 +1399,7 @@ test("a warning is withheld while a machine is not ready", async () => {
     (item) => item.querySelector(".acpmux-menu-label")?.textContent === "gpu-box",
   )!;
   expect(row.querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBeNull();
-  expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe(t("environment.offlineQueued"));
+  expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe(t("composer.envNotConnected"));
 });
 
 test("turning the warning setting off updates an already-open menu", async () => {
@@ -2143,6 +2167,7 @@ test("three chips: the machine chip lists machines only, never a saved environme
 // being retired; drop retired and unreachable machines from the list, or group them at the bottom." acpmux
 // keeps no retired flag on a peer, so a machine it has not reached for UNAVAILABLE_AFTER_MS is grouped.
 test("the machine list groups machines acpmux has not reached for a while under a collapsed Unavailable row", async () => {
+  setComposerSettings({ ...DEFAULT_COMPOSER, showPeerReconnectStatus: true });
   const { UNAVAILABLE_AFTER_MS } = await import("../src/agent-session/acpmux/environments");
   const now = Date.now();
   const peers = ["gpu-box", "lane-1", "lane-2", "lane-3", "lane-4", "lane-5"];

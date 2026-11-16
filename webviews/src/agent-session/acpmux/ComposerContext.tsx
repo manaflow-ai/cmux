@@ -441,13 +441,16 @@ export function ComposerContext({
         ...(ready
           ? {}
           : {
-              ...(isCloudMachineRow(computer) || environmentQueuesStart(computer) ? {} : { disabled: true }),
-              detail: environmentStateLabel(computer),
+              ...(isCloudMachineRow(computer) ||
+              environmentQueuesStart(computer, composerSettings.showPeerReconnectStatus)
+                ? {}
+                : { disabled: true }),
+              detail: environmentStateLabel(computer, composerSettings.showPeerReconnectStatus),
             }),
         ...(ready && warning ? { warning: true, detail: warning } : {}),
       };
     });
-  }, [computers, t, warningText]);
+  }, [computers, composerSettings.showPeerReconnectStatus, t, warningText]);
   const initialComputer = computerId(summary);
   // A pick in the Computer menu holds until the chat or its computer changes; then the new chat's
   // own computer shows in the render that shows it (it followed in an effect, a frame late: the

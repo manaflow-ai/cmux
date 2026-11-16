@@ -20,7 +20,7 @@ const ROWS: [AcpmuxLink, string | null, string, boolean][] = [
   ["connecting", "connecting", "Connecting…", false],
   ["reconnecting", "connecting", "Reconnecting…", false],
   ["restarting", "connecting", "Reconnecting…", false],
-  ["degraded", "connected", "Connected", false],
+  ["degraded", "connecting", "Reconnecting…", false],
   ["offline", "offline", "Offline", true],
   ["authFailed", "offline", "Sign-in needed", false],
   ["updateRequired", "offline", "Update required", false],
@@ -51,6 +51,15 @@ test("the row says this Mac's network is down when acpmux says so", () => {
     peerLinks: { "walk-remote": { link: "offline", cause: "peerDown" } },
   });
   expect(linkWords(peerDown!, t)).toBe("Offline");
+});
+
+test("degraded is connected only when reconnect status is opted in", () => {
+  const snapshot = {
+    summary: { peer: "walk-remote" },
+    peerLinks: { "walk-remote": { link: "degraded" as const } },
+  };
+  expect(peerLink(snapshot)?.link).toBe("connecting");
+  expect(peerLink(snapshot, true)).toEqual({ machine: "walk-remote", link: "connected" });
 });
 
 test("an older daemon's state word still draws, and its whole state wins when sent", () => {

@@ -35,13 +35,13 @@ type Shown = {
   stuck?: true;
 } | null;
 
-/// Every acpmux link state in the row's terms: a link that has not finished its handshake again is on
-/// its way (`restarting`, `reconnecting`); degraded is still connected. A refused token or an old build is down and waits
-/// for a person; a paused Cloud machine is the peer copy banner's (null).
+/// Every acpmux link state in the default row terms: a link that has not finished its handshake again
+/// is on its way (`degraded`, `restarting`, `reconnecting`). A refused token or an old build is down
+/// and waits for a person; a paused Cloud machine is the peer copy banner's (null).
 export const PEER_LINKS: Record<AcpmuxLink, Shown> = {
   connected: { link: "connected" },
   connecting: { link: "connecting" },
-  degraded: { link: "connected" },
+  degraded: { link: "connecting", reconnecting: true },
   reconnecting: { link: "connecting", reconnecting: true },
   restarting: { link: "connecting", reconnecting: true },
   offline: { link: "offline" },
@@ -73,7 +73,7 @@ type LinkSnapshot = {
 /// `last_seen`, so acpmux may report a pause as `reconnecting`, and the row would spin
 /// "Reconnecting…" beside the banner's Resume. With no banner the row keeps its warning, and a step a
 /// person must take (a refused sign-in, an update: `stuck`) always stays here. O(1).
-export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
+export function peerLink(snapshot: LinkSnapshot, showPeerReconnectStatus = false): PeerLink | null {
   const peer = snapshot.summary?.peer;
   if (!peer) return null;
   const detail = snapshot.peerLinks?.[peer];
@@ -86,25 +86,26 @@ export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
         ? undefined
         : { link: connected ? "connected" : "offline" };
   if (!known) return null;
+  const shown = said === "degraded" && showPeerReconnectStatus ? { link: "connected" as const } : known;
   const cloud = snapshot.peerKinds?.[peer] === "cloud";
   const banner = snapshot.peerCopy?.offline === true && snapshot.peerCopy.peer === peer;
-  if (cloud && !known.stuck && (known.link === "offline" || (known.link !== "connected" && banner))) return null;
+  if (cloud && !shown.stuck && (shown.link === "offline" || (shown.link !== "connected" && banner))) return null;
   // One line per cause (Leo, 2026-11-14): a link the peer copy banner or the missing chat's state
   // already says is down is not said again here, on any machine. A step a person must take stays.
   const toldAbove = banner || snapshot.unavailable?.reason === "offline";
   // A delayed ping cannot prove that an offline copy has recovered. Keep that banner as the
   // single status until the daemon reports the peer connected again.
-  if (!known.stuck && (known.link !== "connected" || said === "degraded") && toldAbove) return null;
+  if (!shown.stuck && (shown.link !== "connected" || said === "degraded") && toldAbove) return null;
   const why: LinkWhy | undefined =
-    known.why ?? (known.link !== "connected" && detail?.cause === LOCAL ? LOCAL : undefined);
+    shown.why ?? (shown.link !== "connected" && detail?.cause === LOCAL ? LOCAL : undefined);
   const progress = !why ? peerReconnect(peer, detail, said) : undefined;
   return {
     machine: peer,
-    link: known.link,
-    ...(known.reconnecting ? { reconnecting: true } : {}),
+    link: shown.link,
+    ...(shown.reconnecting ? { reconnecting: true } : {}),
     ...(why ? { why } : {}),
-    ...(known.stuck ? { stuck: true } : {}),
+    ...(shown.stuck ? { stuck: true } : {}),
     ...(progress ? { progress } : {}),
-    ...(known.link !== "connected" && detail?.since !== undefined ? { since: detail.since } : {}),
+    ...(shown.link !== "connected" && detail?.since !== undefined ? { since: detail.since } : {}),
   };
 }
