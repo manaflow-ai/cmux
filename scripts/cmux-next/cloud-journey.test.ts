@@ -2575,3 +2575,25 @@ describe("preclaim MET table fields", () => {
     }
   });
 });
+
+describe("a preclaim agent start that fails says why", () => {
+  // Run 43873927808's claim 4 recorded only "agent start refused": acp ensure's exit, output and time were dropped, and
+  // the guest facts kept the journal's tail, which pushed out the own-login and acp tail sections.
+  test("the refusal names acp ensure's exit, its output and how long it ran", async () => {
+    const refused = runPreclaimChat(async () => ({ code: 0, stdout: "acp: harness claude did not start: spawn failed\n@@exit 1\n", stderr: "" }), "s", "Reply once", 1000);
+    await expect(refused).rejects.toThrow(/^preclaim s: agent start refused \(exit 1 after \d+ s\): acp: harness claude did not start: spawn failed$/);
+  });
+
+  test("an ensure the exec cut off reads as a timeout, with what it printed so far", async () => {
+    const cut = runPreclaimChat(async () => ({ code: 124, stdout: "starting claude", stderr: "" }), "s", "Reply once", 1000);
+    await expect(cut).rejects.toThrow(/^preclaim s: agent start refused \(no exit within the 120 s exec, code 124, after \d+ s\): starting claude$/);
+  });
+
+  test("a long journal never pushes the own-login and acp sections out of a failure's guest facts", () => {
+    const guest = `== own login\nyes\n== acp tail s\n{"kind":"turn_error"}\n== acp list\ns ready\n== journal\n${"x".repeat(120)}\n`.repeat(1) + "j\n".repeat(20_000);
+    const record = preclaimFailureRecord(4, new Error("agent start refused"), [], null, guest);
+    expect(record.guest).toContain("== own login\nyes");
+    expect(record.guest).toContain("== acp tail s");
+    expect(record.guest!.length).toBeLessThanOrEqual(12_000);
+  });
+});
