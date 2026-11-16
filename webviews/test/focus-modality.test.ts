@@ -259,6 +259,28 @@ describe("the build gate", () => {
     expect(gateFocusVisible(".b:focus-within")).toBe(".b:focus-within");
   });
 
+  test("left of a sibling combinator, the gate goes on the subject (Chromium restyled later siblings on every insert)", () => {
+    const g = FOCUS_RING_GATE;
+    expect(gateFocusVisible(".a:focus-visible + .b::before")).toBe(`.a:focus-visible + .b${g}::before`);
+    expect(gateFocusVisible(".x:has(:focus-visible) ~ .y")).toBe(`.x:has(:focus-visible) ~ .y${g}`);
+    expect(gateFocusVisible(".a:focus-visible ~ .b:has(:focus-visible)")).toBe(
+      `.a:focus-visible ~ .b:has(:focus-visible)${g}`,
+    );
+    // Inside an :is() on the left it stays: that :is() costs the same, and the detector refuses it.
+    expect(gateFocusVisible(".tag:is(:hover, :focus-visible) ~ svg[data-icon]")).toBe(
+      `.tag:is(:hover, :focus-visible${g}) ~ svg[data-icon]`,
+    );
+    // Each selector of a list on its own.
+    expect(gateFocusVisible(".a:focus-visible ~ .b, .c:focus-visible")).toBe(
+      `.a:focus-visible ~ .b${g}, .c:focus-visible${g}`,
+    );
+    // Inside :not() the gate negates with it, so it cannot move.
+    expect(gateFocusVisible(".a:not(:focus-visible) ~ .b")).toBe(`.a:not(:focus-visible${g}) ~ .b`);
+    // A `+` or `~` inside parentheses, brackets or a string is no combinator.
+    expect(gateFocusVisible(".r:nth-child(2n+1):focus-visible")).toBe(`.r:nth-child(2n+1):focus-visible${g}`);
+    expect(gateFocusVisible('[data-x~="y"]:focus-visible')).toBe(`[data-x~="y"]:focus-visible${g}`);
+  });
+
   test("a rule that only shows a control stays on real focus; a mixed rule gates only its ring", async () => {
     const run = async (css: string) =>
       (await postcss([focusRingGate()]).process(css, { from: undefined })).css.replace(/\}\s+/g, "}");
