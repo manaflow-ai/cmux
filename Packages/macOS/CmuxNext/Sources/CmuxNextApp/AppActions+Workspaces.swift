@@ -117,7 +117,7 @@ extension AppActions {
     /// The window whose sidebar lists `workspace`'s row: the window that owns it, else the active one.
     static func renameRowWindow(_ workspace: WorkspaceModel, _ services: AppServices) -> WindowController? {
         let windows = services.windows
-        let owner = windows.registry.value.owner(of: workspace.id).flatMap(windows.controller(for:))
+        let owner = windows.actingWindow(for: workspace.id).flatMap(windows.controller(for:))
         return [owner, windows.active].compactMap { $0 }.first { $0.sidebar.model.workspace(SidebarWorkspaceID(workspace.id)) != nil }
     }
 

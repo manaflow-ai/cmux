@@ -15,28 +15,38 @@ extension WindowManager {
     }
 
     /// The workspaces of space `profile` that window `id` lists as guests while it shows `profile`: those another open
-    /// normal window owns, in those windows' order. Empty without spaces (a home session with no space rules lists each
-    /// workspace in its own window, as before). A Home is each window's own; a workspace no session reports yet has no
-    /// space to be shared in.
-    func sharedWorkspaces(in profile: ProfileID, for id: String, registry: WindowRegistry) -> [String] {
+    /// normal window owns, in those windows' order. The default space is a space like every other: two windows on it list
+    /// each other's workspaces, also when the person made no space (a space is the same from every window). Empty until
+    /// the home session's spaces load. A Home is each window's own; a workspace no session reports yet has no space to be
+    /// shared in. `cache` holds one owner window's answer per space for one pass over the windows (`shareSpaces`).
+    func sharedWorkspaces(in profile: ProfileID, for id: String, registry: WindowRegistry, cache: inout [String: [String]]) -> [String] {
         let machines = services.machines
         // A window not opened yet (`openView`) asks for what it would list.
         guard WindowProfiles.membership(machines) != nil, registry.window(id) == nil || sharesSpaces(id, in: registry) else { return [] }
         var shared: [String] = []
         for other in registry.windows where other.id != id && sharesSpaces(other.id, in: registry) {
-            for workspace in WindowProfiles.visible(other.ownedIDs, profile: profile, machines: machines)
-            where WindowProfiles.qualified(workspace, machines: machines) != nil && services.workspace(id: workspace)?.isAnyHome != true {
-                shared.append(workspace)
+            let key = other.id + "\u{1F}" + profile.rawValue
+            if let known = cache[key] { shared += known; continue }
+            let owned = WindowProfiles.visible(other.ownedIDs, profile: profile, machines: machines).filter { workspace in
+                WindowProfiles.qualified(workspace, machines: machines) != nil && services.workspace(id: workspace)?.isAnyHome != true
             }
+            cache[key] = owned
+            shared += owned
         }
         return shared
+    }
+
+    func sharedWorkspaces(in profile: ProfileID, for id: String, registry: WindowRegistry) -> [String] {
+        var cache: [String: [String]] = [:]
+        return sharedWorkspaces(in: profile, for: id, registry: registry, cache: &cache)
     }
 
     /// Sets every window's guests for the space it shows now (one window: no guests, and nothing is read).
     func shareSpaces(_ registry: inout WindowRegistry) {
         let sharing = registry.windows.filter { sharesSpaces($0.id, in: registry) }
+        var cache: [String: [String]] = [:] // each owner window's list is filtered once per space, not once per viewer
         for window in registry.windows {
-            let guests = sharing.count > 1 ? states[window.id].map { sharedWorkspaces(in: $0.profileID, for: window.id, registry: registry) } ?? [] : []
+            let guests = sharing.count > 1 ? states[window.id].map { sharedWorkspaces(in: $0.profileID, for: window.id, registry: registry, cache: &cache) } ?? [] : []
             guard !guests.isEmpty || !window.guests.isEmpty else { continue }
             registry.setGuests(guests, of: window.id)
         }

@@ -8,7 +8,7 @@ view a terminal, that terminal must be shared".
 Steps, all through the app's own control socket (a person's keys go through `debug.key`):
 
   1. New Window (`action.run newWindow`): window B opens on a new space with its own workspace X.
-  2. Next Space (Ctrl-Opt-Cmd-L) in the first window A: A goes to B's space.
+  2. Switch Space (`space.switch`, B's space) in the first window A: A goes to B's space.
   3. Keys typed in B's terminal.
 
 Judged (`debug.windows`, `debug.surfaces {text}`):
@@ -116,7 +116,7 @@ def finish():
 before = wait(windows, 90)
 if not before:
     sys.exit("no window answered debug.windows")
-a = sorted(before)[0]
+a = next((i for i, w in sorted(before.items()) if w.get("visible")), sorted(before)[0])  # a window from before New Window
 wait(lambda: windows().get(a, {}).get("selected"), 60)
 owned_before = {w for entry in windows().values() for w in entry.get("workspaces") or []}
 
@@ -130,8 +130,11 @@ x = windows()[b]["selected"]
 wait(lambda: any(drawn(p) for panes in terminals(x) for p in panes), 60)
 listed_before = {w for entry in windows().values() for w in entry.get("workspaces") or []}
 
-# 2. Next Space in A: with the launch space and B's space, the next one is B's.
-rpc("debug.key", {"key": "l", "modifiers": ["control", "option", "cmd"], "window": a})
+# 2. A switches to B's space, named by its id (not "the next space": a build may start with more than one).
+space = windows()[b].get("space")
+rpc("debug.window.focus", {"window": a})
+switched = rpc("action.run", {"action": "space.switch", "target": "room:%s" % space, "origin": "script"})
+notes["switch"] = {"space": space, "reply": switched}
 wait(lambda: windows().get(a, {}).get("selected") == x, 20)
 time.sleep(2.0)  # test harness: a wrong build makes A's new workspace within this time
 state = windows()

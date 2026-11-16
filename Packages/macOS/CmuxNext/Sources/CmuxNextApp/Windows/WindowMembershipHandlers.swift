@@ -25,7 +25,7 @@ enum WindowMembershipHandlers {
     static func workspaces(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [String] {
         let id = try context.workspace(invocation).model.id
         let windows = context.services.windows
-        guard let owner = windows.registry.value.owner(of: id), let controller = windows.controller(for: owner) else { return [id] }
+        guard let owner = windows.actingWindow(for: id), let controller = windows.controller(for: owner) else { return [id] }
         let selection = controller.sidebar.model.orderedSelection.map(\.rawValue)
         return selection.count > 1 && selection.contains(id) ? selection : [id]
     }

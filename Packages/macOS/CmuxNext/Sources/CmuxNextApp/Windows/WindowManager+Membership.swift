@@ -73,22 +73,24 @@ extension WindowManager {
         for window in registry.repairs(only: only) {
             let state = state(for: window.id)
             let room = state.profileID
+            // Read again after each space the window enters: entering a space sets its guests (`spaceDidChange`).
+            func members() -> [String] { registry.value.window(window.id)?.workspaceIDs ?? window.workspaceIDs }
             // Its room was deleted (here or by another client); cached rooms can lag.
             if home.personal.isLoaded, !home.isProvisional, home.profile(state.profileID) == nil {
-                state.enterProfile(WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) ?? .defaultProfile)
+                state.enterProfile(WindowProfiles.fallback(for: state, members: members(), machines: machines) ?? .defaultProfile)
             }
-            var visible = WindowProfiles.shown(window.workspaceIDs, profile: state.profileID, machines: machines)
+            var visible = WindowProfiles.shown(members(), profile: state.profileID, machines: machines)
             // A window waiting for the workspace it just created in a new
             // or empty room keeps that room (asked only when the room shows nothing).
             if visible.isEmpty, !claims.pending.values.contains(window.id),
-               let fallback = WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) {
+               let fallback = WindowProfiles.fallback(for: state, members: members(), machines: machines) {
                 state.enterProfile(fallback)
-                visible = WindowProfiles.shown(window.workspaceIDs, profile: fallback, machines: machines)
+                visible = WindowProfiles.shown(members(), profile: fallback, machines: machines)
             }
             // A room change shows the workspace last shown in that room. A top page over a workspace that left stays up (a chat Bring Back took).
             var wanted = preferred[window.id] ?? [], gone = state.workspaceID.map { !visible.contains($0) } ?? false
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
-            let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
+            let prior = WindowProfiles.visible(previous[window.id] ?? members(), profile: state.profileID, machines: machines)
             registry.repairSelection(of: window.id, shown: state.workspaceID, previous: prior, members: visible, preferred: wanted, gesture: gesture, pressed: pressed, claimed: { claims.pending[$0] != nil }, orders:
                 (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? []) { select($0, in: state, keepsCreation: true, keepsPage: gone && !wanted.contains($0 ?? "")) }
         }
@@ -179,7 +181,7 @@ extension WindowManager {
     func reveal(workspaceID: String) -> WindowController? {
         let value = registry.value
         let shows = ActionRunScope.viewChangeAllowed()
-        if let owner = value.owner(of: workspaceID), value.window(owner)?.isOpen == true, let target = controller(for: owner) {
+        if let owner = actingWindow(for: workspaceID), value.window(owner)?.isOpen == true, let target = controller(for: owner) {
             if shows { select(workspaceID, in: target.state) }
             return target
         }

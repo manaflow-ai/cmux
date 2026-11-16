@@ -67,6 +67,10 @@ sidebar-owner.md. The reorder-to-first bug belongs to another agent and is not t
    - A tab with one view (browser, agent chat, page, conversation) stays in the window that showed
      it first. The other window shows "This tab is shown in another window" with Show Here
      (`TabShownElsewhereView`), which takes the view. No snapshot yet.
+   - The default space is a space like every other: two windows on it list each other's workspaces, also for a
+     person who made no space. Before, each such window listed only its own.
+   - Not restored yet: a window that owns no workspace (it shows only guests) has no record, so a relaunch does not
+     bring it back; a window that owns some comes back on the space of what it owns.
    - The owner's window closes: the first open window that lists the workspace as a guest owns it
      from then on (`WindowRegistry.close`), and the closed window's group keeps only what no window
      shows. An incognito window never shares (rule 2).
