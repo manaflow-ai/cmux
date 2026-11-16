@@ -10999,7 +10999,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// A New Tab page (the prewarmed spare among them) keeps the chat view built and hidden under it
   /// (`<Activity mode="hidden">`: rendered when React is idle, no effects), so a chat it takes
   /// (`acpmux-session-adopt`, a start from the page) only shows it and draws the chat's rows: the
-  /// adopt event's task was one ~70 ms React pass building the whole view in New Tab's place.
+  /// adopt event's task was one ~70 ms React pass building the whole view in New Tab's place. The
+  /// hidden view holds the (empty) transcript, not a new chat's hero and lists: a taken chat shows rows.
   const premountsChatView = showNewTab && !harnessesOpen;
   /// A chat view that showed and then went under a New Tab page (Cmd-T in this page, a host that
   /// answered after its error) is built again: the hidden one is always a fresh mount, as the view
@@ -13996,7 +13997,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     // Sandboxed can't run here now: the person says how the message goes instead.
                     {...(sandboxRetryable(sandboxView) ? { onPersistent: () => sandbox.setMode("persistent") } : {})}
                   />
-                ) : freshView ? (
+                ) : freshView && !premountsChatView ? (
                   <EmptyState
                     project={projectName(composerSnapshot.summary?.cwd)}
                     picker={heroPicker}
@@ -14038,22 +14039,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {/* Between the hero and the docked composer. */}
                 {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
                     Neither does a Cloud start's chat, which shows its sent message (CloudStartView). */}
-                {freshView && !sandboxHoldsChat && !viewedSandbox && !(cloudStart && !snapshot.sessionId) && (
-                  <div className="acpmux-home-area">
-                    <HomeLists
-                      sessions={snapshot.sessions}
-                      currentId={snapshot.sessionId}
-                      asks={snapshot.asks}
-                      tabs={needsYou.attentionTabs}
-                      onSelect={selectSession}
-                      onOpen={(item) =>
-                        item.kind === "tab" ? needsYou.actions.goTo(item) : selectSession(item.sessionId)
-                      }
-                      onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
-                      shortcuts={!hasBottomAsk}
-                    />
-                  </div>
-                )}
+                {freshView &&
+                  !premountsChatView &&
+                  !sandboxHoldsChat &&
+                  !viewedSandbox &&
+                  !(cloudStart && !snapshot.sessionId) && (
+                    <div className="acpmux-home-area">
+                      <HomeLists
+                        sessions={snapshot.sessions}
+                        currentId={snapshot.sessionId}
+                        asks={snapshot.asks}
+                        tabs={needsYou.attentionTabs}
+                        onSelect={selectSession}
+                        onOpen={(item) =>
+                          item.kind === "tab" ? needsYou.actions.goTo(item) : selectSession(item.sessionId)
+                        }
+                        onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
+                        shortcuts={!hasBottomAsk}
+                      />
+                    </div>
+                  )}
                 {hostLine}
                 {forkPendingLine}
                 <LiveTypingLine
