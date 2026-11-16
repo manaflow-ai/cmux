@@ -75,8 +75,10 @@ public final class TabSelectionMemory {
 
     /// Selects `tab`, which this window just made in `pane`, now that the pane lists it (`tabs`). `replaced`: the
     /// tab whose place it took (what a New Tab page turned into); else the selected tab when that is a creation's
-    /// stand-in `tabs` no longer lists. The close-selection rule keeps the two as one item.
-    public func selectMade(_ tab: String, in pane: String, inPlaceOf replaced: String?, tabs: [String]) {
+    /// stand-in `tabs` no longer lists. The close-selection rule keeps the two as one item. `standIn`: as for
+    /// `resolve`; not read yet.
+    public func selectMade(_ tab: String, in pane: String, inPlaceOf replaced: String?, tabs: [String],
+                           standIn fate: (String) -> StandInFate = { _ in .ended }) {
         let standIn = replaced ?? selected[pane].flatMap { old in ProvisionalTab.isProvisional(old) && !tabs.contains(old) ? old : nil }
         set(tab, in: pane, standIn: standIn)
     }
