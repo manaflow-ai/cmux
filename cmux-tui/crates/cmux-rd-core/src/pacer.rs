@@ -15,6 +15,13 @@
 //! (and the loss then costs a repair round trip or another keyframe).
 //! Repairs (NACK resends and tail-loss probes) go through the same pacer,
 //! ahead of queued frames.
+//!
+//! One exception, bounded: a stream's first keyframe (session start, a new
+//! stream after a resize) follows no loss and has nothing to repair, and at the
+//! low start target the pacing rate would hold the first picture back (a 300 KB
+//! keyframe at 8 Mbps: 120 ms). It may leave within one frame interval, at no
+//! more than [`START_BURST_FACTOR`] times the larger of the target and
+//! [`START_BURST_FLOOR_BPS`].
 
 use std::collections::VecDeque;
 
@@ -24,6 +31,12 @@ pub const PACING_FACTOR: f64 = 2.5;
 pub const BURST_US: u64 = 2_000;
 /// Datagrams one wakeup may always send, however low the rate.
 pub const MIN_BURST_DATAGRAMS: usize = 4;
+/// A start keyframe's rate is at most this multiple of
+/// `max(target, START_BURST_FLOOR_BPS)`.
+pub const START_BURST_FACTOR: f64 = 4.0;
+/// The target a start keyframe's bound assumes at least: the controller's LAN
+/// start rate (`CcConfig::lan_start_bps`).
+pub const START_BURST_FLOOR_BPS: u64 = 30_000_000;
 
 #[derive(Debug, Default)]
 pub struct Pacer {
@@ -37,6 +50,11 @@ pub struct Pacer {
     rate_bytes_per_us: f64,
     budget_bytes: f64,
     last_us: Option<u64>,
+    /// Datagrams of a start keyframe still queued, and the rate they may leave at.
+    start_datagrams: usize,
+    start_rate_bytes_per_us: f64,
+    /// `PACING_FACTOR` times the last target.
+    floor_bytes_per_us: f64,
 }
 
 impl Pacer {
@@ -60,6 +78,26 @@ impl Pacer {
             self.queue.push_back(d);
         }
         self.set_rate(target_bps);
+    }
+
+    /// Queues a stream's first keyframe (session start, a new stream after a
+    /// resize): like [`Pacer::push_frame`], but it may leave within
+    /// `frame_interval_us`, at no more than [`START_BURST_FACTOR`] times
+    /// `max(target_bps, START_BURST_FLOOR_BPS)`. Never for a keyframe that
+    /// answers loss: that one leaves at the pacing rate.
+    pub fn push_start_keyframe(
+        &mut self,
+        datagrams: Vec<Vec<u8>>,
+        target_bps: u64,
+        frame_interval_us: u64,
+        now_us: u64,
+    ) {
+        let bytes: usize = datagrams.iter().map(Vec::len).sum();
+        let fit = bytes as f64 / frame_interval_us.max(1_000) as f64;
+        let cap = START_BURST_FACTOR * target_bps.max(START_BURST_FLOOR_BPS) as f64 / 8.0 / 1e6;
+        self.start_datagrams += datagrams.len();
+        self.start_rate_bytes_per_us = self.start_rate_bytes_per_us.max(fit.min(cap));
+        self.push_frame(datagrams, target_bps, frame_interval_us, now_us);
     }
 
     /// Queues repairs (resent datagrams of frames already sent: NACK answers,
@@ -87,9 +125,13 @@ impl Pacer {
         }
     }
 
-    /// `PACING_FACTOR` times the target, whatever is queued.
+    /// `PACING_FACTOR` times the target, whatever is queued (a start keyframe
+    /// still queued keeps its own bound).
     fn set_rate(&mut self, target_bps: u64) {
-        self.rate_bytes_per_us = target_bps as f64 * PACING_FACTOR / 8.0 / 1e6;
+        let floor = target_bps as f64 * PACING_FACTOR / 8.0 / 1e6;
+        self.floor_bytes_per_us = floor;
+        self.rate_bytes_per_us =
+            if self.start_datagrams > 0 { floor.max(self.start_rate_bytes_per_us) } else { floor };
         if self.budget_bytes <= 0.0 {
             self.budget_bytes = self.burst_bytes();
         }
@@ -119,6 +161,14 @@ impl Pacer {
                 self.repairs_queued -= 1;
             } else {
                 self.frame_datagrams_sent += 1;
+                if self.start_datagrams > 0 {
+                    self.start_datagrams -= 1;
+                    if self.start_datagrams == 0 {
+                        // The start keyframe left: what follows goes at the pacing rate.
+                        self.start_rate_bytes_per_us = 0.0;
+                        self.rate_bytes_per_us = self.floor_bytes_per_us;
+                    }
+                }
             }
             out.push(d);
         }
@@ -159,6 +209,8 @@ impl Pacer {
         self.queue.clear();
         self.queued_bytes = 0;
         self.repairs_queued = 0;
+        self.start_datagrams = 0;
+        self.start_rate_bytes_per_us = 0.0;
         self.budget_bytes = 0.0;
     }
 }
