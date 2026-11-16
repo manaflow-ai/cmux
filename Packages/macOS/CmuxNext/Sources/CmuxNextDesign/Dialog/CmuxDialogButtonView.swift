@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesignTokens
 
 /// A dialog button in its ``CmuxDialogButtonLook``: the default button a solid accent fill, a
 /// destructive one in the danger color, the others a theme gray (never the system accent), every
@@ -255,6 +256,10 @@ enum CmuxDialogMetrics {
     static var width: CGFloat { 380 * Typography.userScale }
     static var widthWithIcon: CGFloat { 432 * Typography.userScale }
     static var cardPadding: CGFloat { 16 * Typography.userScale }
+    /// The card's concentric geometry (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
+    /// inside"): the buttons on its bottom row sit ``cardPadding`` from the bottom and the sides, so the card
+    /// rounds by the button corner plus that padding.
+    static var card: ConcentricContainer { Metrics.buttonContainer(padding: cardPadding) }
     static var spacing: CGFloat { 8 * Typography.userScale }
     static var subtitleGap: CGFloat { 4 * Typography.userScale }
     static var buttonsGap: CGFloat { 12 * Typography.userScale }
@@ -266,9 +271,23 @@ enum CmuxDialogMetrics {
     static let scrollingLineCount = 8
     static let scrollingCharacterCount = 600
     /// A keyed card button: taller and rounder, with the keycap plate one inset from its top, bottom and end.
-    static var keycapButtonHeight: CGFloat { 28 * Typography.userScale }
+    /// A keyed button is as tall as an unkeyed one and rounds as every button does (Lawrence 2026-11-15: a keyed and
+    /// an unkeyed button side by side match).
+    static var keycapButtonHeight: CGFloat { buttonHeight }
     static var keycapButtonCornerRadius: CGFloat { Metrics.buttonCornerRadius }
-    static var keycapInset: CGFloat { 5 * Typography.userScale }
+    /// The chip's inset on its top, bottom and trailing side: small, so the chip keeps a round corner (the button's
+    /// less this; at 5 pt it was 3 pt and about 1 pt at compact, and read square).
+    static var keycapInset: CGFloat { 3 * Typography.userScale }
+    /// The keycap in its button (Lawrence 2026-11-15: the chips round concentrically with their button): the
+    /// button's corner, the chip's corner that less ``keycapInset``.
+    static var keycap: ConcentricContainer { ConcentricContainer(outerRadius: keycapButtonCornerRadius, padding: keycapInset) }
+    /// The smallest chip corner that still reads round, where the button's corner less the inset is less.
+    static let keycapCornerFloor: CGFloat = 2
+    /// The chip's corner on a chip `size` big: concentric with the button, at least ``keycapCornerFloor``, at most
+    /// half its height.
+    static func keycapCornerRadius(fitting size: CGSize) -> CGFloat {
+        min(max(keycap.childRadius(fitting: size), keycapCornerFloor), min(size.width, size.height) / 2)
+    }
     static var keycapPadding: CGFloat { 4 * Typography.userScale }
     static var keycapLeading: CGFloat { 12 * Typography.userScale }
     static var keycapGap: CGFloat { 8 * Typography.userScale }

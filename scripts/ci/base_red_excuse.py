@@ -4594,6 +4594,7 @@ GUARD_WORKFLOWS = {
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
         "signing-runner-variables": "reads the repository's runner variables, not the tree",
         "portable-placement": _PLACE,
+        "hot-route": _PLACE,
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
         "rust-notices-tree": _PRODUCT,
         "pr-red-checks": _PUBLISH,
