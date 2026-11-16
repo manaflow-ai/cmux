@@ -4,7 +4,7 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
-import { clientPlatformOrigin, Journey, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
+import { clientPlatformOrigin, Journey, preclaimGuestFacts, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { claudeLoginPrograms, loginBearer, loginPrograms, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
@@ -2316,5 +2316,20 @@ describe("claudeTranscriptModelsProgram", () => {
       return { code: 0, stdout, stderr: "" };
     }, "fixture-session", "Reply once", 1000);
     await expect(run).rejects.toThrow("preclaim fixture-session: reply wait exit 1: Authentication required");
+  });
+
+  test("a failed claim keeps the claimed machine's facts, scrubbed, in its private row", async () => {
+    // run 43824872130 deleted the claimed machine after "reply wait exit 1" and kept nothing that said why.
+    const commands: string[] = [];
+    const guest = await preclaimGuestFacts(async (command) => {
+      commands.push(command);
+      return { code: 0, stdout: "== own login\nno\n== acp tail s\nlogin sk-ant-oat01-secret-value expired\n", stderr: "" };
+    }, "preclaim-t-0");
+    expect(commands[0]).toContain("cmux_agent_has_own_login claude");
+    expect(commands[0]).toContain("acp tail 'preclaim-t-0'");
+    const record = preclaimFailureRecord(0, new Error("reply wait exit 1"), ["sk-ant-oat01-secret-value"], guest);
+    expect(record.guest).toContain("== own login\nno");
+    expect(record.guest).not.toContain("sk-ant-oat01-secret-value");
+    expect(preclaimFailureRecord(0, "x").guest).toBeUndefined();
   });
 });
