@@ -102,6 +102,16 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                 return {
                   gap: live.getBoundingClientRect().top - previous.getBoundingClientRect().bottom,
                   height: live.getBoundingClientRect().height,
+                  // The box transcriptGrid.ts gives it, as drawn (transcriptLiveVars on the scroller, resolved in place).
+                  box: (() => {
+                    const probe = document.createElement("div");
+                    probe.style.cssText =
+                      "position:absolute;visibility:hidden;width:0;height:var(--cv-live-step-height)";
+                    live.parentElement!.append(probe);
+                    const value = probe.getBoundingClientRect().height;
+                    probe.remove();
+                    return value;
+                  })(),
                   // Read a resolved token rather than parsing a calc() or var() expression.
                   scale: Number.parseFloat(
                     getComputedStyle(document.documentElement).getPropertyValue("--cmux-interface-scale"),
@@ -116,7 +126,9 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
               if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
                 // The live line's gap and box in a run come from one place (transcriptGrid.ts TRANSCRIPT_LIVE_STEP_BOX).
                 expect(measured.gap).toBeCloseTo(TRANSCRIPT_LIVE_STEP_GAP * interfaceScale, 1);
-                expect(measured.height).toBeCloseTo(TRANSCRIPT_LIVE_STEP_HEIGHT * interfaceScale, 1);
+                expect(measured.height).toBeCloseTo(measured.box, 1);
+                // At Interface Size 1 the drawn box is the grid's number.
+                if (interfaceScale === 1) expect(measured.box).toBeCloseTo(TRANSCRIPT_LIVE_STEP_HEIGHT, 1);
               }
               expect(measured.wholeTurnFolds).toBe(0);
               if (process.env.FAST_CHECKS_OUT) {
