@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4390016365901",
+  "notes": "notes/4390016365901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44501,
+      "title": "cmux-next: CEF engine cef-157.0.0-cmux.52 (pane.js V8 code cache, omnibox preload, chat renderer cap)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44622,
+      "title": "CmuxNext: three latency gates stamp their window when the work finishes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44614,
+      "title": "webviews: a resize drag beside a long chat stops switching off its own fast paths",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44369,
+      "title": "A New Tab page with no prewarmed page is made at its frame, not at its key",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44558,
+      "title": "perf cron: a tip's Mac parts no host takes end as no_host, so a newer tip starts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44632,
+      "title": "measure: post-update-hitches installs on quit and lets the pre-warm find the staged update",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44617,
+      "title": "cmux-tui-core: a worktree gets no block of ports from a list that is not written",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44446,
+      "title": "hot-verify plan: a commit on feat-cmux-next is planned from its first parent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44486,
+      "title": "cmux-rd: Linux screen share stops sending an IDR for every moving frame (OpenH264 scene-change IDRs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44425,
+      "title": "measure(screen): rd under kernel netem jitter on Linux, no Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44594,
+      "title": "bench_memory --app-vm: the idle app process split by region, stored by every memory-agents run (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44337,
+      "title": "base red: swift_parity waits for the re-pin of #43914's Screen Sharing catalog changes",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
