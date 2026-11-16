@@ -130,8 +130,12 @@ pub(crate) enum Found {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Available {
     pub name: String,
-    /// What enroll dials: the MagicDNS name, else the address; an ssh
-    /// config host's own name.
+    /// What enroll dials (`cmux device add ADDRESS --yes`): the person's ssh
+    /// config alias for the computer when one names it, since that alias
+    /// carries their user, key and HostKeyAlias pin (hq#11835: the MagicDNS
+    /// name failed `Host key verification failed` where the alias reached
+    /// it); else the MagicDNS name, else the address; an ssh config host's
+    /// own name.
     pub address: String,
     /// Empty for an ssh config host: nothing says what it runs until enroll reaches it.
     pub os: String,
@@ -247,6 +251,24 @@ fn parked_detail(name: &str) -> String {
 /// - network computers that are online and not a device are `available`,
 ///   then the ssh config's hosts that are neither a device nor one of
 ///   those computers (git forges left out).
+/// The person's ssh config alias for network computer `node`: one whose
+/// HostName is the node (its MagicDNS name, short name or address) first, else
+/// one named as the node is. ssh dials such an alias with the person's own
+/// user, key and known-hosts pin, which the bare MagicDNS name lacks.
+fn ssh_alias(
+    hosts: &[crate::machine_runtime::SshConfigHost],
+    node: &NetworkNode,
+) -> Option<String> {
+    let by_host_name =
+        hosts.iter().find(|h| h.host_name.as_deref().is_some_and(|name| node.answers_to(name)));
+    by_host_name
+        .or_else(|| {
+            // An alias with its own HostName goes elsewhere, whatever its name says.
+            hosts.iter().find(|h| h.host_name.is_none() && node.answers_to(&h.alias))
+        })
+        .map(|h| h.alias.clone())
+}
+
 pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkNode]) -> Listing {
     let net_name = network.kind.name();
     let mut devices: Vec<Device> = Vec::new();
@@ -420,7 +442,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
                 n.mine,
                 Available {
                     name: n.name.clone(),
-                    address: n.address(),
+                    address: ssh_alias(&sources.ssh_hosts, n).unwrap_or_else(|| n.address()),
                     os: n.os.clone(),
                     mine: n.mine,
                     found: Found::Network,

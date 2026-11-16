@@ -341,6 +341,48 @@ fn ssh_config_hosts_follow_the_network_computers_without_repeats() {
     assert_eq!(names, vec!["alpha", "build-box", "old-air", "studio-ts", "Zeta"]);
 }
 
+/// hq#11835 row 3: `cmux device list` offered `cmux device add HOST.tailnet.ts.net --yes` for a
+/// tailnet computer the person's ssh config already names, and that MagicDNS name failed `Host
+/// key verification failed` (the config pins the key under its alias) while `cmux device add
+/// HOST --yes` reached it. A computer an ssh alias names is offered by that alias.
+#[test]
+fn a_network_computer_the_ssh_config_names_is_offered_by_its_alias() {
+    let host = |alias: &str, host_name: Option<&str>| SshConfigHost {
+        alias: alias.to_owned(),
+        host_name: host_name.map(str::to_owned),
+    };
+    let address = |hosts: Vec<SshConfigHost>| {
+        let mut src = sources();
+        src.ssh_hosts = hosts;
+        let listing = model::merge(&src, tailscale_up(), &nodes());
+        let row = listing.available.iter().find(|a| a.name == "build-box").cloned().unwrap();
+        assert_eq!(row.found, model::Found::Network);
+        row.address
+    };
+    // No alias: the MagicDNS name, as before.
+    assert_eq!(address(Vec::new()), "build-box.tail1234.ts.net");
+    // Its short name as a Host (HostKeyAlias and the rest under it).
+    assert_eq!(address(vec![host("build-box", None)]), "build-box");
+    // An alias whose HostName is its MagicDNS name, short name or address wins over its name.
+    assert_eq!(
+        address(vec![host("build-box", None), host("bb", Some("build-box.tail1234.ts.net"))]),
+        "bb"
+    );
+    assert_eq!(address(vec![host("bb", Some("100.70.0.9"))]), "bb");
+    assert_eq!(address(vec![host("BB", Some("Build-Box"))]), "BB");
+    // An alias named as the node that goes elsewhere is not it.
+    assert_eq!(address(vec![host("build-box", Some("10.9.9.9"))]), "build-box.tail1234.ts.net");
+    // The printed command is the alias, a shell word.
+    let mut src = sources();
+    src.ssh_hosts = vec![host("build-box", None)];
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    let row = serde_json::to_value(&listing.available[0]).unwrap();
+    assert_eq!(
+        (row["name"].as_str(), row["address"].as_str()),
+        (Some("build-box"), Some("build-box"))
+    );
+}
+
 #[test]
 fn open_tickets_are_invites_and_spent_ones_are_not() {
     let listing = listing();
