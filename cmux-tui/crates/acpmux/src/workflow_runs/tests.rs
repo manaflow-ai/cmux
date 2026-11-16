@@ -166,9 +166,7 @@ async fn pause_waits_for_owned_runner_exit_before_resume_can_take_the_journal() 
     };
     wait_observed.await.unwrap();
     assert!(!stopping.is_finished(), "pause acknowledged before owned runner exited");
-    tokio::time::timeout(std::time::Duration::from_secs(1), cancellation.cancelled())
-        .await
-        .expect("pause did not release an in-flight activity wait");
+    assert!(cancellation.is_cancelled(), "pause did not release an in-flight activity wait");
     assert!(service.authorize_runner(&run.id, run.generation, &proof).is_err());
     allow_exit.send(()).unwrap();
     child.await.unwrap();
