@@ -2,16 +2,16 @@ import AppKit
 import CmuxNextDesignTokens
 
 /// The key that presses a dialog button, on a small rounded plate at the button's trailing end ("Not Now esc",
-/// "Turn On ↩"; Lawrence 2026-11-09). The plate sits with one inset on its top, bottom and end, and its corners
-/// follow the button's: its radius is the button's less that inset (concentric). Its ``CmuxDialogKeycapStyle`` may
-/// draw it smaller, outlined or as the bare glyph (the Keycap Playground's candidates). It takes no clicks: the button
+/// "Turn On ↩"; Lawrence 2026-11-09): the Linear-style hint (``CmuxDialogKeycapStyle/linearKbd``, Lawrence
+/// 2026-11-16), centred on the button's height one inset from its end, its corners following the button's: its radius
+/// is the button's less that inset (concentric). The Keycap Playground draws the other styles to compare. It takes no clicks: the button
 /// under it does.
 @MainActor
 final class CmuxDialogKeycapView: NSView {
     let label: ChromeLabel
     let style: CmuxDialogKeycapStyle
 
-    init(_ glyph: String, style: CmuxDialogKeycapStyle = .plate) {
+    init(_ glyph: String, style: CmuxDialogKeycapStyle = .linearKbd) {
         label = ChromeLabel(labelWithString: glyph)
         self.style = style
         super.init(frame: .zero)
