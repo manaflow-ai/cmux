@@ -738,25 +738,37 @@ public final class ScreenStreamHost: @unchecked Sendable {
         private var sent = SentCursorShapes()
         private var shape: String?
         private var display: CGRect?
+        /// One encoded replacement, retried by the existing sampling tick without reading or rendering again.
+        private var pending: (id: String, text: String)?
 
         mutating func current(read: ScreenCursorShape?, display: CGRect, sendText: (String) -> Bool) -> String? {
             if display != self.display {
                 // Sizes are fractions of the display: another display's shapes are new ones.
                 self.display = display
                 sent.reset()
+                shape = nil
+                pending = nil
             }
             if let read {
-                if sent.needsSend(read.id) {
+                if sent.ids.contains(read.id) {
+                    _ = sent.needsSend(read.id)
+                    pending = nil
+                    shape = read.id
+                } else {
                     var message = ScreenHostMessage(t: ScreenHostMessage.cursorShapeType)
                     message.cursor = read
-                    guard let data = try? JSONEncoder().encode(message),
-                          sendText(String(decoding: data, as: UTF8.self))
-                    else {
-                        sent.reset()
-                        return shape
+                    // A fresh shape supersedes an unsent one, even if encoding fails.
+                    pending = nil
+                    if let data = try? JSONEncoder().encode(message) {
+                        pending = (read.id, String(decoding: data, as: UTF8.self))
                     }
                 }
-                shape = read.id
+            }
+            if let pending, sendText(pending.text) {
+                // A refused send must neither forget the payload nor record it as delivered.
+                _ = sent.needsSend(pending.id)
+                shape = pending.id
+                self.pending = nil
             }
             return shape
         }

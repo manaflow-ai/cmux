@@ -24,7 +24,9 @@ public struct ScreenStreamCursor: Sendable, Equatable {
         points = CGSize(width: shape.pw, height: shape.ph)
     }
 
-    public static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.size == rhs.size && lhs.hotspot == rhs.hotspot && lhs.points == rhs.points
+    }
 
     /// Where and how large to draw it on a picture `frame` pixels in size:
     /// the image's rectangle (its top left at the hotspot's offset from
@@ -61,7 +63,7 @@ package struct ScreenStreamCursorCache {
                 shapes[gone] = nil
             }
         }
-        guard shape.id == wanted, current?.id != shape.id else { return false }
+        guard shape.id == wanted, current != shape else { return false }
         current = shape
         return true
     }
@@ -76,7 +78,7 @@ package struct ScreenStreamCursorCache {
             order.remove(at: index)
             order.append(id)
         }
-        guard current?.id != id, let shape = shapes[id] else { return false }
+        guard let shape = shapes[id], current != shape else { return false }
         current = shape
         return true
     }
