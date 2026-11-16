@@ -132,6 +132,9 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
     loop {
         let mut out = Vec::new();
         if let Some(req) = pending.take() {
+            if req.force_idr {
+                tracing::info!(frame = req.frame, "DIAG fake host encodes IDR");
+            }
             painted += 1;
             // A placeholder access unit: an Annex-B start code and the frame
             // number; an IDR carries an SPS and a PPS first, as VideoToolbox's do.
@@ -165,6 +168,7 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
                     while let Ok(Some((kind, payload))) = deframer.next_frame() {
                         if kind == STREAM_DATAGRAM {
                             let o = engine.on_datagram(&payload, true, now());
+                            if let Some(r) = o.encode.as_ref() { tracing::info!(frame = r.frame, force_idr = ?r.force_idr, pending = pending.is_some(), "DIAG fake host on_datagram request"); }
                             for event in &o.inject {
                                 if let InputEvent::Service { bytes, .. } = event {
                                     let event: Value = serde_json::from_slice(bytes).unwrap_or(Value::Null);

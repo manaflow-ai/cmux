@@ -184,6 +184,9 @@ impl TrackBridge {
             self.recovery_asked_us = Some(now_us);
         }
         let need_recovery = asked || self.reassembler.need_recovery();
+        if need_recovery {
+            tracing::info!(asked, acked = self.acked, "DIAG bridge feedback need_recovery");
+        }
         let mut first = true;
         while first || !self.arrivals.is_empty() {
             let take = self.arrivals.len().min(MAX_ARRIVALS);
