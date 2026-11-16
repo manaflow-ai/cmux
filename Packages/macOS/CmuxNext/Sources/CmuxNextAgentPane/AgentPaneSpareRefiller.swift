@@ -105,6 +105,10 @@ public final class AgentPaneSpareRefiller {
     /// The latest hold for a chat that loads: only its first paint starts the settle, and a paint that comes after
     /// the make was asked again does nothing.
     private var hold = 0
+    /// The latest settle's number. A make task that was queued before it does nothing: the settle asks again. So a
+    /// chat that drew while a make waited for its frame gets no make in the frames that follow its paint, and the
+    /// handout gets one make, not two.
+    private var settles = 0
     /// The latest open's number: an earlier open's wait that a later open overtook does nothing.
     private var generation = 0
     /// From a handout until its open settled: the pool changes no parked page meanwhile (no prepare, no make).
@@ -254,19 +258,22 @@ public final class AgentPaneSpareRefiller {
     /// The open `open` settled: its make after ``settle``, unless a later open overtook it.
     private func scheduleMake(for open: Int) {
         guard open == generation else { return }
+        settles &+= 1
         timer.schedule(after: Self.settle) { @MainActor [weak self] in self?.enqueueMake(for: open) }
     }
 
     /// One background task on the app's scheduler. A frame that comes while the person's input is under way makes
     /// nothing: the make waits the settle again (the pool's quiet-input warm ends that wait when it runs first).
     /// A frame that comes while a chat page on screen has not drawn makes nothing either (``wait(for:then:)``).
+    /// A task whose frame comes after a later settle began makes nothing: that settle's make is the one.
     /// When the pool has room for more pages after a make that added one (the size rule), the next make is the next
     /// frame's task: one page for each frame, each with the same two holds. A make that added no page ends the row
     /// (the pool cannot make one now).
     private func enqueueMake(for open: Int) {
         guard open == generation else { return }
+        let asked = settles
         queue.enqueue { [weak self] in
-            guard let self, open == generation else { return }
+            guard let self, open == generation, asked == settles else { return }
             hold &+= 1
             guard !inInput() else {
                 counts.heldForInput += 1
