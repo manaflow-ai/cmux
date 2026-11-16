@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createLanes, FRAME_BUDGET_MS, INPUT_QUIET_MS, SLICE_MS, type LanesEnv } from "./lanes";
+import { createLanes, FRAME_BUDGET_MS, INPUT_QUIET_MS, NO_FRAME_MS, SLICE_MS, type LanesEnv } from "./lanes";
 
 /** A fake engine: a manual clock, a rAF queue, a task queue and timers, all run by the test. */
 function fakeEngine(options: { engineInputPending?: () => boolean } = {}) {
@@ -83,9 +83,15 @@ describe("frame lane", () => {
     const engine = fakeEngine();
     const lanes = createLanes(engine.env);
     const ran: string[] = [];
-    lanes.frame("a", () => ran.push("a1"));
-    lanes.frame("b", () => ran.push("b"));
-    lanes.frame("a", () => ran.push("a2"));
+    lanes.frame("a", () => {
+      ran.push("a1");
+    });
+    lanes.frame("b", () => {
+      ran.push("b");
+    });
+    lanes.frame("a", () => {
+      ran.push("a2");
+    });
     expect(engine.pendingFrames()).toBe(1);
     expect(ran).toEqual([]);
     await engine.frame();
@@ -177,7 +183,9 @@ describe("frame lane", () => {
         if (slice.shouldYield()) await lanes.yield();
       }
     });
-    lanes.frame("after", () => steps.push("after"));
+    lanes.frame("after", () => {
+      steps.push("after");
+    });
     await engine.frame();
     expect(steps).toEqual(["p0", "p1"]);
     await engine.tasks(1);
@@ -198,7 +206,9 @@ describe("frame lane", () => {
     const lanes = createLanes(engine.env);
     engine.setHidden(true);
     const ran: string[] = [];
-    lanes.frame("a", () => ran.push("a"));
+    lanes.frame("a", () => {
+      ran.push("a");
+    });
     expect(engine.pendingFrames()).toBe(0);
     engine.setHidden(false);
     await engine.frame();
@@ -213,7 +223,9 @@ describe("frame lane", () => {
     lanes.frame("bad", () => {
       throw new Error("boom");
     });
-    lanes.frame("good", () => ran.push("good"));
+    lanes.frame("good", () => {
+      ran.push("good");
+    });
     await engine.frame();
     expect(ran).toEqual(["good"]);
     expect(engine.errors.length).toBe(1);
@@ -250,9 +262,15 @@ describe("idle lane", () => {
     const engine = fakeEngine();
     const lanes = createLanes(engine.env);
     const ran: string[] = [];
-    lanes.frame("f", () => ran.push("frame"));
-    lanes.idle("draft", () => ran.push("draft1"));
-    lanes.idle("draft", () => ran.push("draft2"));
+    lanes.frame("f", () => {
+      ran.push("frame");
+    });
+    lanes.idle("draft", () => {
+      ran.push("draft1");
+    });
+    lanes.idle("draft", () => {
+      ran.push("draft2");
+    });
     expect(engine.pendingTasks()).toBe(0);
     await engine.frame();
     await engine.tasks();
@@ -265,7 +283,9 @@ describe("idle lane", () => {
     const lanes = createLanes(engine.env);
     const ran: string[] = [];
     engine.fire("keydown");
-    lanes.idle("draft", () => ran.push("draft"));
+    lanes.idle("draft", () => {
+      ran.push("draft");
+    });
     expect(engine.pendingTasks()).toBe(0);
     expect(engine.liveTimers()).toBe(1);
     engine.advance(10);
@@ -303,8 +323,12 @@ describe("idle lane", () => {
     const lanes = createLanes(engine.env);
     const ran: string[] = [];
     engine.fire("keydown");
-    lanes.idle("a", () => ran.push("a"));
-    lanes.idle("b", () => ran.push("b"));
+    lanes.idle("a", () => {
+      ran.push("a");
+    });
+    lanes.idle("b", () => {
+      ran.push("b");
+    });
     lanes.flush("b");
     expect(ran).toEqual(["b"]);
     lanes.flush();
@@ -317,8 +341,16 @@ describe("idle lane", () => {
     const lanes = createLanes(engine.env);
     const ran: string[] = [];
     engine.fire("keydown");
-    lanes.idle("draft", () => ran.push("draft"), { durable: true });
-    lanes.idle("presence", () => ran.push("presence"));
+    lanes.idle(
+      "draft",
+      () => {
+        ran.push("draft");
+      },
+      { durable: true },
+    );
+    lanes.idle("presence", () => {
+      ran.push("presence");
+    });
     engine.setHidden(true);
     expect(ran).toEqual(["draft"]);
     await engine.timer();
@@ -336,7 +368,13 @@ describe("idle lane", () => {
     const lanes = createLanes(engine.env);
     const ran: string[] = [];
     engine.fire("keydown");
-    lanes.idle("draft", () => ran.push("draft"), { durable: true });
+    lanes.idle(
+      "draft",
+      () => {
+        ran.push("draft");
+      },
+      { durable: true },
+    );
     engine.fire("pagehide");
     expect(ran).toEqual(["draft"]);
     lanes.dispose();
@@ -355,6 +393,34 @@ describe("yield outside a lane", () => {
     expect(done).toBe(false);
     await engine.tasks(1);
     expect(done).toBe(true);
+    lanes.dispose();
+  });
+});
+
+describe("a page that draws no frames", () => {
+  test("runs its frame work after NO_FRAME_MS, once, and the late frame does nothing", async () => {
+    const engine = fakeEngine();
+    const lanes = createLanes(engine.env);
+    const ran: string[] = [];
+    lanes.frame("a", () => {
+      ran.push("a");
+    });
+    expect(engine.liveTimers()).toBe(1);
+    engine.advance(NO_FRAME_MS);
+    await engine.timer();
+    expect(ran).toEqual(["a"]);
+    await engine.frame();
+    expect(ran).toEqual(["a"]);
+    expect(engine.liveTimers()).toBe(0);
+    lanes.dispose();
+  });
+
+  test("a frame that comes cancels the fallback", async () => {
+    const engine = fakeEngine();
+    const lanes = createLanes(engine.env);
+    lanes.frame("a", () => {});
+    await engine.frame();
+    expect(engine.liveTimers()).toBe(0);
     lanes.dispose();
   });
 });
