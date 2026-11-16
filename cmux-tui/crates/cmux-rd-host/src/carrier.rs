@@ -37,7 +37,7 @@ pub trait Carrier {
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()>;
     /// Sends one complete encoded frame. Lossy carriers may replace an older
     /// pending frame, but control traffic remains independent and reliable.
-    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>) -> io::Result<()> {
+    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, _droppable: bool) -> io::Result<()> {
         for datagram in &datagrams {
             self.send_datagram(datagram)?;
         }
@@ -185,8 +185,8 @@ impl Carrier for LinkCarrier {
         Ok(())
     }
 
-    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>) -> io::Result<()> {
-        self.net.send_datagram_frame(datagrams);
+    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, droppable: bool) -> io::Result<()> {
+        self.net.send_datagram_frame(datagrams, droppable);
         Ok(())
     }
 

@@ -172,12 +172,16 @@ enum Command {
 }
 
 /// A complete encoded media frame waiting for the link thread.
-type MediaFrame = Vec<Vec<u8>>;
+struct MediaFrame {
+    datagrams: Vec<Vec<u8>>,
+    /// Protected frames (keyframe, recovery or repair) must never be evicted.
+    droppable: bool,
+}
 
 /// The link queue keeps at most one frame pending. A new frame replaces the
 /// oldest pending frame, so media never waits behind an unbounded burst while
 /// control traffic continues to use the lossless command channel.
-const MAX_MEDIA_FRAMES: usize = 1;
+const MAX_MEDIA_FRAMES: usize = 2;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NetStats {
@@ -195,19 +199,25 @@ struct MediaQueue {
 }
 
 impl MediaQueue {
-    fn push(&mut self, frame: MediaFrame) {
-        if frame.is_empty() {
+    fn push(&mut self, datagrams: MediaFrame) {
+        if datagrams.datagrams.is_empty() {
             return;
         }
-        if self.frames.len() >= MAX_MEDIA_FRAMES {
-            if let Some(old) = self.frames.pop_front() {
-                self.dropped_frames = self.dropped_frames.saturating_add(1);
-                self.dropped_datagrams = self
-                    .dropped_datagrams
-                    .saturating_add(u64::try_from(old.len()).unwrap_or(u64::MAX));
+        if datagrams.droppable {
+            if let Some(index) = self.frames.iter().position(|frame| frame.droppable) {
+                let old = self.frames.remove(index).expect("position came from the queue");
+                self.record_drop(old);
+            } else if self.frames.len() >= MAX_MEDIA_FRAMES {
+                // Protected frames are never evicted. The newest droppable
+                // frame is rejected until one of them leaves the queue.
+                self.record_drop(datagrams);
+                return;
             }
+        } else if let Some(index) = self.frames.iter().position(|frame| frame.droppable) {
+            let old = self.frames.remove(index).expect("position came from the queue");
+            self.record_drop(old);
         }
-        self.frames.push_back(frame);
+        self.frames.push_back(datagrams);
     }
 
     fn pop(&mut self) -> Option<MediaFrame> {
@@ -217,10 +227,17 @@ impl MediaQueue {
     fn stats(&self) -> NetStats {
         NetStats {
             queue_frames: self.frames.len(),
-            queue_datagrams: self.frames.iter().map(Vec::len).sum(),
+            queue_datagrams: self.frames.iter().map(|frame| frame.datagrams.len()).sum(),
             dropped_frames: self.dropped_frames,
             dropped_datagrams: self.dropped_datagrams,
         }
+    }
+
+    fn record_drop(&mut self, frame: MediaFrame) {
+        self.dropped_frames = self.dropped_frames.saturating_add(1);
+        self.dropped_datagrams = self
+            .dropped_datagrams
+            .saturating_add(u64::try_from(frame.datagrams.len()).unwrap_or(u64::MAX));
     }
 }
 
@@ -505,14 +522,14 @@ impl Net {
 
     /// One rd datagram, sealed and sent on the current path (best effort).
     pub fn send_datagram(&self, datagram: Vec<u8>) {
-        self.send_datagram_frame(vec![datagram]);
+        self.send_datagram_frame(vec![datagram], false);
     }
 
     /// Queues one complete encoded frame. If a frame is already pending, it
     /// is evicted as a whole so no stale fragments survive into the next one.
-    pub fn send_datagram_frame(&self, datagrams: Vec<Vec<u8>>) {
+    pub fn send_datagram_frame(&self, datagrams: Vec<Vec<u8>>, droppable: bool) {
         if let Ok(mut queue) = self.media_queue.lock() {
-            queue.push(datagrams);
+            queue.push(MediaFrame { datagrams, droppable });
         }
         self.command_wake.wake();
     }
@@ -611,7 +628,7 @@ impl Driver {
         }
         let frame = self.media_queue.lock().ok().and_then(|mut queue| queue.pop());
         let Some(frame) = frame else { return Ok(()) };
-        for datagram in frame {
+        for datagram in frame.datagrams {
             for transmit in self.endpoint.send_datagram(&datagram)? {
                 self.send(transmit.route, &transmit.packet, now);
             }
@@ -1013,21 +1030,42 @@ mod tests {
     #[test]
     fn newest_frame_replaces_oldest_as_a_whole() {
         let mut queue = MediaQueue::default();
-        queue.push(vec![b"old-a".to_vec(), b"old-b".to_vec(), b"old-c".to_vec()]);
-        queue.push(vec![b"new-a".to_vec(), b"new-b".to_vec()]);
+        queue.push(MediaFrame {
+            datagrams: vec![b"old-a".to_vec(), b"old-b".to_vec(), b"old-c".to_vec()],
+            droppable: true,
+        });
+        queue.push(MediaFrame {
+            datagrams: vec![b"new-a".to_vec(), b"new-b".to_vec()],
+            droppable: true,
+        });
 
         assert_eq!(queue.stats().dropped_frames, 1);
         assert_eq!(queue.stats().dropped_datagrams, 3);
         assert_eq!(queue.stats().queue_frames, 1);
         assert_eq!(queue.stats().queue_datagrams, 2);
-        assert_eq!(queue.pop(), Some(vec![b"new-a".to_vec(), b"new-b".to_vec()]));
+        assert_eq!(
+            queue.pop().map(|frame| frame.datagrams),
+            Some(vec![b"new-a".to_vec(), b"new-b".to_vec()])
+        );
         assert!(queue.pop().is_none(), "old frame fragments must not survive");
     }
 
     #[test]
     fn empty_frame_does_not_consume_capacity_or_count_as_drop() {
         let mut queue = MediaQueue::default();
-        queue.push(Vec::new());
+        queue.push(MediaFrame { datagrams: Vec::new(), droppable: true });
         assert_eq!(queue.stats(), NetStats::default());
+    }
+
+    #[test]
+    fn protected_frames_survive_a_new_protected_frame() {
+        let mut queue = MediaQueue::default();
+        queue.push(MediaFrame { datagrams: vec![b"key".to_vec()], droppable: false });
+        queue.push(MediaFrame { datagrams: vec![b"delta".to_vec()], droppable: true });
+        queue.push(MediaFrame { datagrams: vec![b"recovery".to_vec()], droppable: false });
+
+        assert_eq!(queue.stats().dropped_datagrams, 1);
+        assert_eq!(queue.pop().map(|frame| frame.datagrams), Some(vec![b"key".to_vec()]));
+        assert_eq!(queue.pop().map(|frame| frame.datagrams), Some(vec![b"recovery".to_vec()]));
     }
 }
