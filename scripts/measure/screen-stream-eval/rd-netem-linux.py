@@ -71,6 +71,8 @@ PROFILES = {
     "stall": "delay 4ms",
 }
 STALL_PERIOD_S, STALL_HOLD_S = 5.0, 0.6
+# Extra `cmux-rd host` flags for every host this run starts (--host-arg, e.g. an encode profile).
+HOST_ARGS: list[str] = []
 PROFILE_LABELS = {
     "clean": "clean",
     "jitter-5": "5±5 ms",
@@ -544,7 +546,7 @@ def bench(rig: Rig, binary: Path, token: Path, args: list[str], timeout: float,
 def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: Path, display: str,
                     passive_s: int, samples: int) -> dict:
     row = {"schema": SCHEMA, "commit": commit, "profile": profile, "netem_each_direction": PROFILES[profile],
-           "workload": "motion", "carrier": "udp"}
+           "workload": "motion", "carrier": "udp", "host_args": HOST_ARGS}
     row["qdisc"] = rig.shape(profile)
     if profile == "stall":
         return measure_stall(rig, binary, row, scratch, display, passive_s)
@@ -559,7 +561,7 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
     with open(host_log, "wb") as log:
         host = rig.spawn(rig.host_ns, [str(binary), "host", "--owner", "owner", "--bind", HOST_IP,
                                        "--single-tenant-overlay", "1", "--display", display, "--port", str(PORT),
-                                       "--profile", "baseline", "--token-fd", "3"],
+                                       "--profile", "baseline", "--token-fd", "3", *HOST_ARGS],
                          env={"CMUX_RD_TIMING_LOG": str(timing)}, token=token, stdout=log, stderr=log)
     try:
         if not wait_for(host_log, "listening", host, 20):
@@ -602,7 +604,7 @@ def measure_stall(rig: Rig, binary: Path, row: dict, scratch: Path, display: str
     with open(host_log, "wb") as log:
         host = rig.spawn(rig.host_ns, [str(binary), "host", "--owner", "owner", "--bind", "127.0.0.1",
                                        "--display", display, "--port", str(PORT), "--profile", "baseline",
-                                       "--token-fd", "3"],
+                                       "--token-fd", "3", *HOST_ARGS],
                          env={"CMUX_RD_TIMING_LOG": str(timing)}, token=token, stdout=log, stderr=log)
     driver = StallDriver(rig)
     try:
@@ -692,6 +694,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--profile", action="append", choices=sorted(PROFILES), help="default: all five")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--repo-url", default=REPO_URL)
+    ap.add_argument("--host-arg", action="append", default=[], metavar="ARG",
+                    help="pass ARG to every `cmux-rd host` (repeat per word: --host-arg=--encode-profile --host-arg=ultra)")
     ap.add_argument("--passive-s", type=int, default=20)
     ap.add_argument("--samples", type=int, default=60)
     ap.add_argument("--deps", action="store_true", help="apt-get the build and rig packages first")
@@ -705,6 +709,7 @@ def main(argv: list[str]) -> int:
         if not re.fullmatch(r"[0-9a-f]{40}", c):
             ap.error(f"--commit {c}: a full 40-hex sha")
     profiles = args.profile or list(PROFILES)
+    HOST_ARGS[:] = args.host_arg
     args.out.mkdir(parents=True, exist_ok=True)
     if args.deps:
         ensure_deps()
