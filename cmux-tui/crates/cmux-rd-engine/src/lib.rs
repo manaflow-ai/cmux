@@ -403,10 +403,10 @@ impl MediaEngine {
     /// A paced datagram from `encoded` really left now: the controller times it from
     /// here, so pacing is not read as path delay. Other datagrams need no call.
     pub fn datagram_sent(&mut self, datagram: &[u8], now_us: u64) {
-        if let Ok((header, _)) = DatagramHeader::decode(datagram) {
-            if matches!(header.kind, DatagramKind::Video | DatagramKind::Fec) {
-                self.cc.on_departed(header.transport_seq, now_us);
-            }
+        if let Ok((header, _)) = DatagramHeader::decode(datagram)
+            && matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
+        {
+            self.cc.on_departed(header.transport_seq, now_us);
         }
     }
 

@@ -207,10 +207,10 @@ impl Trendline {
             self.history.pop_front();
         }
         let prev_trend = self.trend;
-        if self.history.len() >= TREND_MIN_POINTS {
-            if let Some(slope) = slope(&self.history) {
-                self.trend = slope;
-            }
+        if self.history.len() >= TREND_MIN_POINTS
+            && let Some(slope) = slope(&self.history)
+        {
+            self.trend = slope;
         }
         self.detect(prev_trend, send_delta_ms, arrival_ms);
         self.hypothesis
@@ -569,10 +569,10 @@ impl CongestionController {
         let target = self.target_bps as f64;
         // Do not run ahead of what the encoder sends (a quiet screen): the target
         // grows only while the stream uses a good share of it.
-        if let Some(acked) = self.acked_bps() {
-            if target > 2.0 * acked + 2_000_000.0 {
-                return;
-            }
+        if let Some(acked) = self.acked_bps()
+            && target > 2.0 * acked + 2_000_000.0
+        {
+            return;
         }
         let growth = match self.capacity_bps {
             Some(c) if target < 0.8 * c => RECOVER_GROWTH_PER_S,
@@ -584,10 +584,10 @@ impl CongestionController {
             }
         };
         let mut next = target * growth.powf(dt_s);
-        if let Some(c) = self.capacity_bps {
-            if growth == RECOVER_GROWTH_PER_S {
-                next = next.min(0.9 * c).max(target);
-            }
+        if let Some(c) = self.capacity_bps
+            && growth == RECOVER_GROWTH_PER_S
+        {
+            next = next.min(0.9 * c).max(target);
         }
         self.target_bps = next as u64;
     }

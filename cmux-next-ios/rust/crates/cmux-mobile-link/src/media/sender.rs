@@ -217,7 +217,7 @@ impl SenderCore {
         self.twcc_seq = self.twcc_seq.wrapping_add(1);
         let _ = packet.header.set_extension(self.ext_id, Bytes::copy_from_slice(&seq.to_be_bytes()));
         let bytes = (packet.payload.len() + 32) as u64;
-        self.cc.on_sent(seq, now_us);
+        self.cc.on_sent_bytes(seq, now_us, bytes as usize);
         self.loss_meter.on_sent(seq);
         if let Some(old) = self.sent.insert(seq, Sent { bytes, at_us: now_us }) {
             self.in_flight = self.in_flight.saturating_sub(old.bytes);
