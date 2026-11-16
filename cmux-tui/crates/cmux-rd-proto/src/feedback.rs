@@ -47,9 +47,11 @@ impl Feedback {
         out.extend_from_slice(&self.decode_us.to_le_bytes());
         out.push(u8::from(self.need_recovery));
         let tokens = self.acked_ltr_tokens.get(..16).unwrap_or(&self.acked_ltr_tokens);
-        out.push(tokens.len() as u8);
-        for token in tokens {
-            out.extend_from_slice(&token.to_le_bytes());
+        if !tokens.is_empty() {
+            out.push(0x80 | tokens.len() as u8);
+            for token in tokens {
+                out.extend_from_slice(&token.to_le_bytes());
+            }
         }
         let arrivals = self.arrivals.get(..MAX_ARRIVALS).unwrap_or(&self.arrivals);
         out.extend_from_slice(&(arrivals.len() as u16).to_le_bytes());
@@ -80,12 +82,19 @@ impl Feedback {
             1 => true,
             _ => return Err(DecodeError::Invalid("bool")),
         };
-        let n_tokens = r.u8()? as usize;
-        let mut acked_ltr_tokens = Vec::with_capacity(n_tokens.min(16));
-        for _ in 0..n_tokens {
-            acked_ltr_tokens.push(r.u64()?);
-        }
-        let n_arrivals = r.u16()? as usize;
+        let marker_or_arrivals = r.u8()?;
+        let mut acked_ltr_tokens = Vec::new();
+        let n_arrivals = if marker_or_arrivals & 0x80 != 0 {
+            let n_tokens = (marker_or_arrivals & 0x7f) as usize;
+            acked_ltr_tokens.reserve(n_tokens.min(16));
+            for _ in 0..n_tokens {
+                acked_ltr_tokens.push(r.u64()?);
+            }
+            r.u16()? as usize
+        } else {
+            // Version-1 feedback omitted the token section entirely.
+            u16::from_le_bytes([marker_or_arrivals, r.u8()?]) as usize
+        };
         let mut arrivals = Vec::with_capacity(n_arrivals.min(1024));
         for _ in 0..n_arrivals {
             arrivals.push(Arrival { transport_seq: r.u16()?, arrival_us: r.u32()? });

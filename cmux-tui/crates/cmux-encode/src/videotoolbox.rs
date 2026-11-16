@@ -203,6 +203,7 @@ pub struct VideoToolbox {
     name: String,
     acknowledged_ltr_tokens: Vec<u64>,
     ltr_token: Option<u64>,
+    force_ltr_refresh: bool,
 }
 
 // SAFETY: the session and buffer are used from one thread at a time (the media loop).
@@ -468,6 +469,7 @@ impl VideoToolbox {
             ),
             acknowledged_ltr_tokens: Vec::new(),
             ltr_token: None,
+            force_ltr_refresh: false,
         };
         this.apply_bitrate(this.kbps);
         Ok(this)
@@ -613,6 +615,10 @@ impl H264Encoder for VideoToolbox {
         self.acknowledged_ltr_tokens.extend_from_slice(tokens);
     }
 
+    fn set_force_ltr_refresh(&mut self, refresh: bool) {
+        self.force_ltr_refresh = refresh;
+    }
+
     fn ltr_token(&self) -> Option<u64> {
         self.ltr_token
     }
@@ -659,7 +665,8 @@ impl VideoToolbox {
                     owned_arrays.push((array, values));
                     pairs.push((kVTEncodeFrameOptionKey_AcknowledgedLTRTokens(), array));
                 }
-                if !force_idr && self.acknowledged_ltr_tokens.len() > 0 {
+                if self.force_ltr_refresh && !force_idr && !self.acknowledged_ltr_tokens.is_empty()
+                {
                     pairs.push((kVTEncodeFrameOptionKey_ForceLTRRefresh(), kCFBooleanTrue()));
                 }
             }

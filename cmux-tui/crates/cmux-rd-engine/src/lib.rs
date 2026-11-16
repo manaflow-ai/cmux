@@ -578,8 +578,7 @@ impl MediaEngine {
             ltr_token: enc.ltr_token,
             access_unit: enc.access_unit,
         };
-        let data_shards =
-            (body.access_unit.len() + FRAME_PREFIX_LEN).div_ceil(self.packetizer.shard_len());
+        let data_shards = body.encode().len().div_ceil(self.packetizer.shard_len());
         // Tile frames are standalone, so they get keyframe-grade protection.
         let parity = parity_for(data_shards, loss, enc.idr || tile);
         let flags = if tile {
