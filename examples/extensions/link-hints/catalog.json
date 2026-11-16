@@ -1,0 +1,159 @@
+{
+  "family": "local.link_hints",
+  "owner": "app:local/link-hints",
+  "operations": [
+    {
+      "name": "local.link_hints.follow",
+      "owner": "app:local/link-hints",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "tab": { "type": "string", "description": "The browser tab; cmux passes it for a page key. The focused tab when absent." } },
+        "required": []
+      },
+      "cli": { "path": "follow", "visible": true },
+      "mcp": { "expose": "never" },
+      "palette": { "title": { "en": "Link Hints: Follow a Link" } },
+      "keyboard": [{ "key": "f", "when": "browserFocused" }],
+      "docs": "Label every link and button on screen; typing a label follows it, and Shift on its last letter opens it in a new tab.",
+      "since": "local.link_hints/1",
+      "export": "followLink"
+    }
+,
+    {
+      "name": "local.link_hints.follow_new_tab",
+      "owner": "app:local/link-hints",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "tab": { "type": "string", "description": "The browser tab; cmux passes it for a page key. The focused tab when absent." } },
+        "required": []
+      },
+      "cli": { "path": "follow-new-tab", "visible": true },
+      "mcp": { "expose": "never" },
+      "palette": { "title": { "en": "Link Hints: Open a Link in a New Tab" } },
+      "keyboard": [{ "key": "shift+f", "when": "browserFocused" }],
+      "docs": "Label every link on screen; typing a label opens it in a new tab.",
+      "since": "local.link_hints/1",
+      "export": "followLinkInNewTab"
+    }
+,
+    {
+      "name": "local.link_hints.back",
+      "owner": "app:local/link-hints",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "tab": { "type": "string", "description": "The browser tab; cmux passes it for a page key. The focused tab when absent." } },
+        "required": []
+      },
+      "cli": { "path": "back", "visible": true },
+      "mcp": { "expose": "never" },
+      "palette": { "title": { "en": "Link Hints: Go Back" } },
+      "keyboard": [{ "key": "b", "when": "browserFocused" }],
+      "docs": "Go back one page.",
+      "since": "local.link_hints/1",
+      "export": "goBack"
+    }
+,
+    {
+      "name": "local.link_hints.bookmark",
+      "owner": "app:local/link-hints",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "tab": { "type": "string", "description": "The browser tab; cmux passes it for a page key. The focused tab when absent." } },
+        "required": []
+      },
+      "cli": { "path": "bookmark", "visible": true },
+      "mcp": { "expose": "never" },
+      "palette": { "title": { "en": "Link Hints: Bookmark This Page" } },
+      "keyboard": [{ "key": "a", "when": "browserFocused" }],
+      "docs": "Bookmark the page, as cmux's own Bookmark This Page does.",
+      "since": "local.link_hints/1",
+      "export": "bookmarkPage"
+    }
+,
+    {
+      "name": "local.link_hints.save_images",
+      "owner": "app:local/link-hints",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "tab": { "type": "string", "description": "The browser tab; cmux passes it for a page key. The focused tab when absent." } },
+        "required": []
+      },
+      "cli": { "path": "save-images", "visible": true },
+      "mcp": { "expose": "never" },
+      "palette": { "title": { "en": "Link Hints: Save the Page's Images" } },
+      "keyboard": [{ "key": "shift+d", "when": "browserFocused" }],
+      "docs": "Save the page's images to Downloads. Images from other sites that do not allow it are skipped.",
+      "since": "local.link_hints/1",
+      "export": "saveImages"
+    }
+,
+    {
+      "name": "local.link_hints.copy_url",
+      "owner": "app:local/link-hints",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "tab": { "type": "string", "description": "The browser tab; cmux passes it for a page key. The focused tab when absent." } },
+        "required": []
+      },
+      "cli": { "path": "copy-url", "visible": true },
+      "mcp": { "expose": "never" },
+      "palette": { "title": { "en": "Link Hints: Copy the Page's Address" } },
+      "keyboard": [{ "key": "y", "when": "browserFocused" }],
+      "docs": "Copy the page's address, as cmux's own Copy Page URL does.",
+      "since": "local.link_hints/1",
+      "export": "copyURL"
+    }
+,
+    {
+      "name": "local.link_hints.find",
+      "owner": "app:local/link-hints",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "tab": { "type": "string", "description": "The browser tab; cmux passes it for a page key. The focused tab when absent." } },
+        "required": []
+      },
+      "cli": { "path": "find", "visible": true },
+      "mcp": { "expose": "never" },
+      "palette": { "title": { "en": "Link Hints: Find on the Page" } },
+      "keyboard": [{ "key": "/", "when": "browserFocused" }],
+      "docs": "Open a find bar on the page: type to find, Return for the next match, Shift-Return for the one before, Escape to close.",
+      "since": "local.link_hints/1",
+      "export": "findOnPage"
+    }
+  ]
+}
