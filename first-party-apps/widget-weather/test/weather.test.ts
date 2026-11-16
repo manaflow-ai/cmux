@@ -16,6 +16,9 @@ const ok = (value: unknown) => ({ ok: true, body: { value } })
 const fail = (code: string, message = code) => ({ ok: false, body: { code, message, retryable: false } })
 const json = (body: unknown, status = 200) => ok({ status, body: JSON.stringify(body) })
 
+/** The mount context cmux.widget/1 passes (the runtime adds now()). */
+const ctx = (size: "small" | "medium" | "large", place = "newtab") => ({ surface: "widget", place, size, instance: "w1", settings: {}, refresh: { everySeconds: 900 } })
+
 interface Options {
   settings?: Record<string, unknown>
   locale?: string
@@ -65,16 +68,16 @@ describe("manifest", () => {
     const errors = new SchemaValidator(manifestSchema()).validate(manifest)
     expect(errors).toEqual([])
     expect(manifest.implements["cmux.widget/1"].options).toMatchObject({ sizes: ["small", "medium", "large"], places: ["newtab", "sidebar"], refresh: { everySeconds: 900 } })
-    expect(built).toContain("function renderWeather(")
+    expect(built).toContain("renderWeather: () => renderWeather")
     expect(() => readFileSync(join(dir, "BUNDLED"))).toThrow()
     readFileSync(join(dir, "STORE"))
     readFileSync(join(dir, manifest.icon))
   })
 
   test("imports nothing but the public SDK and its own files", () => {
-    for (const file of ["main.ts", "model.ts"]) {
+    for (const file of ["main.ts", "model.ts", "sample.ts"]) {
       const src = readFileSync(join(dir, "src", file), "utf8")
-      for (const [, a, b] of src.matchAll(/^import [^\n]*?from\s+"([^"]+)"|^} from "([^"]+)"/gm)) expect(["cmux-extension-sdk", "./model.ts"]).toContain((a ?? b)!)
+      for (const [, a, b] of src.matchAll(/^import [^\n]*?from\s+"([^"]+)"|^} from "([^"]+)"/gm)) expect(["cmux-extension-sdk", "./model.ts", "./sample.ts"]).toContain((a ?? b)!)
     }
   })
 })
@@ -135,7 +138,7 @@ describe("model", () => {
 describe("the widget", () => {
   test("a fresh install shows real weather with no setup: the town from the internet address, in its units", async () => {
     const { h, storage } = host()
-    expect(h.mount("s", "renderWeather", { size: "small", place: "newtab" })).toBe("")
+    expect(h.mount("s", "renderWeather", ctx("small"))).toBe("")
     await h.settle(20)
     expect(texts(h, "s")).toEqual(["Cupertino", "70°", "Sunny", "H:75° L:59°"])
     expect(symbols(h, "s")).toEqual(["location.fill", "sun.max.fill"])
@@ -147,8 +150,8 @@ describe("the widget", () => {
 
   test("medium adds six hours; large adds the days with range bars", async () => {
     const { h } = host({ locale: "en-US" })
-    h.mount("m", "renderWeather", { size: "medium" })
-    h.mount("l", "renderWeather", { size: "large" })
+    h.mount("m", "renderWeather", ctx("medium"))
+    h.mount("l", "renderWeather", ctx("large"))
     await h.settle(20)
     expect(texts(h, "m")).toEqual(["Cupertino", "70°", "Sunny", "H:75° L:59°", "10 AM", "77°", "11 AM", "80°", "12 PM", "81°", "1 PM", "81°", "2 PM", "85°", "3 PM", "88°"])
     const large = texts(h, "l")
@@ -163,7 +166,7 @@ describe("the widget", () => {
       forecast: rainDay,
       geocode: { results: [{ name: "Lisbon", admin1: "Lisbon", country: "Portugal", country_code: "PT", latitude: 38.716, longitude: -9.133 }] }
     })
-    h.mount("s", "renderWeather", { size: "small" })
+    h.mount("s", "renderWeather", ctx("small"))
     await h.settle(20)
     expect(texts(h, "s")).toEqual(["Lisbon", "14°", "Rain", "H:16° L:11°"])
     expect(symbols(h, "s")).toEqual(["cloud.rain.fill"])
@@ -173,7 +176,7 @@ describe("the widget", () => {
 
   test("the Units setting overrides; a night sky is navy; 24-hour clocks outside the US", async () => {
     const { h } = host({ settings: { units: "celsius" }, ip: places.tokyo, forecast: clearNight })
-    h.mount("m", "renderWeather", { size: "medium" })
+    h.mount("m", "renderWeather", ctx("medium"))
     await h.settle(20)
     expect(texts(h, "m").slice(0, 6)).toEqual(["Tokyo", "10°", "Clear", "H:16° L:8°", "23", "9°"])
     expect(drawn(h, "m")[0]!.props.background).toBe("#14203A")
@@ -181,7 +184,7 @@ describe("the widget", () => {
 
   test("the plain look follows the theme instead of painting a sky", async () => {
     const { h } = host({ settings: { look: "plain" } })
-    h.mount("s", "renderWeather", { size: "small" })
+    h.mount("s", "renderWeather", ctx("small"))
     await h.settle(20)
     expect(drawn(h, "s")[0]!.props.background ?? null).toBeNull()
     expect(drawn(h, "s").find((n) => n.type === "Text")!.props.color).toBe("primary")
@@ -189,11 +192,11 @@ describe("the widget", () => {
 
   test("a kept reading draws before any network read, and a young one is not read again", async () => {
     const first = host()
-    first.h.mount("s", "renderWeather", { size: "small" })
+    first.h.mount("s", "renderWeather", ctx("small"))
     await first.h.settle(20)
     const kept = Object.fromEntries(first.storage)
     const { h } = host({ storage: kept })
-    h.mount("s", "renderWeather", { size: "small" })
+    h.mount("s", "renderWeather", ctx("small"))
     await h.settle(20)
     expect(texts(h, "s")).toEqual(["Cupertino", "70°", "Sunny", "H:75° L:59°"])
     expect(fetched(h)).toEqual([])
@@ -201,15 +204,46 @@ describe("the widget", () => {
 
   test("without network access it says how to allow it", async () => {
     const { h } = host({ net: () => fail("scope.missing", "net:get.geojs.io is not granted") })
-    h.mount("s", "renderWeather", { size: "small" })
+    h.mount("s", "renderWeather", ctx("small"))
     await h.settle(20)
     expect(texts(h, "s")).toEqual(["Weather", "--°", "Allow network access for Weather in Settings > Apps."])
   })
 
-  test("it refreshes on a 15 minute timer that ends with the view", async () => {
+  test("the host's tick re-reads only when the reading is older than ten minutes, with no timer of its own", async () => {
     const { h } = host()
-    h.mount("s", "renderWeather", { size: "small" })
+    h.mount("s", "renderWeather", ctx("small"))
+    const start = Date.now()
+    h.tick("s", start)
+    await h.settle(20)
+    expect([...h.timers.values()]).toEqual([])
+    const reads = () => fetched(h).filter((u) => u.includes("api.open-meteo.com")).length
+    expect(reads()).toBe(1)
+    // A tick inside the reuse window reads nothing.
+    h.tick("s", start + 60_000)
+    await h.settle(20)
+    expect(reads()).toBe(1)
+  })
+
+  test("the Add Widget preview draws the sample and reads or writes nothing", async () => {
+    const { h, storage } = host({ locale: "en-US" })
+    h.mount("p", "renderWeather", { ...ctx("medium"), preview: true })
+    await h.settle(20)
+    expect(texts(h, "p").slice(0, 4)).toEqual(["Cupertino", "70°", "Sunny", "H:75° L:59°"])
+    expect(h.calls.filter((c) => c.name !== "app.storage.get")).toEqual([])
+    expect(storage.size).toBe(0)
+  })
+
+  test("an older host with no clock still refreshes on a 15 minute timer that ends with the view", async () => {
+    const { h } = host()
+    h.mount("s", "renderWeather", { size: "small", place: "newtab" })
     await h.settle(20)
     expect([...h.timers.values()]).toEqual([{ ms: 15 * 60_000, repeat: true }])
+  })
+
+  test("the sidebar uses the tighter inset", async () => {
+    const { h } = host()
+    h.mount("s", "renderWeather", ctx("small", "sidebar"))
+    await h.settle(20)
+    expect(drawn(h, "s")[0]!.props.padding).toBe(12)
   })
 })

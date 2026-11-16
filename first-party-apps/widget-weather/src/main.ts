@@ -5,11 +5,26 @@
 //   a fresh install shows real weather with nothing to set up.
 // - Data: Open-Meteo, no account. One read per place however many widgets show it, kept in the
 //   app's storage so a new window or a restart draws at once; re-read at most every 10 minutes,
-//   on the host's 15 minute refresh.
+//   on the host's 15 minute tick (now()).
 // - Units and clock follow the locale's region, else the place's country (Fahrenheit and 12-hour
 //   in the US); Units in Settings overrides. They apply when drawing, so changing them reads nothing.
 
-import { Button, cmux, computed, HStack, Icon, signal, Spacer, Text, VStack, type View } from "cmux-extension-sdk"
+import {
+  Button,
+  cmux,
+  computed,
+  HStack,
+  Icon,
+  signal,
+  Spacer,
+  Text,
+  VStack,
+  widget,
+  WIDGET_INSET,
+  type View,
+  type WidgetContext,
+  type WidgetSize
+} from "cmux-extension-sdk"
 import {
   describe,
   forecastURL,
@@ -35,15 +50,7 @@ import {
   type Place,
   type Units
 } from "./model.ts"
-
-export type WidgetSize = "small" | "medium" | "large"
-/** What the host passes a cmux.widget/1 export. */
-export interface WidgetContext {
-  size?: WidgetSize
-  place?: "newtab" | "sidebar"
-  settings?: Record<string, unknown>
-  instance?: string
-}
+import { SAMPLE_FORECAST, SAMPLE_PLACE } from "./sample.ts"
 
 export interface Reading {
   /** The Place setting this reading answers ("" is the automatic location). */
@@ -250,37 +257,43 @@ function waiting(look: Look, message: string | null): View {
   ])
 }
 
-export function renderWeather(ctx: WidgetContext = {}): View {
+export const renderWeather = widget((ctx: Partial<WidgetContext> = {}): View => {
   const size: WidgetSize = ctx.size ?? "small"
+  const preview = ctx.preview === true
   const settings = computed(() => ({ ...cmux.app.settings(), ...(ctx.settings ?? {}) }))
-  // The host refreshes widgets on its own budget; this timer is the floor for hosts that do not
-  // (it ends with the view, and load() shares one read between every widget).
-  cmux.timer.every(REFRESH_MS, () => void load(settings()))
+  // The host owns the clock: now() ticks on the manifest's 15 minutes while the tile is shown, and
+  // each tick asks load(), which reads only when the kept reading is older than 10 minutes. A host
+  // with no clock (an older one) gets the same cadence from a timer that ends with the view.
+  if (!ctx.now && !preview) cmux.timer.every(REFRESH_MS, () => void load(settings()))
   let seen: string | null = null
   const watchKey = () => {
-    const key = keyOf(settings())
+    if (preview) return null
+    const key = `${keyOf(settings())}|${ctx.now?.() ?? 0}`
     if (key !== seen) {
       seen = key
       void load(settings())
     }
     return null
   }
+  const shownReading = computed<Reading | null>(() =>
+    preview ? { key: keyOf(settings()), place: SAMPLE_PLACE, forecast: SAMPLE_FORECAST, at: 0 } : reading()
+  )
   const look = computed<Look>(() => {
     const s = settings()
-    const units = unitsFor(cmux.app.locale || "en", s.units, reading()?.place.country ?? "")
+    const units = unitsFor(cmux.app.locale || "en", s.units, shownReading()?.place.country ?? "")
     return s.look === "plain"
       ? { sky: false, text: cmux.theme.text.primary, secondary: cmux.theme.text.secondary, units }
       : { sky: true, text: "#FFFFFF", secondary: "#FFFFFFB3", units }
   })
   const sky = computed(() => {
     if (!look().sky) return null
-    const r = reading()
+    const r = shownReading()
     return r ? SKY_COLORS[skyFor(r.forecast.code, r.forecast.day)] : SKY_COLORS["clear-day"]
   })
   return VStack({ spacing: 0 }, [
     watchKey,
     () => {
-      const r = reading()
+      const r = shownReading()
       const l = look()
       // A reading for another place (the setting changed) is never shown as this one's weather.
       if (!r || r.key !== keyOf(settings())) return waiting(l, problem())
@@ -289,8 +302,8 @@ export function renderWeather(ctx: WidgetContext = {}): View {
       return small(r, l)
     }
   ])
-    .padding(16)
+    .padding(ctx.place === "sidebar" ? WIDGET_INSET.sidebar : WIDGET_INSET.newtab)
     .frame({ maxWidth: "infinity", maxHeight: "infinity" })
     .background(sky)
-    .contextMenu(() => [Button(t("refresh", "Refresh weather"), () => load(settings(), true))])
-}
+    .contextMenu(() => (preview ? [] : [Button(t("refresh", "Refresh weather"), () => load(settings(), true))]))
+})

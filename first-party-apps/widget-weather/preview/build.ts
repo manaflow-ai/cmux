@@ -48,7 +48,7 @@ async function scene(state: State): Promise<Op[]> {
   }
   h.handlers["app.storage.get"] = () => ok(null)
   h.handlers["app.storage.set"] = () => ok(null)
-  h.mount("w", "renderWeather", { size: state.size, place: "newtab" })
+  h.mount("w", "renderWeather", { surface: "widget", place: "newtab", size: state.size, instance: "preview", settings: {}, refresh: { everySeconds: 900 } })
   await h.settle(30)
   // The final tree as fresh create ops, children and root (one batch a renderer applies from empty).
   const tree = h.tree("w")

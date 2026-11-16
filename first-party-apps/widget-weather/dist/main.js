@@ -2330,6 +2330,10 @@
       "workspace.open_url"
     ]
   };
+  function widget(render) {
+    return render;
+  }
+  var WIDGET_INSET = { newtab: 16, sidebar: 12 };
   var API_VERSION = scopes_default.apiVersion;
   var g = globalThis;
   var RUNTIME_VERSION = String(globalThis.__cmuxAppRuntimeVersion ?? "");
@@ -2531,6 +2535,32 @@
     const max = Math.max(...days.map((d) => shown(d.high, units)));
     return { min, max: max === min ? min + 1 : max };
   }
+  var SAMPLE_PLACE = { name: "Cupertino", region: "California", country: "US", latitude: 37.323, longitude: -122.032, source: "approximate" };
+  var hours = [
+    ["10", 25, 0],
+    ["11", 26.7, 1],
+    ["12", 27.2, 2],
+    ["13", 27.2, 2],
+    ["14", 29.4, 0],
+    ["15", 31.1, 0]
+  ];
+  var days = [
+    ["2026-06-05", 0, 23.9, 15],
+    ["2026-06-06", 1, 26, 14],
+    ["2026-06-07", 2, 24, 13],
+    ["2026-06-08", 3, 21, 12],
+    ["2026-06-09", 61, 18, 11],
+    ["2026-06-10", 0, 22, 12]
+  ];
+  var SAMPLE_FORECAST = {
+    temperature: 21.1,
+    code: 0,
+    day: true,
+    high: 23.9,
+    low: 15,
+    hours: hours.map(([h, temperature, code]) => ({ time: `2026-06-05T${h}:00`, temperature, code, day: true })),
+    days: days.map(([date, code, high, low], i) => ({ date, today: i === 0, code, high, low }))
+  };
   var REUSE_MS = 10 * 60000;
   var REFRESH_MS = 15 * 60000;
   var IP_PLACE_MS = 6 * 60 * 60000;
@@ -2693,34 +2723,39 @@
       Text(message ?? t("loading", "Finding the weather near you…")).font(12).weight("medium").color(look.secondary).lineLimit(3)
     ]);
   }
-  function renderWeather(ctx = {}) {
+  var renderWeather = widget((ctx = {}) => {
     const size = ctx.size ?? "small";
+    const preview = ctx.preview === true;
     const settings = computed(() => ({ ...cmux.app.settings(), ...ctx.settings ?? {} }));
-    cmux.timer.every(REFRESH_MS, () => void load(settings()));
+    if (!ctx.now && !preview)
+      cmux.timer.every(REFRESH_MS, () => void load(settings()));
     let seen = null;
     const watchKey = () => {
-      const key = keyOf(settings());
+      if (preview)
+        return null;
+      const key = `${keyOf(settings())}|${ctx.now?.() ?? 0}`;
       if (key !== seen) {
         seen = key;
         load(settings());
       }
       return null;
     };
+    const shownReading = computed(() => preview ? { key: keyOf(settings()), place: SAMPLE_PLACE, forecast: SAMPLE_FORECAST, at: 0 } : reading());
     const look = computed(() => {
       const s = settings();
-      const units = unitsFor(cmux.app.locale || "en", s.units, reading()?.place.country ?? "");
+      const units = unitsFor(cmux.app.locale || "en", s.units, shownReading()?.place.country ?? "");
       return s.look === "plain" ? { sky: false, text: cmux.theme.text.primary, secondary: cmux.theme.text.secondary, units } : { sky: true, text: "#FFFFFF", secondary: "#FFFFFFB3", units };
     });
     const sky = computed(() => {
       if (!look().sky)
         return null;
-      const r = reading();
+      const r = shownReading();
       return r ? SKY_COLORS[skyFor(r.forecast.code, r.forecast.day)] : SKY_COLORS["clear-day"];
     });
     return VStack({ spacing: 0 }, [
       watchKey,
       () => {
-        const r = reading();
+        const r = shownReading();
         const l = look();
         if (!r || r.key !== keyOf(settings()))
           return waiting(l, problem());
@@ -2730,7 +2765,7 @@
           return medium(r, l);
         return small(r, l);
       }
-    ]).padding(16).frame({ maxWidth: "infinity", maxHeight: "infinity" }).background(sky).contextMenu(() => [Button(t("refresh", "Refresh weather"), () => load(settings(), true))]);
-  }
+    ]).padding(ctx.place === "sidebar" ? WIDGET_INSET.sidebar : WIDGET_INSET.newtab).frame({ maxWidth: "infinity", maxHeight: "infinity" }).background(sky).contextMenu(() => preview ? [] : [Button(t("refresh", "Refresh weather"), () => load(settings(), true))]);
+  });
   globalThis.__cmuxAppExports = { ...exports_main };
 })();
