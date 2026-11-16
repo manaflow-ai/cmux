@@ -1420,3 +1420,46 @@ fn first_contact_verification_errors_do_not_offer_unknown_key_acceptance() {
         assert!(!fix.contains("ssh-keygen -R"), "{fix}");
     }
 }
+
+/// A machine's running peer daemon is usable across builds and platforms.
+/// Enrollment must reach the peer handshake without pushing the caller's binary
+/// or restarting a healthy daemon owned by the remote host.
+#[test]
+fn cross_platform_enroll_keeps_a_running_daemon_of_another_build() {
+    for uname in ["Linux x86_64", "Linux aarch64", "Darwin arm64", "Darwin x86_64"] {
+        if same_platform(uname, std::env::consts::OS, std::env::consts::ARCH) {
+            continue;
+        }
+        for fix in [false, true] {
+            let fake = Fake::new(|script, _| {
+                if script == "true" {
+                    out("")
+                } else if script == probe_script().as_str() {
+                    out(format!(
+                        "uname\t{uname}\nbin\t{LOCAL_BIN}\tacpmux 0.1.0 (remote-build)\nstatus\t{LOCAL_BIN}\t{{\"pid\":7,\"build\":\"remote-build\",\"exe\":\"{LOCAL_BIN}\",\"runsAsCmuxTuiAcp\":false}}\0{CONFIG}"
+                    ))
+                } else if script.starts_with("printf 'bin=") {
+                    out(version("remote-build"))
+                } else {
+                    panic!("unexpected script on {uname}: {script}")
+                }
+            });
+            let (results, port) = machine_steps(
+                &fake,
+                &plan(&[]),
+                &Local { harness_dir: None, home: None },
+                fix,
+                &mut |_| {},
+            );
+            assert_eq!(port, 47811);
+            for result in &results[..3] {
+                assert!(
+                    matches!(result.state, StepState::Ok | StepState::Warn),
+                    "{uname}: {result:?}"
+                );
+            }
+            assert!(gate(Step::Peer, &results).is_none(), "{uname}: {results:?}");
+            assert_read_only(&fake);
+        }
+    }
+}
