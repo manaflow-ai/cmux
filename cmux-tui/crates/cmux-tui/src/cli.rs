@@ -22,6 +22,7 @@ mod agents;
 mod agents_doctor;
 #[cfg(unix)]
 mod app;
+pub(crate) mod app_action_help;
 #[cfg(unix)]
 mod app_browser_route;
 #[cfg(unix)]
@@ -148,6 +149,8 @@ pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 pub(crate) use cloud_client_session::secure_origin as secure_cloud_origin;
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
+#[cfg(unix)]
+pub(crate) use remote_host::confirm_allow_agents;
 
 /// `cmux host enable|disable|status|serve|allow|deny|list|dial` (remote
 /// hosting, every platform), on the `cmux` surface only, like the other
@@ -181,6 +184,8 @@ mod pane_identify;
 mod raw;
 #[cfg(unix)]
 mod remote_host;
+#[cfg(unix)]
+mod remote_host_grants;
 mod resolve;
 mod root_help;
 mod scope_help;
@@ -209,7 +214,10 @@ mod terminal_talk;
 mod theme_file;
 #[cfg(unix)]
 mod theme_scheme;
+// `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
+#[cfg(unix)]
+mod wallpaper;
 mod wire;
 #[cfg(unix)]
 mod workflow;
@@ -699,8 +707,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = vm_short::run_if_requested(args) {
         return code;
     }
-    // `device revoke|rotate|doctor|vault` and `device SELECTOR show` are `machine …` (`machine`
-    // is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
+    // `device revoke|rotate|doctor|vault` and `device SELECTOR show --catalog|session|doctor` are
+    // `machine …` (`machine` is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
+    // A plain `device SELECTOR show` ran in devices/mod.rs (the device list, then this route).
     #[cfg(unix)]
     let device_alias_args;
     #[cfg(unix)]
@@ -847,7 +856,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| ext::run_if_requested(args))
+        .or_else(|| ext::run_reload_config_if_requested(args))
         .or_else(|| theme_scheme::run_if_requested(args))
+        .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -1010,7 +1021,7 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         {
             false
         }
-        Some("get" | "set" | "reset" | "unset") => true,
+        Some("get" | "set" | "reset" | "unset" | "edit") => true,
         _ => false,
     }
 }
@@ -1086,6 +1097,12 @@ fn parse_command(
         && surface == Surface::Cmux
         && CMUX_TUI_ONLY_SCOPES.contains(&scope)
     {
+        // Its app verbs (`cmux sidebar add-section`) are cmux's: help lists only those.
+        let help = command_args.first().is_some_and(|word| word == "help")
+            || has_help_option(&command_args);
+        if help && app_action_help::has_section(scope) {
+            return Ok(ParsedCommand::Help(Some(format!("{scope} app-actions"))));
+        }
         return Err(not_in_cmux(scope));
     }
     // Public resource parsing owns option values and forwarded payloads. The
@@ -1112,6 +1129,9 @@ fn parse_command(
             }
             Some(scope) if surface.accepts(shorthand::scope(scope)) => {
                 Ok(ParsedCommand::Help(Some(shorthand::scope(scope).to_string())))
+            }
+            Some(scope) if app_action_help::has_section(scope) => {
+                Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) => Err(unknown_scope(scope, surface)),
         };
@@ -1141,7 +1161,9 @@ fn parse_command(
             [scope @ ("workspace" | "screen" | "pane" | "tab"), .., "rename"] => {
                 Some(format!("{scope} rename"))
             }
-            [scope, ..] if surface.accepts(scope) => Some((*scope).to_string()),
+            [scope, ..] if surface.accepts(scope) || app_action_help::has_section(scope) => {
+                Some((*scope).to_string())
+            }
             _ => None,
         };
         return Ok(ParsedCommand::Help(topic));
@@ -1487,7 +1509,13 @@ fn print_scope_help(scope: Option<&str>, surface: Surface) {
     let catalog = crate::localization::catalog();
     let text = match (scope, surface) {
         (Some("machine"), Surface::Cmux) => {
-            Cow::Owned(format!("{MACHINE_CATALOG_HELP}\n{}", surface::VM_POINTER))
+            let text = format!("{MACHINE_CATALOG_HELP}\n{}", surface::VM_POINTER);
+            Cow::Owned(app_action_help::append("machine", &text).unwrap_or(text))
+        }
+        (Some(topic), _) if topic.ends_with(" app-actions") => {
+            let scope = topic.trim_end_matches(" app-actions");
+            let usage = app_action_help::scope_only_usage(scope).unwrap_or_default();
+            Cow::Owned(app_action_help::append(scope, &usage).unwrap_or(usage))
         }
         (Some(scope), _) => scope_help(scope),
         // The root help lists `vm` itself, with `cloud` as its old name, in each language.
@@ -1569,8 +1597,13 @@ fn scope_help_with_keys(
         "raw" => Cow::Borrowed(RAW_HELP),
         #[cfg(unix)]
         "workflow" => Cow::Borrowed(workflow::HELP),
-        _ => Cow::Owned(root_help(&catalog.local_server)),
+        _ => Cow::Owned(
+            app_action_help::scope_only_usage(scope)
+                .unwrap_or_else(|| root_help(&catalog.local_server)),
+        ),
     });
+    // Every scope lists the catalog's app verbs for it (cli/app_action_help.rs).
+    let text = app_action_help::append(scope, &text).map_or(text, Cow::Owned);
     docs::append_scope_help(scope, text)
 }
 

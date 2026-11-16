@@ -16,6 +16,13 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     /// The main screen's current desktop picture, read when a window loads its backdrop. Only
     /// shown when chosen; never the default.
     case desktop
+    /// Light and Dark (`appearance.background: "appearance"`): `light` in the light appearance,
+    /// `dark` in the dark one, resolved per view (``resolved(dark:)``). Never persisted as an id.
+    indirect case pair(light: BackdropSelection, dark: BackdropSelection)
+    /// A dynamic macOS wallpaper (`system:` path) pinned to one moment of its day
+    /// (`appearance.backgroundDynamic: "time"`): frame `frame` of its full picture, or while that
+    /// is not downloaded, its light or `dark` thumbnail. Never persisted as an id.
+    case moment(path: String, frame: Int, dark: Bool)
 
     /// The persisted id of ``desktop``.
     public static let desktopID = "desktop"
@@ -27,6 +34,8 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .system(let path): return "system:\(path)"
         case .file(let path): return "file:\(path)"
         case .desktop: return Self.desktopID
+        case .pair(let light, let dark): return "appearance:\(light.id)|\(dark.id)"
+        case .moment(let path, let frame, let dark): return "system:\(path)|frame:\(frame)|\(dark ? "dark" : "light")"
         }
     }
 
@@ -42,6 +51,10 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .system(let path): return Self.systemTitle(path, aerialNames: aerialNames)
         case .file(let path): return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         case .desktop: return String(localized: "backdrop.desktop.title", defaultValue: "Desktop Wallpaper", bundle: .module)
+        case .pair(let light, let dark):
+            return light == dark ? light.title(aerialNames: aerialNames)
+                : "\(light.title(aerialNames: aerialNames)) / \(dark.title(aerialNames: aerialNames))"
+        case .moment(let path, _, _): return Self.systemTitle(path, aerialNames: aerialNames)
         }
     }
 
@@ -58,7 +71,8 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     public var isVideo: Bool {
         switch self {
         case .system(let path), .file(let path): return AppleWallpapers.isVideo(path)
-        case .art, .desktop: return false
+        case .pair(let light, let dark): return light.isVideo || dark.isVideo
+        case .art, .desktop, .moment: return false
         }
     }
 
@@ -70,7 +84,8 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .art(let art): return (art.collection.rawValue, art.collection.title)
         case .file: return isVideo ? Self.videoCollection : (BackdropUserImages.collection, BackdropUserImages.collectionTitle)
         case .system: return isVideo ? Self.videoCollection : (AppleWallpapers.collection, AppleWallpapers.collectionTitle)
-        case .desktop: return nil
+        case .moment: return (AppleWallpapers.collection, AppleWallpapers.collectionTitle)
+        case .desktop, .pair: return nil
         }
     }
 
@@ -87,9 +102,11 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     public func attribution(title: String) -> String {
         switch self {
         case .art(let art): return art.attribution
-        case .system:
+        case .system, .moment:
             return String(localized: "backdrop.system.attribution", defaultValue: "macOS system wallpaper · %@", bundle: .module)
                 .replacingOccurrences(of: "%@", with: title)
+        case .pair(let light, let dark):
+            return light == dark ? light.attribution : "\(light.attribution) / \(dark.attribution)"
         case .file(let path):
             return String(localized: "backdrop.file.attribution", defaultValue: "Your image · %@", bundle: .module)
                 .replacingOccurrences(of: "%@", with: URL(fileURLWithPath: path).lastPathComponent)
@@ -102,7 +119,8 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     public var sourceURL: URL? {
         switch self {
         case .art(let art): return art.sourceURL
-        case .system, .file, .desktop: return nil
+        case .pair(let light, _): return light.sourceURL
+        case .system, .file, .desktop, .moment: return nil
         }
     }
 
@@ -112,6 +130,10 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         switch self {
         case .art(let art): return art.thumbnailURL
         case .system(let path): return appleWallpaper(path, downloads: false).map(\.thumbnail) ?? imageURL
+        case .moment(let path, _, let dark):
+            let wallpaper = appleWallpaper(path, downloads: false)
+            return (dark ? wallpaper?.darkThumbnail : wallpaper?.lightThumbnail) ?? wallpaper?.thumbnail ?? URL(fileURLWithPath: path)
+        case .pair(let light, _): return light.thumbnailURL
         case .file, .desktop: return imageURL
         }
     }
@@ -135,6 +157,10 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
             return appleWallpaper(path)?.imageURL(for: appearance) ?? URL(fileURLWithPath: path)
         case .file(let path): return URL(fileURLWithPath: path)
         case .desktop: return nil
+        case .pair(let light, let dark): return (appearance == .dark ? dark : light).imageURL(for: appearance)
+        case .moment(let path, _, let dark):
+            // The full picture holds every frame; until it downloads, the thumbnail of the moment's side.
+            return appleWallpaper(path)?.imageURL(for: dark ? .dark : .light) ?? URL(fileURLWithPath: path)
         }
     }
 
@@ -142,6 +168,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     /// wallpaper's cuts, a dynamic macOS wallpaper (downloaded or not), or a picture with a frame
     /// for each appearance. Read once per path (the cache keys images by it).
     public var followsAppearance: Bool {
+        if case .pair(let light, let dark) = self { return light != dark || light.followsAppearance }
         guard case .system(let path) = self else { return false }
         if AppleWallpapers.isVideo(path) { return AppleWallpapers.hasCuts(path) }
         if let known = Self.follows.withLock({ $0[path] }) { return known }
@@ -170,7 +197,8 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     /// picture (its thumbnail until downloaded), for the appearance.
     @MainActor public func resolvedImageURL(dark: Bool) -> URL? {
         switch self {
-        case .system: return imageURL(for: dark ? .dark : .light)
+        case .system, .moment: return imageURL(for: dark ? .dark : .light)
+        case .pair(let light, let darkSide): return (dark ? darkSide : light).resolvedImageURL(dark: dark)
         case .desktop:
             // macOS can report a file that is gone, a folder or a wallpaper description; resolve
             // it to a picture that decodes (the fill color when there is none). The app's watch
@@ -184,7 +212,21 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
 
     /// The image cache's key: the id, and for a choice that follows the appearance, which one.
     public func variantID(dark: Bool) -> String {
-        followsAppearance ? "\(id)|\(dark ? "dark" : "light")" : id
+        if case .pair = self { return resolved(dark: dark).variantID(dark: dark) }
+        return followsAppearance ? "\(id)|\(dark ? "dark" : "light")" : id
+    }
+
+    /// What a view in light or `dark` draws: a ``pair``'s side for it, anything else as is.
+    public func resolved(dark: Bool) -> BackdropSelection {
+        guard case .pair(let light, let darkSide) = self else { return self }
+        return (dark ? darkSide : light).resolved(dark: dark)
+    }
+
+    /// The frame of its picture a ``moment`` shows (when the file has it, else the frame of its
+    /// light or dark side); nil: the view's appearance decides.
+    public var pinnedFrame: (index: Int, dark: Bool)? {
+        if case .moment(_, let frame, let dark) = self { return (frame, dark) }
+        return nil
     }
 
     /// The macOS wallpaper a `.madesktop` description names (other system files are pictures).

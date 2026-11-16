@@ -4,7 +4,9 @@
 //! (`POST /v1/machines/join-tokens`) and redeems it here, the same redeem a pasted join line
 //! makes (`recovery.rs`). The pair code and the join line stay for machines with no sign-in.
 //!
-//! - Already joined to this hub (and not revoked there): nothing is minted.
+//! - Already joined to this hub (and not revoked there): nothing is minted, unless this
+//!   account's sign-in join is in another team than the person's token acts in: it leaves and
+//!   joins again in that team (the team the person's Cloud machines and mesh are in).
 //! - Revoked: never enrolled again on its own; the person rejoins (`host join --replace`).
 //! - Joined by another person, or to another hub: that join is left alone.
 //! - A home copied from another box: this box enrolls as itself (`settle_clone_at` first gives
@@ -52,8 +54,7 @@ use std::future::Future;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-/// `joined_by` of a join signing in made.
-pub(crate) const JOINED_BY_SIGN_IN: &str = "sign-in";
+pub(crate) use crate::machine_record::JOINED_BY_SIGN_IN;
 /// The minted token's life: the shortest the hub takes; it is redeemed at once.
 const MINT_TTL_SECS: u64 = 60;
 /// How long an enroll waits for another join or leave on this machine to finish.
@@ -155,6 +156,9 @@ pub(super) trait EnrollHub {
     /// capabilities with its own credential (`self_capabilities.rs`). It saves only after the
     /// enroll let go of the join lock.
     fn state_capabilities(&self);
+    /// The team the person's token acts in (its `team` claim, unverified), or None when it names
+    /// none: the team a join minted with it lands in.
+    fn person_team(&self) -> Option<String>;
 }
 
 /// Whose a join is to the account acting on it.
@@ -483,6 +487,38 @@ pub(super) async fn enroll_at(
         }
         record = None;
     }
+    // This account's own sign-in join in another team than the one its token acts in (a join
+    // made while the app minted for another team): left, then enrolled again in the token's
+    // team, so the join, its mesh and the person's Cloud machines are one team. Otherwise its
+    // Cloud tunnel asks a team with no mesh for good (cloud-carrier-ssh-failover row
+    // 2026-11-15T21:18Z: joined in the Stack sign-up team, machines and mesh in the personal one).
+    // A join made any other way stays in the team the person chose; a token naming no team says
+    // nothing.
+    if let (Some(mine), Some(team)) = (
+        record.as_ref().filter(|record| {
+            record.joined_by.as_deref() == Some(JOINED_BY_SIGN_IN)
+                && !record.revoked
+                && !copied_here(home, record, current)
+                && origin(Some(record.hub_origin.clone())).ok().as_deref() == Some(hub)
+                && owner_of(record.user_id.as_deref(), Some(account)) == Owner::Mine
+        }),
+        port.person_team(),
+    ) && mine.team_id != team
+    {
+        tracing::info!(
+            machine = %mine.machine_id,
+            from = %mine.team_id,
+            to = %team,
+            "sign-in enroll: the join moves to the sign-in's team"
+        );
+        if mark_leave(home, Some(account)).is_err() {
+            return EnrollOutcome::Unavailable;
+        }
+        if !leave_locked(home, current, &[account.to_owned()], &revoke_own).await.left {
+            return EnrollOutcome::Unavailable;
+        }
+        record = None;
+    }
     let mut replace = false;
     // The joined machine this enroll would replace, named when its mint fails.
     let joined_id = record.as_ref().map(|record| record.machine_id.clone());
@@ -731,6 +767,10 @@ impl EnrollHub for Platform {
 
     fn state_capabilities(&self) {
         super::self_capabilities::state_on_sign_in();
+    }
+
+    fn person_team(&self) -> Option<String> {
+        super::sent_credential::team(&self.access)
     }
 }
 

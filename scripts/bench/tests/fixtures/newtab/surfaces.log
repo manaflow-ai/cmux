@@ -1,0 +1,9 @@
+noise before
+ARM instant-new-surfaces/new_tab visible_ms warm: n=12 missed=0 p50=8.1 p95=12.4 p99=13.0 max=13.2 ms
+ARM instant-new-surfaces/new_tab visible_ms quick: n=6 missed=1 p50=9.5 p95=30.2 p99=31.0 max=31.2 ms
+ARM instant-new-surfaces/new_tab visible_ms cold: n=2 missed=0 p50=31.0 p95=34.0 p99=34.1 max=34.2 ms
+HEADLINE instant-new-surfaces/new_tab visible_ms = quick arm: p50=9.5 p95=30.2 p99=31.0 max=31.2 ms missed=1
+ARM instant-new-surfaces/new_tab ready_ms warm: n=12 missed=0 p50=24.0 p95=44.5 p99=45.0 max=45.1 ms
+ARM instant-new-surfaces/new_tab ready_ms cold: n=2 missed=0 p50=48.0 p95=49.0 p99=49.1 max=49.2 ms
+ARM instant-new-surfaces/new_terminal visible_ms warm: n=12 missed=0 p50=6.0 p95=7.0 p99=7.0 max=7.1 ms
+BUDGET PASS

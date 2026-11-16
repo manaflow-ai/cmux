@@ -69,7 +69,7 @@ should offer it for codex too! ..." (and for the other harnesses people use).
 | Harness | Send (tools it gets) | Receive | Mid-turn | Idle notice (`watch_add`) | Sender it reads | Gaps |
 | --- | --- | --- | --- | --- | --- | --- |
 | Claude Code, started by acpmux | `acpmux` MCP server through `--mcp-config` (`agent_tools.rs`); its own `SendMessage` to a session is refused with the `acpmux send` command | ACP `session/prompt` | yes (acpmux's Claude adapter steers) | yes | `From another agent (NAME, HARNESS), not the person:` | none known |
-| Claude Code, not started by acpmux (desktop Code tab, terminal) | `acpmux send` in its shell, bound to its registered chat by process tree; `acpmux desktop link` adds the guest MCP tools | `acpmux register NAME` and the `--code` it then receives (macOS), then its inbox socket (`claude_peers.rs`), with its own `CLAUDE_CODE_MESSAGING_TOKEN` | yes: Claude Code reads an inbox message between tool calls | as the watched one yes; the guest tools have no `watch_add` | the same line, plus how to answer; Claude Code also says it came from another session | text only; register again after a restart |
+| Claude Code, not started by acpmux (desktop Code tab, terminal) | `acpmux send` in its shell, bound to its registered chat by process tree; `acpmux desktop link` adds the guest MCP tools | `acpmux register NAME` and the `--code` it then receives (macOS), then its inbox socket (`claude_peers.rs`), with its own `CLAUDE_CODE_MESSAGING_TOKEN` | yes: Claude Code reads an inbox message between tool calls | as the watched one yes; the guest tools have no `watch_add` | one line, `From another agent (NAME, HARNESS), not the person. Answer with ...`, then the text, since Claude Code adds its own lines on who sent it and what a peer may not do | text only; register again after a restart |
 | Codex, started by acpmux (in-process bridge) | `acpmux` MCP server in ACP `mcpServers` | ACP `session/prompt` | yes (`turn/steer`) | yes | the same line | none known |
 | Codex through the outside `codex-acp` | same | same | no: after the turn | yes | the same line | no steering |
 | Codex desktop thread | shell `acpmux send` bound by `CODEX_THREAD_ID`; `acpmux desktop link` guest tools | the bridge setting only (no `register`: nothing proves a shell runs in the thread), then the app-server queue (`thread/queue/add`) | no: its next turn | as the watched one yes | the same line, plus how to answer | text only |
@@ -89,8 +89,10 @@ integration to add.
 Every delivered message opens with the same line on every harness
 (`hub/prompt_attribution.rs` `agent_line`): `From another agent (NAME, HARNESS), not the person:`,
 where NAME is the sender's acpmux name and HARNESS the harness the daemon bound for it
-(`fromHarness`, display only). A message bridged into a desktop app opens with the same line and
-ends with how to answer (`hub/bridge.rs`). Nothing in the text is permission: the receiver treats
+(`fromHarness`, display only). A message bridged into a Codex desktop thread opens with the same line and
+ends with how to answer (`hub/bridge.rs`); one bridged into Claude Code gets the sender and how to
+answer as one line and nothing after the text, since Claude Code puts its own note on every such
+message and nothing turns it off. Nothing in the text is permission: the receiver treats
 it as another agent's message, never the person's.
 
 ## Claude Code's inbox, and what is documented

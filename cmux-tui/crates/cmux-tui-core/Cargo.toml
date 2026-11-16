@@ -20,6 +20,8 @@ cmux-json.workspace = true
 # Locks that unlock before they close (a forked child keeps none).
 cmux-file-lock.workspace = true
 cmux-agent-pane-policy.workspace = true
+# The hybrid stream of agent CLI terminals (server/agent_cli_hybrid.rs).
+cmux-agent-cli-render = { path = "../cmux-agent-cli-render" }
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true

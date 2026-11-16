@@ -919,10 +919,14 @@ object{event:"pane-closed",workspace:Id,screen:Id,pane:Id,index:usize,entity:Pan
 Payload:
 
 ```text
-object{event:"tab-added",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab}
+object{event:"tab-added",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab,transaction?:string}
 ```
 
 The tab's subject id is its `surface`, matching `Tab.surface`; the protocol has no separate tab id.
+`transaction` is the `transaction` of the create request that made the tab,
+when it sent one: `new-conversation-tab` with
+`conversation-tab-transaction-v1`, and `new-tab` and
+`new-frontend-browser-tab` with `tab-create-place-v1`.
 
 ### tab-closed
 
@@ -1507,6 +1511,32 @@ Example:
 {"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
 ```
 
+### device-setup-step
+
+| Field | Value |
+| --- | --- |
+| event | `device-setup-step` |
+| status | implemented targeted control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"device-setup-step",device:string,step:string,
+       state:"ok"|"changed"|"warn"|"fail"|"skip",detail:string,fix:string}
+```
+
+Meaning: One step of a `device-setup` request ([commands.md](commands.md#device-setup)), sent
+on the control queue of the connection that asked, before the request's reply. The fields are
+the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `login-item`,
+`start`, `sign-in`, `share` and `agents`, and `fix` is empty when there is nothing to do.
+
+Example:
+
+```json
+{"event":"device-setup-step","device":"studio-mac","step":"app","state":"ok","detail":"NIGHTLY 2100 is current","fix":""}
+```
+
 ### terminal-clipboard-read
 
 | Field | Value |
@@ -1739,6 +1769,78 @@ Example:
 
 ```json
 {"event":"output","surface":1,"data":"bHMNCg=="}
+```
+
+### agent-cli-frame
+
+| Field | Value |
+| --- | --- |
+| event | `agent-cli-frame` |
+| status | implemented |
+| since | protocol 12, capability `agent-cli-hybrid-v1` |
+
+Payload:
+
+```text
+object{event:"agent-cli-frame",surface:Id,stream:string,frame:uint64,base:uint64|null,cols:uint16,rows:uint16,data:Base64,cursor_x:uint16,cursor_y:uint16,cursor_visible:boolean}
+```
+
+Meaning: On a hybrid attach of an agent CLI's terminal (see `attach-surface`,
+`agent-cli-hybrid-v1`), one change of its screen in place of the `output` that
+made it. `data` is a `cmux_agent_cli_render::hybrid::Delta` encoding (varints:
+`seq`, `at_ms`, zigzag `shift`, then per-row spans: set `len` cells of one
+style, or clear `len` cells back to blank). It turns the screen the viewer shows
+after frame `base` into the screen after `frame`; `base: null` means over a
+blank screen of `cols` by `rows` (a keyframe: reset the viewer's screen first).
+`shift` scrolls the shown screen before the spans apply, up when positive (the
+rows that leave the top go to the viewer's scrollback). The cursor goes to
+`cursor_x`, `cursor_y` and shows when `cursor_visible`. Colors are as the
+program wrote them (default, a 256-color index or RGB), so the viewer's theme
+resolves them as it does PTY bytes. `cmux_agent_cli_render::vt::frame_bytes`
+turns a frame into terminal bytes for a viewer that draws with its own
+terminal. A viewer keeps `stream` and the newest `frame` it applied to resume
+with `hybrid_stream` and `hybrid_frame` after a drop.
+
+Example:
+
+```json
+{"event":"agent-cli-frame","surface":1,"stream":"9b1c…","frame":12,"base":11,"cols":100,"rows":32,"data":"AQAAAQ...","cursor_x":4,"cursor_y":30,"cursor_visible":true}
+```
+
+### agent-cli-lean
+
+| Field | Value |
+| --- | --- |
+| event | `agent-cli-lean` |
+| status | implemented |
+| since | protocol 12, capability `agent-cli-hybrid-v2` |
+
+Payload:
+
+```text
+object{event:"agent-cli-lean",surface:Id,f:Base64}
+```
+
+Meaning: An `agent-cli-frame` in the lean form, for a connection that declared
+`agent-cli-hybrid-v2` as well as `agent-cli-hybrid-v1`: the same frames, paced
+the same, with everything in `f` (`cmux_agent_cli_render::lean`). `f` starts
+with a flags varint (1 keyframe, 2 head, 4 numbered, 8 cursor, 16 cursor
+visible). A head (the connection's first frame, a keyframe, a new size) carries
+the stream id (length, UTF-8), `cols` and `rows`; a numbered frame carries
+`frame`, then `base` unless it is a keyframe; an unnumbered frame is the last
+one plus one, on top of it; a cursor frame carries `cursor_x`, `cursor_y`. Then
+zigzag `shift`, the span count and the spans: `row`, `col`, `len << 1 | set`;
+a set span names its style by index into a table the connection builds (an
+index one past its end brings `fg`, `bg`, `attrs` and adds them), then its
+cells: a printable ASCII byte, 0 for the empty half of a wide glyph, 1 for any
+other text (length, UTF-8), or 2 for a run (count, then one cell). The style
+table and the numbering start over on each connection. A viewer resumes with
+`hybrid_stream` and `hybrid_frame` as for `agent-cli-frame`.
+
+Example:
+
+```json
+{"event":"agent-cli-lean","surface":1,"f":"HAEJAwEAAQ..."}
 ```
 
 ### resized

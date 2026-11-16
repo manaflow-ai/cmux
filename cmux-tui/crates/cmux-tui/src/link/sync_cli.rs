@@ -433,9 +433,6 @@ pub(super) fn progress_printer() -> impl FnMut(Progress) {
 /// A failed push's error code and message: the machine's full disk is
 /// `disk_full` in plain words, a refusal of the machine its own code.
 pub(super) fn push_failure(error: &anyhow::Error) -> (String, String) {
-    if let Some(large) = error.downcast_ref::<size_cap::TooLarge>() {
-        return (size_cap::CODE.to_string(), large.to_string());
-    }
     match remote::refusal_code(error) {
         Some("fs.no_space") => {
             ("disk_full".to_string(), "The Cloud machine's disk is full".to_string())
@@ -1030,8 +1027,7 @@ fn push_inner(
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     let rules = if files_only { local::Rules::Share } else { local::Rules::Copy };
     // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
-    let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local))
-        .then(|| size_cap::Cap::of(&local));
+    let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local)).then(size_cap::Cap::new);
     let mut set = local::collect(&local, rules, cap)?;
     let before = set.files.len();
     let in_git = set.git;

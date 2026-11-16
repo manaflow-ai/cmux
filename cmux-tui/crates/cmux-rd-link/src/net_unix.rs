@@ -124,3 +124,29 @@ pub(super) fn grow_udp_buffers(socket: &UdpSocket) {
         }
     }
 }
+
+/// Apple platforms: the socket's traffic is interactive video
+/// (`SO_NET_SERVICE_TYPE` = `NET_SERVICE_TYPE_VI`, the class video calls use),
+/// so Wi-Fi sends it in the video access category and the system treats the
+/// flow as latency sensitive. Best effort: a refusal changes nothing else.
+pub(super) fn mark_interactive_video(socket: &UdpSocket) {
+    #[cfg(target_vendor = "apple")]
+    {
+        // <sys/socket.h>; the libc crate does not export them.
+        const SO_NET_SERVICE_TYPE: libc::c_int = 0x1116;
+        const NET_SERVICE_TYPE_VI: libc::c_int = 3;
+        // SAFETY: the descriptor is open for the borrow of `socket`, and the
+        // option value points at a live integer of the length passed.
+        unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                SO_NET_SERVICE_TYPE,
+                (&NET_SERVICE_TYPE_VI as *const libc::c_int).cast(),
+                size_of_val(&NET_SERVICE_TYPE_VI) as libc::socklen_t,
+            );
+        }
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    let _ = socket;
+}

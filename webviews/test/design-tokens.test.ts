@@ -8,7 +8,9 @@ import {
   tokenLiteralKind,
   tokenOnlyFindings,
   tokenOnlyKind,
+  tsTokenCopies,
 } from "../scripts/check-design-tokens";
+import { designTokenValue, designTokens, tokenFor } from "../scripts/design-token-values";
 
 describe("design token ratchet", () => {
   test.each([
@@ -156,5 +158,59 @@ describe("token-only surfaces", () => {
 
   test("the unread marker and the jump pair use tokens only", () => {
     expect(findTokenOnlyViolations().map((f) => `${f.file}:${f.line} ${f.property}: ${f.value}`)).toEqual([]);
+  });
+});
+
+describe("token copies (a px/ms literal a named token already holds)", () => {
+  test("reads single-valued :root px/ms tokens from the sheets", () => {
+    expect(designTokenValue("--grid-half-step")).toBe("2px");
+    expect(designTokenValue("--cmux-motion-quick")).toMatch(/^[0-9]+ms$/);
+    // Defined with calc() (scales with the interface), so it is no single value.
+    expect(() => designTokenValue("--grid-pill")).toThrow();
+  });
+
+  test("names the token for a value in its own family only", () => {
+    expect(tokenFor("ui/x.css", "2px", "spacing", ".x", false)?.name).toBe("--grid-half-step");
+    // 18px is the composer radius, never a gap.
+    expect(tokenFor("ui/x.css", "18px", "spacing", ".x", false)).toBeUndefined();
+    expect(tokenFor("ui/x.css", "18px", "radius", ".composer", false)?.name).toBe("--ds-radius-composer");
+    // A component's token names only that component's values.
+    expect(tokenFor("ui/x.css", "18px", "radius", ".card", false)).toBeUndefined();
+    expect(tokenFor("ui/x.css", "0px", "spacing", ".x", false)).toBeUndefined();
+  });
+
+  test("a sheet's own token reaches only files under its folder", () => {
+    const local = designTokens().find((token) => token.name === "--find-pill-height");
+    expect(local?.surface).toBe("ui");
+    expect(tokenFor("pages/feed/x.css", "34px", "size", ".find-pill", false)).toBeUndefined();
+  });
+
+  test("finds asserted and inline-style copies in tests and galleries, not other strings", () => {
+    const findings = tsTokenCopies(
+      "ui/x.test.tsx",
+      [
+        'expect(getComputedStyle(bar).gap).toBe("2px");',
+        'expect(style.gap).not.toBe("2px");',
+        'if (style.paddingTop !== "2px") throw new Error("x");',
+        'const label = "2px";',
+        'expect(rail.style.left).toBe("2px");',
+        'expect(style.gap).toBe("8px");',
+        'const el = <div style={{ gap: "2px", "--x": "2px" }} />;',
+      ].join("\n"),
+    );
+    expect(findings.map((finding) => [finding.line, finding.property, finding.token])).toEqual([
+      [1, "expect", "--grid-half-step"],
+      [2, "expect", "--grid-half-step"],
+      [3, "compare", "--grid-half-step"],
+      [7, "style", "--grid-half-step"],
+    ]);
+  });
+
+  test("a new copy is refused with the token to use", () => {
+    const [finding] = tsTokenCopies("../test/x.test.ts", 'expect(style.gap).toBe("2px");');
+    const id = ["../test/x.test.ts", "token-copy", "expect", "2px"].join("\t");
+    const errors = ratchetErrors(new Map([[id, 1]]), new Map(), [finding!]);
+    expect(errors[0]).toContain("new design token violation");
+    expect(errors[1]).toContain('designTokenValue("--grid-half-step")');
   });
 });

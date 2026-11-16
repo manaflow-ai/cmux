@@ -32,6 +32,7 @@ import { chromium, webkit, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -385,7 +386,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       }
       // The stack holds the question above the queue and the queue above the composer.
       const card = await box(".acpmux-permission-card");
-      const stack = await box(".acpmux-main > .acpmux-dock");
+      const stack = await box(MAIN_DOCK);
       expect(stack.y).toBeLessThanOrEqual(card.y + 1);
       expect(card.y + card.height).toBeLessThanOrEqual(list.y + 1);
       // The queue shows its own bottom edge: nothing below tucks it under.

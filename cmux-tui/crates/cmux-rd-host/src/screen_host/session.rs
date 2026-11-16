@@ -35,6 +35,12 @@ impl Ticket {
     /// The push, when it is a host ticket whose JWS names this session, the host role and the
     /// same viewer key as the push.
     pub fn from_push(push: &Value) -> Res<Self> {
+        Self::from_push_as(push, "host")
+    }
+
+    /// The push, when it is a `role` ticket (`host`, or `viewer` for `cmux-rd view`) whose JWS
+    /// names this session, that role and the same peer key as the push.
+    pub fn from_push_as(push: &Value, role: &str) -> Res<Self> {
         let s = |v: &Value| v.as_str().unwrap_or_default().to_owned();
         let ticket = Self {
             session_id: s(&push["sessionId"]),
@@ -46,12 +52,12 @@ impl Ticket {
             peer_key: s(&push["peer"]["signingKey"]),
             scope: s(&push["scope"]),
         };
-        if push["role"].as_str() != Some("host") {
-            return Err("not a host ticket".into());
+        if push["role"].as_str() != Some(role) {
+            return Err(format!("not a {role} ticket").into());
         }
         let claims = jws_payload(&ticket.jws).ok_or("the ticket is not a compact JWS")?;
         if claims["sid"].as_str() != Some(&ticket.session_id)
-            || claims["role"].as_str() != Some("host")
+            || claims["role"].as_str() != Some(role)
             || claims["peerKey"].as_str() != Some(&ticket.peer_key)
             || ticket.peer_key.is_empty()
         {
@@ -399,6 +405,13 @@ mod tests {
         assert!(Ticket::from_push(&push("viewer", "s1", "KEY")).is_err());
         assert!(Ticket::from_push(&push("host", "s2", "KEY")).is_err());
         assert!(Ticket::from_push(&push("host", "s1", "OTHER")).is_err());
+    }
+
+    #[test]
+    fn viewer_tickets_are_read_for_the_viewer_role_only() {
+        assert!(Ticket::from_push_as(&push("viewer", "s1", "KEY"), "viewer").is_ok());
+        assert!(Ticket::from_push_as(&push("host", "s1", "KEY"), "viewer").is_err());
+        assert!(Ticket::from_push_as(&push("viewer", "s1", "OTHER"), "viewer").is_err());
     }
 
     #[test]

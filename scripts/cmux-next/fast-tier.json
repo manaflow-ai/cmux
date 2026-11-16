@@ -10,6 +10,7 @@
     {"name": "cef previous log", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "CEFProfileStorageLogTests", "owner": "cx-gallery-feed", "bead": "cx-urd.2"},
     {"name": "subagent pane focus", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AgentSubagentPanesFocusTests", "owner": "op-next-agent-pane"},
     {"name": "app handler coverage", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "HandlerCoverageTests", "owner": "op-next-screen-sharing"},
+    {"name": "acpmux client wrapper", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AcpmuxClientTests", "owner": "v2-sidebar-list-stream", "bead": "cmux#43937"},
     {"name": "perf completeness", "kind": "script", "path": "scripts/cmux-next/tests/test_perf_completeness.py", "owner": "perf"}
   ]
 }

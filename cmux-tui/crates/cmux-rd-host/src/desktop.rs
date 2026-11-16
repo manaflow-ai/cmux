@@ -1,7 +1,9 @@
-//! The desktop a session streams: capture, encode and input injection for one OS behind
-//! one trait, so the media session (stream.rs) and the shared engine (cmux-rd-engine) are
-//! the same on every host. Linux: X11 damage, XShm and XTest (`x11.rs`). macOS:
-//! ScreenCaptureKit, VideoToolbox from the captured IOSurface, and CGEvent (`mac/`).
+//! The desktop a session streams, in two halves for one OS, so the media session (stream.rs)
+//! and the shared engine (cmux-rd-engine) are the same on every host: [`Desktop`] (damage and
+//! input injection, on the session's loop thread) and [`FrameSource`] (capture and encode, on
+//! the session's encode thread, encode_thread.rs), so viewer input never waits behind an
+//! encode. Linux: X11 damage, XShm and XTest (`x11.rs`). macOS: ScreenCaptureKit, VideoToolbox
+//! from the captured IOSurface, and CGEvent (`mac/`).
 
 use crate::stream::SessionCfg;
 use crate::Res;
@@ -9,15 +11,11 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_proto::InputEvent;
 use std::os::fd::RawFd;
 
-pub trait Desktop {
-    /// The streamed size in pixels (even).
-    fn size(&self) -> (u32, u32);
-    /// Readable when [`Desktop::drain`] has damage to report.
-    fn fd(&self) -> RawFd;
-    /// Takes every damage report queued since the last call, without blocking.
-    fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()>;
+/// The capture and encode half: runs on the session's encode thread. It owns its own capture
+/// connection, or a handle to the capture's shared newest picture, never the input side.
+pub trait FrameSource: Send {
     /// Captures `damage` (the source may capture more) into the picture the next
-    /// [`Desktop::encode`] encodes.
+    /// [`FrameSource::encode`] encodes.
     fn capture(&mut self, damage: Rect) -> Res<()>;
     /// For the picked picture: when the display showed it and when the capture handed it over, on
     /// the protocol clock in µs, where the source knows them (measurement only: `CMUX_RD_TIMING_LOG`).
@@ -29,6 +27,19 @@ pub trait Desktop {
     fn set_bitrate(&mut self, kbps: u32);
     fn kbps(&self) -> u32;
     fn encoder_name(&self) -> String;
+}
+
+/// Both halves of one opened desktop.
+pub type Halves = (Box<dyn Desktop>, Box<dyn FrameSource>);
+
+/// The loop thread's half: what changed on screen, and the viewer's input.
+pub trait Desktop {
+    /// The streamed size in pixels (even).
+    fn size(&self) -> (u32, u32);
+    /// Readable when [`Desktop::drain`] has damage to report.
+    fn fd(&self) -> RawFd;
+    /// Takes every damage report queued since the last call, without blocking.
+    fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()>;
     /// Injects one viewer event as local input.
     fn inject(&mut self, event: &InputEvent) -> Res<()>;
     /// Releases every key and button the viewer holds.
@@ -37,6 +48,25 @@ pub trait Desktop {
     /// the person master once idle). Returns when the session loop should call again.
     fn pump(&mut self) -> Res<Option<std::time::Duration>> {
         Ok(None)
+    }
+    /// Reads the cursor, for a desktop opened with cursor metadata (cap `cursor`): it left
+    /// the cursor out of its pictures. `None`: this desktop draws the cursor in the picture.
+    fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {
+        None
+    }
+}
+
+/// Whether this OS's desktop can report the cursor as metadata (`Desktop::cursor`), so a
+/// host offers the `cursor` cap: macOS reads the system cursor; Linux does not yet (X11
+/// and the portal keep their own cursor handling).
+pub fn reports_cursor() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        synthetic_size().is_none() && crate::mac::cursor::available()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
     }
 }
 
@@ -85,13 +115,14 @@ mod tests {
     }
 }
 
-/// The desktop of this OS.
-pub fn open(cfg: &SessionCfg) -> Res<Box<dyn Desktop>> {
+/// The desktop of this OS. `cursor_metadata`: the viewer draws the cursor (cap `cursor`), so
+/// a desktop that [`reports_cursor`] leaves it out of its pictures.
+pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
+    #[cfg(not(target_os = "macos"))]
+    let _ = cursor_metadata;
     #[cfg(target_os = "linux")]
     return match cfg.capture {
-        crate::capture_backend::CaptureBackend::X11 => {
-            Ok(Box::new(crate::x11::X11Desktop::open(cfg)?))
-        }
+        crate::capture_backend::CaptureBackend::X11 => crate::x11::open(cfg),
         // Wayland: xdg-desktop-portal ScreenCast and PipeWire (view-only). Its handshake
         // states (the person at the screen still has to allow sharing) go to the status sink.
         #[cfg(feature = "portal")]
@@ -103,7 +134,7 @@ pub fn open(cfg: &SessionCfg) -> Res<Box<dyn Desktop>> {
                     sink(code, &message);
                 }));
             }
-            Ok(Box::new(crate::portal::PortalDesktop::open(cfg, opts)?))
+            crate::portal::open_desktop(cfg, opts)
         }
         // A build without the portal backend ends the session with a clear reason.
         #[cfg(not(feature = "portal"))]
@@ -112,8 +143,33 @@ pub fn open(cfg: &SessionCfg) -> Res<Box<dyn Desktop>> {
             Err(reason) => Err(reason.into()),
         },
     };
+    #[cfg(all(target_os = "macos", feature = "bench"))]
+    if let Some(source) = crate::synthetic::selected() {
+        return crate::mac::synthetic::open(cfg, source);
+    }
     #[cfg(target_os = "macos")]
-    return Ok(Box::new(crate::mac::MacDesktop::open(cfg)?));
+    return crate::mac::open(cfg, cursor_metadata);
+}
+
+/// The size of the generated picture `--source synthetic` picked instead of the display (macOS
+/// bench builds; src/synthetic.rs), else None.
+#[cfg(target_os = "macos")]
+fn synthetic_size() -> Option<(u32, u32)> {
+    #[cfg(feature = "bench")]
+    return crate::synthetic::selected().map(|source| source.size);
+    #[cfg(not(feature = "bench"))]
+    None
+}
+
+/// The displays a viewer may pick, and the current one (macOS). A synthetic source is one
+/// display of its own size, listed without asking ScreenCaptureKit (which needs the grant).
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+#[cfg(target_os = "macos")]
+pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
+    match synthetic_size() {
+        Some(size) => Ok((vec![size], 0)),
+        None => crate::mac::capture::displays(),
+    }
 }
 
 /// The frame rate cap when neither `--max-fps` nor the viewer names one: macOS, the captured
@@ -126,5 +182,8 @@ pub fn default_max_fps(display: &str) -> u32 {
         60
     }
     #[cfg(target_os = "macos")]
-    return crate::mac::capture::refresh_fps(display);
+    return match synthetic_size() {
+        Some(_) => crate::mac::capture::FALLBACK_FPS,
+        None => crate::mac::capture::refresh_fps(display),
+    };
 }

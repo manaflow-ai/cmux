@@ -67,6 +67,7 @@ pub(super) fn changes_tree(event: &MuxEvent) -> bool {
         | MuxEvent::HistoryChanged { .. }
         | MuxEvent::FeedViewChanged { .. }
         | MuxEvent::FeedReportsChanged { .. }
+        | MuxEvent::GitHubChanged { .. }
         | MuxEvent::KeybindingsChanged(_)
         | MuxEvent::CloudConversation(_)
         | MuxEvent::TerminalReaped { .. }

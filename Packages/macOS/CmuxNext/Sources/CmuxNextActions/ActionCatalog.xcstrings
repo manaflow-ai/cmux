@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.errors.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مسح سجل الأخطاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obriši dnevnik grešaka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ryd fejljournal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fehlerprotokoll leeren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Error Journal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Borrar registro de errores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Effacer le journal des erreurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancella registro errori"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エラージャーナルを消去"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សម្អាតកំណត់ហេតុកំហុស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "오류 기록 지우기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tøm feillogg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyczyść dziennik błędów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limpar registro de erros"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очистить журнал ошибок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ล้างบันทึกข้อผิดพลาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hata günlüğünü temizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очистити журнал помилок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa nhật ký lỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "清除错误日志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "清除錯誤記錄"
+          }
+        }
+      }
+    },
     "action.app.try.run": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تشغيل طلب سحب كهذا التطبيق…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokreni PR kao ovu aplikaciju…"}},"da":{"stringUnit":{"state":"needs_review","value":"Kør en PR som denne app…"}},"de":{"stringUnit":{"state":"needs_review","value":"PR als diese App ausführen…"}},"en":{"stringUnit":{"state":"translated","value":"Run a PR as This App…"}},"es":{"stringUnit":{"state":"needs_review","value":"Ejecutar un PR como esta app…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Exécuter une PR comme cette app…"}},"it":{"stringUnit":{"state":"needs_review","value":"Esegui una PR come questa app…"}},"ja":{"stringUnit":{"state":"translated","value":"PR をこのアプリとして実行…"}},"km":{"stringUnit":{"state":"needs_review","value":"ដំណើរការ PR ជាកម្មវិធីនេះ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"PR을 이 앱으로 실행…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjør en PR som denne appen…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchom PR jako tę aplikację…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Executar um PR como este app…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запустить PR как это приложение…"}},"th":{"stringUnit":{"state":"needs_review","value":"เรียกใช้ PR เป็นแอปนี้…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bir PR'ı bu uygulama olarak çalıştır…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запустити PR як цей застосунок…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chạy một PR làm ứng dụng này…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"将 PR 作为此应用运行…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"將 PR 作為此 App 執行…"}}}},
     "action.app.try.run.hint": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"بدّل هذا التطبيق إلى طلب سحب أو فرع أو إيداع، دون سحب أو بناء. «التراجع عن آخر تشغيل لطلب سحب» يعيده."}},"bs":{"stringUnit":{"state":"needs_review","value":"Prebaci ovu aplikaciju na pull request, granu ili commit, bez checkouta i builda. Poništi zadnje pokretanje PR-a vraća je nazad."}},"da":{"stringUnit":{"state":"needs_review","value":"Skift denne app til en pull request, gren eller commit uden checkout eller build. Fortryd seneste PR-kørsel sætter den tilbage."}},"de":{"stringUnit":{"state":"needs_review","value":"Diese App auf einen Pull Request, Branch oder Commit umstellen, ohne Checkout oder Build. „Letzten PR-Lauf rückgängig machen“ stellt sie wieder her."}},"en":{"stringUnit":{"state":"translated","value":"Swap this app to a pull request, branch or commit, with no checkout or build. Undo Last PR Run puts it back."}},"es":{"stringUnit":{"state":"needs_review","value":"Cambia esta app a un pull request, rama o commit, sin checkout ni compilación. Deshacer la última ejecución de PR la restaura."}},"fr":{"stringUnit":{"state":"needs_review","value":"Bascule cette app sur une pull request, une branche ou un commit, sans checkout ni build. Annuler la dernière exécution de PR la rétablit."}},"it":{"stringUnit":{"state":"needs_review","value":"Passa questa app a una pull request, un branch o un commit, senza checkout né build. Annulla l’ultima esecuzione della PR la ripristina."}},"ja":{"stringUnit":{"state":"translated","value":"チェックアウトもビルドもせずに、このアプリをプルリクエスト、ブランチ、コミットに切り替えます。「前回の PR 実行を元に戻す」で元に戻せます。"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្ដូរកម្មវិធីនេះទៅ pull request, branch ឬ commit ដោយគ្មាន checkout ឬ build។ «មិនធ្វើវិញនូវការដំណើរការ PR ចុងក្រោយ» នាំវាត្រឡប់មកវិញ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"체크아웃이나 빌드 없이 이 앱을 풀 리퀘스트, 브랜치 또는 커밋으로 바꿉니다. 마지막 PR 실행 취소로 되돌릴 수 있습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Bytt denne appen til en pull request, gren eller commit uten checkout eller bygg. Angre siste PR-kjøring setter den tilbake."}},"pl":{"stringUnit":{"state":"needs_review","value":"Przełącz tę aplikację na pull request, gałąź lub commit, bez checkoutu i kompilacji. Cofnij ostatnie uruchomienie PR przywraca ją."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Troca este app para um pull request, branch ou commit, sem checkout nem build. Desfazer a última execução de PR o restaura."}},"ru":{"stringUnit":{"state":"needs_review","value":"Переключает это приложение на pull request, ветку или коммит без checkout и сборки. «Отменить последний запуск PR» возвращает его."}},"th":{"stringUnit":{"state":"needs_review","value":"สลับแอปนี้ไปเป็น pull request, branch หรือ commit โดยไม่ต้อง checkout หรือ build “เลิกทำการเรียกใช้ PR ครั้งล่าสุด” จะคืนค่ากลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu uygulamayı checkout veya derleme olmadan bir pull request, dal ya da commit'e geçirir. Son PR Çalıştırmasını Geri Al onu geri getirir."}},"uk":{"stringUnit":{"state":"needs_review","value":"Перемикає цей застосунок на pull request, гілку чи коміт без checkout і збирання. «Скасувати останній запуск PR» повертає його."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chuyển ứng dụng này sang một pull request, nhánh hoặc commit, không cần checkout hay build. Hoàn tác lần chạy PR gần nhất sẽ đưa nó về lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无需检出或构建，将此应用切换到某个拉取请求、分支或提交。“撤销上次 PR 运行”可将其还原。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無需簽出或建置，將此 App 切換到某個拉取請求、分支或提交。「還原上次 PR 執行」可將其復原。"}}}},
     "action.app.try.undo": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"التراجع عن آخر تشغيل لطلب سحب"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poništi zadnje pokretanje PR-a"}},"da":{"stringUnit":{"state":"needs_review","value":"Fortryd seneste PR-kørsel"}},"de":{"stringUnit":{"state":"needs_review","value":"Letzten PR-Lauf rückgängig machen"}},"en":{"stringUnit":{"state":"translated","value":"Undo Last PR Run"}},"es":{"stringUnit":{"state":"needs_review","value":"Deshacer la última ejecución de PR"}},"fr":{"stringUnit":{"state":"needs_review","value":"Annuler la dernière exécution de PR"}},"it":{"stringUnit":{"state":"needs_review","value":"Annulla l’ultima esecuzione della PR"}},"ja":{"stringUnit":{"state":"translated","value":"前回の PR 実行を元に戻す"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនធ្វើវិញនូវការដំណើរការ PR ចុងក្រោយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"마지막 PR 실행 취소"}},"nb":{"stringUnit":{"state":"needs_review","value":"Angre siste PR-kjøring"}},"pl":{"stringUnit":{"state":"needs_review","value":"Cofnij ostatnie uruchomienie PR"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Desfazer a última execução de PR"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отменить последний запуск PR"}},"th":{"stringUnit":{"state":"needs_review","value":"เลิกทำการเรียกใช้ PR ครั้งล่าสุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Son PR Çalıştırmasını Geri Al"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скасувати останній запуск PR"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hoàn tác lần chạy PR gần nhất"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"撤销上次 PR 运行"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"還原上次 PR 執行"}}}},
@@ -5459,6 +5590,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "重新顯示已隱藏的提示"
+          }
+        }
+      }
+    },
+    "action.debug.keycapPlayground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keycap Playground"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーキャップのプレイグラウンド"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ساحة تجربة أزرار المفاتيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igralište tipki"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legeplads for taster"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tasten-Spielwiese"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zona de pruebas de teclas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bac à sable des touches"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Area di prova dei tasti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែង​សាកល្បង​គ្រាប់ចុច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "키캡 플레이그라운드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lekeplass for taster"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plac zabaw klawiszy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Área de testes de teclas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Песочница клавиш"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สนามทดลองปุ่มคีย์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tuş oyun alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пісочниця клавіш"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sân thử phím"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "键帽试验场"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "鍵帽試驗場"
           }
         }
       }

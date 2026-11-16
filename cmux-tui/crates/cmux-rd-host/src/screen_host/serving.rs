@@ -100,7 +100,8 @@ impl Host {
         let mut last_consent = Instant::now();
         loop {
             if last_consent.elapsed() >= CONSENT_EVERY {
-                // `enable` without --allow-control while this runs: a control session stops now.
+                // Control withdrawn while this runs (linux-host `enable --view-only`, windows-host
+                // `enable` without --allow-control): a control session stops now.
                 let consent = LocalConsent::load(&self.dir);
                 if let Some(id) = withdraw_unconsented(&self.current, consent, self.applies_input) {
                     eprintln!(
@@ -377,7 +378,7 @@ mod tests {
         let dir = consent_dir("admit");
         LocalConsent { view: true, full: true }.save(&dir).unwrap();
         assert_eq!(admit(&dir, "full", true), Some(false));
-        // `enable` without --allow-control, the host still running.
+        // Control withdrawn (linux-host `enable --view-only`), the host still running.
         LocalConsent { view: true, full: false }.save(&dir).unwrap();
         assert_eq!(admit(&dir, "full", true), None);
         assert_eq!(admit(&dir, "view", true), Some(true));

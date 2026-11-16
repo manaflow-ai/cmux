@@ -54,6 +54,7 @@ on:
       - "cmux-tui/crates/cmux-cloud-handlers/**"
       - "cmux-tui/crates/cmux-cloud-machine/**"
       - "cmux-tui/crates/cmux-cloud-start-core/**"
+      - "cmux-tui/crates/cmux-tab-discard/**"
       - "cmux-tui/crates/cmux-cloud-tasks/**"
       - "cmux-tui/crates/cmux-cookie-sync/**"
       - "cmux-tui/crates/cmux-daemon-conn-core/**"
@@ -61,6 +62,7 @@ on:
       - "cmux-tui/crates/cmux-health-core/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
+      - "cmux-tui/crates/cmux-launch-record/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
       - "cmux-tui/crates/cmux-local-auth/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
@@ -215,6 +217,20 @@ jobs:
       # tags merged into HEAD), but trees and blobs only for HEAD; the few the
       # diffs below read are fetched on demand. The full clone of every ref took
       # 5 to 10 minutes of a 7 to 15 minute build; treeless takes about one.
+      # A reused work checkout an earlier job left shallow makes the treeless full-history
+      # checkout below run `git fetch --filter=tree:0 --unshallow` into it, and git 2.55/2.56
+      # aborts in pack-objects ("BUG: ... should_include_obj should only be called on
+      # existing objects") on all three tries: app FFI release run 43863985334, 2026-11-16.
+      # Dropping the shallow .git lets the checkout fetch fresh (treeless, about a minute).
+      - name: Drop a reused shallow checkout
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [[ -f "$GITHUB_WORKSPACE/.git/shallow" ]]; then
+            echo "reused shallow checkout: removing its .git so the checkout fetches fresh"
+            rm -rf "$GITHUB_WORKSPACE/.git"
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -736,6 +752,20 @@ jobs:
 
       # Treeless with full history: the re-pin walks feat-cmux-next's commits
       # back to the current pin to find the newest published release.
+      # A reused work checkout an earlier job left shallow makes the treeless full-history
+      # checkout below run `git fetch --filter=tree:0 --unshallow` into it, and git 2.55/2.56
+      # aborts in pack-objects ("BUG: ... should_include_obj should only be called on
+      # existing objects") on all three tries: app FFI release run 43863985334, 2026-11-16.
+      # Dropping the shallow .git lets the checkout fetch fresh (treeless, about a minute).
+      - name: Drop a reused shallow checkout
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [[ -f "$GITHUB_WORKSPACE/.git/shallow" ]]; then
+            echo "reused shallow checkout: removing its .git so the checkout fetches fresh"
+            rm -rf "$GITHUB_WORKSPACE/.git"
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: feat-cmux-next

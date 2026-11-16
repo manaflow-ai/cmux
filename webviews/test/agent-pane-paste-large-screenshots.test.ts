@@ -17,6 +17,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () => {
   /// The longest the main thread may stall while screenshots attach: a key typed then lands within it.
@@ -125,21 +126,24 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
   /// heartbeat that records the main thread's longest stall from then on.
   /// `paste` false only starts the heartbeat (a baseline with nothing pasted).
   const pasteScreenshots = (page: Page, paste = true) =>
-    page.evaluate((paste) => {
-      const state = window as unknown as { screenshots: File[]; stall: number; beat: number };
-      state.stall = 0;
-      let last = performance.now();
-      state.beat = window.setInterval(() => {
-        const now = performance.now();
-        state.stall = Math.max(state.stall, now - last);
-        last = now;
-      }, 4);
-      if (!paste) return;
-      const data = new DataTransfer();
-      for (const file of state.screenshots) data.items.add(file);
-      const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
-      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    }, paste);
+    page.evaluate(
+      ({ paste, COMPOSER_EDITOR }) => {
+        const state = window as unknown as { screenshots: File[]; stall: number; beat: number };
+        state.stall = 0;
+        let last = performance.now();
+        state.beat = window.setInterval(() => {
+          const now = performance.now();
+          state.stall = Math.max(state.stall, now - last);
+          last = now;
+        }, 4);
+        if (!paste) return;
+        const data = new DataTransfer();
+        for (const file of state.screenshots) data.items.add(file);
+        const target = document.querySelector(COMPOSER_EDITOR)!;
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { paste, COMPOSER_EDITOR },
+    );
 
   const longestStall = (page: Page) =>
     page.evaluate(() => {
@@ -156,7 +160,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
 
   /// The prompt's text, without the attachments placed in it (each an atom in the line).
   const promptText = (page: Page) =>
-    page.locator(".acpmux-composer-prompt [contenteditable='true']").evaluate((node) => {
+    page.locator(COMPOSER_EDITOR).evaluate((node) => {
       const copy = node.cloneNode(true) as Element;
       for (const atom of copy.querySelectorAll("[data-inline-attachment]")) atom.remove();
       return copy.textContent?.replace(/\u00a0/g, " ");
@@ -164,7 +168,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
 
   test("pasting three large Retina screenshots never blocks typing", async () => {
     const page = await newChat();
-    const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
+    const prompt = page.locator(COMPOSER_EDITOR);
     await prompt.click();
     const sizes = await makeScreenshots(page, 3);
     expect(Math.min(...sizes)).toBeGreaterThan(2 * 1024 * 1024);
@@ -187,7 +191,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
 
   test("a host that never answers never leaves a pasted screenshot loading", async () => {
     const page = await newChat({ "chat.attach.dropped": "hang", "chat.upload.begin": "hang" });
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    await page.locator(COMPOSER_EDITOR).click();
     await makeScreenshots(page, 2);
     await pasteScreenshots(page);
     await page.waitForFunction(
@@ -203,7 +207,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
 
   test("a loading tile's × takes it away for good", async () => {
     const page = await newChat();
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    await page.locator(COMPOSER_EDITOR).click();
     await makeScreenshots(page, 1);
     await pasteScreenshots(page);
     const loading = page.locator(LOADING);
@@ -223,13 +227,16 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
 
   test("a file whose upload failed says why, and Retry attaches it", async () => {
     const page = await newChat({ "chat.upload.begin": "fail", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
-    await page.evaluate(() => {
-      const data = new DataTransfer();
-      data.items.add(new File([new Uint8Array(4096)], "notes.bin", { type: "application/octet-stream" }));
-      const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
-      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
+    await page.locator(COMPOSER_EDITOR).click();
+    await page.evaluate(
+      ({ COMPOSER_EDITOR }) => {
+        const data = new DataTransfer();
+        data.items.add(new File([new Uint8Array(4096)], "notes.bin", { type: "application/octet-stream" }));
+        const target = document.querySelector(COMPOSER_EDITOR)!;
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { COMPOSER_EDITOR },
+    );
     // The failed chip is cut to its size in the line; its tooltip has the reason.
     const failed = page.locator(FAILED);
     await failed.waitFor();
@@ -249,7 +256,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
   // here it goes as a file; the app's WebKit decodes it in the worker.)
   test("a 5.2 MB HEIF photo never blocks typing", async () => {
     const page = await newChat();
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    await page.locator(COMPOSER_EDITOR).click();
     await page.evaluate(() => {
       const bytes = new Uint8Array(5.2 * 1024 * 1024);
       for (let at = 0; at < bytes.length; at += 65536) crypto.getRandomValues(bytes.subarray(at, at + 65536));
@@ -281,7 +288,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
   // session's machine and the chip gets its path; removing the chip later stops it.
   test("a pasted screenshot's original uploads, and its chip's x stops the upload", async () => {
     const page = await newChat({ "chat.upload.begin": "ok", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    await page.locator(COMPOSER_EDITOR).click();
     await makeScreenshots(page, 1);
     await pasteScreenshots(page);
     await page.locator(".acpmux-attachment-image img").waitFor();

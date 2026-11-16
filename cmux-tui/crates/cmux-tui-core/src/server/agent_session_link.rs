@@ -37,6 +37,9 @@ mod list_scan_tests;
 #[path = "agent_session_list_source.rs"]
 pub(crate) mod list_source;
 #[cfg(test)]
+#[path = "agent_session_list_source_tests.rs"]
+mod list_source_tests;
+#[cfg(test)]
 #[path = "agent_session_link_tests.rs"]
 mod tests;
 

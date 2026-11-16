@@ -44,6 +44,7 @@ dependencies = [
  "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-process",
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -52,6 +53,7 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-source-scan",
+ "cmux-supervise-core",
  "cmux-tailnet",
  "cmux-transport",
  "cmux-tui-platform",
@@ -1673,6 +1675,7 @@ dependencies = [
  "cmux-link",
  "cmux-server",
  "cmux-server-core",
+ "cmux-supervise-core",
  "cmux-unix-socket",
  "flate2",
  "libc",
@@ -1913,7 +1916,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.3"
+version = "0.2.5"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2135,6 +2138,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-supervise-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "cmux-tui-platform",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-tab-discard"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tailnet"
 version = "0.1.0"
 dependencies = [
@@ -2260,6 +2282,7 @@ dependencies = [
  "cmux-holder",
  "cmux-host",
  "cmux-json",
+ "cmux-layout-reducer",
  "cmux-link",
  "cmux-panic-log",
  "cmux-process",
@@ -2370,6 +2393,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "base64",
+ "cmux-agent-cli-render",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
@@ -3945,6 +3969,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "ghostty-vt-sys",
+ "memchr",
  "png",
 ]
 

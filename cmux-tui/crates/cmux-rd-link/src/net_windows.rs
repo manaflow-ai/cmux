@@ -111,3 +111,6 @@ pub(super) fn grow_udp_buffers(socket: &UdpSocket) {
         }
     }
 }
+
+/// Apple platforms only (net_unix.rs): Windows leaves the socket's service class alone.
+pub(super) fn mark_interactive_video(_socket: &UdpSocket) {}

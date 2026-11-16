@@ -51,7 +51,7 @@ pub mod kind {
 /// (`turn_errors::says_unreachable`) is never a sign-in state, whatever words
 /// about a sign-in it also carries ("HTTP 503: authentication_failed").
 pub fn auth_kind(message: &str) -> Option<&'static str> {
-    if crate::hub::turn_errors::says_unreachable(message) {
+    if crate::turn_errors::says_unreachable(message) {
         return None;
     }
     if crate::claude_auth::is_expired_credential(message) {
@@ -69,6 +69,9 @@ pub fn auth_kind(message: &str) -> Option<&'static str> {
 pub fn says_missing_openai_key(message: &str) -> bool {
     message.to_lowercase().contains("missing environment variable: `openai_api_key`")
 }
+
+/// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
+pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
 
 /// Free space under this is `disk.low` unless the config sets `diskLowBytes`.
 pub const DISK_LOW_DEFAULT_BYTES: u64 = 1 << 30;
@@ -189,7 +192,7 @@ fn classify(
         let mut details = Map::new();
         details.insert("peer".into(), json!(peer));
         if let Some(at) = data.get("lastSeen").and_then(Value::as_u64) {
-            details.insert("lastSeenAt".into(), json!(crate::server::iso(at)));
+            details.insert("lastSeenAt".into(), json!(crate::clock_text::iso(at)));
         }
         let recovery = format!(
             "Check that {peer} is on and online in `tailscale status`; `acpmux machine doctor \
@@ -230,7 +233,7 @@ fn classify(
             Map::new(),
         ));
     }
-    if message == crate::hub::SHUTTING_DOWN {
+    if message == SHUTTING_DOWN {
         return Some((
             kind::DAEMON_RESTARTING,
             "The daemon is restarting. Run the command again in a few seconds; a send with the \
@@ -448,7 +451,7 @@ pub fn start_sign_in(e: &mut RpcError, harness: &str) -> bool {
     let lower = e.message.to_ascii_lowercase();
     let kind = match auth_kind(&e.message) {
         Some(kind) => kind,
-        None if crate::hub::turn_errors::says_unreachable(&e.message) => return false,
+        None if crate::turn_errors::says_unreachable(&e.message) => return false,
         // -32000 is also JSON-RPC's generic server error, so the code alone is never a sign-in:
         // only with the agent's own words for one (an adapter's quota error stays as it is).
         None if lower.contains("authentication required")

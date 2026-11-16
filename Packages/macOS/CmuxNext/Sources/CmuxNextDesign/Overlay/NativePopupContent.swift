@@ -103,7 +103,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             pendingInteractionModel = nil
             rebuild(next)
             if let focusedID, let replacement = editableControls[focusedID] ?? fields[focusedID] {
-                window?.makeFirstResponder(replacement)
+                FocusRoute(.system, "a popup's content updated").moveKeyboard(in: window, to: replacement)
             }
         }
         if let field = next.search, let search {

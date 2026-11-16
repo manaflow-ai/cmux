@@ -263,6 +263,10 @@ SCANNERS = (
     ("Scrollbars thin, one style", ["/bin/bash", "{s}/check-scrollbars.sh", "{root}"], (PKG + "/", "webviews/")),
     # Lawrence 2026-11-12: "roundness of all buttons should match roundness of tabs/workspaces".
     ("Buttons round as tabs", ["python3", "-I", "{s}/check-button-radius.py", "{root}"], (PKG + "/", "webviews/src/")),
+    # Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons inside".
+    ("Containers concentric with their buttons", ["python3", "-I", "{s}/check-concentric-containers.py", "{root}"],
+     (PKG + "/", "webviews/src/", "scripts/cmux-next/check-concentric-containers.py",
+      "scripts/cmux-next/concentric-containers-baseline.txt")),
     # Lawrence 2026-11-15: "for all buttons ... we only want to have different bg color on mousedown".
     ("Buttons change only their fill when pressed", ["python3", "-I", "{s}/check-pressed-state.py", "{root}"], (PKG + "/", "webviews/src/")),
     ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"], SCOPES),
@@ -272,6 +276,9 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
     ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
      ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
+    # Lawrence 2026-11-16: "think of root cause fixes ... that make focus stealers easier to audit in central place".
+    ("Keyboard moves go through the focus route (plans/cmux-next/focus-loss-AUDIT.md)",
+     ["python3", "-I", "{s}/check-focus-routes.py", "{root}"], (PKG + "/", "webviews/src/", "scripts/cmux-next/focus-routes-baseline.tsv")),
     ("No raw file locks (cmux_file_lock::FileLock, lane c-agenthost lock audit)",
      ["python3", "-I", "{s}/check-no-raw-flock.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-flock-baseline.tsv")),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
@@ -441,6 +448,7 @@ CRASH_OK = re.compile(r"^Crash-allow-OK:[ \t]*(\S.*)$", re.MULTILINE)
 # and the baselines no scanner here reads (godfile, layers, main-actor-work, check-menu-actions, rust-panic,
 # system-blue, type-scale, app-size): their CI checks read the pushed tree's own copy.
 RATCHET_BASELINES = {
+    "focus-routes-baseline.tsv": ((0,), 1),
     "process-scan-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
     "raw-spawn-baseline.tsv": ((0,), 1),
@@ -2456,10 +2464,13 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
     if resolver is None and b"load_workflow_jobs" in script:
         return [NoVerdict(f"prepush-gate: {STALE_INSTALL} (it has no {Path(FALLBACKS_RESOLVER).name}, which "
                           f"{Path(FALLBACKS_SCRIPT).name} reads runs-on through).")]
-    # The checker runs under this interpreter: the hook's own Python (its python3-path), as every other layer does.
+    # The checker runs under this interpreter: the one the hook picked (scripts/git-hooks/hook_python.sh), which
+    # imports yaml whenever any candidate on this host does. When none does, the refusal names each it tried.
     if not has_pyyaml(sys.executable):
         fix = pyyaml_install_command(sys.executable)
-        return [f"PyYAML missing: {fix}" if "externally managed" in fix else f"PyYAML missing: run {fix}"]
+        tried = os.environ.get("CMUX_HOOK_PYTHON_TRIED", "").strip()
+        also = f" (no Python the hook tried imports yaml: {tried})" if tried else ""
+        return [(f"PyYAML missing: {fix}" if "externally managed" in fix else f"PyYAML missing: run {fix}") + also]
     with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
         work = absolute(Path(tmp))
         (work / "check.py").write_bytes(script)

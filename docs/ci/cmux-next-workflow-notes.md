@@ -648,6 +648,16 @@ the entries so a cold mini reports, and the summary shows the time.
 The fleet's `queued` hand-back always runs cold on Blacksmith 6 vCPU macOS, whose fast-tier p90 was
 19.8 minutes (#38181's data), so it gets 35: a slow cold build still gives the verdict.
 
+An app FFI re-pin (`ffi_repin`) changes the CCmuxAppFFI binary target, so every
+CmuxNext module rebuilds cold before `HandlerCoverageTests` runs. With 20
+minutes, #43935's tier hit the job limit on cmux23-glaeda-3 (2026-11-15) and
+showed `cancelled`, not red. The re-pin merged, and every Debug launch then
+stopped in `HandlerCoverage.verify` (three terminal-to-chat catalog rows without
+handlers) until #44082. A re-pin gets 50 minutes. Its `Run the fast tier` step
+has a 45-minute limit: a step past its limit fails the job, so a slow re-pin
+build shows red with the step named, never `cancelled`. Other runs keep the job
+limit (the step's 360 is never reached).
+
 ## note-40
 
 Above `fast-tier: Fingerprint this job's inputs` in `.github/workflows/cmux-next.yml`.
@@ -3120,9 +3130,18 @@ placement (`next_macos_cascade.pr_rescue()`, `rescue_open()`) opens the Blacksmi
 `pull_request`, `GITHUB_WORKFLOW_REF` is this file, and the owned route's oldest queued job has waited
 `RESCUE_ROUTE_MINUTES` (45); the slots then go through the same cascade, `CAPACITY` and `MAX_PER_RUN` caps as `on`.
 In runs-on, a placement-listed Blacksmith job reads `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue'` (no fromJSON, so tests/runs_on_labels.py resolves it), and every
-owned fallback reads `(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' ||
-github.run_attempt < 2) && vars.CI_BLACKSMITH_MACOS != 'on'`: a pull request's re-run (the bot's stall-move or
-refusal rescue, or a person's re-run of failed jobs) takes Blacksmith macOS; attempt 1 stays owned. Every other
+owned fallback reads `(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.run_attempt < 2 ||
+github.event_name != 'pull_request' && (<not a bot's re-run of a pull request's dispatch>)) &&
+vars.CI_BLACKSMITH_MACOS != 'on'`: a pull request's re-run (the bot's stall-move or
+refusal rescue, or a person's re-run of failed jobs) takes Blacksmith macOS; attempt 1 stays owned. A bot's re-run
+(`github-actions[bot]`, `cmux-bot[bot]`) of a dispatch that gates a pull request leaves too: event
+`workflow_dispatch`, `same_tree_origin` empty or `pull_request`, and none of `dev_daily`, `tip_swift_suite`,
+`tip_daemon_suite`, `base_tier` or `no_reuse` set, so its run name is the default `cmux-next · <sha>` that
+main's `owned_pool_rescue.same_tree_pull_dispatch()` reads. Without it the stall move skipped every such run under
+`pr-rescue`, its re-run rejoining the side lane: cmux#44529's scheme compile (run 43879624016, job 133341854319)
+queued on `glaeda-side-std-xcode-26.6` from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). The stall move admits such a
+run only when its head's cmux-next.yml carries this clause. DEV daily, the tip suites, the base tier and a push's
+same-tree run keep the side lane. Every other
 workflow compares the variable with exactly `on`, so nightly, promote, signing and release read `pr-rescue` as
 off; `BlacksmithPrRescue` in `tests/test_ci_next_macos_cascade.py` proves both. Unset or `on` behave as before.
 
@@ -3564,3 +3583,50 @@ system" (cmux#43892 daemon test, job 132938818634, cmux11s-mac-mini-glaeda-8, 20
 seeds that cache for CmuxNext's whole package graph with scripts/ci/swiftpm_prefetch_binary_artifacts.py:
 a checksum-keyed store under one host lock, atomic renames into the cache, so SwiftPM only reads it. The
 cache stays shared and warm. tests/test_ci_swiftpm_prefetch_shared_cache.py is the detector.
+
+## note-386
+
+Above `borrow_runner` in `jobs.macos-placement.outputs` and above `BORROW_JOBS` in its `Place the macOS jobs` step
+of `.github/workflows/cmux-next.yml`.
+
+Borrowing an idle pool beside a backed-up one (scripts/ci/side_lane_placement.py borrow_route()). On 2026-11-16
+at 03:16Z macos-pool-load showed glaeda-std-xcode-26.6 48 queued and glaeda-side-std-xcode-26.6 44 (oldest 113
+min) while glaeda-gui-std-xcode-26.6 had 0 queued, and the slowest PR verdicts ended on the Release compile. A
+same-repo PR's Release compile that no idle side or light runner took takes the gui label (`borrow_runner`,
+listed in `borrow_jobs`) only while the side route has a queue, the gui label has nothing queued, more idle
+runners than the reserve (1) plus this run's own GUI jobs, and fewer than BORROW_CAP (2) gui runners already run a
+borrowed job. The gui pool's own jobs keep first claim; a stale or unread reading borrows nothing. The job's
+runs-on reads it only in the attempt the placement ran. The detector is
+tests/test_ci_side_lane_placement.py::BorrowIdlePool.
+
+## note-387
+
+Above `GATEWAY_LABEL` in the `Place the macOS jobs` step of `.github/workflows/cmux-next.yml`.
+
+The build-fleet compiles' gateway, taken (or a wider class of it) only while a runner is idle
+(gateway_runner). With none idle, swift-canary-fleet does not run and swift-canary cascades. The PR's app
+compile took its gateway before the quiet period ended (app-compile-placement); with none, its Mac Release
+compile, which runs when app-compile-fleet gives no verdict, is in CASCADE_RUNS above.
+
+## note-388
+
+Above `PR_HEAD_SHA` in the `Classify pull request paths` step's env and above the
+`cmux_next_base_merge_carry.py` call in its run, in `.github/workflows/cmux-next.yml`.
+
+The base-merge carry. merge_hold asks a pull request whose fast-gates green went stale to merge
+feat-cmux-next in (update-branch), and only after every check at the older head H finished and passed; it
+then lands the base merge M on its merged-tree checks alone (cmux-next/fast-gates on Linux,
+cmux-next/compile on the build fleet, the web compile) and carries the rest from H (merge_hold
+merged_tree_hold). This workflow still ran every Mac tier again at M. On 2026-11-16 at 05:44Z, with
+macos-pool-load at 134 queued on glaeda-std-xcode-26.6 and 126 on glaeda-side-std-xcode-26.6 (oldest 187
+min), 18 of the 60 open cmux-next pull request runs were on base-merge heads and 13 more same-tree dispatches
+tested their trees: Mac jobs no merge waited on, queued in front of pull requests that do wait on theirs. The
+land loops take the update-branch step up to four rounds, so one PR could queue four copies of its Mac tiers.
+
+After the router, a same-repository pull request run asks scripts/ci/cmux_next_base_merge_carry.py. When the
+head is a merge of a feat-cmux-next commit into H, its tree is exactly git's clean merge of the two (no
+resolved conflict, nothing slipped into the merge commit), H has a cmux-next pull_request run that concluded
+success, and the PR has no `full-ci`, the fast tier, generated files, daemon tests, scheme compile, Swift test
+and Swift canary outputs are set false (appended after the router's: the last value wins) and the summary names
+H and its run. The native tier stays as routed. Anything unread is no carry. `CMUX_NEXT_BASE_MERGE_CARRY=0`
+turns it off. tests/test_cmux_next_base_merge_carry.py is the detector.

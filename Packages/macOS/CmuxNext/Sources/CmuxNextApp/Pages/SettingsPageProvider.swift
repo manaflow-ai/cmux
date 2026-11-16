@@ -48,7 +48,7 @@ final class SettingsPageProvider: PageProvider {
     /// Settings > Keys (CmuxNextKeys `SettingsKeys`): its `cmux.settings.keys.*` ops and stream; nil in tests without an app.
     var keys: (any PageProvider)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
-    /// Parts another package serves whole, by op (Agent integrations, try on); empty in tests without an app.
+    /// Parts another package serves whole, by op (Agent integrations, try on, Customization Library); empty in tests without an app.
     var parts: [String: any PageProvider] = [:]
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
@@ -391,15 +391,14 @@ final class SettingsPageProvider: PageProvider {
         return PageSubscription { task.cancel() }
     }
 
-    /// One event per change of `read`'s value (the stores it reads are observable); the event
-    /// carries the new value.
+    /// One event per change of `read`'s value (the stores it reads are observable), carrying it; the baseline is read once (`current`).
     private static func watch(_ read: @escaping @MainActor () -> JSONValue,
                               onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
         let task = Task { @MainActor in
-            var last = read()
-            for await value in ObservationStream({ read() }) where value != last {
-                last = value
-                onEvent(value)
+            let (first, later) = ObservationStream.current { read() }
+            var last = first
+            for await value in later where value != last {
+                last = value; onEvent(value)
             }
         }
         return PageSubscription { task.cancel() }
