@@ -15,8 +15,8 @@ function host(allowed: boolean) {
   const h = new FakeHost(built, { app: { id: "local/showcase-site-js", version: "1.0.0" }, apiVersion: "1.0.0" })
   const state = { allowed }
   h.handlers = {
-    "page.javascript.get": () => ok({ origin: "https://www.news.test", allowed: state.allowed }),
-    "page.javascript.set": (p) => {
+    "browser.site.javascript.get": () => ok({ origin: "https://www.news.test", allowed: state.allowed }),
+    "browser.site.javascript.set": (p) => {
       state.allowed = p.allowed
       return ok({ origin: p.origin, allowed: p.allowed })
     },
@@ -32,7 +32,7 @@ describe("local/showcase-site-js", () => {
     h.runCommand("toggle", {}, 1, { gesture: "g-1" })
     await h.settle(10)
     expect(h.commandResults.get(1)).toEqual({ ok: true, body: { value: { origin: "https://www.news.test", allowed: false } } })
-    const set = h.calls.find((c) => c.name === "page.javascript.set")!
+    const set = h.calls.find((c) => c.name === "browser.site.javascript.set")!
     expect([set.params, set.options.gesture]).toEqual([{ origin: "https://www.news.test", allowed: false }, "g-1"])
     expect(state.allowed).toBe(false)
     expect(toasts(h)).toEqual([{ title: "JavaScript off for www.news.test" }])
@@ -43,13 +43,13 @@ describe("local/showcase-site-js", () => {
     expect(toasts(h).at(-1)).toEqual({ title: "JavaScript on for www.news.test", tone: "success" })
   })
 
-  test("no browser tab: says to open one and changes nothing", async () => {
+  test("no browser tab: says why and changes nothing", async () => {
     const { h } = host(true)
-    h.handlers["page.javascript.get"] = () => ({ ok: false, body: { code: "page.none", message: "No browser tab is open", retryable: false } })
+    h.handlers["browser.site.javascript.get"] = () => ({ ok: false, body: { code: "browser.no_tab", message: "No browser tab is open", retryable: false } })
     h.runCommand("toggle", {}, 1, { gesture: "g-1" })
     await h.settle(10)
-    expect(h.calls.some((c) => c.name === "page.javascript.set")).toBe(false)
-    expect(toasts(h)).toEqual([{ title: "Open a web page first", tone: "warning" }])
+    expect(h.calls.some((c) => c.name === "browser.site.javascript.set")).toBe(false)
+    expect(toasts(h)).toEqual([{ title: "Couldn't change JavaScript for this site", message: "No browser tab is open", tone: "warning" }])
   })
 
   test("the toast text", () => {

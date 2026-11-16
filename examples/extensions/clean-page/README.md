@@ -5,12 +5,14 @@ run **Clean this page** from the command palette, and the ads, cookie banners, p
 prompts, sticky bars and recommended rails go away. The next visit to that site is clean before it
 draws, with no model call.
 
-- `page.read()` lists the elements that look like clutter, found by cmux's own script in an
-  isolated world, never the page's.
+- `browserPage(ctx.cmux).state()` gives the tab's address. `src/page_read.js`, run with
+  `browserPage(ctx.cmux).eval()`, lists the elements that look like clutter (at most 150, never the
+  one holding the article) and changes nothing. It answers at once, since `eval` doesn't wait for a
+  promise.
 - `agent.ask()` sends that list to your default agent with every tool denied. It runs only from the
   command, with its gesture, since it spends your agent's quota.
 - Only selectors that were in the list are kept, and never the article or main content. Then
-  `page.style.set()` saves them, and cmux applies them to that site's open tabs and every later visit.
+  `site.style.set()` saves them, and cmux applies them to that site's open tabs and every later visit.
 - The **Sites cleaned** sidebar section lists each site; **Restore** puts one back as it was.
 - On a site that's already clean, the command says so; run it again (or **Clean this page again**)
   to start over with a fresh answer.

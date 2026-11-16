@@ -1,15 +1,18 @@
 // Clean this page: a palette command that asks your own agent which parts of the browser page are
 // clutter (ads, consent banners, popups, newsletter prompts, sticky bars, recommended rails), then
 // hides them for that site. It imports nothing but the public SDK and ./clean.ts.
-// - page.read lists the page's likely clutter, found by cmux's own script, never the page's.
+// - browserPage().state() gives the tab's address; src/page_read.js, run with browserPage().eval,
+//   lists the page's likely clutter. It reads the page and changes nothing.
 // - agent.ask sends that list to your default agent, with every tool denied, and the command's
 //   gesture: it spends your quota, so it runs only when you pick the command.
-// - Only selectors that were in the list are kept, then page.style.set saves them. cmux applies
+// - Only selectors that were in the list are kept, then site.style.set saves them. cmux applies
 //   them to the site's open tabs and to every later visit before the page draws, with no model call.
 // - Each cleaned site is kept with storage:local too, for the "Sites cleaned" section and its Restore.
 
-import { agent, Button, cmux, command, EmptyState, ForEach, HStack, page, Row, signal, Text, VStack, type CommandContext, type View } from "cmux-extension-sdk"
-import { buildPrompt, elements, hostOf, keepListed, parseReply } from "./clean.ts"
+import { agent, browserPage, Button, cmux, command, EmptyState, ForEach, HStack, Row, signal, site, Text, VStack, type CommandContext, type View } from "cmux-extension-sdk"
+import { buildPrompt, elements, hostOf, keepListed, originOf, parseReply, type Candidate } from "./clean.ts"
+// The reader script, as text: browserPage().eval runs it in the page.
+import PAGE_READ from "./page_read.js" with { type: "text" }
 
 export interface CleanedSite { origin: string; hide: string[]; unstick: string[]; at: number }
 
@@ -22,7 +25,6 @@ let loading: Promise<CleanedSite[]> | null = null
 let offered: string | null = null
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
-const code = (error: unknown) => (error as { code?: string } | null)?.code
 const newestFirst = (list: CleanedSite[]) => [...list].sort((a, b) => b.at - a.at)
 
 /** Reads every cleaned site once; later readers share the copy. */
@@ -65,17 +67,27 @@ export type CleanResult =
  * clean; without it, the first run on such a site says so and a second run cleans it fresh.
  */
 export const clean = command(async (args: { again?: boolean }, ctx: CommandContext): Promise<CleanResult> => {
-  let read
+  let read: { url: string; title: string; candidates: Candidate[] }
+  let origin: string
   try {
-    read = await page.read()
+    const browser = browserPage(ctx.cmux)
+    const state = await browser.state()
+    const found = originOf(state.url)
+    if (!found) {
+      await cmux.toast({ title: "Open a web page first", tone: "warning" })
+      return { origin: null, error: "not a web page" }
+    }
+    origin = found
+    const value = await browser.eval<{ candidates?: Candidate[] } | null>(PAGE_READ, { tab: state.tab })
+    read = { url: state.url, title: state.title, candidates: Array.isArray(value?.candidates) ? value.candidates : [] }
   } catch (error) {
-    const none = code(error) === "page.none"
-    await cmux.toast({ title: none ? "Open a web page first" : "Couldn't read this page", message: none ? undefined : message(error), tone: "warning" })
-    return { origin: null, error: none ? "page.none" : message(error) }
+    await cmux.toast({ title: "Couldn't read this page", message: message(error), tone: "warning" })
+    return { origin: null, error: message(error) }
   }
-  const { origin } = read
   const host = hostOf(origin)
-  const saved = (await load()).find((s) => s.origin === origin)
+  await load()
+  // The live list, not the first read: a site saved since then is in it.
+  const saved = (sites() ?? []).find((s) => s.origin === origin)
   if (saved && !args?.again && offered !== origin) {
     offered = origin
     const rules = saved.hide.length + saved.unstick.length
@@ -103,7 +115,7 @@ export const clean = command(async (args: { again?: boolean }, ctx: CommandConte
   const kept = keepListed(picks, read.candidates)
   const count = kept.hide.length + kept.unstick.length
   try {
-    await page.style.set({ origin, hide: kept.hide, unstick: kept.unstick })
+    await site.style.set({ origin, hide: kept.hide, unstick: kept.unstick })
     if (count === 0) {
       if (saved) await forget(origin)
     } else {
@@ -124,7 +136,7 @@ export const clean = command(async (args: { again?: boolean }, ctx: CommandConte
 /** Puts a site back as it was: no rules for it, and it leaves the list. */
 export async function restore(origin: string) {
   try {
-    await page.style.set({ origin, hide: [], unstick: [] })
+    await site.style.set({ origin, hide: [], unstick: [] })
     await forget(origin)
     setProblem(null)
   } catch (error) {

@@ -2,7 +2,7 @@
 // filter that keeps only selectors cmux itself found on the page. No cmux calls here, so the
 // tests run these directly.
 
-/** An element page.read listed (the fields this extension uses). */
+/** An element src/page_read.js listed (the fields this extension uses). */
 export interface Candidate {
   selector: string
   tag: string
@@ -120,11 +120,21 @@ export function parseReply(text: string): Picks | null {
 
 /** Whether cmux takes a selector as a rule: at most 256 bytes, none of `{ } ; < > @ \` or control characters. */
 export function storable(selector: string): boolean {
-  return selector.length > 0 && new TextEncoder().encode(selector).length <= 256 && !/[{};<>@\\\u0000-\u001f\u007f]/.test(selector)
+  return selector.length > 0 && utf8Length(selector) <= 256 && !/[{};<>@\\\u0000-\u001f\u007f]/.test(selector)
+}
+
+/** UTF-8 bytes in `s`, counted by hand: cmux's sandbox has no TextEncoder. */
+function utf8Length(s: string): number {
+  let n = 0
+  for (const ch of s) {
+    const code = ch.codePointAt(0)!
+    n += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4
+  }
+  return n
 }
 
 /**
- * Keeps only selectors page.read listed (so a made-up or mistyped selector never reaches the page)
+ * Keeps only selectors src/page_read.js listed (so a made-up or mistyped selector never reaches the page)
  * that cmux takes as rules, never the page's content, each once, at most 200 per list. A selector
  * picked for both is hidden.
  */
@@ -140,6 +150,12 @@ export function keepListed(picks: Picks, candidates: Candidate[]): Picks {
   }
   const hide = take(picks.hide, new Set())
   return { hide, unstick: take(picks.unstick, new Set(hide)) }
+}
+
+/** A web page's origin (`https://host[:port]`, lowercased), or null for any other address. */
+export function originOf(url: string): string | null {
+  const m = /^(https?):\/\/(?:[^@/?#]*@)?([^/?#]+)/i.exec(url.trim())
+  return m ? `${m[1]!.toLowerCase()}://${m[2]!.toLowerCase()}` : null
 }
 
 /** `https://www.example.com:8443` -> `www.example.com:8443`. */

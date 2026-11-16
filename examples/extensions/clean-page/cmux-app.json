@@ -23,8 +23,9 @@
     }
   },
   "scopes": {
-    "page:read": "Read the address of the page you're looking at and the elements that look like clutter on it.",
-    "page:write": "Hide the elements your agent picked on that site, and put them back when you click Restore.",
+    "browser:read": "Read the address of the page you're looking at, to know which site to clean.",
+    "browser:execute": "Run a script that lists the elements on the page that look like clutter, when you run the command. It changes nothing.",
+    "browser:write": "Hide the elements your agent picked on that site, and put them back when you click Restore.",
     "agent:execute": "Ask your default agent which elements are clutter, once each time you run the command.",
     "storage:local": "Remember which sites you cleaned on this Mac, for the Sites cleaned list."
   },
