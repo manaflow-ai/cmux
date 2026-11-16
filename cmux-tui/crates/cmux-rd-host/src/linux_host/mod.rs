@@ -2,12 +2,14 @@
 //! a Mac exactly like a shared Mac (docs/device-hub/PROTOCOL.md). The Mac app holds a Mac's
 //! device key and hub link and drives `cmux-rd serve`; on Linux this command does that job.
 //!
-//!   enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--allow-control]
+//!   enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--allow-control] [--own full|view|ask]
 //!       Signs in once with a cmux (Stack Auth) access token (without a token file, through
 //!       a browser sign-in link: stack_login.rs), registers this desktop as a
 //!       `linux` device, anchors it (it renews its own host session for 30 days with its
-//!       device key, no token) and turns sharing on. Control (input) is off unless
-//!       `--allow-control`.
+//!       device key, no token) and turns sharing on. Your own devices (signed in to this
+//!       account) view and control with no prompt unless `--own view` (no control) or
+//!       `--own ask` (approve each, like anyone else); the choice is kept until changed. For
+//!       anyone else control is off unless `--allow-control`.
 //!   share on [--stack-token-file PATH|-] | share off
 //!   run [--display :0] [--xauthority PATH] [--capture x11|portal]
 //!       The host: holds the hub socket and serves approved sessions. Run it in the desktop
@@ -19,8 +21,8 @@
 //!                                  reads from every share host (status_json.rs)
 //!
 //! Consent: a viewer the person already allowed (the hub's `view`/`full` permission) is
-//! served; any other request waits for `approve` and is never answered by the host itself
-//! (consent.rs). A `view` session applies no input, and so does every session of a host that
+//! served, and so is a viewer the hub names as signed in to this desktop's own account; any
+//! other request waits for `approve` (consent.rs). A `view` session applies no input, and so does every session of a host that
 //! captures through the Wayland portal (it applies no input): there it is served view only.
 
 mod b64;
@@ -49,7 +51,7 @@ use std::time::{Duration, Instant};
 const DEFAULT_HUB: &str = "https://cmux-device-hub.debussy.workers.dev";
 const PING_EVERY: Duration = Duration::from_secs(30);
 
-const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--allow-control]
+const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-] [--hub URL] [--name NAME] [--allow-control] [--own full|view|ask]
        cmux-rd linux-host share on [--stack-token-file PATH|-] | share off
        cmux-rd linux-host run [--display :0] [--xauthority PATH] [--capture x11|portal]
        cmux-rd linux-host requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status [--json]";
@@ -240,7 +242,7 @@ pub fn run_cli(args: &[String]) -> i32 {
     let words: Vec<&str> = parsed.positional.iter().map(String::as_str).collect();
     let result = match words.as_slice() {
         ["enable"] => parsed
-            .only(&["stack-token-file", "hub", "name", "allow-control"])
+            .only(&["stack-token-file", "hub", "name", "allow-control", "own"])
             .map_err(Into::into)
             .and_then(|()| enable(&parsed)),
         ["share", "on"] => {
@@ -295,6 +297,8 @@ fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
 }
 
 fn enable(args: &Args) -> Res<()> {
+    // The owner's own-device choice stays until they give another one.
+    let own = args.get("own").map(consent::OwnAccess::parse).transpose()?;
     let token = stack_token(args)?;
     let dir = identity::config_dir()?;
     identity::private_dir(&dir)?;
@@ -324,13 +328,16 @@ fn enable(args: &Args) -> Res<()> {
     let anchored_until = hub.anchor()?;
     hub.set_shared(true)?;
     Account { hub: hub_url, user_id, anchored_until }.save(&dir)?;
-    let consent = LocalConsent { view: true, full: args.flag("allow-control") };
+    // The owner's own-device choice stays until they give another one.
+    let own = own.or_else(|| LocalConsent::load(&dir).ok().and_then(|c| c.own));
+    let consent = LocalConsent { view: true, full: args.flag("allow-control"), own };
     consent.save(&dir)?;
     println!(
-        "This desktop is shared as \"{}\" ({}), {}. Start the host: systemctl --user enable --now cmux-screen-host.service",
+        "This desktop is shared as \"{}\" ({}), {}; {}. Start the host: systemctl --user enable --now cmux-screen-host.service",
         hub.device.name,
         hub.device.id,
-        shares_line(&Ok(consent), host_applies_input())
+        shares_line(&Ok(consent), host_applies_input()),
+        own_line(consent.own_access())
     );
     Ok(())
 }
@@ -393,7 +400,7 @@ fn requests() -> Res<()> {
 }
 
 fn approve(id: &str, args: &Args) -> Res<()> {
-    let (dir, hub, _) = load()?;
+    let (dir, hub, account) = load()?;
     let runtime = identity::runtime_dir()?;
     let pending = Pending::new(&runtime);
     let now = now_ms();
@@ -403,10 +410,11 @@ fn approve(id: &str, args: &Args) -> Res<()> {
             format!("no waiting request {id} (see `cmux-rd linux-host requests`)")
         })?;
     let applies_input = host_applies_input();
+    let own_account = request.same_account(Some(&account.user_id));
     let scope = consent::decision_scope(
         &request,
         args.get("scope"),
-        LocalConsent::load(&dir)?,
+        LocalConsent::load(&dir)?.for_viewer(own_account),
         applies_input,
     )?;
     let decision = if args.flag("always") { "always" } else { "once" };
@@ -480,6 +488,15 @@ fn shares_line(consent: &Res<LocalConsent>, applies_input: bool) -> &'static str
     }
 }
 
+/// What `enable` says the owner's own devices get.
+fn own_line(own: consent::OwnAccess) -> &'static str {
+    match own {
+        consent::OwnAccess::Full => "your own devices view and control it with no prompt",
+        consent::OwnAccess::View => "your own devices view it with no prompt, without control",
+        consent::OwnAccess::Ask => "your own devices wait for approve like anyone else",
+    }
+}
+
 /// The capture backend the running host chose (`run` records it in the runtime directory),
 /// else this session's own choice.
 fn host_capture(runtime: Option<&std::path::Path>) -> CaptureBackend {
@@ -494,10 +511,12 @@ fn host_applies_input() -> bool {
     host_capture(identity::runtime_dir().ok().as_deref()).applies_input()
 }
 
-/// A session this host serves: its id, its scope (`view`/`full`) and its stop flag.
+/// A session this host serves: its id, its scope (`view`/`full`), whether its viewer is on
+/// this desktop's own account, and its stop flag.
 struct Served {
     id: String,
     scope: String,
+    own_account: bool,
     stop: Arc<AtomicBool>,
 }
 
@@ -523,11 +542,17 @@ fn hold_link(current: &Current, hold: impl FnOnce() -> Res<()>) -> (Res<()>, Opt
     (result, stop_current(current))
 }
 
-/// How a ticket with `scope` is served under the consent on disk now: `Some(view_only)`,
-/// or None when this desktop does not allow it or its consent file cannot be read.
-fn admit(dir: &std::path::Path, scope: &str, applies_input: bool) -> Option<bool> {
+/// How a ticket with `scope` is served under the consent on disk now, for a viewer on this
+/// desktop's own account or not: `Some(view_only)`, or None when this desktop does not allow
+/// it or its consent file cannot be read.
+fn admit(
+    dir: &std::path::Path,
+    scope: &str,
+    applies_input: bool,
+    own_account: bool,
+) -> Option<bool> {
     match LocalConsent::load(dir) {
-        Ok(consent) => consent.serve(scope, applies_input),
+        Ok(consent) => consent.for_viewer(own_account).serve(scope, applies_input),
         Err(e) => {
             eprintln!("linux-host: consent unreadable, nothing is served: {e}");
             None
@@ -545,7 +570,9 @@ fn withdraw_unconsented(
     let mut guard = current.lock().unwrap_or_else(|e| e.into_inner());
     let allowed = match (&consent, guard.as_ref()) {
         (_, None) => return None,
-        (Ok(consent), Some(served)) => consent.serve(&served.scope, applies_input).is_some(),
+        (Ok(consent), Some(served)) => {
+            consent.for_viewer(served.own_account).serve(&served.scope, applies_input).is_some()
+        }
         (Err(_), Some(_)) => false,
     };
     if allowed {
@@ -683,7 +710,7 @@ enum OnTicket {
 /// The answer to a host ticket `push`; `admit` maps its scope to `Some(view_only)` or None
 /// when this desktop does not allow it. A ticket that does not parse is ended too, as the
 /// Mac host does: the hub approved the session, and only `/end` closes it.
-fn on_ticket(push: &Value, admit: impl FnOnce(&str) -> Option<bool>) -> OnTicket {
+fn on_ticket(push: &Value, admit: impl FnOnce(&Ticket) -> Option<bool>) -> OnTicket {
     let ticket = match Ticket::from_push(push) {
         Ok(t) => t,
         Err(e) => {
@@ -693,7 +720,7 @@ fn on_ticket(push: &Value, admit: impl FnOnce(&str) -> Option<bool>) -> OnTicket
             }
         }
     };
-    match admit(&ticket.scope) {
+    match admit(&ticket) {
         Some(view_only) => OnTicket::Serve(ticket, view_only),
         None => OnTicket::End(
             ticket.session_id,
@@ -721,12 +748,11 @@ fn handle_push(
                 return;
             };
             request.received_ms = now_ms();
-            match consent::on_request(&request, hub.user_id().as_deref()) {
+            // A consent file it cannot read serves nothing: the person decides.
+            let Ok(local) = LocalConsent::load(dir) else { return ask(&pending, request) };
+            match consent::on_request(&request, hub.user_id().as_deref(), local) {
                 consent::OnRequest::OwnAccount => {
-                    let scope = LocalConsent::load(dir).ok().and_then(|consent| {
-                        consent::own_account_scope(&request, consent, applies_input)
-                    });
-                    match scope {
+                    match consent::own_account_scope(&request, local, applies_input) {
                         Some(scope) => approve_own_account(hub, request, scope, runtime),
                         // This desktop serves nothing now: the person decides.
                         None => ask(&pending, request),
@@ -736,7 +762,10 @@ fn handle_push(
             }
         }
         Some("session.ticket") if push["role"].as_str() == Some("host") => {
-            match on_ticket(push, |scope| admit(dir, scope, applies_input)) {
+            let user = hub.user_id();
+            let admitted =
+                |t: &Ticket| admit(dir, &t.scope, applies_input, t.same_account(user.as_deref()));
+            match on_ticket(push, admitted) {
                 OnTicket::Serve(ticket, view_only) => {
                     start_session(hub, ticket, view_only, serve_args, current);
                 }
@@ -781,6 +810,7 @@ fn start_session(
         *guard = Some(Served {
             id: ticket.session_id.clone(),
             scope: ticket.scope.clone(),
+            own_account: ticket.same_account(hub.user_id().as_deref()),
             stop: stop.clone(),
         });
     }
@@ -1007,7 +1037,8 @@ mod tests {
     /// A `Current` serving session `s1` with `scope`, and its stop flag.
     fn serving(scope: &str) -> (Current, Arc<AtomicBool>) {
         let stop = Arc::new(AtomicBool::new(false));
-        let served = Served { id: "s1".into(), scope: scope.into(), stop: stop.clone() };
+        let served =
+            Served { id: "s1".into(), scope: scope.into(), own_account: false, stop: stop.clone() };
         (Arc::new(Mutex::new(Some(served))), stop)
     }
 
@@ -1049,24 +1080,46 @@ mod tests {
     #[test]
     fn consent_is_read_again_for_each_ticket() {
         let dir = consent_dir("admit");
-        LocalConsent { view: true, full: true }.save(&dir).unwrap();
-        assert_eq!(admit(&dir, "full", true), Some(false));
+        LocalConsent { view: true, full: true, own: None }.save(&dir).unwrap();
+        assert_eq!(admit(&dir, "full", true, false), Some(false));
         // `enable` without --allow-control, the host still running.
-        LocalConsent { view: true, full: false }.save(&dir).unwrap();
-        assert_eq!(admit(&dir, "full", true), None);
-        assert_eq!(admit(&dir, "view", true), Some(true));
+        LocalConsent { view: true, full: false, own: None }.save(&dir).unwrap();
+        assert_eq!(admit(&dir, "full", true, false), None);
+        assert_eq!(admit(&dir, "view", true, false), Some(true));
         // A consent file it cannot trust admits nothing.
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(dir.join("consent.json"), std::fs::Permissions::from_mode(0o644))
             .unwrap();
-        assert_eq!(admit(&dir, "view", true), None);
+        assert_eq!(admit(&dir, "view", true, false), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_own_accounts_control_ticket_is_served_without_allow_control() {
+        let dir = consent_dir("own");
+        LocalConsent::default().save(&dir).unwrap();
+        assert_eq!(admit(&dir, "full", true, true), Some(false));
+        assert_eq!(admit(&dir, "full", true, false), None);
+        // `enable --own view` while it runs: the own account's control session stops.
+        let (current, stop) = serving("full");
+        current.lock().unwrap().as_mut().unwrap().own_account = true;
+        assert_eq!(withdraw_unconsented(&current, LocalConsent::load(&dir), true), None);
+        let view_only =
+            LocalConsent { own: Some(consent::OwnAccess::View), ..LocalConsent::default() };
+        view_only.save(&dir).unwrap();
+        assert_eq!(admit(&dir, "full", true, true), None);
+        assert_eq!(
+            withdraw_unconsented(&current, LocalConsent::load(&dir), true).as_deref(),
+            Some("s1")
+        );
+        assert!(stop.load(Ordering::SeqCst));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn withdrawn_consent_stops_the_session_it_no_longer_allows() {
-        let both = LocalConsent { view: true, full: true };
-        let view_only = LocalConsent { view: true, full: false };
+        let both = LocalConsent { view: true, full: true, own: None };
+        let view_only = LocalConsent { view: true, full: false, own: None };
         let (current, stop) = serving("full");
         assert_eq!(withdraw_unconsented(&current, Ok(both), true), None);
         assert!(!stop.load(Ordering::SeqCst));
@@ -1101,11 +1154,11 @@ mod tests {
     #[test]
     fn a_deleted_consent_file_admits_nothing_and_stops_the_view_session() {
         let dir = consent_dir("deleted");
-        LocalConsent { view: true, full: false }.save(&dir).unwrap();
+        LocalConsent { view: true, full: false, own: None }.save(&dir).unwrap();
         let (current, stop) = serving("view");
         assert_eq!(withdraw_unconsented(&current, LocalConsent::load(&dir), true), None);
         std::fs::remove_file(dir.join("consent.json")).unwrap();
-        assert_eq!(admit(&dir, "view", true), None);
+        assert_eq!(admit(&dir, "view", true, false), None);
         assert_eq!(
             withdraw_unconsented(&current, LocalConsent::load(&dir), true).as_deref(),
             Some("s1")
@@ -1117,10 +1170,10 @@ mod tests {
     #[test]
     fn a_portal_host_serves_view_only_and_says_so() {
         let dir = consent_dir("portal");
-        LocalConsent { view: true, full: true }.save(&dir).unwrap();
+        LocalConsent { view: true, full: true, own: None }.save(&dir).unwrap();
         // The portal capture applies no input: a control ticket is served view only.
-        assert_eq!(admit(&dir, "full", false), Some(true));
-        assert_eq!(admit(&dir, "full", true), Some(false));
+        assert_eq!(admit(&dir, "full", false, false), Some(true));
+        assert_eq!(admit(&dir, "full", true, false), Some(false));
         let all = LocalConsent::load(&dir);
         assert_eq!(shares_line(&all, true), "view and control");
         let line = shares_line(&all, false);

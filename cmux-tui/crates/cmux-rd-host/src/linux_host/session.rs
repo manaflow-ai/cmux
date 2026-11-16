@@ -29,9 +29,21 @@ pub struct Ticket {
     pub peer_name: String,
     pub peer_key: String,
     pub scope: String,
+    /// The hub's word on the viewer, as on `session.request` (consent::same_account).
+    pub access: Option<String>,
+    pub viewer_user_id: Option<String>,
 }
 
 impl Ticket {
+    /// Whether the hub names the viewer as signed in to `own_user_id`, this desktop's account.
+    pub fn same_account(&self, own_user_id: Option<&str>) -> bool {
+        super::consent::same_account(
+            self.access.as_deref(),
+            self.viewer_user_id.as_deref(),
+            own_user_id,
+        )
+    }
+
     /// The push, when it is a host ticket whose JWS names this session, the host role and the
     /// same viewer key as the push.
     pub fn from_push(push: &Value) -> Res<Self> {
@@ -45,6 +57,8 @@ impl Ticket {
             peer_name: s(&push["peer"]["name"]),
             peer_key: s(&push["peer"]["signingKey"]),
             scope: s(&push["scope"]),
+            access: push["access"].as_str().map(str::to_owned),
+            viewer_user_id: push["viewerUserId"].as_str().map(str::to_owned),
         };
         if push["role"].as_str() != Some("host") {
             return Err("not a host ticket".into());
@@ -398,6 +412,18 @@ mod tests {
         assert!(Ticket::from_push(&push("viewer", "s1", "KEY")).is_err());
         assert!(Ticket::from_push(&push("host", "s2", "KEY")).is_err());
         assert!(Ticket::from_push(&push("host", "s1", "OTHER")).is_err());
+    }
+
+    #[test]
+    fn a_ticket_is_the_own_accounts_only_on_the_hubs_fields() {
+        let mut p = push("host", "s1", "KEY");
+        assert!(!Ticket::from_push(&p).unwrap().same_account(Some("p:me")));
+        p["access"] = json!("account");
+        p["viewerUserId"] = json!("p:me");
+        assert!(Ticket::from_push(&p).unwrap().same_account(Some("p:me")));
+        assert!(!Ticket::from_push(&p).unwrap().same_account(Some("p:other")));
+        p["access"] = json!("link");
+        assert!(!Ticket::from_push(&p).unwrap().same_account(Some("p:me")));
     }
 
     #[test]

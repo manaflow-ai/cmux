@@ -103,6 +103,9 @@ interface WireTicket {
   role: "viewer" | "host";
   scope: Scope;
   reattach?: boolean;
+  /** Host tickets: how the viewer was admitted and its account, as on `session.request`. */
+  access?: "account";
+  viewerUserId?: string;
 }
 
 const SCHEMA = `
@@ -863,7 +866,9 @@ export class UserDO extends DurableObject<Env> {
     for (const [self, peer, role] of [[viewer, host, "viewer"], [host, viewer, "host"]] as const) {
       const ticket = await mintTicket(this.env, { sid: s.id, role, dev: self.id, peer: peer.id, peerKey: peer.signing_key, scope: s.scope, ...(reattach ? { reattach: true } : {}) }, Date.now(), ttlS);
       if (!this.stillOpen(s.id)) return null;
-      result.push({ sessionId: s.id, ticket, signalURL, ice, peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope });
+      // Every device here registered with this account's verified session: the viewer is on it.
+      const account = role === "host" ? { access: "account" as const, viewerUserId: this.ownerId } : {};
+      result.push({ sessionId: s.id, ticket, signalURL, ice, peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope, ...account });
     }
     return result as [WireTicket, WireTicket];
   }

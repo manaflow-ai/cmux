@@ -53,6 +53,11 @@ describe("revocation", () => {
     await ctx.viewer.user!.waitClosed();
     await s.h.waitClosed();
     expect(await auditEvents(ctx.host)).toContain("device_removed");
+    // Its next session is refused too: a host never sees a same-account request from it (D11).
+    ctx.host.user!.frames.length = 0;
+    const next = await ctx.viewer.call("POST", "/v1/sessions", { hostId: ctx.host.id, scope: "view" });
+    expect(next.status).toBe(403);
+    expect(ctx.host.user!.frames.some((f) => f.type === "session.request" || f.type === "session.ticket")).toBe(false);
   });
 
   it("revokes pending requests too, without a Session DO", async () => {

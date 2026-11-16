@@ -161,8 +161,8 @@ pub fn status_json(facts: &Facts, version: &str) -> Value {
 mod tests {
     use super::*;
 
-    const FULL: LocalConsent = LocalConsent { view: true, full: true };
-    const VIEW: LocalConsent = LocalConsent { view: true, full: false };
+    const FULL: LocalConsent = LocalConsent { view: true, full: true, own: None };
+    const VIEW: LocalConsent = LocalConsent { view: true, full: false, own: None };
 
     fn x11(size: Option<(u32, u32)>) -> Capture {
         Capture { backend: CaptureBackend::X11, usable: true, size, portal_granted: false }
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn consent_allowing_nothing_shares_none() {
-        let none = LocalConsent { view: false, full: false };
+        let none = LocalConsent { view: false, full: false, own: None };
         assert_eq!(status_json(&ready(none, x11(None)), "v")["shares"], "none");
     }
 
