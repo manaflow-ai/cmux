@@ -56,6 +56,8 @@ mod wanted;
 use wanted::BackoffWait;
 #[path = "peer_controls.rs"]
 mod controls;
+#[path = "peer_list_read.rs"]
+mod list_read;
 #[path = "peer_runtime.rs"]
 mod runtime;
 #[path = "peer_runtime_io.rs"]
@@ -144,6 +146,10 @@ pub fn hidden_attach_after(id: &str, after: u64) -> Value {
 #[derive(Debug)]
 pub enum PeerNotice {
     Connected,
+    /// The link's whole list (and the changes held while it came) went just before this: a
+    /// link sends it before `Connected`, one after a far restart or a path switch after it
+    /// (`Peer::lists_after_ready`).
+    Listed,
     Disconnected(String),
     /// The remote daemon sent WebSocket Close 1012; its rows stay usable while it restarts.
     Restarting,
@@ -302,19 +308,19 @@ pub struct Peer {
     cancelled: Arc<StdMutex<crate::request_cancel::Cancelled>>,
     /// Accepted prompt identities survive transport loss; reconnect only reads their outcome.
     prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
-    /// The handshake finished on the live link (`initialize` and `_acpmux/watch` answered, the
-    /// sessions listed): what `connected` reports. False from the moment the link drops.
+    /// The handshake finished on the live link (`initialize` answered, and the sessions listed on a
+    /// first link): what `connected` reports. False from the moment the link drops.
     pub connected: AtomicBool,
-    /// The hub applied this link's session list (its `Connected` notice, which follows the
+    /// The hub applied this link's session list (its `Listed` notice, which follows the
     /// list): until then a name missing from the rows may only not be listed yet, so a
     /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
-    /// hub's `Disconnected`.
+    /// hub's `Disconnected`, and from its `Connected` until this link's list is in.
     pub rows_ready: AtomicBool,
-    /// One more than the link epoch whose session list the hub applied last (its `Connected`
+    /// One more than the link epoch whose session list the hub applied last (its `Listed`
     /// notice), 0 before any: the rows are that link's ([`Self::rows_current`]).
     rows_link: AtomicU64,
-    /// The links whose `Connected` notice is on its way to the hub, oldest first: the hub takes
-    /// one with each `Connected` it applies, so it knows which link's list that one follows.
+    /// The links whose `Listed` notice is on its way to the hub, oldest first: the hub takes
+    /// one with each `Listed` it applies, so it knows which link's list that one follows.
     listed_links: StdMutex<std::collections::VecDeque<u64>>,
     /// The WebSocket is open, handshake or not: only the handshake's own requests go out
     /// while it is open and not `connected`.
@@ -394,6 +400,9 @@ pub struct Peer {
     read_tokens: tokens::TokenCache,
     /// A link of this peer was connected once: a later read runs before its tunnel opens.
     linked_once: AtomicBool,
+    /// A link of this instance published a whole list, and every link since ended only for a far
+    /// restart or a path switch, which leave the rows usable (`Peer::lists_after_ready`).
+    whole_list: AtomicBool,
     /// An ssh attempt timed out in the banner exchange since the link was last ready: the host
     /// is slow, and its attempts get the long connect deadline (`ssh_connect_secs`).
     slow_banner: AtomicBool,
@@ -528,25 +537,6 @@ impl ReceivedBytes {
     /// (frame bytes, text bytes) since the link opened.
     pub fn read(&self) -> (u64, u64) {
         (self.frames.load(Ordering::SeqCst), self.text.load(Ordering::SeqCst))
-    }
-}
-
-impl Peer {
-    /// Reads every page after the watch reply `first` with `_acpmux/sessions {cursor}` on link
-    /// `link`; the reader gathers their rows (`watch_key`). A cursor given twice, or one that is
-    /// not a string, is an error that ends the handshake, never a loop or a short list.
-    async fn watch_pages(&self, first: Value, tools: bool, link: u64) -> Result<(), RpcError> {
-        let (mut seen, mut next) = (HashSet::new(), page_cursor(&first)?);
-        while let Some(cursor) = next {
-            if !seen.insert(cursor.clone()) {
-                let why = format!("the peer gave the watch page cursor {cursor:?} twice");
-                return Err(RpcError::internal(why));
-            }
-            let params = json!({"withTools": tools, "cursor": cursor});
-            let page = self.watch_request_on(method::MUX_SESSIONS, params, link).await?;
-            next = page_cursor(&page)?;
-        }
-        Ok(())
     }
 }
 

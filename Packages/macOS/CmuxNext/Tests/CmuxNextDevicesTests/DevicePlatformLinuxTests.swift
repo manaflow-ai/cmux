@@ -12,6 +12,15 @@ import Testing
         #expect(device.online)
     }
 
+    /// The sidebar's screen actions read this map: a Linux desktop is a screen the Mac views, an iPhone is not.
+    @Test func aLinuxHostIsAScreenTheMacViews() {
+        let devices = [HubDevice(id: "Desktop-ID", name: "Desktop", platform: .linux, online: true),
+                       HubDevice(id: "mac", name: "Mac", platform: .macos, online: false),
+                       HubDevice(id: "phone", name: "Phone", platform: .ios, online: true),
+                       HubDevice(id: "old", name: "Old", platform: nil, online: true)]
+        #expect(HubDevice.macScreenAvailability(in: devices) == ["desktop-id": true, "mac": false])
+    }
+
     @Test func aPlatformThisAppDoesNotKnowStillDecodes() throws {
         let json = #"{"id":"d1","name":"Box","platform":"windows","macScreenShared":true}"#
         let device = try JSONDecoder().decode(HubDevice.self, from: Data(json.utf8))

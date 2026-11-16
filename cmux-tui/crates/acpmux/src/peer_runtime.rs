@@ -92,6 +92,7 @@ impl Peer {
             presented: StdMutex::new(None),
             read_tokens: tokens::TokenCache::default(),
             linked_once: AtomicBool::new(false),
+            whole_list: AtomicBool::new(false),
             slow_banner: AtomicBool::new(false),
             login_refused: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
@@ -711,19 +712,19 @@ impl Peer {
         self.watch_active.store(active, Ordering::Release);
     }
 
-    /// The hub applied a `Connected` notice of this peer: the rows are now those its link listed
-    /// at that handshake. A notice no link queued (a test's) stands for the live link.
+    /// The hub applied a `Listed` notice of this peer: the rows are now those its link listed
+    /// last. A notice no link queued (a test's) stands for the live link.
     pub(crate) fn note_rows_applied(&self) {
         let link = self.listed_links.lock_or_recover().pop_front();
         let link = link.unwrap_or_else(|| self.link_epoch());
         self.rows_link.store(link + 1, Ordering::SeqCst);
     }
 
-    /// The link is ready and the hub applied the session list it sent at its own handshake, so
+    /// The link is ready and the hub applied the session list this link read (`Listed`), so
     /// its notices keep the rows current. A link that dropped and came back reads false until
     /// the new link's list is applied: until then the rows are the link before's.
     pub fn rows_current(&self) -> bool {
-        self.ready() && self.rows_link.load(Ordering::SeqCst) == self.link_epoch() + 1
+        self.ready() && self.rows_listed()
     }
 
     /// The WebSocket is open and the handshake has not finished.
@@ -996,17 +997,6 @@ impl Peer {
         epoch: Option<u64>,
     ) -> Result<Value, RpcError> {
         self.send_request(m, params, epoch, ListKey::None).await
-    }
-
-    /// [`Self::link_request_on`] for the handshake's watch list on link `link`, its
-    /// `_acpmux/watch` or a page after it: the reader takes the reply's rows (`watch_key`).
-    pub(super) async fn watch_request_on(
-        &self,
-        m: &str,
-        params: Value,
-        link: u64,
-    ) -> Result<Value, RpcError> {
-        self.send_request(m, params, Some(link), ListKey::Watch).await
     }
 
     pub(super) async fn send_request(

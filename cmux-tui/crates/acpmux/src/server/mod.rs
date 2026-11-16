@@ -597,7 +597,7 @@ impl Conn {
                 if reply_to == Some(controls::METHOD) {
                     self.controls.reply(self, msg, line);
                 } else {
-                    self.out.push(line);
+                    self.out.push_in(line, outbound::reply_lane(msg, reply_to));
                 }
             }
             Err(bytes) => self.left_out_too_large(msg.method(), bytes),
@@ -663,9 +663,9 @@ impl Conn {
             let name = if name.is_empty() { "(unnamed)" } else { name.as_str() };
             crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
         }
-        // One queue, in order: a notice queued after this reply goes after it. The client keeps
-        // each row with the higher `listSeq` (`hub/row_log.rs`), so their order does not matter.
-        if !queue.push(line) {
+        // A cheap list read goes ahead of the bulk lane (`outbound.rs`), so a notice may pass it: the
+        // client keeps each row with the higher `listSeq` (`hub/row_log.rs`); order does not matter.
+        if !queue.push_in(line, outbound::method_lane(method)) {
             return false;
         }
         whole

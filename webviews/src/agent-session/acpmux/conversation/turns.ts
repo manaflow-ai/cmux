@@ -140,7 +140,19 @@ export function spanDuration(t: Translate, ms: number): string | undefined {
 
 export const toolCalls = (t: Translate, count = 0) => t("turn.toolCalls", { n: count });
 
-/// The disclosure's label: "Worked for 1m 16s", "You stopped after 40s",
+/// How a turn's time reads, by how the turn ended: a turn that died on an API error (a 429, a
+/// capacity refusal) says so, never "Worked for" (Leo's coordinator looped on 429s for hours and
+/// every dead turn read as work). `turnTimeKey` is the same choice for a label that draws the time
+/// itself (TurnRows.tsx WorkedLabel's TimedLabel).
+export function turnTimeKey(row: AcpmuxRow): "turn.failedAfter" | "turn.stopped" | "turn.worked" {
+  if (row.status === "failed" || row.status === "error") return "turn.failedAfter";
+  if (row.status === "cancelled" || row.status === "interrupted") return "turn.stopped";
+  return "turn.worked";
+}
+
+const turnTimeLabel = (t: Translate, row: AcpmuxRow, time: string) => t(turnTimeKey(row), { time });
+
+/// The disclosure's label: "Worked for 1m 16s", "Failed after 40s", "You stopped after 40s",
 /// or "34 previous messages" for a Codex fold that mixes the agent's messages with its work
 /// (`foldMixesMessages`). It shows no tool-call count.
 export function workedLabel(t: Translate, row: AcpmuxRow): string {
@@ -148,13 +160,7 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
     return row.previous === 1 ? t("turn.previous.one") : t("turn.previous.other", { n: row.previous });
   if (row.durationMs === undefined) return toolCalls(t, row.toolCount) + workedMessagesText(t, row);
   const time = formatDuration(row.durationMs);
-  return (
-    (row.status === "cancelled" || row.status === "interrupted"
-      ? t("turn.stopped", { time })
-      : t("turn.worked", { time })) +
-    workedCallsText(t, row) +
-    workedMessagesText(t, row)
-  );
+  return turnTimeLabel(t, row, time) + workedCallsText(t, row) + workedMessagesText(t, row);
 }
 
 /// " · 14 tool calls" after a finished turn's time when its family counts them (`workedCalls`), else "".
