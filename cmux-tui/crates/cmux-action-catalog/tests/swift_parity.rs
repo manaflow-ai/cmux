@@ -14,130 +14,191 @@
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
-/// Actions this crate has and the pinned app FFI does not yet (step A of an app FFI change,
-/// docs/ci/app-ffi-release.md). The exports are written from the pinned catalog, so they gain
-/// these rows with the re-pin, which takes them off this list (#38644, #41954, and the catalog
-/// request rows).
-const AWAITING_REPIN: &[&str] = &[
-    "customize.reset",
-    "app.try.run",
-    "app.try.undo",
-    "terminal.fixLastCommand",
-    "terminal.sendLastOutputToChat",
-    "terminal.sendSelectionToChat",
-    "workspace.unpinFromSpace",
-];
+/// The markers for what this crate has and the pinned app FFI does not yet (step A of an app FFI
+/// change, docs/ci/app-ffi-release.md), one file per entry under `tests/awaiting-repin/`. Adding
+/// an entry is creating its file and the re-pin deletes it, so two pull requests that mark or
+/// clear different ids never touch the same path and never conflict here (they did in a shared
+/// Rust list: one side clearing ids the re-pin landed while another added ids next to them).
+/// Leo, 2026-11-15: "conflicts/falling behind branch idk i feel like there should be better
+/// solutions to this".
+///
+/// - `actions/<id>`: an action the exports do not have yet; both leave its row out.
+/// - `shortcut/<id>`: a default shortcut the exports do not show yet (they may show none).
+/// - `shortcut-removal/<id>`: a default shortcut this crate dropped that the exports still show.
+/// - `fields/<id>`: fields of an existing action this crate changed, one JSON pointer into the
+///   action's catalog row per line (`/surfacePlan/palette`); the dump keeps the old value of each.
+/// - `family/<family>/<id>`: a palette family member the dump does not have yet.
+/// - `members/<name>`: a top-level catalog member the dump does not have yet.
+///
+/// Text after a `#` is a note (which pull request, why). Only `fields/` reads its lines; the
+/// other files may be empty. Each marker fails once the export has what it waits for, naming the
+/// file to delete.
+const MARKERS: &str = "cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin";
+
+/// The repo-relative path of `list`'s marker for `id`, as a failure names it.
+fn marker(list: &str, id: &str) -> String {
+    format!("{MARKERS}/{list}/{id}")
+}
+
+/// Each marker file in `list` (a directory under [`MARKERS`]) as its name and its lines without
+/// notes or blanks, sorted by name. A missing directory is an empty list.
+fn marker_files(list: &str) -> Vec<(String, Vec<String>)> {
+    let dir = repo().join(MARKERS).join(list);
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(e) => panic!("{}: {e}", dir.display()),
+    };
+    let mut files: Vec<_> = entries
+        .map(|entry| entry.unwrap_or_else(|e| panic!("{}: {e}", dir.display())))
+        .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
+        .map(|entry| {
+            let name = entry.file_name().into_string().expect("a UTF-8 marker name");
+            let path = entry.path();
+            assert!(path.is_file(), "{MARKERS}/{list}/{name}: a marker is a file named by its id");
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let lines = text
+                .lines()
+                .map(|line| line.split('#').next().unwrap_or("").trim())
+                .filter(|line| !line.is_empty())
+                .map(str::to_owned)
+                .collect();
+            (name, lines)
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// The ids `list` marks (the marker files' names).
+fn marked(list: &str) -> Vec<String> {
+    marker_files(list).into_iter().map(|(id, _)| id).collect()
+}
+
+fn listed(ids: &[String], id: &str) -> bool {
+    ids.iter().any(|i| i == id)
+}
+
+/// Actions this crate has and the pinned app FFI does not yet: `awaiting-repin/actions/<id>`. The
+/// exports are written from the pinned catalog, so they gain these rows with the re-pin, which
+/// deletes the markers.
+static AWAITING_REPIN: LazyLock<Vec<String>> = LazyLock::new(|| marked("actions"));
 
 /// Each id on [`AWAITING_REPIN`] is a catalog action that `export` (one of the exports' action
-/// lists) does not have yet: once the export has it, it comes off the list.
+/// lists) does not have yet, and every other catalog action is in `export`: a missing one names
+/// the marker to create, a landed one the marker to delete.
 fn check_awaiting_repin(export: &[Value], file: &str) {
-    for id in AWAITING_REPIN {
+    for id in AWAITING_REPIN.iter() {
+        let path = marker("actions", id);
         assert!(
             cmux_action_catalog::find(id).is_some(),
-            "{id} is awaiting the re-pin but not an action"
+            "{id} is awaiting the re-pin but not an action: delete {path}"
         );
         assert!(
             !export.iter().any(|row| row["id"] == *id),
-            "{file} has {id}: the re-pin landed, so take it off AWAITING_REPIN"
+            "{file} has {id}: the re-pin landed, so delete {path}"
         );
     }
+    let missing: Vec<_> = cmux_action_catalog::actions()
+        .filter(|a| !listed(&AWAITING_REPIN, a.id) && !export.iter().any(|row| row["id"] == a.id))
+        .map(|a| marker("actions", a.id))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "{file} does not have these actions. A new action the pinned app FFI does not have yet \
+         (step A, docs/ci/app-ffi-release.md) waits for the re-pin: create each file (empty, or a \
+         `# why` note): {missing:?}"
+    );
 }
 
-/// Actions whose default shortcut this crate has and the pinned app FFI does not yet (step A of
-/// an app FFI change, docs/ci/app-ffi-release.md). The exports are written from the pinned
-/// catalog, so until the re-pin they show no shortcut for these rows. An export may show
-/// either no shortcut or this crate's; any other value still fails. Take an id off once both
-/// exports carry its shortcut.
-const SHORTCUT_AWAITING_REPIN: &[&str] = &[];
+/// Actions whose default shortcut this crate has and the pinned app FFI does not yet:
+/// `awaiting-repin/shortcut/<id>`. The exports are written from the pinned catalog, so until the
+/// re-pin they show no shortcut for these rows. An export may show either no shortcut or this
+/// crate's; any other value still fails. Delete the marker once both exports carry its shortcut.
+static SHORTCUT_AWAITING_REPIN: LazyLock<Vec<String>> = LazyLock::new(|| marked("shortcut"));
 
 /// Whether `id`'s exported shortcut may be `null` while the crate has one (see
 /// [`SHORTCUT_AWAITING_REPIN`]).
 fn shortcut_awaits_repin(id: &str, exported: &Value) -> bool {
-    if !SHORTCUT_AWAITING_REPIN.contains(&id) {
+    if !listed(&SHORTCUT_AWAITING_REPIN, id) {
         return false;
     }
-    let action = cmux_action_catalog::find(id)
-        .unwrap_or_else(|| panic!("{id} is awaiting a shortcut re-pin but not an action"));
+    let path = marker("shortcut", id);
+    let action = cmux_action_catalog::find(id).unwrap_or_else(|| {
+        panic!("{id} is awaiting a shortcut re-pin but not an action: delete {path}")
+    });
     assert!(
         action.default_shortcut.is_some(),
-        "{id} is awaiting a shortcut re-pin but has no default shortcut"
+        "{id} is awaiting a shortcut re-pin but has no default shortcut: delete {path}"
     );
     exported.is_null()
 }
 
-/// Actions whose default shortcut this crate dropped and the pinned app FFI still has (step A of
-/// an app FFI change, docs/ci/app-ffi-release.md): until the re-pin the exports still show the
-/// old shortcut. Leo, 2026-11-15, on Toggle Terminal and Chat: "idk if the terminal gui should
-/// even get a hotkey by default".
-const SHORTCUT_REMOVAL_AWAITING_REPIN: &[&str] = &[];
+/// Actions whose default shortcut this crate dropped and the pinned app FFI still has:
+/// `awaiting-repin/shortcut-removal/<id>`. Until the re-pin the exports still show the old
+/// shortcut. Leo, 2026-11-15, on Toggle Terminal and Chat: "idk if the terminal gui should even
+/// get a hotkey by default".
+static SHORTCUT_REMOVAL_AWAITING_REPIN: LazyLock<Vec<String>> =
+    LazyLock::new(|| marked("shortcut-removal"));
 
 /// Whether `id`'s exported shortcut may still be the pinned app's while the crate has none.
 fn shortcut_removal_awaits_repin(id: &str, crate_shortcut: &Value) -> bool {
-    SHORTCUT_REMOVAL_AWAITING_REPIN.contains(&id) && crate_shortcut.is_null()
+    listed(&SHORTCUT_REMOVAL_AWAITING_REPIN, id) && crate_shortcut.is_null()
 }
 
 /// Fields of an existing action that this crate has changed and the pinned app FFI does not have
-/// yet (step A of an app FFI change, docs/ci/app-ffi-release.md), as JSON pointers into the
-/// action's catalog row. Until the re-pin the dump keeps the old value of each; every other
-/// field of the row is still compared. A listed field the dump already shows as this crate has
-/// it fails: the re-pin landed, so take it off.
-const FIELDS_AWAITING_REPIN: &[(&str, &[&str])] = &[
-    (
-        "customize.open",
-        &[
-            "/arguments",
-            "/surfaces",
-            "/surfacePlan/contextMenuExemption",
-            "/surfacePlan/contextMenus",
-        ],
-    ),
-    ("machine.joined.check", JOINED_PALETTE_ROW),
-    ("machine.joined.rotate", JOINED_PALETTE_ROW),
-    ("machine.joined.revoke", JOINED_PALETTE_ROW),
-];
-
-/// The fields a joined machine's action changed when it became a palette row that asks which
-/// joined machine (`palette_target_source` `joined`).
-const JOINED_PALETTE_ROW: &[&str] = &[
-    "/surfaces",
-    "/surfacePlan/palette",
-    "/paletteTarget",
-    "/paletteTargetSource",
-    "/computed/is_palette_visible",
-];
-
-/// Top-level members of the catalog this crate added that the pinned app FFI, and so the Swift
-/// dump, does not have yet (step A). A listed member the dump already has fails: take it off.
-const MEMBERS_AWAITING_REPIN: &[&str] = &["customize_elements"];
+/// yet, as JSON pointers into the action's catalog row, one per line of
+/// `awaiting-repin/fields/<id>`. Until the re-pin the dump keeps the old value of each; every
+/// other field of the row is still compared. A listed field the dump already shows as this crate
+/// has it fails: the re-pin landed, so delete the marker.
+static FIELDS_AWAITING_REPIN: LazyLock<Vec<(String, Vec<String>)>> = LazyLock::new(|| {
+    let files = marker_files("fields");
+    for (id, fields) in &files {
+        assert!(
+            !fields.is_empty(),
+            "{} lists no field: put one JSON pointer per line, or delete it",
+            marker("fields", id)
+        );
+    }
+    files
+});
 
 /// Gives `rust`'s rows the dump's value of each field on [`FIELDS_AWAITING_REPIN`], after
 /// checking that the two still differ there.
 fn awaiting_field_repin(rust: &mut Value, swift: &Value) {
-    for (id, fields) in FIELDS_AWAITING_REPIN {
+    for (id, fields) in FIELDS_AWAITING_REPIN.iter() {
+        let path = marker("fields", id);
         let dumped = swift["actions"]
             .as_array()
             .into_iter()
             .flatten()
             .find(|a| a["id"] == *id)
-            .unwrap_or_else(|| panic!("{id} is awaiting a field re-pin but not in the dump"));
+            .unwrap_or_else(|| {
+                panic!("{id} is awaiting a field re-pin but not in the dump ({path})")
+            });
         let action = rust["actions"]
             .as_array_mut()
             .into_iter()
             .flatten()
             .find(|a| a["id"] == *id)
-            .unwrap_or_else(|| panic!("{id} is awaiting a field re-pin but not an action"));
-        for field in *fields {
+            .unwrap_or_else(|| {
+                panic!("{id} is awaiting a field re-pin but not an action: delete {path}")
+            });
+        for field in fields {
             let old = dumped.pointer(field).cloned().unwrap_or(Value::Null);
-            let new =
-                action.pointer_mut(field).unwrap_or_else(|| panic!("{id}{field}: no such field"));
+            let new = action
+                .pointer_mut(field)
+                .unwrap_or_else(|| panic!("{id}{field}: no such field (line {field} of {path})"));
             assert_ne!(
                 *new, old,
-                "action-catalog.json has {id}{field} as the crate does: the re-pin landed, so take it off FIELDS_AWAITING_REPIN"
+                "action-catalog.json has {id}{field} as the crate does: the re-pin landed, so take {field} out of {path} (delete the file when it is the last)"
             );
             *new = old;
         }
@@ -152,7 +213,7 @@ fn arguments_await_repin(id: &str) -> bool {
 
 /// Whether `id`'s FIELD is on [`FIELDS_AWAITING_REPIN`].
 fn field_awaits_repin(id: &str, field: &str) -> bool {
-    FIELDS_AWAITING_REPIN.iter().any(|(i, fields)| *i == id && fields.contains(&field))
+    FIELDS_AWAITING_REPIN.iter().any(|(i, fields)| i == id && listed(fields, field))
 }
 
 fn read_json(path: &Path) -> Value {
@@ -263,12 +324,15 @@ fn english_catalog_equals_the_swift_dump() {
     object.remove("locale");
     // The dump is a Debug build's, which has every Debug-only entry; the list of them is new.
     object.remove("debug_build_only");
-    for member in MEMBERS_AWAITING_REPIN {
+    // `members/<name>`: a top-level catalog member this crate added that the pinned app FFI,
+    // and so the dump, does not have yet.
+    for member in marked("members") {
         assert!(
-            swift.get(*member).is_none(),
-            "action-catalog.json has {member}: the re-pin landed, so take it off MEMBERS_AWAITING_REPIN"
+            swift.get(&member).is_none(),
+            "action-catalog.json has {member}: the re-pin landed, so delete {}",
+            marker("members", &member)
         );
-        object.remove(*member);
+        object.remove(&member);
     }
     check_awaiting_repin(
         swift["actions"].as_array().map_or(&[], Vec::as_slice),
@@ -276,7 +340,7 @@ fn english_catalog_equals_the_swift_dump() {
     );
     if let Some(actions) = object.get_mut("actions").and_then(Value::as_array_mut) {
         actions
-            .retain(|action| !action["id"].as_str().is_some_and(|id| AWAITING_REPIN.contains(&id)));
+            .retain(|action| !action["id"].as_str().is_some_and(|id| listed(&AWAITING_REPIN, id)));
     }
     awaiting_family_repin(&mut rust, &swift);
     awaiting_field_repin(&mut rust, &swift);
@@ -288,14 +352,43 @@ fn english_catalog_equals_the_swift_dump() {
         }
     }
     if let Some(difference) = first_difference("$", &rust, &swift) {
-        panic!("the Rust catalog differs from the Swift dump: {difference}");
+        panic!(
+            "the Rust catalog differs from the Swift dump: {difference}. A change the pinned app \
+             FFI does not have yet (step A, docs/ci/app-ffi-release.md) waits for the re-pin in a \
+             marker under {MARKERS}/: an action's changed field is a JSON pointer line in \
+             fields/<id>, a new shortcut is shortcut/<id>, a dropped one shortcut-removal/<id>, a \
+             new palette family member family/<family>/<id>"
+        );
     }
 }
 
 /// Palette family members the crate has and the pinned app's dump does not yet: the app reads
 /// the crate through the pinned FFI, so its dump gains them only with the next re-pin. Each
-/// leaves the Rust side here until then, and fails once the dump has it.
-const FAMILY_AWAITING_REPIN: &[(&str, &[&str])] = &[];
+/// leaves the Rust side here until then, and fails once the dump has it. One marker per member:
+/// `awaiting-repin/family/<family>/<id>`.
+static FAMILY_AWAITING_REPIN: LazyLock<Vec<(String, Vec<String>)>> = LazyLock::new(|| {
+    let dir = repo().join(MARKERS).join("family");
+    let families = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(e) => panic!("{}: {e}", dir.display()),
+    };
+    let mut families: Vec<_> = families
+        .map(|entry| entry.unwrap_or_else(|e| panic!("{}: {e}", dir.display())))
+        .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
+        .map(|entry| {
+            let family = entry.file_name().into_string().expect("a UTF-8 family name");
+            assert!(
+                entry.path().is_dir(),
+                "{MARKERS}/family/{family}: a family is a directory of member markers"
+            );
+            let ids = marked(&format!("family/{family}"));
+            (family, ids)
+        })
+        .collect();
+    families.sort();
+    families
+});
 
 fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
     let members = |catalog: &Value, family: &str| {
@@ -308,17 +401,18 @@ fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
             .cloned()
             .unwrap_or_default()
     };
-    for (family, ids) in FAMILY_AWAITING_REPIN {
-        for id in *ids {
+    for (family, ids) in FAMILY_AWAITING_REPIN.iter() {
+        for id in ids {
             assert!(
                 !members(swift, family).iter().any(|m| m == id),
-                "action-catalog.json's {family} family has {id}: the re-pin landed, so take it off FAMILY_AWAITING_REPIN"
+                "action-catalog.json's {family} family has {id}: the re-pin landed, so delete {}",
+                marker(&format!("family/{family}"), id)
             );
         }
         let families = rust["palette"]["families"].as_array_mut().into_iter().flatten();
         for f in families.filter(|f| f["id"] == *family) {
             if let Some(list) = f["members"].as_array_mut() {
-                list.retain(|m| !m.as_str().is_some_and(|m| ids.contains(&m)));
+                list.retain(|m| !m.as_str().is_some_and(|m| listed(ids, m)));
             }
         }
         // A member's row derives its family and its tier (a family member is niche) from the
@@ -327,7 +421,7 @@ fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
             swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == id).cloned()
         };
         let actions = rust["actions"].as_array_mut().into_iter().flatten();
-        for action in actions.filter(|a| a["id"].as_str().is_some_and(|id| ids.contains(&id))) {
+        for action in actions.filter(|a| a["id"].as_str().is_some_and(|id| listed(ids, id))) {
             let Some(dumped) = action["id"].as_str().and_then(dump) else { continue };
             for field in ["palette_family", "palette_tier"] {
                 action["computed"][field] = dumped["computed"][field].clone();
@@ -342,7 +436,7 @@ fn action_list_export_matches() {
     let rows = export["actions"].as_array().expect("actions");
     check_awaiting_repin(rows, "action-surfaces.json");
     let rust: Vec<_> =
-        cmux_action_catalog::actions().filter(|a| !AWAITING_REPIN.contains(&a.id)).collect();
+        cmux_action_catalog::actions().filter(|a| !listed(&AWAITING_REPIN, a.id)).collect();
     assert_eq!(rows.len(), rust.len(), "action count");
     for (row, action) in rows.iter().zip(&rust) {
         let id = action.id;
@@ -352,18 +446,16 @@ fn action_list_export_matches() {
             assert_ne!(
                 row["palette"],
                 action.surface_plan.palette.wire(),
-                "action-surfaces.json has {id}'s palette decision: the re-pin landed, so take it off FIELDS_AWAITING_REPIN"
+                "action-surfaces.json has {id}'s palette decision: the re-pin landed, so take /surfacePlan/palette out of {} (delete the file when it is the last)",
+                marker("fields", id)
             );
         } else {
             assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
         }
         assert_eq!(row["cli"], action.surface_plan.cli.map_or("undeclared", |d| d.wire()), "{id}");
-        // A context-menu field awaiting the re-pin (FIELDS_AWAITING_REPIN) keeps the pinned
-        // app's decision in this export too.
-        let context_menu_awaits = FIELDS_AWAITING_REPIN
-            .iter()
-            .any(|(i, f)| *i == id && f.iter().any(|p| p.starts_with("/surfacePlan/contextMenu")));
-        if !context_menu_awaits {
+        // A context-menu change awaiting the re-pin keeps the pinned app's decision in this
+        // export too.
+        if !field_awaits_repin(id, "/surfacePlan/contextMenus") {
             assert_eq!(
                 row["context_menu"],
                 action.surface_plan.context_menu().map_or("undeclared", |d| d.wire()),
@@ -391,7 +483,13 @@ fn action_list_export_matches() {
         if !shortcut_awaits_repin(id, &row["default_shortcut"])
             && !shortcut_removal_awaits_repin(id, &shortcut)
         {
-            assert_eq!(row["default_shortcut"], shortcut, "{id}");
+            assert_eq!(
+                row["default_shortcut"],
+                shortcut,
+                "{id}: a shortcut the pinned app FFI does not have yet waits in {}, a dropped one in {}",
+                marker("shortcut", id),
+                marker("shortcut-removal", id)
+            );
         }
         let chord = action.default_chord.map_or(Value::Null, |c| {
             serde_json::json!([
@@ -410,8 +508,10 @@ fn action_list_export_matches() {
             let names: Vec<_> = args.iter().map(|a| a["name"].clone()).collect();
             let ours: Vec<_> = action.arguments.iter().map(|a| Value::from(a.name)).collect();
             assert_ne!(
-                names, ours,
-                "action-surfaces.json has {id}'s arguments: the re-pin landed, so take it off FIELDS_AWAITING_REPIN"
+                names,
+                ours,
+                "action-surfaces.json has {id}'s arguments: the re-pin landed, so take /arguments out of {} (delete the file when it is the last)",
+                marker("fields", id)
             );
         } else {
             assert_eq!(args.len(), action.arguments.len(), "{id}");

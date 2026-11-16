@@ -40,6 +40,31 @@ public nonisolated struct ConcentricContainer: Hashable, Sendable {
         self.init(childRadius: max(0, outerRadius) - max(0, padding), padding: padding)
     }
 
+    /// A control in a container's corner (a card's or a toast's close x; Lawrence 2026-11-15: the x must be
+    /// concentric with the card's corner): the same `padding` from the top and from the side, and the control
+    /// rounds by the container's corner less it. A round control `side` wide centers on the corner's center
+    /// (`padding = outerRadius - side / 2`); where that is less than `minimumPadding` (a small corner), the control
+    /// keeps `minimumPadding` and rounds by `outerRadius - minimumPadding`, still concentric.
+    ///
+    /// ```swift
+    /// let x = ConcentricContainer.cornerControl(outerRadius: 14, side: 16, minimumPadding: 2)
+    /// x.padding                                   // 6: the x sits 6 pt from the top and the side
+    /// x.childRadius(fitting: CGSize(width: 16, height: 16)) // 8: round
+    /// ```
+    /// - Parameter outerRadius: The container's corner.
+    /// - Parameter side: The control's side.
+    /// - Parameter minimumPadding: The least gap from the container's edge.
+    public static func cornerControl(outerRadius: CGFloat, side: CGFloat, minimumPadding: CGFloat) -> ConcentricContainer {
+        ConcentricContainer(outerRadius: outerRadius, padding: max(minimumPadding, outerRadius - side / 2))
+    }
+
+    /// The frame of a `side`-square control in the top trailing corner of `bounds`, ``padding`` from the top and
+    /// the side; `flipped` is the coordinate space's (y grows down).
+    public func topTrailingFrame(side: CGFloat, in bounds: CGRect, flipped: Bool) -> CGRect {
+        CGRect(x: bounds.maxX - padding - side, y: flipped ? bounds.minY + padding : bounds.maxY - padding - side,
+               width: side, height: side)
+    }
+
     /// A capsule around capsule controls `controlHeight` tall, `padding` from each edge: the container is
     /// `controlHeight + 2 * padding` tall and rounds by half of that, the controls by half their height.
     /// - Parameter controlHeight: The controls' height.
