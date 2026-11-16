@@ -164,7 +164,9 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     private func processInput() {
         guard !closed else { return }
         drainChanges()
-        while !input.isEmpty, pending.count < maxBatchBytes {
+        // The same guard as `drainChanges`: a framed batch that is out takes no read either, so a
+        // reconnect's first read stays unread until the batch is acknowledged.
+        while !input.isEmpty, pending.count < maxBatchBytes, !(framesChanges && pendingDelivery) {
             let result = client.received(input)
             guard result.isSuccess else {
                 fail()
