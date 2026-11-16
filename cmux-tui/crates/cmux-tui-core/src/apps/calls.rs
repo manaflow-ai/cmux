@@ -194,7 +194,7 @@ impl Supervisor {
             return answer;
         }
         if page_ops::daemon_owned(&op) {
-            return self.page_style_call(&app, &op, &params);
+            return self.page_style_call(key, generation, &app, &op, &params);
         }
         if op == "agent.ask" {
             return agent_ask::ask(self.asker(), &self.asks, &app, &params)

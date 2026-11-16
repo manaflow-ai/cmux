@@ -79,7 +79,7 @@ pub fn parse(params: &Value) -> Result<AskRequest, AskError> {
     let model = match params.get("model") {
         None | Some(Value::Null) => None,
         Some(Value::String(m))
-            if !m.is_empty()
+            if m.starts_with(|c: char| c.is_ascii_alphanumeric())
                 && m.len() <= 128
                 && m.chars()
                     .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.')) =>
@@ -161,6 +161,7 @@ mod tests {
         assert!(parse(&json!({ "prompt": "  " })).is_err());
         assert!(parse(&json!({ "prompt": "x".repeat(MAX_PROMPT_BYTES + 1) })).is_err());
         assert!(parse(&json!({ "prompt": "hi", "model": "claude; rm -rf" })).is_err());
+        assert!(parse(&json!({ "prompt": "hi", "model": "-x" })).is_err());
         let ok = parse(&json!({ "prompt": " hi ", "model": "claude/haiku" })).unwrap();
         assert_eq!((ok.prompt.as_str(), ok.model.as_deref()), ("hi", Some("claude/haiku")));
     }

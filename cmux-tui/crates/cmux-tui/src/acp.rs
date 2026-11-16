@@ -157,6 +157,43 @@ fn daemon_agent_asker() -> Option<cmux_tui_core::agent_ask::AgentAsker> {
     }))
 }
 
+/// A folder of the agent's own for one ask: new (never one someone else made
+/// first, since a harness may read project config and hooks from its cwd),
+/// 0700, removed when the ask ends.
+#[cfg(unix)]
+struct AskFolder(std::path::PathBuf);
+
+#[cfg(unix)]
+impl AskFolder {
+    fn new() -> Result<Self, String> {
+        use std::os::unix::fs::DirBuilderExt as _;
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir()
+            .join(format!("cmux-agent-ask-{}-{nanos:08x}-{n}", std::process::id()));
+        // Not recursive: fails when the path exists, whoever made it.
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&path)
+            .map_err(|e| format!("agent scratch folder: {e}"))?;
+        Ok(Self(path))
+    }
+}
+
+#[cfg(unix)]
+impl Drop for AskFolder {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// The most of a pipe an ask keeps; the rest is read and dropped.
+#[cfg(unix)]
+const ASK_PIPE_BYTES: u64 = 1024 * 1024;
+
 #[cfg(unix)]
 fn ask_agent(
     exe: &Path,
@@ -164,8 +201,7 @@ fn ask_agent(
     request: &cmux_tui_core::agent_ask::AskRequest,
 ) -> Result<String, String> {
     use std::io::{Read as _, Write as _};
-    let scratch = std::env::temp_dir().join("cmux-agent-ask");
-    std::fs::create_dir_all(&scratch).map_err(|e| format!("agent scratch folder: {e}"))?;
+    let scratch = AskFolder::new()?;
     let timeout = request.timeout.as_secs().max(1).to_string();
     let mut command = cmux_process::Command::new(exe);
     for name in TERMINAL_IDENTITY_ENV {
@@ -183,9 +219,9 @@ fn ask_agent(
         "--timeout",
         &timeout,
     ]);
-    command.arg("--cwd").arg(&scratch);
+    command.arg("--cwd").arg(&scratch.0);
     if let Some(model) = &request.model {
-        command.args(["--model", model]);
+        command.arg(format!("--model={model}"));
     }
     let mut child = command
         .args(["--prompt-file", "-"])
@@ -194,21 +230,26 @@ fn ask_agent(
         .stderr(cmux_process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("acpmux exec: {e}"))?;
-    // Read both pipes on their own threads so a long reply never fills one.
+    // Every pipe on its own thread, so neither a long reply nor a child that
+    // never reads its prompt can hold this one past the deadline.
     let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
         std::thread::spawn(move || {
-            let mut text = String::new();
+            let mut bytes = Vec::new();
             if let Some(mut pipe) = pipe {
-                let _ = pipe.read_to_string(&mut text);
+                let _ = (&mut pipe).take(ASK_PIPE_BYTES).read_to_end(&mut bytes);
+                let _ = std::io::copy(&mut pipe, &mut std::io::sink());
             }
-            text
+            String::from_utf8_lossy(&bytes).into_owned()
         })
     };
     let stdout = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
     let stderr = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
     if let Some(mut stdin) = child.stdin.take() {
-        // Closing stdin ends the prompt.
-        let _ = stdin.write_all(request.prompt.as_bytes());
+        let prompt = request.prompt.clone();
+        // Closing stdin ends the prompt; a killed child ends the write.
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(prompt.as_bytes());
+        });
     }
     // acpmux cancels the turn at its own --timeout; a little more for its exit.
     let status = match child.wait_timeout(request.timeout + std::time::Duration::from_secs(10)) {

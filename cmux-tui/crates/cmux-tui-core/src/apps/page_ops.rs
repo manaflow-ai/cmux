@@ -21,11 +21,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 const FILE: &str = "apps-site-styles.json";
+/// The scope `browser.site.style.*` needs; rules apply only while it is granted.
+const SCOPE: &str = "browser:write";
 /// Selectors per list (`hide`, `unstick`).
 const MAX_SELECTORS: usize = 200;
 const MAX_SELECTOR_BYTES: usize = 256;
 /// Sites one extension may style.
 const MAX_SITES: usize = 500;
+/// The style sheet bytes of all of one extension's sites.
+const MAX_APP_CSS_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug)]
 pub struct PageError {
@@ -211,13 +215,26 @@ impl PageStyles {
     ) -> Result<Value, PageError> {
         let count = rules.hide.len() + rules.unstick.len();
         let sites = self.sites.entry(app.to_string()).or_default();
+        let before = sites.get(&origin).cloned();
         if rules.is_empty() {
             sites.remove(&origin);
         } else {
-            if !sites.contains_key(&origin) && sites.len() >= MAX_SITES {
+            if before.is_none() && sites.len() >= MAX_SITES {
                 return Err(PageError {
                     code: "app.limit",
                     message: format!("an extension may style at most {MAX_SITES} sites"),
+                });
+            }
+            // Every snapshot carries all of an app's rules: keep that bounded.
+            let others: usize =
+                sites.iter().filter(|(o, _)| **o != origin).map(|(_, r)| r.css().len()).sum();
+            if others + rules.css().len() > MAX_APP_CSS_BYTES {
+                return Err(PageError {
+                    code: "app.limit",
+                    message: format!(
+                        "an extension's rules may total at most {} KiB",
+                        MAX_APP_CSS_BYTES / 1024
+                    ),
                 });
             }
             sites.insert(origin.clone(), rules);
@@ -225,9 +242,19 @@ impl PageStyles {
         if sites.is_empty() {
             self.sites.remove(app);
         }
+        if let Err(e) = self.persist(state_dir) {
+            // Not saved: not applied either.
+            let sites = self.sites.entry(app.to_string()).or_default();
+            match before {
+                Some(rules) => sites.insert(origin, rules),
+                None => sites.remove(&origin),
+            };
+            if sites.is_empty() {
+                self.sites.remove(app);
+            }
+            return Err(PageError { code: "operation.failed", message: format!("{FILE}: {e}") });
+        }
         self.revision += 1;
-        self.persist(state_dir)
-            .map_err(|e| PageError { code: "operation.failed", message: format!("{FILE}: {e}") })?;
         Ok(json!({ "origin": origin, "rules": count }))
     }
 
@@ -304,7 +331,8 @@ pub fn daemon_owned(op: &str) -> bool {
 impl super::supervisor::Supervisor {
     /// The `apps-site-styles` event the `page` provider is owed, if any;
     /// recomputed at each emit (`Supervisor::emit`). Only apps that are
-    /// installed, turned on and not held by safe mode style pages.
+    /// installed, turned on, still granted `browser:write` and not held by
+    /// safe mode style pages.
     pub(super) fn page_styles_locked(
         inner: &mut super::supervisor::Inner,
     ) -> Option<super::supervisor::Out> {
@@ -316,14 +344,22 @@ impl super::supervisor::Supervisor {
         inner
             .page_styles
             .changed_locked(provider, key, |app| {
-                !safe && apps.get(app).is_some_and(|r| r.installed && r.enabled)
+                !safe
+                    && apps
+                        .get(app)
+                        .is_some_and(|r| r.installed && r.enabled && r.grants.contains(SCOPE))
             })
             .map(|(client, event)| super::supervisor::Out::Client(client, event))
     }
 
     /// `browser.site.style.get` / `.set` for `app` (scope and grant checked).
+    /// Like `app.storage.*`, only from the app's current, installed host and
+    /// under the supervisor lock, so a set in flight during an uninstall
+    /// cannot outlive it and a preview (`cmux ext dev`) keeps no rules.
     pub(super) fn page_style_call(
         &self,
+        key: &super::supervisor::HostKey,
+        generation: u64,
         app: &str,
         op: &str,
         params: &Value,
@@ -332,6 +368,16 @@ impl super::supervisor::Supervisor {
             |e: PageError| json!({ "code": e.code, "message": e.message, "retryable": false });
         let value = {
             let mut inner = self.inner.lock().unwrap();
+            let current = inner
+                .hosts
+                .get(key)
+                .is_some_and(|h| h.generation == generation && !h.grant.revoked);
+            let installed = inner.mirror.apps.get(app).is_some_and(|r| r.installed);
+            if !current || !installed || key.preview {
+                return Err(
+                    json!({ "code": "scope.missing", "message": "the app is not installed", "retryable": false }),
+                );
+            }
             if op == "browser.site.style.get" {
                 let raw = params.get("origin").and_then(Value::as_str).unwrap_or_default();
                 let origin = origin(raw).map_err(fail)?;
@@ -454,5 +500,41 @@ mod tests {
         assert_eq!(over.code, "app.limit");
         // Replacing a site it has is fine.
         styles.set(None, "local/x", "https://s0.test".into(), rules).unwrap();
+    }
+
+    #[test]
+    fn an_apps_rules_are_bounded_in_bytes() {
+        let mut styles = PageStyles::default();
+        let long = |i: usize| format!(".{}{i}", "a".repeat(240));
+        let rules = Rules { hide: (0..MAX_SELECTORS).map(long).collect(), ..Rules::default() };
+        let mut refused = None;
+        for i in 0..40 {
+            if let Err(e) = styles.set(None, "local/x", format!("https://s{i}.test"), rules.clone())
+            {
+                refused = Some((i, e.code));
+                break;
+            }
+        }
+        let (at, code) = refused.expect("1 MiB of rules is refused");
+        assert_eq!(code, "app.limit");
+        assert!(at > 10 && at < 40, "{at}");
+        // Another app has its own budget.
+        styles.set(None, "local/y", "https://s0.test".into(), rules).unwrap();
+    }
+
+    #[test]
+    fn a_set_that_is_not_saved_is_not_applied() {
+        let file =
+            std::env::temp_dir().join(format!("cmux-site-styles-file-{}", std::process::id()));
+        std::fs::write(&file, b"x").unwrap();
+        let mut styles = PageStyles::default();
+        let rules = Rules { hide: vec![".ad".into()], ..Rules::default() };
+        let revision = styles.revision;
+        assert!(
+            styles.set(Some(file.as_path()), "local/x", "https://a.test".into(), rules).is_err()
+        );
+        assert!(styles.sites.is_empty());
+        assert_eq!(styles.revision, revision);
+        let _ = std::fs::remove_file(&file);
     }
 }
