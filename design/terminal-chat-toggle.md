@@ -37,6 +37,58 @@ From the design references repository (private: ids only).
   terminal, and replaces the stopped chat with a View Only chat of that session right after the terminal. That
   one hand-off loads the chat once. Every swap after it is a tab selection.
 
+## Same turn, both ways
+
+A swap lands at the same turn in the other view. The person's prompts are the pivot: both views show them, so
+each prompt's row in the terminal pairs the two.
+
+- The chat names its prompts (oldest first) and the turn in view: the prompt at or above its resting row
+  (`webviews/.../conversation/togglePlace.ts`). The terminal hands over its whole screen, one line per scrollbar
+  row, and its viewport's top.
+- Rust pairs them (`cmux-window-rules` `tabs::place`). It finds the newest prompt first, each one above the next.
+  A row the harness marked as a prompt (`> `, `› `) wins over a reply line that starts with the same words.
+- To the terminal, the turn's prompt row scrolls to the viewport's top (`scroll_to_row`). If the screen lost that
+  prompt, the nearest older one it still has is used.
+- To the chat, the newest prompt at or above the terminal's top row is placed at the top of the view
+  (VirtualTranscript `placeNow`). This is one cut, with no glide, while the chat is still hidden.
+- Either face at its latest brings the other to its latest. When both are already at their latest, the swap asks
+  nothing of the page and stays a plain tab selection.
+- The face about to show moves before it shows, so the first frame is already in place. The page gets 60 ms to
+  answer. If it misses that, the view shows where it is.
+
+## Draft, both ways
+
+What the person typed and has not sent goes with the swap. A draft moves only into an empty input, so two drafts
+are never merged, and only when the rules are sure of it. Otherwise it stays where it is.
+
+- The terminal records every byte it sends its program, the newest 16 KB (`CmuxNextTerminal` `TerminalTypedTail`,
+  fed by `TerminalInputSink`: keys, IME text, pastes, the DELs below). A file paste resets it, because the daemon
+  types those paths. Swift only records.
+- Rust reads the input line out of those bytes (`cmux-window-rules` `tabs::draft`). It starts after the last Enter
+  outside a bracketed paste. Printable text and pastes append. Backspace deletes a character, Ctrl+U and Ctrl+C
+  clear, and Ctrl+W deletes a word. Focus and mouse reports and the terminal's own query answers are ignored. Any
+  other key (an arrow, Tab, Esc, history, Alt) makes the line unknown, and so do bytes that start mid-line.
+- The bytes and the screen must agree. The harness's input box is the last of the bottom 12 rows that starts with a
+  prompt mark (`>`, `›`, `❯`), plus the rows under it up to a blank row or a box rule. Whitespace and box edges are
+  left out. The bytes alone miss what they never saw: a draft from before the app attached, keys from another
+  client, or an Enter that answered a dialog instead of sending. The screen alone cannot tell a draft from a
+  dialog's option.
+- To the chat: when the line is known and not blank, the composer is empty, and the input box shows exactly that
+  line, the page puts it in the composer. Only once the composer holds it does the terminal get DELs to erase it,
+  one per character and no more, so a key still on its way is never taken.
+- To the terminal: when the composer holds plain text on one line (no chips, no inline tokens), the terminal's line
+  is known and empty, and its input box shows nothing, the text is pasted through Ghostty's paste path. Then the
+  composer gives it up. Pasting first means a late answer leaves the draft in both views, never in neither. A draft
+  of several lines stays in the chat: the app cannot read whether the program brackets a paste, and without that a
+  new line would send.
+- A harness that draws placeholder text in an empty input box gets no draft from the chat until the person has
+  typed there, because the box does not read as empty. That is the safe side of the check.
+- The recorded bytes stay in the app's memory only. They are never written to disk or logged.
+- The page reports whether the composer holds anything (`pane.composerFilled`), so the host knows without a page
+  call. An empty composer with nothing typed in the terminal reads nothing, and the swap stays a plain tab
+  selection. The draft moves within the same 60 ms as the place, before the reveal. A page write that arrives past
+  that deadline does nothing.
+
 ## Placement
 
 - Native Swift chrome: the pane toolbar's trailing slot (`CmuxNextTabs/PaneTerminalChatToggleView`, in

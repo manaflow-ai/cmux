@@ -116,6 +116,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .processTerminal: "processTerminal"
         case .newChatHere: "newChatHere"
         case .checkpointAvailability: "checkpointAvailability"
+        case .composerFilled: "composerFilled"
         case .commandAvailability: "commandAvailability"
         case .clientReady(let ready): ready ? "clientReady" : "clientNotReady"
         case .painted(let fromKeptTail, let settled):

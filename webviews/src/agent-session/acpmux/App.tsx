@@ -438,6 +438,8 @@ import {
 } from "./conversation/cloudTurnCheckpoints";
 import { isFindRow, type ChatFind } from "./conversation/chatFind";
 import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
+import { togglePlace, togglePromptRow, type TogglePlace } from "./conversation/togglePlace";
+import { composerFilledReporter, putToggleDraft, takeToggleDraft, toggleDraft } from "./conversation/toggleDraft";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
   ACTIVITY_LINE,
@@ -917,6 +919,16 @@ declare global {
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
+      /// Toggle Terminal and Chat (togglePlace.ts): the chat's prompts and the one whose turn is in
+      /// view, and the placement at prompt `at`'s turn (null: the latest message) before it shows,
+      /// skipped past `until` (ms since 1970): the swap showed the chat without it, so it would jump.
+      togglePlace?(): TogglePlace;
+      placeToggle?(at: number | null, until?: number): boolean;
+      /// The composer's draft for a swap to the terminal, taken once pasted, and a terminal's draft put in an empty
+      /// composer (toggleDraft.ts); a write past `until` does nothing.
+      toggleDraft?(): string | null;
+      takeToggleDraft?(text: string, until?: number): boolean;
+      putToggleDraft?(text: string, until?: number): boolean;
       /// A dictation change from the host (CmuxNextAgentPane AgentPaneDictation), spliced at the prompt's cursor.
       dictation?(update: DictationUpdate): void;
       /// A design mode highlight from a browser pane (CmuxNextAgentPane AgentPaneDesignSelection):
@@ -1069,6 +1081,10 @@ const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools",
 const postTyping = (text: string, sessionId?: string) =>
   void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
 const postUnsentDraft = (text: string) => callNative("chat.unsentDraft", { text }).catch(() => undefined);
+/// Whether the composer holds anything, for Toggle Terminal and Chat (toggleDraft.ts): sent when it changes.
+const postComposerFilled = composerFilledReporter(
+  (filled) => void callNative("pane.composerFilled", { filled }).catch(() => undefined),
+);
 /// The new chat's typed text, its prompts held for a trust answer, and held ones given back that no
 /// composer took (`kept`, a new chat in another folder by then): the host keeps them all, so a held
 /// prompt outlives the tab moving to another chat or folder as typed text does.
@@ -6883,6 +6899,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
+  /// The transcript's Toggle Terminal and Chat placement (VirtualTranscript `placeNow`).
+  const placeTranscript = useRef<((rowId: string | null) => boolean) | null>(null);
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
   const [sends, setSends] = useState(0);
   /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom
@@ -7925,6 +7943,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       revealTurn(turnId) {
         revealRef.current(turnId);
       },
+      togglePlace() {
+        return togglePlace(counted.current.transcriptRows, transcriptAnchor.current?.());
+      },
+      placeToggle(at, until) {
+        if (until !== undefined && Date.now() > until) return false;
+        const rowId = at === null ? null : togglePromptRow(counted.current.transcriptRows, at);
+        return rowId !== undefined && (placeTranscript.current?.(rowId) ?? false);
+      },
+      toggleDraft: () => toggleDraft(composerHandle.current?.draft()),
+      takeToggleDraft: (text, until) => takeToggleDraft(composerHandle.current ?? undefined, text, until),
+      putToggleDraft: (text, until) => putToggleDraft(composerHandle.current ?? undefined, text, until),
       applyCustomization(customization) {
         if ("themeCSS" in customization) {
           applyPaneThemeCSS(customization.themeCSS ?? "");
@@ -11732,6 +11761,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     anchorNow={
                                                                       quick || childRows ? undefined : transcriptAnchor
                                                                     }
+                                                                    placeNow={
+                                                                      quick || childRows ? undefined : placeTranscript
+                                                                    }
                                                                     inViewNow={
                                                                       quick || childRows ? undefined : transcriptInView
                                                                     }
@@ -11746,6 +11778,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                         : onTranscriptFollowingChange
                                                                     }
                                                                     onAnchor={
+                                                                      quick || childRows || !shownSessionId
+                                                                        ? undefined
+                                                                        : (anchor) =>
+                                                                            postScrollAnchor(shownSessionId, anchor)
+                                                                    }
+                                                                    onFollowingAnchor={
                                                                       quick || childRows || !shownSessionId
                                                                         ? undefined
                                                                         : (anchor) =>
@@ -12438,6 +12476,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             draft={draft}
             onDraftSettled={setDraftSettled}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
+            onFilled={quick ? undefined : postComposerFilled}
             onTyping={quick ? undefined : onCloudTyping}
             onCloudMachinePicked={quick ? undefined : onCloudMachinePicked}
             onPromptEdit={quick ? undefined : wakeOnTyping}

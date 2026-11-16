@@ -313,6 +313,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
+    /// `pane.composerFilled {filled}`: the composer came to hold something, or nothing (text or
+    /// chips). Toggle Terminal and Chat reads it without a page call (``AgentPaneView/toggleDraftFilled``).
+    case composerFilled(Bool)
     /// `pane.commandAvailability`: the page commands the native palette may run in this chat now
     /// (``AgentPageCommand``); the palette greys out the others.
     case commandAvailability([String])

@@ -397,6 +397,9 @@ type Props = {
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
   /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
   onUnsentDraft?(text: string): void | Promise<unknown>;
+  /// Whether the prompt holds anything (text, chips, pending tiles), on each change: Toggle
+  /// Terminal and Chat reads it without a page call (conversation/toggleDraft.ts).
+  onFilled?(filled: boolean): void;
   /// The person edited the prompt of a chat that has a session: the pane tells acpmux it types
   /// (multiplayer). A draft coming back is not an edit.
   onTyping?(text: string, sessionId?: string): void;
@@ -557,6 +560,7 @@ function ComposerFrame({
   onCmuxCommand,
   onLocalCommand,
   onUnsentDraft,
+  onFilled,
   onDraftSettled,
   onTyping,
   onPromptEdit,
@@ -2201,6 +2205,7 @@ function ComposerFrame({
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
   const running = !shell && (snapshot.isWorking || holding || handingOver);
   const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
+  useEffect(() => onFilled?.(hasDraft), [hasDraft, onFilled]);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
