@@ -33,6 +33,18 @@ import Testing
         #expect(harness.editor.saved.last == [ShortcutChange("about", keys: [alternate])])
     }
 
+    @Test func recordingAnExistingAlternateDoesNotDuplicateIt() {
+        let harness = Harness()
+        let primary = [Shortcut("y", modifiers: [.control, .option, .command])]
+        let alternate = Shortcut("u", modifiers: [.control, .option, .command])
+        harness.registry.setConfiguredShortcuts([primary, [alternate]], for: "about")
+        #expect(harness.recorder.begin("about"))
+        harness.recorder.handle(alternate, keyCode: 32)
+        if harness.state?.pending != nil { harness.recorder.choose(.save) }
+        #expect(harness.registry.configuredShortcuts(for: "about") == [[alternate]])
+        #expect(harness.editor.saved.last == [ShortcutChange("about", keys: [[alternate]])])
+    }
+
     @Test func replaceTakesOnlyTheSharedKeyFromTheOtherAction() throws {
         let harness = Harness()
         let ctrlTab = [Shortcut("\t", modifiers: [.control])], cmdBracket = Shortcut("]", modifiers: [.command])
