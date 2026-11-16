@@ -18,8 +18,8 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 
-/// Distinct catalogs a pool tracks before it forgets the oldest dead ones: about ten times the
-/// distinct commands Leo's 544 chats hold.
+/// Distinct catalogs a pool tracks: about ten times the distinct commands Leo's 544 chats hold.
+/// When full, it forgets every dead entry, then one live one (which only gives up sharing it).
 const INTERN_SLOTS: usize = 1024;
 static CATALOGS: LazyLock<Mutex<Interner<Value>>> = LazyLock::new(Mutex::default);
 static TOOL_ROWS: LazyLock<Mutex<Interner<Vec<ToolRow>>>> = LazyLock::new(Mutex::default);
