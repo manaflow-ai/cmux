@@ -41,8 +41,9 @@ pub struct Request {
     pub received_ms: u64,
 }
 
-/// This desktop's own consent: which session scopes it serves. Default: view only; control
-/// needs `enable --allow-control`.
+/// This desktop's own consent: which session scopes it serves. `enable` writes view and control:
+/// the person joined this desktop to their own account, so their devices view and control it with no
+/// prompt here (`enable --view-only` keeps control off). `Default` is view only.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub struct LocalConsent {
     pub view: bool,
@@ -145,7 +146,7 @@ pub fn decision_scope(
         }
     }
     if consent.serve(scope, applies_input).is_none() {
-        return Err(format!("this desktop does not allow {scope} sessions (enable with --allow-control to allow full)"));
+        return Err(format!("this desktop does not allow {scope} sessions (enable without --view-only to allow full)"));
     }
     if scope == "full" && !applies_input {
         if wanted == Some("full") {
