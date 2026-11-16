@@ -333,8 +333,35 @@ async fn a_chat_after_a_settings_change_never_takes_the_login_spare() {
     std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
     std::fs::write(&settings, json!({"model": "sonnet"}).to_string()).unwrap();
     let session = chat(&mut rpc, &daemon.home(), json!({})).await;
-    assert!(!daemon.taken(&session), "the spare started under other settings");
-    assert_ne!(daemon.harness_pid(&session), pooled["harness_pid"]);
+    // The agent started under the old settings never serves it (a spare started again under the
+    // new ones may).
+    assert_ne!(
+        daemon.harness_pid(&session),
+        pooled["harness_pid"],
+        "a spare started under the old settings served the chat"
+    );
+}
+
+/// A settings change after the install (the model stub's endpoint, a person's edit) starts the
+/// spare again under the new settings, and the next chat takes that one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_settings_change_starts_the_login_spare_again_under_the_new_settings() {
+    let (daemon, mut rpc, pooled) = with_spare("resettle").await;
+    let settings = daemon.home().join(".claude/settings.json");
+    std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    std::fs::write(&settings, json!({"model": "sonnet"}).to_string()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let again = loop {
+        let record = wait_claude_spare(&daemon, &mut rpc).await;
+        if record["harness_pid"] != pooled["harness_pid"] {
+            break record;
+        }
+        assert!(Instant::now() < deadline, "the spare was not started again");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let session = chat(&mut rpc, &daemon.home(), json!({})).await;
+    assert!(daemon.taken(&session), "the chat took the spare started under the new settings");
+    assert_eq!(daemon.harness_pid(&session), again["harness_pid"]);
 }
 
 /// Another person's login installed on the machine: the agent started under the first one never

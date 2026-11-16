@@ -14,9 +14,11 @@
 //! the chat's mode is set on it at the take; it gets `initialize` and nothing else, so nothing
 //! reaches the model before the person's first prompt (`tests/login_spare.rs`).
 //!
-//! Event-driven: an inotify watch (`quiet_dirs`, changes only) of the two mark files, read once
-//! at daemon start too. Linux only (Cloud machines); elsewhere only the start reads them. Started
-//! once, at daemon start, when the switch is on then.
+//! Event-driven: an inotify watch (`quiet_dirs`, changes only) of the two mark files and Claude
+//! Code's `settings.json`, read once at daemon start too. A settings change after the install
+//! (the model stub's endpoint, a person's edit) is part of the key, so the spare is wanted again
+//! under it: the old one is discarded and a matching one starts. Linux only (Cloud machines);
+//! elsewhere only the start reads them. Started once, at daemon start, when the switch is on then.
 
 use super::*;
 use std::path::Path;
@@ -79,13 +81,19 @@ impl Hub {
     }
 }
 
-/// Follows the two mark files; each burst of changes reads them again on the runtime.
+/// Follows the two mark files and `settings.json`; each burst of changes reads them again on the
+/// runtime.
 #[cfg(target_os = "linux")]
 fn watch(hub: std::sync::Weak<Hub>, home: PathBuf) {
     use crate::quiet_dirs::{QuietDirs, Target};
     let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
     let dir = marks(&home);
-    let targets = vec![Target::File(dir.join(HARNESS)), Target::File(dir.join("claude.login"))];
+    let files = vec![
+        dir.join(HARNESS),
+        dir.join(format!("{HARNESS}.login")),
+        home.join(".claude/settings.json"),
+    ];
+    let targets = files.iter().cloned().map(Target::File).collect();
     let (tx, rx) = std::sync::mpsc::channel();
     let source = match QuietDirs::follow(tx, "acpmux-login-spare-inotify", targets) {
         Ok(source) => source,
@@ -97,7 +105,11 @@ fn watch(hub: std::sync::Weak<Hub>, home: PathBuf) {
     let spawned =
         std::thread::Builder::new().name("acpmux-login-spare-watch".into()).spawn(move || {
             let _source = source;
-            while rx.recv().is_ok() {
+            while let Ok(event) = rx.recv() {
+                // `~/.claude` also holds files Claude Code writes on every prompt.
+                if !touches(&event, &files) {
+                    continue;
+                }
                 // The rest of the burst.
                 while rx.recv_timeout(QUIET).is_ok() {}
                 let Some(hub) = hub.upgrade() else { return };
@@ -107,6 +119,16 @@ fn watch(hub: std::sync::Weak<Hub>, home: PathBuf) {
         });
     if let Err(e) = spawned {
         tracing::warn!("login spare: the mark watch thread cannot start: {e}");
+    }
+}
+
+/// Whether an event may have changed one of `files`: one of them, or a folder on the way to one
+/// (made, removed or replaced). An error may have dropped events: read them.
+#[cfg(target_os = "linux")]
+fn touches(event: &notify::Result<notify::Event>, files: &[PathBuf]) -> bool {
+    match event {
+        Ok(event) => event.paths.iter().any(|p| files.iter().any(|f| f.starts_with(p))),
+        Err(_) => true,
     }
 }
 
