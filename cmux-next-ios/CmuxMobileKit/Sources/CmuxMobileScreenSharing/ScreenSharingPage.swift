@@ -273,7 +273,11 @@ struct ScreenSharingViewerScreen: View {
         }
         .onAppear { ScreenSharingOrientation.shared.begin() }
         .onDisappear { ScreenSharingOrientation.shared.end() }
+        // Back from the background (or a lock): a reattach sleeping out its backoff tries now.
+        .onChange(of: scenePhase) { if scenePhase == .active { viewer.reattachNow() } }
     }
+
+    @Environment(\.scenePhase) private var scenePhase
 
     static let features = ScreenFeatures.all
 

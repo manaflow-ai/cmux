@@ -8,14 +8,13 @@ import Testing
 /// "No workspaces" and no "New workspace: + or ⌘N" (https://github.com/manaflow-ai/cmux/issues/32728).
 /// The row stays, one plain row high, as the list's drop target; Pinned's still says "Drop here to pin".
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarEmptyWorkspaceHintTests {
-    @Test(arguments: SidebarDensity.allCases, [false, true])
-    func emptyWorkspaceListDrawsNoText(_ density: SidebarDensity, _ minimal: Bool) throws {
+    @Test(arguments: SidebarDensity.allCases)
+    func emptyWorkspaceListDrawsNoText(_ density: SidebarDensity) throws {
         _ = NSApplication.shared
         let saved = DesignSettings.shared.sidebarSections.density
         DesignSettings.shared.sidebarSections.density = density
         defer { DesignSettings.shared.sidebarSections.density = saved }
-        var options = SidebarLayoutOptions()
-        options.minimal = minimal
+        let options = SidebarLayoutOptions()
         let section = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [])
         let layout = SidebarLayout.make(sections: [section], metrics: .standard, options: options)
         let geometry = try #require(layout.row(for: .emptySection(section.id)))

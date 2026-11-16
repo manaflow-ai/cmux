@@ -344,3 +344,234 @@ fn a_malformed_or_hostile_collection_writes_nothing() {
         assert!(!home.config("themes/x.json").exists());
     }
 }
+
+fn profile(json: serde_json::Value) -> cmux_customize::profile::Profile {
+    serde_json::from_value(json).unwrap()
+}
+
+/// `use` a profile and apply it; the library entry's name.
+fn use_and_apply(
+    customize: &Customize,
+    profile: &cmux_customize::profile::Profile,
+    at: u64,
+) -> String {
+    customize.preview_profile(profile, "cli", at).unwrap();
+    customize.apply(None, "cli", at + 1).unwrap().library.expect("saved to the library")
+}
+
+const MY_KEYS: &str =
+    "[\n  // mine\n  { \"key\": \"cmd+shift+y\", \"command\": \"toggleSidebar\" }\n]\n";
+
+fn bound(home: &Home) -> Vec<(String, String)> {
+    let text = home.read("keybindings.json").unwrap_or_default();
+    cmux_customize::library::keys::bindings(&text)
+        .into_iter()
+        .map(|(id, value)| (id, value["command"].as_str().unwrap_or_default().to_owned()))
+        .collect()
+}
+
+/// Two keybinding layers stack binding by binding: both apply, only the key
+/// both bind is a conflict, and off takes out only that layer's bindings,
+/// with the person's own file back byte for byte at the end (the showcase's
+/// vim-panes and tab-keys only stacked as one whole file, top wins).
+#[test]
+fn two_keybinding_layers_stack_by_binding_and_off_gives_back_your_own_file() {
+    let home = Home::new();
+    home.write("keybindings.json", MY_KEYS);
+    let customize = home.customize();
+    let vim = profile(serde_json::json!({
+        "cmuxProfile": 1, "name": "vim-panes", "description": "Vim-style pane keys",
+        "files": { "keybindings.json": "// vim\n[\n  { \"key\": \"ctrl+cmd+h\", \"command\": \"focusLeft\" },\n  { \"key\": \"ctrl+cmd+l\", \"command\": \"focusRight\" },\n  { \"key\": \"ctrl+cmd+e\", \"command\": \"equalizeSplits\" }\n]\n" }
+    }));
+    let tabs = profile(serde_json::json!({
+        "cmuxProfile": 1, "name": "tab-keys",
+        "files": { "keybindings.json": "[\n  { \"key\": \"ctrl+pagedown\", \"command\": \"nextSurface\" },\n  { \"key\": \"ctrl+cmd+e\", \"command\": \"tab.search\" }\n]\n" }
+    }));
+    let vim_name = use_and_apply(&customize, &vim, 10);
+    assert_eq!(
+        bound(&home)[0],
+        ("cmd+shift+y".to_owned(), "toggleSidebar".to_owned()),
+        "use keeps your own"
+    );
+    let tabs_name = use_and_apply(&customize, &tabs, 20);
+    let all = [
+        ("cmd+shift+y", "toggleSidebar"),
+        ("cmd+ctrl+h", "focusLeft"),
+        ("cmd+ctrl+l", "focusRight"),
+        ("cmd+ctrl+e", "tab.search"),
+        ("ctrl+pagedown", "nextSurface"),
+    ];
+    let pairs = |list: &[(&str, &str)]| -> Vec<(String, String)> {
+        list.iter().map(|(a, b)| ((*a).to_owned(), (*b).to_owned())).collect()
+    };
+    assert_eq!(bound(&home), pairs(&all));
+    assert!(home.read("keybindings.json").unwrap().starts_with("[\n  // mine\n"));
+
+    let listing = customize.library().unwrap();
+    assert_eq!(listing.conflicts.len(), 1, "{:?}", listing.conflicts);
+    let conflict = &listing.conflicts[0];
+    assert_eq!((conflict.kind, conflict.key.as_str()), ("binding", "keybindings.json cmd+ctrl+e"));
+    assert_eq!(
+        (conflict.winner.as_str(), conflict.losers.as_slice()),
+        (tabs_name.as_str(), std::slice::from_ref(&vim_name))
+    );
+    assert_eq!(listing.entries[1].overridden, ["keybindings.json cmd+ctrl+e"]);
+
+    // Off: only its bindings go, and the lower layer's for the same key is back.
+    customize.library_set_on(&tabs_name, false, "cli", 30).unwrap();
+    assert_eq!(
+        bound(&home),
+        pairs(&[
+            ("cmd+shift+y", "toggleSidebar"),
+            ("cmd+ctrl+h", "focusLeft"),
+            ("cmd+ctrl+l", "focusRight"),
+            ("cmd+ctrl+e", "equalizeSplits"),
+        ])
+    );
+    customize.library_set_on(&tabs_name, true, "cli", 40).unwrap();
+    customize.library_set_on(&vim_name, false, "cli", 50).unwrap();
+    assert_eq!(
+        bound(&home),
+        pairs(&[
+            ("cmd+shift+y", "toggleSidebar"),
+            ("cmd+ctrl+e", "tab.search"),
+            ("ctrl+pagedown", "nextSurface"),
+        ])
+    );
+    customize.library_set_on(&tabs_name, false, "cli", 60).unwrap();
+    assert_eq!(
+        home.read("keybindings.json").as_deref(),
+        Some(MY_KEYS),
+        "your own file, byte for byte"
+    );
+}
+
+/// A binding added by hand to the file the library composed is the
+/// person's: it stays when the layer goes off.
+#[test]
+fn a_binding_added_by_hand_under_a_keybinding_layer_stays_when_it_goes_off() {
+    let home = Home::new();
+    home.write("keybindings.json", MY_KEYS);
+    let customize = home.customize();
+    let vim = profile(serde_json::json!({
+        "cmuxProfile": 1, "name": "vim-panes",
+        "files": { "keybindings.json": "[{ \"key\": \"ctrl+cmd+h\", \"command\": \"focusLeft\" }]" }
+    }));
+    let name = use_and_apply(&customize, &vim, 10);
+    let live = home.read("keybindings.json").unwrap();
+    let edited = cmux_config::jsonc::array_append(
+        &live,
+        &serde_json::json!({"key": "cmd+9", "command": "mine2"}),
+    )
+    .unwrap();
+    home.write("keybindings.json", &edited);
+    customize.library_set_on(&name, false, "cli", 20).unwrap();
+    assert_eq!(
+        bound(&home),
+        [
+            ("cmd+shift+y".to_owned(), "toggleSidebar".to_owned()),
+            ("cmd+9".to_owned(), "mine2".to_owned())
+        ]
+    );
+}
+
+/// Every file and folder under `dir`, relative, sorted.
+fn tree_of(dir: &std::path::Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(folder) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&folder) else { continue };
+        for entry in entries {
+            let path = entry.unwrap().path();
+            out.push(path.strip_prefix(dir).unwrap().display().to_string());
+            if path.is_dir() {
+                pending.push(path);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Off of the last entry is an exact restore: with no settings file, no
+/// style and no folders before, none are left after (the settings file kept
+/// `{"appearance": {}}`-style objects, and agent-pane/ stayed).
+#[test]
+fn off_of_the_last_entries_in_an_empty_home_leaves_the_tree_as_it_was() {
+    let home = Home::new();
+    let config = home.dir.path().join("config");
+    let before = tree_of(&config);
+    assert!(before.is_empty() && !config.exists());
+    let customize = home.customize();
+    let calm = profile(serde_json::json!({
+        "cmuxProfile": 1, "name": "calm",
+        "settings": { "appearance.density": "compact", "ui.calm": "calm", "ui.animations.newTab": false }
+    }));
+    let css = profile(serde_json::json!({
+        "cmuxProfile": 1, "name": "css",
+        "files": { "agent-pane/theme.css": ".x { color: red; }\n" }
+    }));
+    let keys = profile(serde_json::json!({
+        "cmuxProfile": 1, "name": "keys",
+        "files": { "keybindings.json": "[{ \"key\": \"ctrl+cmd+h\", \"command\": \"focusLeft\" }]" }
+    }));
+    let calm = use_and_apply(&customize, &calm, 10);
+    let css = use_and_apply(&customize, &css, 20);
+    let keys = use_and_apply(&customize, &keys, 30);
+    assert!(home.read("cmux-next.json").unwrap().contains("compact"));
+    assert!(home.read("agent-pane/theme.css").is_some() && home.read("keybindings.json").is_some());
+    for name in [&keys, &css, &calm] {
+        customize.library_set_on(name, false, "cli", 40).unwrap();
+    }
+    assert_eq!(tree_of(&config), before);
+    assert!(!config.exists(), "the folder the library made is gone too");
+
+    // On again brings it all back; off again is exact again.
+    customize.library_set_on(&calm, true, "cli", 50).unwrap();
+    assert_eq!(home.density().as_deref(), Some("compact"));
+    customize.library_set_on(&calm, false, "cli", 60).unwrap();
+    assert!(!config.exists());
+}
+
+/// A settings file that was there keeps its objects and comments: off puts
+/// back only what the library made.
+#[test]
+fn off_keeps_the_objects_you_had_and_takes_out_the_ones_it_made() {
+    let home = Home::new();
+    let mine = "{\n  // mine\n  \"ui\": {}\n}\n";
+    home.write("cmux-next.json", mine);
+    let customize = home.customize();
+    let calm = profile(serde_json::json!({
+        "cmuxProfile": 1, "name": "calm",
+        "settings": { "ui.animations.newTab": false, "appearance.density": "compact" }
+    }));
+    let calm = use_and_apply(&customize, &calm, 10);
+    customize.library_set_on(&calm, false, "cli", 20).unwrap();
+    let text = home.read("cmux-next.json").unwrap();
+    let value = cmux_config::jsonc::parse(&text).unwrap();
+    assert_eq!(value, serde_json::json!({ "ui": {} }), "{text}");
+    assert!(text.contains("// mine"));
+}
+
+/// An entry made by `use FILE` and apply shows the profile's own
+/// description; its words are still what was asked.
+#[test]
+fn a_profile_entry_says_what_the_profile_says_it_is() {
+    let home = Home::new();
+    home.write("cmux-next.json", PLAIN);
+    let customize = home.customize();
+    let night = profile(serde_json::json!({
+        "cmuxProfile": 1, "name": "night", "description": "A calm  night theme,\n dense",
+        "settings": { "appearance.density": "compact" }
+    }));
+    use_and_apply(&customize, &night, 10);
+    let entry = &customize.library().unwrap().entries[0];
+    assert_eq!(entry.description, "A calm night theme, dense");
+    assert_eq!(entry.words, ["profile night"]);
+    // One with no description keeps the words.
+    let bare = profile(serde_json::json!({
+        "cmuxProfile": 1, "name": "bare", "settings": { "appearance.density": "comfortable" }
+    }));
+    use_and_apply(&customize, &bare, 20);
+    assert_eq!(customize.library().unwrap().entries[0].description, "profile bare");
+}

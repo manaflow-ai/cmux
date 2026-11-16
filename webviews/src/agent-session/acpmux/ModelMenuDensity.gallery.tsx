@@ -7,6 +7,7 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { DENSITY_CSS, MENU_DENSITIES, type MenuDensity } from "../../gallery/fixtures/modelMenuDensity";
 import type { ModelPickerProps } from "./modelPickerLayout";
+import { MODEL_PICKER } from "./composerSelectors";
 
 type Props = ModelPickerProps & { density: MenuDensity };
 
@@ -42,7 +43,7 @@ const props: ModelPickerProps = {
 };
 
 const openMenu: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+  await ctx.click({ selector: MODEL_PICKER });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
 };
 const openEffort: Play = async (ctx) => {
