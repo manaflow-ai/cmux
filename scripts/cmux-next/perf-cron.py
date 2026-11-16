@@ -610,6 +610,9 @@ def webui_rows(rows):
                                 "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
                                 "floor": floor,
                                 "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
+        if known_speed(r.get("speed")):
+            # The host-speed canary's ms while the row's bench ran (webviews/bench/hostLoad.ts): speed_skipped.
+            out[f"webui.{name}"]["speed"] = r["speed"]
     return out
 
 
@@ -776,6 +779,42 @@ def refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms):
     reference run (dropped frames: it got faster), or one of the two is not known."""
     return sorted(n for n, r in rows.items() if frame_sensitive(n, r) and n in base_rows
                   and not comparable(n, r, base_rows[n], refresh_ms, base_refresh_ms))
+
+
+# A time row is judged only against values measured on a runner about as fast: the shared Linux runner's hosts run
+# the same code 1.2x to 2.6x apart while the contention probe reads 1 (cmux#24569: a bisect step that changed no web
+# code was judged bad on rows whose code no commit of the range touched). The canary (webviews/bench/hostLoad.ts)
+# times a fixed piece of work around each bench; a row whose canary differs from its baseline's by more than
+# SPEED_TOLERANCE is measured, not judged. No one factor fits every row (the same slow host cost one row 1.17x and
+# another 1.9x), so such a row is not scaled.
+SPEED_TOLERANCE = 0.10
+
+
+def known_speed(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+
+
+def same_speed(a, b):
+    """Two canary times within SPEED_TOLERANCE of each other. An unknown one (a row or a baseline from before rows
+    carried it, a bench with no canary) is not known to differ."""
+    return not (known_speed(a) and known_speed(b)) or max(a, b) <= min(a, b) * (1 + SPEED_TOLERANCE)
+
+
+def baseline_speed(history):
+    """The canary time of a row's reference (pure): the median over its last REF_RUNS good values, None unless most
+    of them carry one (a baseline of values from before the canary has no known speed, and one value that has it
+    says nothing of the others')."""
+    window = [e for e in history or [] if isinstance(e, dict) and isinstance(e.get("p95"), (int, float))][-REF_RUNS:]
+    speeds = [e["speed"] for e in window if known_speed(e.get("speed"))]
+    return _median(speeds) if speeds and 2 * len(speeds) > len(window) else None
+
+
+def speed_skipped(rows, base_rows):
+    """The time rows find_regressions leaves out (measured, not judged): their runner was faster or slower than the
+    one their reference was measured on, by the canary. A slower host must not open a regression or move a bisect
+    range, a faster one must not close one, and neither value belongs in the baseline."""
+    return sorted(n for n, r in rows.items() if r.get("unit", "ms") == "ms" and n in base_rows
+                  and not same_speed(r.get("speed"), base_rows[n].get("speed")))
 
 
 def target_of(name, row, refresh_ms):
@@ -949,6 +988,8 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
     over its target, with base None and why NO_REFERENCE: it has no culprit range, but it is not a silent pass."""
     skipped = (set(refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms)) | set(os_changed(rows, base_rows))
                | set(version_changed(rows, base_rows)))
+    # A row measured another way is rebased, whatever the runner's speed; any other is judged only at its baseline's.
+    skipped |= set(speed_skipped(rows, base_rows))
     rows = {n: r for n, r in rows.items() if n not in skipped and not REPORT_ONLY_ROW_RE.match(base_row(n))}
     listed = [{"name": n, "p95": r["p95"], "floor": row_floor(n, r)} for n, r in rows.items()]
     worse = {r["name"]: r for r in budgets_mod.compare(listed, {n: b["p95"] for n, b in base_rows.items() if b.get("p95") is not None})}
@@ -2059,6 +2100,12 @@ def issue_body(state, repo, now):
             lines += ["", f"Not compared: {len(last['refresh_skipped'])} frame row(s) ran at another display refresh than "
                           f"their last good value ({', '.join(last['refresh_skipped'][:8])}"
                           + (", ..." if len(last["refresh_skipped"]) > 8 else "") + ")."]
+        if last.get("speed_skipped"):
+            lines += ["", f"Not compared: {len(last['speed_skipped'])} time row(s) ran on a runner more than "
+                          f"{round(SPEED_TOLERANCE * 100)} % faster or slower than their baseline's, by the host-speed "
+                          f"canary ({', '.join(last['speed_skipped'][:8])}"
+                          + (", ..." if len(last["speed_skipped"]) > 8 else "") + "). They open and clear nothing and "
+                          f"stay out of the baseline; {REF_RUNS} such tip measurements in a row rebase a row."]
     rebases = [x for x in state.get("rebases") or [] if isinstance(x, dict)][-5:]
     if rebases:
         lines += ["", "Rebases (a row measured another way starts a new reference and is not compared; a regression open "
@@ -2159,7 +2206,8 @@ def remember_good(state, rows, refresh_ms, t, prev_good=None, sha=None):
         prev = ((prev_good or {}).get("rows") or {}).get(name) or {}
         if not h and isinstance(prev.get("p95"), (int, float)) and prev_good.get("measured_at"):
             h.append({"at": prev_good["measured_at"], "p95": prev["p95"]})
-        h.append({"at": iso(t), "p95": r["p95"], **({"sha": sha} if is_sha(sha) else {})})
+        h.append({"at": iso(t), "p95": r["p95"], **({"sha": sha} if is_sha(sha) else {}),
+                  **({"speed": r["speed"]} if known_speed(r.get("speed")) else {})})
         hist[name] = [e for e in h if (_history_time(e) or since) >= since][-HISTORY_MAX:]
 
 
@@ -2197,6 +2245,12 @@ def reference_rows(state, t):
     for name, r in ((state.get("last_good") or {}).get("rows") or {}).items():
         ref = row_reference(hist.get(name), t)
         out[name] = r if ref is None or r.get("p95") is None else {**r, "p95": ref, "last_good_p95": r["p95"]}
+        if ref is not None:
+            # The reference is a median over runs, so its runner speed is too (speed_skipped), not the last run's.
+            out[name] = {k: v for k, v in out[name].items() if k != "speed"}
+            speed = baseline_speed(hist.get(name))
+            if speed is not None:
+                out[name]["speed"] = speed
     return out
 
 
@@ -2214,12 +2268,15 @@ def judging_rows(state, t):
     return out
 
 
-def bisect_step(state, cur, part_rows, regs):
+def bisect_step(state, cur, part_rows, regs, off_speed=()):
     """Fold a bisect step into the culprit range it searched (pure). part_rows: the rows the step measured AND could
     compare (a frame row on another display refresh than its reference is not judged). bad: a row of that range
     regressed; good: every row of it was judged and is within its threshold; skip (`git bisect skip`): some row of it
     was not judged (the commit did not build, a part failed or yielded, or the display refresh differed), so the next
-    step picks another commit. Returns (verdict, note)."""
+    step picks another commit; retry: the only rows not judged are off_speed (their runner was faster or slower than
+    the baseline's, speed_skipped), so the commit itself is fine and the next step measures it again, once: the
+    second such step skips it, so a fleet that changed speed for good cannot hold the bisect on one commit. Returns
+    (verdict, note)."""
     key = cur.get("bisect_range") or {}
     group = [r for r in state.get("regressions") or [] if same_range(r.get("range"), key)]
     if not group:
@@ -2228,6 +2285,9 @@ def bisect_step(state, cur, part_rows, regs):
     regressed = names & {r["name"] for r in regs}
     unmeasured = sorted(names - set(part_rows))
     verdict = "bad" if regressed else ("skip" if unmeasured else "good")
+    if verdict == "skip" and set(unmeasured) <= set(off_speed) \
+            and not any(cur["sha"] in (r["range"].get("retried") or []) for r in group):
+        verdict = "retry"
     for r in group:
         rng = r["range"]
         rng["steps"] = rng.get("steps", 0) + 1
@@ -2235,10 +2295,15 @@ def bisect_step(state, cur, part_rows, regs):
             rng["bad"] = cur["sha"]
         elif verdict == "good":
             rng["good"] = cur["sha"]
+        elif verdict == "retry":
+            rng.setdefault("retried", []).append(cur["sha"])
         elif cur["sha"] not in (rng.setdefault("skip", [])):
             rng["skip"].append(cur["sha"])
     rng = group[0]["range"]
     where = f"range now {rng['good'][:11]}...{rng['bad'][:11]}"
+    if verdict == "retry":
+        return verdict, (f"not judged, {', '.join(unmeasured[:6])} ran on a runner of another speed than the "
+                         f"baseline's; measured again; {where}")
     if verdict == "skip":
         return verdict, f"skipped, {', '.join(unmeasured[:6])} not measured; {where}"
     return verdict, f"{verdict} ({', '.join(sorted(regressed)[:6]) or 'every row within its threshold'}); {where}"
@@ -2256,7 +2321,7 @@ def rebase_rows(state, part_rows, names, t):
         if r is None or r.get("p95") is None:
             continue
         rows[name] = r
-        hist[name] = [{"at": iso(t), "p95": r["p95"]}]
+        hist[name] = [{"at": iso(t), "p95": r["p95"], **({"speed": r["speed"]} if known_speed(r.get("speed")) else {})}]
         rebased.append(name)
     if rebased:
         state["last_good"] = {**good, "rows": rows}
@@ -2280,6 +2345,30 @@ def rebase_faster_rows(state, part_rows, skipped, refresh_ms, t):
         if now and not (then and now >= then):
             faster.append(name)
     return rebase_rows(state, part_rows, faster, t)
+
+
+def rebase_shifted_rows(state, part_rows, off_speed, sha, t):
+    """Count each off-speed row's tip measurement (state['off_speed'], consecutive: finish_measurement ends a row's
+    streak when it is judged again) and rebase (rebase_rows) each row not judged for REF_RUNS tip measurements in a
+    row that all ran at this one's speed: the fleet moved, the old reference will never be measured again, and a row
+    nothing judges is a regression nothing sees. Its history restarts from those REF_RUNS values. Returns the rebased
+    names."""
+    held = state.setdefault("off_speed", {})
+    shifted = []
+    for name in sorted(off_speed):
+        r = part_rows.get(name)
+        if r is None or not isinstance(r.get("p95"), (int, float)):
+            continue
+        streak = [v for v in held.get(name) or [] if isinstance(v, dict)][-(REF_RUNS - 1):]
+        streak.append({"at": iso(t), "p95": r["p95"], "speed": r.get("speed"), **({"sha": sha} if is_sha(sha) else {})})
+        held[name] = streak
+        if len(streak) >= REF_RUNS and all(known_speed(v.get("speed")) and same_speed(v["speed"], r.get("speed"))
+                                           for v in streak):
+            shifted.append(name)
+    rebased = rebase_rows(state, part_rows, shifted, t)
+    for name in rebased:
+        state["row_history"][name] = held.pop(name)
+    return rebased
 
 
 def worse_than(reg, p95, ref, regression):
@@ -2465,9 +2554,12 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     skipped = set(refresh_skipped(part_rows, base_rows, refresh_ms, good_refresh))
     versioned = set(version_changed(part_rows, base_rows)) - skipped
     moved = (set(os_changed(part_rows, base_rows)) | versioned) - skipped
-    judged = {n: r for n, r in part_rows.items() if n not in skipped and n not in moved}
+    # A time row from a runner faster or slower than its baseline's: like a frame row on another display, it opens
+    # and clears nothing and stays out of the baseline (a row measured another way is rebased instead).
+    off_speed = set(speed_skipped(part_rows, base_rows)) - skipped - moved
+    judged = {n: r for n, r in part_rows.items() if n not in skipped and n not in moved and n not in off_speed}
     if cur["kind"] == "bisect":
-        entry["status"], entry["note"] = bisect_step(state, cur, judged, regs)
+        entry["status"], entry["note"] = bisect_step(state, cur, judged, regs, off_speed)
         return "narrowed" if entry["status"] in ("good", "bad") else "skipped"
     state["last_tried"] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url,
                            **({"failed_parts": failed, "failed_why": failed_why} if failed else {})}
@@ -2476,7 +2568,7 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         return "empty"
     record = {"sha": cur["sha"], "measured_at": iso(t), "rows": part_rows, "refresh_ms": refresh_ms, "host": host,
               "macos": macos, "run_url": run_url, "failed_parts": failed,
-              "refresh_skipped": sorted(skipped)}
+              "refresh_skipped": sorted(skipped), "speed_skipped": sorted(off_speed)}
     row_ok = state.setdefault("row_ok", {})
     if not good:
         state["last_good"] = record
@@ -2514,11 +2606,21 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
             notes.append(note_list("rebased on a measurement version change, not judged", by_version))
         if set(closed) - set(by_version):
             notes.append(note_list("rebased on a macOS change, not judged", sorted(set(closed) - set(by_version))))
-    all_rebased = set(rebased) | set(os_rebased)
+    for name in [n for n in state.get("off_speed") or {} if n in judged]:
+        state["off_speed"].pop(name)
+    shifted = rebase_shifted_rows(state, part_rows, off_speed, cur["sha"], t)
+    if shifted:
+        record["speed_rebased"] = shifted
+        record["speed_skipped"] = sorted(off_speed - set(shifted))
+        closed = sorted(n for n in shifted if n in open_names)
+        if closed:
+            notes.append(note_list("rebased on a runner speed change, not judged", closed))
+    all_rebased = set(rebased) | set(os_rebased) | set(shifted)
     if all_rebased:
         # Every rebase goes into the issue (lead 2026-10-24), also one of an incomplete measurement (not `last`).
         kinds = [("measurement version or part args", sorted(set(os_rebased) & versioned)),
-                 ("macOS", sorted(set(os_rebased) - versioned)), ("display refresh", sorted(rebased))]
+                 ("macOS", sorted(set(os_rebased) - versioned)), ("display refresh", sorted(rebased)),
+                 (f"runner speed ({REF_RUNS} tip measurements in a row at another one)", shifted)]
         log = state.setdefault("rebases", [])
         log += [{"at": iso(t), "sha": cur["sha"], "run_url": run_url, "why": why, "rows": rows,
                  "closed": sorted(n for n in rows if n in open_names)} for why, rows in kinds if rows]
@@ -2545,7 +2647,10 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     mac_ran = {mac_host(n) for n in part_rows} - {None}
     linux_classes = {row_host(n) for n in part_rows if linux_row(n)}
     for name in list(state.get("pending") or {}):
-        unjudged = name not in judged and row_host(name) in ran_here and part_for_row(name) in done_parts
+        # A row not judged for its runner's speed was not judged by its host's fault: its streak waits, as it does
+        # for a part that failed.
+        unjudged = (name not in judged and name not in off_speed and row_host(name) in ran_here
+                    and part_for_row(name) in done_parts)
         gone = bool(mac_ran) and bool(mac_host(name)) and host_gone(state, mac_host(name), t)
         class_changed = linux_row(name) and bool(linux_classes) and row_host(name) not in linux_classes
         if unjudged or gone or class_changed:
@@ -2570,7 +2675,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
             regressions.append(prev)
             continue
         streak = [v for v in prev.get("recovering") or [] if isinstance(v, dict)]
-        streak.append({"sha": cur["sha"], "p95": p95, "at": iso(t), "run_url": run_url})
+        streak.append({"sha": cur["sha"], "p95": p95, "at": iso(t), "run_url": run_url,
+                       **({"speed": judged[name]["speed"]} if known_speed(judged[name].get("speed")) else {})})
         if len(streak) < RECOVER_RUNS:
             regressions.append({**prev, "recovering": streak})
         else:
@@ -2596,7 +2702,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     for name, values in closing.items():
         # The earlier runs of a closing regression's recovery are good values too, older than this one.
         h = hist.get(name) if isinstance(hist.get(name), list) else []
-        hist[name] = h + [{"at": v.get("at"), "p95": v["p95"], **({"sha": v["sha"]} if is_sha(v.get("sha")) else {})}
+        hist[name] = h + [{"at": v.get("at"), "p95": v["p95"], **({"sha": v["sha"]} if is_sha(v.get("sha")) else {}),
+                           **({"speed": v["speed"]} if known_speed(v.get("speed")) else {})}
                           for v in values if isinstance(v.get("p95"), (int, float))]
     state["last_good"] = {**state["last_good"], "rows": {**(state["last_good"].get("rows") or {}), **accepted}}
     remember_good(state, accepted, refresh_ms, t, good, sha=cur["sha"])
@@ -2640,7 +2747,9 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         entry["note"] = (f"{len(missing)} regressed row(s) not measured again (part(s) {', '.join(parts)}"
                          + (f"; failed: {', '.join(failed)}" if failed else "")
                          + (f"; on another display refresh: {', '.join(sorted(set(missing) & skipped)[:6])}"
-                            if set(missing) & skipped else "") + ")")
+                            if set(missing) & skipped else "")
+                         + (f"; on a runner of another speed: {', '.join(sorted(set(missing) & off_speed)[:6])}"
+                            if set(missing) & off_speed else "") + ")")
         return "still"
     if failed:
         # Rows of the parts that ran are judged (a regression of theirs opens, one they measured within its

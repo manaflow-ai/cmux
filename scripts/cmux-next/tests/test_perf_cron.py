@@ -2997,5 +2997,74 @@ class NotMeasuringTests(unittest.TestCase):
         self.assertIsNone(cron.not_measuring_reason("f" * 40, 3))
 
 
+def timed(p95, speed):
+    """A time row with the host-speed canary's ms beside it (webviews/bench/hostLoad.ts)."""
+    return {**row(p95), "speed": speed}
+
+
+class SpeedTests(OneRunRule):
+    """cmux#24569: the shared Linux runner's hosts run the same code 1.2x to 2.6x apart while the contention probe
+    reads 1. A time row from a runner faster or slower than its baseline's (the canary) is measured, not judged."""
+
+    measured, bisected, rng = FinishTests.measured, FinishTests.bisected, FinishTests.rng
+
+    def test_a_row_from_a_slower_runner_opens_nothing_and_stays_out_of_the_baseline(self):
+        state = cron.empty_state(T0)
+        self.measured(state, "a" * 40, {"t.e2e": timed(5.0, 20.0)}, 0)
+        self.assertEqual(self.measured(state, "b" * 40, {"t.e2e": timed(9.0, 31.0)}, 1), "good")
+        self.assertEqual(state["regressions"], [])
+        self.assertEqual([e["p95"] for e in state["row_history"]["t.e2e"]], [5.0], "not a baseline value")
+        self.assertEqual(state["last_good"]["rows"]["t.e2e"]["p95"], 5.0)
+        self.assertEqual(state["last"]["speed_skipped"], ["t.e2e"])
+        self.assertIn("Not compared: 1 time row(s) ran on a runner", cron.issue_body(state, "o/r", at(1)))
+        self.assertEqual(self.measured(state, "c" * 40, {"t.e2e": timed(9.0, 20.8)}, 2), "regressed",
+                         "on a runner as fast as the baseline's it compares again")
+        self.assertEqual(self.rng(state, "t.e2e"), ("a" * 40, "c" * 40), "the off-speed run is no good commit")
+
+    def test_a_faster_runner_does_not_close_a_regression(self):
+        state = cron.empty_state(T0)
+        self.measured(state, "a" * 40, {"t.e2e": timed(5.0, 20.0)}, 0)
+        self.measured(state, "b" * 40, {"t.e2e": timed(9.0, 20.0)}, 1)
+        self.assertEqual(self.measured(state, "c" * 40, {"t.e2e": timed(5.1, 12.0)}, 2), "still")
+        self.assertEqual([r["name"] for r in state["regressions"]], ["t.e2e"])
+
+    def test_a_row_or_a_baseline_without_the_canary_is_judged_as_before(self):
+        self.assertEqual(cron.speed_skipped({"a": timed(9.0, 31.0), "b": row(9.0), "c": {**row(3, "count"), "speed": 31.0}},
+                                            {"a": row(5.0), "b": timed(5.0, 20.0), "c": {**row(1, "count"), "speed": 20.0}}), [])
+        self.assertIsNone(cron.baseline_speed([{"p95": 5.0}, {"p95": 5.0}, {"p95": 5.0, "speed": 31.0}]),
+                          "one value's speed is not the baseline's")
+        self.assertEqual(cron.baseline_speed([{"p95": 5.0}, {"p95": 5.0, "speed": 20.0}, {"p95": 5.0, "speed": 22.0}]), 21.0)
+
+    def test_a_bisect_step_on_another_speed_is_measured_again_then_skipped_never_a_verdict(self):
+        state = cron.empty_state(T0)
+        self.measured(state, "a" * 40, {"t.e2e": timed(5.0, 20.0)}, 0)
+        self.measured(state, "e" * 40, {"t.e2e": timed(9.0, 20.0)}, 1)
+        self.assertEqual(self.bisected(state, "c" * 40, {"t.e2e": timed(9.2, 31.0)}, 2), "skipped", "slow, not bad")
+        self.assertEqual(state["history"][-1]["status"], "retry")
+        self.assertEqual(self.rng(state, "t.e2e"), ("a" * 40, "e" * 40))
+        self.assertEqual(state["regressions"][0]["range"]["skip"], [], "the next step measures the commit again")
+        self.assertEqual(self.bisected(state, "c" * 40, {"t.e2e": timed(5.0, 12.0)}, 3), "skipped", "fast, not good")
+        self.assertEqual(state["regressions"][0]["range"]["skip"], ["c" * 40], "the second time it is skipped")
+        self.assertEqual(self.bisected(state, "d" * 40, {"t.e2e": timed(9.2, 20.5)}, 4), "narrowed")
+        self.assertEqual(self.rng(state, "t.e2e"), ("a" * 40, "d" * 40))
+
+    def test_a_fleet_that_changed_speed_rebases_the_row(self):
+        state = cron.empty_state(T0)
+        self.measured(state, "a" * 40, {"t.e2e": timed(5.0, 20.0)}, 0)
+        for n in range(1, cron.REF_RUNS):
+            self.assertEqual(self.measured(state, format(n, "x") * 40, {"t.e2e": timed(8.0, 30.0)}, n), "good")
+            self.assertEqual(len(state["row_history"]["t.e2e"]), 1)
+        self.measured(state, "b" * 40, {"t.e2e": timed(8.0, 30.5)}, 6)
+        self.assertEqual([e["p95"] for e in state["row_history"]["t.e2e"]], [8.0] * cron.REF_RUNS)
+        self.assertIn("runner speed", state["rebases"][-1]["why"])
+        self.assertEqual(self.measured(state, "c" * 40, {"t.e2e": timed(12.0, 30.0)}, 7), "regressed",
+                         "judged against the new speed's values")
+
+    def test_a_web_ui_row_keeps_the_canary_of_its_bench(self):
+        rows = cron.webui_rows([{"name": "chat_open.latest", "p95": 400, "speed": 21.5}, {"name": "chat_open.other", "p95": 4}])
+        self.assertEqual(rows["webui.chat_open.latest"]["speed"], 21.5)
+        self.assertNotIn("speed", rows["webui.chat_open.other"])
+
+
 if __name__ == "__main__":
     unittest.main()

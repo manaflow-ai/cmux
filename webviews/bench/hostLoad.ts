@@ -146,6 +146,13 @@ export function hostSpeed(samples: readonly { walk: number; work: number }[]): n
   return Math.round((totals.length % 2 ? totals[mid]! : (totals[mid - 1]! + totals[mid]!) / 2) * 1000) / 1000;
 }
 
+/// A bench's rows with the host's speed on each time row (pure; unit ms, wall and CPU alike: a slower host takes
+/// more CPU time for the same work too). Counts, scores and sizes do not depend on it, and speed 0 is not known.
+export function stampSpeed(rows: readonly PerfRow[], speed: number): PerfRow[] {
+  if (!(speed > 0)) return [...rows];
+  return rows.map((row) => ((row.unit ?? "ms") === "ms" ? { ...row, speed } : row));
+}
+
 // bun bench/hostLoad.ts: this host's load and speed now.
 if (import.meta.main) {
   const samples = speedProbe();
