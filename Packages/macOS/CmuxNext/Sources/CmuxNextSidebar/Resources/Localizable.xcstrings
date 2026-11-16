@@ -40103,7 +40103,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go to Window"
+            "value": "Switch to That Window"
           }
         },
         "ar": {
@@ -40234,7 +40234,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Here"
+            "value": "Move to This Window"
           }
         },
         "ar": {
