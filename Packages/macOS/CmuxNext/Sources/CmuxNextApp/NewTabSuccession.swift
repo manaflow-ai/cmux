@@ -107,7 +107,7 @@ struct NewTabSuccession {
             // hands the pane to a neighbor for the frames until its creator hears the reply.
             if pane.stripModel.selectedID == provisional, let handed { pane.pendingSelect.surface = handed }
         }
-        let key = ObjectIdentifier(pane.pane), now = ContinuousClock.now
+        let key = ObjectIdentifier(pane.pane), now = ContinuousClock.now, own = pane.stripModel.selectedID.flatMap { pane.daemon.store.creations.fate(ofStandIn: $0.rawValue, in: pane.pane).tab } // the tab the selected stand-in became: the store names its creation, so it is no other open's tab
         let opens = (active[key] ?? []).filter { now < $0.deadline }.map { $0.resolving(pane.pane) } // stand-ins the store replaced: the daemon's tabs
         var snapshot = snapshot, items = snapshot.items, kept: [NewTabSuccession] = [], claimed = Set(opens.compactMap(\.claimed))
         // Stand-ins swapped in one snapshot (no answer named them yet), in order, with as many tabs the daemon named as a creation's (never one moved in, a script's or a closed stand-in's: F3 on #37799); each stand-in's tab in this pass, for an open placed after it.
@@ -118,11 +118,11 @@ struct NewTabSuccession {
             let newest = index == opens.count - 1, known = Set(open.known), tabs = pane.pane.tabs.filter { !known.contains($0.id) }
             let mine = open.claimed.flatMap { id in tabs.first { $0.id == id.rawValue } ?? open.surface.flatMap { surface in tabs.first { $0.surface == surface } } ?? (left.contains(id) ? unpaired.first.flatMap { next in tabs.first { $0.id == next.rawValue } } : nil) }
             if let mine, unpaired.first?.rawValue == mine.id { unpaired.removeFirst() }
-            let guessed = [newest ? handed : nil, open.surface, newest ? pane.pendingSelect.surface : nil].lazy.compactMap { $0 }.compactMap { surface in tabs.first { $0.surface == surface && !claimed.contains(StripTabID($0.id)) } }.first
+            let guessed = [newest ? handed : nil, open.surface, newest ? pane.pendingSelect.surface : nil].lazy.compactMap { $0 }.compactMap { surface in tabs.first { $0.surface == surface && ($0.id != own || surface == open.surface) && !claimed.contains(StripTabID($0.id)) } }.first
             guard let tab = mine ?? guessed, let item = items.first(where: { $0.id.rawValue == tab.id }) else {
                 // Not answered yet: a new daemon tab of this pane waits for the answer naming this one (a reopened tab being selected never
-                // does). One the strip already shows stays (hidden, the selection would move to a neighbor: census #7), as does another open's.
-                let fresh = Set(tabs.map(\.id)).subtracting(shown.map(\.rawValue)).subtracting(pane.pendingSelect.tab.map { [$0] } ?? []).subtracting(claimed.map(\.rawValue))
+                // does). One the strip already shows stays (hidden, the selection would move to a neighbor: census #7), as does another open's, and the tab the selected stand-in became (the store names its creation).
+                let fresh = Set(tabs.map(\.id)).subtracting(shown.map(\.rawValue)).subtracting(pane.pendingSelect.tab.map { [$0] } ?? []).subtracting(claimed.map(\.rawValue)).subtracting(own.map { [$0] } ?? [])
                 items.removeAll { fresh.contains($0.id.rawValue) }
                 kept.append(open)
                 continue
