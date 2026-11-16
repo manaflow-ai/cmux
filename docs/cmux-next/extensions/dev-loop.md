@@ -126,6 +126,29 @@ the app's folder. Every `CMUX_APPS_DIRS` folder is watched like the local apps f
 an app there (its built `dist/main.js` or its manifest) reloads it and remounts its open views.
 These apps keep no rollback copy: they are your files.
 
+## Reload on request
+
+A save reloads by itself. To reload when you choose (a file written where the watch did not see it, a
+folder on a network volume, a script you want to start over), ask for it with one command:
+
+```sh
+cmux ext reload my-prs        # local/my-prs: read its folder again and rerun it
+cmux ext reload               # every extension in a local folder, the customize folder too
+cmux ext reload --json        # {"reloaded": [...], "refused": [{"app", "reason"}], "removed": [...]}
+cmux reload-config            # cmux-next.json and the Ghostty config, then every local extension
+```
+
+The daemon reads the folder again and restarts the app whether or not its files changed; its open
+views draw again in place (a sidebar section keeps its place, its region and its row). A script
+that does not load keeps the last good view on screen, and the command names the file and line and
+exits 1. In the app the same reload is **Reload Custom Views** in the command palette (`cmux apps
+reload`), and **Reload Configuration** (Cmd-Shift-,) reads the settings and Ghostty files.
+
+A reload never places a section: a section you removed from the sidebar stays removed until you
+place it again (`cmux apps place local/my-prs#cmux.section/1 --region bottom`, or the sidebar's edit
+mode). To take one back out, remove the section in the sidebar's edit mode, turn the extension off in
+Settings > Apps, or `cmux ext remove local/my-prs`.
+
 ## Kinds
 
 | `--kind` | What it adds | Interface |

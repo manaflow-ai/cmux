@@ -69,6 +69,8 @@
 
 .ui-feature-tip-close {
   flex: none;
+  /* In the tip's top trailing corner, one padding from the top and the side (concentric; Lawrence 2026-11-15). */
+  align-self: start;
   display: grid;
   place-items: center;
   width: 20px;
