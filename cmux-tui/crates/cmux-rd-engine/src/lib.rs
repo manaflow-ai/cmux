@@ -609,7 +609,11 @@ impl MediaEngine {
         while state.history.len() > HISTORY_FRAMES {
             state.history.pop_first();
         }
-        state.force_idr = false;
+        // Only a request that carried the force answers it: a recovery that came
+        // while the source encoded an older P-frame still owes its keyframe.
+        if req.force_idr {
+            state.force_idr = false;
+        }
         state.last_frame = req.frame;
         state.probe_from_us = Some(now_us);
         state.probes = 0;
