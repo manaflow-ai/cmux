@@ -684,6 +684,23 @@ pub fn is_agent_infrastructure(name: Option<&str>) -> bool {
     AGENT_INFRASTRUCTURE_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
 }
 
+/// The prefix of the name `cmux cloud start-chat` gives the machine it makes (cmux-tui
+/// `cloud_start_chat`'s `fresh_name`): `chat-` and 16 hex characters of a fresh UUID.
+pub const CHAT_MACHINE_NAME_PREFIX: &str = "chat-";
+
+/// The name `cmux cloud start-chat` gives a machine it makes, from a fresh UUID's simple form.
+pub fn chat_machine_name(uuid_simple: &str) -> String {
+    format!("{CHAT_MACHINE_NAME_PREFIX}{}", uuid_simple.chars().take(16).collect::<String>())
+}
+
+/// Whether `name` is one cmux generated rather than words a person reads: a start-chat
+/// machine's `chat-` and 16 hex characters (trimmed, case-insensitive).
+pub fn is_generated_name(name: &str) -> bool {
+    let name = name.trim().to_lowercase();
+    name.strip_prefix(CHAT_MACHINE_NAME_PREFIX)
+        .is_some_and(|hex| hex.len() == 16 && hex.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
 /// What the app reads off one record, in one answer.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -702,6 +719,10 @@ pub struct Facts {
     pub agent_infrastructure: bool,
     /// Open Desktop's viewer when none is named (`rd` or `web`) for the signed-in user.
     pub desktop_viewer: &'static str,
+    /// The name for a title a person reads: the shown name, or none when the machine has no
+    /// name or only a generated one ([`is_generated_name`]), so the app names it "Cloud machine"
+    /// instead of showing an id.
+    pub human_name: Option<String>,
 }
 
 /// The facts of `machine` for the signed-in `user`.
@@ -723,6 +744,11 @@ pub fn facts(machine: &Machine, user: Option<&str>) -> Facts {
             .any(|status| matches!(status, Status::Destroyed | Status::Deleting)),
         agent_infrastructure: is_agent_infrastructure(machine.shown_name()),
         desktop_viewer: desktop_viewer(machine, &capabilities, user),
+        human_name: machine
+            .shown_name()
+            .map(str::trim)
+            .filter(|name| !name.is_empty() && !is_generated_name(name))
+            .map(str::to_owned),
         capabilities,
     }
 }

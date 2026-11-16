@@ -582,6 +582,17 @@ type CmuxActionId = string
 
 interface CmuxAppContext { readonly [key: string]: unknown }
 
+/** One block of a page's main text (`page.read`): a heading has `level` (1-6), an image `src` and its alt text. */
+interface CmuxPageBlock { kind: "heading" | "paragraph" | "list_item" | "quote" | "code" | "image"; text: string; level?: number; src?: string }
+/** `page.read`'s answer: the page's address and title, its main text as reader-mode blocks, and its links. */
+interface CmuxPageRead {
+  tab: string; url: string; title: string
+  article: { title: string; byline: string | null; site: string | null; blocks: CmuxPageBlock[] }
+  links: Array<{ text: string; href: string }>
+}
+/** A link-hint label `page.hints` drew: type it to `page.follow` it. `href` is null for a button, field or other non-link. */
+interface CmuxPageHint { label: string; text: string; href: string | null }
+
 interface CmuxGlobal {
   agent: {
     /** `agent.list` (read, scope `agent:read`) */
@@ -1940,6 +1951,15 @@ interface CmuxGlobal {
   readonly theme: CmuxTheme
   /** A short notice from the app's own toast presenter; one slot per app (a new toast replaces the last). A string is the title. */
   toast(options: { title: string; message?: string; tone?: "success" | "warning" | "danger" } | string): Promise<null>
+  /** A browser tab's page, drawn by the cmux app (WebKit or CEF). `tab` is a `tab_…` id; without it, the focused browser tab of the front window. */
+  page: {
+    /** `page.read` (read, scope `page:read`): the page's main text as reader-mode blocks, and its links. Text is capped (400 blocks, 500 links). */
+    read: CmuxOp<{ tab?: string }, CmuxPageRead>
+    /** `page.hints` (mutation, scope `page:write`, needs a gesture): `show` draws link-hint labels over the clickable elements in view (the built-in `f` labels) and lists them; `clear` removes them. A scroll removes them too. */
+    hints: CmuxOp<{ tab?: string; action: "show" | "clear" }, { tab: string; hints: CmuxPageHint[] }>
+    /** `page.follow` (mutation, scope `page:write`, needs a gesture): clicks the element of a shown hint, or with `new_split` opens its link in a new browser split (the built-in `F`), then clears the hints. `followed` is false when the label is not shown (any more), or `new_split` names a hint with no link. */
+    follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
+  }
   palette: CmuxPalette
   act: typeof act
   log(...parts: unknown[]): void

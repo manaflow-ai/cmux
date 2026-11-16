@@ -422,6 +422,40 @@ fn the_shown_name_decides_agent_infrastructure() {
 }
 
 #[test]
+fn a_start_chat_name_is_generated_and_a_persons_name_is_not() {
+    let name = chat_machine_name("800dd580cab0487c9f1e2d3c4b5a6978");
+    assert_eq!(name, "chat-800dd580cab0487c");
+    for generated in [name.as_str(), "CHAT-800DD580CAB0487C", " chat-0123456789abcdef "] {
+        assert!(is_generated_name(generated), "{generated}");
+    }
+    for person in [
+        "chat-room",
+        "chat-800dd580",
+        "chat-800dd580cab0487c1",
+        "chat-zzzzzzzzzzzzzzzz",
+        "Build box",
+        "",
+    ] {
+        assert!(!is_generated_name(person), "{person}");
+    }
+}
+
+#[test]
+fn the_human_name_skips_a_generated_name_and_the_id() {
+    let named = |display: Option<&str>, slug: Option<&str>| {
+        let mut machine = Machine::new("vm_8f2c1a", Status::Running);
+        machine.display_name = display.map(Into::into);
+        machine.slug = slug.map(Into::into);
+        facts(&machine, None).human_name
+    };
+    assert_eq!(named(Some("Build box"), None), Some("Build box".into()));
+    assert_eq!(named(None, Some("kind-aqua-sandpiper")), Some("kind-aqua-sandpiper".into()));
+    assert_eq!(named(Some("chat-800dd580cab0487c"), None), None);
+    assert_eq!(named(Some("chat-800dd580cab0487c"), Some("kind-aqua-sandpiper")), None);
+    assert_eq!(named(None, None), None, "the id is never a human name");
+}
+
+#[test]
 fn a_machine_has_run_once_it_ran_or_is_between_runs() {
     for status in [Status::Running, Status::Pausing, Status::Paused, Status::Starting] {
         assert!(facts(&Machine::new("vm", status), None).has_run, "{status:?}");

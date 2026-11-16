@@ -238,6 +238,8 @@ cmux-unix-socket = { workspace = true, features = ["test-support"] }
 # `read_timeout_or_ended`: a read timeout for a test socket whose peer can have closed first.
 cmux-tui-platform = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
+# cli/apps_store.rs: what opening a pane cmux draws itself runs (the sidebar and `app.open` share it).
+cmux-layout-reducer.workspace = true
 # cli/catalog_request_tests.rs: a palette request row sends what its CLI verb sends.
 cmux-action-catalog.workspace = true
 

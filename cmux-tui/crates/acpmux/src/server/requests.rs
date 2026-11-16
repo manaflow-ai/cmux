@@ -1614,13 +1614,15 @@ async fn dispatch_request_with_identity(
                     .await;
                 crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
                 // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
-                // for the person's own clients here only (`vm_boundary::owner`).
-                if peer.vm_boundary()
-                    && crate::hub::vm_boundary::owner(
-                        conn.auth,
-                        super::remote_guard::control_of(conn.origin, conn.auth, &params),
-                        &params,
-                    )
+                // for the person's own clients here only (`vm_boundary::owner`): a saved
+                // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
+                // (`hub/agent_vm.rs`).
+                if crate::hub::vm_boundary::owner(
+                    conn.auth,
+                    super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                    &params,
+                ) && (peer.vm_boundary()
+                    || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
                 {
                     crate::hub::merge_mux_meta(
                         &mut p,
@@ -1834,11 +1836,12 @@ async fn dispatch_request_with_identity(
             if conn.origin.web_class() {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 let cloud_mobile = super::remote_guard::cloud_mobile(&params);
-                heap(|| super::remote_guard::settle_web_session_mode(hub, &s, peer, cloud_mobile))
-                    .await?;
                 // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
                 // session the owner's peer daemon starts with no policy runs
-                // approve-all, as vmHost's did. Web clients still ask.
+                // approve-all, as vmHost's did. Web clients still ask. Before the
+                // mode settles, so a Codex chat there settles in full access
+                // (`policy_mode.rs` `bridge_settle_modes`), not the asking mode a
+                // narrower policy needs.
                 let vm_boundary = s.meta().vm_boundary && hub.takes_vm_boundary().await;
                 if !asked_policy
                     && crate::hub::vm_boundary_peer_approves(
@@ -1851,6 +1854,8 @@ async fn dispatch_request_with_identity(
                 {
                     heap(|| hub.grant_vm_host_approve_all(&s)).await;
                 }
+                heap(|| super::remote_guard::settle_web_session_mode(hub, &s, peer, cloud_mobile))
+                    .await?;
             } else {
                 heap(|| hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting))
                     .await?;

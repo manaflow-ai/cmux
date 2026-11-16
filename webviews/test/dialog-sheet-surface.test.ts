@@ -1,10 +1,11 @@
 // Every web dialog drawn by its page is the sheet surface role (Leo, 2026-11-07, on the agent chat's
 // Share dialog: "this is bad bc it's too transparent and it's also hard corners and all the buttons
 // are weird"). One material for all of them: the shared glass (.ui-glass) with the Chromium underlay
-// of a surface that floats over the page (.ui-glass-floats), the sheet role's veil and corner radius
-// (glass.css surface-roles block) from one rule (popupSurface.css `.ui-dialog.ui-glass`), and the
-// shared controls (ui/controls.css) for every button and select. A dialog's own class sets its size
-// and layout, never its own fill, border or radius.
+// of a surface that floats over the page (.ui-glass-floats), the sheet role's veil (glass.css
+// surface-roles block) and one corner (the button corner plus --ui-dialog-padding, the padding that a
+// dialog must pad with: only then is the corner concentric with its buttons) from one rule
+// (popupSurface.css `.ui-dialog.ui-glass`), and the shared controls (ui/controls.css) for every button
+// and select. A dialog's own class sets its size and layout, never its own fill, border or radius.
 import { expect, test } from "bun:test";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -51,7 +52,10 @@ test("the sheet role is one rule: veil, radius, depth and the Reduce Transparenc
   const sheet = rules(read("ui/popupSurface.css")).find((rule) => rule.selectors.includes(".ui-dialog.ui-glass"));
   expect(sheet).toBeDefined();
   expect(sheet!.body).toContain("--glass-tint: var(--surface-sheet-veil)");
-  expect(sheet!.body).toContain("border-radius: var(--surface-sheet-radius)");
+  // The corner is the button corner plus --ui-dialog-padding (the padding that a dialog must pad with).
+  // It is concentric with the buttons only of a dialog that pads with that token.
+  expect(sheet!.body).toContain("--ui-dialog-padding: var(--ds-space-5)");
+  expect(sheet!.body).toContain("border-radius: calc(var(--ds-radius-control) + var(--ui-dialog-padding))");
   expect(sheet!.body).toContain("--glass-elevation: var(--elevation-2)");
   expect(sheet!.body).toContain("--glass-opaque: var(--surface-popup)");
 });

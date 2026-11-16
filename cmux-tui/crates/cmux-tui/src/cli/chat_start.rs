@@ -27,8 +27,9 @@
 //!   here keeps a device list of its own.
 //! - `--on MACHINE` or `--on joined:ID`: a machine joined to the account (`cmux machine add`)
 //!   that only the mesh hub reaches, by its name or account id. acpmux starts the chat there and
-//!   picks the carrier (joined.rs); a device name in the catalog, then an acpmux peer of that
-//!   name, is matched first.
+//!   picks the carrier (joined.rs); a device name in the catalog is matched first. A machine
+//!   acpmux reaches itself (`acpmux machine add HOST`, an ssh or direct peer) is one too, by its
+//!   acpmux name: every machine `cmux acp machine ls` lists is a target.
 //!
 //! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does, and the app's
 //! `chat.on` setting (`cmux config set on cloud`) when both are: `--on` > `CMUX_ON` > `chat.on` >
@@ -128,7 +129,10 @@ Starts an agent chat, right here unless --on names another target:
                      --cwd names one there (no --wait, --repo or --from-folder)
   --on MACHINE       A machine you joined (`cmux machine add`), by its name, or
   --on joined:ID     by its id; acpmux starts the chat there, no ssh needed.
-                     The answer's session_id is HOST/NAME: `cmux chat send HOST/NAME TEXT`
+                     A machine acpmux reaches (`acpmux machine add HOST`, listed by
+                     `cmux machine list`) is a MACHINE too, by its name.
+                     The answer's session_id is HOST/NAME: `cmux chat send HOST/NAME TEXT`,
+                     `cmux chat wait HOST/NAME`
   CMUX_ON=TARGET names the target when --on is absent.
   `cmux config set on TARGET` saves a default target (the chat.on setting),
   used when neither --on nor CMUX_ON names one; `cmux config reset on` clears it.
@@ -172,7 +176,7 @@ EXAMPLES
   cmux chat --on vm:dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
 With --wait the answer has session_id, workspace_id, tab_id and reply, here
-and in Cloud. The chat goes on with cmux chat send TEXT --wait, cmux chat wait
+and in Cloud; on another machine (--on MACHINE), session_id and reply. The chat goes on with cmux chat send TEXT --wait, cmux chat wait
 last and cmux chat read last: without a SESSION they mean the last chat this
 terminal started or sent to (`cmux chat send --help`).
 Another folder or repository for a Cloud chat: cmux chat cd SESSION DIR|--repo REPO

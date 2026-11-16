@@ -188,6 +188,7 @@ import {
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
 import { attachmentViewMenu } from "./composer/attachmentViewMenu";
+import { focusRoute } from "../../ui/focusRoute";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -889,7 +890,8 @@ function ComposerFrame({
   useLayoutEffect(() => {
     if (refocusField.current && !snapshot.isWorking) {
       refocusField.current = false;
-      if (!document.activeElement || document.activeElement === document.body) field.current?.focus();
+      if (!document.activeElement || document.activeElement === document.body)
+        focusRoute(field.current, "system", "the turn ended: the composer");
     }
     if (!refocusSend.current) return;
     const focused = document.activeElement;
@@ -1251,7 +1253,7 @@ function ComposerFrame({
       // caret after the text as it was (pages/shared/webSwap.ts).
       if (takeWebSwapFocus("composer"))
         requestAnimationFrame(() => {
-          field.current?.focus();
+          focusRoute(field.current, "system", "the composer mounted");
           field.current?.setCaret(Number.MAX_SAFE_INTEGER);
         });
     });

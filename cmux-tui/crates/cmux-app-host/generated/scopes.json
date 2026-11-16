@@ -1089,6 +1089,18 @@
       "scope": "notification:read",
       "class": "read"
     },
+    "page.follow": {
+      "scope": "page:write",
+      "class": "mutation"
+    },
+    "page.hints": {
+      "scope": "page:write",
+      "class": "mutation"
+    },
+    "page.read": {
+      "scope": "page:read",
+      "class": "read"
+    },
     "palette_usage.forget": {
       "scope": "palette_usage:write",
       "class": "mutation"

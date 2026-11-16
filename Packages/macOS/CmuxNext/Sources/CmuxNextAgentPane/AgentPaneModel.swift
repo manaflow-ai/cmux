@@ -388,6 +388,16 @@ public final class AgentPaneModel {
     @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
+    /// Writes the page's `pane.copyText` text and says whether it took: the person's clipboard in the app
+    /// (``writeGeneralClipboard(_:)``), a recorder in a test, which must never replace the clipboard of whoever
+    /// runs it and runs where a session has no pasteboard server (the fleet's: every write failed there).
+    @ObservationIgnored let writeClipboard: @MainActor (String) -> Bool
+
+    /// The app's clipboard write: replaces the general pasteboard's contents with `text`.
+    public static func writeGeneralClipboard(_ text: String) -> Bool {
+        NSPasteboard.general.clearContents()
+        return NSPasteboard.general.setString(text, forType: .string)
+    }
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
     @ObservationIgnored public var neverPooled = false
     /// What a new chat inherits from the tab it was opened from.
@@ -400,9 +410,11 @@ public final class AgentPaneModel {
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport()
+        transport: AgentPaneTransport = AgentPaneTransport(),
+        writeClipboard: @escaping @MainActor (String) -> Bool = AgentPaneModel.writeGeneralClipboard
     ) {
         self.allowsTabConversion = allowsTabConversion
+        self.writeClipboard = writeClipboard
         self.host = host
         self.attentionTabs = attentionTabs
         self.transport = transport

@@ -8,6 +8,7 @@ bare repository. So the test runs the script's real steps: the bundle, the hook,
   python3 scripts/cmux-next/tests/test_push_from_host.py
 """
 import importlib.util
+import json
 import os
 import subprocess
 import tempfile
@@ -27,6 +28,10 @@ SCRIPT = Path(__file__).resolve().parents[1] / "push-from-host.sh"
 TOKEN = "test-token-never-printed"
 FAKE_SSH = """#!/bin/bash
 while [[ "$1" == -o ]]; do shift 2; done
+echo "$1" >> "$FAKE_SSH_LOG"
+printf '%s\\n' "$*" >> "${FAKE_SSH_LOG%.log}-argv.log"
+# A host named in FAKE_SSH_HOSTS_OK answers a probe with success (for hosts the fixture has no clone name for).
+if [[ " ${FAKE_SSH_HOSTS_OK:-} " == *" $1 "* && "$2" == test\\ -e* ]]; then exit 0; fi
 shift  # the host
 export HOME="$FAKE_HOST_HOME"
 exec bash -c "$*"
@@ -48,6 +53,8 @@ if host in os.environ.get("FAKE_UNREADABLE", "").split():
 print(f"{host}: free")
 """
 HOOK = """#!/bin/bash
+# prepush-gate (fixture marker: this is the reviewed cmux gate)
+# run_repo_hooks (fixture marker: shared hooks dispatches the repository gate)
 cat > /dev/null
 echo ran >> "$FAKE_HOST_HOME/hook.log"
 if [[ -f "$FAKE_HOST_HOME/refuse" ]]; then echo "pre-push: refused in fixture" >&2; exit 1; fi
@@ -78,11 +85,31 @@ class PushFromHostTests(unittest.TestCase):
             {key: value for key, value in os.environ.items() if not key.startswith("GIT_")})
         reservations = self.root / "fleet_reservations.py"
         reservations.write_text(FAKE_RESERVATIONS)
+        registry = self.root / "fleet-registry.json"
+        registry.write_text(json.dumps({
+            "machines": {
+                "fake-host": {"roles": ["mac-build"], "approval": "manaflow-fleet"},
+                "perf-mini": {"roles": ["mac-build"], "approval": "manaflow-fleet"},
+                "other-mini": {"roles": ["mac-build"], "approval": "manaflow-fleet"},
+                "personal-mini": {"roles": ["mac-build"], "personal": True, "approval": "leo-own"},
+            }
+        }))
         self.env.update(PATH=f"{bin_dir}:{self.env.get('PATH', '')}", GIT_CONFIG_GLOBAL=str(config),
-                        GIT_CONFIG_NOSYSTEM="1", FAKE_HOST_HOME=str(self.host_home),
-                        CMUX_FLEET_RESERVATIONS=str(reservations))
+                        GIT_CONFIG_NOSYSTEM="1", FAKE_HOST_HOME=str(self.host_home), FAKE_SSH_LOG=str(self.root / "ssh.log"),
+                        CMUX_FLEET_RESERVATIONS=str(reservations), CMUX_FLEET_REGISTRY=str(registry))
         git_fixture_env.init_repo(self.origin, "--bare", env=self.env)
         self.run_ok("git", "clone", "--quiet", str(self.origin), str(self.work))
+        hook_installer = self.work / "scripts/install-git-hooks.sh"
+        hook_installer.parent.mkdir(parents=True)
+        hook_installer.write_text("""#!/bin/sh
+set -eu
+common=$(git rev-parse --git-common-dir)
+mkdir -p "$common/cmux-git-hooks"
+printf '#!/bin/sh\\n# prepush-gate\\n' >"$common/cmux-git-hooks/pre-push"
+chmod +x "$common/cmux-git-hooks/pre-push"
+git config core.hooksPath "$common/cmux-git-hooks"
+""")
+        hook_installer.chmod(0o755)
         self.commit(self.work, "base.txt", "base\n", "base")
         self.git(self.work, "push", "--quiet", "origin", "HEAD:refs/heads/feat-cmux-next")
         host_repo = self.host_home / "fun/cmux"
@@ -92,6 +119,11 @@ class PushFromHostTests(unittest.TestCase):
         hooks.mkdir()
         (hooks / "pre-push").write_text(HOOK)
         (hooks / "pre-push").chmod(0o755)
+        (hooks / "repo-hook").write_text("run_repo_hooks() { :; }\n")
+        own_hooks = host_repo / ".git/cmux-git-hooks"
+        own_hooks.mkdir()
+        (own_hooks / "pre-push").write_text(HOOK)
+        (own_hooks / "pre-push").chmod(0o755)
         self.git(host_repo, "config", "core.hooksPath", str(hooks))
 
     def run_ok(self, *command, cwd=None):
@@ -261,7 +293,7 @@ class PushFromHostTests(unittest.TestCase):
         done = self.push("topic", hosts=("perf-mini", "user@other-mini"))
 
         self.assertEqual(done.returncode, 2, done.stderr)
-        self.assertIn("every host is reserved", done.stderr)
+        self.assertIn("no candidate is eligible and unreserved", done.stderr)
         self.assertIn("perf-mini user@other-mini", done.stderr)
         self.assertEqual(self.remote_head("topic"), "")
         self.assertFalse((self.host_home / "hook.log").exists())
@@ -274,7 +306,7 @@ class PushFromHostTests(unittest.TestCase):
 
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn("skipping fake-host: its reservation can't be read (exit 2)", done.stderr)
-        self.assertIn("every host is reserved", done.stderr)
+        self.assertIn("no candidate is eligible and unreserved", done.stderr)
 
     def test_a_mac_without_the_reader_warns_and_pushes(self):
         self.env["CMUX_FLEET_RESERVATIONS"] = str(self.root / "missing" / "fleet_reservations.py")
@@ -284,6 +316,116 @@ class PushFromHostTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout.strip(), "fake-host fun/cmux")
         self.assertIn("no fleet reservation reader", done.stderr)
+
+    def test_a_personal_machine_is_never_picked_even_when_named_explicitly(self):
+        sha = self.commit(self.work, "personal-safe.txt", "safe\n", "personal routing guard")
+
+        done = self.push("personal-safe", hosts=("personal-mini", "fake-host"))
+
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.remote_head("personal-safe"), sha)
+        self.assertIn("skipping personal-mini: not an eligible mac-build host", done.stderr)
+        self.assertIn(f"{sha} -> personal-safe through fake-host", done.stderr)
+        self.assertNotIn("personal-mini", (self.root / "ssh.log").read_text())
+
+    def test_defaults_follow_registry_order_and_exclusions(self):
+        registry = Path(self.env["CMUX_FLEET_REGISTRY"])
+        registry.write_text(json.dumps({"machines": {
+            "personal-mini": {"roles": ["mac-build"], "personal": True},
+            "excluded-mini": {"roles": ["mac-build"], "excluded_roles": ["mac-build"]},
+            "capture-only": {"roles": ["capture"]},
+            "other-mini": {"roles": ["mac-build"]},
+        }}))
+        self.env.pop("CMUX_PUSH_HOST", None)
+        done = self.push("--which-host", "topic", hosts=())
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "other-mini fun/cmux")
+        self.assertEqual((self.root / "ssh.log").read_text(), "other-mini\n")
+
+    def test_each_personal_marker_blocks_cli_and_environment_overrides_before_ssh(self):
+        registry = Path(self.env["CMUX_FLEET_REGISTRY"])
+        for marker in ({"personal": True}, {"approval": "leo-own"},
+                       {"roles": ["mac-build", "leo-apps"]},
+                       {"roles": ["mac-build", "leo-mac"]}, {"lanes": {"personal": True}},
+                       {"excluded_roles": ["mac-build"]}):
+            for source in ("cli", "env"):
+                with self.subTest(marker=marker, source=source):
+                    registry.write_text(json.dumps({"machines": {
+                        "personal-mini": dict({"roles": ["mac-build"]}, **marker)}}))
+                    self.env["CMUX_PUSH_HOST"] = "user@personal-mini:fun/cmux"
+                    hosts = ("user@personal-mini:fun/cmux",) if source == "cli" else ()
+                    done = self.push("--which-host", "topic", hosts=hosts)
+                    self.assertEqual(done.returncode, 2, done.stderr)
+                    self.assertFalse((self.root / "ssh.log").exists())
+
+    def test_missing_malformed_and_unknown_registry_hosts_fail_before_ssh(self):
+        registry = Path(self.env["CMUX_FLEET_REGISTRY"])
+        for contents in (None, "{", "{}", '{"machines": {}}'):
+            with self.subTest(contents=contents):
+                if contents is None:
+                    registry.unlink()
+                else:
+                    registry.write_text(contents)
+                done = self.push("--which-host", "topic")
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertFalse((self.root / "ssh.log").exists())
+
+    def test_without_leo_workspace_the_repo_registry_picks_cmux_lawrence_2(self):
+        # 2026-11-16: no Mac had ~/Projects/leo-workspace/machines/fleet-registry.json, so every push stopped here
+        # and agents hand-pushed through cmux-lawrence-2 (one printed a gh token doing so). With no registry named
+        # and none at the default path, the reviewed one in the repo (scripts/cmux-next/push-hosts.json) applies.
+        home = self.root / "home-without-leo-workspace"
+        home.mkdir()
+        self.env.pop("CMUX_FLEET_REGISTRY", None)
+        self.env.pop("CMUX_PUSH_HOST", None)
+        self.env["HOME"] = str(home)
+        self.env["FAKE_SSH_HOSTS_OK"] = "cmux-lawrence-2"
+        done = self.push("--which-host", "topic", hosts=())
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "cmux-lawrence-2 fun/cmux")
+        self.assertIn("scripts/cmux-next/push-hosts.json", done.stderr)
+        self.assertEqual((self.root / "ssh.log").read_text(), "cmux-lawrence-2\n")
+
+    def test_the_repo_registry_admits_no_host_it_does_not_list(self):
+        home = self.root / "home-without-leo-workspace"
+        home.mkdir()
+        self.env.pop("CMUX_FLEET_REGISTRY", None)
+        self.env["HOME"] = str(home)
+        done = self.push("--which-host", "topic", hosts=("cmux16",))
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("skipping cmux16: not an eligible mac-build host", done.stderr)
+        self.assertFalse((self.root / "ssh.log").exists())
+
+    def test_the_repo_registry_has_only_fleet_builders(self):
+        machines = json.loads((SCRIPT.parent / "push-hosts.json").read_text())["machines"]
+        self.assertEqual(list(machines), ["cmux-lawrence-2"])
+        for machine in machines.values():
+            self.assertIn("mac-build", machine["roles"])
+            self.assertFalse(machine.get("personal"))
+
+    def test_the_token_reaches_no_ssh_argument_and_no_output(self):
+        sha = self.commit(self.work, "t.txt", "t\n", "token path")
+        done = self.push("topic")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.remote_head("topic"), sha)
+        argv = (self.root / "ssh-argv.log").read_text()
+        self.assertIn("run.sh", argv)
+        self.assertNotIn(TOKEN, argv, "the token goes over SSH stdin, never on a command line")
+
+    def test_empty_default_role_directs_gates_to_managed_ci(self):
+        Path(self.env["CMUX_FLEET_REGISTRY"]).write_text(json.dumps({"machines": {
+            "personal-mini": {"roles": ["mac-build"], "personal": True}}}))
+        self.env.pop("CMUX_PUSH_HOST", None)
+        done = self.push("--which-host", "topic", hosts=())
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("next: cmux-ci test -- python3 scripts/cmux-next/prepush-gate.py", done.stderr)
+        self.assertIn("cmux-ci lease take HOST --for 1h", done.stderr)
+        self.assertFalse((self.root / "ssh.log").exists())
+
+    def test_user_at_host_preserves_registry_identity(self):
+        done = self.push("--which-host", "topic", hosts=("user@fake-host:fun/cmux",))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "user@fake-host fun/cmux")
 
 
 if __name__ == "__main__":
