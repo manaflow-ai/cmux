@@ -317,8 +317,10 @@ public struct WorkspaceFirstFrame {
     /// Runs `body` once every unpainted page painted and every drawn one drew at the size it shows at.
     ///
     /// Lays `root` out now only for chats that drew before: they note their new size as they lay out. Pages that never
-    /// painted paint after the window's own layout pass, so a workspace replaced before that pass (the next of fifty
-    /// quick Cmd-Ns hands its hold off) is never laid out, and a burst of presses costs what one does (cmux#44329).
+    /// painted paint after the window's own layout pass (`WindowRootView.show` sized the workspace, which marks it), so
+    /// a workspace replaced before that pass (the next of fifty quick Cmd-Ns hands its hold off) is never laid out, and
+    /// a burst of presses costs what one does (cmux#44329). It is not marked again here: a hidden view keeps the mark,
+    /// and every later pass of the window walked each hidden workspace so marked.
     public func whenReady(_ body: @escaping () -> Void) {
         var left = 2
         let one = {
@@ -328,7 +330,7 @@ public struct WorkspaceFirstFrame {
         let drawn = DrawnPages(in: root)
         UnpaintedPages(in: root).whenPainted(one)
         drawn.whenRedrawn(one)
-        if drawn.pages.isEmpty { root.needsLayout = true } else { root.layoutSubtreeIfNeeded() }
+        if !drawn.pages.isEmpty { root.layoutSubtreeIfNeeded() }
     }
 }
 
