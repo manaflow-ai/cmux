@@ -249,11 +249,9 @@ fn write_table(
     file.seek(SeekFrom::Start(0))?;
     file.write_all(&header)?;
     file.sync_all()?;
-    Ok(
-        (TABLE_HEADER_BYTES
-            + directory.len()
-            + packed.div_ceil(ENTRIES_PER_PAGE) * ENTRY_PAGE_BYTES) as u64,
-    )
+    Ok((TABLE_HEADER_BYTES
+        + directory.len()
+        + packed.len().div_ceil(ENTRIES_PER_PAGE) * ENTRY_PAGE_BYTES) as u64)
 }
 
 #[derive(Debug)]

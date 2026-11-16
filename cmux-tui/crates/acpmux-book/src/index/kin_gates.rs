@@ -331,8 +331,8 @@ fn kin_table_write_gate() {
         assert_eq!(entries, 10_999);
         assert!(bytes <= entries * 64 + 3 * 4096);
     }
-    let small_p95 = gate_rounds::best_p95(&small);
-    let god_p95 = gate_rounds::best_p95(&god);
+    let small_p95 = best_p95(&small);
+    let god_p95 = best_p95(&god);
     gate_rounds::report("v2.pr05i.table_write", &[("small", &small), ("god", &god)]);
     emit("v2.pr05i.table_write", small_p95, god_p95, None, "ns");
     assert!(god_p95 as f64 <= small_p95 as f64 * 1.5);
