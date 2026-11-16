@@ -34,7 +34,9 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Instant;
 
+#[path = "media_queue.rs"]
 mod media_queue;
+#[path = "socket.rs"]
 mod socket;
 
 use media_queue::{MediaFrame, MediaQueue};
