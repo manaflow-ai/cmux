@@ -467,3 +467,17 @@ fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
     e.on_datagram(&feedback(&Feedback::default()), false, 660_000);
     assert!(e.stats().target_bps >= start, "two percent loss stays below the congestion threshold");
 }
+
+#[test]
+fn a_frame_the_encoder_dropped_is_encoded_again_with_no_new_damage() {
+    // A dropped frame's change has to reach the viewer even when nothing else moves on
+    // screen; before, it stayed unsent until other damage came, a stuck region.
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    let out = e.encoded(&first, None, 0).expect("ok");
+    assert!(out.datagrams.is_empty());
+    let due = e.next_deadline_us().expect("the dropped frame waits for its slot");
+    let again = e.poll(due.max(20_000)).expect("the dropped frame's damage is encoded again");
+    assert_eq!(again.damage, first.damage, "the same change, with no new damage");
+    assert!(again.force_idr, "the dropped keyframe is still a keyframe");
+}
