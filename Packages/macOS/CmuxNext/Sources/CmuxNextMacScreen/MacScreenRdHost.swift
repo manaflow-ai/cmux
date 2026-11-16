@@ -163,7 +163,7 @@ nonisolated final class MacScreenRdHost: Sendable {
                                    scope: session.viewOnly ? "view" : "control", stun: session.servers.stun,
                                    turn: session.servers.turn,
                                    display: offer.display.map(String.init) ?? "main", maxFps: offer.maxFps.map { min($0, 120) },
-                                   maxWidth: offer.maxWidth))
+                                   maxWidth: offer.maxWidth, name: session.name, grantee: MacScreenShareHost.grantHolderName))
                 for candidate in offer.candidates { process.send(Later(candidate: candidate)) }
             case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
                 process.send(Later(candidate: candidate.candidate))
@@ -192,6 +192,10 @@ nonisolated final class MacScreenRdHost: Sendable {
             case .waiting, .roomLost: break
             }
         }
+        // The viewer reads why this Mac cannot share (cmux-rd share-status) instead of a black picture.
+        let probe = MacScreenShareStatusProbe(host: session.name, grantee: MacScreenShareHost.grantHolderName)
+        let scope = session.viewOnly ? "view" : "control"
+        host.shareStatus = { frame in await probe.read(scope: scope, frame: frame) }
         webRTC.withLock { $0 = host }
         logger.info("serving a WebRTC viewer")
         try await host.serve(signaling)
@@ -220,9 +224,12 @@ nonisolated final class MacScreenRdHost: Sendable {
         var display: String
         var maxFps: Int?
         var maxWidth: Int?
+        /// This Mac's name and the app its grants are listed under, for the reason a viewer reads.
+        var name: String
+        var grantee: String
 
         enum CodingKeys: String, CodingKey {
-            case session, viewer, scope, stun, turn, display
+            case session, viewer, scope, stun, turn, display, name, grantee
             case peerKey = "peer_key"
             case maxFps = "max_fps"
             case maxWidth = "max_width"

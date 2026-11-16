@@ -219,6 +219,10 @@ public struct ScreenHostMessage: Codable, Sendable {
     public var agent: Pointer?
     /// For `paste-image`: the image the answer is about.
     public var id: String?
+    /// For `status`: the host's share state (`cmux-rd share-status`: `ready`,
+    /// `needs_screen_recording`, `needs_accessibility`, `capture_failed`); the
+    /// sentence for the person is in ``s``.
+    public var state: String?
 
     /// A pointer position as a fraction of the streamed display.
     public struct Pointer: Codable, Sendable, Equatable {
@@ -244,6 +248,39 @@ public struct ScreenHostMessage: Codable, Sendable {
     /// the picture (Petal's telepointers: cursors as metadata, never pixels).
     /// An older viewer never says it and keeps the cursor in the picture.
     public static let telepointersCapability = "telepointers"
+    /// `t` of the host's share status: why it cannot show (or control) its
+    /// screen, so a viewer shows the reason instead of a black picture. An
+    /// older viewer ignores it.
+    public static let statusType = "status"
+
+    /// A `status` message: the state word and the sentence the viewer shows.
+    public static func status(state: String, message: String) -> ScreenHostMessage {
+        ScreenHostMessage(t: statusType, s: message, state: state)
+    }
+
+    /// The share status this message carries, when it is a `status`.
+    public var shareStatus: ScreenShareStatus? {
+        guard t == Self.statusType, let state else { return nil }
+        return ScreenShareStatus(state: state, message: s ?? "")
+    }
+}
+
+/// What a host says about sharing its screen (the `cmux-rd share-status`
+/// contract, the same for every host OS): the state word and the sentence the
+/// person reads, naming the host and the fix.
+public struct ScreenShareStatus: Codable, Sendable, Equatable {
+    public var state: String
+    public var message: String
+
+    public init(state: String, message: String) {
+        self.state = state
+        self.message = message
+    }
+
+    /// The screen can be seen (`ready` or `needs_accessibility`).
+    public var canView: Bool { state == "ready" || state == "needs_accessibility" }
+    /// The host has no Screen Recording grant (or the person declined the portal).
+    public var needsScreenRecording: Bool { state == "needs_screen_recording" }
 }
 
 /// Where a screen stream's pictures come from and where its input goes.
@@ -342,6 +379,10 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var frameRate: Int?
         /// Pictures the source delivered since the last encoder log line (idle refreshes not counted).
         var captured = 0
+        /// Pictures the source delivered this session (the no-picture watchdog reads it).
+        var capturedTotal = 0
+        /// The share status this session sent the viewer last (one message per change).
+        var sentStatus: ScreenShareStatus?
         /// The size the viewer needs (``ViewerDemand``); full size until it reports one.
         var demand = ViewerDemand()
         /// The data channel opened: from here on only WebRTC ends the session.
@@ -392,6 +433,19 @@ public final class ScreenStreamHost: @unchecked Sendable {
         set { lock.withLock { agentPointerSource = newValue } }
     }
     private var agentPointerSource: (@Sendable () -> CGPoint?)?
+
+    /// This host's share status (`cmux-rd share-status`, a fresh process each call): with `frame`,
+    /// it also looks at one picture. Read as a viewer's channel opens (beside the capture start,
+    /// never before it) and again when no picture came in ``noPictureTimeout``; a status that
+    /// cannot show the screen goes to the viewer as a `status` message and ends the capture, so
+    /// the viewer reads the reason instead of a black picture. Nil: no check (the CLI host).
+    public var shareStatus: (@Sendable (_ frame: Bool) async -> ScreenShareStatus?)? {
+        get { lock.withLock { shareStatusSource } }
+        set { lock.withLock { shareStatusSource = newValue } }
+    }
+    private var shareStatusSource: (@Sendable (_ frame: Bool) async -> ScreenShareStatus?)?
+    /// How long a session may go without a captured picture before the host looks again.
+    public static let noPictureTimeout: Duration = .seconds(2)
 
     /// Called from the host's tasks with each `Event` (any thread).
     public var onEvent: (@Sendable (Event) -> Void)? {
@@ -536,7 +590,10 @@ public final class ScreenStreamHost: @unchecked Sendable {
         session.add(Task { [weak self] in
             do {
                 try await session.backend.start(frame: { [weak self] buffer, crop in
-                    session.lock.withLock { session.captured += 1 }
+                    session.lock.withLock {
+                        session.captured += 1
+                        session.capturedTotal += 1
+                    }
                     self?.push(buffer, crop: crop, session: session)
                 }, displays: { [weak self] sizes, current in
                     session.lock.withLock {
@@ -549,9 +606,29 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 })
             } catch {
                 self?.log("screen source failed: \(error)")
+                // The viewer reads why (the host's status) before the session ends.
+                if let self, let status = await shareStatus?(false), !status.canView {
+                    send(status, session: session)
+                    try? await Task.sleep(for: .milliseconds(300)) // data-channel flush before the end
+                }
                 self?.emit(.sourceFailed("\(error)"))
             }
         })
+        // Beside the capture start (never before it: the first picture waits on nothing): this
+        // host's status, then, when no picture came in time, one look at a frame.
+        if let check = shareStatus {
+            session.add(Task { [weak self] in
+                if let status = await check(true) {
+                    guard let self, !Task.isCancelled else { return }
+                    if await apply(status, session: session) { return }
+                }
+                try? await Task.sleep(for: Self.noPictureTimeout)
+                guard !Task.isCancelled, session.lock.withLock({ session.capturedTotal == 0 }) else { return }
+                self?.log("no picture in \(Self.noPictureTimeout); reading the share status with a frame")
+                guard let status = await check(true), let self, !Task.isCancelled else { return }
+                _ = await apply(status, session: session)
+            })
+        }
         // Every 3 s: what the encoder is doing (codec, hardware, fps, limits),
         // how many pictures the source delivered, and the rate the stream is set to.
         session.add(Task { [weak self] in
@@ -583,6 +660,30 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 if let stale { push(stale.0, crop: stale.1, session: session) }
             }
         })
+    }
+
+    /// Tells the viewer `status` (once per change). A status that cannot show the screen also
+    /// stops the capture and reports the source failed; returns whether it did.
+    private func apply(_ status: ScreenShareStatus, session: Session) async -> Bool {
+        if status.state != "ready" { send(status, session: session) }
+        guard !status.canView else { return false }
+        log("share status \(status.state): \(status.message)")
+        session.backend.stop()
+        // No idle refresh of a black picture after this.
+        session.lock.withLock { session.last = nil }
+        // The status message leaves on the data channel before the session's end closes it.
+        try? await Task.sleep(for: .milliseconds(300)) // data-channel flush before the end
+        emit(.sourceFailed(status.message))
+        return true
+    }
+
+    private func send(_ status: ScreenShareStatus, session: Session) {
+        let changed = session.lock.withLock { () -> Bool in
+            defer { session.sentStatus = status }
+            return session.sentStatus != status
+        }
+        guard changed, let data = try? JSONEncoder().encode(ScreenHostMessage.status(state: status.state, message: status.message)) else { return }
+        _ = session.link.sendText(String(decoding: data, as: UTF8.self))
     }
 
     private func push(_ buffer: CVPixelBuffer, crop: CGRect, session: Session) {
@@ -973,6 +1074,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     public var onTelepointers: (@Sendable (ScreenHostMessage) -> Void)?
     /// The host's answer to ``pasteImage(_:type:id:)`` and the image id it names; any thread.
     public var onPasteImage: (@Sendable (ScreenHostMessage.PasteImageOutcome, String?) -> Void)?
+    /// The host's share status (a `status` message): why it cannot show or control its screen.
+    public var onShareStatus: (@Sendable (ScreenShareStatus) -> Void)?
     public var onState: (@Sendable (String?) -> Void)?
     public var onPath: (@Sendable (String) -> Void)?
     /// A STUN or TURN server gave no candidate (`icecandidateerror`), for saying why a relay path failed.
@@ -1046,6 +1149,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                         self?.onDisplays?(message)
                     } else if message.t == ScreenHostMessage.telepointersType {
                         self?.onTelepointers?(message)
+                    } else if let status = message.shareStatus {
+                        self?.onShareStatus?(status)
                     } else if let outcome = message.pasteImageOutcome {
                         self?.onPasteImage?(outcome, message.id)
                     }
