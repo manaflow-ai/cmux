@@ -13,7 +13,9 @@ struct SidebarCustomizationEntryPointTests {
         SettingsCustomizationActions().bind(into: registry, effect: { opens.append(($0, $1)); return .done },
                                             refuse: { Issue.record("unexpected refusal: \($0)") })
         let menu = registry.makeContextMenu(for: .sidebarBackground)
-        let item = try #require(menu.items.first { ActionRegistry.menuRun(of: $0)?.id == "sidebar.customize" })
+        // Customize Sidebar… sits in the background menu's Options submenu.
+        let found = try #require(ActionRegistry.locate("sidebar.customize", in: menu))
+        let item = try #require(found.menu.item(at: found.index))
         #expect(item.isEnabled)
         _ = (item.target as? NSObject)?.perform(item.action, with: item)
         #expect(opens.count == 1)
