@@ -333,6 +333,9 @@ extension AuthCoordinator {
     }
 
     func validateCachedSession(generation: UInt64, storeWriteHighWater: UInt64) async {
+        // A token read that fails during validation (a keychain refusal) is never "no refresh token survives":
+        // every clear below first checks that no read failed since here.
+        let readBaseline = await tokenReadBaseline()
         do {
             let client = self.client
             let user = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
@@ -357,6 +360,11 @@ extension AuthCoordinator {
                 await client.refreshToken()
             }
             guard generation == sessionGeneration else { return }
+            if survivingRefreshToken == nil, await tokenReadFailed(since: readBaseline) {
+                authLog.error("Cached session validation could not read the stored tokens; preserving cached session")
+                preserveCachedSessionAfterValidationFailure()
+                return
+            }
             if survivingRefreshToken != nil {
                 authLog.error(
                     "Cached session validation returned no current user but a refresh token survives; preserving cached session"
@@ -410,6 +418,11 @@ extension AuthCoordinator {
                 return
             }
             guard generation == sessionGeneration else { return }
+            if survivingRefreshToken == nil, await tokenReadFailed(since: readBaseline) {
+                authLog.error("Session validation could not read the stored tokens; preserving cached session")
+                preserveCachedSessionAfterValidationFailure()
+                return
+            }
             if survivingRefreshToken == nil {
                 authLog.error(
                     "Session validation failed and no refresh token survives; routing to login error=\(error.localizedDescription, privacy: .private)"

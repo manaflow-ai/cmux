@@ -342,6 +342,8 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         )
         if status == errSecItemNotFound { return true }
         guard status == errSecSuccess else {
+            // The legacy item exists; a refused update withholds it, which is not "no session".
+            noteReadStatus(status)
             log.log("keychain legacy ACCESSIBILITY UPDATE status=\(status) account=\(account)")
             return false
         }
