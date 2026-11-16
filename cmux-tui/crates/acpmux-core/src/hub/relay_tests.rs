@@ -617,4 +617,10 @@ async fn a_relay_sending_under_a_shorter_sid_still_fits_the_askers_budget() {
         after = page.after_key;
     }
     assert_eq!(walked.len(), 100);
+    // The origin's page leaves room for the asker's sid, whatever sid the relay sends under.
+    let asked = relay.asked();
+    assert!(!asked.is_empty());
+    for (_, page) in asked {
+        assert_eq!(page.max_bytes as usize, 12_000 - sid.len());
+    }
 }
