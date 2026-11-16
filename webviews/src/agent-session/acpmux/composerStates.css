@@ -66,7 +66,8 @@
   --agent-motion-send-fade: 0ms !important;
 }
 
-.acpmux-shell {
+.acpmux-shell,
+.ui-positioner:has(> .nt-popover) {
   /* The composer's surface (Leo 10-14), New Tab's box and the chat composer alike, derived from the
      theme's opaque page color: in a light theme the page lifted toward white, so the composer is
      lighter than the page (near white, as Aside's and ChatGPT's are); in a dark theme one small step
@@ -115,7 +116,8 @@
    through the window's tint (the New Tab box's fill; the chat card is clearer still, below), and the
    light rim above. The prompt is primary text, which the window's tint floor already keeps at 4.5:1
    over the art. Reduce Transparency keeps it solid. */
-:root[data-cmux-see-through] .acpmux-shell {
+:root[data-cmux-see-through] .acpmux-shell,
+:root[data-cmux-see-through] :where(.ui-positioner:has(> .nt-popover)) {
   --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) 60%, transparent);
 }
 /* All cards in the bottom stack use the input's material. Extra text washes on individual
@@ -191,21 +193,27 @@
    tint (50%), under the same blur.
    Lens and Spectrum keep the liquid glass's own tint and frost; Reduce Transparency the solid
    surface (glass.css). The queued prompts keep the stack's tokens above. */
-:root:not([data-cmux-see-through]) .nt-composer > .nt-box {
+:root:not([data-cmux-see-through]) :is(.nt-composer > .nt-composer-surface, .nt-popover.nt-composer-surface).ui-glass {
   --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
   --glass-backdrop: var(--ds-glass-popover-blur);
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
-  .nt-composer > .nt-box {
+  .nt-composer-surface.ui-glass {
   --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
   --glass-backdrop: var(--ds-glass-popover-blur);
 }
+:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]) .nt-composer-surface.ui-glass {
+  --glass-tint: inherit;
+  --glass-backdrop: inherit;
+}
 .acpmux-composer,
-.nt-composer {
+.nt-composer,
+.nt-composer-surface {
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--acpmux-composer-solid);
 }
-:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .acpmux-shell {
+:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency])
+  :is(.acpmux-shell, .ui-positioner:has(> .nt-popover)) {
   --acpmux-composer-rim:
     inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-specular),
     inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-shade),
@@ -301,7 +309,7 @@
    shadow, while both composer cards use the shared glass material on every window. */
 @media not (prefers-reduced-transparency: reduce) {
   :root:not([data-reduce-transparency]) :is(.acpmux-composer-box, .acpmux-composer-box:has(:focus-visible)),
-  :root[data-cmux-see-through]:not([data-reduce-transparency]) .nt-box {
+  :root[data-cmux-see-through]:not([data-reduce-transparency]) .nt-composer-surface {
     box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
   }
   /* Under a queue the ring goes on the card's ::before layer (composerLocation.css), so the card
@@ -313,7 +321,7 @@
   }
 }
 
-:root[data-theme="dark"] .acpmux-shell {
+:root[data-theme="dark"] :is(.acpmux-shell, .ui-positioner:has(> .nt-popover)) {
   --acpmux-composer-shadow: 0 0 transparent;
 }
 /* The input box in the shared glass material (glass.css, "GLASS MATERIAL"; Leo 2026-11-05 on the
@@ -648,7 +656,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    agent-pane.composer-rim). */
 .acpmux-composer,
 .nt-composer,
-.nt-box {
+.nt-composer-surface {
   --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 22%, var(--agent-page-bg, var(--acpmux-base)));
 }
 /* Under Increase Contrast the resting edge is already the full text color, so 28% would dim it on
@@ -656,25 +664,26 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 @media (prefers-contrast: more) {
   .acpmux-composer,
   .nt-composer,
-  .nt-box {
+  .nt-composer-surface {
     --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
   }
 }
-:root[data-page-inactive] :is(.acpmux-composer, .nt-composer, .nt-box) {
+:root[data-page-inactive] :is(.acpmux-composer, .nt-composer, .nt-composer-surface) {
   --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
 }
-:root[data-borders="none"] :is(.acpmux-composer, .nt-composer, .nt-box) {
+:root[data-borders="none"] :is(.acpmux-composer, .nt-composer, .nt-composer-surface) {
   --acpmux-composer-edge-focus: transparent;
 }
 .acpmux-composer-box:has(:focus-visible),
-.nt-box:has(:focus-visible) {
+.nt-box:has(:focus-visible),
+body:has(.nt-box :focus-visible) .nt-popover {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
 /* The New Tab box is shared glass (#24593), whose own rim ignores --acpmux-card-ring. Its edge is
    the card ring, as the chat card's is, so focus lifts it a step, Increase Contrast widens it and
    appearance.borders none clears it. Over art or a see-through window the rule below adds the
    glass's light rim. */
-.nt-box.ui-glass {
+.nt-composer-surface.ui-glass {
   box-shadow: var(--acpmux-card-ring), var(--glass-elevation);
 }
 /* Under a top strip variant the strip draws its own rim in --acpmux-strip-edge (composerLocation.css);
@@ -740,7 +749,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   caret-color: transparent;
 }
 @media (prefers-contrast: more) {
-  :root[data-page-inactive] :is(.acpmux-composer-box:has(:focus-visible), .nt-box:is(:focus-visible, :has(:focus-visible))) {
+  :root[data-page-inactive] .acpmux-composer-box:has(:focus-visible),
+  :root[data-page-inactive] .nt-box:is(:focus-visible, :has(:focus-visible)),
+  :root[data-page-inactive] body:has(.nt-box:focus-visible, .nt-box :focus-visible) .nt-popover {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
   }
 }
