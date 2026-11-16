@@ -254,7 +254,7 @@ jobs:
 
       # Also when a check failed after the attach (the app output is then unset).
       # LaunchServices keeps a record of every app bundle the job copied or ran after RUNNER_TEMP
-      # is emptied, so a later `open -a "cmux NIGHTLY"` or bundle-id lookup on this Mac could pick
+      # is emptied, so a later lookup of the app by name or bundle id on this Mac could pick
       # the dead copy: "The application "cmux NIGHTLY" can't be opened." (cmux12s, 2026-11-16).
       # The job takes back its own records, by path, nested apps included, before the copies go.
       - name: Detach the DMG and unregister the app copies
