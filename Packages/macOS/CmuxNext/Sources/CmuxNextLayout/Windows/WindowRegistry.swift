@@ -273,6 +273,23 @@ public struct WindowRegistry: Equatable, Sendable {
         return changes
     }
 
+    /// Opens window `id` as a view only: it lists `guests`, workspaces other open normal windows own, and owns none
+    /// (Open Space in New Window on a space whose workspaces another window shows). Nothing moves. With no such
+    /// workspace, or for a known id, nothing opens.
+    public mutating func openView(id: String, guests: [String]) {
+        guard window(id) == nil else { return }
+        var seen = Set<String>()
+        let shared = guests.filter { workspace in
+            guard let owner = owners[workspace], !isIncognito(owner), self.window(owner)?.isOpen == true else { return false }
+            return seen.insert(workspace).inserted
+        }
+        guard !shared.isEmpty else { return }
+        var view = Window(id: id, workspaceIDs: shared)
+        view.guests = seen
+        windows.append(view)
+        recency.insert(id, at: 0)
+    }
+
     /// Makes window `id` list exactly `guests` as its guests (the workspaces of its current space that another open
     /// window owns), keeping the ones it owns. Ids `id` owns, that no other window owns, or of a closed or unknown
     /// window are skipped. Only lists change, never which windows exist: a window that owns nothing keeps the guests it

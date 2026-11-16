@@ -20,7 +20,8 @@ extension WindowManager {
     /// space to be shared in.
     func sharedWorkspaces(in profile: ProfileID, for id: String, registry: WindowRegistry) -> [String] {
         let machines = services.machines
-        guard WindowProfiles.membership(machines) != nil, sharesSpaces(id, in: registry) else { return [] }
+        // A window not opened yet (`openView`) asks for what it would list.
+        guard WindowProfiles.membership(machines) != nil, registry.window(id) == nil || sharesSpaces(id, in: registry) else { return [] }
         var shared: [String] = []
         for other in registry.windows where other.id != id && sharesSpaces(other.id, in: registry) {
             for workspace in WindowProfiles.visible(other.ownedIDs, profile: profile, machines: machines)
@@ -39,6 +40,21 @@ extension WindowManager {
             guard !guests.isEmpty || !window.guests.isEmpty else { continue }
             registry.setGuests(guests, of: window.id)
         }
+    }
+
+    /// Opens new window `id` as one more view of space `profile`, whose workspaces other windows own (Open Space in New
+    /// Window): it lists them all and owns none. Nil when the space has no such workspace (the caller makes one).
+    @discardableResult
+    func openView(id: String, of profile: ProfileID) -> WindowController? {
+        let shared = sharedWorkspaces(in: profile, for: id, registry: registry.value)
+        guard !shared.isEmpty else { return nil }
+        let state = state(for: id)
+        if state.profileID != profile { state.enterProfile(profile) }
+        transition(select: [id: shared], gesture: true) { registry in
+            registry.openView(id: id, guests: shared)
+            return WindowRegistry.Changes()
+        }
+        return controller(for: id)
     }
 
     /// A window entered a space (`WindowState.onProfileChange`: a space switch, a selection of another space's
