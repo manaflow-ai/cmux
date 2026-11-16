@@ -174,8 +174,6 @@ struct PageFactory {
             guard let services, let surface = JoinConsentSurface(rawValue: surface) else { return nil }
             return await services.joinConsent.set(surface, on: on)
         }
-        provider.setRemoteControl = { [weak services] id, on in await services?.remoteControl.set(id: id, on: on) }
-        provider.trustGrantor = { [weak services] id, trusted in await services?.joinConsent.trustGrantor(id, trusted: trusted) }
         provider.personBacksGesture = { [weak services] uptime in services?.personInput.backs(uptime) ?? false }
         // Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs.
         provider.ownerConfirm = LocalDeviceOwnerAuthenticator()
@@ -251,7 +249,9 @@ struct PageFactory {
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         let cli: @MainActor () async -> URL? = { [bundled = services.bundledCLI] in await bundled.resolve() }
         let integrations = SettingsAgentIntegrations(cli: cli)
-        provider.parts = ["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli)]
+        let consent = RemoteControlConsentPage(actions: .over(services.remoteControl, join: services.joinConsent), gate: services.wideningGate, backs: provider.personBacksGesture,
+                                               confirm: { await LocalDeviceOwnerAuthenticator().authenticate(reason: $0) }, refusal: SettingsPageProvider.personOnly) // Control between my devices' ops
+        provider.parts = consent.parts.merging(["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli)]) { $1 }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }

@@ -78,6 +78,34 @@ public nonisolated struct JoinConsentRecord: Equatable, Sendable {
     public var grantorAsk: JoinConsentGrantor?
     /// The Macs whose keys this machine trusts to turn its Control and Screen sharing on and off (`grantors`).
     public var grantors: [JoinConsentGrantor]
+    /// The account this machine is enrolled under (`account`), which an account-wide grant names.
+    public var account: String?
+    /// The newest account-wide grant this machine took (`accountPolicy`); nil: none.
+    public var accountPolicy: AccountPolicy?
+    /// acpmux reports `accountPolicy` at all, null included: it takes account-wide grants.
+    public var reportsAccountPolicy = false
+
+    /// What an account-wide grant turns on for every machine of the account (contract v2 A).
+    public struct AccountPolicy: Equatable, Sendable {
+        public var grantor: String
+        public var issuedAt: Double
+        public var control: Bool
+        public var screen: Bool
+
+        init?(_ json: Any?) {
+            guard let json = json as? [String: Any], let grantor = json["grantor"] as? String else { return nil }
+            let on = { (value: Any?) in value as? Bool == true || value as? String == "on" }
+            self.init(grantor: grantor, issuedAt: (json["issuedAt"] as? NSNumber)?.doubleValue ?? 0, control: on(json["control"]),
+                      screen: on(json["screen"]))
+        }
+
+        public init(grantor: String, issuedAt: Double, control: Bool, screen: Bool) {
+            self.grantor = grantor
+            self.issuedAt = issuedAt
+            self.control = control
+            self.screen = screen
+        }
+    }
 
     public init(screen: Bool = false, control: Bool = false, lastRefusal: JoinConsentSurface? = nil, consentRequired: Bool? = nil,
                 signedInMachines: Bool = false, lastRefusalFrom: String? = nil, signedInMachinesAskOpen: Bool = false,
@@ -104,12 +132,16 @@ public nonisolated struct JoinConsentRecord: Equatable, Sendable {
         let askedAt = (refusal?["at"] as? NSNumber)?.doubleValue
         let answeredAt = (consent["signedInMachinesAnsweredAt"] as? String).flatMap(Double.init)
         let open = surface == .signedInMachines && askedAt.map { asked in answeredAt.map { $0 < asked } ?? true } == true
-        return JoinConsentRecord(screen: consent["screen"] as? String == "granted", control: consent["control"] as? String == "granted",
-                                 lastRefusal: surface, consentRequired: result["consentRequired"] as? Bool,
-                                 signedInMachines: consent["signedInMachines"] as? String == "granted", lastRefusalFrom: from,
-                                 signedInMachinesAskOpen: open, lastRefusalAt: surface == .signedInMachines ? askedAt : nil,
-                                 grantorAsk: (result["grantorAsk"] as? [String: Any]).flatMap { JoinConsentGrantor($0) },
-                                 grantors: Array((result["grantors"] as? [[String: Any]] ?? []).compactMap { JoinConsentGrantor($0) }.prefix(16)))
+        var record = JoinConsentRecord(screen: consent["screen"] as? String == "granted", control: consent["control"] as? String == "granted",
+                                       lastRefusal: surface, consentRequired: result["consentRequired"] as? Bool,
+                                       signedInMachines: consent["signedInMachines"] as? String == "granted", lastRefusalFrom: from,
+                                       signedInMachinesAskOpen: open, lastRefusalAt: surface == .signedInMachines ? askedAt : nil,
+                                       grantorAsk: (result["grantorAsk"] as? [String: Any]).flatMap { JoinConsentGrantor($0) },
+                                       grantors: Array((result["grantors"] as? [[String: Any]] ?? []).compactMap { JoinConsentGrantor($0) }.prefix(16)))
+        record.account = (result["account"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        record.accountPolicy = AccountPolicy(result["accountPolicy"])
+        record.reportsAccountPolicy = result.keys.contains("accountPolicy")
+        return record
     }
 
     public func allows(_ surface: JoinConsentSurface) -> Bool {

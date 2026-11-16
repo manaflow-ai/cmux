@@ -15328,268 +15328,6 @@
         }
       }
     },
-    "devices.control.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Control from this Mac"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التحكم من هذا الـ Mac"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Upravljanje s ovog Maca"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Styring fra denne Mac"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Steuerung von diesem Mac"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Control desde este Mac"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Contrôle depuis ce Mac"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Controllo da questo Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac から操作"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការគ្រប់គ្រងពី Mac នេះ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac에서 제어"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Styring fra denne Macen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sterowanie z tego Maca"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Controle a partir deste Mac"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Управление с этого Mac"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การควบคุมจาก Mac เครื่องนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu Mac'ten kontrol"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Керування з цього Mac"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Điều khiển từ máy Mac này"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从此 Mac 控制"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "從此 Mac 控制"
-          }
-        }
-      }
-    },
-    "devices.control.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Each switch turns Control and Screen sharing on or off on one of your machines. Each machine asks once, on itself, before it takes this Mac's switches: allow it there only if the words it shows match this Mac's words."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "كل مفتاح يشغّل التحكم ومشاركة الشاشة أو يوقفهما على أحد أجهزتك. يسأل كل جهاز مرة واحدة، على الجهاز نفسه، قبل أن يقبل مفاتيح هذا الـ Mac: اسمح بذلك هناك فقط إذا تطابقت الكلمات التي يعرضها مع كلمات هذا الـ Mac."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Svaki prekidač uključuje ili isključuje upravljanje i dijeljenje ekrana na jednoj od vaših mašina. Svaka mašina pita jednom, na sebi, prije nego prihvati prekidače ovog Maca: dozvolite tamo samo ako se riječi koje prikazuje poklapaju s riječima ovog Maca."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hver kontakt slår styring og skærmdeling til eller fra på en af dine maskiner. Hver maskine spørger én gang, på sig selv, før den tager imod denne Macs kontakter: Tillad det der kun, hvis de ord, den viser, matcher denne Macs ord."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jeder Schalter schaltet Steuerung und Bildschirmfreigabe auf einem deiner Geräte ein oder aus. Jedes Gerät fragt einmal, auf sich selbst, bevor es die Schalter dieses Macs annimmt: Erlaube es dort nur, wenn die angezeigten Wörter mit den Wörtern dieses Macs übereinstimmen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cada interruptor activa o desactiva el control y compartir pantalla en una de tus máquinas. Cada máquina pregunta una vez, en sí misma, antes de aceptar los interruptores de este Mac: permítelo allí solo si las palabras que muestra coinciden con las de este Mac."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chaque interrupteur active ou désactive le contrôle et le partage d’écran sur l’une de vos machines. Chaque machine demande une fois, sur elle-même, avant d’accepter les interrupteurs de ce Mac : autorisez-le là-bas seulement si les mots affichés correspondent à ceux de ce Mac."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ogni interruttore attiva o disattiva controllo e condivisione schermo su una delle tue macchine. Ogni macchina chiede una volta, su se stessa, prima di accettare gli interruttori di questo Mac: consenti lì solo se le parole mostrate corrispondono a quelle di questo Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "各スイッチで、あなたのマシンの操作と画面共有をオン・オフします。各マシンはこの Mac のスイッチを受け入れる前に、そのマシン上で一度だけ確認します。表示される単語がこの Mac の単語と一致する場合にのみ、そこで許可してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កុងតាក់នីមួយៗបើក ឬបិទការគ្រប់គ្រង និងការចែករំលែកអេក្រង់លើម៉ាស៊ីនមួយរបស់អ្នក។ ម៉ាស៊ីននីមួយៗសួរម្តង នៅលើខ្លួនវា មុននឹងទទួលកុងតាក់របស់ Mac នេះ៖ អនុញ្ញាតនៅទីនោះតែប្រសិនបើពាក្យដែលវាបង្ហាញត្រូវនឹងពាក្យរបស់ Mac នេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "각 스위치는 내 기기 중 하나의 제어와 화면 공유를 켜거나 끕니다. 각 기기는 이 Mac의 스위치를 받아들이기 전에 해당 기기에서 한 번 묻습니다. 표시된 단어가 이 Mac의 단어와 일치할 때만 거기서 허용하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hver bryter slår styring og skjermdeling av eller på på en av maskinene dine. Hver maskin spør én gang, på seg selv, før den tar imot denne Macens brytere: Tillat det der bare hvis ordene den viser samsvarer med denne Macens ord."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Każdy przełącznik włącza lub wyłącza sterowanie i udostępnianie ekranu na jednej z Twoich maszyn. Każda maszyna pyta raz, na sobie, zanim przyjmie przełączniki tego Maca: zezwól tam tylko wtedy, gdy pokazane słowa zgadzają się ze słowami tego Maca."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cada botão ativa ou desativa o controle e o compartilhamento de tela em uma das suas máquinas. Cada máquina pergunta uma vez, nela mesma, antes de aceitar os botões deste Mac: permita lá apenas se as palavras mostradas forem iguais às deste Mac."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Каждый переключатель включает или выключает управление и общий экран на одной из ваших машин. Каждая машина один раз спрашивает на себе, прежде чем принимать переключатели этого Mac: разрешайте там, только если показанные слова совпадают со словами этого Mac."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สวิตช์แต่ละตัวเปิดหรือปิดการควบคุมและการแชร์หน้าจอบนเครื่องหนึ่งของคุณ แต่ละเครื่องจะถามหนึ่งครั้งบนเครื่องนั้นเองก่อนรับสวิตช์ของ Mac เครื่องนี้ ให้อนุญาตที่นั่นเฉพาะเมื่อคำที่แสดงตรงกับคำของ Mac เครื่องนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Her anahtar makinelerinizden birinde kontrolü ve ekran paylaşımını açar veya kapatır. Her makine bu Mac'in anahtarlarını kabul etmeden önce kendi üzerinde bir kez sorar: Orada yalnızca gösterdiği sözcükler bu Mac'in sözcükleriyle eşleşiyorsa izin verin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Кожен перемикач вмикає або вимикає керування та спільний доступ до екрана на одній із ваших машин. Кожна машина один раз питає на собі, перш ніж приймати перемикачі цього Mac: дозволяйте там, лише якщо показані слова збігаються зі словами цього Mac."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mỗi công tắc bật hoặc tắt điều khiển và chia sẻ màn hình trên một máy của bạn. Mỗi máy hỏi một lần, trên chính nó, trước khi nhận công tắc của máy Mac này: chỉ cho phép ở đó nếu các từ nó hiển thị khớp với các từ của máy Mac này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每个开关会开启或关闭你的一台机器上的控制与屏幕共享。每台机器在接受此 Mac 的开关之前，会在其自身上询问一次：只有当它显示的词与此 Mac 的词一致时，才在那里允许。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每個開關會開啟或關閉你的一台機器上的控制與螢幕共享。每台機器在接受此 Mac 的開關之前，會在其本身上詢問一次：只有當它顯示的詞與此 Mac 的詞一致時，才在那裡允許。"
-          }
-        }
-      }
-    },
     "devices.control.checking": {
       "extractionState": "manual",
       "localizations": {
@@ -18337,6 +18075,1054 @@
           "stringUnit": {
             "state": "translated",
             "value": "從此 Mac 開啟你另一台機器上的控制與螢幕共享"
+          }
+        }
+      }
+    },
+    "devices.control.groupTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control between my devices"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحكم بين أجهزتي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upravljanje između mojih uređaja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styring mellem mine enheder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steuerung zwischen meinen Geräten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control entre mis dispositivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrôle entre mes appareils"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo tra i miei dispositivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分のデバイス間の操作"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការគ្រប់គ្រងរវាងឧបករណ៍របស់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기 간 제어"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styring mellom enhetene mine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sterowanie między moimi urządzeniami"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controle entre meus dispositivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Управление между моими устройствами"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การควบคุมระหว่างอุปกรณ์ของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cihazlarım arasında kontrol"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Керування між моїми пристроями"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Điều khiển giữa các thiết bị của tôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的设备之间的控制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的裝置之間的控制"
+          }
+        }
+      }
+    },
+    "devices.control.groupHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each switch turns Control and Screen sharing on or off on one of your machines, over the switch for all your devices. A machine that has never seen this Mac asks once, on itself: allow it there only if the words it shows match this Mac's words."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كل مفتاح يشغّل التحكم ومشاركة الشاشة أو يوقفهما على أحد أجهزتك، فوق مفتاح جميع أجهزتك. الجهاز الذي لم يرَ هذا الـ Mac من قبل يسأل مرة واحدة، على الجهاز نفسه: اسمح بذلك هناك فقط إذا تطابقت الكلمات التي يعرضها مع كلمات هذا الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svaki prekidač uključuje ili isključuje upravljanje i dijeljenje ekrana na jednoj od vaših mašina, iznad prekidača za sve vaše uređaje. Mašina koja nikad nije vidjela ovaj Mac pita jednom, na sebi: dozvolite tamo samo ako se riječi koje prikazuje poklapaju s riječima ovog Maca."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver kontakt slår styring og skærmdeling til eller fra på en af dine maskiner, oven over kontakten for alle dine enheder. En maskine, der aldrig har set denne Mac, spørger én gang, på sig selv: Tillad det der kun, hvis de ord, den viser, matcher denne Macs ord."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Schalter schaltet Steuerung und Bildschirmfreigabe auf einem deiner Geräte ein oder aus, über dem Schalter für alle deine Geräte. Ein Gerät, das diesen Mac noch nie gesehen hat, fragt einmal, auf sich selbst: Erlaube es dort nur, wenn die angezeigten Wörter mit den Wörtern dieses Macs übereinstimmen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada interruptor activa o desactiva el control y compartir pantalla en una de tus máquinas, por encima del interruptor de todos tus dispositivos. Una máquina que nunca ha visto este Mac pregunta una vez, en sí misma: permítelo allí solo si las palabras que muestra coinciden con las de este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque interrupteur active ou désactive le contrôle et le partage d’écran sur l’une de vos machines, par-dessus l’interrupteur de tous vos appareils. Une machine qui n’a jamais vu ce Mac demande une fois, sur elle-même : autorisez-le là-bas seulement si les mots affichés correspondent à ceux de ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni interruttore attiva o disattiva controllo e condivisione schermo su una delle tue macchine, sopra l’interruttore di tutti i tuoi dispositivi. Una macchina che non ha mai visto questo Mac chiede una volta, su se stessa: consenti lì solo se le parole mostrate corrispondono a quelle di questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各スイッチで、すべてのデバイス用のスイッチより優先して、あなたのマシンの操作と画面共有をオン・オフします。この Mac を初めて見るマシンは、そのマシン上で一度だけ確認します。表示される単語がこの Mac の単語と一致する場合にのみ、そこで許可してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កុងតាក់នីមួយៗបើក ឬបិទការគ្រប់គ្រង និងការចែករំលែកអេក្រង់លើម៉ាស៊ីនមួយរបស់អ្នក លើសកុងតាក់សម្រាប់ឧបករណ៍ទាំងអស់របស់អ្នក។ ម៉ាស៊ីនដែលមិនធ្លាប់ឃើញ Mac នេះសួរម្តង នៅលើខ្លួនវា៖ អនុញ្ញាតនៅទីនោះតែប្រសិនបើពាក្យដែលវាបង្ហាញត្រូវនឹងពាក្យរបស់ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 스위치는 모든 기기용 스위치보다 우선하여 내 기기 중 하나의 제어와 화면 공유를 켜거나 끕니다. 이 Mac을 처음 보는 기기는 해당 기기에서 한 번 묻습니다. 표시된 단어가 이 Mac의 단어와 일치할 때만 거기서 허용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver bryter slår styring og skjermdeling av eller på på en av maskinene dine, over bryteren for alle enhetene dine. En maskin som aldri har sett denne Macen, spør én gang, på seg selv: Tillat det der bare hvis ordene den viser samsvarer med denne Macens ord."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Każdy przełącznik włącza lub wyłącza sterowanie i udostępnianie ekranu na jednej z Twoich maszyn, ponad przełącznikiem dla wszystkich Twoich urządzeń. Maszyna, która nigdy nie widziała tego Maca, pyta raz, na sobie: zezwól tam tylko wtedy, gdy pokazane słowa zgadzają się ze słowami tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada botão ativa ou desativa o controle e o compartilhamento de tela em uma das suas máquinas, acima do botão de todos os seus dispositivos. Uma máquina que nunca viu este Mac pergunta uma vez, nela mesma: permita lá apenas se as palavras mostradas forem iguais às deste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый переключатель включает или выключает управление и общий экран на одной из ваших машин поверх переключателя для всех ваших устройств. Машина, которая ещё не видела этот Mac, один раз спрашивает на себе: разрешайте там, только если показанные слова совпадают со словами этого Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สวิตช์แต่ละตัวเปิดหรือปิดการควบคุมและการแชร์หน้าจอบนเครื่องหนึ่งของคุณ โดยมีผลเหนือสวิตช์สำหรับอุปกรณ์ทั้งหมดของคุณ เครื่องที่ไม่เคยเห็น Mac เครื่องนี้จะถามหนึ่งครั้งบนเครื่องนั้นเอง ให้อนุญาตที่นั่นเฉพาะเมื่อคำที่แสดงตรงกับคำของ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her anahtar, tüm cihazlarınızın anahtarının üzerinde, makinelerinizden birinde kontrolü ve ekran paylaşımını açar veya kapatır. Bu Mac'i hiç görmemiş bir makine kendi üzerinde bir kez sorar: Orada yalnızca gösterdiği sözcükler bu Mac'in sözcükleriyle eşleşiyorsa izin verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кожен перемикач вмикає або вимикає керування та спільний доступ до екрана на одній із ваших машин понад перемикачем для всіх ваших пристроїв. Машина, яка ще не бачила цей Mac, один раз питає на собі: дозволяйте там, лише якщо показані слова збігаються зі словами цього Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mỗi công tắc bật hoặc tắt điều khiển và chia sẻ màn hình trên một máy của bạn, ưu tiên hơn công tắc cho mọi thiết bị của bạn. Máy chưa từng thấy máy Mac này sẽ hỏi một lần, trên chính nó: chỉ cho phép ở đó nếu các từ nó hiển thị khớp với các từ của máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个开关会在“所有设备”开关之上，开启或关闭你的一台机器上的控制与屏幕共享。从未见过此 Mac 的机器会在其自身上询问一次：只有当它显示的词与此 Mac 的词一致时，才在那里允许。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個開關會在「所有裝置」開關之上，開啟或關閉你的一台機器上的控制與螢幕共享。從未見過此 Mac 的機器會在其本身上詢問一次：只有當它顯示的詞與此 Mac 的詞一致時，才在那裡允許。"
+          }
+        }
+      }
+    },
+    "devices.control.account.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All my devices"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كل أجهزتي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svi moji uređaji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle mine enheder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle meine Geräte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos mis dispositivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tous mes appareils"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutti i miei dispositivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての自分のデバイス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍ទាំងអស់របស់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 모든 기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle enhetene mine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wszystkie moje urządzenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos os meus dispositivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все мои устройства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อุปกรณ์ทั้งหมดของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm cihazlarım"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Усі мої пристрої"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tất cả thiết bị của tôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的所有设备"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的所有裝置"
+          }
+        }
+      }
+    },
+    "devices.control.account.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Macs and machines signed in to this account can control and share each other's screens, without asking each time."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن لأجهزة Mac والأجهزة المسجّل دخولها إلى هذا الحساب التحكم ببعضها ومشاركة شاشات بعضها، دون السؤال في كل مرة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaši Macovi i mašine prijavljeni na ovaj račun mogu upravljati jedni drugima i dijeliti ekrane, bez pitanja svaki put."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine Macs og maskiner, der er logget ind på denne konto, kan styre og dele hinandens skærme uden at spørge hver gang."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Macs und Geräte, die bei diesem Konto angemeldet sind, können einander steuern und ihre Bildschirme teilen, ohne jedes Mal zu fragen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus Mac y máquinas con sesión en esta cuenta pueden controlarse y compartir pantalla entre sí, sin preguntar cada vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos Mac et machines connectés à ce compte peuvent se contrôler et partager leurs écrans entre eux, sans demander à chaque fois."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I tuoi Mac e le macchine connessi a questo account possono controllarsi e condividere lo schermo tra loro, senza chiedere ogni volta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントにサインインしている Mac とマシンは、毎回確認せずに互いを操作し、画面を共有できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac និងម៉ាស៊ីនរបស់អ្នកដែលបានចូលគណនីនេះ អាចគ្រប់គ្រង និងចែករំលែកអេក្រង់គ្នាទៅវិញទៅមក ដោយមិនចាំបាច់សួររាល់ពេល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정에 로그인한 Mac과 기기는 매번 묻지 않고 서로 제어하고 화면을 공유할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macene og maskinene dine som er logget på denne kontoen, kan styre og dele skjermene til hverandre uten å spørre hver gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoje Maki i maszyny zalogowane na to konto mogą sterować sobą nawzajem i udostępniać sobie ekrany bez pytania za każdym razem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus Macs e máquinas conectados a esta conta podem controlar e compartilhar a tela uns dos outros, sem perguntar toda vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши Mac и машины, вошедшие в эту учётную запись, могут управлять друг другом и показывать друг другу экран без запроса каждый раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac และเครื่องของคุณที่ลงชื่อเข้าใช้บัญชีนี้สามารถควบคุมและแชร์หน้าจอของกันและกันได้ โดยไม่ต้องถามทุกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hesapta oturum açmış Mac'leriniz ve makineleriniz, her seferinde sormadan birbirini kontrol edebilir ve ekranlarını paylaşabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваші Mac і машини, що ввійшли в цей обліковий запис, можуть керувати одне одним і ділитися екранами без запиту щоразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các máy Mac và máy của bạn đã đăng nhập tài khoản này có thể điều khiển và chia sẻ màn hình của nhau mà không cần hỏi mỗi lần."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录此账户的 Mac 和机器可以互相控制并共享屏幕，无需每次询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入此帳號的 Mac 和機器可以互相控制並共享螢幕，無需每次詢問。"
+          }
+        }
+      }
+    },
+    "devices.control.account.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On for all your devices"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مُشغّل لجميع أجهزتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključeno za sve vaše uređaje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Til for alle dine enheder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein für alle deine Geräte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activado para todos tus dispositivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé pour tous vos appareils"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attivo per tutti i tuoi dispositivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのデバイスでオン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកសម្រាប់ឧបករណ៍ទាំងអស់របស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 기기에서 켜짐"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På for alle enhetene dine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włączone dla wszystkich Twoich urządzeń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativado para todos os seus dispositivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включено для всех ваших устройств"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดสำหรับอุปกรณ์ทั้งหมดของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm cihazlarınız için açık"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкнено для всіх ваших пристроїв"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật cho mọi thiết bị của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已为你的所有设备开启"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已為你的所有裝置開啟"
+          }
+        }
+      }
+    },
+    "devices.control.account.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off for all your devices"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متوقف لجميع أجهزتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno za sve vaše uređaje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra for alle dine enheder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus für alle deine Geräte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado para todos tus dispositivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé pour tous vos appareils"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivo per tutti i tuoi dispositivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのデバイスでオフ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទសម្រាប់ឧបករណ៍ទាំងអស់របស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 기기에서 꺼짐"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av for alle enhetene dine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone dla wszystkich Twoich urządzeń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado para todos os seus dispositivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выключено для всех ваших устройств"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดสำหรับอุปกรณ์ทั้งหมดของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm cihazlarınız için kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнено для всіх ваших пристроїв"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt cho mọi thiết bị của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已为你的所有设备关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已為你的所有裝置關閉"
+          }
+        }
+      }
+    },
+    "devices.control.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh trusted Macs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديث أجهزة Mac الموثوقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osvježi pouzdane Macove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdater betroede Macs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertrauenswürdige Macs aktualisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar Mac de confianza"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiser les Mac de confiance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna i Mac attendibili"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済みの Mac を更新"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើឱ្យ Mac ដែលទុកចិត្តថ្មីឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신뢰하는 Mac 새로 고침"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdater klarerte Macer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odśwież zaufane Maki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar Macs confiáveis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновить доверенные Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีเฟรช Mac ที่เชื่อถือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güvenilen Mac'leri yenile"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновити довірені Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Làm mới các máy Mac tin cậy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新受信任的 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理受信任的 Mac"
+          }
+        }
+      }
+    },
+    "devices.control.account.confirmReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "turn on Control and Screen sharing between all your devices"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغيل التحكم ومشاركة الشاشة بين جميع أجهزتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uključiti upravljanje i dijeljenje ekrana između svih vaših uređaja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "slå styring og skærmdeling til mellem alle dine enheder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steuerung und Bildschirmfreigabe zwischen all deinen Geräten einschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "activar el control y compartir pantalla entre todos tus dispositivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "activer le contrôle et le partage d’écran entre tous vos appareils"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "attivare controllo e condivisione schermo tra tutti i tuoi dispositivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのデバイス間の操作と画面共有をオンにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកការគ្រប់គ្រង និងការចែករំលែកអេក្រង់រវាងឧបករណ៍ទាំងអស់របស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 기기 간 제어와 화면 공유 켜기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "slå på styring og skjermdeling mellom alle enhetene dine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "włączyć sterowanie i udostępnianie ekranu między wszystkimi Twoimi urządzeniami"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ativar o controle e o compartilhamento de tela entre todos os seus dispositivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "включить управление и общий экран между всеми вашими устройствами"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดการควบคุมและการแชร์หน้าจอระหว่างอุปกรณ์ทั้งหมดของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tüm cihazlarınız arasında kontrolü ve ekran paylaşımını açmak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "увімкнути керування та спільний доступ до екрана між усіма вашими пристроями"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bật điều khiển và chia sẻ màn hình giữa mọi thiết bị của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启你所有设备之间的控制与屏幕共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟你所有裝置之間的控制與螢幕共享"
           }
         }
       }

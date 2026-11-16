@@ -169,8 +169,8 @@ final class AppServices {
     private(set) lazy var signInEnroll = CloudSignInEnroll.overAcpmux(auth: cloud.auth, identity: cloud.installIdentity, buildTag: environment.tag, windows: chatsFeed?.windows) { [weak self] in self.flatMap(QuitAgents.environment) }
     /// This Mac's join consent (Settings > Devices' switches, the one-time sheet): all labs.machineJoin still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
-    /// Settings > Devices' "Control from this Mac": a switch per owned machine, signed by this Mac's key.
-    private(set) lazy var remoteControl = RemoteControlConsentStore(services: .over(join: joinConsent, machines: joinedMachines, signer: peerApprover?.key.consentSigner))
+    /// Control and Screen sharing between the person's devices (Settings > Devices, Screen Sharing rows), signed by this Mac's key.
+    private(set) lazy var remoteControl = RemoteControlConsent(services: .over(join: joinConsent, machines: joinedMachines, signer: peerApprover?.key.consentSigner))
     /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
     /// table of posting processes (`personInput.sources`): backs a consent grant made in a page. Started at launch.
     let personInput = PersonInputLedger(sources: EventSourceProcesses())

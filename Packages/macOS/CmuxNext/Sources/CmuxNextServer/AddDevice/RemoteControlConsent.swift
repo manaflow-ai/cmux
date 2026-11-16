@@ -41,9 +41,12 @@ public nonisolated struct RemoteControlStatus: Equatable, Sendable {
     public var selfGrantor: String?
     /// This Mac's key's four words, which the target's ask shows.
     public var selfWords: [String]?
+    /// Where the target's Control comes from (`effective.control.source`): `local`, `machine`, `account` or `none`.
+    public var controlSource: String?
 
     public init(machineId: String? = nil, nodeKey: String? = nil, account: String? = nil, control: Bool = false, screen: Bool = false,
-                pinned: Bool? = nil, log: [LogLine] = [], selfAccount: String? = nil, selfGrantor: String? = nil, selfWords: [String]? = nil) {
+                pinned: Bool? = nil, log: [LogLine] = [], selfAccount: String? = nil, selfGrantor: String? = nil, selfWords: [String]? = nil,
+                controlSource: String? = nil) {
         self.machineId = machineId
         self.nodeKey = nodeKey
         self.account = account
@@ -54,6 +57,7 @@ public nonisolated struct RemoteControlStatus: Equatable, Sendable {
         self.selfAccount = selfAccount
         self.selfGrantor = selfGrantor
         self.selfWords = selfWords
+        self.controlSource = controlSource
     }
 
     /// The status in an `ok: true` answer; nil for any other.
@@ -73,7 +77,8 @@ public nonisolated struct RemoteControlStatus: Equatable, Sendable {
             pinned: (answer["grantor"] as? [String: Any])?["pinned"] as? Bool, log: Array(log),
             selfAccount: (mine?["account"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             selfGrantor: (mine?["grantor"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-            selfWords: (mine?["words"] as? [String]).map { Array($0.prefix(4)) })
+            selfWords: (mine?["words"] as? [String]).map { Array($0.prefix(4)) },
+            controlSource: ((answer["effective"] as? [String: Any])?["control"] as? [String: Any])?["source"] as? String)
     }
 
     /// The same status with `self` kept from `previous` (a set's answer carries none).
@@ -92,9 +97,10 @@ public nonisolated struct RemoteControlStatus: Equatable, Sendable {
     /// One request to this Mac's acpmux over a person-proof line: its `result`, or the error to show.
     public var call: @MainActor (_ method: String, _ params: [String: Any]) async -> Result<[String: Any], RemoteControlCallError>
     /// SECURITY: signs a grant with this Mac's key (``AcpmuxMacApprover/consentGrant``) for `account`,
-    /// turning both surfaces `on` or off on the machine; nil when there is no key. The page asked the
-    /// person's own HID gesture and Touch ID or the password before any set reaches this.
-    public var sign: @MainActor (_ account: String, _ machineId: String, _ nodeKey: String, _ on: Bool, _ name: String) async -> [String: any Sendable]?
+    /// turning both surfaces `on`, off or back to the account's (nil) on the machine (`*`: every machine);
+    /// nil when there is no key. An on reaches this only after the person's own HID gesture and Touch ID
+    /// or the password, or from the person's own sign-in on this Mac (``RemoteControlConsent/signedIn()``).
+    public var sign: @MainActor (_ account: String, _ machineId: String, _ nodeKey: String, _ on: Bool?, _ name: String) async -> [String: any Sendable]?
     /// This Mac's name, which the target's ask shows (not signed).
     public var thisMacName: @MainActor () -> String
     public var now: @MainActor () -> Date
@@ -105,9 +111,13 @@ public nonisolated struct RemoteControlStatus: Equatable, Sendable {
     /// The person's joined machines (``JoinedMachineStore/machines``), and a read of them.
     public var machines: @MainActor () -> [JoinedMachine] = { [] }
     public var refreshMachines: @MainActor () async -> Void = {}
+    /// The Labs switch (`labs.machineJoin`), and this Mac's consent record (account, account-wide grant) and its read.
+    public var enabled: @MainActor () -> Bool = { false }
+    public var record: @MainActor () -> JoinConsentRecord? = { nil }
+    public var refreshRecord: @MainActor () async -> Void = {}
 
     public init(call: @escaping @MainActor (String, [String: Any]) async -> Result<[String: Any], RemoteControlCallError>,
-                sign: @escaping @MainActor (String, String, String, Bool, String) async -> [String: any Sendable]?,
+                sign: @escaping @MainActor (String, String, String, Bool?, String) async -> [String: any Sendable]?,
                 thisMacName: @escaping @MainActor () -> String, now: (@MainActor () -> Date)? = nil) {
         self.call = call
         self.sign = sign
@@ -118,7 +128,7 @@ public nonisolated struct RemoteControlStatus: Equatable, Sendable {
     /// The app's: requests over the join model's person line, rows from the joined machines, and `signer`
     /// (this Mac's approver key, ``AcpmuxMacApprover/consentSigner``; nil: nothing is signed).
     public static func over(join: JoinConsentModel, machines: JoinedMachineStore,
-                            signer: (@Sendable (String, String, String, Bool, String) async -> [String: any Sendable]?)?) -> Self {
+                            signer: (@Sendable (String, String, String, Bool?, String) async -> [String: any Sendable]?)?) -> Self {
         var services = Self(call: { [weak join] method, params in
             await join?.personCall(method, params) ?? .failure(RemoteControlCallError(nil))
         }, sign: { await signer?($0, $1, $2, $3, $4) }, thisMacName: { [weak join] in join?.status?.name ?? join?.status?.machineId ?? "Mac" })
@@ -126,6 +136,9 @@ public nonisolated struct RemoteControlStatus: Equatable, Sendable {
         services.thisMac = { [weak join] in join?.status?.machineId }
         services.machines = { [weak machines] in machines?.machines ?? [] }
         services.refreshMachines = { [weak machines] in await machines?.refresh() }
+        services.enabled = { [weak join] in join?.enabled == true }
+        services.record = { [weak join] in join?.consent }
+        services.refreshRecord = { [weak join] in await join?.refresh() }
         return services
     }
 }
@@ -136,14 +149,34 @@ public nonisolated struct RemoteControlCallError: Error, Equatable, Sendable {
     public init(_ message: String?) { self.message = message }
 }
 
-/// Settings > Devices' "Control from this Mac" (`devices_control` in the host lists): one switch per
-/// machine the person owns (``JoinedMachine``, not revoked, with a mesh id) that turns its Control and
-/// Screen sharing on or off with a grant this Mac's key signs. Each machine's status is read when its row
-/// first shows, again each time Settings > Devices shows (``pageShown()``), a failed one again when it is
-/// a minute old and drawn, and after each set. No timer: nothing reads while the page is hidden.
-/// A machine that leaves the list is forgotten with any read still under way for it.
+/// Control and Screen sharing between the person's own devices, from this Mac: the one entry point
+/// Settings > Devices ("Control between my devices", `devices_control` in the host lists) and the Screen
+/// Sharing rows use. A switch for all of them (an account-wide grant, ``setAccount(on:)``) and one per
+/// machine the person owns (``JoinedMachine``, not revoked, with a mesh id) that narrows it there
+/// (``set(machineID:on:)``), each a grant this Mac's key signs. Each machine's status is read when its row
+/// or ``state(for:)`` first asks, again each time Settings > Devices shows (``pageShown()``), a failed one
+/// again when it is a minute old and asked, and after each set. No timer: nothing reads unasked. A machine
+/// that leaves the list is forgotten with any read still under way for it.
+///
+/// SECURITY: this signs what it is asked to. A caller turning anything on (one machine, all of them) first
+/// takes the person's own HID gesture and then Touch ID or the password, and ``refreshTrust()`` takes the
+/// gesture (Settings > Devices' ops, ``RemoteControlConsentPage``); off and back-to-default only narrow and
+/// need neither. The one on with no gesture is ``signedIn()``, which rides on the person signing in here.
+/// Trust residual (contract v2 B): a machine pins this Mac's key with no prompt only during its own
+/// enrollment step; a Mac that signs in later is pinned on that machine's next enrollment step or
+/// "Refresh trusted Macs" there, else through the four-word ask its first grant leaves.
 @MainActor @Observable
-public final class RemoteControlConsentStore {
+public final class RemoteControlConsent {
+    /// One machine's switch as the Screen Sharing rows show it.
+    public struct State: Equatable, Sendable {
+        /// Where `on` comes from: a setting on that machine, its own grant from a Mac, the account's, or nothing.
+        public enum Source: String, Sendable { case local, machine, account, none }
+        public var on: Bool
+        public var source: Source
+        public var busy: Bool
+        public var error: String?
+    }
+
     public enum Entry: Equatable {
         case known(RemoteControlStatus)
         /// acpmux could not reach it (`machine.unreachable`).
@@ -165,6 +198,9 @@ public final class RemoteControlConsentStore {
     @ObservationIgnored private var reading: [String: (generation: Int, task: Task<Void, Never>)] = [:]
     @ObservationIgnored private var generation: [String: Int] = [:]
     @ObservationIgnored private let services: RemoteControlConsentServices
+    /// The switch for all the person's devices is being set, and why its last set failed.
+    public private(set) var settingAccount = false
+    public private(set) var accountError: String?
     public static let retryAfter: TimeInterval = 60
 
     public init(services: RemoteControlConsentServices) {
@@ -193,11 +229,82 @@ public final class RemoteControlConsentStore {
         return pageData(machines: services.machines(), thisMac: services.thisMac()).flatMap { try? JSONValue.parse($0) } ?? .null
     }
 
-    /// The page's switch for the machine `id` names: only a row the block shows.
-    public func set(id: String, on: Bool) async -> String? {
-        guard services.shown(), id != services.thisMac(),
-              let machine = Self.eligible(services.machines()).first(where: { $0.id == id }) else { return RemoteControlStrings.notOwned }
+    /// The switch of the machine `machineID` names (only a row the block shows): on, off, or nil, back to
+    /// the switch for all devices. The error to show, or nil.
+    public func set(machineID: String, on: Bool?) async -> String? {
+        guard let machine = owned(machineID) else { return RemoteControlStrings.notOwned }
         return await set(machine, on: on)
+    }
+
+    /// The machine `machineID` names, when it gets a row: the block shows and it is not this Mac.
+    private func owned(_ machineID: String) -> JoinedMachine? {
+        guard services.shown(), machineID != services.thisMac() else { return nil }
+        return Self.eligible(services.machines()).first(where: { $0.id == machineID })
+    }
+
+    /// The machine's switch, starting its read as a drawn row does; nil when it gets no row.
+    public func state(for machineID: String) -> State? {
+        guard let machine = owned(machineID) else { return nil }
+        let entry = entry(machine)
+        let status = Self.known(entry)
+        var error = errors[machineID]
+        if error == nil, case .failed(let why, _) = entry { error = why }
+        if error == nil, case .unreachable = entry { error = RemoteControlStrings.offline }
+        return State(on: status?.control == true, source: status?.controlSource.flatMap(State.Source.init(rawValue:)) ?? .none,
+                     busy: setting.contains(machineID), error: error)
+    }
+
+    /// The switch for all the person's devices: one account-wide grant (machine id and node key `*`) this
+    /// Mac signs for its account, which acpmux applies here and hands to every machine of the account
+    /// (`_acpmux/consent_account_set`). The error to show, or nil.
+    public func setAccount(on: Bool) async -> String? {
+        guard services.shown() else { return RemoteControlStrings.notOwned }
+        guard !settingAccount else { return RemoteControlStrings.busy }
+        settingAccount = true
+        defer { settingAccount = false }
+        let account = services.record()?.account ?? entries.values.lazy.compactMap { Self.known($0)?.selfAccount }.first
+        let error = await sendAccount(account, on: on)
+        accountError = error
+        await services.refreshRecord()
+        shownEpoch += 1
+        return error
+    }
+
+    /// The person signed in on this Mac (a person step, so no gesture): when acpmux has no account-wide grant
+    /// yet (`accountPolicy` null), one turns Control and Screen sharing on for all their devices (contract
+    /// v2 C). Nothing with the Labs switch off, a policy already there (on or off), or an acpmux that does
+    /// not report one.
+    public func signedIn() async {
+        guard services.enabled(), case .success(let answer) = await services.call("_acpmux/machine_consent_get", [:]),
+              let record = JoinConsentRecord.parse(answer), record.reportsAccountPolicy, record.accountPolicy == nil else { return }
+        _ = await sendAccount(record.account, on: true)
+        await services.refreshRecord()
+    }
+
+    private func sendAccount(_ account: String?, on: Bool) async -> String? {
+        guard let account else { return RemoteControlStrings.signedOut }
+        guard let grant = await services.sign(account, "*", "*", on, services.thisMacName()) else { return RemoteControlStrings.noKey }
+        switch await services.call("_acpmux/consent_account_set", ["grant": grant]) {
+        case .failure(let error): return error.message ?? RemoteControlStrings.setFailed
+        case .success(let answer): return Self.refusal(answer)
+        }
+    }
+
+    /// "Refresh trusted Macs": acpmux collects the keys of the account's Macs again now (`_acpmux/consent_trust_refresh`);
+    /// the person's gesture asked it. Every row is read again after. The error to show, or nil.
+    public func refreshTrust() async -> String? {
+        let error: String?
+        switch await services.call("_acpmux/consent_trust_refresh", [:]) {
+        case .failure(let failure): error = failure.message ?? RemoteControlStrings.setFailed
+        case .success(let answer): error = Self.refusal(answer)
+        }
+        shownEpoch += 1
+        return error
+    }
+
+    /// nil for an `ok: true` answer, else its error or the plain failure.
+    private static func refusal(_ answer: [String: Any]) -> String? {
+        answer["ok"] as? Bool == true ? nil : (answer["error"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? RemoteControlStrings.setFailed
     }
 
     /// The entry for `machine`, starting its read when none is known, the page showed again since the
@@ -253,11 +360,11 @@ public final class RemoteControlConsentStore {
         }
     }
 
-    /// Turns `machine`'s Control and Screen sharing both on or both off with a grant this Mac signs: the
-    /// error to show, or nil. Reads the machine's status first and signs only for the machine the row
+    /// Turns `machine`'s Control and Screen sharing both on, both off, or both back to the switch for all
+    /// devices (nil) with a grant this Mac signs: the error to show, or nil. Reads the machine's status first and signs only for the machine the row
     /// names: its answer's machine id and node key must equal the row's id and mesh id, or nothing is signed.
     /// Reads again after, whichever way it went.
-    public func set(_ machine: JoinedMachine, on: Bool) async -> String? {
+    public func set(_ machine: JoinedMachine, on: Bool?) async -> String? {
         let id = machine.id
         guard !setting.contains(id) else { return RemoteControlStrings.busy }
         guard machine.state != .revoked, let peer = machine.meshPeerId, !peer.isEmpty else { return RemoteControlStrings.notOwned }
@@ -276,7 +383,7 @@ public final class RemoteControlConsentStore {
         return error
     }
 
-    private func write(_ machine: JoinedMachine, peer: String, on: Bool) async -> String? {
+    private func write(_ machine: JoinedMachine, peer: String, on: Bool?) async -> String? {
         let status: RemoteControlStatus
         switch await self.status(machine.id, peer: peer) {
         case .known(let known): status = known
@@ -344,6 +451,12 @@ public final class RemoteControlConsentStore {
         let page: [String: Any] = [
             "title": RemoteControlStrings.title,
             "help": RemoteControlStrings.help,
+            "account": [
+                "title": RemoteControlStrings.accountTitle, "help": RemoteControlStrings.accountHelp,
+                "on": services.record()?.accountPolicy?.control == true, "busy": settingAccount,
+                "error": accountError.map { $0 as Any } ?? NSNull(),
+            ] as [String: Any],
+            "refresh": RemoteControlStrings.refresh,
             "this_mac_words": words.map { $0 as Any } ?? NSNull(),
             "error": NSNull(),
             "rows": made,
@@ -381,6 +494,7 @@ public final class RemoteControlConsentStore {
             "id": machine.id, "name": machine.name, "platform": machine.platform ?? "",
             "online": machine.state == .online && !unreachable,
             "on": status?.control == true, "busy": busy, "status": word, "detail": detail,
+            "source": status?.controlSource.map { $0 as Any } ?? NSNull(),
             "words": showsWords ? (ask ?? []) as Any : NSNull(),
             "log": (status?.log ?? []).reversed().map { line in
                 ["time": Self.time(line.at), "what": what(line, machine: machine, status: status)]
@@ -397,7 +511,9 @@ public final class RemoteControlConsentStore {
     }
 
     /// "Turned on from this Mac · 5 min ago", from the target's newest grant or revoke line.
+    /// From the account's switch: "On for all your devices".
     private func detailLine(_ status: RemoteControlStatus, machine: JoinedMachine) -> String {
+        if status.controlSource == "account" { return status.control ? RemoteControlStrings.accountOn : RemoteControlStrings.accountOff }
         let change = status.log.last(where: { ($0.event == "grant" || $0.event == "revoke") && ($0.surface == nil || $0.surface == "control") })
         guard let change else { return status.control ? RemoteControlStrings.onPlain : RemoteControlStrings.offPlain }
         return changed(change, on: status.control, machine: machine, status: status) + " · " + relative(change.at)
@@ -446,11 +562,18 @@ public nonisolated struct RemoteControlStrings {
         String(localized: key, defaultValue: value, table: "AddDevice", bundle: .module)
     }
 
-    static var title: String { s("devices.control.title", "Control from this Mac") }
+    static var title: String { s("devices.control.groupTitle", "Control between my devices") }
     static var help: String {
-        s("devices.control.help",
-          "Each switch turns Control and Screen sharing on or off on one of your machines. Each machine asks once, on itself, before it takes this Mac's switches: allow it there only if the words it shows match this Mac's words.")
+        s("devices.control.groupHelp",
+          "Each switch turns Control and Screen sharing on or off on one of your machines, over the switch for all your devices. A machine that has never seen this Mac asks once, on itself: allow it there only if the words it shows match this Mac's words.")
     }
+    static var accountTitle: String { s("devices.control.account.title", "All my devices") }
+    static var accountHelp: String {
+        s("devices.control.account.help", "Your Macs and machines signed in to this account can control and share each other's screens, without asking each time.")
+    }
+    static var accountOn: String { s("devices.control.account.on", "On for all your devices") }
+    static var accountOff: String { s("devices.control.account.off", "Off for all your devices") }
+    static var refresh: String { s("devices.control.refresh", "Refresh trusted Macs") }
     static var offline: String { s("devices.state.offline", "Offline") }
     static var checking: String { s("devices.control.checking", "Checking…") }
     static var onPlain: String { s("devices.control.on", "On") }
@@ -485,5 +608,8 @@ public nonisolated struct RemoteControlStrings {
     /// The confirm's reason (LocalAuthentication shows it after the app's name).
     public static var confirmReason: String {
         s("devices.control.confirmReason", "turn on Control and Screen sharing on your other machine from this Mac")
+    }
+    public static var accountConfirmReason: String {
+        s("devices.control.account.confirmReason", "turn on Control and Screen sharing between all your devices")
     }
 }

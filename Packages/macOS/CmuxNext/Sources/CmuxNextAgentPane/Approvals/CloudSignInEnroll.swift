@@ -31,6 +31,9 @@ public final class CloudSignInEnroll {
     private var last: (userId: String?, previous: String?)?
     private var work: Task<Void, Never>?
     private var following: Task<Void, Never>?
+    /// After acpmux took a sign-in made while the app runs (a person step here; not a session restored at
+    /// launch, nor a resend): Control between the person's devices turns on by default (contract v2 C).
+    var signedIn: (@MainActor () async -> Void)?
 
     init(person: @escaping @MainActor @Sendable () -> String??, accessToken: @escaping @MainActor () async -> String?,
          hub: String?, buildTag: String?, recordLeave: @escaping RecordLeave, send: @escaping Send) {
@@ -44,9 +47,11 @@ public final class CloudSignInEnroll {
         self.extra = extra
     }
 
-    /// Follows the signed-in person for the app's life (its owner, the app's services, lives as long).
-    public func follow() {
+    /// Follows the signed-in person for the app's life (its owner, the app's services, lives as long), and
+    /// runs `signedIn` after each sign-in acpmux took (``signedIn``).
+    public func follow(signedIn: (@MainActor () async -> Void)? = nil) {
         guard following == nil else { return }
+        self.signedIn = signedIn
         let person = person
         // task-owner: the follow, for the app's life (the owner never goes before the app ends).
         following = Task { [weak self] in
@@ -70,6 +75,7 @@ public final class CloudSignInEnroll {
     func changed(to userId: String?) {
         if let last, last.userId == userId { return }
         let previous = last?.userId
+        let fresh = last != nil && userId != nil
         last = (userId, previous)
         // The CLI records the account signing out even with acpmux down; acpmux records it too.
         if let previous, previous != userId {
@@ -78,10 +84,10 @@ public final class CloudSignInEnroll {
             // task-owner: one CLI run that writes the departing account; ends with it (bounded by its deadline).
             Task { _ = await recordLeave(previous, signedOutAt) }
         }
-        submit(userId, previous: previous)
+        submit(userId, previous: previous, fresh: fresh)
     }
 
-    private func submit(_ userId: String?, previous: String?) {
+    private func submit(_ userId: String?, previous: String?, fresh: Bool = false) {
         let before = work
         // task-owner: one change's request, after the one before; ends with it.
         work = Task { [weak self] in
@@ -91,7 +97,7 @@ public final class CloudSignInEnroll {
             params["userId"] = userId.map { $0 as Any } ?? NSNull()
             params["previous"] = previous.map { $0 as Any } ?? NSNull()
             if userId != nil, let access = await accessToken(), !access.isEmpty { params["accessToken"] = access }
-            _ = await send(params)
+            if await send(params), fresh { await signedIn?() }
         }
     }
 

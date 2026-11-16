@@ -144,10 +144,14 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
         }
     }
 
-    /// What a consent grant does to one surface on the target (acpmux `consent_grant`'s `on|off|keep`).
+    /// What a consent grant does to one surface on the target (acpmux `consent_grant`'s `on|off|keep|default`;
+    /// `default` drops the machine's own signed record, so the account-wide grant applies there again).
     public enum ConsentGrantChange: String, Sendable {
-        case on, off, keep
+        case on, off, keep, `default`
     }
+
+    /// The machine id and node key of an account-wide grant: every machine of the account.
+    public static let everyMachine = "*"
 
     /// The domain of a consent grant's signed message (acpmux `consent_grant::DOMAIN`).
     static let consentGrantDomain = "acpmux-consent-grant-v1"
@@ -155,7 +159,8 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
     /// A consent grant for a joined machine (acpmux `consent_grant`): this Mac, as the owner signed in on
     /// `account`, turns Control and Screen sharing `on`, `off` or `keep` on the machine `machineId` whose
     /// hub node key is `nodeKey`, signed off the main actor (the enclave). The grant JSON acpmux's
-    /// `_acpmux/consent_remote_set` carries: it lives ``lifetime`` (well under acpmux's 5 minutes),
+    /// `_acpmux/consent_remote_set` carries: it lives ``lifetime`` (well under acpmux's 5 minutes; an
+    /// account-wide grant, machine id and node key ``everyMachine``, 5 minutes, which its targets ignore),
     /// `issuedAt` is `now` in milliseconds (the target's replay counter), and `publicKey` and `name`
     /// (not signed) are what the target's one-time ask shows. nil when there is no key or it cannot sign.
     /// SECURITY: the app calls this only after the person's own HID gesture and Touch ID or the password
@@ -167,7 +172,7 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
             return nil
         }
         let issuedAt = UInt64(max(0, (now.timeIntervalSince1970 * 1000).rounded(.down)))
-        let expiresAt = issuedAt + UInt64(Self.lifetime * 1000)
+        let expiresAt = issuedAt + (machineId == Self.everyMachine ? 300_000 : UInt64(Self.lifetime * 1000))
         let message = Self.consentGrantMessage(grantor: key.id, account: account, machineId: machineId, nodeKey: nodeKey,
                                                control: control.rawValue, screen: screen.rawValue, issuedAt: issuedAt, expiresAt: expiresAt)
         do {
@@ -181,11 +186,12 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
         }
     }
 
-    /// ``consentGrant`` turning Control and Screen sharing both on (true) or both off, now: Settings > Devices'
-    /// one switch per owned machine (account, machine id, node key, on, this Mac's name).
-    public var consentSigner: @Sendable (String, String, String, Bool, String) async -> [String: any Sendable]? {
+    /// ``consentGrant`` turning Control and Screen sharing both on (true), both off, or both back to the
+    /// account's (nil), now: Settings > Devices' one switch per owned machine and its switch for all of them
+    /// (account, machine id, node key, on, this Mac's name).
+    public var consentSigner: @Sendable (String, String, String, Bool?, String) async -> [String: any Sendable]? {
         { [self] account, machineId, nodeKey, on, name in
-            let change: ConsentGrantChange = on ? .on : .off
+            let change: ConsentGrantChange = on.map { $0 ? .on : .off } ?? .default
             return await consentGrant(account: account, machineId: machineId, nodeKey: nodeKey, control: change, screen: change, name: name, now: Date())
         }
     }
