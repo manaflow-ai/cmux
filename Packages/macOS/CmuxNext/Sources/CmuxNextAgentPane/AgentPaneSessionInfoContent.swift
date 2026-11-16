@@ -343,10 +343,10 @@ final class SessionInfoListView: NSView {
         if let focusedButtonLine, let focusedButtonAction,
            let line = subviews.compactMap({ $0 as? SessionInfoLineView }).first(where: { $0.line.id == focusedButtonLine.line.id }),
            let button = line.buttons.first(where: { $0.button.action == focusedButtonAction }) {
-            window?.makeFirstResponder(button)
+            FocusRoute(.system, "Session Info rows changed: keep the focused row").moveKeyboard(in: window, to: button)
         } else if let focusedIdentity,
                   let focused = subviews.compactMap({ $0 as? SessionInfoLineView }).first(where: { $0.line.id == focusedIdentity }) {
-            window?.makeFirstResponder(focused)
+            FocusRoute(.system, "Session Info rows changed: keep the focused row").moveKeyboard(in: window, to: focused)
         }
         pendingItems = nil
         pendingInk = nil
