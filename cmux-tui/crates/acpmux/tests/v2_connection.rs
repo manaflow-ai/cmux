@@ -2,6 +2,10 @@
 //! driver. Run alone: cargo test -p acpmux --release --test v2_connection -- --ignored --nocapture --test-threads=1
 #![cfg(target_os = "linux")]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use acpmux_book::index::{Summary, SummaryIndex};
 use acpmux_core::conn::{self, ConnectionState, HubSource, Offer};
@@ -17,6 +21,82 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::sync::watch;
+
+fn start_fixture(chats: usize, store_bytes: u64) -> tempfile::TempDir {
+    let scratch = tempfile::tempdir().expect("fixture scratch");
+    std::fs::write(scratch.path().join("config.json"), json!({"acpmux.v2": ["start"]}).to_string())
+        .expect("v2 config");
+    let sessions = scratch.path().join("sessions");
+    for n in 0..chats {
+        std::fs::create_dir_all(sessions.join(format!("chat-{n:04}"))).expect("chat fixture");
+    }
+    let pad = scratch.path().join("store.pad");
+    let file = std::fs::File::create(pad).expect("store pad");
+    file.set_len(store_bytes).expect("4 GB sparse store pad");
+    scratch
+}
+
+async fn daemon_hello(socket: &std::path::Path) {
+    let mut client = UnixStream::connect(socket).await.expect("connect ready daemon");
+    hello(&mut client).await;
+}
+
+#[test]
+#[ignore = "release startup gate; run through scripts/cmux-next/run-v2-gates.sh"]
+fn v2_pr09_listen_start() {
+    const ROUNDS: usize = 5;
+    const SAMPLES: usize = 20;
+    const STORE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+    let mut small = Vec::with_capacity(ROUNDS);
+    let mut god = Vec::with_capacity(ROUNDS);
+    for round in 0..ROUNDS {
+        let mut small_round = Vec::with_capacity(SAMPLES);
+        let mut god_round = Vec::with_capacity(SAMPLES);
+        for side in 0..2 {
+            let (chats, samples) =
+                if (round + side) % 2 == 0 { (1, &mut small_round) } else { (527, &mut god_round) };
+            for _ in 0..SAMPLES {
+                let scratch = start_fixture(chats, if chats == 527 { STORE_BYTES } else { 0 });
+                let daemon = daemon_env::spawn_ready_daemon(scratch.path());
+                samples.push(daemon.startup.as_nanos());
+                // The readiness clock ends before this hello and child stop.
+                let runtime = tokio::runtime::Runtime::new().expect("gate runtime");
+                runtime.block_on(daemon_hello(&daemon.socket));
+                assert!(daemon.ready.contains("\"ready\":true"));
+                daemon.stop();
+            }
+        }
+    }
+    // The alternating rounds above collect both sides; keep a nonempty report
+    // even when a future fixture runner changes the round count.
+    assert_eq!(small.len(), ROUNDS);
+    assert_eq!(god.len(), ROUNDS);
+    let measures = |rounds: Vec<Vec<u128>>| rounds;
+    let small = measures(small);
+    let god = measures(god);
+    gate_rounds::report("v2.pr09.listen_start", &[("small", &small), ("god", &god)]);
+    let small_p95 = best_p95(&small);
+    let god_p95 = best_p95(&god);
+    let line = json!({
+        "name": "v2.pr09.listen_start",
+        "small_p95": small_p95,
+        "god_p95": god_p95,
+        "god_p95_all": all_p95(&god),
+        "unit": "ns",
+    })
+    .to_string();
+    eprintln!("{line}");
+    if let Some(path) = std::env::var_os("V2_GATE_OUT") {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| writeln!(file, "{line}"))
+            .expect("gate output");
+    }
+    assert!(small_p95 > 0);
+    assert!(god_p95 <= 100_000_000, "god listener startup exceeded 100 ms");
+}
 
 #[path = "../benches/v2/mod.rs"]
 #[allow(dead_code)]

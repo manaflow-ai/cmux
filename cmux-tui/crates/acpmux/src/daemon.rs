@@ -354,14 +354,17 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     crate::config::refuse_lost_home(&home())?;
+    // Construct the v2 handle before binding, but do no disk or chat work here.
+    // Its empty published index is filled by the list tee after the listener;
+    // startup never waits on this handle or on a chat book. This is the
+    // checkpoint-only start path: the expensive v1 store/session loads remain
+    // behind the ready boundary below.
+    let mut v2_tasks = tokio::task::JoinSet::new();
+    let v2 = v2_handle(&config);
+
     // Bind before durable startup work, so clients can connect independently of journal replay.
     // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
-    // The v2 handle is created only after the listener is ready. Its empty
-    // published index is filled by the list tee in the follow-up lane; startup
-    // never waits on this handle or on a chat book.
-    let mut v2_tasks = tokio::task::JoinSet::new();
-    let v2 = v2_handle(&config);
     if let Some(v2) = v2.as_ref()
         && let Some(writer) = v2.take_writer()
     {

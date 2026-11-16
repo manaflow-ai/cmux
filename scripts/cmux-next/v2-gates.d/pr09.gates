@@ -1,0 +1,2 @@
+# Row 9a: checkpoint-only start must bind before durable store/session work.
+acpmux-v2-connection v2_pr09_listen_start

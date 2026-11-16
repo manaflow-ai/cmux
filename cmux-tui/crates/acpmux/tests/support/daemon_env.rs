@@ -44,7 +44,8 @@
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// How a test process runs: see the module text. The crate root of every
 /// test file defines `const HERMETIC: daemon_env::Process`.
@@ -332,6 +333,45 @@ pub enum Agents {
 /// `acpmux` with the hermetic environment, agent launches denied.
 pub fn acpmux(scratch: &Path) -> Command {
     command(scratch, Agents::Deny, &[])
+}
+
+/// A daemon child and the endpoint it announced on its readiness line.
+///
+/// The caller owns the child and must call [`ReadyDaemon::stop`] after any
+/// post-ready surface checks. The clock returned by [`spawn_ready_daemon`]
+/// covers only `spawn()` through the daemon's `ready_line`; fixture creation,
+/// socket hello, and child reaping stay outside it.
+pub struct ReadyDaemon {
+    pub child: Child,
+    pub socket: PathBuf,
+    pub ready: String,
+    pub startup: Duration,
+}
+
+impl ReadyDaemon {
+    pub fn stop(mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+pub fn spawn_ready_daemon(scratch: &Path) -> ReadyDaemon {
+    let socket = scratch.join("acpmux.sock");
+    let started = Instant::now();
+    let mut child = acpmux(scratch)
+        .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", scratch)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_CATALOG_FETCH", "0")
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .env("ACPMUX_SPARE_HARNESS", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("start daemon");
+    let ready = ready_line(child.stdout.take().expect("daemon stdout"));
+    ReadyDaemon { child, socket, ready, startup: started.elapsed() }
 }
 
 /// `acpmux` with the hermetic environment; `tools` are host tools (by name,
