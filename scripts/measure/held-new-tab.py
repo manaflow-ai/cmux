@@ -57,6 +57,7 @@ REPEAT_RULE = "the system's: each new key-down of T starts its repeats again aft
 SEED_LIMIT = ("the page tabs have no favicon and the terminals have one folder: the new tab page's favicon work and "
               "its list of folders are not in these rows")
 OPENINGS = 64  # NewTabSparePool.maximumOpenings
+JOURNAL = 4096  # the ring of the app's input journal: a take with more records loses its first ones
 FRAMES_S = 8.0  # with the 0.8 s lead, a take stays under the 9 s between 2 bluetoothd starts
 APPSERVICES = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
 LOG_PREDICATE = 'process == "launchd" AND eventMessage CONTAINS "Successfully spawned bluetoothd"'
@@ -140,6 +141,8 @@ def take(opts):
     except STRESS.StressShapeError as error:
         record["errors"].append(str(error))
     before = count()
+    # Both journal reads are outside the frame take: this one before it starts, the other after it ends.
+    seen = ((rpc("debug.journal", {"last": 1}) or {}).get("stats") or {}).get("lastSeq")
     first = bluetoothd()
     fresh = bool(STRESS.wait(lambda: bluetoothd() != first, 12, step=0.05))
     time.sleep(0.8)  # test script: the stall of a bluetoothd start is over before this
@@ -160,7 +163,6 @@ def take(opts):
             record["errors"].append("no tab to close")
             letters = ["w"]
         steps, offsets = BENCH.sequence(letters, 0, (delay, interval))
-    seen = ((rpc("debug.journal", {"last": 1}) or {}).get("stats") or {}).get("lastSeq")
     if opts.film:
         rpc("debug.window_record", {"dir": opts.film, "seconds": min(12.0, opts.hold_ms / 1000 + 2)})
     sent = post_keys(opts.keys, rpc, steps, opts.pane)
@@ -181,7 +183,7 @@ def take(opts):
         record["invalid"].append(f"the app never said the burst was done within {opts.deadline:.0f} s more")
     settled_ms = round((time.monotonic() - began) * 1000)
     trace = rpc("debug.burst", {"action": "stop"}) or {}
-    journal = [] if seen is None else [e for e in (rpc("debug.journal", {"last": 4096}) or {}).get("entries") or [] if (e.get("seq") or 0) > seen]
+    journal = [] if seen is None else [e for e in (rpc("debug.journal", {"last": JOURNAL}) or {}).get("entries") or [] if (e.get("seq") or 0) > seen]
     shows = sum(e.startswith("show pane=") for e in re.findall(r'"event":\s*"([^"]*)"', json.dumps(journal)))
     if opts.film and not STRESS.wait(lambda: os.path.exists(os.path.join(opts.film, "frames.json")), 20, step=0.2):
         record["errors"].append("the film has no frames.json")
@@ -198,6 +200,7 @@ def take(opts):
                    "tabs_after": [t.get("id") for p in builder.panes(builder.workspace(opts.workspace)) for t in p.get("tabs") or []],
                    "take": {"tabs_by_kind_after": kinds, "settled_inside_the_frames": bool(in_take),
                             "tab_shows": shows if journal else None, "tab_shows_whole": bool(journal) and journal[0].get("seq") == seen + 1,
+                            "tab_shows_ring": JOURNAL,
                             "bluetoothd": {"new_pid_before": fresh, "pid_changed": moved, "log_starts": starts},
                             "disturbed": bool(moved or starts)}})
     with open(os.path.join(opts.out, "scenario.json"), "w") as f:
