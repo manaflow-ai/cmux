@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4393382581201",
+  "notes": "notes/4393382581201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44540,
+      "title": "cmux-rd view: view and control a Mac from Linux through the device hub",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44436,
+      "title": "feat(newtab): claude minimal is the only new tab look; codex minimal and its dots removed",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43398,
+      "title": "cmux-next-ios: UnsentKeysNoticeTests setup green in the kit-test job (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44671,
+      "title": "base red (Tier routing): a \"./\" fixture literal is no CI target-graph read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44699,
+      "title": "cloud-journey: the ensure bench also counts dropped machine exec answers, per hop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43385,
+      "title": "cmux device setup: agents install, start and keep cmux NIGHTLY running on your Macs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44682,
+      "title": "Agent chat: a streamed token in a chat with subagents no longer rebuilds every row (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
