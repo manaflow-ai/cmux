@@ -44,7 +44,9 @@ pub enum ReceiverError {
 pub const FEEDBACK_INTERVAL_US: u64 = 50_000;
 /// Feedback is sent at least this often while the session lives (keepalive).
 pub const KEEPALIVE_US: u64 = 1_000_000;
-/// Frames waiting for the caller; older ones are dropped and recovery requested.
+/// Frames waiting for the caller. A keyframe replaces every older waiting
+/// frame (newest wins); a reference chain longer than this means the caller
+/// fell behind: the chain is dropped and a keyframe requested.
 pub const MAX_READY_FRAMES: usize = 16;
 /// Arrivals kept between feedback calls; older ones are dropped.
 pub const MAX_PENDING_ARRIVALS: usize = 8 * MAX_ARRIVALS;
@@ -62,7 +64,6 @@ pub struct Receiver {
     carrier: Carrier,
     /// The display stream this receiver reassembles; its feedback names it.
     stream: u16,
-    nack_after_us: u64,
     reassembler: Reassembler,
     deframer: StreamDeframer,
     ready: VecDeque<CompleteFrame>,
@@ -71,10 +72,19 @@ pub struct Receiver {
     arrivals: VecDeque<Arrival>,
     decode_us: VecDeque<u32>,
     keyframe_requested: bool,
+    /// The ready queue lost part of a reference chain: frames are dropped
+    /// until a keyframe restarts the decoder.
+    chain_broken: bool,
+    /// The current recovery request already went out in a feedback; a new
+    /// request goes out at once instead of on the feedback interval.
+    recovery_sent: bool,
     released_since_feedback: bool,
     last_feedback_us: Option<u64>,
     frames_released: u64,
     frames_lost: u64,
+    frames_skipped: u64,
+    /// Frames ever put on the ready queue (the session tracks release order by it).
+    frames_queued: u64,
     failed: bool,
 }
 
@@ -85,10 +95,15 @@ pub struct Stats {
     pub need_recovery: bool,
     pub frames_released: u64,
     pub frames_lost: u64,
+    /// Decodable frames dropped from the ready queue because a newer
+    /// keyframe made them unneeded (newest wins).
+    pub frames_skipped: u64,
 }
 
 impl Receiver {
-    /// `deadline_us`: how long a frame may wait for missing shards.
+    /// `deadline_us`: the longest a frame may wait for missing shards; the
+    /// wait itself is one round trip plus 10 ms after the frame's NACK
+    /// (`Reassembler::repair_window_us`), with this as its ceiling.
     /// `nack_after_us`: how long a frame waits before its gaps are NACKed.
     pub fn new(carrier: Carrier, deadline_us: u64, nack_after_us: u64) -> Self {
         Self::for_stream(carrier, 0, deadline_us, nack_after_us)
@@ -100,8 +115,7 @@ impl Receiver {
         Self {
             carrier,
             stream,
-            nack_after_us,
-            reassembler: Reassembler::new(deadline_us),
+            reassembler: Reassembler::with_nack_after(deadline_us, nack_after_us),
             deframer: StreamDeframer::default(),
             ready: VecDeque::new(),
             messages: VecDeque::new(),
@@ -109,10 +123,14 @@ impl Receiver {
             arrivals: VecDeque::new(),
             decode_us: VecDeque::new(),
             keyframe_requested: false,
+            chain_broken: false,
+            recovery_sent: false,
             released_since_feedback: false,
             last_feedback_us: None,
             frames_released: 0,
             frames_lost: 0,
+            frames_skipped: 0,
+            frames_queued: 0,
             failed: false,
         }
     }
@@ -175,6 +193,27 @@ impl Receiver {
         self.ready.len()
     }
 
+    /// Frames ever put on the ready queue, dropped ones included.
+    pub fn frames_queued(&self) -> u64 {
+        self.frames_queued
+    }
+
+    /// The session's round trip (clock pings), which sizes how long a NACKed
+    /// frame is waited for; `None` when unknown.
+    pub fn set_path_rtt_us(&mut self, rtt_us: Option<u64>) {
+        self.reassembler.set_path_rtt_us(rtt_us);
+    }
+
+    /// How long a NACKed frame is waited for before recovery is requested.
+    pub fn repair_window_us(&self) -> u64 {
+        self.reassembler.repair_window_us()
+    }
+
+    /// How long after a NACK an unanswered shard is requested again.
+    pub fn retry_us(&self) -> u64 {
+        self.reassembler.retry_us()
+    }
+
     /// The oldest queued message.
     pub fn pop_message(&mut self) -> Option<Message> {
         let m = self.messages.pop_front()?;
@@ -193,12 +232,20 @@ impl Receiver {
     /// Asks the host for a keyframe (a decode error or a frame gap). The
     /// request rides every feedback until a keyframe is released.
     pub fn request_keyframe(&mut self) {
+        // A new request goes out in the next feedback, not on the interval.
+        self.recovery_sent &= self.keyframe_requested;
         self.keyframe_requested = true;
     }
 
     /// Whether the next feedback asks the host to recover.
     pub fn need_recovery(&self) -> bool {
-        self.keyframe_requested || self.reassembler.need_recovery()
+        self.keyframe_requested || self.chain_broken || self.reassembler.need_recovery()
+    }
+
+    /// A recovery request that no feedback carried yet: it goes out at once,
+    /// so a given-up frame costs one round trip, not a feedback interval more.
+    fn recovery_unsent(&self) -> bool {
+        self.need_recovery() && !self.recovery_sent
     }
 
     /// Counters for the status line.
@@ -208,6 +255,7 @@ impl Receiver {
             need_recovery: self.need_recovery(),
             frames_released: self.frames_released,
             frames_lost: self.frames_lost,
+            frames_skipped: self.frames_skipped,
         }
     }
 
@@ -220,7 +268,10 @@ impl Receiver {
             return u64::MAX;
         }
         let Some(last) = self.last_feedback_us else { return 0 };
-        if self.released_since_feedback || self.arrivals.len() > MAX_ARRIVALS {
+        if self.released_since_feedback
+            || self.arrivals.len() > MAX_ARRIVALS
+            || self.recovery_unsent()
+        {
             return 0;
         }
         let mut deadline = last.saturating_add(KEEPALIVE_US);
@@ -230,8 +281,7 @@ impl Receiver {
         if let Some(expiry) = self.reassembler.next_expiry_us() {
             deadline = deadline.min(expiry);
         }
-        if let Some(nack) = self.reassembler.next_nack_us(self.nack_after_us, FEEDBACK_INTERVAL_US)
-        {
+        if let Some(nack) = self.reassembler.next_nack_us() {
             deadline = deadline.min(nack);
         }
         deadline
@@ -248,14 +298,12 @@ impl Receiver {
         let due = since.is_none_or(|s| s >= FEEDBACK_INTERVAL_US);
         let keepalive = since.is_none_or(|s| s >= KEEPALIVE_US);
         let overflow = self.arrivals.len() > MAX_ARRIVALS;
-        let nack_due = self
-            .reassembler
-            .next_nack_us(self.nack_after_us, FEEDBACK_INTERVAL_US)
-            .is_some_and(|deadline| now_us >= deadline);
+        let nack_due = self.reassembler.next_nack_us().is_some_and(|deadline| now_us >= deadline);
         if !(self.released_since_feedback
             || keepalive
             || overflow
             || nack_due
+            || self.recovery_unsent()
             || (due && (!self.arrivals.is_empty() || self.need_recovery())))
         {
             return None;
@@ -272,6 +320,7 @@ impl Receiver {
         } else {
             self.last_feedback_us = Some(now_us);
             self.released_since_feedback = false;
+            self.recovery_sent = self.need_recovery();
             Feedback {
                 acked_frame: self.reassembler.last_released(),
                 decode_us: self.median_decode_us(),
@@ -290,7 +339,7 @@ impl Receiver {
     }
 
     fn nacks(&mut self, now_us: u64) -> Vec<Nack> {
-        self.reassembler.take_nacks(now_us, self.nack_after_us, FEEDBACK_INTERVAL_US)
+        self.reassembler.take_nacks(now_us)
     }
 
     fn frame_datagram(&self, payload: &[u8]) -> Vec<u8> {
@@ -355,25 +404,50 @@ impl Receiver {
         Ok(())
     }
 
+    /// Queues a released frame, newest wins. What may be dropped:
+    /// - A keyframe (an IDR, which flushes every reference) needs no earlier
+    ///   frame, so every frame still waiting is dropped and counted skipped.
+    /// - A P-frame or a recovery frame needs its reference chain decoded in
+    ///   order, so it never drops the frames before it. A recovery frame does
+    ///   not drop either: frames between its reference and itself may be
+    ///   long-term references the host predicts from later, and the host
+    ///   counts them received (`acked_frame`).
+    /// - A tile frame (rd change C3) tops off its own region only, so tiles
+    ///   are never dropped for each other and never drop video frames.
+    ///
+    /// A chain longer than [`MAX_READY_FRAMES`] means the caller fell behind:
+    /// the whole chain is dropped (decoding past a hole shows a corrupted
+    /// picture), and so is every frame after it until a keyframe arrives.
     fn on_released(&mut self, frame: CompleteFrame) {
         self.released_since_feedback = true;
         self.frames_released += 1;
-        let keyframe = frame.flags & flags::KEYFRAME != 0 || frame.body.ref_frame == REF_NONE;
+        let tile = frame.flags & flags::TILE != 0;
+        let keyframe =
+            !tile && (frame.flags & flags::KEYFRAME != 0 || frame.body.ref_frame == REF_NONE);
         if keyframe {
             self.keyframe_requested = false;
-        }
-        if self.ready.len() >= MAX_READY_FRAMES {
-            // The caller fell behind. The dropped frame breaks the reference
-            // chain, so the decoder must restart from a keyframe, unless the
-            // new frame is one.
-            self.ready.pop_front();
+            self.chain_broken = false;
+            self.frames_skipped += self.ready.len() as u64;
+            self.ready.clear();
+        } else if self.chain_broken {
             self.frames_lost += 1;
-            self.keyframe_requested |= !keyframe;
+            return;
+        } else if self.ready.len() >= MAX_READY_FRAMES {
+            self.frames_lost += self.ready.len() as u64 + 1;
+            self.ready.clear();
+            self.chain_broken = !tile;
+            self.keyframe_requested = true;
+            return;
         }
+        self.frames_queued += 1;
         self.ready.push_back(frame);
     }
 
     fn count_losses(&mut self) {
         self.frames_lost += self.reassembler.take_losses().len() as u64;
+        // Recovered: the next request is new and goes out at once.
+        if !self.need_recovery() {
+            self.recovery_sent = false;
+        }
     }
 }
