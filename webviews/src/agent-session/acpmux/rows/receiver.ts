@@ -12,6 +12,7 @@
 // frame, and a hidden page (whose frame lane does not run) answers nothing until it is shown.
 import { pageLanes, type Lanes, type Slice } from "../schedule";
 import type { ChatRowsBatch, ChatRowsHost, ChatRowsPost } from "./host";
+import { StorePart } from "./store";
 import { changeSid, parseChange } from "./wire";
 
 const hosts = new Set<ChatRowsHost>();
@@ -20,6 +21,8 @@ const hosts = new Set<ChatRowsHost>();
 /// the host sends no more changes until `taken` names the batch.
 let takenPost: ChatRowsPost | undefined;
 /// The lanes the document's receiver applies in; a test sets its own through `listenForChatRows`.
+/// They live as long as the document: lanes disposed with a drain queued would drop it, and no
+/// batch would be taken again until `resetChatRowsReceiver`.
 let documentLanes: Lanes | undefined;
 
 /// The frame lane's key for this work: one drain at a time, whatever the number of batches.
@@ -28,8 +31,10 @@ const FRAME_KEY = "chat-rows";
 /// Batches received and not yet taken, oldest first. The host holds one batch until it is taken, so
 /// this holds at most one in practice.
 const pending: ChatRowsBatch[] = [];
-/// The batch being applied: the next change's index, and the stores it touched so far.
-let current: { batch: ChatRowsBatch; next: number; touched: Set<ChatRowsHost> } | undefined;
+/// The batch being applied: the next change's index, and each store's part of it so far. A change
+/// goes to the store that holds its sid when it is applied, so a host dropped mid-batch (its sids
+/// closed first) takes none of the rest.
+let current: { batch: ChatRowsBatch; next: number; parts: Map<ChatRowsHost, StorePart> } | undefined;
 /// A drain is queued in the frame lane or running there (it takes batches that come meanwhile).
 let draining = false;
 /// A store's first throw since the drain began; it may span slices.
@@ -93,37 +98,35 @@ function drain(lanes: Lanes, slice: Slice, applied: number): void | Promise<void
     if (!current) {
       const batch = pending.shift();
       if (!batch) break;
-      current = { batch, next: 0, touched: new Set() };
+      current = { batch, next: 0, parts: new Map() };
     }
-    const { batch, touched } = current;
+    const { batch, parts } = current;
     while (current.next < batch.changes.length) {
       if (applied > 0 && (slice.shouldYield() || lanes.inputPending())) {
         return lanes.yield().then(() => drain(lanes, slice, 0));
       }
-      const line = batch.changes[current.next++]!;
+      const line = batch.changes[current.next++];
       applied += 1;
-      const change = parseChange(line);
-      const sid = change && changeSid(change);
-      if (!change || sid === null) continue;
-      for (const host of hosts)
-        if (host.store.has(sid)) {
-          try {
-            host.store.applyPart([change]);
-          } catch (error) {
-            failed ??= { error };
-          }
-          touched.add(host);
-          break;
-        }
-    }
-    current = undefined;
-    for (const host of touched)
+      // Nothing one change does (a line that is not a change, a store that throws) may stop the
+      // drain: the batch is still taken, or the host would wait on it for good.
       try {
-        host.store.commit();
+        applyChange(line, parts);
       } catch (error) {
         failed ??= { error };
       }
-    if (takenPost) void takenPost("chat.rows.taken", { batch: batch.batch }).catch(() => {});
+    }
+    current = undefined;
+    for (const [host, part] of parts)
+      try {
+        host.store.commit(part);
+      } catch (error) {
+        failed ??= { error };
+      }
+    try {
+      if (takenPost) void takenPost("chat.rows.taken", { batch: batch.batch }).catch(() => {});
+    } catch (error) {
+      failed ??= { error };
+    }
   }
   draining = false;
   // Reported once every kept batch is applied and taken: a throw that stopped the drain would leave
@@ -131,4 +134,19 @@ function drain(lanes: Lanes, slice: Slice, applied: number): void | Promise<void
   const error = failed;
   failed = undefined;
   if (error) throw error.error;
+}
+
+/// One change to the store that holds its sid now; one the page holds in no store is dropped.
+function applyChange(line: unknown, parts: Map<ChatRowsHost, StorePart>): void {
+  if (typeof line !== "string") return;
+  const change = parseChange(line);
+  const sid = change && changeSid(change);
+  if (!change || sid === null) return;
+  for (const host of hosts)
+    if (host.store.has(sid)) {
+      let part = parts.get(host);
+      if (!part) parts.set(host, (part = new StorePart()));
+      host.store.applyPart(part, [change]);
+      return;
+    }
 }

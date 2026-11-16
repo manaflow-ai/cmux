@@ -28,9 +28,9 @@
  */
 import { ChatRowsHost, type ChatRowsPost } from "../src/agent-session/acpmux/rows/host";
 import { addChatRowsHost, receiveChatRows, resetChatRowsReceiver } from "../src/agent-session/acpmux/rows/receiver";
-import { createLanes, type Lanes, type LanesEnv } from "../src/agent-session/acpmux/schedule";
+import { createLanes, type LanesEnv } from "../src/agent-session/acpmux/schedule";
 import { STORE_MAX_BYTES, STORE_MAX_ROWS } from "../src/agent-session/acpmux/rows/store";
-import type { ChatRow } from "../src/agent-session/acpmux/rows/wire";
+import { changeSid, parseChange, type ChatChange, type ChatRow } from "../src/agent-session/acpmux/rows/wire";
 import { perfRow } from "./perfRow";
 
 const ROUNDS = Number(process.env.ROUNDS ?? 20);
@@ -224,20 +224,22 @@ const textOk = textRatio <= LIMIT;
 // v2.frame_paced: the document's receiver (rows/receiver.ts, the path `window.cmuxChatRows`
 // takes), fed as the v2 row host feeds it: one batch of at most 64 KiB, the next only after
 // `taken`, which the host reads in a later task. Frames are a loop run here on the real clock:
-// each frame runs its rAF callbacks, then every task they and the host post. "before" applies in
-// the receiving task (the receiver before frame pacing, as `immediateLanes` runs it); "after"
-// applies in the frame lane (schedule/lanes.ts with this engine). Reports apply ms per batch,
-// batches taken per frame, the longest task, and the apply time of one 256 KiB change.
-function immediateLanes(): Lanes {
-  const slice = { timeLeft: () => Number.POSITIVE_INFINITY, shouldYield: () => false };
-  return {
-    frame: (_key, fn) => void fn(slice),
-    idle: (_key, fn) => void fn(slice),
-    inputPending: () => false,
-    yield: () => Promise.resolve(),
-    flush: () => {},
-    dispose: () => {},
-  };
+// each frame runs its rAF callbacks, then every task they and the host post. "before" is the
+// receiver as it was before frame pacing (`receiveInTask`, a copy of its body: decode the batch,
+// one applyBatch, taken, all in the receiving task); "after" is rows/receiver.ts in the frame lane
+// (schedule/lanes.ts on this engine). Reports apply ms per batch, batches taken per frame, the
+// stream ms of the busiest frame, the longest task, and the apply time of one 256 KiB change.
+function receiveInTask(host: ChatRowsHost, post: ChatRowsPost, event: { batch: number; changes: readonly string[] }) {
+  const changes: ChatChange[] = [];
+  for (const line of event.changes) {
+    const change = parseChange(line);
+    if (change && changeSid(change) !== null && host.store.has(changeSid(change)!)) changes.push(change);
+  }
+  try {
+    host.store.applyBatch(changes);
+  } finally {
+    void post("chat.rows.taken", { batch: event.batch }).catch(() => {});
+  }
 }
 
 function frameLoopEngine() {
@@ -313,7 +315,7 @@ function rowBatches(sid: string, firstId: number, count: number, batchBytes: num
 async function framePaced(mode: "before" | "after", batchCount: number) {
   resetChatRowsReceiver();
   const engine = frameLoopEngine();
-  const lanes = mode === "before" ? immediateLanes() : createLanes(engine.env);
+  const lanes = mode === "before" ? null : createLanes(engine.env);
   const sid = `paced-${mode}`;
   const batches = rowBatches(sid, 101, batchCount, 64 * 1024);
   let sent = 0;
@@ -338,18 +340,24 @@ async function framePaced(mode: "before" | "after", batchCount: number) {
   function send() {
     if (sent >= batches.length) return;
     sentAt = engine.busy();
-    receiveChatRows({ batch: ++sent, changes: batches[sent - 1]! }, lanes);
+    const event = { batch: ++sent, changes: batches[sent - 1]! };
+    if (lanes) receiveChatRows(event, lanes);
+    else receiveInTask(host, post, event);
   }
   const perFrame: number[] = [];
+  /// Main-thread ms of stream work between one frame and the next.
+  const frameMs: number[] = [];
   engine.resetLongest();
   engine.post(send);
   for (let frame = 0; frame < batchCount * 4 && applyMs.length < batchCount; frame += 1) {
     takenThisFrame = 0;
+    const busyBefore = engine.busy();
     await engine.frame();
     perFrame.push(takenThisFrame);
+    frameMs.push(engine.busy() - busyBefore);
   }
   if (applyMs.length !== batchCount) throw new Error(`${mode}: ${applyMs.length} of ${batchCount} batches taken`);
-  lanes.dispose();
+  lanes?.dispose();
   const framesWithWork = perFrame.filter((count) => count > 0);
   return {
     batches: batchCount,
@@ -358,6 +366,7 @@ async function framePaced(mode: "before" | "after", batchCount: number) {
     applyP95Ms: round4(percentile(applyMs, 0.95)),
     maxTakenPerFrame: Math.max(...perFrame),
     framesUsed: framesWithWork.length,
+    busiestFrameMs: round4(Math.max(...frameMs)),
     longestTaskMs: round4(engine.longest),
   };
 }

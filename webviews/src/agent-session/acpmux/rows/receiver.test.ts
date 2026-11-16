@@ -60,6 +60,10 @@ function fakeEngine() {
         await settle();
       }
     },
+    /** A task from outside the page (the host's reply), run with the others after a frame. */
+    hostTask(cb: () => void) {
+      tasks.push(cb);
+    },
     key() {
       fire("keydown");
     },
@@ -143,7 +147,7 @@ test("one taken per frame against a host that sends the next batch after taken",
     receiveChatRows({ batch: sent, changes: [rowChange(sent * 2 - 1), rowChange(sent * 2)] }, lanes);
   };
   // The host reads `taken` in a later task, then sends.
-  onTaken(() => void Promise.resolve().then(() => setTimeout(send, 0)));
+  onTaken(() => engine.hostTask(send));
   send();
   const perFrame: number[] = [];
   for (let frame = 0; frame < 6; frame += 1) {
@@ -177,13 +181,13 @@ test("a 256 KiB change gives way to a pending key before and after it, and is ap
   const big = "x".repeat(256 * 1024);
   const applied: { id: number; bytes: number }[] = [];
   const applyPart = host.store.applyPart.bind(host.store);
-  host.store.applyPart = (changes) => {
+  host.store.applyPart = (part, changes) => {
     for (const change of changes)
       if (change.kind === "chatOp" && change.op.op === "row") {
         const text = (change.op.row.body as { text: string }).text;
         applied.push({ id: change.op.row.id, bytes: text.length });
       }
-    applyPart(changes);
+    applyPart(part, changes);
     // A key comes in while each change is applied.
     engine.key();
   };
@@ -207,4 +211,26 @@ test("a 256 KiB change gives way to a pending key before and after it, and is ap
   expect(taken()).toEqual([9]);
   expect(host.store.snapshot(SID)!.rows.length).toBe(4);
   expect(engine.errors).toEqual([]);
+});
+
+test("a line that is not a change and a store that throws: the batch is still taken, the next one too, the error reported", async () => {
+  const { engine, lanes, host, taken } = setup();
+  made.push(lanes);
+  const applyPart = host.store.applyPart.bind(host.store);
+  let throwOnce = true;
+  host.store.applyPart = (part, changes) => {
+    if (throwOnce) {
+      throwOnce = false;
+      throw new Error("broken store");
+    }
+    applyPart(part, changes);
+  };
+  const notChanges = [42, "{", JSON.stringify({ kind: "chatWindow" })] as unknown as string[];
+  receiveChatRows({ batch: 1, changes: [rowChange(1), ...notChanges, rowChange(2)] }, lanes);
+  await engine.frame();
+  expect(taken()).toEqual([1]);
+  expect(engine.errors.map((error) => (error as Error).message)).toEqual(["broken store"]);
+  receiveChatRows({ batch: 2, changes: [rowChange(3)] }, lanes);
+  await engine.frame();
+  expect(taken()).toEqual([1, 2]);
 });
