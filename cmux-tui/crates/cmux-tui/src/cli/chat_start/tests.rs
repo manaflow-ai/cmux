@@ -1461,3 +1461,41 @@ fn a_failing_cmux_acp_keeps_its_pretty_answer() {
     assert_eq!(error["code"], "acpmux.failed", "{error}");
     assert_eq!(error["details"]["answer"]["timedOut"], true, "{error}");
 }
+
+/// Door A timing run (huge-blue/doora-timing, 2026-11-16): `cmux device add` printed
+/// `cmux chat --on doora-vm-1 --prompt '…'`, and on a Mac with no cmux session running that
+/// line failed in 0 s with "cannot connect to cmux session": the catalog read had no app to
+/// ask, and that refusal was final. With no session, the joined machine is still found through
+/// acpmux and the account, which need no app.
+#[test]
+fn the_line_device_add_prints_finds_the_machine_with_no_cmux_session() {
+    let no_session = || {
+        Err(json!({"code": "daemon.unreachable", "message": "cannot connect to cmux session",
+                   "details": {}, "retryable": true}))
+    };
+    let on = |on: &'static str| {
+        route_or_joined(
+            Some(on),
+            || {
+                route(
+                    Some(on),
+                    Reads {
+                        catalog: no_session,
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                    },
+                )
+            },
+            Sources {
+                hub: || vec![json!({"name": "doora-vm-1", "connected": true, "via": "hub"})],
+                rows: || {
+                    Ok(vec![json!({"kind": "joined", "id": "m_vm1", "name": "doora-vm-1",
+                                   "hostname": "doora-vm-1", "state": "online"})])
+                },
+            },
+        )
+    };
+    assert_eq!(on("doora-vm-1"), joined_at(Some("m_vm1"), "doora-vm-1", "doora-vm-1"));
+    // A name no joined machine has keeps the session's own refusal.
+    assert_eq!(on("nowhere").unwrap_err()["code"], "daemon.unreachable");
+}

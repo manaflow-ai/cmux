@@ -755,9 +755,12 @@ where
     }
     let first = first();
     let (Some(selector), Err(error)) = (on, &first) else { return first };
+    // No cmux session to read a catalog from (`daemon.unreachable`) is no answer about the
+    // name: a machine `cmux device add` joined is still found through acpmux and the account,
+    // which need no app (the line device add prints: `cmux chat --on NAME --prompt …`).
     let fallback = matches!(
         error.get("code").and_then(Value::as_str),
-        Some("chat_target.unknown_device" | "chat_target.no_route")
+        Some("chat_target.unknown_device" | "chat_target.no_route" | "daemon.unreachable")
     );
     if !fallback {
         return first;
