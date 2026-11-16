@@ -176,6 +176,28 @@ class ScreenDiffTests(unittest.TestCase):
         self.assertIn("No screen differs from feat-cmux-next.", text)
         self.assertNotIn(MENTION, text)
 
+    def test_a_name_with_dots_matches_across_runs(self) -> None:
+        # xcresulttool puts `_0_<UUID>` before the last dot of `...DEAD-setup.teams.personal`.
+        def export(root: Path, uuid: str) -> None:
+            directory = root / "screens" / "iphone"
+            directory.mkdir(parents=True)
+            (directory / f"{uuid}.png").write_bytes(screen())
+            human = f"gate-iphone-walk-onboarding-DEAD-setup.teams_0_{uuid}.personal"
+            (directory / "manifest.json").write_text(json.dumps([{"attachments": [
+                {"exportedFileName": f"{uuid}.png", "suggestedHumanReadableName": human, "timestamp": 1}]}]))
+        export(self.head, "0DDA6791-43D3-4063-B3CE-10CE7EF19FD0")
+        export(self.base, "10C08201-3B79-4659-97F5-9B3D7EBCB056")
+        _, text = self.run_diff()
+        self.assertIn("No screen differs from feat-cmux-next.", text)
+        self.assertIn("1 screens unchanged", text)
+
+    def test_a_visual_change_line_in_a_code_fence_justifies_nothing(self) -> None:
+        write_family(self.base, "iphone", {"gate-iphone-home-01": screen()})
+        write_family(self.head, "iphone", {"gate-iphone-home-01": screen(patch=(0, 0, 10, 10, (0, 0, 0, 255)))})
+        _, text = self.run_diff("Use this format:\n\n```\nVisual-change: gate-iphone-home-*: an example\n```\n")
+        self.assertIn("| iphone | `gate-iphone-home-01` | changed | 25.00% | 10x10 at 0,0 | unjustified |", text)
+        self.assertIn(f"cc {MENTION}", text)
+
     def test_every_png_filter_decodes_the_same_pixels(self) -> None:
         pixels = [[((x * 37 + y * 11) & 0xFF, (x * y) & 0xFF, (200 - x * 3) & 0xFF, 255) for x in range(9)]
                   for y in range(7)]
