@@ -92,7 +92,7 @@ public final class PanePaintHold {
         keptSince = since
         gated.whenFirstPainted { [weak self] in self?.end(token) }
         // A later hold replaces this deadline; the token keeps it to its own hold.
-        deadline.schedule(after: max(.zero, Self.limit - (now - since))) { @MainActor [weak self] in
+        deadline.schedule(after: Self.limit) { @MainActor [weak self] in
             self?.end(token)
         }
     }
