@@ -92,9 +92,15 @@ impl std::fmt::Debug for LaunchRecord {
 impl LaunchRecord {
     pub fn read(path: impl AsRef<Path>) -> Option<Self> {
         let file = File::open(path).ok()?;
-        let mut bytes = Vec::with_capacity(MAX_BYTES);
-        file.take((MAX_BYTES + 1) as u64).read_to_end(&mut bytes).ok()?;
-        if bytes.len() > MAX_BYTES {
+        let length = file.metadata().ok()?.len();
+        if length > MAX_BYTES as u64 {
+            return None;
+        }
+        let mut bytes = vec![0; length as usize];
+        let mut file = file;
+        file.read_exact(&mut bytes).ok()?;
+        let mut extra = [0u8; 1];
+        if file.read(&mut extra).ok()? != 0 {
             return None;
         }
         Self::from_bytes(bytes)
