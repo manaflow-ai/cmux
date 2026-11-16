@@ -40,6 +40,7 @@ groups! {
     pr05f,
     pr05g,
     pr05h,
+    pr05i,
     pr06,
     pr07,
     pr07b,

@@ -177,9 +177,17 @@ pub const PANEL_OPS: &[&str] = &["fs.pick"];
 /// marks a chat read or pins it only in answer to a tap, never on its own.
 pub const PERSON_MARK_OPS: &[&str] = &["chat.mark_read", "chat.pin"];
 
+/// Page ops that draw over or act in the browser page the person sees (link
+/// hints, following one; provider family `page`, the Mac app's PageAppOps):
+/// an app shows or follows hints only in answer to a key or a tap.
+pub const PAGE_VIEW_OPS: &[&str] = &["page.hints", "page.follow"];
+
 /// Whether an app call of `op` needs a live user gesture.
 pub fn needs_gesture(op: &str) -> bool {
-    VIEW_STATE_OPS.contains(&op) || PANEL_OPS.contains(&op) || PERSON_MARK_OPS.contains(&op)
+    VIEW_STATE_OPS.contains(&op)
+        || PANEL_OPS.contains(&op)
+        || PERSON_MARK_OPS.contains(&op)
+        || PAGE_VIEW_OPS.contains(&op)
 }
 
 /// The escalation of `op`, if it has one.
