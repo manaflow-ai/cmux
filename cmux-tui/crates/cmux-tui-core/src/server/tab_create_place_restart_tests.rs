@@ -10,6 +10,10 @@ use super::tab_create_place_chain_tests::{HeldConnection, terminal};
 use super::tab_create_place_tests::{Kind, run_as, surface_of, tabs, with};
 use crate::resource::TabPublicId;
 
+/// A safety bound of the wait for the session's locks: the test fails at
+/// the bound, and no test passes by it.
+const WAIT: Duration = Duration::from_secs(30);
+
 /// One session folder. Each [`Self::open`] is a daemon on it.
 struct Session {
     root: std::path::PathBuf,
@@ -42,6 +46,48 @@ impl Session {
         mux.shutdown();
         drop(mux);
         self.open()
+    }
+
+    /// The 2 locks that a daemon holds on the session for its whole life:
+    /// the guard of the session's name and the lock of its writer.
+    fn locks(&self) -> Vec<std::path::PathBuf> {
+        let mut locks = Vec::new();
+        for entry in std::fs::read_dir(self.root.join("session-locks")).unwrap() {
+            let guard = entry.unwrap().path();
+            let name = guard.file_name().and_then(|name| name.to_str());
+            let Some(session) = name
+                .and_then(|name| name.strip_suffix(".lock"))
+                .filter(|session| !session.starts_with('.'))
+            else {
+                continue;
+            };
+            let writer = self.root.join(session).join("writer.lock");
+            locks.extend([guard, writer]);
+        }
+        assert_eq!(locks.len(), 2, "one session has one guard and one writer lock: {locks:?}");
+        locks
+    }
+
+    /// Waits until the daemon `stopped` has let the session go. After a stop
+    /// in a test the process lives on, and a job of that daemon can hold the
+    /// daemon for a moment more; a stop of the real daemon ends its process.
+    /// The wait is on the session's own locks: a thread takes each lock (it
+    /// waits as long as another holder keeps it) and lets it go at once.
+    fn wait_until_free(&self, stopped: &std::sync::Weak<Mux>) {
+        let locks = self.locks();
+        let (free, freed) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let taken = locks.iter().try_for_each(|path| {
+                let file = std::fs::File::options().read(true).write(true).open(path)?;
+                cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Exclusive).map(drop)
+            });
+            let _ = free.send(taken);
+        });
+        let taken = freed.recv_timeout(WAIT).unwrap_or_else(|_| {
+            let holders = stopped.strong_count();
+            panic!("the stopped daemon kept its session: {holders} holders of it are left")
+        });
+        taken.expect("a lock file of the session");
     }
 }
 
@@ -183,8 +229,9 @@ struct HeldAtStop {
 /// Session 3, a stop with an open slot: a strip `[a, b]`; a terminal creation takes the slot after `a`
 /// and its launch is held; a page that names that creation commits. The
 /// daemon stops with the slot of the held creation open. The launch job
-/// ends after the stop began (in a test the process lives on, so the job
-/// must end before the folder opens again), then a daemon starts.
+/// ends after the stop began (in a test the process lives on, so the
+/// helper waits until the stopped daemon has let the session go before the
+/// folder opens again), then a daemon starts.
 fn stop_with_a_held_launch(name: &'static str) -> HeldAtStop {
     let session = Session::new(name);
     let mux = session.open();
@@ -207,8 +254,10 @@ fn stop_with_a_held_launch(name: &'static str) -> HeldAtStop {
         tabs(&mux, pane).into_iter().filter(|tab| !committed.contains(tab)).collect();
     assert!(late.len() <= 1, "one creation was held: {late:?}");
     let late = late.first().map(|tab| id_of(&mux, *tab));
+    let stopped = Arc::downgrade(&mux);
     drop(connection);
     drop(mux);
+    session.wait_until_free(&stopped);
 
     let mux = session.open();
     let after = ids_after_start(&mux, &before);
