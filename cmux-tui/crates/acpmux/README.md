@@ -1651,7 +1651,10 @@ Session summaries carry `lastTurn`; `acpmux wait` exits 1 when a resolved sessio
 before it, with the automatic retry that waits, if one does (`retry`: what it waits out and when
 it runs). When Codex abandons a partial answer after a
 dropped stream and redelivers it, acpmux records `message_superseded {oldMessageId,
-newMessageId}` before the redelivery. Other harnesses send no such signal.
+newMessageId}` before the redelivery. When a Claude Code Stop hook blocks the turn's end right
+after a reply and the agent sends its reply again with no call the person sees between, acpmux
+records `message_superseded` with `reason: "stop_hook"` before the new reply, and a client draws it
+in the first one's place. Other harnesses send no such signal.
 
 The daemon binds its socket and `--listen` address (`127.0.0.1:0` picks a free port) before it
 imports the login shell environment, so `_acpmux/status` answers at once; session creation waits

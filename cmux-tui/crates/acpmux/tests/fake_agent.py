@@ -1389,6 +1389,21 @@ def handle_prompt(rid, params):
         chunk("g")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "stop-hook-resend" ends a reply, a Stop hook blocks the stop (the update
+    # claude_stdio writes for Claude Code's synthetic "Stop hook feedback:" line), and the
+    # reply goes again under a new messageId, a thought and a progress tick between.
+    # "stop-hook-after-tool" runs a tool call after the hook first: its words are new.
+    if text in ("stop-hook-resend", "stop-hook-after-tool"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "r1", "content": {"type": "text", "text": "A few updates: it's fixed now."}})
+        update(sid, {"sessionUpdate": "usage_update", "used": 10, "size": 1000})
+        update(sid, {"sessionUpdate": "stop_hook_feedback", "text": "Rewrite only that sentence."})
+        update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "rewrite it"}})
+        update(sid, {"sessionUpdate": "subagent_progress", "agentId": "a1", "action": "Bash"})
+        if text == "stop-hook-after-tool":
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": "hook-tc", "title": "ls", "kind": "read", "status": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "r2", "content": {"type": "text", "text": "A few updates: a change is pushed, unconfirmed."}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "codex-retry" streams a partial message, reports a Codex stream retry,
     # then redelivers the answer under a new messageId. "codex-retry-after-tool"
     # finishes the message with a tool call before the retry notice;

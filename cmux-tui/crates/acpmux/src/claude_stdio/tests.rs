@@ -727,3 +727,39 @@ fn claude_chats_keep_per_machine_sections_out_of_the_cached_system_prompt() {
         plan.args
     );
 }
+
+/// Leo, 2026-11-14, "why did u send this twice?": a Stop hook that blocks the turn's end is a
+/// synthetic user line (`Stop hook feedback:` and its reason); it goes to the hub as one update,
+/// which keys the reply sent again after it (`hub/stream.rs`), and is never a prompt row.
+#[tokio::test]
+async fn a_stop_hook_block_is_one_update_with_its_reason() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let line = json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isSynthetic": true,
+        "message": {"role": "user", "content": [{"type": "text", "text": "Stop hook feedback:\nRewrite only that sentence."}]}});
+    let msgs = t.inbound(&line).await;
+    let updates: Vec<&Value> = msgs
+        .iter()
+        .filter_map(|m| match m {
+            Message::Notification { params: Some(p), .. } => p.get("update"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        updates,
+        vec![
+            &json!({"sessionUpdate": "stop_hook_feedback", "text": "Rewrite only that sentence."})
+        ]
+    );
+    // A subagent's own Stop hook (SubagentStop) is its own; any other synthetic line is no hook.
+    let sub = json!({"type": "user", "parent_tool_use_id": "toolu_1", "isSynthetic": true,
+        "message": {"role": "user", "content": [{"type": "text", "text": "Stop hook feedback:\nx"}]}});
+    let other = json!({"type": "user", "parent_tool_use_id": null, "isSynthetic": true,
+        "message": {"role": "user", "content": "hook text"}});
+    for line in [sub, other] {
+        let msgs = t.inbound(&line).await;
+        assert!(
+            !msgs.iter().any(|m| matches!(m, Message::Notification { params: Some(p), .. } if p.pointer("/update/sessionUpdate") == Some(&json!("stop_hook_feedback")))),
+            "{msgs:?}"
+        );
+    }
+}

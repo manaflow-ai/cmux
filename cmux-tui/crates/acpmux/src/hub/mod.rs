@@ -773,6 +773,12 @@ pub(super) struct StreamState {
     /// Set by a harness retry signal while `open_message` was streaming:
     /// (abandoned messageId, the retry notice text).
     pub(super) retry_from: Option<(String, String)>,
+    /// `messageId` of this turn's last reply, kept across thoughts and progress ticks until a
+    /// call the person sees, a plan or a prompt comes after it (`stream.rs` `ends_revision`).
+    pub(super) last_reply: Option<String>,
+    /// Set by a blocked Stop hook right after `last_reply`: (that messageId, the hook's reason).
+    /// The next reply replaces it (`message_superseded`, reason `stop_hook`).
+    pub(super) revise_from: Option<(String, String)>,
     /// A terminal error the harness reported in-band during this turn.
     pub(super) harness_error: Option<Value>,
     /// Text and sequences of the trailing `agent_message_chunk` records of
@@ -2595,9 +2601,14 @@ impl Hub {
         at: Option<u64>,
     ) -> (EventRecord, bool) {
         let mut msg = msg;
-        // A prompt (a steer too) starts a new checklist in the pane (`stream.rs` `cuts_reply`).
+        // A prompt (a steer too) starts a new checklist in the pane (`stream.rs` `cuts_reply`),
+        // and the reply after it answers it: it replaces no reply before it (`stream.rs`
+        // `ends_revision`).
         if dir == "mux" && kind == "user_message" {
-            session.stream.lock().unwrap_or_else(|e| e.into_inner()).plan_shown = false;
+            let mut st = session.stream.lock().unwrap_or_else(|e| e.into_inner());
+            st.plan_shown = false;
+            st.last_reply = None;
+            st.revise_from = None;
         }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);

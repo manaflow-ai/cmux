@@ -13,6 +13,9 @@ const NON_TRANSCRIPT_UPDATES: &[&str] = &[
     "compaction_summary",
     // A suggested next prompt is composer state, not a chat row (`claude_stdio/prompt_suggestions.rs`).
     "prompt_suggestion",
+    // A blocked Stop hook's reason: the hub reads it (`stream.rs`, `message_superseded` reason
+    // `stop_hook`); it is not a chat row.
+    "stop_hook_feedback",
 ];
 
 /// Updates a `transcript` stream hears live but a page leaves out (`matches_live`): a
