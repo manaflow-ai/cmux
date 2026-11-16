@@ -302,12 +302,14 @@ use group_outcome_json::{
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
+mod agent_cli_hybrid;
 mod attach_output_coalesce;
 mod connection_wait;
 mod terminal_create;
 mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
+pub use agent_cli_hybrid::AGENT_CLI_HYBRID_CAPABILITY;
 pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
@@ -2492,6 +2494,13 @@ enum Command {
         /// (`attach-replay-history-window-v1`); omitted, the newest rows.
         #[serde(default)]
         replay_history_start: Option<u64>,
+        /// Bytes mode, `agent-cli-hybrid-v1`: the hybrid stream (`agent-cli-frame`
+        /// `stream`) and its last frame this viewer applied, to resume from it
+        /// instead of a keyframe. Both or neither; ignored without the capability.
+        #[serde(default)]
+        hybrid_stream: Option<String>,
+        #[serde(default)]
+        hybrid_frame: Option<u64>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
@@ -3193,6 +3202,10 @@ mod personal_tests;
 #[cfg(test)]
 #[path = "server/attach_output_coalesce_tests.rs"]
 mod attach_output_coalesce_tests;
+
+#[cfg(test)]
+#[path = "server/agent_cli_hybrid_tests.rs"]
+mod agent_cli_hybrid_tests;
 
 #[cfg(test)]
 #[path = "server/group_icon_raw_tests.rs"]
