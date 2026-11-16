@@ -20,6 +20,7 @@ const ARTICLE = `
     <div class="share-tools"><a href="#">Share</a><a href="#">Tweet</a></div>
     <div class="story-body">
       ${Array.from({ length: 8 }, (_, i) => `<p>Paragraph ${i + 1}: the library, which opened on Monday, keeps its doors open through the night, and readers, students and shift workers have already filled its tables, its study rooms and its quiet corners.</p>`).join("\n")}
+      <div class="inline-promo"><a href="/subscribe">Subscribe today</a></div>
       <figure><img data-src="/images/library.jpg" src="data:image/gif;base64,R0lGOD" alt="The reading room"><figcaption>The reading room at 2 a.m.</figcaption></figure>
       <p>Officials said the late hours would continue through the winter, with more branches to follow if the pilot works, and that the cost was covered by the city's existing budget.</p>
     </div>
@@ -47,7 +48,7 @@ describe.skipIf(!existsSync(happyDom))("reader page script", () => {
     expect(shadow.querySelector(".meta")!.textContent).toBe("Ana Ruiz · 1 min read")
     expect(body.textContent).toContain("Paragraph 8")
     expect(body.textContent).toContain("existing budget")
-    for (const junk of ["Accept", "Buy now", "Related one", "About", "Share", "World"]) expect(body.textContent).not.toContain(junk)
+    for (const junk of ["Accept", "Buy now", "Related one", "About", "Share", "World", "Subscribe today"]) expect(body.textContent).not.toContain(junk)
     expect(body.querySelector("img")!.getAttribute("src")).toBe("https://news.example.com/images/library.jpg")
     expect(body.querySelector("[class]")).toBeNull()
     expect(window.document.documentElement.style.overflow).toBe("hidden")

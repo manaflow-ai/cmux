@@ -2509,7 +2509,7 @@
       else img.setAttribute("src", src)
     }
     for (const node of [...copy.querySelectorAll("div, section, ul, ol, table, header, span, p")].reverse()) {
-      if (!node.isConnected) continue
+      if (!copy.contains(node)) continue // the copy is detached: isConnected is false for all of it
       const length = text(node).length
       const media = node.querySelector("img, pre, table")
       const junk = NEGATIVE.test(names(node)) && !POSITIVE.test(names(node))
