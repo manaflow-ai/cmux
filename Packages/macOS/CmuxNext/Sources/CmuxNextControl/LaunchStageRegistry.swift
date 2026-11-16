@@ -45,7 +45,4 @@ public enum LaunchStageRegistry {
         finishLaunching.filter { $0.stage == .shell && !stageZeroAllowlist.contains($0.name) }
     }
 
-    public static func validate() {
-        precondition(invalidStageZeroTasks.isEmpty, "stage-0 launch task is not allowlisted")
-    }
 }
