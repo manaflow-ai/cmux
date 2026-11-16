@@ -362,6 +362,7 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
         return {"arm": arm, "before": before, **row}
     finally:
         smoke.stop(smoke.own_pids(root))
+        smoke.forget_apps(root)
         shutil.rmtree(root, ignore_errors=True)
 
 
@@ -403,6 +404,7 @@ def round_once(smoke, mount_app: Path, bundle_id: str, executable: str, seconds:
                 print("NFL-SAMPLE", index, row["arm"], line, flush=True)
     finally:
         smoke.stop(smoke.own_pids(root))
+        smoke.forget_apps(root)
         shutil.rmtree(root, ignore_errors=True)
     return rows
 
