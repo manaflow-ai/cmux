@@ -140,6 +140,19 @@ paths twice and is currently in sync — the not-yet-drifted twin of row 4.
   would let a PR editing that workflow self-queue a job running
   contributor-controlled install scripts.
 
+- **Row 3 — derive the linux-guard lane from the workflows** (2026-11-16, after
+  #30360 registered a test as linux-guard with no step that ran it and base
+  went red). linux-guard means "a workflow step runs this file", so the
+  workflows are its one source of truth: `derived_lanes()` in
+  `validate_test_execution_registry.py` computes it, `--write` rewrites any
+  entry that disagrees (a test no step runs becomes manual with how to run it;
+  that derived manual moves back when a step runs it again; a person's manual
+  reason is never touched), and the pre-commit hook runs it for the tests a
+  commit's workflow lines add or remove. Adding or removing the step is the only
+  edit. Detector: "Validate Python test execution registry" (ci-guards.yml
+  preflight) and cmux-next guards / tooling-tests fail the change that makes the
+  two disagree, judged against the base.
+
 ## Not implemented, and what it would take
 
 - **Row 2 (workflow display names).** The trigger names
