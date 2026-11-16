@@ -653,7 +653,7 @@ export default agentPaneEntry({
       play: (ctx) => wrapPrompt(ctx, true),
     },
     "minimal-default": {
-      note: "Minimal, New Tab's default layout: the composer alone, with its folder and machine, model, effort, mic and Send, and under the page the two dots (Claude Minimal, Codex Minimal), the first marked. No greeting and no widgets.",
+      note: "Minimal, New Tab's default layout: the composer alone, with its folder and machine, model, effort, mic and Send, and no look switcher. No greeting and no widgets.",
       ready: newTab({ template: undefined }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
@@ -664,9 +664,9 @@ export default agentPaneEntry({
           throw new Error("an unset NewTabScreen template did not render Minimal");
         const extra = ctx.document.querySelector(".nt-greeting, .nt-stage, .nt-cards, .nt-create");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
-        // The look dots only (newtab/tabDots.ts, Leo 2026-10-23), not the other styles.
-        const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
-        if (dots !== 2) throw new Error(`the minimal page shows ${dots} dots, not the two`);
+        if (ctx.document.querySelector(".nt-style")) throw new Error("the minimal page shows a look switcher");
+        if (ctx.document.querySelector(".nt-composer[data-composer-look]"))
+          throw new Error("the minimal page did not keep Claude's look");
       },
     },
     "fix-from-link": {

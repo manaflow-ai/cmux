@@ -117,7 +117,6 @@ import { PromptFocusProvider } from "../promptFocus";
 import { tabsToComposer } from "../composerFocus";
 import { useComposerChrome } from "../composerChromeModel";
 import { useComposerSettings } from "../composerSettings";
-import { useComposerLook } from "../composerLook";
 import { MarkdownField, type MarkdownFieldHandle } from "../MarkdownField";
 import { useInlineAttachments } from "../composer/inlineAttachments";
 import { ComposerFoot } from "../ComposerFoot";
@@ -1121,16 +1120,13 @@ export function NewTabScreen(props: Props) {
   const { plainFooter, spellChecking, attachmentView } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
-  // Every template with chips draws the chat composer's box, split as Claude's in both looks: the
-  // mode, model and effort in the quiet row under it (composerLook.ts; Leo 2026-11-01: "we already
-  // have a good version"). Codex's look keeps only its tray over the box.
-  const look = useComposerLook();
+  // Every template keeps Claude's composer and its quiet footer.
   const chatBox = props.chips !== undefined;
   const split = chatBox;
   const trailingGap = newTabComposerTrailingGapArm();
   const iconColumn = newTabIconColumnArm();
   // Footer look and template can change while this screen stays mounted.
-  useRowFit(foot, `${split}:${plainFooter}:${look}`);
+  useRowFit(foot, `${split}:${plainFooter}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
   // Before the daemon lists the chats, the device chats wait with them (at most RESERVE_MS): a cold
@@ -2291,7 +2287,6 @@ export function NewTabScreen(props: Props) {
         ref={setComposer}
         className="nt-composer"
         data-cloud-starting={props.cloudStarting === true ? "true" : undefined}
-        data-composer-look={look === "codex" ? "codex" : undefined}
         data-trailing-gap={trailingGap}
         data-icon-column={iconColumn}
         data-attachment-view={attachmentView}
