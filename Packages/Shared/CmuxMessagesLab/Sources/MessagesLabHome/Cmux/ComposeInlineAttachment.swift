@@ -17,7 +17,8 @@ final class ComposeInlineAttachment: NSTextAttachment {
     private weak var shownView: ComposeInlineAttachmentView?
     /// The text container that last drew this attachment itself, redrawn when the thumbnail arrives.
     private weak var drawnIn: NSTextContainer?
-    /// The picture's (or file pill's) size; the attachment's box is its whole line (`attachmentBounds`).
+    /// The picture's (or file pill's) size. Pictures stay within one text line so a paste does not
+    /// turn the composer into a large image viewer.
     let pictureSize: CGSize
 
     init(_ a: Attachment, scale: CGFloat) {
@@ -40,15 +41,11 @@ final class ComposeInlineAttachment: NSTextAttachment {
 
     /// The attachment's box below the baseline.
     static let baselineOffset: CGFloat = -4
-    /// The space between a picture and the text line under it (Messages, Austin's capture 2026-10-20).
-    static let gapBelow: CGFloat = 6
-    /// Messages' picture in the message box: 176 pt wide for a 1412 x 1106 px screenshot at 2x, so
-    /// 176 x 138 pt (Lawrence's capture 2026-10-20, cmux-prompts/refs/composer-images/1.png: 352 px
-    /// of the 2x capture), so aspect-fit in 176 x 176 pt; a smaller picture keeps its size.
-    static let pictureMaxWidth: CGFloat = 176
-    static let pictureMaxHeight: CGFloat = 176
-    /// The picture's corner radius in the box (the same capture: about 24 px at 2x).
-    static let corner: CGFloat = 12
+    /// A pasted picture is a compact attachment chip, not a block that owns the whole line.
+    static let gapBelow: CGFloat = 0
+    static let pictureMaxWidth: CGFloat = 64
+    static let pictureMaxHeight: CGFloat = 24
+    static let corner: CGFloat = 6
 
     /// Images: aspect-fit in `pictureMaxWidth` x `pictureMaxHeight`; files: the 200 x 52 pt pill.
     static func size(of a: Attachment, scale: CGFloat) -> CGSize {
@@ -95,26 +92,6 @@ final class ComposeInlineAttachment: NSTextAttachment {
     private func redrawField() {
         guard let tv = drawnIn?.textView else { return }
         ComposeInlineRedraw.of(tv).arrived(self)
-    }
-
-    // MARK: Its own line, as in Messages
-
-    // A picture in the message box is a block, as in Messages: it takes its whole line, so text
-    // before it ends the line above and text after it starts the line below. Its box is the line's
-    // width; the picture draws at the box's left (Austin 2026-10-20: the text sat beside the picture).
-
-    override func attachmentBounds(for attributes: [NSAttributedString.Key: Any], location: any NSTextLocation, textContainer: NSTextContainer?,
-                                   proposedLineFragment: CGRect, position: CGPoint) -> CGRect {
-        lineBox(proposedLineFragment.width)
-    }
-
-    override func attachmentBounds(for textContainer: NSTextContainer?, proposedLineFragment lineFrag: NSRect, glyphPosition position: NSPoint,
-                                   characterIndex charIndex: Int) -> NSRect {
-        lineBox(lineFrag.width)
-    }
-
-    private func lineBox(_ lineWidth: CGFloat) -> CGRect {
-        CGRect(x: 0, y: bounds.minY, width: max(bounds.width, lineWidth), height: bounds.height)
     }
 
     // MARK: Drawn by the attachment (the field placed no view)
@@ -207,7 +184,7 @@ final class ComposeInlineAttachment: NSTextAttachment {
 
     override func viewProvider(for parentView: NSView?, location: any NSTextLocation, textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? {
         let provider = ComposeInlineAttachmentViewProvider(textAttachment: self, parentView: parentView, textLayoutManager: textContainer?.textLayoutManager, location: location)
-        // The box is the attachment's own (its whole line, `attachmentBounds`), not the view's size.
+        // The text layout owns the inline chip's small box; the view tracks that box.
         provider.tracksTextAttachmentViewBounds = false
         return provider
     }

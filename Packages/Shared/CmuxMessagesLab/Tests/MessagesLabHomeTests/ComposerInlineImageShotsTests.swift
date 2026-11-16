@@ -8,8 +8,8 @@ import UniformTypeIdentifiers
 
 /// The Home message box with pictures in its text, as in Messages (Lawrence 2026-10-20, with a
 /// capture of Messages' box, cmux-prompts/refs/composer-images/1.png: each pasted picture is a
-/// rounded thumbnail 176 pt wide in the text flow, the text under and between the pictures, the
-/// field grows to its maximum height and then scrolls; the sent message shows the same pictures).
+/// compact thumbnails in the text flow, typed text growing the field, and the sent message showing
+/// the same pictures.
 ///
 /// `everyStateRendersToTheShots` draws the real Home view over the mock owner in each state, light
 /// and dark, wide and narrow, into `.build/composer-inline-shots.zip` (a fleet step returns it
@@ -127,33 +127,35 @@ import UniformTypeIdentifiers
                                    asset: "/tmp/p\(w)x\(h).png", poster: nil, width: w, height: h, durationSeconds: nil, transfer: .done)
     }
 
-    /// The reference's first picture, a 1412 x 1106 px screenshot at 2x, is 176 pt wide in
-    /// Messages' box (352 px of the 2x capture), at its own aspect.
-    @Test func aScreenshotIsAsWideAsInMessages() {
+    /// A pasted screenshot is a compact attachment chip that fits inside one composer line.
+    @Test func aScreenshotFitsInOneComposerLine() {
         let s = ComposeInlineAttachment.size(of: attachment(1412, 1106), scale: 2)
-        #expect(abs(s.width - 176) <= 1, "\(s)")
+        #expect(s.width <= ComposeInlineAttachment.pictureMaxWidth + 1, "\(s)")
+        #expect(s.height <= ComposeInlineAttachment.pictureMaxHeight + 1, "\(s)")
         #expect(abs(s.width / s.height - 1412.0 / 1106.0) < 0.02, "the picture's aspect (\(s))")
     }
 
-    /// A wide screenshot takes the same width, shorter.
-    @Test func aWidePictureTakesTheSameWidth() {
+    /// A wide screenshot remains a compact chip and keeps its aspect.
+    @Test func aWidePictureStaysCompact() {
         let s = ComposeInlineAttachment.size(of: attachment(1800, 948), scale: 2)
-        #expect(abs(s.width - 176) <= 1, "\(s)")
-        #expect(abs(s.height - 92.5) <= 1, "\(s)")
+        #expect(s.width <= ComposeInlineAttachment.pictureMaxWidth + 1, "\(s)")
+        #expect(s.height <= ComposeInlineAttachment.pictureMaxHeight + 1, "\(s)")
+        #expect(abs(s.width / s.height - 1800.0 / 948.0) < 0.02, "the picture's aspect (\(s))")
     }
 
-    /// A tall picture stops at the same height, narrower.
-    @Test func aTallPictureStopsAtTheMaxHeight() {
+    /// A tall picture stops at the compact chip's height.
+    @Test func aTallPictureStopsAtTheCompactHeight() {
         let s = ComposeInlineAttachment.size(of: attachment(800, 1400), scale: 2)
         #expect(abs(s.height - ComposeInlineAttachment.pictureMaxHeight) <= 1, "\(s)")
         #expect(s.width < s.height, "\(s)")
-        #expect(ComposeInlineAttachment.pictureMaxHeight >= 176, "as tall as it is wide at most")
+        #expect(ComposeInlineAttachment.pictureMaxHeight <= Fixture.lineHeight, "the chip fits one text line")
     }
 
-    /// A small picture keeps its own size (no upscaling).
+    /// A small picture is capped only when it exceeds the compact chip.
     @Test func aSmallPictureKeepsItsSize() {
         let s = ComposeInlineAttachment.size(of: attachment(120, 80), scale: 2)
-        #expect(s == CGSize(width: 60, height: 40), "\(s)")
+        #expect(s.height <= ComposeInlineAttachment.pictureMaxHeight + 1, "\(s)")
+        #expect(abs(s.width / s.height - 1.5) < 0.02, "the picture's aspect (\(s))")
     }
 
     // MARK: Sending in the box's order
@@ -212,20 +214,16 @@ import UniformTypeIdentifiers
 
     // MARK: The field's growth
 
-    /// The field grows with each picture up to its maximum height, then its text scrolls.
-    @Test func theFieldGrowsToItsMaximumThenScrolls() async throws {
+    /// Pasting a picture keeps the field at one line; typed text remains the only source of growth.
+    @Test func aPictureDoesNotGrowTheFieldButTextDoes() async throws {
         let b = try await box()
         defer { b.stop() }
         let empty = b.compose.fieldRect.height
         try await b.paste(.screenshot)
         let one = b.compose.fieldRect.height
-        #expect(one > empty + 100, "one picture makes the field taller (\(empty) -> \(one))")
-        b.type("text under it")
-        try await b.paste(.wide, 1)
-        try await b.paste(.tall, 2)
-        let many = b.compose.fieldRect.height
-        #expect(many <= ComposeView.maxHeight + 1, "the field stops at its maximum (\(many))")
-        #expect(b.field.frame.height > b.compose.textView.scrollView.contentSize.height + 1, "the text scrolls in the field")
+        #expect(abs(one - empty) <= 1, "picture keeps the one-line height (\(empty) -> \(one))")
+        b.type(String(repeating: "long text ", count: 40))
+        #expect(b.compose.fieldRect.height > one + Fixture.lineHeight, "typed text grows the field (\(one) -> \(b.compose.fieldRect.height))")
     }
 
     // MARK: Shots
