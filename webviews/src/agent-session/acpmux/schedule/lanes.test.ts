@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createLanes, FRAME_BUDGET_MS, INPUT_QUIET_MS, SLICE_MS, type LanesEnv } from "./lanes";
+import { createLanes, FRAME_BUDGET_MS, INPUT_QUIET_MS, NO_FRAME_MS, SLICE_MS, type LanesEnv } from "./lanes";
 
 /** A fake engine: a manual clock, a rAF queue, a task queue and timers, all run by the test. */
 function fakeEngine(options: { engineInputPending?: () => boolean } = {}) {
@@ -355,6 +355,32 @@ describe("yield outside a lane", () => {
     expect(done).toBe(false);
     await engine.tasks(1);
     expect(done).toBe(true);
+    lanes.dispose();
+  });
+});
+
+describe("a page that draws no frames", () => {
+  test("runs its frame work after NO_FRAME_MS, once, and the late frame does nothing", async () => {
+    const engine = fakeEngine();
+    const lanes = createLanes(engine.env);
+    const ran: string[] = [];
+    lanes.frame("a", () => ran.push("a"));
+    expect(engine.liveTimers()).toBe(1);
+    engine.advance(NO_FRAME_MS);
+    await engine.timer();
+    expect(ran).toEqual(["a"]);
+    await engine.frame();
+    expect(ran).toEqual(["a"]);
+    expect(engine.liveTimers()).toBe(0);
+    lanes.dispose();
+  });
+
+  test("a frame that comes cancels the fallback", async () => {
+    const engine = fakeEngine();
+    const lanes = createLanes(engine.env);
+    lanes.frame("a", () => {});
+    await engine.frame();
+    expect(engine.liveTimers()).toBe(0);
     lanes.dispose();
   });
 });

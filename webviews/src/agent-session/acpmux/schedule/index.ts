@@ -3,6 +3,7 @@ export {
   createLanes,
   FRAME_BUDGET_MS,
   INPUT_QUIET_MS,
+  NO_FRAME_MS,
   pageLanes,
   SLICE_MS,
   type IdleOptions,

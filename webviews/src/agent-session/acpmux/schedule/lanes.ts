@@ -68,6 +68,8 @@ export const FRAME_BUDGET_MS = 6;
 export const SLICE_MS = 4;
 /** A key or pointer handled this recently still counts as pending input. */
 export const INPUT_QUIET_MS = 50;
+/** A frame asked for that does not come in this long (an occluded window) runs anyway. */
+export const NO_FRAME_MS = 50;
 
 const INPUT_EVENTS = ["keydown", "beforeinput", "pointerdown", "compositionstart"] as const;
 
@@ -143,14 +145,22 @@ export function createLanes(env: LanesEnv): Lanes {
   function scheduleFrame(): void {
     if (disposed || frameRequested || env.hidden() || !hasWork(frameLane)) return;
     frameRequested = true;
-    env.requestFrame(() => {
+    let fired = false;
+    // A shown page that draws no frames (an occluded window) still runs its frame work, after
+    // NO_FRAME_MS, as the pane's `nextFrame` always did; whichever comes first runs, once.
+    const cancelFallback = env.setTimer(() => run(), NO_FRAME_MS);
+    const run = () => {
+      if (fired) return;
+      fired = true;
+      cancelFallback();
       frameRequested = false;
       if (disposed) return;
       if (env.hidden()) return; // onVisibility schedules it again on show
       frameStart = env.now();
       // The first slice of a frame always runs: the frame's input was dispatched before the rAF.
       void runSlice(frameLane);
-    });
+    };
+    env.requestFrame(run);
   }
 
   function frameBudgetLeft(): number {
