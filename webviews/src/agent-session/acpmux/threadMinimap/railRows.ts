@@ -91,13 +91,13 @@ export function indexedTurn(heads: PromptHeads, sessionId: string, at: number): 
   const had = kept.turns.get(at);
   if (had) return had;
   if (kept.turns.size >= NAMED_KEPT) kept.turns.clear();
-  const promptId = heads.promptId(at);
-  const id = heads.id(at);
+  const promptId = PromptHeads.promptId(heads, at);
+  const id = PromptHeads.id(heads, at);
   const turn: MinimapTurn = {
     index: -1,
     id,
     key: `${sessionId}#${promptId ? `prompt-${promptId}` : id}`,
-    prompt: heads.text(at).trim(),
+    prompt: PromptHeads.text(heads, at).trim(),
     reply: [],
   };
   kept.turns.set(at, turn);
@@ -111,15 +111,15 @@ function indexedKeyIndex(heads: PromptHeads, sessionId: string, key: string): nu
   const rest = key.slice(sessionId.length + 1);
   if (rest.startsWith("user-")) {
     const seq = Number(rest.slice("user-".length));
-    const at = Number.isFinite(seq) ? heads.indexOfSeq(seq) : -1;
+    const at = Number.isFinite(seq) ? PromptHeads.indexOfSeq(heads, seq) : -1;
     // A prompt with a promptId keys on it, not its row.
-    return at >= 0 && !heads.promptId(at) ? at : undefined;
+    return at >= 0 && !PromptHeads.promptId(heads, at) ? at : undefined;
   }
   if (!rest.startsWith("prompt-")) return undefined;
   const kept = namedOf(heads, sessionId);
   let at = kept.keys.get(key);
   if (at === undefined) {
-    at = heads.indexOfPromptId(rest.slice("prompt-".length));
+    at = PromptHeads.indexOfPromptId(heads, rest.slice("prompt-".length));
     if (kept.keys.size >= NAMED_KEPT) kept.keys.clear();
     kept.keys.set(key, at);
   }

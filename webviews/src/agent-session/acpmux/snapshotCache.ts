@@ -36,7 +36,11 @@ function writeSnapshot(): void {
   snapshotSave.next = undefined;
   if (!next) return;
   try {
-    sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify({ ...next, sessions: savedSessions(next) }));
+    // The prompt index (`earlierPrompts`) stays out: typed arrays do not survive JSON, and a reload reads it again.
+    sessionStorage.setItem(
+      "cmux.acpmux.snapshot",
+      JSON.stringify({ ...next, earlierPrompts: undefined, sessions: savedSessions(next) }),
+    );
   } catch {
     // Painting remains live when storage is unavailable or full.
   }

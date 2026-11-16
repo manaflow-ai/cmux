@@ -7,6 +7,7 @@
 // only when it draws or looks one up (railRows.ts), so what a chat keeps is the same at 1000 prompts as at 4000.
 import { heapStats } from "bun:jsc";
 import { expect, test } from "bun:test";
+import { PromptHeads } from "../src/agent-session/acpmux/promptHeads";
 import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import { tickRows, turnRows } from "../src/agent-session/acpmux/threadMinimap/railRows";
 import { fakeClient, records, settle } from "./support/fakeAcpmuxClient";
@@ -67,4 +68,26 @@ test("the prompt index costs the rail no object per prompt", async () => {
   } finally {
     large.chat.client.close();
   }
+});
+
+test("the index draws after a structuredClone, as a gallery's snapshot reaches its pane", () => {
+  const rows = Array.from({ length: 3 }, (_, n) => ({
+    id: `user-${n * 4 + 1}`,
+    version: 1,
+    at: n,
+    kind: "user" as const,
+    text: ` Prompt ${n} `,
+    // The second repeats the first's promptId (a retried send): it keys on its row instead.
+    ...(n < 2 ? { promptId: "p-0" } : {}),
+  }));
+  const heads = structuredClone(PromptHeads.fromRows(rows));
+  const ticks = tickRows([], 0, CHAT, heads);
+  expect(Array.from({ length: ticks.length }, (_, at) => ticks.at(at)!.key)).toEqual([
+    `${CHAT}#prompt-p-0`,
+    `${CHAT}#user-5`,
+    `${CHAT}#user-9`,
+  ]);
+  expect(ticks.at(2)?.prompt).toBe("Prompt 2");
+  expect(ticks.keyIndex(`${CHAT}#user-5`)).toBe(1);
+  expect(ticks.keyIndex(`${CHAT}#prompt-p-0`)).toBe(0);
 });

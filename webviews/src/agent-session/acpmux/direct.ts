@@ -543,9 +543,13 @@ export function indexedPromptPlaceholders(
 ): AcpmuxRow[] {
   const out: AcpmuxRow[] = [];
   // Only the prompts between the page and the tail: a bounded gap, never the whole index.
-  for (let at = index.countBefore(pageStart + 1); at < index.length && index.seq(at) < tailStart; at += 1) {
-    const seq = index.seq(at);
-    if (!heldSeqs.has(seq)) out.push({ ...index.row(at), seq, kind: "user" });
+  for (
+    let at = PromptHeads.countBefore(index, pageStart + 1);
+    at < index.length && PromptHeads.seq(index, at) < tailStart;
+    at += 1
+  ) {
+    const seq = PromptHeads.seq(index, at);
+    if (!heldSeqs.has(seq)) out.push({ ...PromptHeads.row(index, at), seq, kind: "user" });
   }
   return out;
 }
@@ -14637,7 +14641,7 @@ export class AcpmuxDirectClient {
     const before = Math.min(this.firstSeq, this.turnOpener?.seq ?? Infinity);
     const kept = this.earlierShown;
     if (kept && kept.heads === index.heads && kept.before === before) return kept.list;
-    const list = index.heads.before(before);
+    const list = PromptHeads.before(index.heads, before);
     this.earlierShown = { heads: index.heads, before, list };
     return list;
   }
@@ -14940,7 +14944,8 @@ export class AcpmuxDirectClient {
     // The prompt index gives us the target's sequence before its transcript page is held. Fetch
     // that window first, then warm one page on each side for the next scrub step. If an older
     // daemon cannot serve the bounded read, the established page walker remains the fallback.
-    const indexed = (this.promptIndex?.heads?.indexOfSeq(seq) ?? -1) >= 0 ? this.indexedPage(seq) : undefined;
+    const heads = this.promptIndex?.heads;
+    const indexed = heads && PromptHeads.indexOfSeq(heads, seq) >= 0 ? this.indexedPage(seq) : undefined;
     if (indexed) {
       const page = await indexed;
       if (generation !== this.selectionGeneration || this.selectedSessionId === undefined) return false;
