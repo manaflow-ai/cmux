@@ -538,6 +538,7 @@ impl Viewer {
             need_recovery: self.reassembler.need_recovery(),
             arrivals: std::mem::take(&mut self.arrivals),
             nacks,
+            acked_ltr_tokens: Vec::new(),
         };
         self.send_feedback(&fb)?;
         self.last_feedback_ns = now;

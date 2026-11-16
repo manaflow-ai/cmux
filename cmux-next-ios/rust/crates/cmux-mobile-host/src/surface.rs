@@ -639,7 +639,12 @@ pub async fn host_session(
                                     continue;
                                 }
                                 let Some((request, _)) = flow.in_flight.take() else { continue };
-                                let encoded = Encoded { access_unit: annex_b, idr, t_capture_us: capture_us };
+                                let encoded = Encoded {
+                                    access_unit: annex_b,
+                                    idr,
+                                    t_capture_us: capture_us,
+                                    ltr_token: None,
+                                };
                                 match engine.encoded(&request, Some(encoded), surface_clock_us()) {
                                     Ok(output) => flow.take(output, &mut to_phone, &mut to_app),
                                     Err(error) => tracing::warn!(?error, "surface: a frame did not packetize"),

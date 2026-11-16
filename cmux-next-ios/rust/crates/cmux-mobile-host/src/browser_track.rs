@@ -193,6 +193,7 @@ impl TrackBridge {
                 need_recovery: need_recovery && first,
                 arrivals: self.arrivals.drain(..take).collect(),
                 nacks: Vec::new(),
+                acked_ltr_tokens: Vec::new(),
             };
             let mut datagram = Vec::with_capacity(HEADER_LEN + 1024);
             DatagramHeader {
@@ -374,7 +375,7 @@ mod tests {
         let mut engine = MediaEngine::new(EngineConfig::default(), 0);
         let encode = |engine: &mut MediaEngine, req: &cmux_rd_engine::EncodeRequest, now: u64| {
             let au = vec![0, 0, 0, 1, if req.force_idr { 0x65 } else { 0x41 }, 1, 2, 3];
-            let encoded = Encoded { access_unit: au, idr: req.force_idr, t_capture_us: now };
+            let encoded = Encoded { access_unit: au, idr: req.force_idr, t_capture_us: now, ltr_token: None };
             engine.encoded(req, Some(encoded), now).unwrap()
         };
         let phone_feedback = |acked_frame: u32, need_recovery: bool| {
