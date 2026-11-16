@@ -33,6 +33,10 @@ public final class LaunchReveal {
     public private(set) var ready: Set<LaunchRegion> = []
     @ObservationIgnored private var held: [LaunchRegion: NSHashTable<NSView>] = [:]
     @ObservationIgnored private var waiters: [LaunchRegion: [@MainActor () -> Void]] = [:]
+    /// Views shown before their region with their own data (`release`), until the region is ready.
+    @ObservationIgnored private var released: [LaunchRegion: NSHashTable<NSView>] = [:]
+    /// Work waiting for a window's content to show (`whenShowing`).
+    @ObservationIgnored private var showWaiters: [ShowWaiter] = []
     @ObservationIgnored private let deadlineTimer: DemandTimer
     /// The deadlines of regions made after the window (`LaunchRegion.hasOwnDeadline`).
     @ObservationIgnored private var ownDeadlines: [LaunchRegion: DemandTimer] = [:]
@@ -94,6 +98,41 @@ public final class LaunchReveal {
             if let layer = view.layer, layer.presentation() != nil { Motion.panes.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
         }
         for work in waiters.removeValue(forKey: region) ?? [] { work() }
+        released.removeValue(forKey: region)
+        // After the views' fade-in is added: a launch mark's fade-out runs beside it (a crossfade).
+        showing { $0.regions.contains(region) }
+    }
+
+    /// The regions among `regions` that `window` still waits for: a view held for one of them is
+    /// in it. Empty when a view of them in `window` already shows its own data (`release`: a
+    /// relaunch's saved terminal frame), so the window shows content. O(held views), at launch only.
+    public func waitingRegions(_ regions: Set<LaunchRegion>, in window: NSWindow) -> Set<LaunchRegion> {
+        func inWindow(_ table: NSHashTable<NSView>?) -> Bool { table?.allObjects.contains { $0.window === window } == true }
+        guard !regions.contains(where: { inWindow(released[$0]) }) else { return [] }
+        return regions.filter { inWindow(held[$0]) }
+    }
+
+    /// Runs `work` once, in the turn content of `regions` first shows in `window`: one of them is
+    /// ready (after its views' fade-in starts), or a view of one in `window` is released. At once
+    /// when one is ready already. Every region a window waits for has a held view, so its deadline
+    /// bounds the wait.
+    public func whenShowing(_ regions: Set<LaunchRegion>, in window: NSWindow, _ work: @escaping @MainActor () -> Void) {
+        guard !regions.contains(where: isReady) else { return work() }
+        showWaiters.append(ShowWaiter(regions: regions, window: window, work: work))
+    }
+
+    private struct ShowWaiter {
+        let regions: Set<LaunchRegion>
+        weak var window: NSWindow?
+        let work: @MainActor () -> Void
+    }
+
+    /// Runs and drops the `whenShowing` work `due` picks.
+    private func showing(_ due: (ShowWaiter) -> Bool) {
+        guard showWaiters.contains(where: due) else { return }
+        let ready = showWaiters.filter(due)
+        showWaiters.removeAll(where: due)
+        for waiter in ready { waiter.work() }
     }
 
     /// The deadline passed with `region`'s data still missing: it shows anyway.
@@ -105,9 +144,17 @@ public final class LaunchReveal {
     /// `view` has its data before its region (a terminal's frame from the last quit): it shows at
     /// once, with no fade, while the region's other views stay held.
     public func release(_ view: NSView) {
-        guard held.values.contains(where: { $0.contains(view) }) else { return }
-        for table in held.values { table.remove(view) }
+        let regions = Set(held.filter { $0.value.contains(view) }.keys)
+        guard !regions.isEmpty else { return }
+        for region in regions {
+            held[region]?.remove(view)
+            let table = released[region] ?? NSHashTable<NSView>.weakObjects()
+            released[region] = table
+            table.add(view)
+        }
         view.alphaValue = 1
+        guard let window = view.window else { return }
+        showing { $0.window === window && !$0.regions.isDisjoint(with: regions) }
     }
 
     /// Every region is ready (or will never be): nothing stays held.
