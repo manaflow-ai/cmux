@@ -3009,6 +3009,23 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_default</key>
+			<string>antialiased</string>
+			<key>pfm_description</key>
+			<string>Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts.</string>
+			<key>pfm_name</key>
+			<string>appearance.fontSmoothing</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>antialiased</string>
+				<string>system</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Text Smoothing</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
 			<key>pfm_description</key>
 			<string>Text size of tabs, the sidebar and other controls. Terminal text has its own size.</string>
 			<key>pfm_name</key>
@@ -9581,18 +9598,6 @@
 			<string>remote.endSharingOnQuit</string>
 			<key>pfm_title</key>
 			<string>End Sharing When cmux Quits</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>On, an agent or the cmux CLI turns on Share This Mac without asking you first. Each device keeps the access it has in Devices. Always Allow on the Share This Mac? dialog turns this on.</string>
-			<key>pfm_name</key>
-			<string>remote.shareWithoutAsking</string>
-			<key>pfm_title</key>
-			<string>Share This Mac Without Asking</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
