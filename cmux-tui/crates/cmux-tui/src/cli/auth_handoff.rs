@@ -57,6 +57,10 @@ pub(super) fn is_code(value: &str) -> bool {
 fn device_value(value: &str) -> Result<Option<String>, Usage> {
     let messages = &crate::localization::catalog().auth_handoff;
     let trimmed = value.trim();
+    // A code typed as the device name is a code in argv: refused, never sent on as a label.
+    if trimmed.starts_with("cmh_") {
+        return Err(Usage(messages.code_in_argv.to_owned()));
+    }
     if trimmed.chars().count() > MAX_DEVICE || trimmed.chars().any(char::is_control) {
         return Err(Usage(messages.bad_device.to_owned()));
     }

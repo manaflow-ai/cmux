@@ -100,7 +100,11 @@ fn device(request: &Value) -> Result<Option<String>, Value> {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(raw)) => {
             let trimmed = raw.trim();
-            if trimmed.chars().count() > MAX_DEVICE || trimmed.chars().any(char::is_control) {
+            // A code is never a device label: it would be stored and audited as one.
+            if trimmed.starts_with("cmh_")
+                || trimmed.chars().count() > MAX_DEVICE
+                || trimmed.chars().any(char::is_control)
+            {
                 return Err(refusal(
                     "invalid_params",
                     "device is a name of at most 64 printable characters",

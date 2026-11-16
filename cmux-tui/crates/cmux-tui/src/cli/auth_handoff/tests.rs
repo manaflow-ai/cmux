@@ -54,6 +54,10 @@ fn a_code_in_argv_is_refused_without_echoing_it() {
         vec!["redeem", &format!("--code={CODE}")],
         vec!["mint", CODE],
         vec![CODE],
+        // A code given as the device name is still a code in argv, never sent as a label.
+        vec!["redeem", "--device", CODE],
+        vec!["mint", &format!("--device={CODE}")],
+        vec!["redeem", "--device", " cmh_team_x "],
     ] {
         let Usage(message) = parse(&args(&words)).unwrap_err();
         assert!(!message.contains(CODE), "{words:?}: {message}");

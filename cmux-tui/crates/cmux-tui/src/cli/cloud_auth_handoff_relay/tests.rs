@@ -159,6 +159,8 @@ fn a_bad_code_device_or_op_is_refused_before_any_request() {
         json!({"op": "mint", "device": "x".repeat(65)}),
         json!({"op": "mint", "device": "a\nb"}),
         json!({"op": "mint", "device": 3}),
+        json!({"op": "redeem", "code": CODE, "device": CODE}),
+        json!({"op": "mint", "device": "cmh_team_x"}),
         json!({"op": "deploy"}),
     ] {
         let answer = run(json!({"api": origin, "credential": "tok", "request": request}));
