@@ -10,7 +10,8 @@ use super::tab_create_place_tests::{Kind, active_tab, run_as, strip, surface_of,
 use std::cell::RefCell;
 use std::sync::mpsc;
 
-/// A safety bound of each wait on a signal; no test passes by it.
+/// A safety bound of each wait of the test thread on a signal: the test
+/// fails at the bound, and no test passes by it.
 const WAIT: Duration = Duration::from_secs(30);
 
 /// One connection whose creations end their launch when the test says.
@@ -63,7 +64,9 @@ impl HeldConnection {
             }
             let _ = started_tx.lock().unwrap().send(seq);
             if let Some(wait) = usize::try_from(seq).ok().and_then(|seq| waits.get(seq)) {
-                let _ = wait.lock().unwrap().recv_timeout(WAIT);
+                // No clock: the wait ends at the release, or when the
+                // connection of the test drops its end of the gate.
+                let _ = wait.lock().unwrap().recv();
             }
         });
         let (lines_tx, lines) = mpsc::channel::<Value>();
@@ -190,6 +193,10 @@ fn orders() -> Vec<[usize; 4]> {
 /// creation before it. For each of the 24 orders in which the 4 launches can
 /// end, the strip has the 4 tabs in request order after the named tab. Then
 /// 2 of them close, and a tab that names a closed one lands where it was.
+/// The terminal tabs of one connection commit in the order of their
+/// requests, so the 24 orders of the launches give one order of the commits.
+/// A commit of a later request first is in the tests with a page and in
+/// `a_tab_of_another_connection_commits_before_a_tab_that_still_launches`.
 #[test]
 fn tabs_in_a_chain_keep_the_request_order_for_each_launch_order() {
     let orders = orders();
@@ -397,4 +404,119 @@ fn a_tab_moved_while_a_tab_launches_lands_as_after_the_new_tab() {
     let [first] = connection.finish([1]);
     assert_eq!(tabs(&mux, pane), [a, c, first, b]);
     mux.shutdown();
+}
+
+/// The same move as in the test above, with the strip that the daemon gives
+/// today. The rule of the spec: "A `move-tab`, a select or a close between a
+/// create request and its tab is applied when it arrives. The slot of the tab
+/// that still launches stays right of the tab on its left." So the new tab
+/// lands between `a` and the moved tab, not after the moved tab.
+#[test]
+fn a_tab_moved_while_a_tab_launches_lands_after_the_slot_today() {
+    let (mux, pane, [a, b, c]) = strip("chain-move-today");
+    let connection = HeldConnection::new(&mux, 1);
+    connection.send(1, terminal(pane, "t1", json!({"after": a})));
+    connection.launching(0);
+    assert!(mux.move_tab(c, pane, 1));
+    assert_eq!(tabs(&mux, pane), [a, c, b], "the launch is held");
+    connection.release(0);
+    let [first] = connection.finish([1]);
+    assert_eq!(tabs(&mux, pane), [a, first, c, b]);
+    mux.shutdown();
+}
+
+/// A terminal tab with the name `t1` and no `place` still launches when the
+/// later request `page` makes a page: the terminal's tab then lands in the
+/// slot that its request took, before the page.
+fn named_tab_with_no_place_lands_before(label: &str, page: impl Fn(Kind, PaneId) -> Value) {
+    for kind in PAGES {
+        let (mux, pane, [a, b, c]) = strip(&format!("chain-{label}-{kind:?}"));
+        let connection = HeldConnection::new(&mux, 1);
+        connection.send(1, with(Kind::Terminal.request(pane), [("transaction", json!("t1"))]));
+        connection.send(2, page(kind, pane));
+        let second = connection.surface(2);
+        assert_eq!(tabs(&mux, pane), [a, b, c, second], "{kind:?}: the launch is held");
+        connection.release(0);
+        let [first] = connection.finish([1]);
+        assert_eq!(tabs(&mux, pane), [a, b, c, first, second], "{kind:?}");
+        assert_eq!(active_tab(&mux, pane), 4, "{kind:?}: the page stays the active tab");
+        mux.shutdown();
+    }
+}
+
+/// A create request with a `transaction` and no `place` takes the slot at
+/// the end of the strip when it arrives. A page that names the creation
+/// while its terminal still launches lands after the slot: the terminal's
+/// tab comes before the page, as when the two requests are applied one by
+/// one.
+#[test]
+fn a_tab_with_a_name_and_no_place_lands_before_a_later_page_that_names_it() {
+    named_tab_with_no_place_lands_before("named-end-names", |kind, pane| {
+        with(kind.request(pane), [("place", json!({"after_creation": "t1"}))])
+    });
+}
+
+/// As the test above, with a later page that has a name of its own and no
+/// `place`: each of the two requests takes the slot at the end of the strip
+/// of its arrival, so the terminal's tab comes before the page.
+#[test]
+fn a_tab_with_a_name_and_no_place_lands_before_a_later_page_with_a_name() {
+    named_tab_with_no_place_lands_before("named-end-named", |kind, pane| {
+        with(kind.request(pane), [("transaction", json!("t2"))])
+    });
+}
+
+/// Two connections make a terminal tab after `a`. The launch of the first
+/// request is held, so the tab of the later request commits first. Then the
+/// first tab comes: the strip and the active tab are those of the two
+/// requests applied one by one in the order of their arrival. (The launch of
+/// the second connection is not held: the launch hook of the tests is one
+/// for the daemon and gives only the number of a creation in its own
+/// connection.)
+#[test]
+fn a_tab_of_another_connection_commits_before_a_tab_that_still_launches() {
+    let (mux, pane, [a, b, c]) = strip("chain-two-connections");
+    let connection = HeldConnection::new(&mux, 1);
+    connection.send(1, terminal(pane, "t1", json!({"after": a})));
+    connection.launching(0);
+    let request = terminal(pane, "u1", json!({"after": a}));
+    let second = surface_of(&run_as(&mux, connection.client + 100, request).unwrap());
+    assert_eq!(tabs(&mux, pane), [a, second, b, c], "the launch is held");
+    assert_eq!(active_tab(&mux, pane), 1, "the tab of the later request is active");
+    connection.release(0);
+    let [first] = connection.finish([1]);
+    assert_eq!(tabs(&mux, pane), [a, second, first, b, c]);
+    assert_eq!(active_tab(&mux, pane), 1, "the tab of the later request stays active");
+    mux.shutdown();
+}
+
+/// What the daemon does today when the tab of a later request closes while
+/// the launch of an earlier request is held. The rule of the spec: "Only a
+/// creation writes the record of the active tab: a select, a move or a close
+/// between a request and its tab does not." The example: the strip is `[a]`;
+/// a terminal tab is asked for and launches; a page is asked for, comes and
+/// is active; the page closes, so `a` is active; the terminal's tab comes
+/// and does not take the active tab, because the request of the page was
+/// later. The same requests applied one by one leave the terminal's tab
+/// active.
+#[test]
+fn a_tab_that_launched_late_stays_in_the_background_after_the_later_tab_closed() {
+    for kind in PAGES {
+        let (mux, pane, [a, b, c]) = strip(&format!("chain-later-closed-{kind:?}"));
+        mux.close_surface(b).unwrap();
+        mux.close_surface(c).unwrap();
+        assert_eq!((tabs(&mux, pane), active_tab(&mux, pane)), (vec![a], 0), "{kind:?}");
+        let connection = HeldConnection::new(&mux, 1);
+        connection.send(1, terminal(pane, "t1", json!({"after": a})));
+        connection.send(2, with(kind.request(pane), [("place", json!({"after_creation": "t1"}))]));
+        let second = connection.surface(2);
+        assert_eq!((tabs(&mux, pane), active_tab(&mux, pane)), (vec![a, second], 1), "{kind:?}");
+        mux.close_surface(second).unwrap();
+        assert_eq!((tabs(&mux, pane), active_tab(&mux, pane)), (vec![a], 0), "{kind:?}");
+        connection.release(0);
+        let [first] = connection.finish([1]);
+        assert_eq!(tabs(&mux, pane), [a, first], "{kind:?}");
+        assert_eq!(active_tab(&mux, pane), 0, "{kind:?}: `a` stays the active tab");
+        mux.shutdown();
+    }
 }

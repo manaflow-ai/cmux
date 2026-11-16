@@ -407,6 +407,33 @@ fn a_place_with_no_pane_is_refused() {
     mux.shutdown();
 }
 
+/// `transaction` names a creation in the strip of `pane`: `new-tab` and
+/// `new-frontend-browser-tab` refuse a `transaction` with no `pane`, before
+/// a tab is made. `new-conversation-tab` had `transaction` before `place`
+/// (`conversation-tab-transaction-v1`) and keeps it with no `pane`: its tab
+/// goes to the active pane.
+#[test]
+fn a_transaction_with_no_pane_is_refused() {
+    let (mux, pane, [a, b, c]) = strip("refused-transaction-no-pane");
+    let before = tab_counts(&mux);
+    let no_pane = |kind: Kind, name: &str| {
+        let mut request = with(kind.request(pane), [("transaction", json!(name))]);
+        request.as_object_mut().expect("a request object").remove("pane");
+        request
+    };
+    for kind in [Kind::Terminal, Kind::Browser] {
+        let refused = run(&mux, no_pane(kind, "t1")).map(|reply| reply.to_string());
+        let error = refused.expect_err("a refusal").to_string();
+        let named = error.contains("bad request") && error.contains("transaction needs pane");
+        assert!(named, "{kind:?}: {error}");
+    }
+    assert_eq!(tab_counts(&mux), before, "a refused request makes no tab and no pane");
+    assert_eq!(tabs(&mux, pane), [a, b, c]);
+    let made = surface_of(&run(&mux, no_pane(Kind::Conversation, "t2")).unwrap());
+    assert_eq!(tabs(&mux, pane), [a, b, c, made]);
+    mux.shutdown();
+}
+
 /// A tab that names the creation before it lands right after that
 /// creation's tab, for each kind of both; a transaction that the connection
 /// never used gives the end.
