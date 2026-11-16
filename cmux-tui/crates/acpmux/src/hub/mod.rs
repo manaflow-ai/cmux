@@ -304,6 +304,7 @@ mod stream;
 mod tags;
 mod tailnet_controller;
 mod tap;
+mod tap_stage;
 pub(crate) mod time_breakdown;
 mod titles;
 mod tool_installs;
