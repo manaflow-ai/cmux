@@ -254,6 +254,7 @@ use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod column_move;
 mod command_history;
+mod floating_panes;
 mod page_credential;
 mod page_files;
 mod page_listener;
