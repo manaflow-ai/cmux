@@ -1422,10 +1422,6 @@ impl Hub {
             let _phase = gauges.phase("hub construct session recap");
             away_recap::saved_setting()
         };
-        let auto_background_after = {
-            let _phase = gauges.phase("hub construct auto background");
-            auto_background::auto_background_from_env()
-        };
         let catalog = {
             let _phase = gauges.phase("hub construct catalog");
             Arc::new(crate::catalog::CatalogService::new())
@@ -1433,6 +1429,10 @@ impl Hub {
         let health = {
             let _phase = gauges.phase("hub construct health");
             Arc::new(crate::harness_health::HealthService::new())
+        };
+        let auto_background_after = {
+            let _phase = gauges.phase("hub construct auto background");
+            auto_background::auto_background_from_env()
         };
         let _phase = gauges.phase("hub assembly");
         let hub = Arc::new(Self {
