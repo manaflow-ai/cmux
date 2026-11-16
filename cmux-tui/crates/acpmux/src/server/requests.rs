@@ -1253,7 +1253,7 @@ async fn dispatch_request_with_identity(
                 str_param(&params, "query")
                     .ok_or_else(|| RpcError::invalid_params("query is required"))?
             };
-            let query = hub.validate_owner_selector(query)?;
+            let query = Hub::validate_owner_selector(query)?;
             let bead_only = params.get("bead").and_then(Value::as_bool) == Some(true);
             // A peer request is always owner-only: it cannot ask this daemon to transit a
             // selector to a third machine. Local callers use the owner index once a list-stream

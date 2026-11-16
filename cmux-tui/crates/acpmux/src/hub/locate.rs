@@ -70,7 +70,7 @@ impl Hub {
         query: &str,
         bead_only: bool,
         exact: bool,
-        names_hosts: bool,
+        _names_hosts: bool,
     ) -> Result<Value, RpcError> {
         let query = validate_owner_query(query)?;
         if crate::opaque_agent_id::find(query).is_some() {
