@@ -560,10 +560,10 @@ impl State {
                     place,
                     span,
                     action.body.text_len,
-                    out,
+                    &mut out,
                 );
             }
-            "retract" => self.queue_remove(&action.body.prompt_id, out),
+            "retract" => self.queue_remove(&action.body.prompt_id, &mut out),
             _ => return Err(Error::InvalidRecord("unknown act operation")),
         }
         Ok(out.ops)
