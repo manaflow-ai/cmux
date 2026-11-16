@@ -20,6 +20,7 @@ internal import os
 /// if let dead = SwiftExecutorFrames.deadRecord() { SwiftExecutorFrames.stateLost(at: dead, in: "sendEvent") }
 /// ```
 public nonisolated struct SwiftExecutorFrames {
+    public nonisolated init() {}
     /// libswift_Concurrency's executor-tracking slot: `SWIFT_CONCURRENCY_EXECUTOR_TRACKING_INFO_KEY`
     /// (swift/Threading/ThreadLocalStorage.h) is `__PTK_FRAMEWORK_SWIFT_KEY4` (pthread
     /// tsd_private.h), key 104. A reserved key of the OS runtime: it never moves.

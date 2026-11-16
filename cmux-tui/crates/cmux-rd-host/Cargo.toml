@@ -44,8 +44,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rustls-native-certs = "0.8"
 # The host's `cmux-rd serve` children: owned, ended with their session.
 cmux-process = { path = "../cmux-process" }
-# Wayland capture (feature `portal`: src/portal.rs, src/pipewire_capture.rs): the
-# xdg-desktop-portal ScreenCast handshake over D-Bus and the PipeWire stream it opens.
+# Wayland capture (features `portal-dbus` and `portal`: src/portal.rs, src/pipewire_capture.rs):
+# the xdg-desktop-portal ScreenCast and RemoteDesktop handshakes over D-Bus and the PipeWire
+# stream they open.
 # pipewire links libpipewire-0.3 (build needs libpipewire-0.3-dev, libspa-0.2-dev, clang).
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"], optional = true }
 pipewire = { version = "0.10", optional = true }
@@ -71,9 +72,12 @@ cc = "1"
 # `cmux-rd serve`: device hub sessions over the secure link (cmux-rd-link).
 link = ["dep:cmux-rd-link"]
 default = ["bench", "openh264", "link", "portal"]
-# Wayland screen capture through xdg-desktop-portal ScreenCast and PipeWire (view-only).
-# Its dependencies are Linux-only, so on macOS and Windows the feature compiles nothing.
-portal = ["dep:zbus", "dep:pipewire"]
+# Wayland screen sharing through xdg-desktop-portal: `portal-dbus` is the ScreenCast and
+# RemoteDesktop handshakes over D-Bus (the one-time grant `linux-host enable` makes, and the
+# input calls), pure Rust; `portal` adds the PipeWire capture (links libpipewire-0.3).
+# Their dependencies are Linux-only, so on macOS and Windows the features compile nothing.
+portal-dbus = ["dep:zbus"]
+portal = ["portal-dbus", "dep:pipewire"]
 # The default encoder: Cisco's OpenH264 binary downloaded from Cisco at run time
 # (`cmux-rd openh264-install`; Cisco pays the royalties), loaded after its pinned SHA-256.
 openh264 = ["cmux-encode/openh264-download"]

@@ -804,7 +804,10 @@ def main():
     report = {"films": [], "failures": [], "launches": [], "limits": LIMITS, "key_repeat_ms": [opts.repeat_delay_ms, opts.repeat_ms], "mbps": opts.mbps,
               "alt_screen": "not read: no debug call says if a terminal is on its alternate screen"}
     forms = list(LAUNCH_FORMS[opts.launch_form])
-    report["host"] = f"macOS {platform.mac_ver()[0] or 'not read'}, {platform.machine()}, python {platform.python_version()}"
+    try:
+        report["host"] = f"macOS {platform.mac_ver()[0] or 'not read'}, {platform.machine()}, python {platform.python_version()}"
+    except Exception as error:  # noqa: BLE001  a line for a reader of the log: its fault must not end the run before a film
+        report["host"] = f"not read ({error!r})"
     print("PREFLIGHT host: " + report["host"], flush=True)
     for mock, idents in plan:
         if not idents:

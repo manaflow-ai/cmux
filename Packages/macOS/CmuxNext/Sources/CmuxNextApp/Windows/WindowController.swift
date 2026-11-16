@@ -156,6 +156,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         observeWorkspace()
         observeRoom()
         observeSidebarHidden()
+        observeWindowTitle()
         followContentChanges()
     }
 
@@ -220,6 +221,24 @@ final class WindowController: NSWindowController, NSWindowDelegate {
                 // A parked terminal (the classic migration's background workspaces) starts on its first show.
                 if let id = state.workspaceID, let (workspace, daemon) = machines.workspace(id: id) { daemon.wakeParkedTabs(in: workspace) }
             }
+        }
+    }
+
+    /// Native titles follow window state even before content mounts or while a top page covers it.
+    private func observeWindowTitle() {
+        titleObservation?.cancel()
+        titleObservation = WindowListTitleObservation.start(values: { [weak self] in
+            guard let self else { return (nil, nil, false, false) }
+            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }
+            let names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
+            let title = workspace.map { names.reader.titlebarName($0) { self.state.selection.selection(in: $0.id) } }
+            return (spaceName: self.services.machines.local.store.profile(self.state.profileID)?.name,
+                    workspaceName: title, incognito: workspace.map { self.services.windows.isIncognito(workspace: $0) }
+                        ?? self.services.windows.isIncognito(window: self.state.id),
+                    showsWorkspaceChrome: self.state.page == nil && self.content != nil)
+        }, fallbackName: Strings.appName, incognitoName: RoomStrings.incognitoName) { [weak self] title, workspace, showsChrome in
+            self?.window?.title = title
+            if showsChrome, let workspace { self?.root.titlebar.title = workspace }
         }
     }
 
@@ -318,12 +337,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if connectingView != nil { DebugTimings.markLaunch("connecting_view_left") }
         connectingView = nil
         DebugTimings.markLaunch("workspace_content_shown")
-        titleObservation?.cancel()
-        // Named as its sidebar row is (`WorkspaceAutoNameReader.titlebarName`): a workspace on the
-        // daemon's default name reads as its front tab (a torn-off chat's window read "workspace-41").
-        titleObservation = Task { [weak self, names = WorkspaceAutoNameWiring(services: services), selection = state.selection] in
-            for await title in ObservationStream({ names.reader.titlebarName(workspace) { selection.selection(in: $0.id) } }) { self?.root.titlebar.title = title }
-        }
+        observeWindowTitle()
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
         DebugWorkspaceSwitch.mark(self, "did_show")
@@ -341,7 +355,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// Parks the shown workspace (mounted, paused) while a top page fills the content area.
     func parkContentForPage() {
-        titleObservation?.cancel()
         if let current = content { park(current) }
         content = nil
         arrangeOnScreen()
@@ -445,7 +458,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// reports every first-responder change to the window's focus coordinator
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
-final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
+final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
     CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, WindowControlsAvoidanceHosting {
     /// The traffic lights' last windowed place (``WindowedTrafficLights``).
     private var windowedLights = WindowedTrafficLights()
@@ -473,6 +486,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
     weak var focusLog: FocusLog? // AppServices.focusLog: this window's focus changes, while it is on
+    var routeInFlight: FocusRoute? // FocusRouting: the route of the move being made now
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
@@ -575,7 +589,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     var editTeardown = (depth: 0, pending: false)
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
-        let gate = ResponderMoveGate(window: self, log: focusLog, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: focus?.isApplying == true)
+        let gate = ResponderMoveGate(window: self, log: focusLog, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: focus?.isApplying == true, route: routeInFlight)
         if gate.refuses(responder, or: { if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: gate.inInputEvent, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { true } else { false } }) { return false }
         let accepted = holdingResponderReports { () -> Bool in let moved = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }; editTeardown.pending = editTeardown.pending || moved; return moved }
         if accepted { cursorRectHold?.firstResponderDidChange(in: self); (windowController as? WindowController)?.chiefPanelView?.firstResponderDidChange(); gate.moved(to: firstResponder) }

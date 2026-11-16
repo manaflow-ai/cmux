@@ -144,8 +144,11 @@ Today's targets:
   Select Standard during connection setup on the dedicated viewer. Apple
   targets require a second Mac and explicit `targets=`; the daily loopback
   defaults remain `rd,webrtc`.
-  Apple window runs require `presented-observer=1` with numeric
-  `presented-pid=PID`, `presented-window=CGWINDOW_ID`,
+  Each view launches its own Screen Sharing.app instance (`open -g -n`, never
+  activated), binds its pid and window, quits only that pid when the view ends
+  (success, failure or signal), and a watchdog ends a view that hangs; a
+  Screen Sharing process the target did not start is never touched. Apple
+  window runs require `presented-observer=1` with
   `presented-marker-origin=X,Y`, `presented-cell-size=N` and
   `presented-input-point=X,Y` (all coordinates are viewer capture pixels), plus
   optional `presented-display=main`, `presented-timeout-ms=1000` and

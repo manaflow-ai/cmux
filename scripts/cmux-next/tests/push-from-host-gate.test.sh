@@ -4,6 +4,7 @@
 # pre-push ran no prepush-gate (no cmux pre-push in cmux-git-hooks), and a merge that dropped settings exports' keys
 # was pushed from there unchecked (cmux#43562 885211f5).
 set -euo pipefail
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 # shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,6 +12,12 @@ script="$here/../push-from-host.sh"
 tmp="$(mktemp -d)"
 git_fixture_trap_exit 'rm -rf "$tmp"'
 fail() { echo "FAIL: $*" >&2; exit 1; }
+
+# Host selection is registry-owned. A hand-kept fallback once sent work to Leo's cmux16 when the fleet host was full.
+grep -q 'CMUX_FLEET_REGISTRY' "$script" || fail "push-from-host.sh does not read the fleet registry"
+if grep -Eq 'DEFAULT_HOSTS=.*cmux16|cmux16:Projects/cmux' "$script"; then
+  fail "push-from-host.sh still hard-codes cmux16 as a fallback"
+fi
 # Only the fixture's own config: a global core.hooksPath (a shared hooks folder on this machine) would answer the
 # "no core.hooksPath" case below. HOME too, for the `~/...` case.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 HOME="$tmp/home" \

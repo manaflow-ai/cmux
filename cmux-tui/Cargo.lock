@@ -2267,6 +2267,7 @@ dependencies = [
  "cmux-holder",
  "cmux-host",
  "cmux-json",
+ "cmux-layout-reducer",
  "cmux-link",
  "cmux-panic-log",
  "cmux-process",

@@ -17,6 +17,7 @@ from unittest import mock
 
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
+import chat_open_frames as cof  # noqa: E402
 import chat_open_summary as cos  # noqa: E402
 
 
@@ -303,6 +304,138 @@ class TableTests(unittest.TestCase):
                                 "raw": {"idle": {"subagent": [refused, refused, adopted]}}})
         self.assertIn("spare pool, subagent idle: adopted 1/3, refused 2/3 (touched by featureTips)", table)
         self.assertIsNone(cos.spare_pool([open_(100, 10)]))  # a case that never asks the pool says nothing
+
+
+    def test_the_table_says_the_page_engine_of_each_cases_opens(self):
+        # Decision 2026-11-16: a measure says its engine. The app's trace has it; the table and the click
+        # records dropped it, so a run in WebKit read as a run in the default engine.
+        bench = load_bench("--conditions", "idle", "--cases", "sidebar,click")
+        opens = [{**open_(100, 10), "engine": "cef"}, {**open_(120, 10), "engine": "cef"}, open_(90, 10)]
+        clicks = [{"first_content_ms": 80, "trace": {"engine": "webkit:chromium-unavailable"}}]
+        table = bench.markdown({"host": "h", "model": "m", "ncpu": 1, "cases": {},
+                                "raw": {"idle": {"sidebar": opens, "click": clicks}}})
+        self.assertIn("page engine, sidebar idle: cef 2/3, not said 1/3", table)
+        self.assertIn("page engine, click idle: webkit:chromium-unavailable 1/1", table)
+        self.assertIsNone(cos.page_engines([]))
+        self.assertIsNone(cos.page_engines([{"error": "arm: none"}]))  # an open that never ran says nothing
+
+    def test_a_clicks_record_keeps_the_engine_of_its_trace(self):
+        bench = load_bench("--conditions", "idle", "--cases", "click")
+        self.assertIn("engine", bench.CLICK_TRACE_KEYS)
+        for kept in ("marks_ms", "order", "frames", "first_content_ms", "longest_empty_ms", "timed_out", "page_timing"):
+            self.assertIn(kept, bench.CLICK_TRACE_KEYS)
+
+
+def click_(first, **extra):
+    """A click's record that settled (chat_open_frames.valid)."""
+    return {"settled": True, "first_content_ms": first, "final_frame_ms": first + 40, "transcript_ms": first + 20, **extra}
+
+
+class FakeRun:
+    def __init__(self, reply):
+        self.reply = reply
+        self.calls = []
+
+    def rpc(self, method, params=None, timeout=40):
+        self.calls.append((method, params))
+        return self.reply
+
+
+class PageEngineRuleTests(unittest.TestCase):
+    """Decision 2026-11-16: with an asked engine (`--page-engine`), an open in another engine is no number. Its
+    case reads FAILED and gives no median, and the memory of the case's kept pages is no number."""
+
+    def test_an_open_in_another_engine_than_asked_fails_its_case(self):
+        other = cos.judge_engine({**open_(100, 10), "engine": "webkit:chromium-unavailable"}, "cef")
+        self.assertEqual(other["engine_fault"], "page engine webkit:chromium-unavailable, asked: cef")
+        self.assertEqual(cos.invalid_reason(other), "other_engine")
+        asked = [cos.judge_engine({**open_(ms, 10), "engine": "cef"}, "cef") for ms in (90, 95)]
+        self.assertTrue(all("engine_fault" not in record for record in asked))
+        summary = cos.summarize(asked + [other])
+        self.assertFalse(summary["complete"])
+        self.assertIsNone(summary["first_content_ms"]["median"])
+        self.assertEqual(summary["invalid"], {"other_engine": 1})
+        self.assertEqual(cos.cell(summary, "sidebar"), "FAILED (2/3 valid; other_engine 1)")
+
+    def test_a_measure_of_webkit_refuses_an_open_in_chromium(self):
+        self.assertEqual(cos.judge_engine({**open_(100, 10), "engine": "cef"}, "webkit")["engine_fault"],
+                         "page engine cef, asked: webkit")
+        self.assertNotIn("engine_fault", cos.judge_engine({**open_(100, 10), "engine": "webkit:own-host"}, "webkit"))
+
+    def test_any_engine_refuses_no_open(self):
+        for name in ("cef", "webkit:chromium-unavailable", None):
+            record = cos.judge_engine({**open_(100, 10), "engine": name}, "any")
+            self.assertNotIn("engine_fault", record)
+            self.assertIsNone(cos.invalid_reason(record))
+
+    def test_an_open_with_content_whose_engine_was_not_said_is_refused(self):
+        record = cos.judge_engine(open_(100, 10), "cef")
+        self.assertEqual(record["engine_fault"], "page engine not read (unknown: not said), asked: cef")
+        self.assertEqual(cos.invalid_reason(record), "other_engine")
+
+    def test_an_open_that_showed_nothing_keeps_its_own_reason(self):
+        # No page showed: there is no time to refuse, and the open's own reason is the one to read.
+        blank = cos.judge_engine({"timed_out": False, "first_content_ms": None, "longest_empty_ms": 4800.0}, "cef")
+        self.assertNotIn("engine_fault", blank)
+        self.assertEqual(cos.invalid_reason(blank), "no_content")
+        errored = cos.judge_engine({"error": "arm: None"}, "cef")
+        self.assertNotIn("engine_fault", errored)
+        self.assertEqual(cos.invalid_reason(errored), "error")
+
+    def test_a_clicks_engine_is_its_traces_or_the_one_read_after_the_click(self):
+        self.assertEqual(cos.engine_of({"first_content_ms": 80, "trace": {"engine": "cef"}}), "cef")
+        self.assertEqual(cos.engine_of({"first_content_ms": 80, "trace": {"engine": None}, "engine": "cef"}), "cef")
+        self.assertEqual(cos.engine_of({"first_content_ms": 80, "engine": "webkit:own-host"}), "webkit:own-host")
+        self.assertIsNone(cos.engine_of({"first_content_ms": 80}))
+
+    def test_a_click_in_another_engine_fails_its_case(self):
+        good = cos.judge_engine(click_(80, trace={"engine": "cef"}), "cef")
+        other = cos.judge_engine(click_(60, trace={"engine": "webkit:chromium-unavailable"}), "cef")
+        self.assertTrue(cof.valid(good))
+        self.assertFalse(cof.valid(other))
+        summary = cof.summarize([good, other])
+        self.assertFalse(summary["complete"])
+        self.assertIsNone(summary["first_content_ms"])
+        self.assertEqual(cof.cell(summary), "FAILED (1/2 settled; other_engine 1)")
+        self.assertEqual(cof.cell(cof.summarize([good, click_(70, settled=False)])), "FAILED (1/2 settled)")
+
+    def test_the_bench_takes_the_asked_engine_and_any_is_its_default(self):
+        self.assertEqual(load_bench("--conditions", "idle", "--cases", "click").opts.page_engine, "any")
+        bench = load_bench("--conditions", "idle", "--cases", "click", "--page-engine", "cef")
+        self.assertEqual(bench.opts.page_engine, "cef")
+        self.assertIn("engine_fault", bench.judged({**open_(100, 10), "engine": "webkit:chromium-unavailable"}))
+        self.assertNotIn("engine_fault", bench.judged({**open_(100, 10), "engine": "cef"}))
+
+    def test_a_click_with_no_trace_reads_its_engine_from_the_app_after_the_click(self):
+        bench = load_bench("--conditions", "idle", "--cases", "click", "--page-engine", "cef")
+        run = FakeRun({"pane": "p1", "engine": "webkit:chromium-unavailable"})
+        record = bench.click_engine(run, click_(80))
+        self.assertEqual(run.calls, [("debug.agent_pane", {"action": "engine"})])
+        self.assertEqual(record["engine"], "webkit:chromium-unavailable")
+        # A traced click has its engine, and a click that failed showed no page: neither asks.
+        for known in (click_(80, trace={"engine": "cef"}), {"error": "frame_strip: no window"}):
+            run = FakeRun({"pane": "p1", "engine": "cef"})
+            bench.click_engine(run, known)
+            self.assertEqual(run.calls, [])
+        # An answer that names no engine is kept with its reason, and the rule refuses the click.
+        unread = bench.judged(bench.click_engine(FakeRun({"error": "no pane shows an agent tab"}), click_(80)))
+        self.assertEqual(unread["engine_fault"],
+                         "page engine not read (unknown: no pane shows an agent tab), asked: cef")
+
+    def test_the_memory_of_a_case_with_a_refused_open_is_no_number(self):
+        bench = load_bench("--conditions", "idle", "--cases", "click", "--page-engine", "cef")
+        kept = [bench.judged(click_(80, trace={"engine": "cef"})) for _ in range(3)]
+        self.assertEqual(bench.kept_page_memory(400.0, 430.0, kept),
+                         {"before_footprint_mb": 400.0, "after_footprint_mb": 430.0, "kept_pages": 3, "per_kept_page_mb": 10.0})
+        mixed = kept[:2] + [bench.judged(click_(60, trace={"engine": "webkit:chromium-unavailable"}))]
+        memory = bench.kept_page_memory(400.0, 430.0, mixed)
+        self.assertIsNone(memory["per_kept_page_mb"])
+        self.assertEqual(memory["refused_for_engine"], 1)
+        table = bench.markdown({"host": "h", "model": "m", "ncpu": 1, "cases": {}, "page_engine_asked": "cef",
+                                "raw": {"idle": {"click": mixed}}, "memory": {"idle": {"click": memory}}})
+        self.assertIn("memory per kept chat page (idle): click no number (1 of its 3 opens in another engine than asked)", table)
+        self.assertIn("page engine, click idle: cef 2/3, webkit:chromium-unavailable 1/3 (asked: cef)", table)
+        self.assertNotIn("None MB", table)
 
 
 class ClickRowTests(unittest.TestCase):
