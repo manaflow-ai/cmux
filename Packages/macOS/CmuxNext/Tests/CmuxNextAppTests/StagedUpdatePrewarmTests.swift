@@ -134,9 +134,14 @@ import Testing
     // else waits there, and its only line came after its last run.
 
     func eventually(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async -> Bool {
+        // One check per pass, and its answer is the result: a condition that takes something (a semaphore's
+        // signal) answers true once, so a second check after the loop said false (#43979's first fleet run).
         let deadline = ContinuousClock.now + timeout
-        while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
-        return condition()
+        while true {
+            if condition() { return true }
+            if ContinuousClock.now >= deadline { return false }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
     }
 
     /// The real updater's staged state: Sparkle's Installation folder in the user's caches holds the staged
@@ -152,7 +157,9 @@ import Testing
         try Self.stage(installation, "u1", "x1", id: id, build: "200")
         let updater = Self.updater(stagedBuild: "200", bundleIdentifier: id)
         let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
-        let keep = Task {
+        // As the real keep (UpdaterService+Rollback): a best-effort task, so `run` does not boost the item to
+        // this main-actor test's priority and the stand-in holds only the best-effort slot.
+        let keep = Task(priority: WorkPriority.bestEffort.taskPriority) {
             try? await updater.work.run(.bestEffort, mayBlock: .files) {
                 started.signal()
                 _ = release.wait(timeout: .now() + 30)
@@ -163,10 +170,13 @@ import Testing
         updater.followStagedUpdate(.ready(version: "2.0.0"))
         #expect(updater.log.recent.contains("launch pre-warm of 200: started"), "\(updater.log.recent)")
         let ran = installation.appending(path: "ran.txt")
-        #expect(await eventually { FileManager.default.fileExists(atPath: ran.path) },
+        let firstRunLogged = await eventually { updater.log.recent.contains { $0.hasPrefix("launch pre-warm of 200: cmux exit 0") } }
+        // The update log's pre-warm lines show in the failure itself (a fleet summary keeps one line per issue).
+        let lines = updater.log.recent.filter { $0.contains("pre-warm") }
+        #expect(firstRunLogged, "no line as the first run ended while the keep still held the files lane: \(lines)")
+        #expect(lines.count >= 2, "\(lines)")
+        #expect(FileManager.default.fileExists(atPath: ran.path),
                 "the pre-warm waited behind the rollback keep on the files lane")
-        #expect(await eventually { updater.log.recent.contains { $0.hasPrefix("launch pre-warm of 200: cmux exit 0") } },
-                "no line as the first run ended: \(updater.log.recent)")
         release.signal()
         await keep.value
     }
