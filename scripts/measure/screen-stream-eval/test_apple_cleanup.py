@@ -96,6 +96,53 @@ class AppleCleanupTests(unittest.TestCase):
         self.assertLess(elapsed, 15)
         self.assert_quit_launched()
 
+    def test_second_launch_during_settle_binds_neither(self):
+        # Someone else's Screen Sharing starts 0.3 s after ours: which one is ours is unknown, so the
+        # run binds neither and stops neither (binding theirs would later quit their viewer).
+        others = self.tools / "others.launched"
+        stub(self.tools, "open", 'while (($#)); do [[ $1 == -a ]] && { app=$2; shift; }; shift; done\n'
+                                 '"$app/Contents/MacOS/Screen Sharing" 1000 </dev/null >/dev/null 2>&1 &\n'
+                                 'echo $! >>"$0.launched"\n'
+                                 '(sleep 0.3; "$app/Contents/MacOS/Screen Sharing" 1000 </dev/null >/dev/null 2>&1 &\n'
+                                 ' echo $! >>"' + str(others) + '") </dev/null >/dev/null 2>&1 &\n')
+        def reap_others():
+            for pid in ([int(p) for p in others.read_text().split()] if others.exists() else []):
+                if alive(pid):
+                    os.kill(pid, 9)
+        self.addCleanup(reap_others)
+        run = window_view(self.root, self.env, 2)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("not 1", run.stderr)
+        self.assertFalse((self.root / "state/viewer.pid").exists())
+        theirs = [int(p) for p in others.read_text().split()]
+        self.assertEqual(len(theirs), 1)
+        self.assertTrue(alive(theirs[0]), "a Screen Sharing process this run did not start was stopped")
+
+    def test_watchdog_of_a_killed_verb_acts_on_nothing(self):
+        # The verb is killed outright, so its EXIT trap never runs. At the deadline its watchdog must
+        # not act on pids it can no longer trust (the verb's pid and viewer.pid may be reused by then).
+        hung = self.tools / "osascript.pid"
+        stub(self.tools, "osascript", f'cat >/dev/null; echo $$ >"{hung}"; exec sleep 1000\n')
+        def reap_hung():
+            if hung.exists() and alive(int(hung.read_text())):
+                os.kill(int(hung.read_text()), 9)
+        self.addCleanup(reap_hung)
+        verb = subprocess.Popen(["bash", str(Path(__file__).resolve().parent / "targets/apple.sh"), "window-view", "2",
+                                 str(self.root / "frame.png"), str(self.root / "go"), str(self.root / "window.raw")],
+                                env={**self.env, "EVAL_APPLE_VIEW_DEADLINE_S": "3"},
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        end = time.monotonic() + 10
+        while not hung.exists() and time.monotonic() < end:
+            time.sleep(0.1)
+        self.assertTrue(hung.exists(), "the view never reached the hung step")
+        verb.kill()
+        verb.wait()
+        pids = launched(self.tools)
+        self.assertEqual(len(pids), 1, pids)
+        time.sleep(5)  # past the 3 s deadline
+        self.assertTrue(alive(pids[0]), "an orphaned watchdog stopped a viewer after its verb was gone")
+        self.assertFalse((self.root / "state/view-timed-out").exists())
+
     def test_deadline_hook_ignores_longer_or_invalid_values(self):
         # A longer, zero or non-numeric override is ignored (the bound stays seconds + 120 s);
         # a normal view still finishes and quits its viewer.

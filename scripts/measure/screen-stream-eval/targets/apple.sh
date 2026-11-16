@@ -41,7 +41,7 @@ viewer_executable() {
 is_screen_sharing() {
   local cmd
   [[ "$1" =~ ^[1-9][0-9]*$ && -n "${apple_viewer_exe:-}" ]] || return 1
-  cmd=$(ps -p "$1" -o command= 2>/dev/null) || return 1
+  cmd=$(ps -ww -p "$1" -o command= 2>/dev/null) || return 1
   cmd=${cmd#"${cmd%%[![:space:]]*}"}
   [[ "$cmd" == "$apple_viewer_exe" || "$cmd" == "$apple_viewer_exe "* ]]
 }
@@ -49,7 +49,7 @@ is_screen_sharing() {
 # viewer_pids: every running Screen Sharing process, matched by executable path, one pid a line.
 viewer_pids() {
   local pid cmd
-  ps -A -o pid= -o command= 2>/dev/null | while read -r pid cmd; do
+  ps -ww -A -o pid= -o command= 2>/dev/null | while read -r pid cmd; do
     if [[ "$cmd" == "$apple_viewer_exe" || "$cmd" == "$apple_viewer_exe "* ]]; then
       echo "$pid"
     fi
@@ -107,6 +107,9 @@ start_watchdog() {
     sleep "$1" </dev/null >/dev/null 2>&1 &
     nap=$!
     wait "$nap" 2>/dev/null || exit 0
+    # The verb was killed outright (its EXIT trap never ran): pid $2 and viewer.pid may now
+    # belong to something else, so act on nothing.
+    [[ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d " ")" == "$2" ]] || exit 0
     echo "apple-$3: view passed its $1 s deadline; quit the viewer this run launched; next: check the viewer Mac for a hung Screen Sharing.app or osascript, then rerun" >&2
     : >"$EVAL_STATE/view-timed-out"
     stop_viewer
@@ -126,7 +129,8 @@ start_watchdog() {
 # view_cleanup: the EXIT trap of every view verb, on success, failure or signal.
 view_cleanup() {
   local status=$?
-  # Finish cleanup even when the watchdog's TERM lands now; its KILL still bounds a hung cleanup.
+  # Finish cleanup even when the watchdog's TERM lands now. Cleanup is bounded on its own: its
+  # only wait is stop_viewer's 5 s.
   trap - EXIT
   trap '' TERM INT HUP
   if [[ -n "${watchdog_pid:-}" ]]; then
@@ -177,6 +181,19 @@ connect() {
     (( count >= 1 )) && break
     sleep 0.1 # bounded: the launched instance must appear within 15 s
   done
+  # Hold for 1 s more: if a second Screen Sharing starts meanwhile, which one is ours is unknown,
+  # so bind neither (a wrong bind would later quit someone else's viewer).
+  if (( count == 1 )); then
+    candidate=$new
+    for _ in $(seq 1 10); do
+      sleep 0.1 # bounded: 1 s settle
+      new="" count=0
+      for pid in $(viewer_pids); do
+        case "$before" in *" $pid "*) ;; *) new=$pid; count=$((count + 1)) ;; esac
+      done
+      (( count == 1 )) && [[ "$new" == "$candidate" ]] || break
+    done
+  fi
   if (( count != 1 )); then
     echo "apple-$mode: found $count new Screen Sharing processes after open, not 1; next: rerun on a viewer Mac where nothing else launches Screen Sharing.app" >&2
     return 1
