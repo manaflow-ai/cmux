@@ -167,3 +167,49 @@ import Testing
         #expect(hold.heldRows == nil)
     }
 }
+
+/// R1-1, 2026-11-16: a keyboard toggle's target rows go to the Mac at once.
+@Suite struct TerminalResizeSettleClaimTests {
+    private func size(_ rows: Int) -> TerminalResizeSettle.Size { .init(columns: 53, rows: rows) }
+
+    @Test func aTargetIsSentAtOnceAndTheSameOneNotAgain() {
+        var settle = TerminalResizeSettle()
+        #expect(settle.measured(size(40)) == .sendNow(size(40)))
+        #expect(settle.claim(size(26)) == size(26))
+        // Will-show claims the rows of its end frame: the same, nothing sent.
+        #expect(settle.claim(size(26)) == nil)
+        #expect(settle.applied == size(26))
+    }
+
+    @Test func aReversalSendsTheRevertAtOnce() {
+        var settle = TerminalResizeSettle()
+        _ = settle.measured(size(40))
+        #expect(settle.claim(size(26)) == size(26))
+        // The keyboard turned back before the Mac answered: the rows claimed
+        // are never left at the abandoned target.
+        #expect(settle.claim(size(40)) == size(40))
+        #expect(settle.applied == size(40))
+    }
+
+    @Test func aClaimDropsAPendingMeasure() {
+        var settle = TerminalResizeSettle()
+        _ = settle.measured(size(40))
+        #expect(settle.measured(size(39)) == .wait)
+        #expect(settle.claim(size(26)) == size(26))
+        #expect(settle.pending == nil)
+        #expect(settle.settled() == nil)
+    }
+}
+
+/// The area's bottom follows the settled keyboard for a TUI only.
+@Suite struct TerminalTUISizingAreaBottomTests {
+    @Test func theAreaBottomIsTheLiftedRestingTop() {
+        var sizing = TerminalTUISizing()
+        sizing.tuiStarted()
+        #expect(sizing.areaBottom(restingStackTop: 676) == 676)
+        sizing.keyboardSettled(stackTop: 400, restingStackTop: 676, keyboardShown: true, isTUI: true)
+        #expect(sizing.areaBottom(restingStackTop: 676) == 400)
+        sizing.tuiEnded()
+        #expect(sizing.areaBottom(restingStackTop: 676) == 676)
+    }
+}
