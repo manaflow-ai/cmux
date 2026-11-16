@@ -83,9 +83,7 @@ extension ScreenContentView {
             // Placed as `applyPresentation` places it, so the two sizes round to the pixel grid the same way.
             let offset = CGVector(dx: (geometry.scrolls(pane: pane) ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
             var next = frame
-            let token = zoomMotion.spring(for: pane, fallback: motionState.frameSpring)
-            _ = next.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
-                                      alphaParameters: appear)
+            _ = next.advanceUnsettled(dt, parameters: zoomMotion.parameters(for: pane, policy) ?? frameSpring, alphaParameters: appear)
             let nextRect = next.geometryNearRest ? next.targetRect : next.rect
             let now = frame.rect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
             let then = nextRect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
@@ -108,11 +106,10 @@ extension ScreenContentView {
         let panes = Array(paneFrames.keys), dividers = Array(dividerFrames.keys)
         for key in panes {
             guard var frame = paneFrames[key] else { continue }
-            let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
-            if frame.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
-                                      alphaParameters: appear) { moving = true }
+            if frame.advanceUnsettled(dt, parameters: zoomMotion.parameters(for: key, policy) ?? frameSpring, alphaParameters: appear) { moving = true }
             paneFrames[key] = frame
         }
+        zoomMotion.advance(dt, policy: policy) // The dim over the others, on the zooming pane's spring.
         for key in dividers {
             guard var frame = dividerFrames[key] else { continue }
             if frame.advanceUnsettled(dt, parameters: frameSpring) { moving = true }
@@ -142,10 +139,10 @@ extension ScreenContentView {
         // The same springs `step` uses: unsettled (no edge lands alone), each pane on its zoom spring token.
         for key in Array(paneFrames.keys) {
             guard var frame = paneFrames[key] else { continue }
-            let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
-            _ = frame.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token), alphaParameters: appear)
+            _ = frame.advanceUnsettled(dt, parameters: zoomMotion.parameters(for: key, policy) ?? frameSpring, alphaParameters: appear)
             paneFrames[key] = frame
         }
+        zoomMotion.advance(dt, policy: policy)
         for key in Array(dividerFrames.keys) {
             guard var frame = dividerFrames[key] else { continue }
             _ = frame.advanceUnsettled(dt, parameters: frameSpring)
