@@ -38,6 +38,9 @@ user), and runs `top` beside it as a cross-check of CPU (`top_cpu_pct` in the ru
 | `stream-chat` | a chat with 40 turns | one long answer streams |
 | `background-home` | Home, 20 rows | Settings in front: the app is in the background |
 | `drift-30m` | Home, 20 rows | 30 minutes idle, foreground |
+| `hidden-terminals-4` | four terminal tabs opened, then the workspaces list in front | each mock shell streams a row every 20 ms, none on screen |
+| `idle-terminal` | one terminal tab, on screen | its mock shell idles at its prompt |
+| `visible-busy-terminal` | one terminal tab, on screen | its mock shell streams a row every 20 ms |
 
 ## The columns
 
@@ -50,6 +53,11 @@ Every rate is a counter's growth over the window, (last - first) / seconds
 - **Energy mW**: `ri_energy_nj`, the kernel's energy estimate for the process in nanojoules,
   per second, in milliwatts (`ri_billed_energy` when that does not move; `energy_source` in the
   JSON says which). It is the Mac's estimate for the simulator's process, not an iPhone's.
+- **Received B/s**: the bytes the app received over the window (`ReceivedByteCount.swift`): every
+  chunk its link's `daemon` channels deliver, and in mock mode, which has no link, the mock
+  shells' output in its place (terminal bytes, not the JSON and base64 a link carries). The app
+  logs its total a second after bytes arrive (nothing while none do); the bench takes the last
+  total before and after the window. `-` for an app without the counter.
 - **MEM**: `ri_phys_footprint`, the footprint Xcode's gauge shows, at the first and last
   reading, and its peak.
 

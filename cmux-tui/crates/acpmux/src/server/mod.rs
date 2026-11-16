@@ -886,6 +886,21 @@ pub async fn check_listen_address(addr: &str, allow_network: bool) -> Result<()>
     ws_auth::check_listen(addr, &addrs, false)
 }
 
+/// [`check_listen_address`] for a caller off the async executor (`Config::start_refusal`, which
+/// `config --set` and `_acpmux/reload_config` run): the same rule, a name resolved the same way.
+pub fn check_listen_address_blocking(addr: &str, allow_network: bool) -> Result<()> {
+    if allow_network {
+        return Ok(());
+    }
+    let addrs: Vec<std::net::SocketAddr> = match addr.parse() {
+        Ok(one) => vec![one],
+        Err(_) => std::net::ToSocketAddrs::to_socket_addrs(addr)
+            .map(Iterator::collect)
+            .unwrap_or_default(),
+    };
+    ws_auth::check_listen(addr, &addrs, false)
+}
+
 /// The origin of the app's bundled agent pane page (a `cmux-agent` URL
 /// scheme handler). A `file://` page would send `Origin: null`, which every
 /// localhost listener refuses.
@@ -2409,6 +2424,8 @@ mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
 pub(crate) mod machine_health;
+#[cfg(feature = "hub-carrier")]
+mod machine_routes;
 mod machine_tunnel;
 mod memory_inbox;
 mod models_fanout;

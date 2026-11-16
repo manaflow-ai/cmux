@@ -348,6 +348,9 @@ fn dispatch_command(
         Command::TerminalLastCommand { surface, terminal_id } => {
             cmd_terminals::terminal_last_command(mux, surface, terminal_id)
         }
+        Command::TerminalCommandContext { surface, intent } => {
+            cmd_terminals::terminal_command_context(mux, surface, intent)
+        }
         Command::TerminalResumeCommand { surface, terminal_id, command } => {
             cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
         }
@@ -1006,6 +1009,8 @@ fn dispatch_command(
             expected_generation,
             expected_terminal_id,
             replay_history_rows,
+            output_coalesce_ms,
+            replay_history_start,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -1024,6 +1029,8 @@ fn dispatch_command(
                 expected_generation,
                 expected_terminal_id,
                 replay_history_rows,
+                output_coalesce_ms,
+                replay_history_start,
                 snapshot,
             )
         }

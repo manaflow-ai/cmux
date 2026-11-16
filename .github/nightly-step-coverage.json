@@ -397,6 +397,7 @@
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
         "Checkout build ref (warm nightly-next builder)": {"plumbing": true},
         "Leave the push slot to a newer nightly-next push": {"plumbing": true},
+        "Ask main's nightly-next tick at notarization": {"nightly_only": "dispatches main's nightly-next-tick.yml right before notarization, so the next run sets up meanwhile (docs/ci/nightly-workflow-notes.md#note-26; tests/test_nightly_next_push_slot_at_build.py)"},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Point the signing steps at the build products": {"plumbing": true},
         "Parse signing and notarize scripts with /bin/bash 3.2": {"pr": "signing-keychain-macos.yml:bash32-syntax:Parse every scripts/ci shell script with bash 3.2"},

@@ -420,6 +420,7 @@ extension AgentTabStore {
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             host.linksHost = AgentTabStore.registryHost(of: daemon)
             (host.servesLogin, host.servesSide) = (daemon.supports(DaemonCapability.agentSessionLogin.rawValue), daemon.supports(DaemonCapability.agentSessionSide.rawValue))
+            host.servesMachineLogin = daemon.supports(DaemonCapability.agentSessionLoginMachine.rawValue)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudAccount = host.cloudMachineID == nil ? nil : services.cloud.account
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil && AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.auth.isSignedIn)
@@ -583,8 +584,8 @@ extension AgentTabStore {
             tabs?.localHostName = name
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }
-        tabs.onPageBuilt = { [weak services, weak tabs] key in services?.cache.hibernation?.agentPages?.pageBuilt(key); services?.paneOwedWork.hand(to: tabs?.views.values.map { $0 } ?? []) } // a pane made now takes what its chat owes
-        tabs.onCollectingPages = { [weak services] held in services?.cache.hibernation?.agentPages?.holdAwake(held) }
+        tabs.onPageBuilt = { [weak services, weak tabs] key in services?.cache.hibernation?.agentPages?.pages.pageBuilt(key); services?.paneOwedWork.hand(to: tabs?.views.values.map { $0 } ?? []) } // a pane made now takes what its chat owes
+        tabs.onCollectingPages = { [weak services] held in services?.cache.hibernation?.agentPages?.pages.holdAwake(held) }
         services.madeAgentTabs = tabs
         return tabs
     }

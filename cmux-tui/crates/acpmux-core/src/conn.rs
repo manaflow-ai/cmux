@@ -595,7 +595,7 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
             if sub.stream.as_str() != "list"
                 || sub.view != Some(crate::wire::ListView::Live)
                 || sub.filter.is_some()
-                || sub.anchor.is_some()
+                || sub.anchor.as_ref().is_some_and(|anchor| *anchor != crate::wire::Anchor::End)
             {
                 return Err(ConnError::InvalidRequest(
                     "request is not allowed on a peer link".into(),
@@ -606,13 +606,9 @@ pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
         Request::Blob(_) => {
             Err(ConnError::InvalidRequest("request is not allowed on a peer link".into()))
         }
+        // Decision 266: the mirror's `live` walk, or this machine's rows by `all` or `keys`.
         Request::Page(page) => {
-            if page.stream.as_str() != "list"
-                || page.view != Some(crate::wire::ListView::Live)
-                || page.filter.is_some()
-                || page.keys.is_some()
-                || page.turns
-            {
+            if crate::hub::peer_page_shape(page).is_none() {
                 return Err(ConnError::InvalidRequest(
                     "request is not allowed on a peer link".into(),
                 ));

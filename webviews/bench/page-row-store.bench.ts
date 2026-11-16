@@ -14,6 +14,8 @@
  * - v2.pr06.page_store_held: the rows and row bytes the store holds after paging up through a chat
  *   of 20,000 rows against one of 200, a page of 400 rows at a time. Pass: the god store at or under
  *   the cap (STORE_MAX_ROWS, STORE_MAX_BYTES), whatever the chat's length.
+ * - v2.pr06.page_store_text: p95 to take one batch holding one text op on an open row whose body
+ *   is 200 KB against one of 1 KB. Pass: within 1.2x.
  *
  *   bun bench/page-row-store.bench.ts
  *   ROUNDS=40 SAMPLES=250 bun bench/page-row-store.bench.ts
@@ -161,6 +163,56 @@ const heldSmall = await pageThrough("small", 200);
 const heldOk = heldGod.peakRows <= STORE_MAX_ROWS && heldGod.peakBytes <= STORE_MAX_BYTES;
 const applyOk = applyRatio <= LIMIT;
 
+// v2.pr06.page_store_text: one text op on an open row of 200 KB against one of 1 KB. The store
+// keeps each row's bytes and adds the piece's, so the op does not measure the row again.
+type TextSide = { name: "big" | "little"; host: ChatRowsHost; batch: number; ms: number[] };
+
+async function openText(name: TextSide["name"], bodyBytes: number): Promise<TextSide> {
+  const host = new ChatRowsHost(
+    async (method, params) => (method === "chat.rows.open" ? { sid: params.sid } : {}),
+    undefined,
+    () => name,
+  );
+  await host.open(`chat-${name}`);
+  const open = { ...row(101), open: true, body: { text: "x".repeat(bodyBytes) } };
+  const window = {
+    sid: name,
+    cursor: 101,
+    edition: 1,
+    rows: rows(1, 100),
+    open: [{ row: open }],
+    hasBefore: false,
+    hasAfter: false,
+  };
+  host.receive({ batch: 1, changes: [JSON.stringify({ kind: "chatWindow", replaces: true, window })] });
+  const side: TextSide = { name, host, batch: 1, ms: [] };
+  for (let index = 0; index < 50; index += 1) appendText(side);
+  side.ms = [];
+  return side;
+}
+
+function appendText(side: TextSide): void {
+  const change = JSON.stringify({
+    kind: "chatOp",
+    sid: side.name,
+    replay: false,
+    op: { op: "text", seq: side.batch, rowId: 101, text: "a piece " },
+  });
+  const start = performance.now();
+  side.host.receive({ batch: ++side.batch, changes: [change] });
+  side.ms.push(performance.now() - start);
+}
+
+const big = await openText("big", 200 * 1024);
+const little = await openText("little", 1024);
+for (let round = 0; round < ROUNDS; round += 1) {
+  const order = round % 2 === 0 ? [big, little] : [little, big];
+  for (const side of order) for (let sample = 0; sample < SAMPLES; sample += 1) appendText(side);
+}
+const bigP95 = percentile(big.ms, 0.95);
+const littleP95 = percentile(little.ms, 0.95);
+const textRatio = bigP95 / Math.max(littleP95, Number.EPSILON);
+const textOk = textRatio <= LIMIT;
 const round4 = (value: number) => Number(value.toFixed(4));
 console.log(
   JSON.stringify(
@@ -179,6 +231,17 @@ console.log(
         limit: LIMIT,
         pass: applyOk,
       },
+      "v2.pr06.page_store_text": {
+        bigBodyBytes: 200 * 1024,
+        littleBodyBytes: 1024,
+        bigP50Ms: round4(percentile(big.ms, 0.5)),
+        bigP95Ms: round4(bigP95),
+        littleP50Ms: round4(percentile(little.ms, 0.5)),
+        littleP95Ms: round4(littleP95),
+        ratio: Number(textRatio.toFixed(3)),
+        limit: LIMIT,
+        pass: textOk,
+      },
       "v2.pr06.page_store_held": {
         cap: { rows: STORE_MAX_ROWS, bytes: STORE_MAX_BYTES },
         god: heldGod,
@@ -192,11 +255,13 @@ console.log(
 );
 perfRow({ name: "v2.pr06.page_store_apply.god", p50: percentile(god.ms, 0.5), p95: godP95 });
 perfRow({ name: "v2.pr06.page_store_apply.small", p50: percentile(small.ms, 0.5), p95: smallP95 });
+perfRow({ name: "v2.pr06.page_store_text.big", p50: percentile(big.ms, 0.5), p95: bigP95 });
+perfRow({ name: "v2.pr06.page_store_text.little", p50: percentile(little.ms, 0.5), p95: littleP95 });
 perfRow({ name: "v2.pr06.page_store_held.rows", p95: heldGod.peakRows, unit: "rows", target: STORE_MAX_ROWS });
 perfRow({ name: "v2.pr06.page_store_held.bytes", p95: heldGod.peakBytes, unit: "bytes", target: STORE_MAX_BYTES });
-if (!applyOk || !heldOk) {
+if (!applyOk || !heldOk || !textOk) {
   console.error(
-    `page-row-store: ${applyOk ? "" : `apply ratio ${applyRatio.toFixed(3)} over ${LIMIT}; `}${heldOk ? "" : "held over the cap"}`,
+    `page-row-store: ${applyOk ? "" : `apply ratio ${applyRatio.toFixed(3)} over ${LIMIT}; `}${textOk ? "" : `text ratio ${textRatio.toFixed(3)} over ${LIMIT}; `}${heldOk ? "" : "held over the cap"}`,
   );
   process.exit(1);
 }

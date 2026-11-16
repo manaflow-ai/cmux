@@ -88,7 +88,7 @@ describe("a team-scoped check syncs a Stack team the webhook never mirrored", { 
     const ensured = (await call(token, "/v1/ops", { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })).body
     expect(ensured.ok).toBe(true)
     const user = ensured.value.id as string
-    return { w, me, token, user, team: teamIdOf(stackTeam) }
+    return { w, me, token, user, stackTeam, team: teamIdOf(stackTeam) }
   }
   const post = async (path: string, token: string, body: unknown) => {
     const res = await worker.fetch(`https://api.test${path}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
@@ -136,6 +136,28 @@ describe("a team-scoped check syncs a Stack team the webhook never mirrored", { 
     expect(await selectTeam(workerEnv, p, s.team, none)).toMatchObject({ ok: false, code: "team.not_member" })
     const fake = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }
     expect(await selectTeam(workerEnv, p, s.team, fake)).toMatchObject({ ok: true, principal: { team: s.team } })
+  })
+
+  // Leo's NIGHTLY on production, 2026-11-15: the app's Codex holder named the active team by its Stack id, and every
+  // Codex login delivery was refused "x-cmux-team must name a team id". A session's Stack team id now selects that
+  // team, still only for a member.
+  it("a session's x-cmux-team may name the team by its Stack id, and only a member gets it", async () => {
+    const s = await setup("By Stack id")
+    const p = { identity: `test:${s.me}`, kind: "session" as const, user: s.user, team: personalTeamIdFor(s.user), stack_user_id: s.me }
+    const fake = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }
+    expect(await selectTeam(workerEnv, p, s.stackTeam, fake)).toMatchObject({ ok: true, principal: { team: s.team } })
+    expect(await selectTeam(workerEnv, p, s.stackTeam.toUpperCase(), fake)).toMatchObject({ ok: true, principal: { team: s.team } })
+    // A Stack team the caller is not in: refused as its team_ id would be.
+    const other = crypto.randomUUID()
+    await useStack(other, s.w)
+    s.w.teams.set(other, "Not mine")
+    expect(await selectTeam(workerEnv, p, other, fake)).toMatchObject({ ok: false, code: "team.not_member" })
+    // Anything else that is not a team id stays refused.
+    expect(await selectTeam(workerEnv, p, "not-a-team", fake)).toMatchObject({ ok: false, code: "auth.forbidden" })
+    // An install token never selects another team, by either id.
+    const install = { ...p, kind: "install" } as unknown as Parameters<typeof selectTeam>[1]
+    expect(await selectTeam(workerEnv, install, s.stackTeam, fake)).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(await selectTeam(workerEnv, install, s.team, fake)).toMatchObject({ ok: false, message: "an install token acts only in the team it was minted for" })
   })
 
   // Review F1: healing one team took the person's Stack read for the window, and the next user.teams.list got an

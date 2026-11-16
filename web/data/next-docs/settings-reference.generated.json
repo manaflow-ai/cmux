@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 615,
+  "count": 617,
   "sections": [
     {
       "id": "general",
@@ -1323,6 +1323,14 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.newTabApp",
+          "title": "New Tab App",
+          "help": "An extension that draws the whole New Tab page, by its id, such as \"local/showcase-newtab\". Unset, cmux draws its own page. If the extension is missing, hidden or fails, cmux draws its own page. Not used by the native New Tab page.",
+          "kind": "text",
+          "default": null,
+          "group": "Tabs"
+        },
+        {
           "key": "tabs.newTabButtonPosition",
           "title": "New Tab Position (+ Button)",
           "help": "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T).",
@@ -1388,7 +1396,7 @@
         {
           "key": "tabs.plusButton",
           "title": "+ Button Visibility",
-          "help": "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
+          "help": "In Minimal Mode, On Hover shows each tab bar's + only while the pointer is over that tab bar. Outside Minimal Mode the + always shows.",
           "kind": "choice",
           "default": "hover",
           "group": "Tabs",
@@ -2566,6 +2574,18 @@
           ]
         },
         {
+          "key": "appearance.fontSmoothing",
+          "title": "Text Smoothing",
+          "help": "Thin draws tabs, the sidebar and other controls with lighter strokes, like cmux's chat and web pages. System uses the heavier macOS default. Terminal text keeps its own setting. Takes effect after cmux restarts.",
+          "kind": "choice",
+          "default": "antialiased",
+          "group": "Density and Motion",
+          "values": [
+            "antialiased",
+            "system"
+          ]
+        },
+        {
           "key": "appearance.highlightColor",
           "title": "Highlight Color",
           "help": "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color.",
@@ -3633,7 +3653,7 @@
         {
           "key": "sidebar.controlsOnHover",
           "title": "Show Sidebar Controls Only on Hover",
-          "help": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show.",
+          "help": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -3746,7 +3766,7 @@
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
           "kind": "number",
-          "default": 400,
+          "default": 1300,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3767,7 +3787,7 @@
           "title": "Group Card Delay",
           "help": "How long the pointer rests on a group before its summary card opens.",
           "kind": "number",
-          "default": 1500,
+          "default": 1300,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3928,7 +3948,7 @@
         {
           "key": "sidebar.minimal",
           "title": "Minimal Mode",
-          "help": "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
+          "help": "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"

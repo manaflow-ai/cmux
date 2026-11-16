@@ -68,6 +68,11 @@ struct Fake {
     other_session: bool,
     /// `{method, params, thread}` of each request the app caller got.
     app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+    /// Successive answers to `tab.list`, before `resource_result`.
+    tab_lists: RefCell<std::collections::VecDeque<Value>>,
+    /// The requests `Backend::resource_sender` sent (a live file's reloads); no sender
+    /// when unset.
+    reloads: Option<std::sync::Arc<std::sync::Mutex<Vec<Value>>>>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -169,6 +174,14 @@ impl Backend for Fake {
         !self.other_session
     }
 
+    fn resource_sender(&self) -> Option<live_file::Sender> {
+        let reloads = self.reloads.clone()?;
+        Some(std::sync::Arc::new(move |plan: RequestPlan| {
+            reloads.lock().unwrap().push(request_value(&plan).expect("a valid request"));
+            Ok(json!({}))
+        }))
+    }
+
     fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
         let status = self.computer_use.clone()?;
         let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));
@@ -179,6 +192,8 @@ impl Backend for Fake {
             match method {
                 "computer_use.status" => Ok(status.clone()),
                 "permissions.request" => Ok(outcome.clone()),
+                // Restart Computer Use Helper (`cua_recovery.rs`).
+                "action.run" => Ok(json!({"ran": true})),
                 other => panic!("unexpected app call {other}"),
             }
         }))
@@ -222,6 +237,11 @@ impl Backend for Fake {
                 error: json!({"code": "selector.not_found", "message": "the terminal closed"}),
                 idempotency_key: None,
             });
+        }
+        if request["operation"] == "tab.list"
+            && let Some(tabs) = self.tab_lists.borrow_mut().pop_front()
+        {
+            return Ok(tabs);
         }
         if request["operation"] != "session.snapshot"
             && let Some(result) = &self.resource_result
@@ -1582,6 +1602,8 @@ mod agent_wait;
 mod caller_scope;
 mod catalog;
 mod cloud_workspace_list;
+mod keys;
+mod live_open;
 mod machine_catalog;
 mod retained;
 mod settings;
@@ -1887,6 +1909,9 @@ fn the_subsession_servers_instructions_name_real_cmux_tools() {
 
 #[path = "upstream_tests.rs"]
 mod upstream_tests;
+
+#[path = "cua_recovery_tests.rs"]
+mod cua_recovery_tests;
 
 /// With no app, a link an agent opens keeps the daemon's `workspace.open_url`:
 /// the app's `browser.open_split` cannot run without the app (review of the
