@@ -34,7 +34,7 @@
 // Per round (bench/firstLoadFrames.ts): blank frames after the first content, shift frames (the composer
 // or the bottom-most row in view moved, or that row was replaced), when the final state first painted,
 // when content first painted; and the layout-shift entries' sum.
-//   [MODE=all|down|slow-init|native-ready|native-ready-tail] [ROUNDS=3] [TURNS=120] [ACPMUX_DOWN_MS=3000] [GATE=1] [TRACE=1] \
+//   [MODE=all|down|slow-init|native-ready|native-ready-tail] [RUNNING=1] [CPU=4] [ENGINE=webkit] [ROUNDS=3] [TURNS=120] [ACPMUX_DOWN_MS=3000] [GATE=1] [TRACE=1] \
 //     bun bench/first-load-after-restart.bench.ts
 // GATE=1 fails if content takes over 2 s, blanks, shifts, or never becomes live. TRACE=1 prints each
 // mode's worst round frame by frame. One `FIRST_LOAD_JSON {...}` line carries every number.
@@ -44,7 +44,7 @@ import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { chromium } from "./browsers";
+import { chromium, webkit } from "./browsers";
 import type { Browser, Page } from "playwright";
 import {
   PAGE_STYLE_ID,
@@ -103,7 +103,20 @@ const LATEST = `Answer ${TURNS}:`;
 const webviews = path.resolve(import.meta.dir, "..");
 const chatSnapshotSource = path.join(webviews, "src/agent-session/acpmux/chatSnapshot");
 
-const { events, session } = papercutEvents({ turns: TURNS, running: false });
+/// RUNNING=1: the chat's last turn is still running when the app restarts, as a working agent's is.
+const RUNNING = process.env.RUNNING === "1";
+/// CPU=N slows each relaunched page's CPU N times (CDP Emulation.setCPUThrottlingRate), as a loaded
+/// Mac does after an update (Leo's cosmic-gray, 2026-11-16: load1 150 on 15 cores, 100-570 ms frames for
+/// 40 s after the restart): a settle that takes several frames then shows each of them. 1 (the default) is off.
+const CPU = Number(process.env.CPU ?? 1);
+if (!Number.isFinite(CPU) || CPU < 1) throw new Error("CPU must be a number of at least 1");
+/// ENGINE=webkit draws the chat in WebKit, as the app does when its Chromium did not start (Leo's NIGHTLY,
+/// 2026-11-16: 394 of 415 chat pages ran as `webkit:chromium-failed`). WebKit reports no layout-shift
+/// entries, so there the frame-by-frame shift count is the measure. CPU throttling is Chromium's (CDP).
+const ENGINE = process.env.ENGINE ?? "chromium";
+if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error("ENGINE must be chromium or webkit");
+if (ENGINE === "webkit" && CPU > 1) throw new Error("CPU throttling needs ENGINE=chromium");
+const { events, session } = papercutEvents({ turns: TURNS, running: RUNNING });
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
@@ -584,11 +597,14 @@ try {
   });
   releases.push(["static server", () => statics.stop(true)]);
   const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
-  const browser: Browser = await chromium.launch({
-    headless: true,
-    // A released chat opens again in the renderer the app's other chat pages share (one per site).
-    args: MODES.some(isReopen) ? ["--process-per-site"] : [],
-  });
+  const browser: Browser =
+    ENGINE === "webkit"
+      ? await webkit.launch({ headless: true })
+      : await chromium.launch({
+          headless: true,
+          // A released chat opens again in the renderer the app's other chat pages share (one per site).
+          args: MODES.some(isReopen) ? ["--process-per-site"] : [],
+        });
   releases.push(["browser", () => browser.close()]);
   /// The reopen modes' warm renderer: one context with another chat page open in it for the whole run.
   let warmContext: Awaited<ReturnType<Browser["newContext"]>> | undefined;
@@ -722,6 +738,7 @@ try {
     const context = isReopen(mode) && warmContext ? warmContext : await browser.newContext({ viewport: VIEWPORT });
     const page = await context.newPage();
     try {
+      if (CPU > 1) await (await context.newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
       await prepare(
         page,
         mode === "reopen-no-copy" ? null : keptTail,
