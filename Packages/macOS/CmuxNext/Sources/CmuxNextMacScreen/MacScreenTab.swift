@@ -1,3 +1,4 @@
+import CmuxNextDesign
 public import AppKit
 
 /// One Mac Screen page tab (`MacScreenPages`): the home page, or one paired
@@ -97,7 +98,7 @@ public final class MacScreenTabView: NSView {
             addSubview(view)
         }
         // The tab had the keyboard (a focused tab whose screen just came in): its input surface takes it.
-        if hadKeyboard { window?.makeFirstResponder(focusTarget) }
+        if hadKeyboard { FocusRoute(.system, "a Mac screen tab refilled").moveKeyboard(in: window, to: focusTarget) }
     }
 
     public override func viewDidMoveToWindow() {
