@@ -12,7 +12,11 @@
 //   layout    the page's layouts and style recalcs (CDP Performance.getMetrics LayoutCount, RecalcStyleCount)
 //   script    main-thread script, layout and style time (ScriptDuration, LayoutDuration, RecalcStyleDuration), ms
 //   to_frame  the page's own typingStats (keydown to the next frame, p50 / p95), as the Mac bench reads it
-//   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--dev] [--profile]
+//   stream    with --modes idle,stream: the same keys while the chat streams a reply (60 deltas/s, a tool call every
+//             30), and, with no typing, the composer's renders per streamed event (reply text and tool calls, then a
+//             tool's output ticking while another chat changes: debug loadRun and loadTick). A stream event the
+//             composer does not show should render it 0 times.
+//   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream] [--dev] [--profile]
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -29,6 +33,7 @@ const flag = (name: string) => {
 const LENGTHS = (flag("--lengths") ?? "60,1500,6000").split(",").map(Number);
 const KEYS = Number(flag("--keys") ?? 60);
 const GAP_MS = Number(flag("--gap") ?? 80);
+const MODES = (flag("--modes") ?? "idle").split(",") as ("idle" | "stream")[];
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
 const DEV = argv.includes("--dev");
@@ -137,7 +142,7 @@ const browser = await chromium.launch({ headless: true });
 releases.push(() => browser.close());
 try {
   const table: Record<string, unknown>[] = [];
-  for (const length of LENGTHS) {
+  for (const { length, mode } of LENGTHS.flatMap((length) => MODES.map((mode) => ({ length, mode })))) {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
     const cdp = await page.context().newCDPSession(page);
@@ -166,6 +171,23 @@ try {
       await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
       await cdp.send("Profiler.start");
     }
+    // Stream mode: a reply streams in for the whole typing run (no scrolling), a tool call every 30 deltas.
+    const streaming =
+      mode === "stream"
+        ? page.evaluate(
+            (seconds) =>
+              (window as any).cmuxAcpmuxDebug.loadRun({ seconds, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
+            (KEYS * (GAP_MS + 20)) / 1000 + 1,
+          )
+        : Promise.resolve(undefined);
+    if (mode === "stream") {
+      await page.waitForTimeout(300);
+      await page.evaluate(() => {
+        const debug = (window as any).cmuxAcpmuxDebug;
+        debug.resetTyping();
+        debug.renders();
+      });
+    }
     const before = await metrics();
     const letters = "abcdefghijklmnopqrstuvwxyz";
     for (let i = 0; i < KEYS; i += 1) {
@@ -182,6 +204,22 @@ try {
       const debug = (window as any).cmuxAcpmuxDebug;
       return { renders: debug.renders(), typing: debug.typingStats() };
     })) as { renders: Record<string, number>; typing: Record<string, any> };
+    await streaming;
+    // Per stream event, nobody typing: the composer's renders while a reply and tool calls stream
+    // (loadRun), then while a tool's output ticks and another chat changes (loadTick).
+    let composerPerEvent: number | undefined;
+    let composerPerTick: number | undefined;
+    if (mode === "stream") {
+      const run = (await page.evaluate(() =>
+        (window as any).cmuxAcpmuxDebug.loadRun({ seconds: 3, chunk_ms: 16, tool_every: 10, scroll_speed: 0 }),
+      )) as { renders: Record<string, number>; deltas: number; tools: number };
+      composerPerEvent = Math.round(((run.renders.composer ?? 0) / Math.max(1, run.deltas + run.tools)) * 1000) / 1000;
+      const tick = (await page.evaluate(() =>
+        (window as any).cmuxAcpmuxDebug.loadTick({ seconds: 3, tick_ms: 50, sidebar_ms: 100, scroll_speed: 0 }),
+      )) as { renders: Record<string, number>; ticks?: number; sidebar?: number };
+      composerPerTick =
+        Math.round(((tick.renders.composer ?? 0) / Math.max(1, (tick.ticks ?? 0) + (tick.sidebar ?? 0))) * 1000) / 1000;
+    }
     await page.close();
     const per = (value: number) => Math.round((value / KEYS) * 100) / 100;
     const sum = (prefix: string) =>
@@ -190,6 +228,7 @@ try {
         .reduce((total, [, value]) => total + value, 0);
     const delta = (name: string) => (after[name] ?? 0) - (before[name] ?? 0);
     table.push({
+      mode,
       rows,
       keys: typing.keys,
       pane: per(renders.pane ?? 0),
@@ -207,6 +246,9 @@ try {
       to_work_p95: typing.to_work?.p95_ms,
       to_frame_p50: typing.to_frame?.p50_ms,
       to_frame_p95: typing.to_frame?.p95_ms,
+      to_frame_max: typing.to_frame?.max_ms,
+      composer_per_stream_event: composerPerEvent,
+      composer_per_tick_event: composerPerTick,
       nativePosts: JSON.stringify(typing.native_posts ?? {}),
       busiest: Object.entries(renders)
         .sort((a, b) => b[1] - a[1])
@@ -217,7 +259,9 @@ try {
   }
   console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
   for (const row of table)
-    console.log(`${String(row.rows)} rows: ${String(row.busiest)}; native posts ${String(row.nativePosts)}`);
+    console.log(
+      `${String(row.mode)} ${String(row.rows)} rows: ${String(row.busiest)}; native posts ${String(row.nativePosts)}`,
+    );
   console.log(`COMPOSER-TYPING ${JSON.stringify(table)}`);
 } finally {
   for (const release of releases.reverse()) await release();
