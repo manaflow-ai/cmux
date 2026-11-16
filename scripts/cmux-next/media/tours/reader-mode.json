@@ -22,7 +22,7 @@
       "cmux": [
         "workspace", "name:Reading", "screen", "current", "pane", "current", "tab", "current",
         "terminal", "current", "write", "--text",
-        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; cd {repo}/examples/extensions/reader-mode && { command -v bun >/dev/null && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts . || { mkdir -p dist && cp {repo}/scripts/cmux-next/media/fixtures/reader-mode/main.js dist/main.js; }; } && cmux ext dev --once --no-install\r"
+        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; cd {repo}/examples/extensions/reader-mode && { command -v bun >/dev/null && bun {repo}/cmux-tui/crates/cmux-app-host/tools/pack.ts . || { mkdir -p dist && cp test/packed/main.js dist/main.js; }; } && cmux ext dev --once --no-install\r"
       ],
       "wait": 8
     },
