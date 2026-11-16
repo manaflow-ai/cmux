@@ -19,7 +19,9 @@ import Testing
 /// A whole window of the `large` session with no daemon. The test makes the new tab, closes the other tab and gives
 /// the store the daemon's `tab-added` event of the creation in one turn of the main actor: no wait, no sample loop.
 /// The strip is recorded right after the app's own report of the created tab (`AgentTabs.moveSelection` for the New
-/// Tab key, the store's `onPageTabCreated` for a page tab) and when the store's apply returns.
+/// Tab key, the store's `onPageTabCreated` for a page tab) and when the store's apply returns. The report is there
+/// to move the selection, so each row also checks that the pane selects the daemon's tab when the apply returns: a
+/// report that runs and selects nothing fails here.
 ///
 /// Limits: the close is the pane's own close (`PaneController.close`), which hides the tab by a close intent of the
 /// store at once. A person's close of a terminal hides it by the same intent while it asks the daemon what runs
@@ -210,12 +212,16 @@ struct ACloseInTheTurnOfANewTabStaysClosedTests {
         frames.record()
 
         let seen = frames.all.joined(separator: ", ")
-        try #require(store.tab(surface: surface) != nil, "setup: the store did not take the daemon's tab: \(seen)")
+        let daemonTab = try #require(store.tab(surface: surface), "setup: the store did not take the daemon's tab: \(seen)")
         try #require(frames.moves == 1,
                      "setup: the app's report of the created tab ran \(frames.moves) times, want 1: the test no longer reaches the step (\(seen))")
         let victimLetter = letters[victim] ?? "?"
         // The first record is the strip before the close.
         #expect(!frames.all.dropFirst().contains { $0.contains(victimLetter) },
                 "the closed tab \(victimLetter) came back: \(seen)")
+        // The report is for the selection: when the apply returns, the pane selects the daemon's tab of the creation.
+        let selected = pane.stripModel.selectedID?.rawValue ?? "no tab"
+        #expect(selected == daemonTab.id,
+                "the pane selects \(selected) when the apply returns, want the daemon's tab \(daemonTab.id) of the creation (the new tab was \(standIn))")
     }
 }
