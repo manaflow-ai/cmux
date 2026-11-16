@@ -90,7 +90,11 @@ export class ChatSource {
     private hooks: ChatSourceHooks,
     name?: () => string,
   ) {
-    this.host = new ChatRowsHost(post, new ChatRowStore({ onFall: (fall) => this.onFall(fall) }), name);
+    this.host = new ChatRowsHost(
+      post,
+      new ChatRowStore({ onFall: (fall) => this.onFall(fall), onPageEnd: (sid) => this.onPageEnd(sid) }),
+      name,
+    );
     // Before the first open: the host's batches reach this store through the document's receiver.
     addChatRowsHost(this.host, post);
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onVisible);
@@ -300,6 +304,16 @@ export class ChatSource {
 
   private hidden(): boolean {
     return typeof document !== "undefined" && document.visibilityState === "hidden";
+  }
+
+  /// A page out ended with an error (refused, a stale edition): who waited on it learns, and a
+  /// page of turns that waited behind it is asked now.
+  private onPageEnd(sid: string): void {
+    const shown = this.shown;
+    if (shown?.sid !== sid) return;
+    this.settlePageWaits(shown);
+    const snapshot = shown.view ? this.host.store.snapshot(sid) : undefined;
+    if (snapshot?.ready) this.askTurns(shown, snapshot);
   }
 
   /// The page is seen again: a page of turns not asked while it was hidden is asked now.

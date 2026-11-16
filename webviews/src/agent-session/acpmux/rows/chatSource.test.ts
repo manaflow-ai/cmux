@@ -460,7 +460,7 @@ test("asked from the open turn's group row, and behind a page out: a person's pa
 
 test("not while the page is hidden: asked when it is seen again", async () => {
   const doc = globalThis as { document?: unknown };
-  const had = doc.document;
+  const had = Object.getOwnPropertyDescriptor(globalThis, "document");
   let state = "hidden";
   const listeners = new Set<() => void>();
   doc.document = {
@@ -479,7 +479,8 @@ test("not while the page is hidden: asked when it is seen again", async () => {
     for (const listener of listeners) listener();
     expect(pageAsks(posts)).toHaveLength(1);
   } finally {
-    doc.document = had;
+    if (had) Object.defineProperty(globalThis, "document", had);
+    else delete doc.document;
   }
 });
 
