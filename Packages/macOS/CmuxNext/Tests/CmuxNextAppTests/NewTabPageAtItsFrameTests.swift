@@ -22,6 +22,10 @@ import Testing
 ///
 /// Frames are the app's own. A test waits for one by an event: a probe that stands in the scheduler's queue behind
 /// the pane. No wait polls and no wait reads a clock.
+///
+/// The engine: each page view here is a real one, and each test prints the engine of each page view that it made
+/// (`engine-of-test:` in the run's output). The package's tests have no Chromium host, so that engine is WebKit: a
+/// pass here holds the rule of the host code, and is no proof of the look or the times of a Chromium page.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
                   .closesItsWindows)
 struct NewTabPageAtItsFrameTests {
@@ -56,15 +60,18 @@ struct NewTabPageAtItsFrameTests {
             pool.dropAll()
             pool.makeSpare = { _ in nil }
             // Each page view that the tab store builds or adopts tells this; the app's own listener still hears it.
-            var built = 0
+            var built = 0, engines: [String] = []
             let wired = tabs.onPageBuilt
             tabs.onPageBuilt = { key in
                 built += 1
+                engines.append(tabs.existingView(key)?.engineName ?? "no view")
                 wired?(key)
             }
             defer {
                 tabs.onPageBuilt = wired
                 pool.makeSpare = nil
+                // The run's record of the engine (decision 2026-11-16: each test says the engine that it ran with).
+                print("engine-of-test: NewTabPageAtItsFrameTests \(install): \(engines.count) page views made, engines \(engines)")
             }
             try await body(services, window, pane) { built }
         }
