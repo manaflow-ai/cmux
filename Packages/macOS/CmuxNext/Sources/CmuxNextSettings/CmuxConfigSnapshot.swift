@@ -290,6 +290,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// `navigation.historyScope`: what Back and Forward walk (`workspace`, `window`, `surface`).
     public var navigationHistoryScope: String = NavigationHistoryScopeSetting.fallback
+    /// `app.language`: the locale cmux shows its text in, nil for System (follow macOS).
+    public var appLanguage: String?
     /// `navigation.history.scope`: what a Back/Forward step is (`workspaces`, `everything`).
     public var navigationHistorySteps: String = NavigationHistoryStepSetting.fallback
     /// `history.commandRetentionDays` (days each daemon keeps terminal commands).
@@ -488,6 +490,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
         snapshot.parseHistory(root)
         snapshot.parseNavigationHistory(root)
+        let (appLanguage, appLanguageDiagnostic) = AppLanguageSetting.parse(root)
+        snapshot.appLanguage = appLanguage
+        if let appLanguageDiagnostic { snapshot.diagnostics.append(appLanguageDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)

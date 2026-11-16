@@ -4,6 +4,81 @@
 public import CmuxNextDesign
 
 extension GeneralSettingsSchema {
+    static var window: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.window", "Window")
+        return [
+            SettingDescriptor(
+                WindowTitlebarSetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.window.titlebar", "Titlebar"),
+                help: SettingsText.keyed("settings.window.titlebar.help", "Minimal has no titlebar strip; the top row moves the window."),
+                kind: .choice([
+                    SettingChoice(TitlebarStyle.minimal.rawValue, SettingsText.keyed("settings.choice.minimal", "Minimal")),
+                    SettingChoice(TitlebarStyle.standard.rawValue, SettingsText.keyed("settings.choice.standard", "Standard")),
+                ]),
+                default: .string(WindowTitlebarSetting.fallback.rawValue),
+                keywords: ["traffic lights", "title"]
+            ),
+            SettingDescriptor(
+                TitlebarButtonsSetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
+                help: SettingsText.keyed("settings.window.titlebarButtons.help", "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."),
+                kind: .choice([
+                    SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
+                    SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                ]),
+                default: .string(TitlebarButtonsSetting.fallback.rawValue),
+                keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.globalHotKeyPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
+                help: SettingsText.keyed("settings.app.globalHotKey.help", "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
+                summary: SettingsText.keyed("settings.app.globalHotKey.summary", "Show or hide all windows from any app"),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.globalHotKeyDefault),
+                keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.startAgentGlobalHotKeyPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.startAgentGlobalHotKey", "Start Agent from Any App"),
+                help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help", "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyDefault),
+                keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.hideDockIconWithoutWindowsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.hideDockIconWithoutWindows", "Hide Dock Icon When No Windows Are Open"),
+                help: SettingsText.keyed("settings.app.hideDockIconWithoutWindows.help", "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsDefault),
+                keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.showMenuBarIconPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.showMenuBarIcon", "Show Menu Bar Icon"),
+                help: SettingsText.keyed("settings.app.showMenuBarIcon.help", "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.showMenuBarIconDefault),
+                keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
+            ),
+        ]
+    }
+}
+
+extension GeneralSettingsSchema {
     static var quitting: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.quit", "Quitting")
         return [
@@ -290,48 +365,6 @@ extension GeneralSettingsSchema {
                 ]),
                 default: .string(MainPaneSetting.fallback.rawValue),
                 keywords: ["main", "pane", "chat", "agent", "right", "column", "side", "link", "subagent", "tab"]
-            ),
-        ]
-    }
-}
-
-extension GeneralSettingsSchema {
-    static var workspaceList: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
-        return [
-            SettingDescriptor(
-                CmuxConfigSnapshot.newWorkspacePlacementPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.workspaces.newPlacement", "New Workspace Position"),
-                help: SettingsText.keyed("settings.workspaces.newPlacement.help", "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."),
-                kind: .choice([
-                    SettingChoice(NewWorkspacePlacement.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
-                    SettingChoice(NewWorkspacePlacement.afterCurrent.rawValue, SettingsText.keyed("settings.choice.afterCurrentWorkspace", "After Current Workspace")),
-                    SettingChoice(NewWorkspacePlacement.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
-                ]),
-                default: .string(CmuxConfigSnapshot.newWorkspacePlacementDefault.rawValue),
-                keywords: ["workspace", "new", "cmd-n", "position", "order", "top", "bottom", "after", "sidebar", "placement"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.groupByComputerPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupByComputer", "Group Workspaces by Computer"),
-                help: SettingsText.keyed("settings.sidebar.groupByComputer.help", "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.groupByComputerDefault),
-                keywords: ["sidebar", "computer", "machine", "cloud", "remote", "group", "section", "header", "flat", "list"]
-            ),
-            SettingDescriptor(
-                CmuxConfigSnapshot.autoNameWorkspacesPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.workspaces.autoName", "Name Workspaces from Tabs"),
-                help: SettingsText.keyed("settings.workspaces.autoName.help", "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.autoNameWorkspacesDefault),
-                keywords: ["workspace", "name", "rename", "auto", "title", "tab", "chat", "page", "folder", "sidebar"]
             ),
         ]
     }
