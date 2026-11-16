@@ -180,6 +180,35 @@ struct PageInfoSiteNameTests {
         #expect(parts.tail == "example.com")
     }
 
+    /// A site on a private suffix (`github.io`, `vercel.app`) is its own site: its owner always
+    /// shows, so `paypal-login.evil.github.io` cannot look like GitHub's page (#41671).
+    @Test(arguments: [
+        ("paypal-login.evil.github.io", "paypal-login.", "evil.github.io"),
+        ("login.my-bank.vercel.app:8443", "login.", "my-bank.vercel.app:8443"),
+        ("www.bbc.co.uk", "www.", "bbc.co.uk"),
+        ("a.b.example.com.au", "a.b.", "example.com.au"),
+        ("sub.city.kawasaki.jp", "sub.", "city.kawasaki.jp"),
+        ("www.shop.example.kawasaki.jp", "www.", "shop.example.kawasaki.jp"),
+    ])
+    func aHostKeepsItsRegistrableDomainFromThePublicSuffixList(name: String, head: String, tail: String) {
+        let parts = PageInfoSite.splitName(name)
+        #expect(parts.head == head)
+        #expect(parts.tail == tail)
+    }
+
+    /// A name the list has no site for, a public suffix itself or an IP address, is all tail: no
+    /// part of it names an owner a prefix could hide.
+    @Test(arguments: ["github.io", "co.uk", "192.168.100.200", "192.168.100.200:8080"])
+    func aNameWithNoRegistrableDomainIsAllTail(name: String) {
+        let parts = PageInfoSite.splitName(name)
+        #expect(parts.head.isEmpty)
+        #expect(parts.tail == name)
+    }
+
+    @Test func aNarrowHeaderStillShowsThePrivateSuffixSitesOwner() {
+        #expect(fitted("paypal-login.evil.github.io", 20) == "paypa…evil.github.io")
+    }
+
     @Test func aPathKeepsItsEnd() {
         let path = "/Users/someone/Documents/reports/2026/summary.pdf"
         let parts = PageInfoSite.splitName(path)
