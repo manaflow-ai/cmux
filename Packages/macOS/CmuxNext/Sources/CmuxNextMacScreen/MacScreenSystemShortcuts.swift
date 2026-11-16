@@ -74,7 +74,8 @@ public final class MacScreenSystemShortcuts {
     /// Asks macOS for Accessibility; when it does not show its prompt, opens
     /// System Settings > Privacy & Security > Accessibility in the background.
     public func requestAccessibility() {
-        host.requestAccessibility()
+        // The tap runs in this app (not in the Screen Sharing helper), so the grant is the app's own.
+        host.requestAppAccessibility()
         refreshAccessibility()
     }
 

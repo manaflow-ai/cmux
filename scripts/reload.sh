@@ -1551,6 +1551,25 @@ if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mo
 fi
 [[ -n "${CMUX_NEXT_MOBILE_HOST_BIN:-}" ]] && echo "==> cmux-next: bundling cmux-mobile-host from $CMUX_NEXT_MOBILE_HOST_BIN"
 
+# The Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md): the cmux.rd/1 host in
+# its own signed app, which holds the Screen Recording and Accessibility grants so a grant
+# never relaunches cmux. Same rule as cmux-mobile-host: fleet and CI builds compile it on a
+# miss and require it; a local reload bundles a cached build when one exists and otherwise
+# builds an app that shares its screen from its own process (never Cargo on the developer Mac).
+if [[ "$BUILD_CONFIGURATION" == "Release" || "$NATIVE_ARCH" -eq 1 ]]; then
+  export CMUX_NEXT_SCREEN_HELPER_ARCHS="${CMUX_NEXT_SCREEN_HELPER_ARCHS:-$RELOAD_HELPER_ARCHS}"
+fi
+if [[ -z "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" && -x "$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" ]]; then
+  if cmux_screen_helper_cached="$("$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_SCREEN_HELPER_BIN="$cmux_screen_helper_cached"
+  elif "$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" || exit 1
+    export CMUX_NEXT_SCREEN_HELPER_BIN="$("$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" --cached-only --print-path)"
+    export CMUX_NEXT_REQUIRE_SCREEN_HELPER=1
+  fi
+fi
+[[ -n "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" ]] && echo "==> cmux-next: bundling the Screen Sharing helper from $CMUX_NEXT_SCREEN_HELPER_BIN"
+
 # The web bundles (agent pane, pages, Agent Activity, webviews
 # app) are build output, not committed: they are built from the sources before
 # the compile, so the app never ships a stale or missing copy (cx-vn5). A warm

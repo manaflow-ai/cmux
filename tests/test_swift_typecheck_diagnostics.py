@@ -57,7 +57,7 @@ class SwiftTypecheckDiagnosticsTests(unittest.TestCase):
             "/* End PBXShellScriptBuildPhase section */", 1
         )[0]
         blocks = re.findall(r"\t\t[A-Z0-9]+ /\* .*? \*/ = \{.*?\n\t\t\};", phases, re.DOTALL)
-        self.assertEqual(len(blocks), 14)
+        self.assertEqual(len(blocks), 15)
         for block in blocks:
             self.assertRegex(block, r"inputPaths = \(\n\s+\"[^\"]+\",")
             self.assertRegex(block, r"outputPaths = \(\n\s+\"[^\"]+\",")
@@ -72,6 +72,7 @@ class SwiftTypecheckDiagnosticsTests(unittest.TestCase):
             "bundle-cmux-tui.sh",
             "bundle-optchat-chief.sh",
             "bundle-mobile-host.sh",
+            "bundle-screen-sharing-helper.sh",
             "embed-cef.sh",
             "bundle-ghostty-resources.sh",
         ):

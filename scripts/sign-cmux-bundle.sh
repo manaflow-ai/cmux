@@ -150,6 +150,18 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       "$COMPUTER_USE_HELPER"
   fi
 
+  # 2b. The Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
+  # plans/cmux-next/screen-sharing-helper.md): stamped for this app's final bundle id and name
+  # (nightly and RC rename the app after the build), then signed as its own app with the
+  # hardened runtime and no entitlements. Its bundle id and team are what macOS keeps its
+  # Screen Recording and Accessibility grants under, so a grant survives every update.
+  "$SCRIPT_DIR/cmux-next/bundle-screen-sharing-helper.sh" --stamp "$APP_PATH"
+  for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
+    [[ -d "$screen_helper" ]] || continue
+    echo "==> signing the Screen Sharing helper $(basename "$screen_helper")"
+    "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$screen_helper"
+  done
+
   # 3. Plugins
   if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
     while IFS= read -r -d '' plugin; do
