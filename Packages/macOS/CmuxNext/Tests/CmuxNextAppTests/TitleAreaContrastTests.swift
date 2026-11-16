@@ -28,6 +28,19 @@ import Testing
         return try body()
     }
 
+    /// The tab row's divider on for `body` (``ChromeTunables/tabRowDivider``, off by default since Lawrence's
+    /// 2026-11-15 "the line below tabs which is very bad"), so the tests of how it draws when on still assert.
+    func withTabRowDivider<T>(_ body: () throws -> T) rethrows -> T {
+        let store = TunableStore.shared
+        store.register([ChromeTunables.tabRowDivider.descriptor])
+        if !store.isActive { store.activate(file: nil) }
+        let saved = store.overrides[ChromeTunables.tabRowDivider.key] // `set` returns the new value, not the old
+        store.set(ChromeTunables.tabRowDivider.key, .bool(true))
+        defer { store.set(ChromeTunables.tabRowDivider.key, saved) }
+        #expect(ChromeTunables.tabRowDivider.value)
+        return try body()
+    }
+
     /// The flush corner on for `body` (a Debug Settings pick of the default, goo, at Default density), so the
     /// tests of its frame always assert instead of returning early when the run's chrome left it off.
     func withFlushCorner<T>(_ body: () throws -> T) rethrows -> T {
@@ -118,7 +131,9 @@ import Testing
 
     /// The tab row's divider takes over from the tone as the shade drops (Leo, 2026-11-12: "THERE IS THE
     /// DIVIDER"): none at the full older shade, the rest of the shade scale between, full at one colour.
-    @Test func theDividerStrengthGrowsAsTheContrastDrops() {
+    @Test func theDividerStrengthGrowsAsTheContrastDrops() { withTabRowDivider { dividerStrengthGrows() } }
+
+    func dividerStrengthGrows() {
         for contrast in [0, 0.5, 1, 1.5, 2] as [CGFloat] {
             withContrast(contrast) {
                 #expect(abs(Metrics.tabRowDividerStrength - min(1, max(0, 1 - Metrics.titleAreaShadeScale))) < 1e-9)
@@ -142,7 +157,9 @@ import Testing
 
     /// The divider's hairline sits on the card's top under the unselected tabs and leaves the selected folder
     /// tab out, so the folder still opens into the content; at the shipped contrast there is no line at all.
-    @Test func theDividerLeavesTheFolderTabOut() throws {
+    @Test func theDividerLeavesTheFolderTabOut() throws { try withTabRowDivider { try dividerLeavesFolderOut() } }
+
+    func dividerLeavesFolderOut() throws {
         let view = MainPaneChromeShadeView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         let card = CGRect(x: 10, y: 10, width: 380, height: 240)
         let folder = CGPath(rect: CGRect(x: 60, y: 240, width: 120, height: 40), transform: nil)
@@ -183,7 +200,7 @@ import Testing
     /// One Color moves every piece the contrast moves, together: no shade, the divider at full strength, and the
     /// selected tab back on its pill. Toggling back restores the contrast the slider holds, untouched.
     @Test(arguments: [true, false]) func oneColorMovesTheShadeDividerAndTabTogether(isDark: Bool) {
-        withFlushCorner { oneColorMovesTogether(isDark: isDark) } // the tone is the flush corner frame's
+        withFlushCorner { withTabRowDivider { oneColorMovesTogether(isDark: isDark) } } // the tone is the flush corner frame's
     }
 
     func oneColorMovesTogether(isDark: Bool) {
@@ -216,7 +233,8 @@ import Testing
             let saved = DesignSettings.shared.titleAreaTone
             defer { DesignSettings.shared.titleAreaTone = saved }
             DesignSettings.shared.titleAreaTone = .oneColor
-            #expect(Metrics.tabRowDividerStrength == 1)
+            withTabRowDivider { #expect(Metrics.tabRowDividerStrength == 1) }
+            #expect(Metrics.tabRowDividerStrength == 0, "no line under the tabs by default")
             #expect(Metrics.mainPaneChromeShade(isDark: true) == 0 && Metrics.mainPaneChromeShade(isDark: false) == 0)
         }
     }
