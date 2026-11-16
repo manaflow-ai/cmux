@@ -9333,6 +9333,11 @@ class StallAPI:
         self.calls.append("list")
         return [self.record()]
 
+    def workflow_file(self, path, ref):
+        # cmux-next.yml at the run's head: none here, so a dispatch under `pr-rescue` is left (DISPATCH_PR_RESCUE).
+        self.calls.append(f"workflow:{path}@{ref[:7]}")
+        return None
+
     def newer_head_runs(self, path, run_id, head_sha):
         self.calls.append(f"head-runs:{head_sha[:7]}")
         return list(self.newer)
@@ -9809,6 +9814,42 @@ class StallMove(unittest.TestCase):
         self.assertEqual(rescue.stall_scan(dispatch, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
                                            moved=set(), moves=[], start=lambda *args: None,
                                            destination=(six,)), 1)
+
+    def test_pr_rescue_moves_a_same_tree_pull_request_dispatch_whose_workflow_reruns_it_off_side(self):
+        # Run 43854064455 (PR #44408's same-tree daemon tests and scheme compile, a dispatch) queued its scheme
+        # compile on glaeda-side-std-xcode-26.6 from 11:01Z to 12:41Z on 2026-11-16: under `pr-rescue` the scan left
+        # every dispatch. A head whose cmux-next.yml re-runs a same-tree pull request run off the side lane is moved.
+        six = rescue.STALL_DESTINATION
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            return [stall_job("cmux app scheme compile (Debug)", job_id=attempt * 10 + 1)]
+
+        def dispatch_api(text):
+            api = StallAPI(clock, jobs, attempt=1, actor="teamleaderleo")
+            record = api.record
+            api.record = lambda: {**record(), "event": "workflow_dispatch", "display_title": f"cmux-next · {HEAD}"}
+
+            def workflow_file(path, ref):
+                api.calls.append(f"workflow:{path}@{ref[:7]}")
+                return text
+            api.workflow_file = workflow_file
+            return api
+        clock.advance(rescue.STALL_QUEUE_SECONDS + 1)
+        fixed = "runs-on: ${{ " + rescue.DISPATCH_PR_RESCUE + " && vars.CI_SIDE_LANE_RUNNER }}"
+        old = fixed.replace(" && inputs.same_tree_origin != 'pull_request'", "")
+        for text, moved in ((fixed, 1), (old, 0), (None, 0)):
+            with self.subTest(moved=moved, text=bool(text)):
+                api, logs, starts = dispatch_api(text), [], []
+                self.assertEqual(rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=logs.append,
+                                                   moved=set(), moves=[], start=lambda *args: starts.append(args),
+                                                   destination=(six,), pull_only=True), moved)
+                self.assertIn(f"workflow:{rescue.CMUX_NEXT_WORKFLOW_PATH}@{HEAD[:7]}", api.calls)
+                if not moved:
+                    self.assertIn("no DISPATCH_PR_RESCUE clause", "\n".join(logs))
+        self.assertTrue(rescue.dispatch_reruns_off_side(fixed))
+        self.assertFalse(rescue.dispatch_reruns_off_side(old))
+        self.assertFalse(rescue.dispatch_reruns_off_side(None))
 
     def test_a_handover_ends_a_pass_through_between_rounds(self):
         clock = Clock()
