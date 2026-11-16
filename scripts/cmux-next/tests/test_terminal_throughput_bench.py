@@ -40,6 +40,17 @@ class Rows(unittest.TestCase):
         self.assertIsNone(tput.summarize([{"error": "no result"}]))
 
 
+class Arms(unittest.TestCase):
+    def test_an_arm_is_a_label_and_app_launch_variables(self):
+        self.assertEqual(tput.parse_arm("base:CMUX_NEXT_TUI_X=0,CMUX_NEXT_Y=a=b"),
+                         ("base", {"CMUX_NEXT_TUI_X": "0", "CMUX_NEXT_Y": "a=b"}))
+
+    def test_only_variables_that_reach_the_app_are_taken(self):
+        for bad in ("base", "base:", ":CMUX_NEXT_X=0", "base:CMUX_TUI_X=0", "base:CMUX_NEXT_X", "a b:CMUX_NEXT_X=1"):
+            with self.assertRaises(ValueError, msg=bad):
+                tput.parse_arm(bad)
+
+
 class Breakdown(unittest.TestCase):
     def test_ps_cpu_time_in_every_form(self):
         procs = tput.ps_cpu_seconds("  12 0:01.50 /A.app/Contents/MacOS/cmux\n"
