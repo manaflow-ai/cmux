@@ -438,14 +438,11 @@ def print_attribution(label: str, found: dict):
     sys.stdout.flush()
 
 
-# CMUX_BENCH_VMMAP_KINDS=tui-daemon,app (cmux-ci run --env): after each sample, `vmmap --summary` of every process of
-# those kinds, as VMMAP lines: where a process's footprint is (MALLOC zones, a framework's __DATA, stacks...). vmmap
-# suspends the process while it reads it, so it runs after the sample's window and only when asked.
-VMMAP_KINDS_ENV = "CMUX_BENCH_VMMAP_KINDS"
-
-
-def print_vmmap(result) -> None:
-    kinds = {k for k in os.environ.get(VMMAP_KINDS_ENV, "").split(",") if k}
+# --vmmap-kinds tui-daemon,app: after each sample, `vmmap --summary` of every process of those kinds, as VMMAP
+# lines: where a process's footprint is (MALLOC zones, a framework's __DATA, stacks...). vmmap suspends the process
+# while it reads it, so it runs after the sample's window and only when asked.
+def print_vmmap(result, kinds_arg: str | None) -> None:
+    kinds = {k for k in (kinds_arg or "").split(",") if k}
     if not kinds or not shutil.which("vmmap"):
         return
     for row in result["processes"]:
@@ -1215,6 +1212,8 @@ def main():
     parser.add_argument("--cef-switches", default="",
                         help="launch, DEBUG builds: extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--top", type=int, default=15)
+    parser.add_argument("--vmmap-kinds", help="after each sample, vmmap --summary of every process of these kinds "
+                        "(comma list, e.g. tui-daemon,app), as VMMAP lines")
     parser.add_argument("--config", default="{}",
                         help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
     parser.add_argument("--fake-agent", metavar="SCRIPT",
@@ -1343,7 +1342,7 @@ def main():
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]
         print_sample(result, args.top)
-        print_vmmap(result)
+        print_vmmap(result, args.vmmap_kinds)
         return result
 
     try:
