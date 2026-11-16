@@ -104,6 +104,37 @@ fn queued_frames_replace_whole_frames_without_dropping_control_or_input() {
 }
 
 #[test]
+fn a_protected_single_datagram_waits_for_link_establishment() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public);
+    let viewer = start(Role::Initiator, &v, h.public);
+    let datagram = receipt_datagram(9, 0, 900);
+
+    // The host has no route yet. A legacy one-datagram send must wait rather
+    // than disappear while the Noise handshake gathers its candidate.
+    host.send_datagram(datagram.clone());
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    host.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: viewer.local_addr() });
+
+    let mut received = Vec::new();
+    assert!(wait(&viewer, &mut received, |events| {
+        events.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(datagram.clone()))))
+    }));
+    let mut departures = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while departures.is_empty() && Instant::now() < deadline {
+        host.drain_departures(&mut departures);
+        if departures.is_empty() {
+            let mut fd = libc::pollfd { fd: host.event_fd(), events: libc::POLLIN, revents: 0 };
+            // SAFETY: one valid pollfd.
+            unsafe { libc::poll(&mut fd, 1, 100) };
+            host.events();
+        }
+    }
+    assert!(departures.iter().any(|receipt| receipt.header.frame == 9));
+}
+
+#[test]
 fn a_stun_server_that_resolves_after_start_still_gives_the_reflexive_candidate() {
     // A STUN server on loopback that answers every binding request with a fixed address.
     let server = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
