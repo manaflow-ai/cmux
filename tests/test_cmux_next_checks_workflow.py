@@ -616,6 +616,32 @@ class ScriptTestsAreListed(unittest.TestCase):
             self.assertTrue(new in script_tests_run(all_script_tests() + [new]),
                             f"a new {new} would run in no CI job until a hand-edited line named it")
 
+    def test_each_excluded_test_has_a_reason_and_another_line_runs_it(self):
+        runner = load_script_test_runner()
+        named = named_script_tests()
+        for test, reason in runner.EXCLUDED.items():
+            self.assertTrue(reason.strip(), f"{test}: say which line runs it")
+            if (ROOT / test).exists():
+                self.assertIn(test, named, f"{test} is excluded from {SCRIPT_TEST_RUNNER} but no line runs it")
+
+    def test_the_runner_runs_each_test_and_fails_naming_the_red_ones(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel, body in (("scripts/cmux-next/tests/test_green.py", "print('green ran')"),
+                              ("scripts/cmux-next/tool/test_red.py", "raise SystemExit('red ran')"),
+                              ("scripts/cmux-next/node_modules/x/test_vendored.py", "raise SystemExit(1)")):
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(body + "\n", encoding="utf-8")
+            result = subprocess.run([sys.executable, str(ROOT / SCRIPT_TEST_RUNNER), "--root", str(root), "--jobs", "2"],
+                                    capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("---- scripts/cmux-next/tests/test_green.py: ok", result.stdout)
+            self.assertIn("green ran", result.stdout)
+            self.assertIn("red ran", result.stdout)
+            self.assertIn("::error title=script test failed::scripts/cmux-next/tool/test_red.py", result.stdout)
+            self.assertNotIn("test_vendored", result.stdout)
+            self.assertIn("1 of 2 script tests passed", result.stdout)
+
 
 class GodfileScopes(unittest.TestCase):
     """`--only swift` and `--only rust` each check their half, at unchanged budgets."""
