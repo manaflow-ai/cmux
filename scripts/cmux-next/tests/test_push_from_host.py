@@ -165,6 +165,39 @@ git config core.hooksPath "$common/cmux-git-hooks"
         self.assertEqual(self.leftovers(sha), [])
         self.assertEqual(len(self.git(self.host_home / "fun/cmux", "worktree", "list").splitlines()), 1)
 
+    def scratch_branch(self, name):
+        sha = self.commit(self.work, "s.txt", "s\n", "scratch")
+        self.git(self.work, "push", "--quiet", "origin", f"HEAD:refs/heads/{name}")
+        return sha
+
+    def test_delete_removes_a_scratch_branch_through_the_hosts_hook(self):
+        self.scratch_branch("scratch/old-probe")
+
+        done = self.push("--delete", "scratch/old-probe")
+
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.remote_head("scratch/old-probe"), "")
+        self.assertEqual((self.host_home / "hook.log").read_text(), "ran\n", "the host's pre-push hook is the gate")
+        self.assertIn("deleted: scratch/old-probe", done.stderr)
+
+    def test_delete_the_hosts_hook_refuses_keeps_the_branch(self):
+        sha = self.scratch_branch("scratch/old-probe")
+        (self.host_home / "refuse").write_text("")
+
+        done = self.push("--delete", "scratch/old-probe")
+
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertEqual(self.remote_head("scratch/old-probe"), sha)
+
+    def test_delete_refuses_a_branch_outside_scratch_before_ssh(self):
+        head = self.remote_head("feat-cmux-next")
+
+        done = self.push("--delete", "feat-cmux-next")
+
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertEqual(self.remote_head("feat-cmux-next"), head)
+        self.assertFalse((self.root / "ssh.log").exists(), "nothing went over SSH")
+
     def test_a_push_the_hosts_hook_refuses_reaches_no_branch(self):
         sha = self.commit(self.work, "a.txt", "a\n", "a change")
         (self.host_home / "refuse").write_text("")
