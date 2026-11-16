@@ -1097,6 +1097,21 @@ class FleetTests(unittest.TestCase):
     def test_idle_bench_host_runs(self):
         self.assertIsNone(cron.fleet_verdict({"queue": []}, self.workers(), [], cron.BENCH_WORKER, "queued"))
 
+    def test_disk_starved_host_is_unhealthy_so_the_tip_unpins(self):
+        """2026-11-16: cmux20-bench idle, 10.9 GB free, nothing evictable: the controller leased it nothing."""
+        b = cron.BENCH_WORKER
+        full = self.workers(free_bytes=10941784064, disk={"evictable_bytes": 0})
+        why = cron.fleet_verdict({"queue": []}, full, [], b, "queued")
+        self.assertIn(f"{b} is not healthy", why)
+        self.assertTrue(any(f"{b} {r}" in why for r in cron.OFFLINE_REASONS))
+        state = {}
+        cron.note_host_offline(state, b, why, cron.now_utc())
+        self.assertTrue(cron.host_unreachable(state, b, cron.now_utc()))
+        roomy = self.workers(free_bytes=110105374720, disk={"evictable_bytes": 0})
+        self.assertIsNone(cron.fleet_verdict({"queue": []}, roomy, [], b, "queued"))
+        evict = self.workers(free_bytes=10941784064, disk={"evictable_bytes": 30 * 10**9})
+        self.assertIsNone(cron.fleet_verdict({"queue": []}, evict, [], b, "queued"))
+
     def test_yields(self):
         b = cron.BENCH_WORKER
         self.assertIn("takes no work", cron.fleet_verdict({}, self.workers(claim_paused="disk"), [], b, "queued"))

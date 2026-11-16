@@ -1363,6 +1363,25 @@ def http_json(url, timeout=30):
         return json.load(r)
 
 
+# What a measurement step asks the host to have free (the controller's min_free_bytes of a bench or measure job).
+MEASURE_MIN_FREE_BYTES = 11811160064
+
+
+def disk_starved(w):
+    """Why the worker cannot be leased a measurement step for want of disk, or "" (pure): its free disk is under
+    MEASURE_MIN_FREE_BYTES and its heartbeat counts too little evictable for the controller or worker to free it."""
+    free = w.get("free_bytes")
+    if not isinstance(free, (int, float)) or isinstance(free, bool) or free >= MEASURE_MIN_FREE_BYTES:
+        return ""
+    evictable = (w.get("disk") or {}).get("evictable_bytes")
+    if not isinstance(evictable, (int, float)) or isinstance(evictable, bool):
+        evictable = 0
+    if free + evictable >= MEASURE_MIN_FREE_BYTES:
+        return ""
+    return (f"disk {free / 1e9:.1f} GB free of the {MEASURE_MIN_FREE_BYTES / 1e9:.1f} GB a measurement step needs, "
+            f"{evictable / 1e9:.1f} GB evictable")
+
+
 def fleet_verdict(status, workers, jobs, worker, yield_mode, mine=()):
     """None when the fleet lets the perf cron run a part on `worker` now, else the reason it yields.
     status: /v1/status; workers: `cmux-ci workers` ({name: heartbeat}); jobs: /v1/jobs (all recent)."""
@@ -1371,6 +1390,12 @@ def fleet_verdict(status, workers, jobs, worker, yield_mode, mine=()):
         return f"{worker} is not a controller worker now"
     if not w.get("healthy"):
         return f"{worker} is not healthy"
+    starved = disk_starved(w)
+    if starved:
+        # Healthy and idle, yet the controller leases it nothing: a measurement step asks MEASURE_MIN_FREE_BYTES and the
+        # worker has nothing to evict. 2026-11-16: the bench host sat at 10.9 GB free, every request to it queued until
+        # the cron gave it up, and no Mac row was stored for 34 h (tabs-keep-speed red).
+        return f"{worker} is not healthy: {starved}"
     seen = parse_iso((w.get("last_seen") or "")[:19] + "Z") if w.get("last_seen") else None
     if not seen or hours_between(seen, now_utc()) * 3600 > 180:
         return f"{worker} has not been seen for over 3 minutes"

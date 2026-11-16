@@ -21,8 +21,15 @@ The sources of the acts, and their limits (each row says which it used):
            a Cmd-T, the New Tab page), else the shell window; each act's row says the word. The read of the focus
            and the keys are 2 calls, and after a Cmd-T the app moves the keys to the new page in that time. So when
            the app refuses the word (`... window did not become key`, `no Chromium page window for pane`), the
-           script reads the focus one more time and sends the keys one more time, no more; the first refusal is in
-           the act's row (`refused_as`) or in the PREFLIGHT line.
+           script reads the focus one more time and sends the keys one more time. An act has 3 sends at most, in
+           one case: when the app refuses `page` at that second send also (a tab whose page window the app does
+           not find, or 2 cmux windows), ONE last send goes to the shell window. Each refusal is in the act's
+           row (`refused_as`, a list) or in the PREFLIGHT line. By a read of the app's source, the app refuses a
+           word before it posts a key, so a send after such a refusal does not do the act 2 times. After each
+           other error (a call that timed out) the app can have the keys: a send that timed out is never sent
+           again, in each form. A limit: for a `shell` word that it refuses, the app has moved the shell window
+           to the front before the refusal, and a film can show that. A focus read that fails gives the word
+           `shell`; the act's row (`focus_not_read`) and the PREFLIGHT line say that no read gave the word.
            The launcher starts the app's binary directly, and on a display Mac such a process did not become the
            active app; so the `activate` form then asks
            LaunchServices one time (`open BUNDLE`, as a click on the Dock icon of an app that runs), and `PREFLIGHT activate:`
@@ -60,13 +67,18 @@ The animation speed: the 6 films of the group `cap` have a speed (`fast`, the ap
 `.N` is at `normal`). For such a film the script reads the speed that the app has (`speed_before`), sets the film's
 speed by `debug.motion` `speed` before the film's set-up (in the app's memory only: the app writes no settings
 file), and reads the app's reply into the row: its speed word (`speed`), and if a pane motion animates at all
-(`reduce_motion`, `animations_enabled`, `pane_animations`). It makes no film when the app gave back another word, or
-when a pane motion does not animate (Reduce Motion on the Mac, or a switch that is off: a motion is then one frame at
-each speed). At the film's end it sets the speed of before (`speed_after`); if the app does not give that word
-back, that row and the row of each film after it in the launch say so (`speed_fault`).
+(`reduce_motion`, `animations_enabled`, `pane_animations`, `disabled_categories`). It makes no film when the app
+gave back another word, or when a pane motion does not animate (Reduce Motion on the Mac, a switch that is off, or
+the category `panes` in `disabled_categories`: a motion is then one frame at each speed). An app whose reply has
+none of these fields gets its film: the script cannot know, and the row says `null`. At the film's end it sets the
+speed of before (`speed_after`); if the app does not give that word back, that row and the row of each film after
+it in the launch say so (`speed_fault`), and the run's end prints one line (`PANE-FILMS speed fault: ...`) with
+each film that was made after it with no speed call of its own. The exit code does not say it.
 A film shows no number, so the row also gets the app's own record of the motions from before the film's first act
-to its end (`spans`, by `debug.motion` `start` and `stop`: the name, `ms` and `at_ms` of each span that ended, the
-first 60; `spans_total` = how many the app gave; `speed_at_stop` = the app's speed word at the record's end: a load
+to its end (`spans`, by `debug.motion` `start` and `stop`: the name, `ms` and `at_ms` of each span that ended, 60
+at most: each span with the name `layout`, and the other spans while there is room, in the app's order;
+`spans_total` = how many the app gave, `spans_cut` = how many of them are not in the row; `speed_at_stop` = the
+app's speed word at the record's end: a load
 of the app's settings file in the film puts the file's speed back), and the times of the app's source for that
 speed (`source_ms`). The record has no name for an act: by a read of the app's source, each pane motion (a split, a
 close, a zoom, its way back) is one span with the name `layout`, from its first frame to rest, which can be later
@@ -267,24 +279,71 @@ def focus_word(rpc):
     page) in a child window that has the keys while the page has focus, and it gives the keys back to that window
     when the shell window takes them with no click; so it refuses `shell` then (`the shell window did not become
     key`). The word thus follows the focus at each key: a Cmd-T moves the keys to the new tab's page. The read:
-    `appkit.child_window_page` of the cmux window that is key, or of each window when none is (a page's window is)."""
+    `appkit.child_window_page` of the cmux window that is key, or of each window when none is (a page's window is).
+    Returns (the word, None); for a read that failed: (`shell`, the words of the fault), so that the caller can say
+    that no read gave the word."""
     focus = rpc("debug.focus")
-    windows = [w for w in (focus.get("windows") if isinstance(focus, dict) else None) or [] if isinstance(w, dict)]
-    return "page" if any((w.get("appkit") or {}).get("child_window_page") for w in [w for w in windows if w.get("is_key")] or windows) else "shell"
+    if not isinstance(focus, dict) or focus.get("error"):
+        return "shell", f"debug.focus: {str(focus.get('error') if isinstance(focus, dict) else focus)[:120]}"
+    windows = [w for w in focus.get("windows") or [] if isinstance(w, dict)]
+    return ("page" if any((w.get("appkit") or {}).get("child_window_page") for w in [w for w in windows if w.get("is_key")] or windows) else "shell"), None
+
+
+def key_refusal(said):
+    """True when the app refused the `key_window` word of a send (KEY_REFUSALS). By a read of the app's source, it
+    refuses the word before it posts a key of that call."""
+    return any(text in str(said.get("error") or "") for text in KEY_REFUSALS)
+
+
+def shell_try(word, said):
+    """True when the keys of a `page` send can go to the shell window: the app refused the page's WINDOW, and no key
+    went before that refusal (in the `one-key` form each key is one call: `key_down_ms` has the time of each call
+    that went, the refused one also). After each other error the app can have the keys (a call that timed out):
+    a second send would do the act 2 times, so there is none."""
+    return word == "page" and key_refusal(said) and len(said.get("key_down_ms") or ()) <= 1
+
+
+def refusal_words(word, said):
+    """A refused send for `refused_as` and for a PREFLIGHT line: the word of the send, then the app's words."""
+    return f"{word}: {str(said['error'])[:120]}"
 
 
 def send_by_focus(rpc, chord, *more):
     """One key sequence of the `activate` form in the window that has the keys (`focus_word`). The read and the keys
     are 2 calls, and the app moves the keys to a new page in that time (directly after a Cmd-T). So when the app
-    refuses the word with one of its 2 refusals of a key window (KEY_REFUSALS): ONE new read and ONE more send, no
-    more, and no wait. Returns (what the app said of the last send, the word of that send, the first refusal as
-    `<word>: <the app's words>` or None). `more`: the arguments of `send_keys` after the key window."""
-    word = focus_word(rpc)
-    said, first = send_keys(rpc, "activate", chord, word, *more), None
-    if any(text in str(said.get("error") or "") for text in KEY_REFUSALS):
-        first, word = f"{word}: {str(said['error'])[:120]}", focus_word(rpc)
+    refuses the word with one of its 2 refusals of a key window (KEY_REFUSALS): ONE new read and ONE more send, and
+    no wait. When the app refuses `page` at that second send also, the focus is on a page and the app finds no
+    page window for it (a tab that is no Chromium child window, or 2 cmux windows): ONE last send in the shell
+    window. So 3 sends at most, in that one case, and none after an error that is no refusal of a key window.
+    Returns (what the app said of the last send, the word of that send, the refusals before it as a list of
+    `<word>: <the app's words>`). What the app said gets `focus_not_read` when a read of the focus failed. `more`:
+    the arguments of `send_keys` after the key window."""
+    word, unread = focus_word(rpc)
+    said, refusals = send_keys(rpc, "activate", chord, word, *more), []
+    if key_refusal(said):
+        refusals.append(refusal_words(word, said))
+        word, again = focus_word(rpc)
+        unread = unread or again
         said = send_keys(rpc, "activate", chord, word, *more)
-    return said, word, first
+        if shell_try(word, said):
+            refusals.append(refusal_words(word, said))
+            word = "shell"
+            said = send_keys(rpc, "activate", chord, word, *more)
+    if unread:
+        said["focus_not_read"] = unread
+    return said, word, refusals
+
+
+def tries(said, refusals):
+    """The end of a PREFLIGHT line of a key: the refusals before the send that the line is of, and a focus read
+    that failed. "" for a key that had one send with a word from a read."""
+    again = ""
+    if len(refusals) == 1:
+        again = f"; the second try, after the app refused the first one ({refusals[0]})"
+    elif refusals:
+        again = f"; the third try, in the shell window, after the app refused the word 2 times ({'; '.join(refusals)})"
+    unread = said.get("focus_not_read")
+    return again + (f"; the focus was not read ({unread}), so the word `shell` was sent" if unread else "")
 
 
 def motion_reply(rpc, value=None):
@@ -297,12 +356,17 @@ def motion_reply(rpc, value=None):
 
 def motion_spans(reply):
     """A `debug.motion` `stop` reply as fields of a film's row. `spans`: the name, the length and the start (ms from
-    the record's start) of each span that ended in the record, the first 60; `spans_total`: how many the app gave;
-    `speed_at_stop`: the app's speed word in that reply. Or `spans` = the words of a reply that has no span list."""
+    the record's start) of 60 spans at most that ended in the record: each span with the name `layout` (a pane
+    motion), and the other spans while there is room, in the app's order. `spans_total`: how many the app gave;
+    `spans_cut`: how many of them are not in the row; `speed_at_stop`: the app's speed word in that reply. Or
+    `spans` = the words of a reply that has no span list."""
     if not isinstance(reply, dict) or not isinstance(reply.get("spans"), list):
         return {"spans": f"not read: {str(reply)[:160]}"}
-    return {"spans": [{k: span.get(k) for k in ("name", "ms", "at_ms")} for span in reply["spans"][:60] if isinstance(span, dict)],
-            "spans_total": len(reply["spans"]), "speed_at_stop": reply.get("speed")}
+    spans = [(index, span) for index, span in enumerate(reply["spans"]) if isinstance(span, dict)]
+    layout = [index for index, span in spans if span.get("name") == "layout"][:60]
+    kept = set(layout + [index for index, span in spans if span.get("name") != "layout"][:60 - len(layout)])
+    return {"spans": [{k: span.get(k) for k in ("name", "ms", "at_ms")} for index, span in spans if index in kept],
+            "spans_total": len(reply["spans"]), "spans_cut": len(reply["spans"]) - len(kept), "speed_at_stop": reply.get("speed")}
 
 
 def app_said(said):
@@ -518,8 +582,8 @@ def preflight(app, st, out, mbps, form, display):
         """One chord as a film sends it; `read()` must become `want` in 10 s. Returns "" when it did; when it did
         not: raises with `must`, else prints the same lines and returns the fault."""
         before = read()
-        said, _, first = send_by_focus(rpc, chord) if form == "activate" else (send_keys(rpc, form, chord, "shell"), "shell", None)
-        again = f"; the second try, after the app refused the first one ({first})" if first else ""
+        said, _, refusals = send_by_focus(rpc, chord) if form == "activate" else (send_keys(rpc, form, chord, "shell"), "shell", [])
+        again = tries(said, refusals)
         fault = said.get("error") or (not wait(lambda: read() == want(before), 10, 0.05, cut=must) and f"{unit} {before} -> {read()} in 10 s, not {want(before)}")
         if fault:
             fault = f"{fault}; {app_said(said)}{again}" + (f"; {dry_run(rpc, chord)}" if form == "activate" else "")
@@ -757,17 +821,19 @@ class Films:
                 repeats = max(1, len(self.st.tabs(workspace, focus)) - 3) if hold == "tabs" else max(1, 1 + int((hold * 1000 - delay) / every)) if hold else 0
                 more = (presses, gap, repeats, delay, every)
                 if self.form == "activate":
-                    # The window that has the keys now; a word that the app refuses gets ONE new read and ONE more send.
-                    said, word, first = send_by_focus(self.app.rpc, chord, *more)
+                    # The window that has the keys now. A word that the app refuses gets ONE new read and ONE more
+                    # send; a `page` word that it refuses again gets ONE last send in the shell window.
+                    said, _, refusals = send_by_focus(self.app.rpc, chord, *more)
                 else:
-                    word, first = key_window, None  # the word of the film's set-up
-                    said = send_keys(self.app.rpc, self.form, chord, word, *more)
-                if said.get("error") and word != "shell" and not first:
-                    # Each other refusal of `page`: ONE send in the shell window. An act has 2 sends at most.
-                    first = f"{word}: {str(said['error'])[:120]}"
-                    said = send_keys(self.app.rpc, self.form, chord, "shell", *more)
-                if first:
-                    row["refused_as"] = first
+                    refusals = []
+                    said = send_keys(self.app.rpc, self.form, chord, key_window, *more)  # the word of the film's set-up
+                    if shell_try(key_window, said):
+                        # The app refused the page's window before a key went: ONE send in the shell window.
+                        refusals.append(refusal_words(key_window, said))
+                        said = send_keys(self.app.rpc, self.form, chord, "shell", *more)
+                # No send after another error: the app can have the keys of a send that timed out.
+                if refusals:
+                    row["refused_as"] = refusals
                 if presses > 1:
                     row["gap_asked_ms"] = gap  # from key-down to key-down, as asked: the row has no true gap
                 row.update(said)
@@ -817,13 +883,17 @@ class Films:
                 had = motion_reply(rpc).get("speed")
                 row["speed_before"], before = had or NOT_READ, had or "fast"
                 said = motion_reply(rpc, speed)
+                off = said.get("disabled_categories")
+                panes_off = isinstance(off, list) and "panes" in off  # the category of each pane motion
                 row.update(speed=said.get("speed"), source_ms={name: SOURCE_MS[speed][name] for name in spec.get("springs", ())},
-                           **{name: said.get(name) for name in MOVES})
+                           **{name: said.get(name) for name in MOVES}, disabled_categories=off)
                 if row["speed"] != speed:
                     raise RuntimeError(f"the app did not take the animation speed `{speed}`: its reply says `{row['speed']}`")
-                # Reduce Motion, the master switch or the pane switch: a pane motion is then one frame at each speed.
-                if said.get("reduce_motion") is True or said.get("animations_enabled") is False or said.get("pane_animations") is False:
-                    raise RuntimeError(f"{STILL}: " + ", ".join(f"{name} = {json.dumps(said.get(name))}" for name in MOVES))
+                # Reduce Motion, the master switch, the pane switch or the category `panes` off: a pane motion is then
+                # one frame at each speed. A reply with none of the fields (an older app) stops no film.
+                if said.get("reduce_motion") is True or said.get("animations_enabled") is False or said.get("pane_animations") is False or panes_off:
+                    names = MOVES + (("disabled_categories",) if panes_off else ())
+                    raise RuntimeError(f"{STILL}: " + ", ".join(f"{name} = {json.dumps(said.get(name))}" for name in names))
             workspace, panes, streams = self.build(spec, row)
             focus = panes[spec.get("focus", 0)]
             # A person's key on a page goes through the page's own window: the film's keys take that path when the
@@ -993,6 +1063,10 @@ def main():
             row["forms_not_run"] = other
     with open(os.path.join(opts.out, "films.json"), "w") as f:
         json.dump(report, f, indent=1)
+    # A speed that did not go back: the exit code does not say it, and a film after it can be at the wrong speed.
+    for fault in dict.fromkeys(row["speed_fault"] for row in report["films"] if row.get("speed_fault")):
+        after = [row["id"] for row in report["films"] if row.get("speed_fault") == fault and row["status"] == "made" and "speed" not in row]
+        print(f"PANE-FILMS speed fault: {fault}; made after it with no speed call of its own: {', '.join(after) or 'none'}", flush=True)
     made = sum(1 for r in report["films"] if r["status"] == "made")
     print(f"PANE-FILMS made {made} of {len(wanted)} asked; failures {report['failures']}", flush=True)
     return 0 if made == len(wanted) else 2 if made else 1
