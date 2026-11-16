@@ -48,14 +48,14 @@ final class KeyRouter: BrowserKeyRouting {
     var trace: ((String) -> Void)?
     /// The leader's which-key overlay, shown while Cmd-J waits.
     var whichKey: WhichKeyController?
-    /// Leaving the app ends a waiting chord (the overlay hides with it); the token removes itself when released.
+    /// Leaving the app ends a waiting chord (the overlay hides with it); the token removes itself when released. It observes `init`'s `center` (a test passes its own).
     private var resignObserver: MainActorObservation?
     let heldKeyReplay: HeldKeyReplay // where a creation hold's keys run again (``CreationInputCoordinator``)
     var pageKeys = BrowserPageKeySequence() // `gg` among the letters pages leave alone (``routePageKey(_:from:)``)
     init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext(),
-         heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp.sendEvent(event) }) {
+         heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp.sendEvent(event) }, center: NotificationCenter = .default) {
         (self.registry, self.inputDispatch, self.heldKeyReplay) = (registry, inputDispatch, heldKeyReplay)
-        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in self?.cancelChord() }
+        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification, center: center) { [weak self] in self?.cancelChord() }
     }
     // MARK: Tiers
     /// Whether an action of `tier` may take a key from the current focus.
