@@ -3154,19 +3154,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    // --login-spare: pool.loginSpare in the machine's acpmux config, read at daemon start, so the daemon restarts.
+    // --login-spare: pool.loginSpare in the machine's acpmux config, read by a config reload (no daemon restart).
     const spareOn = loginSpare && provider === "claude" && Boolean(login) && !only.has("chat") && !only.has("login") && !gatewayAny;
     if (loginSpare && !spareOn) J.skip("login spare on", "--login-spare needs a Claude login copy (--agent claude, a login or --model stub)");
     if (spareOn) {
       await J.step("login spare on", async () => {
         const r = await exec(
-          `${GUEST}d="$HOME/.cmux/acpmux"; [ -f "$d/config.json" ] || [ ! -f "$HOME/.acpmux/config.json" ] || d="$HOME/.acpmux"; mkdir -p "$d"; ` +
-            `python3 -I -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); c=json.loads(p.read_text()) if p.exists() else {}; c.setdefault("pool",{})["loginSpare"]=True; p.write_text(json.dumps(c, indent=2))' "$d/config.json" && ` +
-            `"$c" acp daemon restart >/dev/null 2>&1; "$c" acp --json daemon status 2>/dev/null | python3 -I -c 'import json,sys; s=json.loads(sys.stdin.read()); print("@@pool", json.dumps(s.get("pool")))'`,
+          `${GUEST}f=$("$c" acp --json daemon config 2>/dev/null | python3 -I -c 'import json,sys; print(json.loads(sys.stdin.read())["path"])') && [ -n "$f" ] && ` +
+            `python3 -I -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); c=json.loads(p.read_text()) if p.exists() else {}; c.setdefault("pool",{})["loginSpare"]=True; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(c, indent=2))' "$f" && ` +
+            `"$c" acp daemon reload >/dev/null 2>&1 && "$c" acp --json daemon status 2>/dev/null | python3 -I -c 'import json,sys; s=json.loads(sys.stdin.read()); print("@@pool", json.dumps(s.get("pool")))'`,
           120_000,
         );
         if (!r.stdout.includes("@@pool")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
-        return { value: null, detail: "pool.loginSpare on; the daemon restarted" };
+        return { value: null, detail: "pool.loginSpare on (acpmux daemon reload)" };
       });
     }
 
