@@ -24,11 +24,12 @@ use crate::turn::{TurnClient, TurnEvent, TurnReceive};
 use crate::{KeyPair, LinkError, Role};
 use cmux_transport::PathKind;
 use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success};
+use std::collections::VecDeque;
 use std::io;
 use std::mem::size_of_val;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Instant;
 
@@ -165,10 +166,62 @@ enum Command {
     RemoteCandidate(Candidate),
     StunLater(Later<SocketAddr>),
     TurnLater(Later<TurnServer>),
-    Datagram(Vec<u8>),
     Control(Vec<u8>),
     NetworkChange,
     Close,
+}
+
+/// A complete encoded media frame waiting for the link thread.
+type MediaFrame = Vec<Vec<u8>>;
+
+/// The link queue keeps at most one frame pending. A new frame replaces the
+/// oldest pending frame, so media never waits behind an unbounded burst while
+/// control traffic continues to use the lossless command channel.
+const MAX_MEDIA_FRAMES: usize = 1;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NetStats {
+    pub queue_frames: usize,
+    pub queue_datagrams: usize,
+    pub dropped_frames: u64,
+    pub dropped_datagrams: u64,
+}
+
+#[derive(Default)]
+struct MediaQueue {
+    frames: VecDeque<MediaFrame>,
+    dropped_frames: u64,
+    dropped_datagrams: u64,
+}
+
+impl MediaQueue {
+    fn push(&mut self, frame: MediaFrame) {
+        if frame.is_empty() {
+            return;
+        }
+        if self.frames.len() >= MAX_MEDIA_FRAMES {
+            if let Some(old) = self.frames.pop_front() {
+                self.dropped_frames = self.dropped_frames.saturating_add(1);
+                self.dropped_datagrams = self
+                    .dropped_datagrams
+                    .saturating_add(u64::try_from(old.len()).unwrap_or(u64::MAX));
+            }
+        }
+        self.frames.push_back(frame);
+    }
+
+    fn pop(&mut self) -> Option<MediaFrame> {
+        self.frames.pop_front()
+    }
+
+    fn stats(&self) -> NetStats {
+        NetStats {
+            queue_frames: self.frames.len(),
+            queue_datagrams: self.frames.iter().map(Vec::len).sum(),
+            dropped_frames: self.dropped_frames,
+            dropped_datagrams: self.dropped_datagrams,
+        }
+    }
 }
 
 /// A running driver. Dropping it closes the link and stops the thread.
@@ -179,6 +232,7 @@ pub struct Net {
     event_wake: Pipe,
     thread: Option<thread::JoinHandle<()>>,
     local_addr: SocketAddr,
+    media_queue: Arc<Mutex<MediaQueue>>,
 }
 
 /// A non-blocking pipe used as a wake-up: a byte means "look at the queue".
@@ -341,12 +395,14 @@ impl Net {
         endpoint.set_keep_awake(keep_awake_us());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
+        let media_queue = Arc::new(Mutex::new(MediaQueue::default()));
         let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let event_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let mut driver = Driver {
             socket,
             endpoint,
             commands: command_rx,
+            media_queue: Arc::clone(&media_queue),
             command_fd: command_wake.read,
             events: event_tx,
             event_fd: event_wake.write,
@@ -402,6 +458,7 @@ impl Net {
             event_wake,
             thread: Some(thread),
             local_addr,
+            media_queue,
         })
     }
 
@@ -448,7 +505,21 @@ impl Net {
 
     /// One rd datagram, sealed and sent on the current path (best effort).
     pub fn send_datagram(&self, datagram: Vec<u8>) {
-        self.command(Command::Datagram(datagram));
+        self.send_datagram_frame(vec![datagram]);
+    }
+
+    /// Queues one complete encoded frame. If a frame is already pending, it
+    /// is evicted as a whole so no stale fragments survive into the next one.
+    pub fn send_datagram_frame(&self, datagrams: Vec<Vec<u8>>) {
+        if let Ok(mut queue) = self.media_queue.lock() {
+            queue.push(datagrams);
+        }
+        self.command_wake.wake();
+    }
+
+    /// A snapshot of the bounded media queue and its drop counters.
+    pub fn stats(&self) -> NetStats {
+        self.media_queue.lock().map_or_else(|_| NetStats::default(), |queue| queue.stats())
     }
 
     /// One control record (ordered, reliable).
@@ -511,6 +582,7 @@ struct Driver {
     socket: UdpSocket,
     endpoint: Endpoint,
     commands: mpsc::Receiver<Command>,
+    media_queue: Arc<Mutex<MediaQueue>>,
     command_fd: RawFd,
     events: mpsc::Sender<NetEvent>,
     event_fd: RawFd,
@@ -533,6 +605,20 @@ struct Driver {
 }
 
 impl Driver {
+    fn drain_media(&mut self, now: u64) -> Result<(), LinkError> {
+        if !self.endpoint.link().is_established() {
+            return Ok(());
+        }
+        let frame = self.media_queue.lock().ok().and_then(|mut queue| queue.pop());
+        let Some(frame) = frame else { return Ok(()) };
+        for datagram in frame {
+            for transmit in self.endpoint.send_datagram(&datagram)? {
+                self.send(transmit.route, &transmit.packet, now);
+            }
+        }
+        Ok(())
+    }
+
     fn emit(&self, event: NetEvent) {
         if let NetEvent::Candidate(c) = &event {
             let mut gathered = self.gathered.get();
@@ -782,6 +868,7 @@ impl Driver {
             self.later_tick();
             self.stun_tick(now);
             self.turn_tick(now);
+            self.drain_media(now)?;
             self.flush(now)?;
             let mut fds = [
                 libc::pollfd { fd: self.socket.as_raw_fd(), events: libc::POLLIN, revents: 0 },
@@ -796,6 +883,7 @@ impl Driver {
                 > 0
             {}
             let now = now_us(self.start);
+            self.drain_media(now)?;
             while let Ok(command) = self.commands.try_recv() {
                 match command {
                     Command::RemoteCandidate(c) => self.on_remote_candidate(c, now),
@@ -803,13 +891,6 @@ impl Driver {
                         self.stun_later = (!self.relay_only).then_some(later);
                     }
                     Command::TurnLater(later) => self.turn_later = Some(later),
-                    Command::Datagram(d) => {
-                        if self.endpoint.link().is_established() {
-                            for t in self.endpoint.send_datagram(&d)? {
-                                self.send(t.route, &t.packet, now);
-                            }
-                        }
-                    }
                     Command::Control(r) => self.endpoint.send_control(r, now)?,
                     Command::NetworkChange => {
                         self.endpoint.set_local_networks(cmux_transport::local_networks());
@@ -927,5 +1008,26 @@ mod tests {
             [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
         assert!(after[0] > before[0], "send buffer did not grow: {before:?} -> {after:?}");
         assert!(after[1] > before[1], "receive buffer did not grow: {before:?} -> {after:?}");
+    }
+
+    #[test]
+    fn newest_frame_replaces_oldest_as_a_whole() {
+        let mut queue = MediaQueue::default();
+        queue.push(vec![b"old-a".to_vec(), b"old-b".to_vec(), b"old-c".to_vec()]);
+        queue.push(vec![b"new-a".to_vec(), b"new-b".to_vec()]);
+
+        assert_eq!(queue.stats().dropped_frames, 1);
+        assert_eq!(queue.stats().dropped_datagrams, 3);
+        assert_eq!(queue.stats().queue_frames, 1);
+        assert_eq!(queue.stats().queue_datagrams, 2);
+        assert_eq!(queue.pop(), Some(vec![b"new-a".to_vec(), b"new-b".to_vec()]));
+        assert!(queue.pop().is_none(), "old frame fragments must not survive");
+    }
+
+    #[test]
+    fn empty_frame_does_not_consume_capacity_or_count_as_drop() {
+        let mut queue = MediaQueue::default();
+        queue.push(Vec::new());
+        assert_eq!(queue.stats(), NetStats::default());
     }
 }

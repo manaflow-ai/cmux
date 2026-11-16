@@ -506,9 +506,7 @@ impl MediaSession {
             _ => None,
         };
         let Some(pacer) = self.pacer.as_mut() else {
-            for datagram in &out.datagrams {
-                carrier.send_datagram(datagram)?;
-            }
+            carrier.send_datagram_frame(out.datagrams)?;
             if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
                 timing.frame_sent(line, now_us());
             }
