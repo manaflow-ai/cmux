@@ -270,3 +270,56 @@ fn pool_auth_grok_account_switch_changes_the_key_but_refresh_does_not() {
     std::fs::remove_file(files.0.join(at)).unwrap();
     assert_ne!(switched, files.fingerprint(&cache, "grok"), "a logout");
 }
+
+/// A Cloud machine's login install (the warm's or a claim's copy) puts the person's token in
+/// `~/.claude/settings.json` (`env.CLAUDE_CODE_OAUTH_TOKEN`) and `~/.claude/.credentials.json`,
+/// and names the cmux account in `~/.config/cmux/agent-auth/claude.login`; it never writes
+/// `~/.claude.json`. Another person's install must not leave the key unchanged, or a Claude
+/// started under the first login would serve the second person's chat.
+#[test]
+fn pool_auth_claude_another_cmux_login_install_changes_the_account() {
+    let files = LoginFiles::new("claude-cmux-login");
+    let cache = AuthCache::default();
+    let mark = ".config/cmux/agent-auth/claude.login";
+    let (_, none) = files.fingerprint(&cache, "claude");
+    assert_eq!(none, None, "no login: no account");
+    files.write(mark, json!({"account": "user_a", "digest": "d1"}));
+    let (_, a) = files.fingerprint(&cache, "claude");
+    assert!(a.is_some(), "an installed login names its account");
+    files.write(mark, json!({"account": "user_b", "digest": "d2"}));
+    let (_, b) = files.fingerprint(&cache, "claude");
+    assert!(b.is_some());
+    assert_ne!(a, b, "another person's login is another account");
+}
+
+/// What `~/.claude/settings.json` holds shapes a Claude Code agent at its start (env, model,
+/// hooks, permissions): a pooled agent started under other settings is never served.
+#[test]
+fn pool_auth_claude_settings_change_the_key() {
+    let files = LoginFiles::new("claude-settings");
+    let cache = AuthCache::default();
+    files.write(".claude/settings.json", json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": "fixture-a"}}));
+    let first = files.fingerprint(&cache, "claude");
+    files.write(".claude/settings.json", json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": "fixture-b"}}));
+    let token = files.fingerprint(&cache, "claude");
+    assert_ne!(first.0, token.0, "a new token in the settings");
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": "fixture-b"}, "model": "opus"}),
+    );
+    assert_ne!(token.0, files.fingerprint(&cache, "claude").0, "another settings value");
+}
+
+/// `~/.config/cmux/agent-auth/claude` says which login the image's launcher uses (`own` or
+/// `team`): a switch changes what a started agent talks to.
+#[test]
+fn pool_auth_claude_own_or_team_switch_changes_the_key() {
+    let files = LoginFiles::new("claude-own-team");
+    let cache = AuthCache::default();
+    let at = files.0.join(".config/cmux/agent-auth/claude");
+    std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+    std::fs::write(&at, "team\n").unwrap();
+    let team = files.fingerprint(&cache, "claude");
+    std::fs::write(&at, "own\n").unwrap();
+    assert_ne!(team.0, files.fingerprint(&cache, "claude").0);
+}
