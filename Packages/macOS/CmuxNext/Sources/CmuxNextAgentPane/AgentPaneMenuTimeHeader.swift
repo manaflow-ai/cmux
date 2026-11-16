@@ -20,9 +20,9 @@ enum AgentPaneMenuTimeHeader {
 
     /// One label in the menu font and label color, on the menu grid (MenuMetrics).
     final class View: NSView {
-        /// The label starts on the rows' text column (every row of this menu has an icon), where AppKit drew
-        /// the old disabled row's title; the height is a standard row's.
-        static let leading = MenuMetrics.textX(iconColumn: true), trailing = MenuMetrics.trailing, height: CGFloat = 22
+        /// The label starts where AppKit drew the old disabled row's title (a row with no icon starts on the
+        /// icon column), so only its color changes; the height is a standard row's.
+        static let leading = MenuMetrics.iconX, trailing = MenuMetrics.trailing, height: CGFloat = 22
 
         let label: NSTextField
 

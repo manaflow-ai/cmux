@@ -25,9 +25,9 @@ struct AgentPaneMenuTimeHeaderScreenTests {
         if let left = old.image, let right = new.image { try Self.writeEvidence(left, right) }
         // The old disabled row's text is dimmed (why #43989 did not work).
         #expect(old.header.brightness < old.row.brightness * 0.8, "the old row was not dimmed: \(old.report)")
-        // The new header's text is as bright as a row's title and starts on the same text column.
+        // The new header's text is as bright as a row's title, and sits where the old header sat: only its color changes.
         #expect(new.header.brightness >= new.row.brightness * 0.95, "the header is dimmer than the rows: \(new.report)")
-        #expect(abs(new.header.x - new.row.x) <= 1, "the header is off the rows' text column: \(new.report)")
+        #expect(abs(new.header.x - old.header.x) <= 1, "the header moved: old x \(old.header.x), new: \(new.report)")
     }
 
     /// #43989's header: a disabled row with a labelColor attributed title.
