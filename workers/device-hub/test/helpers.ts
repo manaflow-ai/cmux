@@ -66,6 +66,26 @@ async function billingResponse(origin: string, headers: Headers, signal: AbortSi
   });
 }
 
+/**
+ * What the mocked cmux-platform answers on `GET /v1/machines/credentials/self`,
+ * by machine credential; any other credential gets 401, as a revoked one does.
+ */
+export const platformMachines = new Map<string, Record<string, unknown>>();
+/** Every credential the hub asked cmux-platform about. */
+export const platformCalls: string[] = [];
+
+/** The mocked platform TURN minter's origin (`POST /v1/relay/ice-servers`). */
+export const PLATFORM_TURN_ORIGIN = "https://platform-turn.test";
+/**
+ * What the mocked platform TURN minter answers next: a JSON body (200), an HTTP
+ * status with a body, a network failure, or a hang until the caller's deadline.
+ */
+export type PlatformTurnAnswer = { body: unknown } | { status: number; body?: unknown } | "network" | "hang";
+export const platformTurn: { answer: PlatformTurnAnswer; calls: { authorization: string | null; body: unknown }[] } = {
+  answer: { body: { ice: [{ urls: ["turn:platform.test:3478?transport=udp"], username: "pu", credential: "pc" }] } },
+  calls: [],
+};
+
 let stackKeys: CryptoKeyPair | null = null;
 export const outbound: string[] = [];
 
@@ -93,6 +113,33 @@ export function mockOutbound() {
       if (init?.redirect === "error") throw new TypeError("Invalid redirect value, must be one of \"follow\" or \"manual\"");
       const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
       return billingResponse(billing[1]!, headers, init?.signal ?? (input instanceof Request ? input.signal : undefined));
+    }
+    if (url === "https://platform.test/v1/machines/credentials/self") {
+      const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+      const bearer = /^Bearer (\S+)$/.exec(headers.get("authorization") ?? "")?.[1] ?? "";
+      platformCalls.push(bearer);
+      const answer = platformMachines.get(bearer);
+      if (!answer) return Response.json({ _tag: "JoinUnauthorized" }, { status: 401 });
+      return Response.json(answer);
+    }
+    if (url === `${PLATFORM_TURN_ORIGIN}/v1/relay/ice-servers`) {
+      const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+      let body: unknown = null;
+      try {
+        body = JSON.parse(String(init?.body ?? "null"));
+      } catch {
+        body = null;
+      }
+      platformTurn.calls.push({ authorization: headers.get("authorization"), body });
+      const answer = platformTurn.answer;
+      if (answer === "network") throw new TypeError("network connection lost");
+      if (answer === "hang") {
+        const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+        return new Promise((_, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")));
+        });
+      }
+      return Response.json("status" in answer ? (answer.body ?? {}) : answer.body, { status: "status" in answer ? answer.status : 200 });
     }
     if (url.startsWith("https://rtc.live.cloudflare.com/v1/turn/keys/turn-key/credentials/generate-ice-servers")) {
       return Response.json({

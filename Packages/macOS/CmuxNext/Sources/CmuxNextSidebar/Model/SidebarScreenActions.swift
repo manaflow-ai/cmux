@@ -8,15 +8,16 @@ public nonisolated struct SidebarScreenActions {
     private let aliases: [String: String]
 
     /// - Parameters:
-    ///   - macs: Verified macOS device IDs (lowercase), mapped to their online state.
+    ///   - macs: Verified device IDs (lowercase) of screens this Mac views (Macs and Linux desktops,
+    ///     `HubDevice.macScreenAvailability`), mapped to their online state.
     ///   - aliases: Actual daemon route IDs mapped to their authenticated screen worker UUIDs.
     public init(macs: [String: Bool], aliases: [String: String]) {
         self.macs = macs
         self.aliases = aliases
     }
 
-    /// Decorates SSH and server sections. Unresolved and non-Mac devices have no View action;
-    /// an offline Mac keeps its action disabled. Cloud and local actions need no hub identity.
+    /// Decorates SSH and server sections. Unresolved devices and ones this Mac cannot view have no View action;
+    /// an offline host keeps its action disabled. Cloud and local actions need no hub identity.
     public func applying(to sections: [SidebarSection]) -> [SidebarSection] {
         sections.map { section in
             guard var machine = section.machine, machine.kind == .ssh || machine.kind == .server else { return section }
