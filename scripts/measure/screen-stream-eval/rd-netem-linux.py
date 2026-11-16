@@ -166,8 +166,9 @@ def summarize_key(report: dict | None) -> dict:
 def count_idrs(timing_text: str) -> dict:
     """Encoded frames and IDRs in a slice of the host's CMUX_RD_TIMING_LOG.
 
-    `reasons` counts each IDR's `idr_reason` (or `force_idr`) when the host logs one; a host that
-    logs neither counts it under "unlogged"."""
+    `reasons` counts each IDR's `idr_reason` (or `force_idr`) for a host that logs one. No host
+    does yet (`Timing::frame` in cmux-rd-host's stream.rs writes only `idr`), so today every IDR
+    counts under "unlogged"."""
     frames = idrs = 0
     reasons: dict[str, int] = {}
     for line in timing_text.splitlines():
@@ -332,7 +333,10 @@ def build(commit: str, work: Path, repo_url: str) -> Path:
     full = run(git + ["rev-parse", "HEAD"]).stdout.strip()
     if not full.startswith(commit):
         raise SystemExit(f"fetched {full}, asked for {commit}")
-    toolchain = re.search(r'channel\s*=\s*"([^"]+)"', (src / "cmux-tui/rust-toolchain.toml").read_text()).group(1)
+    found = re.search(r'channel\s*=\s*"([^"]+)"', (src / "cmux-tui/rust-toolchain.toml").read_text())
+    if not found:
+        raise SystemExit(f"{commit}: no toolchain channel in cmux-tui/rust-toolchain.toml")
+    toolchain = found.group(1)
     env = dict(os.environ, RUSTUP_TOOLCHAIN=toolchain, CARGO_TARGET_DIR=str(work / "target"))
     cargo_bin = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo")) / "bin"
     env["PATH"] = f"{cargo_bin}:{env['PATH']}"
@@ -388,6 +392,7 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
     row = {"schema": SCHEMA, "commit": commit, "profile": profile, "netem_each_direction": PROFILES[profile],
            "workload": "motion", "carrier": "udp"}
     row["qdisc"] = rig.shape(profile)
+    # The token lives in the private 0700 scratch, never under --out (an uploaded artifact).
     token = scratch / "token"
     token.write_text(os.urandom(32).hex())
     token.chmod(0o600)
@@ -409,11 +414,11 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
         mid = timing.stat().st_size
         key, kerr = bench(rig, binary, token, ["--input", "key", "--samples", str(samples)], samples * 3 + 90)
         end = timing.stat().st_size
-        text = timing.read_bytes().decode(errors="replace")
+        data = timing.read_bytes()  # st_size offsets are bytes: slice bytes, then decode
         row["passive"] = summarize_passive(passive)
         row["key"] = summarize_key(key)
-        row["idr_passive"] = count_idrs(text[start:mid])
-        row["idr_key"] = count_idrs(text[mid:end])
+        row["idr_passive"] = count_idrs(data[start:mid].decode(errors="replace"))
+        row["idr_key"] = count_idrs(data[mid:end].decode(errors="replace"))
         if not row["passive"]["ok"]:
             row["passive"]["stderr"] = perr
         if not row["key"]["ok"]:
@@ -427,11 +432,21 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
 def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, args) -> list[dict]:
     rig = Rig()
     rig.down()
-    scratch = Path(tempfile.mkdtemp(prefix=f"rd-netem-{commit[:12]}-", dir=out))
-    scratch.chmod(0o755)
+    # Private scratch (token, logs); --keep-logs copies only the logs into --out afterwards.
+    scratch = Path(tempfile.mkdtemp(prefix=f"rd-netem-{commit[:12]}-"))
     rows, procs = [], []
     try:
-        rig.up()
+        try:
+            rig.up()
+        except subprocess.CalledProcessError as error:
+            for profile in profiles:
+                row = {"schema": SCHEMA, "commit": commit, "profile": profile,
+                       "error": f"netns setup: {error.cmd}: {(error.stderr or '').strip()}"}
+                print(json.dumps(row), flush=True)
+                with open(out / "results.jsonl", "a") as f:
+                    f.write(json.dumps(row) + "\n")
+                rows.append(row)
+            return rows
         display = f":{170 + os.getpid() % 50}"
         procs.append(rig.spawn(rig.host_ns, ["Xvfb", display, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"]))
         time.sleep(1.5)
@@ -452,8 +467,14 @@ def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, ar
         for proc in reversed(procs):
             stop(proc)
         rig.down()
-        if not args.keep_logs:
-            shutil.rmtree(scratch, ignore_errors=True)
+        if args.keep_logs:
+            keep = out / f"logs-{commit[:12]}"
+            keep.mkdir(exist_ok=True)
+            for log in scratch.glob("*.log*"):
+                shutil.copy2(log, keep / log.name)
+            for log in scratch.glob("timing-*.jsonl"):
+                shutil.copy2(log, keep / log.name)
+        shutil.rmtree(scratch, ignore_errors=True)
     return rows
 
 
@@ -476,6 +497,8 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
     if not args.commit and not args.bin:
         ap.error("give --commit or --bin")
+    if any("=" not in b for b in args.bin):
+        ap.error("--bin takes LABEL=PATH")
     for c in args.commit:
         if not re.fullmatch(r"[0-9a-f]{40}", c):
             ap.error(f"--commit {c}: a full 40-hex sha")
