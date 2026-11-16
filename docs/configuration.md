@@ -706,7 +706,7 @@ To use the same key while another app is in front, turn on Settings > General > 
 }
 ```
 
-Rebind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.captureScreenshotToChat"]`. Scripts can run the same path on a fixed region without the picker: `cmux app call chat.capture.toChat '{"region": [x, y, width, height]}'` (global points from the top-left) answers `{"session", "path", "bytes"}`, and `cmux app call chat.composer.get '{}'` reads back what the composer holds.
+Rebind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.captureScreenshotToChat"]`. Scripts can start the same picker with `cmux app call chat.capture.toChat '{}'`, which answers `{"session", "path", "bytes"}` once a person picks a region; `cmux app call chat.composer.get '{}'` reads back what the composer holds. A script cannot name the region itself: the call refuses one, because a picture of the screen needs a person's pick.
 
 ## Background mode and `app.hideDockIconWithoutWindows`
 
