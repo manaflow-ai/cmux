@@ -214,7 +214,12 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   useEffect(() => {
     if (imessage?.expanded) setSessionInfoSection("connectors", true);
   }, [imessage?.expanded]);
-  const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
+  // The pane's usage (`props.usage`) is as of its last draw; a usage update since reached `summary`
+  // alone (liveSummary.ts).
+  const contextUsage =
+    summary !== props.summary || !props.usage
+      ? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown)
+      : props.usage;
   const environmentEditor = useSyncExternalStore(subscribeCloudEnvironment, cloudEnvironmentRequest);
   const cloudSession =
     props.cloudRepositoryAvailable &&

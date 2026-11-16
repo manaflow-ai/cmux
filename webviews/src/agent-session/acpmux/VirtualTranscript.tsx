@@ -89,7 +89,7 @@ import { acpmuxPerf, type MountedSpan } from "./perf";
 import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRowFor } from "./streamingRow";
 import { useLiveToolRow } from "./liveToolOutput";
-import { drewThoughts, rowsDrawnNow, useLiveThoughtRow } from "./liveThought";
+import { drewThoughts, rowsDrawnNow, useLiveThoughtRow, useLiveThoughtLine } from "./liveThought";
 import { followTrace } from "./followTrace";
 import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
@@ -398,7 +398,10 @@ export const RowContent = React.memo(
     });
     // What moved on without the pane (a running command's output, a thought, the streaming reply's
     // text and the live line under it): this row alone draws it.
-    const row = useStreamingRowFor(useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools), liveTools);
+    const row = useStreamingRowFor(
+      useLiveThoughtLine(useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools), liveTools),
+      liveTools,
+    );
     return <Component {...props} row={row} />;
   },
   (previous, next) => {

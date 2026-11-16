@@ -8067,8 +8067,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     /// handed (`listInputOf`): a snapshot that keeps both runs neither.
     let observedSummary: AcpmuxSnapshot["summary"] | null = null;
     let publishedList: ListInput | undefined;
-    /// A switch's first summary waits in the idle lane: its observation names the start model.
-    let profileStarted = false;
     const lanes = pageLanes();
     /// Prompts a failed or cancelled switch held go back into the composer with their
     /// attachments, before what was typed since; while no composer is mounted they wait for one.
@@ -8354,23 +8352,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
             // Only when the summary changed: a streamed chunk keeps it, and each observation
             // serializes and stores every harness's profile. In the idle lane (schedule/), never in a
-            // key's or a frame's task; the latest summary wins, and a switch's start is kept until it
-            // is observed. Durable: a page that hides writes it then.
+            // key's or a frame's task, the latest summary winning; durable, so a page that hides
+            // writes it then. A switch's first summary (once per switch) is observed at once: it
+            // names its harness's start model, which a later summary must not take over.
             const summary = next.summary;
             const started = summary?.model !== undefined && startedSessions.has(summary.sessionId);
-            if (summary !== observedSummary || started) {
+            if (started) {
               observedSummary = summary;
-              if (started) startedSessions.delete(summary!.sessionId);
-              profileStarted ||= started;
-              lanes.idle(
-                "pane:harness-profiles",
-                () => {
-                  const first = profileStarted;
-                  profileStarted = false;
-                  harnessProfiles.observe(summary, first);
-                },
-                { durable: true },
-              );
+              startedSessions.delete(summary!.sessionId);
+              // An older summary still waiting would land after it: it is dropped.
+              lanes.idle("pane:harness-profiles", () => {});
+              harnessProfiles.observe(summary, true);
+            } else if (summary !== observedSummary) {
+              observedSummary = summary;
+              lanes.idle("pane:harness-profiles", () => harnessProfiles.observe(summary, false), { durable: true });
             }
             // The next New Tab page names the project used last on its first frame
             // (newtab/recentProject.ts); the mock daemon's chats are not the app's. Each reads the

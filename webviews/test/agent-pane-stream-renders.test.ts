@@ -70,7 +70,9 @@ await requireBrowserLane("agent-pane-stream-renders.test.ts", async () => {
       )) as Record<string, any>;
       await page.close();
       const renders = (run.renders ?? {}) as Record<string, number>;
-      const rowRenders = Object.entries(renders).filter(([name]) => name.startsWith("row:"));
+      // A row's content (VirtualTranscript.tsx RowContent, `content:<id>`) is what draws a streamed
+      // chunk; its frame (`row:<id>`) renders for its place and height.
+      const rowRenders = Object.entries(renders).filter(([name]) => name.startsWith("content:"));
       const busiest = rowRenders.sort((a, b) => b[1] - a[1])[0] ?? ["none", 0];
       const report = {
         kind,
