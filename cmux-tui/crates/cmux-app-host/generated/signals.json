@@ -243,7 +243,7 @@
       "staleAfterSeconds": 60
     },
     "github.pulls": {
-      "docs": "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. Nothing pushes GitHub changes to cmux yet, so the runtime polls behind it.",
+      "docs": "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. The Cloud pushes github.changed from the GitHub App's webhooks, so a check or review flips within seconds; until that push is live (signed out, no GitHub connection, an app without integration:github:read) the runtime polls.",
       "scopes": [
         "integration:github:read",
         "net:api.github.com"
@@ -369,9 +369,12 @@
           }
         ]
       },
-      "push": [],
+      "push": [
+        "github.changed"
+      ],
       "pollFloorSeconds": 60,
-      "staleAfterSeconds": 300
+      "staleAfterSeconds": 300,
+      "safetyPollSeconds": 900
     },
     "workspace.list": {
       "docs": "The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it.",
