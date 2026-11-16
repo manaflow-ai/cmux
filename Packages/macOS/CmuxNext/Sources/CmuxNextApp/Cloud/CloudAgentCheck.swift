@@ -78,15 +78,21 @@ import os
         if verdict.step == .refuse { return .login(verdict.reason) }
         // Only a verdict that installs the person's Claude login runs on it; none cached: the machine signs in on its own.
         guard verdict.step == .install || verdict.step == .confirmThenInstall, let token else { return nil }
-        return await limitRefusal(harness: harness, model: model, userID: userID, token: token).map(Refused.limit)
+        // A cached token is not enough: a revoked subscription token made the VM, then the
+        // machine's harness answered "isn't signed in". Refuse before the lease and let the
+        // normal one-time login-choice wording tell the person how to fix it.
+        let initial = await probe(token, model: model)
+        if initial?.status == 401 { return .login(.loginNeeded) }
+        return await limitRefusal(harness: harness, model: model, userID: userID, token: token, initial: initial).map(Refused.limit)
     }
 
     /// The refusal when `token`'s Claude limit for `model` is used up; nil otherwise or when unknown.
-    func limitRefusal(harness: String?, model named: String?, userID: String, token: Data) async -> Refusal? {
+    func limitRefusal(harness: String?, model named: String?, userID: String, token: Data, initial: Probe? = nil) async -> Refusal? {
         let model = Self.modelID(named), key = userID + "\n" + model
         if let kept = kept[key], kept.freshUntil > now() { return kept.refusal }
         let task = asking[key] ?? Task { [self] in
-            guard let probe = await probe(token, model: model) else { return nil }
+            let answer = if let initial { initial } else { await probe(token, model: model) }
+            guard let probe = answer else { return nil }
             return Self.answer(harness: harness, model: model, probe: probe, now: now())
         }
         asking[key] = task
