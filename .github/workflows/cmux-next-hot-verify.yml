@@ -1,0 +1,529 @@
+name: cmux-next hot verify
+
+# Look first, then test (Leo, 2026-11-15): "front load that. Just screenshot it, take a video, touch it,
+# interact with it, click around with it, and then push it through the various testing instead of the other way
+# around." And: "maybe the code doesn't even need to be compiled". A pull request whose change the engine
+# (scripts/cmux-next/hot-verify.py plan) can put onto a running NEXT nightly with no build (layers web, rust or
+# customize, needs_build false) is looked at on a fleet Mac right after the push, beside the slow checks, and
+# gets ONE comment: the marker line, the app build (nightly build and CMUXCommit), the PR head as the tested
+# version, before/after light and dark, the video and the phase timings (push_to_first_shot_s among them). A new
+# head edits that comment in place. Advisory: never a required check, never gates a merge.
+#
+# Two halves, the cmux-next-media hand-off shape. The pull request run (this file as the PR has it, no secret,
+# read-only token) runs the plan on the PR head and, for an eligible change, starts a run of this workflow on
+# feat-cmux-next (workflow_dispatch pr/head/layers). That run takes this file and every script from the
+# protected branch, never from the PR:
+#   - web: one dispatch of cmux-next-web-bundle-publish.yml (pr=N, its own credentials), then an HTTP wait until
+#     files.cmux.com/cmux-next-web/pr/<N>/latest.json names this head (`cmux customize use pr:N`)
+#   - rust: waits (HTTP to files.cmux.com, bounded) for the head's cmux-tui tree that cmux-tui-artifacts.yml
+#     publishes for a same-repository PR head (cmux-tui/tree/<key>/completion.json, written last)
+#   - look: the build-fleet gateway runner's thin cmux-ci client submits cmuxterm-hq's
+#     build-fleet/pr_capture/fleet-step-hot-verify.sh (a display worker copies the NEXT nightly, applies the
+#     change with the engine from the feat-cmux-next tip, shoots, clicks, records) and reads its out.tar. It
+#     does not wait for web or rust: the worker applies the change from the source itself, so the look comes
+#     first and those two serve everyone else's `pr:N` paths beside it.
+#   - publish: the pr-media environment (it admits only the protected branches) checks every file with the
+#     shared pr-media privacy check (the worker's own text reader's lines too), uploads through
+#     .github/actions/pr-media-publish and writes the comment (scripts/cmux-next/hot-verify-ci.py render/post).
+# No engine on the PR head or the base yet, no HQ commit from the controller, a needs-build plan: each ends the
+# run with a step-summary line and no comment.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, ready_for_review]
+  # GitHub dispatches only a workflow it knows on a branch; a push that changes this file registers it on
+  # feat-cmux-next (its jobs skip), as cmux-tui-tree-request.yml does.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-next-hot-verify.yml]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "The same-repository pull request into feat-cmux-next to look at"
+        required: true
+        type: string
+      head:
+        description: "Its head (40 hex); a run for a head the PR moved past posts nothing"
+        required: true
+        type: string
+      layers:
+        description: "The plan's layers (web, rust, customize; comma-separated)"
+        required: true
+        type: string
+      event_at:
+        description: "Epoch seconds of the pull request event (push to comment time)"
+        required: false
+        default: ""
+        type: string
+      attempt:
+        description: "1 for the one more look `look again` starts after a look that failed on the fleet"
+        required: false
+        default: "0"
+        type: string
+
+permissions: {}
+
+# One look per pull request: a newer head replaces the older one, in either half.
+concurrency:
+  group: cmux-next-hot-verify-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pr || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  # The pull request half: the engine's plan, on the PR head, with no secret. Drafts wait until they are ready,
+  # forks never run, and CI_QUOTA_HOLD=1 pauses it while the GITHUB_TOKEN budget is held for the nightly.
+  plan:
+    name: plan the look
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      eligible: ${{ steps.plan.outputs.eligible }}
+      layers: ${{ steps.plan.outputs.layers }}
+    steps:
+      # The engine and this workflow's helper come from the base branch (the same rules for every PR, as the
+      # fleet step's engine does); the PR head is fetched as git objects and planned as `sha:` (no worktree
+      # of it). A PR that brings the engine itself, before the base has one, is planned with its own scripts/.
+      - name: Checkout the base branch's scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
+      - name: Plan
+        id: plan
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # The plan sorts the change against its merge base with origin/feat-cmux-next (no app on Linux):
+          # 45 days of history, as the fleet step's engine clone keeps.
+          since="$(date -u -d '45 days ago' +%Y-%m-%d)"
+          timeout 600 git fetch -q --no-tags --filter=blob:none --shallow-since="$since" origin \
+            "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" "+refs/pull/$PR/head:refs/remotes/pr/head"
+          # The checkout's depth-1 fetch marks the base tip shallow, and --shallow-since does not deepen a tip
+          # the clone already has: #43862's head then shared no history with it, and the plan failed at
+          # `git merge-base` (5 of 9 looks, 2026-11-15T18:2xZ). Deepen until they meet, doubling each time: the
+          # branch takes about 700 commits a day, and 200 to 25600 reaches past the 45 days fetched above.
+          for depth in 200 400 800 1600 3200 6400 12800 25600; do
+            git merge-base refs/remotes/pr/head "refs/remotes/origin/$BASE_REF" > /dev/null 2>&1 && break
+            timeout 120 git fetch -q --no-tags --filter=blob:none --deepen="$depth" origin \
+              "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" "+refs/pull/$PR/head:refs/remotes/pr/head"
+          done
+          if [[ "$(git rev-parse refs/remotes/pr/head)" != "$HEAD_SHA" ]]; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "hot verify: #$PR moved past ${HEAD_SHA:0:12}; its own run plans it" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          [[ -f scripts/cmux-next/hot-verify.py ]] || git -c advice.detachedHead=false checkout -q --detach "$HEAD_SHA"
+          engine=scripts/cmux-next/hot-verify.py
+          tool=scripts/cmux-next/hot-verify-ci.py
+          if [[ ! -f "$tool" || ! -f "$engine" ]]; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "hot verify: the engine (scripts/cmux-next/hot-verify.py) is not on $BASE_REF or this head yet; nothing to look at" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          status=0
+          timeout 300 python3 "$engine" plan --source "sha:$HEAD_SHA" --repo . --json > "$RUNNER_TEMP/plan.out" 2> "$RUNNER_TEMP/plan.err" || status=$?
+          if [[ $status != 0 ]] || ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$RUNNER_TEMP/plan.out" 2>/dev/null; then
+            # An engine without --json prints the text form.
+            status=0
+            timeout 300 python3 "$engine" plan --source "sha:$HEAD_SHA" --repo . > "$RUNNER_TEMP/plan.out" 2>> "$RUNNER_TEMP/plan.err" || status=$?
+          fi
+          if [[ $status != 0 ]]; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "hot verify: the engine's plan failed (exit $status); no look. $(tail -c 300 "$RUNNER_TEMP/plan.err" | tr '\n' ' ')" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 "$tool" verdict "$RUNNER_TEMP/plan.out" | tee -a "$GITHUB_OUTPUT"
+          echo "hot verify plan: $(grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)" >> "$GITHUB_STEP_SUMMARY"
+
+  # Start the look on feat-cmux-next. Data only: the run there reads the pull request again and takes nothing
+  # else from here. Before this file is on feat-cmux-next the dispatch has nothing to start, and says so.
+  hand-off:
+    name: start the look on feat-cmux-next
+    needs: plan
+    if: ${{ needs.plan.outputs.eligible == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    # actions: write starts the run; nothing here can write pr-media or the PR.
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the look
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LAYERS: ${{ needs.plan.outputs.layers }}
+          EVENT_AT: ${{ github.event.pull_request.updated_at }}
+        run: |
+          set -uo pipefail
+          event_at="$(date -u -d "$EVENT_AT" +%s 2>/dev/null || date -u +%s)"
+          if gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+              -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$event_at" 2> "$RUNNER_TEMP/dispatch.err"; then
+            echo "hot verify: the look ($LAYERS) runs on feat-cmux-next for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "hot verify: could not start the look on feat-cmux-next ($(tr '\n' ' ' < "$RUNNER_TEMP/dispatch.err" | cut -c1-200)); this workflow may not be there yet" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # The feat-cmux-next half. The pull request, read again: open, into feat-cmux-next, from this repository,
+  # still at the head the plan saw.
+  target:
+    name: check the pull request
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+      pr: ${{ steps.check.outputs.pr }}
+      head: ${{ steps.check.outputs.head }}
+      web: ${{ steps.check.outputs.web }}
+      rust: ${{ steps.check.outputs.rust }}
+    steps:
+      - name: Read the pull request
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ inputs.head }}
+          LAYERS: ${{ inputs.layers }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "::error::pr must be a pull request number"; exit 1; }
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::head must be a full commit sha"; exit 1; }
+          [[ "$LAYERS" =~ ^(web|rust|customize)(,(web|rust|customize)){0,2}$ ]] || { echo "::error::layers takes web, rust and customize"; exit 1; }
+          info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.repo.full_name, .head.sha, .base.ref, .state, .draft, (.merged_at // "-")] | @tsv')"
+          IFS=$'\t' read -r head_repo live base_ref state draft merged_at <<<"$info"
+          ok=true
+          # A merged pull request is looked at too, at its merged head: a look queued behind a busy gateway label
+          # often starts after the merge, and `look again` runs after it (the worker takes a merged head on GitHub's
+          # PR API's word, cmuxterm-hq#11742). Closed without a merge, or a draft: no look.
+          if [[ "$head_repo" != "$GITHUB_REPOSITORY" || "$base_ref" != feat-cmux-next ]]; then
+            echo "hot verify: #$PR is not a same-repository pull request into feat-cmux-next; no look" | tee -a "$GITHUB_STEP_SUMMARY"; ok=false
+          elif [[ "$draft" == true || ( "$state" != open && "$merged_at" == - ) ]]; then
+            echo "hot verify: #$PR is $state${draft/true/ (draft)}; no look" | tee -a "$GITHUB_STEP_SUMMARY"; ok=false
+          elif [[ "$live" != "$HEAD_SHA" ]]; then
+            echo "hot verify: #$PR moved to ${live:0:12}; its own run looks at it" | tee -a "$GITHUB_STEP_SUMMARY"; ok=false
+          fi
+          {
+            echo "ok=$ok"
+            echo "pr=$PR"
+            echo "head=$HEAD_SHA"
+            [[ ",$LAYERS," == *,web,* ]] && echo "web=true" || echo "web=false"
+            [[ ",$LAYERS," == *,rust,* ]] && echo "rust=true" || echo "rust=false"
+          } >> "$GITHUB_OUTPUT"
+
+  # The PR's web layer on files.cmux.com: one dispatch of cmux-next-web-bundle-publish.yml's own pr path (its
+  # build job runs the PR's web build with no secret; its publish job holds its own credentials), then a bounded
+  # HTTP wait until cmux-next-web/pr/<N>/latest.json names this head. No secret passes through this workflow.
+  web:
+    name: web layer
+    needs: target
+    if: ${{ needs.target.outputs.ok == 'true' && needs.target.outputs.web == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 45
+    permissions:
+      actions: write
+    steps:
+      - name: Start the web layer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.target.outputs.pr }}
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-next-web-bundle-publish.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f pr="$PR"
+      - name: Wait for latest.json to name this head
+        env:
+          PR: ${{ needs.target.outputs.pr }}
+          HEAD_SHA: ${{ needs.target.outputs.head }}
+        run: |
+          set -euo pipefail
+          url="https://files.cmux.com/cmux-next-web/pr/$PR/latest.json"
+          deadline=$(( $(date +%s) + 40 * 60 ))
+          while :; do
+            if curl -fsS --max-time 30 "$url?hot-verify=$GITHUB_RUN_ID-$(date +%s)" -o "$RUNNER_TEMP/latest.json" 2>/dev/null \
+              && [[ "$(jq -r '.head // ""' "$RUNNER_TEMP/latest.json" 2>/dev/null)" == "$HEAD_SHA" ]]; then
+              echo "web layer of #$PR at ${HEAD_SHA:0:12}: $url (\`cmux customize use pr:$PR\`)" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if (( $(date +%s) >= deadline )); then
+              echo "::warning title=web layer::latest.json of #$PR did not name ${HEAD_SHA:0:12} within 40 minutes"
+              echo "web layer of #$PR at ${HEAD_SHA:0:12}: not published within 40 minutes" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 30
+          done
+
+  # The head's cmux-tui tree, which cmux-tui-artifacts.yml publishes for a same-repository PR head (its
+  # completion.json is written last). HTTP to files.cmux.com only, bounded; no GitHub API call.
+  rust:
+    name: rust layer
+    needs: target
+    if: ${{ needs.target.outputs.ok == 'true' && needs.target.outputs.rust == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 55
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the pull request head (trees only)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.target.outputs.head }}
+          persist-credentials: false
+          filter: blob:none
+          # The key script and its inputs list; the key itself reads git trees, which blob:none keeps.
+          sparse-checkout: |
+            /scripts/ci/cmux_tui_tree_key.py
+            /scripts/cmux-next/cmux-tui-tree-inputs.txt
+          sparse-checkout-cone-mode: false
+      - name: Wait for the head's cmux-tui tree
+        env:
+          HEAD_SHA: ${{ needs.target.outputs.head }}
+        run: |
+          set -euo pipefail
+          # The key script and its inputs list come from the head; the key reads git trees only (no PR code runs
+          # beyond this script, and this job holds no secret).
+          key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 HEAD)"
+          [[ "$key" =~ ^[0-9a-f]{40,64}$ ]] || { echo "::error::no cmux-tui tree key for ${HEAD_SHA:0:12}"; exit 1; }
+          url="https://files.cmux.com/cmux-tui/tree/$key/completion.json"
+          deadline=$(( $(date +%s) + 50 * 60 ))
+          while :; do
+            code="$(curl -sS -o "$RUNNER_TEMP/completion.json" -w '%{http_code}' --max-time 30 "$url?hot-verify=$GITHUB_RUN_ID-$(date +%s)" || true)"
+            if [[ "$code" == 200 ]]; then
+              echo "cmux-tui tree of ${HEAD_SHA:0:12}: https://files.cmux.com/cmux-tui/tree/$key/" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if (( $(date +%s) >= deadline )); then
+              echo "::warning title=cmux-tui tree::the tree $key of ${HEAD_SHA:0:12} was not published within 50 minutes (cmux-tui-artifacts.yml publishes a same-repository PR head)"
+              echo "cmux-tui tree of ${HEAD_SHA:0:12} ($key): not published within 50 minutes" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 30
+          done
+
+  # The look: a thin cmux-ci client on the build-fleet gateway runner (glaeda GATEWAY_JOBS) submits the HQ fleet
+  # step at the HQ main commit the controller runs, and reads its out.tar. No checkout of pull request code.
+  look:
+    name: look
+    needs: target
+    if: ${{ needs.target.outputs.ok == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.look.outputs.result }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          submodules: false
+          persist-credentials: false
+          # A thin client: only the packing helper, no other blob.
+          filter: blob:none
+          sparse-checkout: |
+            /scripts/cmux-next/hot-verify-ci.py
+          sparse-checkout-cone-mode: false
+      - name: Look on a fleet Mac
+        id: look
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          PR: ${{ needs.target.outputs.pr }}
+          HEAD_SHA: ${{ needs.target.outputs.head }}
+        run: |
+          set -uo pipefail
+          say() { echo "$1" | tee -a "$GITHUB_STEP_SUMMARY"; }
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; the look did not run."
+            exit 127
+          fi
+          # The HQ step runs at a full HQ main commit: the one the controller runs (its /v1/version).
+          curl -fsS --retry 2 --max-time 30 "$CONTROLLER/v1/version" -o "$RUNNER_TEMP/version.json" || true
+          hq_ref="$(python3 scripts/cmux-next/hot-verify-ci.py hq-ref "$RUNNER_TEMP/version.json")"
+          if ! [[ "$hq_ref" =~ ^[0-9a-f]{40}$ ]]; then
+            say "hot verify: the fleet controller's /v1/version names no full HQ commit (commit); no look"
+            echo "result=skipped" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          nonce="hv-$PR-${HEAD_SHA:0:12}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          # Not mapfile: a fleet Mac's /bin/bash is 3.2, which has none (#43916's look on glaeda-5, 2026-11-15).
+          chunks=()
+          while IFS= read -r chunk; do chunks+=("$chunk"); done < <(python3 scripts/cmux-next/hot-verify-ci.py pack --pr "$PR" --head "$HEAD_SHA" --nonce "$nonce" --video)
+          (( ${#chunks[@]} > 0 )) || { echo "::error::the step's inputs did not pack"; exit 1; }
+          args=()
+          for chunk in "${chunks[@]}"; do args+=("--arg=$chunk"); done
+          log="$RUNNER_TEMP/look.log"
+          status=0
+          "$client" run --class light --repo manaflow-ai/cmuxterm-hq --ref "$hq_ref" \
+            --script build-fleet/pr_capture/fleet-step-hot-verify.sh --display --artifact out.tar --key "$nonce" \
+            --timeout 2400 --queue-timeout 1800 "${args[@]}" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+          mkdir -p "$RUNNER_TEMP/look"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          if [[ -n "$step" ]]; then
+            "$client" artifact "$step" "$RUNNER_TEMP/look/out.tar" || "$client" artifact --failed "$step" "$RUNNER_TEMP/look/out.tar" || true
+          fi
+          if [[ -s "$RUNNER_TEMP/look/out.tar" ]]; then
+            say "hot verify: fleet step ${step:-?} returned its out.tar (exit $status)"
+            echo "result=ok" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error title=hot verify::the fleet step (${step:-none}, exit $status) returned no out.tar"
+          echo "result=failed" >> "$GITHUB_OUTPUT"
+          # A look with no result is never green.
+          exit 1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ steps.look.outputs.result == 'ok' }}
+        with:
+          name: cmux-next-hot-verify-${{ needs.target.outputs.pr }}-${{ needs.target.outputs.head }}
+          path: ${{ runner.temp }}/look/out.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  # One more look when this one failed on the fleet. A failed `look` job returned no out.tar: the look never
+  # judged the change, the fleet or its runner lost it. On 2026-11-16 that was a lent Mac's disk decline
+  # (3 decliners fail a step), a worker that stopped renewing its lease, and a reserved mini whose gateway runner
+  # took 8 looks in 20 minutes and refused each one. Nothing else starts a look again, so each such look was
+  # lost for good. A look's own verdict (needs a build, failed shots) comes back in out.tar and is never retried.
+  # Once: the retry carries attempt=1, and a newer head's run replaces it (the concurrency group).
+  again:
+    name: look again
+    needs: [target, look]
+    if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && needs.look.result == 'failure' && inputs.attempt != '1' }}
+    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch one more look
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.target.outputs.pr }}
+          HEAD_SHA: ${{ needs.target.outputs.head }}
+          LAYERS: ${{ inputs.layers }}
+          EVENT_AT: ${{ inputs.event_at }}
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+            -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$EVENT_AT" -f attempt=1
+          echo "hot verify: the look failed on the fleet; one more look runs for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Every write goes through .github/actions/pr-media-publish (the private-terms list, OCR, the shared privacy
+  # check) from this protected branch's own scripts; out.tar is data from a fleet worker.
+  publish:
+    name: post the look
+    needs: [target, look]
+    if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && needs.look.outputs.result == 'ok' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 50  # 20, plus hot-verify-ci.py's QUOTA_WAIT_SECONDS (1800) for a post out of quota
+    environment: pr-media
+    # contents: write reaches the pr-media branch (the code branches are protected by their rulesets);
+    # pull-requests: write edits or posts the one comment; actions: read finds a gallery run on the head.
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Checkout the publisher
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/pr-media-publish
+            scripts/pr-media.py
+            scripts/ci/pr_media_privacy.py
+            scripts/ci/pr_media_gate.py
+            scripts/ci/pr_media_ocr_tesseract.py
+            scripts/ci/pr_media_ocr.swift
+            scripts/cmux-next/hot-verify-ci.py
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-hot-verify-${{ needs.target.outputs.pr }}-${{ needs.target.outputs.head }}
+          path: ${{ runner.temp }}/artifact
+      - name: Unpack and stage
+        id: stage
+        env:
+          PR: ${{ needs.target.outputs.pr }}
+          HEAD_SHA: ${{ needs.target.outputs.head }}
+        run: |
+          set -euo pipefail
+          out="$(python3 scripts/cmux-next/hot-verify-ci.py unpack "$RUNNER_TEMP/artifact/out.tar" "$RUNNER_TEMP/out")"
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+          python3 scripts/cmux-next/hot-verify-ci.py stage "$out" --pr "$PR" --head "$HEAD_SHA" \
+            --stage "$RUNNER_TEMP/hv/media" --text "$RUNNER_TEMP/hv/text/hv-text.txt" > "$RUNNER_TEMP/stage.out"
+          if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["needs_build"] else 1)' "$RUNNER_TEMP/stage.out"; then
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
+            echo "hot verify: the worker's plan against the nightly says this change needs a build; no comment (the build path covers it)" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "needs_build=false" >> "$GITHUB_OUTPUT"
+            ls "$RUNNER_TEMP/hv/media" 2>/dev/null | sed 's/^/staged: /' || true
+          fi
+      - name: Is the gallery advisory also on this head
+        id: gallery
+        if: ${{ steps.stage.outputs.needs_build == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.target.outputs.head }}
+        run: |
+          set -uo pipefail
+          count="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/gallery-advisory.yml/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=1" --jq .total_count 2>/dev/null || echo 0)"
+          [[ "$count" =~ ^[0-9]+$ && "$count" -gt 0 ]] && echo "gallery=true" >> "$GITHUB_OUTPUT" || echo "gallery=false" >> "$GITHUB_OUTPUT"
+      - name: Install ffmpeg
+        if: ${{ steps.stage.outputs.needs_build == 'false' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null)
+      - name: Check, upload and comment
+        if: ${{ steps.stage.outputs.needs_build == 'false' }}
+        uses: ./.github/actions/pr-media-publish
+        env:
+          PR: ${{ needs.target.outputs.pr }}
+          HEAD_SHA: ${{ needs.target.outputs.head }}
+          OUT: ${{ steps.stage.outputs.out }}
+          GALLERY: ${{ steps.gallery.outputs.gallery }}
+          EVENT_AT: ${{ inputs.event_at }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          private-terms: ${{ secrets.PR_MEDIA_PRIVATE_TERMS }}
+          agent-authors: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
+          github-token: ${{ github.token }}
+          command: |
+            set -euo pipefail
+            hv="$RUNNER_TEMP/hv"
+            uploaded=()
+            # The worker's own text reader's lines go through the same check as the files (pr_media_privacy.py
+            # reads a .txt line by line); a hit there withholds every file.
+            if python3 scripts/ci/pr_media_privacy.py check --path-prefix "$PR" "$hv/text/hv-text.txt"; then
+              if compgen -G "$hv/media/*" >/dev/null; then
+                if python3 scripts/pr-media.py --pr "$PR" --repo "$GITHUB_REPOSITORY" --force "$hv/media"; then
+                  uploaded=(--uploaded)
+                else
+                  echo "::warning title=hot verify::pr-media refused or failed the upload; the comment carries no shots"
+                fi
+              fi
+            else
+              echo "::warning title=hot verify::the worker's text reader saw private text; no shots are published"
+            fi
+            gallery=()
+            [[ "${GALLERY:-false}" == true ]] && gallery=(--gallery)
+            event=()
+            [[ "${EVENT_AT:-}" =~ ^[0-9]{9,11}$ ]] && event=(--event-at "$EVENT_AT")
+            python3 scripts/cmux-next/hot-verify-ci.py render "$OUT" --pr "$PR" --head "$HEAD_SHA" \
+              --repo "$GITHUB_REPOSITORY" --stage-json "$hv/stage.json" --run-url "$RUN_URL" \
+              ${uploaded[@]+"${uploaded[@]}"} ${gallery[@]+"${gallery[@]}"} ${event[@]+"${event[@]}"} > "$hv/comment.md"
+            python3 scripts/cmux-next/hot-verify-ci.py post "$hv/comment.md" --pr "$PR" --head "$HEAD_SHA" \
+              --repo "$GITHUB_REPOSITORY" | tee -a "$GITHUB_STEP_SUMMARY"

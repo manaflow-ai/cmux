@@ -249,7 +249,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             continue
         row = {"pid": pid, "kind": kind, "rss_mb": round(got[0] / MB, 1),
                "footprint_mb": round(got[1] / MB, 1), "max_footprint_mb": round(got[2] / MB, 1),
-               "command": cmd[:160]}
+               "command": (in_bundle(cmd, bundle) or cmd)[:200]}
         if pid in start:
             row["cpu_pct"] = round(100 * (got[3] - start[pid][3]) / 1e9 / measure, 3)
             row["wakeups_per_s"] = round((got[4] - start[pid][4]) / measure, 2)
@@ -438,6 +438,30 @@ def print_attribution(label: str, found: dict):
     sys.stdout.flush()
 
 
+# CMUX_BENCH_VMMAP_KINDS=tui-daemon,app (cmux-ci run --env): after each sample, `vmmap --summary` of every process of
+# those kinds, as VMMAP lines: where a process's footprint is (MALLOC zones, a framework's __DATA, stacks...). vmmap
+# suspends the process while it reads it, so it runs after the sample's window and only when asked.
+VMMAP_KINDS_ENV = "CMUX_BENCH_VMMAP_KINDS"
+
+
+def print_vmmap(result) -> None:
+    kinds = {k for k in os.environ.get(VMMAP_KINDS_ENV, "").split(",") if k}
+    if not kinds or not shutil.which("vmmap"):
+        return
+    for row in result["processes"]:
+        if row["kind"] not in kinds:
+            continue
+        got = subprocess.run(["vmmap", "--summary", str(row["pid"])], capture_output=True, text=True, timeout=120)
+        lines = got.stdout.splitlines()
+        keep = [ln for ln in lines if ln.startswith(("Physical footprint", "ReadOnly portion", "Writable regions"))]
+        start = next((i for i, ln in enumerate(lines) if ln.startswith("REGION TYPE")), None)
+        if start is not None:
+            keep += [ln for ln in lines[start:] if ln.strip() and not ln.startswith("=")][:60]
+        for ln in keep:
+            print(f"VMMAP {result['label']} {row['kind']} pid {row['pid']} | {ln.rstrip()}")
+    sys.stdout.flush()
+
+
 def print_sample(result, top: int):
     print(f"== {result['label']}: {result['workspaces']} workspaces, {len(result['processes'])} processes, "
           f"footprint {result['total_footprint_mb']:.0f} MB, RSS {result['total_rss_mb']:.0f} MB")
@@ -451,7 +475,7 @@ def print_sample(result, top: int):
     print(f"   top {top} processes by footprint:")
     for row in result["processes"][:top]:
         print(f"   {row['footprint_mb']:>8.1f} MB  RSS {row['rss_mb']:>7.1f}  max {row['max_footprint_mb']:>7.1f}  "
-              f"{row['kind']:<20} pid {row['pid']}")
+              f"{row['kind']:<20} pid {row['pid']}  {row.get('command', '')}")
     sys.stdout.flush()
 
 
@@ -687,6 +711,77 @@ def cef_page_count(app: App) -> int | None:
     if not isinstance(pages, list):
         return None
     return sum(1 for p in pages if str(p.get("origin", "")).startswith("cmux-page://"))
+
+
+def heap_summary(pages: list, replies: dict) -> dict:
+    """--js-heap (pure): the V8 heap of the renderers that host cmux's pages, from each page's
+    `Runtime.getHeapUsage` reply. `replies` maps a page's browser id to its parsed reply.
+
+    The reply is the page's renderer's whole isolate, not the page's own share: cmux pages share a
+    renderer per site (CEFSwitches `cmux-process-per-site-schemes`), so every page of one renderer
+    answers the same numbers. Summing pages counted that isolate once per page (a fleet Mac run at
+    10 chats read 2,562 MB of "heap" from a 632 MB renderer). The totals count each renderer once (by
+    its `renderer_clients`); a page with none is its own. `by_path` counts pages only.
+    A page whose read failed is counted under `errors`, never as 0 MB."""
+    rows, errors = [], []
+    for page in pages:
+        if not isinstance(page, dict) or not str(page.get("origin", "")).startswith("cmux-page://"):
+            continue
+        reply = replies.get(page.get("browser")) or {}
+        used, total = reply.get("usedSize"), reply.get("totalSize")
+        if not isinstance(used, (int, float)) or not isinstance(total, (int, float)):
+            errors.append(str(reply.get("error") or "no heap in the reply")[:120])
+            continue
+        clients = sorted(int(c) for c in (page.get("renderer_clients") or []) if isinstance(c, (int, float)))
+        rows.append({"browser": page.get("browser"), "path": str(page.get("path") or "/"), "hidden": bool(page.get("hidden")),
+                     "renderer": clients[0] if clients else None,
+                     "used_mb": round(used / MB, 1), "total_mb": round(total / MB, 1)})
+    renderers: dict = {}
+    for row in rows:
+        key = ("renderer", row["renderer"]) if row["renderer"] is not None else ("page", row["browser"])
+        entry = renderers.setdefault(key, {"renderer": row["renderer"], "pages": 0, "hidden_pages": 0,
+                                           "used_mb": 0.0, "total_mb": 0.0})
+        entry["pages"] += 1
+        entry["hidden_pages"] += int(row["hidden"])
+        # One isolate: its pages read it at slightly different moments; the largest read stands.
+        entry["used_mb"] = max(entry["used_mb"], row["used_mb"])
+        entry["total_mb"] = max(entry["total_mb"], row["total_mb"])
+    by_path: dict = {}
+    for row in rows:
+        entry = by_path.setdefault(row["path"], {"pages": 0, "hidden_pages": 0})
+        entry["pages"] += 1
+        entry["hidden_pages"] += int(row["hidden"])
+    isolates = sorted(renderers.values(), key=lambda r: -r["total_mb"])
+    return {"pages": len(rows), "hidden_pages": sum(int(r["hidden"]) for r in rows), "renderers": len(isolates),
+            "used_mb": round(sum(r["used_mb"] for r in isolates), 1),
+            "total_mb": round(sum(r["total_mb"] for r in isolates), 1),
+            "by_renderer": isolates[:12],
+            "by_path": dict(sorted(by_path.items(), key=lambda item: -item[1]["pages"])),
+            "per_page": sorted(rows, key=lambda r: -r["total_mb"])[:40], "errors": errors[:5], "error_count": len(errors)}
+
+
+def js_heaps(app: App) -> dict:
+    """--js-heap: every cmux page's V8 heap (DevTools `Runtime.getHeapUsage`, which needs no domain enabled
+    and runs no script), read after the sample's window so the read is not in it. A bench or DEV build has
+    `debug.cef_pages`; an app without it gives {"error": ...}."""
+    pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
+    if not isinstance(pages, list):
+        return {"error": "no debug.cef_pages (a bench or DEV build has it)"}
+
+    def read(page):
+        reply = app.call("debug.cef_page_devtools", {"browser": page["browser"], "method": "Runtime.getHeapUsage",
+                                                     "params": {}}, timeout=20)
+        if reply.get("error") or not isinstance(reply.get("result"), str):
+            return page["browser"], {"error": str(reply.get("error") or "no reply")}
+        try:
+            return page["browser"], json.loads(reply["result"])
+        except ValueError as error:
+            return page["browser"], {"error": str(error)}
+
+    own = [p for p in pages if isinstance(p, dict) and "browser" in p and str(p.get("origin", "")).startswith("cmux-page://")]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        replies = dict(pool.map(read, own))
+    return heap_summary(own, replies)
 
 
 def percentile(values: list[float], share: float) -> float | None:
@@ -1153,6 +1248,9 @@ def main():
     parser.add_argument("--child-time", action="store_true",
                         help="with --measure: child_cpu_pct, the whole CPU of each process's children that ended "
                              "in the window (the daemon's git runs); none when the run's own check of the read fails")
+    parser.add_argument("--js-heap", action="store_true",
+                        help="after each sample: every cmux page's V8 heap (Runtime.getHeapUsage), summed by page path "
+                             "(`js_heap` in the sample; a bench or DEV build)")
     parser.add_argument("--out")
     args = parser.parse_args()
     global CHAT_PROMPT
@@ -1235,10 +1333,17 @@ def main():
         if attribution:
             result["attribution"] = attribution.finish()
             print_attribution(label, result["attribution"])
+        if args.js_heap:
+            result["js_heap"] = js_heaps(app)
+            heap = result["js_heap"]
+            print(f"   JS heap: {heap.get('pages', 0)} cmux pages ({heap.get('hidden_pages', 0)} hidden) in "
+                  f"{heap.get('renderers', 0)} renderers, used {heap.get('used_mb', 0)} MB, total {heap.get('total_mb', 0)} MB "
+                  f"{json.dumps(heap.get('by_renderer') or heap.get('error'))[:600]}", flush=True)
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]
         print_sample(result, args.top)
+        print_vmmap(result)
         return result
 
     try:

@@ -51,7 +51,8 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type CustomizeTryOn,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -75,6 +76,9 @@ import {
   type WireError,
   type WorkspaceBackground,
   SETTINGS_SENTENCES,
+  type CustomizeTryOn,
+  type JoinConsentSurface,
+  type KeysState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -258,6 +262,10 @@ export class SettingsStore {
       ),
       this.listen("cmux.settings.devices.changed", (devices) =>
         this.queryClient.setQueryData(settingsKeys.devices, devices),
+      ),
+      // A key request arrived or ended: Settings > Keys reads its list again (the event has no values).
+      this.listen("cmux.settings.keys.changed", () =>
+        this.queryClient.invalidateQueries({ queryKey: [...settingsKeys.all, "keys"] }),
       ),
       // A machine's update failing while Updates shows (its toast's Details shows the reason in the toast) shows in
       // the Channels card's row at once, in every channel's read.
@@ -597,8 +605,8 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
-  /** Settings > Devices: this joined Mac's Screen sharing or Control on or off, then re-read the host lists. */
-  async setJoinConsent(surface: "screen" | "control", on: boolean): Promise<void> {
+  /** Settings > Devices: one of this joined Mac's consent switches on or off, then re-read the host lists. */
+  async setJoinConsent(surface: JoinConsentSurface, on: boolean): Promise<void> {
     await this.request("cmux.settings.devices.join_consent", { surface, on });
     await this.refreshHost();
   }
@@ -808,6 +816,47 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
+  /** Personalization > Customization Library: one `cmux customize library` verb. Answers the
+   * library after it (null when the host has no CLI or did not answer) and the CLI's refusal in its
+   * own words (a toggle while a preview is open), else null. */
+  async customizeLibrary(run: LibraryRun): Promise<{ library: LibraryListing | null; refusal: string | null }> {
+    const reply = await this.request("cmux.settings.customize.library", run);
+    // A read the host could not run (no CLI in this build) draws the card's own Unavailable line.
+    if (!reply.ok)
+      return { library: null, refusal: run.verb === "list" ? null : userMessage(reply.error, SETTINGS_SENTENCES) };
+    const answer = reply.value ?? {};
+    const refusal = answer.library
+      ? null
+      : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
+    return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > Keys: this Mac's keys and the requests waiting for the person; null when the host
+   * has no keys part or the read failed. */
+  async keys(): Promise<KeysState | null> {
+    const reply = await this.request("cmux.settings.keys.list", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Answers key request `requestID` with `value`, which goes to the host and nowhere else (the
+   * store keeps no copy); the host's refusal text, else null. */
+  async answerKeyRequest(requestID: string, value: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.keys.answer", { request_id: requestID, value });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
+  /** Declines key request `requestID`; the host's refusal text, else null. */
+  async declineKeyRequest(requestID: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.keys.decline", { request_id: requestID });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
+  /** Revokes key `id`; the host's refusal text, else null. */
+  async revokeKey(id: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.keys.revoke", { id });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
   /** Settings > Server > This Mac on Your Tailnet: one `_acpmux/tailnet/<verb>` the app relays; the node's
    * snapshot, or null when acpmux has no tailnet, did not take the person's proof, or the host refused. */
   async tailnet(verb: "state" | "start" | "login" | "logout"): Promise<TailnetState | null> {
@@ -834,6 +883,13 @@ export class SettingsStore {
     await this.refreshDevices();
     if (!reply.ok) return { error: userMessage(reply.error, SETTINGS_SENTENCES), ok: false };
     return reply.value ?? {};
+  }
+
+  /** A wish no setting answers: the Customize chat (`customize.open`, the palette's Customize…)
+   * opens with `/customize WORDS` in its composer, so Return sends it and the agent changes cmux
+   * while the person watches. */
+  async askCmux(words: string): Promise<Reply<unknown>> {
+    return this.runAction("customize.open", { draft: `/customize ${words.trim().replace(/\s+/g, " ")}` });
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */

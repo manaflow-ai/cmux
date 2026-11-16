@@ -32,6 +32,11 @@ Usage:
       [--label NAME] [--out DIR] [--keep-running]
 
 Writes artifacts/cmux-next-bench/<sha>-tabswitch-<label>.json.
+
+`--frames` runs the frame-judged harness instead (tab_switch_frames.py, its own arguments after the flag): a long
+chat, a terminal and a Chromium page switched away and back, a new tab and a close, idle, under CPU load and with
+agents streaming, every switch judged from the screen's frames against the frame it must end on, with budgets and the
+tab-switch/v1 report. It runs on a shipped NIGHTLY too: scripts/measure/tab-switch.sh build=nightly|SHA.
 """
 from __future__ import annotations
 
@@ -260,6 +265,9 @@ class Bench:
 
 
 def main():
+    if sys.argv[1:2] == ["--frames"]:
+        import tab_switch_frames
+        sys.exit(tab_switch_frames.main(sys.argv[2:]))
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--app")

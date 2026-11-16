@@ -26,6 +26,8 @@ export class OlderAhead {
   private speed = 0;
   private lastTop: number | undefined;
   private lastAt = 0;
+  /// The last upward wheel (ms), whether it moved the view or not (`wheeledUp`).
+  private wheelUpAt = Number.NEGATIVE_INFINITY;
   /// How long a page has taken to read, smoothed (ms); undefined before the first.
   private readMs: number | undefined;
 
@@ -56,11 +58,26 @@ export class OlderAhead {
     return Math.max(floor, Math.min(lead, viewport * OLDER_AHEAD_MAX_VIEWPORTS));
   }
 
+  /// An upward wheel at `now` (ms), whether or not it moved the view.
+  wheeledUp(now: number): void {
+    this.wheelUpAt = now;
+  }
+
+  /// Whether the reader is scrolling up now. An ask made while they are reads the big older page and
+  /// pages ahead (direct.ts `loadOlder`); one made at rest (an open filling the view) reads a short one.
+  /// A reader wheeling up against the loaded rows' top, held there until the page lands, is rising
+  /// too: read as at rest, each page after the hold was a short one with none read ahead, so the
+  /// reader caught up with the loaded top again at once.
+  rising(now: number): boolean {
+    return (now - this.lastAt <= SCROLL_GAP_MS && this.speed > 0) || now - this.wheelUpAt <= SCROLL_GAP_MS;
+  }
+
   /// A new chat: nothing read in another applies.
   reset(): void {
     this.speed = 0;
     this.lastTop = undefined;
     this.lastAt = 0;
     this.readMs = undefined;
+    this.wheelUpAt = Number.NEGATIVE_INFINITY;
   }
 }

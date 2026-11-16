@@ -112,6 +112,7 @@
     "file.drag": "file.drag",
     "file.open": "file.open",
     "file.search": "file.search",
+    "folder.complete": "folder.complete",
     "git.checkpoint.diff": "git.checkpoint.diff",
     "git.commit": "git.commit",
     "git.diff": "git.diff",
