@@ -64,8 +64,14 @@ final class CEFRuntime {
                 return CEFPageRendererGC.Page(browser: browser, isCmuxPage: CEFPageRendererGC.isCmuxPage(tab.state.url), rendererClients: clients)
             }
         },
-        post: { [weak self] browser in
-            _ = self?.postDevTools(browser, method: CEFPageRendererGC.method, params: ["level": CEFPageRendererGC.level])
+        heapUsed: { [weak self] browser in
+            guard let tab = self?.tabsByBrowser[browser],
+                  let reply = try? await tab.devTools(method: "Runtime.getHeapUsage", params: [:]) else { return nil }
+            return CEFPageRendererGC.usedSize(reply)
+        },
+        collect: { [weak self] browser in
+            guard let tab = self?.tabsByBrowser[browser] else { return }
+            _ = try? await tab.devTools(method: "HeapProfiler.collectGarbage", params: [:], timeout: .seconds(10))
         })
     /// Shown pages on their way to their first document: the next spare waits for them (`CEFArrivingPages`).
     let arriving = CEFArrivingPages()
