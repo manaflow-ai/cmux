@@ -16,17 +16,17 @@ public nonisolated enum AgentChatRefusal: Sendable {
     case needsValue
 
     /// The bundle with the refusals' string table.
-    public static var bundle: Bundle { .module }
+    public static var bundle: Bundle { .localizedModule }
 
     /// The reason, naming the action `title`.
     public func reason(_ title: String) -> String {
         let format = switch self {
-        case .noChat: String(localized: "refusal.agentChat.noChat", defaultValue: "%@ works in agent chats. Focus one first.", table: "AgentChatMenu", bundle: .module)
-        case .notStarted: String(localized: "refusal.agentChat.notStarted", defaultValue: "%@ works once the chat has started.", table: "AgentChatMenu", bundle: .module)
-        case .noFolder: String(localized: "refusal.agentChat.noFolder", defaultValue: "%@ works in chats with a project folder.", table: "AgentChatMenu", bundle: .module)
-        case .remote: String(localized: "refusal.agentChat.remote", defaultValue: "%@ works only in chats on this Mac.", table: "AgentChatMenu", bundle: .module)
-        case .needsFocus: String(localized: "refusal.agentChat.needsFocus", defaultValue: "%@ requires focus.", table: "AgentChatMenu", bundle: .module)
-        case .needsValue: String(localized: "refusal.agentChat.needsValue", defaultValue: "%@ needs a value.", table: "AgentChatMenu", bundle: .module)
+        case .noChat: String(localized: "refusal.agentChat.noChat", defaultValue: "%@ works in agent chats. Focus one first.", table: "AgentChatMenu", bundle: .localizedModule)
+        case .notStarted: String(localized: "refusal.agentChat.notStarted", defaultValue: "%@ works once the chat has started.", table: "AgentChatMenu", bundle: .localizedModule)
+        case .noFolder: String(localized: "refusal.agentChat.noFolder", defaultValue: "%@ works in chats with a project folder.", table: "AgentChatMenu", bundle: .localizedModule)
+        case .remote: String(localized: "refusal.agentChat.remote", defaultValue: "%@ works only in chats on this Mac.", table: "AgentChatMenu", bundle: .localizedModule)
+        case .needsFocus: String(localized: "refusal.agentChat.needsFocus", defaultValue: "%@ requires focus.", table: "AgentChatMenu", bundle: .localizedModule)
+        case .needsValue: String(localized: "refusal.agentChat.needsValue", defaultValue: "%@ needs a value.", table: "AgentChatMenu", bundle: .localizedModule)
         }
         return String(format: format, title)
     }

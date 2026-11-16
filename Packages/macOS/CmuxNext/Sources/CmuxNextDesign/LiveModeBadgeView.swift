@@ -9,13 +9,13 @@ public final class LiveModeBadgeView: NSView, TitlebarPressDeciding {
     private let label = ChromeLabel(labelWithString: LiveModeBadgeView.title)
 
     public static var title: String {
-        String(localized: "liveMode.badge", defaultValue: "Live mode", bundle: .module)
+        String(localized: "liveMode.badge", defaultValue: "Live mode", bundle: .localizedModule)
     }
 
     public static var help: String {
         String(localized: "liveMode.badgeHelp",
                defaultValue: "Swift live mode: this is the live code build of this commit, slower and bigger than the normal build, and the Swift you patch in applies at once. Stop Swift Live Mode restarts into the normal build with every session.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 
     override public init(frame frameRect: NSRect) {

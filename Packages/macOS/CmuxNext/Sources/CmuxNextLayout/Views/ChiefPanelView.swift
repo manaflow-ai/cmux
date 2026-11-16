@@ -131,7 +131,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         wantsLayer = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel(String(localized: "layout.chiefPanel", defaultValue: "Chief panel", bundle: .module))
+        setAccessibilityLabel(String(localized: "layout.chiefPanel", defaultValue: "Chief panel", bundle: .localizedModule))
         setAccessibilityIdentifier("window.chiefPanel")
         backdrop.translatesAutoresizingMaskIntoConstraints = true
         backdrop.autoresizingMask = [.width, .height]
@@ -149,16 +149,16 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         hideButton.action = #selector(hidePressed)
         eyeButton.action = #selector(eyePressed)
         applyEye()
-        let hide = String(localized: "layout.chiefPanel.hide", defaultValue: "Hide the Chief", bundle: .module)
+        let hide = String(localized: "layout.chiefPanel.hide", defaultValue: "Hide the Chief", bundle: .localizedModule)
         hideButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: hide)
         hideButton.themedToolTip = hide
-        let grip = String(localized: "layout.chiefPanel.grip", defaultValue: "Move the Chief", bundle: .module)
+        let grip = String(localized: "layout.chiefPanel.grip", defaultValue: "Move the Chief", bundle: .localizedModule)
         gripMark.image = NSImage(systemSymbolName: "line.3.horizontal", accessibilityDescription: grip)
         gripMark.contentTintColor = .tertiaryLabelColor
         gripMark.frameCenterRotation = 90
         bar.themedToolTip = grip
         chiefMark.image = NSImage(systemSymbolName: "bubble.left.fill",
-                                  accessibilityDescription: String(localized: "layout.chiefPanel.open", defaultValue: "Open the Chief", bundle: .module))
+                                  accessibilityDescription: String(localized: "layout.chiefPanel.open", defaultValue: "Open the Chief", bundle: .localizedModule))
         chiefMark.contentTintColor = .controlAccentColor
         chiefMark.symbolConfiguration = .init(scale: .large)
         for view in [self.title, eyeButton, dockButton, hideButton, gripMark, chiefMark] { bar.addSubview(view) }
@@ -262,8 +262,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         self.floating = floating
         applyDockedWorkspaceChrome(floating: floating)
         layer?.masksToBounds = false
-        let label = floating ? String(localized: "layout.chiefPanel.dock", defaultValue: "Dock the Chief to the Side", bundle: .module)
-            : String(localized: "layout.chiefPanel.float", defaultValue: "Float the Chief", bundle: .module)
+        let label = floating ? String(localized: "layout.chiefPanel.dock", defaultValue: "Dock the Chief to the Side", bundle: .localizedModule)
+            : String(localized: "layout.chiefPanel.float", defaultValue: "Float the Chief", bundle: .localizedModule)
         dockButton.image = NSImage(systemSymbolName: floating ? "sidebar.left" : "macwindow.on.rectangle", accessibilityDescription: label)
         dockButton.themedToolTip = label
         applyShape()
@@ -559,8 +559,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     /// The eye's look: open while the Chief gets a look at the screen when the panel opens, crossed out when not.
     private func applyEye() {
         let label = seesScreen
-            ? String(localized: "layout.chiefPanel.seesScreen.on", defaultValue: "Chief Sees Your Screen When It Opens", bundle: .module)
-            : String(localized: "layout.chiefPanel.seesScreen.off", defaultValue: "Chief Does Not See Your Screen", bundle: .module)
+            ? String(localized: "layout.chiefPanel.seesScreen.on", defaultValue: "Chief Sees Your Screen When It Opens", bundle: .localizedModule)
+            : String(localized: "layout.chiefPanel.seesScreen.off", defaultValue: "Chief Does Not See Your Screen", bundle: .localizedModule)
         eyeButton.image = NSImage(systemSymbolName: seesScreen ? "eye" : "eye.slash", accessibilityDescription: label)
         eyeButton.contentTintColor = seesScreen ? .controlAccentColor : .secondaryLabelColor
         eyeButton.themedToolTip = label

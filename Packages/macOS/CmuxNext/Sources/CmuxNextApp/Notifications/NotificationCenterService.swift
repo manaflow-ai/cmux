@@ -649,7 +649,7 @@ final class NotificationCenterService {
             post(notification, tab: digest == nil ? located.tab : nil, workspace: located.workspace.id,
                  workspaceName: located.workspace.displayName, sound: digest == nil ? decision.sound : nil, volume: decision.soundVolume,
                  program: program, headline: digest.map { String(localized: "notifications.finishedBurst.title", defaultValue: "\($0.count) agents finished",
-                                                                       table: "NotificationsPanel", bundle: .module) },
+                                                                       table: "NotificationsPanel", bundle: .module.inAppLanguage) },
                  owner: located.tab)
         }
         if !decision.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: notification.desktop) }

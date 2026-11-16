@@ -192,6 +192,6 @@ extension AgentChatUploads {
 /// beside the Cloud chat upload's.
 enum AgentChatUploadStrings {
     static var failed: String {
-        String(localized: "chat.upload.localFailed", defaultValue: "Couldn't save the file on this Mac.", table: "Cloud", bundle: .module)
+        String(localized: "chat.upload.localFailed", defaultValue: "Couldn't save the file on this Mac.", table: "Cloud", bundle: .module.inAppLanguage)
     }
 }

@@ -315,7 +315,7 @@ public final class GitHubPageProvider: PageProvider {
     }
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "GitHubViewer", bundle: .module)
+        String(localized: key, defaultValue: value, table: "GitHubViewer", bundle: .localizedModule)
     }
 }
 

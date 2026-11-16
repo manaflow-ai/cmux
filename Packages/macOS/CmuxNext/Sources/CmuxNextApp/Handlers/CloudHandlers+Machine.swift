@@ -521,7 +521,7 @@ extension CloudHandlers {
 
     private static var operationUnavailable: ActionFailure {
         ActionFailure(message: String(localized: "cloud.operationUnavailable",
-            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module))
+            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module.inAppLanguage))
     }
 
     /// A machine action's `action.run` result: the machine's id and the `--target` that names it

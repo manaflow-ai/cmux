@@ -119,20 +119,20 @@ enum CloudPresenter {
                                                                otherTeams: services.cloud.auth.loginScopes) else { return false }
         }
         let providerName = provider == .claude ? "Claude" : "Codex"
-        let teamName = teamID.flatMap { id in services.cloud.auth.teams.first(where: { $0.id == id })?.displayName } ?? String(localized: "cloud.credentialRecovery.personalAccount", defaultValue: "Personal account", table: "CloudCredentialRecovery", bundle: .module)
+        let teamName = teamID.flatMap { id in services.cloud.auth.teams.first(where: { $0.id == id })?.displayName } ?? String(localized: "cloud.credentialRecovery.personalAccount", defaultValue: "Personal account", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage)
         let body: String
         if provider == .claude {
-            body = String(format: String(localized: "cloud.credentialRecovery.claudeDisclosure", defaultValue: "cmux will run claude setup-token in a visible local terminal, then install the resulting one-year login on this owner VM for %@.", table: "CloudCredentialRecovery", bundle: .module), teamName)
+            body = String(format: String(localized: "cloud.credentialRecovery.claudeDisclosure", defaultValue: "cmux will run claude setup-token in a visible local terminal, then install the resulting one-year login on this owner VM for %@.", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage), teamName)
         } else {
             body = codexBrokerDisclosure
         }
         guard let window = services.windows.active?.window else { return false }
         if !request.automatic {
             let spec = CmuxDialogSpec(
-                title: String(format: String(localized: "cloud.credentialRecovery.title", defaultValue: "Set up %@ on %@?", table: "CloudCredentialRecovery", bundle: .module), providerName, session.machine.title),
-                lines: [body, String(format: String(localized: "cloud.credentialRecovery.restartDisclosure", defaultValue: "This replaces %@'s login on this VM and restarts this chat before retrying its failed prompt.", table: "CloudCredentialRecovery", bundle: .module), providerName)],
-                buttons: [.cancel(String(localized: "cloud.credentialRecovery.cancel", defaultValue: "Cancel", table: "CloudCredentialRecovery", bundle: .module)),
-                          CmuxDialogButton(id: "transfer", title: String(localized: "cloud.credentialRecovery.transfer", defaultValue: "Transfer and restart", table: "CloudCredentialRecovery", bundle: .module), role: .default)],
+                title: String(format: String(localized: "cloud.credentialRecovery.title", defaultValue: "Set up %@ on %@?", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage), providerName, session.machine.title),
+                lines: [body, String(format: String(localized: "cloud.credentialRecovery.restartDisclosure", defaultValue: "This replaces %@'s login on this VM and restarts this chat before retrying its failed prompt.", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage), providerName)],
+                buttons: [.cancel(String(localized: "cloud.credentialRecovery.cancel", defaultValue: "Cancel", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage)),
+                          CmuxDialogButton(id: "transfer", title: String(localized: "cloud.credentialRecovery.transfer", defaultValue: "Transfer and restart", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage), role: .default)],
                 identifier: credentialRecoveryIdentifier)
             let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
             guard answer.button == "transfer", !answer.isDismissal else { return false }
@@ -182,8 +182,8 @@ enum CloudPresenter {
             guard try await restartCredentialSession(request.sessionID, guestCheck: transfer.restartGuestCheck, exec: {
                 try await pinned.exec(session.machineID, command: $0, timeoutMs: 300_000)
             }) else {
-                CloudPresenter.show(String(localized: "cloud.credentialRecovery.installedTitle", defaultValue: "Credentials installed", table: "CloudCredentialRecovery", bundle: .module),
-                                    String(localized: "cloud.credentialRecovery.restartDeferred", defaultValue: "The chat could not restart yet. Wait for any running turn to finish, then retry the prompt.", table: "CloudCredentialRecovery", bundle: .module), in: window)
+                CloudPresenter.show(String(localized: "cloud.credentialRecovery.installedTitle", defaultValue: "Credentials installed", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage),
+                                    String(localized: "cloud.credentialRecovery.restartDeferred", defaultValue: "The chat could not restart yet. Wait for any running turn to finish, then retry the prompt.", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage), in: window)
                 return false
             }
             return true
@@ -201,18 +201,18 @@ enum CloudPresenter {
     /// asked only when cmux holds no login for this account yet; its start's card or a dialog shows it (``AgentPaneCloudAsker``).
     @MainActor static func firstLoginAsk(machine: String, services: AppServices) -> AgentPaneCloudAsk {
         let teamName = services.cloud.auth.teamID.flatMap { id in services.cloud.auth.teams.first(where: { $0.id == id })?.displayName }
-            ?? String(localized: "cloud.credentialRecovery.personalAccount", defaultValue: "Personal account", table: "CloudCredentialRecovery", bundle: .module)
+            ?? String(localized: "cloud.credentialRecovery.personalAccount", defaultValue: "Personal account", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage)
         return AgentPaneCloudAsk(
             kind: .firstLogin,
-            title: String(format: String(localized: "cloud.credentialRecovery.title", defaultValue: "Set up %@ on %@?", table: "CloudCredentialRecovery", bundle: .module), "Claude", machine),
-            lines: [String(format: String(localized: "cloud.credentialRecovery.claudeDisclosure", defaultValue: "cmux will run claude setup-token in a visible local terminal, then install the resulting one-year login on this owner VM for %@.", table: "CloudCredentialRecovery", bundle: .module), teamName),
-                    String(localized: "cloud.credentialRecovery.laterMachines", defaultValue: "Cloud machines you own later get this login with no prompt.", table: "CloudCredentialRecovery", bundle: .module)],
-            buttons: [.init(id: "cancel", title: String(localized: "cloud.credentialRecovery.cancel", defaultValue: "Cancel", table: "CloudCredentialRecovery", bundle: .module), role: "cancel"),
-                      .init(id: firstLoginAccept, title: String(localized: "cloud.credentialRecovery.setUp", defaultValue: "Set Up", table: "CloudCredentialRecovery", bundle: .module), role: "default")],
+            title: String(format: String(localized: "cloud.credentialRecovery.title", defaultValue: "Set up %@ on %@?", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage), "Claude", machine),
+            lines: [String(format: String(localized: "cloud.credentialRecovery.claudeDisclosure", defaultValue: "cmux will run claude setup-token in a visible local terminal, then install the resulting one-year login on this owner VM for %@.", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage), teamName),
+                    String(localized: "cloud.credentialRecovery.laterMachines", defaultValue: "Cloud machines you own later get this login with no prompt.", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage)],
+            buttons: [.init(id: "cancel", title: String(localized: "cloud.credentialRecovery.cancel", defaultValue: "Cancel", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage), role: "cancel"),
+                      .init(id: firstLoginAccept, title: String(localized: "cloud.credentialRecovery.setUp", defaultValue: "Set Up", table: "CloudCredentialRecovery", bundle: .module.inAppLanguage), role: "default")],
             identifier: firstLoginIdentifier)
     }
 
-    static let codexBrokerDisclosure = String(localized: "cloud.credentialRecovery.codexBroker", defaultValue: "cmux uses Codex sign-in on this Mac when needed; an existing broker login is refreshed without another sign-in. Only short-lived access moves to this owner VM. The refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access.", table: "CloudCodex", bundle: .module)
+    static let codexBrokerDisclosure = String(localized: "cloud.credentialRecovery.codexBroker", defaultValue: "cmux uses Codex sign-in on this Mac when needed; an existing broker login is refreshed without another sign-in. Only short-lived access moves to this owner VM. The refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access.", table: "CloudCodex", bundle: .module.inAppLanguage)
 
     static let codexDeviceCodeIdentifier = "cmux.dialog.cloud.codexDeviceCode"
 
@@ -242,17 +242,17 @@ enum CloudPresenter {
     @MainActor static func codexDeviceAsk(_ prompt: CloudCodexLoginPrompt) -> AgentPaneCloudAsk {
         AgentPaneCloudAsk(
             kind: .codexDevice,
-            title: String(localized: "cloud.codexDevice.title", defaultValue: "Sign in to Codex", table: "CloudCodex", bundle: .module),
+            title: String(localized: "cloud.codexDevice.title", defaultValue: "Sign in to Codex", table: "CloudCodex", bundle: .module.inAppLanguage),
             lines: [
-                String(format: String(localized: "cloud.codexDevice.code", defaultValue: "Use Codex sign-in on this Mac. Enter this one-time code: %@", table: "CloudCodex", bundle: .module), prompt.userCode),
-                String(localized: "cloud.codexDevice.scope", defaultValue: "Only short-lived access moves to the VM; the refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access.", table: "CloudCodex", bundle: .module),
+                String(format: String(localized: "cloud.codexDevice.code", defaultValue: "Use Codex sign-in on this Mac. Enter this one-time code: %@", table: "CloudCodex", bundle: .module.inAppLanguage), prompt.userCode),
+                String(localized: "cloud.codexDevice.scope", defaultValue: "Only short-lived access moves to the VM; the refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access.", table: "CloudCodex", bundle: .module.inAppLanguage),
             ],
             buttons: [
-                .init(id: "cancel", title: String(localized: "cloud.codexDevice.cancel", defaultValue: "Cancel", table: "CloudCodex", bundle: .module), role: "cancel"),
-                .init(id: codexSignedIn, title: String(localized: "cloud.codexDevice.signedIn", defaultValue: "I signed in", table: "CloudCodex", bundle: .module), role: "default"),
+                .init(id: "cancel", title: String(localized: "cloud.codexDevice.cancel", defaultValue: "Cancel", table: "CloudCodex", bundle: .module.inAppLanguage), role: "cancel"),
+                .init(id: codexSignedIn, title: String(localized: "cloud.codexDevice.signedIn", defaultValue: "I signed in", table: "CloudCodex", bundle: .module.inAppLanguage), role: "default"),
             ],
             code: prompt.userCode, link: prompt.verificationURL,
-            linkTitle: String(localized: "cloud.codexDevice.open", defaultValue: "Open sign-in", table: "CloudCodex", bundle: .module),
+            linkTitle: String(localized: "cloud.codexDevice.open", defaultValue: "Open sign-in", table: "CloudCodex", bundle: .module.inAppLanguage),
             identifier: codexDeviceCodeIdentifier)
     }
 

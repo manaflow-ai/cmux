@@ -411,6 +411,6 @@ extension AgentPaneModel {
     }
 
     static var replyFailedMessage: String {
-        String(localized: "agentPane.error.replyLink", defaultValue: "The app refused this link.", bundle: .module)
+        String(localized: "agentPane.error.replyLink", defaultValue: "The app refused this link.", bundle: .localizedModule)
     }
 }

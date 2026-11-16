@@ -67,6 +67,6 @@ nonisolated enum ChiefTeleportStrings {
     }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Home", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Home", bundle: .localizedModule)
     }
 }

@@ -4,21 +4,24 @@ internal import ObjectiveC
 
 /// The language cmux's own native text is in, switched live (`app.language`, Leo 2026-11-16: "we
 /// gotta add settings for changing lanugages"). Which code to use is cmux-config's and the
-/// settings snapshot's; this only makes cmux's own string bundles answer in it.
+/// settings snapshot's; this only makes cmux's own string lookups answer in it.
 ///
-/// Every native string is a `String(localized:bundle: .module)` read of a SwiftPM resource bundle
-/// (`Contents/Resources/*.bundle`). Each such bundle is adopted (``adoptResourceBundles()``):
-/// its class becomes ``AppLanguageBundle``, which answers `localizedString(forKey:value:table:)`
-/// from the chosen language's `.lproj`, and with no chosen language (System) exactly as before.
-/// Only cmux's own resource bundles are adopted: never `Bundle.main`, a framework or the system's.
-/// The bundle reaches its language through an associated object, so there is no global: the one
-/// instance is the app's `AppLanguageApplier`'s.
+/// Every native string is a `String(localized:bundle:)` read of a SwiftPM resource bundle. Each
+/// module passes `bundle: .localizedModule` (its `Bundle+AppLanguage.swift`; CmuxNextApp, which
+/// takes no new files, writes `.module.inAppLanguage`), which is ``Foundation/Bundle/inAppLanguage``:
+/// the module's bundle for System, else that bundle's `.lproj` for the chosen language, which
+/// `String(localized:)` reads like any bundle. (Overriding the
+/// bundle's `localizedString(forKey:value:table:)` does not work: `String(localized:)` does not
+/// call it on macOS 26.)
 ///
-/// Live: every lookup reads ``code`` through Observation, so a SwiftUI body, an `ObservationStream`
-/// or a `withObservationTracking` scope that looked up a cmux string runs again when the language
-/// changes, with its state kept. Text computed outside a tracking scope needs the language read in
-/// its observation (the sidebar's sections). The menu bar and the action catalog (command titles)
-/// are made once per launch: those take the language at the next launch.
+/// The bundles learn their language from ``adoptResourceBundles()`` (the ones the launch warm-up
+/// opened), through an associated object, so there is no global: the one instance is the app's
+/// `AppLanguageApplier`'s. A bundle never adopted (a test's, before the warm-up ends) is itself.
+///
+/// Live: every ``Foundation/Bundle/inAppLanguage`` read registers ``code`` with Observation, so a
+/// SwiftUI body, an `ObservationStream` or a `withObservationTracking` scope that looked up a cmux
+/// string runs again when the language changes, with its state kept. The menu bar and the action
+/// catalog (command titles) are made once per launch: those take the language at the next launch.
 public final class AppLanguage: Observable, @unchecked Sendable { // crash-allow: its only stored values are a Mutex and the Sendable ObservationRegistrar
     private struct State {
         var code: String?
@@ -47,24 +50,24 @@ public final class AppLanguage: Observable, @unchecked Sendable { // crash-allow
     }
 
     /// Adopts every SwiftPM resource bundle of the app (`Contents/Resources/*.bundle`), the ones the
-    /// launch warm-up opened (``Bundle/warmResourceBundlesInBackground(in:)``): no disk access here.
-    /// NSBundle keeps one instance per path, so each module's `Bundle.module` is the adopted one.
+    /// launch warm-up opened (``Foundation/Bundle/warmResourceBundlesInBackground(in:)``): no disk
+    /// access here. NSBundle keeps one instance per path, so each module's `Bundle.module` is the
+    /// adopted one.
     public func adoptResourceBundles() {
         Bundle.forEachWarmedResourceBundle { [self] in adopt($0) }
     }
 
-    /// Makes `bundle` (one of cmux's own resource bundles) answer in this language. A plain `Bundle`
-    /// changes class (``AppLanguageBundle`` adds no stored state, so the instance keeps its layout);
-    /// a bundle of another class stays as it is.
+    /// Makes `bundle` (one of cmux's own resource bundles) answer
+    /// ``Foundation/Bundle/inAppLanguage`` in this language.
     public func adopt(_ bundle: Bundle) {
-        let cls: AnyClass? = object_getClass(bundle)
-        guard cls == Bundle.self || cls == AppLanguageBundle.self else { return }
-        objc_setAssociatedObject(bundle, AppLanguageBundle.languageKey, self, .OBJC_ASSOCIATION_RETAIN)
-        object_setClass(bundle, AppLanguageBundle.self)
+        objc_setAssociatedObject(bundle, Self.key, self, .OBJC_ASSOCIATION_RETAIN)
     }
 
-    /// The `.lproj` bundle of `bundle` for the chosen language, nil for System or when `bundle`
-    /// ships no localization. Read by every adopted lookup, so it registers the observation.
+    /// The associated-object key: this class object's address, unique and constant.
+    fileprivate static var key: UnsafeRawPointer { unsafeBitCast(AppLanguage.self as AnyClass, to: UnsafeRawPointer.self) }
+
+    /// The `.lproj` bundle of `bundle` for the chosen language (its development language when it
+    /// does not ship that one), nil for System. Registers the observation of ``code``.
     func localizedBundle(for bundle: Bundle) -> Bundle? {
         registrar.access(self, keyPath: \.code)
         let path = bundle.bundlePath
@@ -79,24 +82,11 @@ public final class AppLanguage: Observable, @unchecked Sendable { // crash-allow
     }
 }
 
-/// The class an adopted resource bundle takes (``AppLanguage/adopt(_:)``): its strings come from
-/// its language's `.lproj`, else from the bundle as before. No stored properties (an instance's
-/// class changes in place); its ``AppLanguage`` is an associated object.
-final class AppLanguageBundle: Bundle, @unchecked Sendable { // crash-allow: no stored state; its language is an AppLanguage, behind a Mutex
-    /// The associated-object key: this class object's address, unique and constant.
-    static var languageKey: UnsafeRawPointer { unsafeBitCast(AppLanguageBundle.self as AnyClass, to: UnsafeRawPointer.self) }
-
-    private var localized: Bundle? {
-        (objc_getAssociatedObject(self, Self.languageKey) as? AppLanguage)?.localizedBundle(for: self)
-    }
-
-    override func localizedString(forKey key: String, value: String?, table tableName: String?) -> String {
-        if let localized { return localized.localizedString(forKey: key, value: value, table: tableName) }
-        return super.localizedString(forKey: key, value: value, table: tableName)
-    }
-
-    override var preferredLocalizations: [String] {
-        if let localized { return [localized.bundleURL.deletingPathExtension().lastPathComponent] }
-        return super.preferredLocalizations
+extension Bundle {
+    /// This bundle's strings in the app's language: the `.lproj` bundle of the language
+    /// `app.language` chose, else (System, or a bundle never adopted) this bundle. Pass it to
+    /// `String(localized:bundle:)`; each module has `Bundle.localizedModule` for its own.
+    public var inAppLanguage: Bundle {
+        (objc_getAssociatedObject(self, AppLanguage.key) as? AppLanguage)?.localizedBundle(for: self) ?? self
     }
 }

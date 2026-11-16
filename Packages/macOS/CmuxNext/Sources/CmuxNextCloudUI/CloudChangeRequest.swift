@@ -25,11 +25,11 @@ public struct CloudChangeRequest {
     public func spec(_ title: String) -> CmuxDialogSpec {
         CmuxDialogSpec(
             title: title,
-            lines: [String(localized: "cloud.changeRequest.body", defaultValue: "Asked by an agent or a script. A Cloud machine change can count against your Cloud plan.", table: "Cloud", bundle: .module)]
-                + (machine.map { [String(format: String(localized: "cloud.changeRequest.machine", defaultValue: "Machine: %@", table: "Cloud", bundle: .module), $0)] } ?? [])
+            lines: [String(localized: "cloud.changeRequest.body", defaultValue: "Asked by an agent or a script. A Cloud machine change can count against your Cloud plan.", table: "Cloud", bundle: .localizedModule)]
+                + (machine.map { [String(format: String(localized: "cloud.changeRequest.machine", defaultValue: "Machine: %@", table: "Cloud", bundle: .localizedModule), $0)] } ?? [])
                 + asked.keys.sorted().map { "\($0): \(asked[$0] ?? "")" },
-            buttons: [.cancel(String(localized: "cloud.changeRequest.decline", defaultValue: "Don't Allow", table: "Cloud", bundle: .module)),
-                      CmuxDialogButton(id: Self.accept, title: String(localized: "cloud.changeRequest.accept", defaultValue: "Allow", table: "Cloud", bundle: .module), role: .default)],
+            buttons: [.cancel(String(localized: "cloud.changeRequest.decline", defaultValue: "Don't Allow", table: "Cloud", bundle: .localizedModule)),
+                      CmuxDialogButton(id: Self.accept, title: String(localized: "cloud.changeRequest.accept", defaultValue: "Allow", table: "Cloud", bundle: .localizedModule), role: .default)],
             identifier: Self.identifier)
     }
 

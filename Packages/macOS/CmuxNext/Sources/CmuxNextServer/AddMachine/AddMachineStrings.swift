@@ -4,7 +4,7 @@ import Foundation
 /// The Add Machine card reads the same table from the server-cards page (webviews gen-strings).
 nonisolated enum AddMachineStrings {
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "AddMachine", bundle: .module)
+        String(localized: key, defaultValue: value, table: "AddMachine", bundle: .localizedModule)
     }
 
     static var personOnly: String { s("addMachine.personOnly", "Only a click or key in the card adds or checks a machine.") }

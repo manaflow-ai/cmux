@@ -81,18 +81,18 @@ final class AppHealthCard: WebCard {
 /// App health's native words: the part labels the app gives the Rust model (the popover's own words
 /// are the web page's).
 struct AppHealthStrings {
-    static var sessionDaemon: String { String(localized: "appHealth.part.sessionDaemon", defaultValue: "Session service", table: "AppHealth", bundle: .module) }
+    static var sessionDaemon: String { String(localized: "appHealth.part.sessionDaemon", defaultValue: "Session service", table: "AppHealth", bundle: .localizedModule) }
     static var connection: String {
-        String(localized: "appHealth.part.acpmux", defaultValue: "Connection to the session service", table: "AppHealth", bundle: .module)
+        String(localized: "appHealth.part.acpmux", defaultValue: "Connection to the session service", table: "AppHealth", bundle: .localizedModule)
     }
-    static var pageHost: String { String(localized: "appHealth.part.pageHost", defaultValue: "Page server", table: "AppHealth", bundle: .module) }
+    static var pageHost: String { String(localized: "appHealth.part.pageHost", defaultValue: "Page server", table: "AppHealth", bundle: .localizedModule) }
 
     /// The page parts' names in plain words: a page's own name is its resource ("agent-pane"), which reads as
     /// code ("Agent pane"); the agent chat is what the person calls it.
     static func pageLabel(resource: String, fallback: String) -> String {
         switch resource {
         case "agent-pane":
-            String(localized: "appHealth.part.agentChat", defaultValue: "Agent chat", table: "AppHealth", bundle: .module)
+            String(localized: "appHealth.part.agentChat", defaultValue: "Agent chat", table: "AppHealth", bundle: .localizedModule)
         default: fallback
         }
     }
@@ -106,25 +106,25 @@ struct AppHealthStrings {
             switch state {
             case .healthy, .slow: break
             case .stuck:
-                return String(format: String(localized: "appHealth.line.stuck", defaultValue: "%@ isn’t responding", table: "AppHealth", bundle: .module), label)
+                return String(format: String(localized: "appHealth.line.stuck", defaultValue: "%@ isn’t responding", table: "AppHealth", bundle: .localizedModule), label)
             case .repairing:
-                return String(format: String(localized: "appHealth.line.repairing", defaultValue: "Repairing %@…", table: "AppHealth", bundle: .module), label)
+                return String(format: String(localized: "appHealth.line.repairing", defaultValue: "Repairing %@…", table: "AppHealth", bundle: .localizedModule), label)
             case .failed:
-                return String(format: String(localized: "appHealth.line.failed", defaultValue: "%@ needs a repair", table: "AppHealth", bundle: .module), label)
+                return String(format: String(localized: "appHealth.line.failed", defaultValue: "%@ needs a repair", table: "AppHealth", bundle: .localizedModule), label)
             }
         }
         return headline.pending.map {
-            String(format: String(localized: "appHealth.pending", defaultValue: "Reconnecting; will %@ when back", table: "AppHealth", bundle: .module), $0)
+            String(format: String(localized: "appHealth.pending", defaultValue: "Reconnecting; will %@ when back", table: "AppHealth", bundle: .localizedModule), $0)
         }
     }
 
     static func state(_ state: AppHealth.State) -> String? {
         switch state {
         case .healthy: nil
-        case .slow: String(localized: "appHealth.state.slow", defaultValue: "Slow", table: "AppHealth", bundle: .module)
-        case .repairing: String(localized: "appHealth.state.repairing", defaultValue: "Repairing", table: "AppHealth", bundle: .module)
-        case .stuck: String(localized: "appHealth.state.stuck", defaultValue: "Not responding", table: "AppHealth", bundle: .module)
-        case .failed: String(localized: "appHealth.state.failed", defaultValue: "Needs a repair", table: "AppHealth", bundle: .module)
+        case .slow: String(localized: "appHealth.state.slow", defaultValue: "Slow", table: "AppHealth", bundle: .localizedModule)
+        case .repairing: String(localized: "appHealth.state.repairing", defaultValue: "Repairing", table: "AppHealth", bundle: .localizedModule)
+        case .stuck: String(localized: "appHealth.state.stuck", defaultValue: "Not responding", table: "AppHealth", bundle: .localizedModule)
+        case .failed: String(localized: "appHealth.state.failed", defaultValue: "Needs a repair", table: "AppHealth", bundle: .localizedModule)
         }
     }
 }

@@ -88,24 +88,24 @@ public struct AgentChatPerfControl: Sendable {
 
     /// The refusals, in this package's Localizable.xcstrings (`agentPane.chatPerf.*`).
     nonisolated enum Text {
-        static var seconds: String { String(localized: "agentPane.chatPerf.seconds", defaultValue: "seconds must be a whole number from 1 to %lld", bundle: .module) }
-        static var needsTab: String { String(localized: "agentPane.chatPerf.needsTab", defaultValue: "Name the chat tab to measure.", bundle: .module) }
-        static var noTab: String { String(localized: "agentPane.chatPerf.noTab", defaultValue: "That tab is no longer open.", bundle: .module) }
-        static var notAgentChat: String { String(localized: "agentPane.chatPerf.notAgentChat", defaultValue: "That tab isn't an agent chat.", bundle: .module) }
+        static var seconds: String { String(localized: "agentPane.chatPerf.seconds", defaultValue: "seconds must be a whole number from 1 to %lld", bundle: .localizedModule) }
+        static var needsTab: String { String(localized: "agentPane.chatPerf.needsTab", defaultValue: "Name the chat tab to measure.", bundle: .localizedModule) }
+        static var noTab: String { String(localized: "agentPane.chatPerf.noTab", defaultValue: "That tab is no longer open.", bundle: .localizedModule) }
+        static var notAgentChat: String { String(localized: "agentPane.chatPerf.notAgentChat", defaultValue: "That tab isn't an agent chat.", bundle: .localizedModule) }
         static var pageNotLoaded: String {
-            String(localized: "agentPane.chatPerf.pageNotLoaded", defaultValue: "That chat's page isn't loaded. Open the chat once, then measure it again.", bundle: .module)
+            String(localized: "agentPane.chatPerf.pageNotLoaded", defaultValue: "That chat's page isn't loaded. Open the chat once, then measure it again.", bundle: .localizedModule)
         }
         static var pageAsleep: String {
             String(
                 localized: "agentPane.chatPerf.pageAsleep",
                 defaultValue: "That chat's page is asleep while it's hidden, and measuring doesn't wake it. Show the chat, then measure it again.",
-                bundle: .module)
+                bundle: .localizedModule)
         }
         static var noCapture: String {
-            String(localized: "agentPane.chatPerf.noCapture", defaultValue: "That chat's page can't measure itself. Update cmux, then try again.", bundle: .module)
+            String(localized: "agentPane.chatPerf.noCapture", defaultValue: "That chat's page can't measure itself. Update cmux, then try again.", bundle: .localizedModule)
         }
         static var running: String {
-            String(localized: "agentPane.chatPerf.running", defaultValue: "That chat is already being measured. Try again when that capture ends.", bundle: .module)
+            String(localized: "agentPane.chatPerf.running", defaultValue: "That chat is already being measured. Try again when that capture ends.", bundle: .localizedModule)
         }
     }
 }

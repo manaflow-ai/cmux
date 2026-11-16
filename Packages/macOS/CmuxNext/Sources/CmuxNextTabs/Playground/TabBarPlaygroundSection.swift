@@ -21,14 +21,14 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .crowdedTabs: String(localized: "tabs.playground.section.crowded", defaultValue: "Crowded Tabs", bundle: .module)
-        case .newTabControl: String(localized: "tabs.playground.section.newTab", defaultValue: "New Tab Control", bundle: .module)
-        case .trailingControls: String(localized: "tabs.playground.section.trailing", defaultValue: "Trailing Controls", bundle: .module)
-        case .pinnedGap: String(localized: "tabs.playground.section.pinnedGap", defaultValue: "Pinned Tabs Gap", bundle: .module)
-        case .cornerRadius: String(localized: "tabs.playground.section.cornerRadius", defaultValue: "Corner Radius", bundle: .module)
-        case .hoverClose: String(localized: "tabs.playground.section.hoverClose", defaultValue: "Hover Close", bundle: .module)
-        case .hoverCard: String(localized: "tabs.playground.section.hoverCard", defaultValue: "Hover Card", bundle: .module)
-        case .folderCorners: String(localized: "tabs.playground.section.folderCorners", defaultValue: "Folder Corners", bundle: .module)
+        case .crowdedTabs: String(localized: "tabs.playground.section.crowded", defaultValue: "Crowded Tabs", bundle: .localizedModule)
+        case .newTabControl: String(localized: "tabs.playground.section.newTab", defaultValue: "New Tab Control", bundle: .localizedModule)
+        case .trailingControls: String(localized: "tabs.playground.section.trailing", defaultValue: "Trailing Controls", bundle: .localizedModule)
+        case .pinnedGap: String(localized: "tabs.playground.section.pinnedGap", defaultValue: "Pinned Tabs Gap", bundle: .localizedModule)
+        case .cornerRadius: String(localized: "tabs.playground.section.cornerRadius", defaultValue: "Corner Radius", bundle: .localizedModule)
+        case .hoverClose: String(localized: "tabs.playground.section.hoverClose", defaultValue: "Hover Close", bundle: .localizedModule)
+        case .hoverCard: String(localized: "tabs.playground.section.hoverCard", defaultValue: "Hover Card", bundle: .localizedModule)
+        case .folderCorners: String(localized: "tabs.playground.section.folderCorners", defaultValue: "Folder Corners", bundle: .localizedModule)
         }
     }
 

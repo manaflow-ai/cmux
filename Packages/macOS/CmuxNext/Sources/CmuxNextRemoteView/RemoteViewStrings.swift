@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the remote desktop pane (Resources/Localizable.xcstrings).
 nonisolated enum RemoteViewStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var modeView: String { t("rd.mode.view", "View") }

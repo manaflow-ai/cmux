@@ -56,7 +56,7 @@ enum PasswordCSVColumnSheet {
 /// Strings of the column sheet (table Passwords).
 nonisolated enum PasswordCSVColumnStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module.inAppLanguage)
     }
 
     static var title: String { t("passwords.csv.columns.title", "Match the Columns") }

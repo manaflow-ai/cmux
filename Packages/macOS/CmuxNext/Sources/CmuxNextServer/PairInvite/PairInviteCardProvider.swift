@@ -352,11 +352,11 @@ public final class PairInviteCardProvider: WebCard {
 /// The provider's own refusal (Resources/PairInvite.xcstrings).
 enum PairInviteCardStrings {
     static var confirm: String {
-        String(localized: "pairInvite.confirm", defaultValue: "Confirm", table: "PairInvite", bundle: .module)
+        String(localized: "pairInvite.confirm", defaultValue: "Confirm", table: "PairInvite", bundle: .localizedModule)
     }
 
     static var clickOnly: String {
         String(localized: "pairInvite.confirmNote", defaultValue: "Click Confirm to pair it. Only a click pairs it, never a key or a script.",
-               table: "PairInvite", bundle: .module)
+               table: "PairInvite", bundle: .localizedModule)
     }
 }
