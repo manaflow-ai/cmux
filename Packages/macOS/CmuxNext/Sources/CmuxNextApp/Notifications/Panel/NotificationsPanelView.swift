@@ -61,7 +61,7 @@ final class NotificationsPanelView: NSView {
     private let body = NSView()
     private let markAllRead = NSButton()
     private let clearAll = NSButton()
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let list = NSStackView()
     private let empty = NSStackView()
     private let emptyIcon = NSImageView()

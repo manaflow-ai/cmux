@@ -153,7 +153,7 @@ extension AgentPaneSessionInfoModel {
 /// The panel's content: a scroll view over the list, drawn again when the store's model or colors
 /// change. AppKit, no SwiftUI (plans/cmux-next/no-swiftui-DESIGN.md).
 final class AgentPaneSessionInfoContent: NSView {
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let list = SessionInfoListView()
     private let edgeFadeMask = CAGradientLayer()
     private weak var store: AgentPaneSessionInfoStore?
