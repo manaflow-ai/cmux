@@ -2358,3 +2358,10 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   `SidebarRegionMetrics.standard(minimal:)` (now `.bands`). Regression: `MinimalModeKeepsDensityTests` (every
   density, on vs off), `SidebarMinimalModeTests.minimalModeKeepsTheListAsItIs`.
   Sidebar-Look: minimal mode should not change density at all.
+- 2026-11-15 (Lawrence, msg 34327, verbatim: "for minimal mode there is more space at bottom we can use when mouse is
+  not hovered in sidebar, we can do height animation of bottom area too"): in Minimal Mode (or Show Sidebar Controls
+  Only on Hover) with the pointer away, the faded footer section (and its row, when no accessory shows) gives its
+  height to the workspace list (`SidebarFooterCollapseMotion`, `SidebarView.footerCollapseTarget`). The height runs
+  the footer fade's `.hover` duration on `Motion.fadeCurve`, on the window's MotionClock; the footer fades in place.
+  `sidebar.spacesVisibility` Always keeps the room. Regression: `MinimalModeFooterCollapseTests`.
+  Sidebar-Look: for minimal mode there is more space at bottom we can use when mouse is not hovered in sidebar.
