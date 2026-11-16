@@ -1625,7 +1625,7 @@ async fn dispatch_request_with_identity(
                         &mut p,
                         json!({crate::hub::vm_boundary::FIELD: true}),
                     );
-                } else {
+                } else if hub.peer_is_leased(&peer.name) {
                     // A person may still carry approve-all to a peer that is not their own
                     // VM boundary. Mark that server decision explicitly so the receiver's
                     // approve-all host-profile classifier cannot mistake it for a direct
