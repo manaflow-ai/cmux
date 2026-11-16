@@ -100,6 +100,16 @@ const variants: Record<string, SettingsPageVariant> = {
   },
 };
 
+/** `base` drawn at a page density (appearance.density), so the chips and lines show at both ends. */
+const atDensity = (base: SettingsPageVariant, density: "compact" | "comfortable"): SettingsPageVariant => ({
+  ...base,
+  note: `${base.note} At the ${density} density.`,
+  options: { ...base.options, values: { ...base.options?.values, "appearance.density": density } },
+});
+for (const name of ["all-rows", "by-kind", "refused"])
+  for (const density of ["compact", "comfortable"] as const)
+    variants[`${name}-${density}`] = atDensity(variants[name]!, density);
+
 export default settingsPageEntry({
   id: "pages.settings-row-layout",
   title: "Settings row layout",
