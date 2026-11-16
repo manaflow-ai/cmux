@@ -16,6 +16,8 @@
 //! - [`device_identity_slots`]: which login Keychain items hold the device
 //!   hub identity, and where a renewal puts the new one when another build's
 //!   items stay.
+//! - [`device_list`]: which device hub records are one physical device, and
+//!   which are this device's other builds (Screen Sharing's Your Devices).
 //! - [`identity`]: the install identity's rules that are not key calls: the
 //!   `cmux auth token` mint's team, token claims, transient refusals, install
 //!   key names, share install origins.
@@ -32,6 +34,7 @@ pub mod auth;
 pub mod capture_auth;
 pub mod config;
 pub mod device_identity_slots;
+pub mod device_list;
 pub mod identity;
 pub mod install_key_slots;
 pub mod keychain;
