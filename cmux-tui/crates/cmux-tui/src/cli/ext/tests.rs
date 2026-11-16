@@ -548,7 +548,11 @@ fn serve(
                 let asked = request["app"].as_str();
                 let script = std::fs::read_to_string(local.join(name).join("dist/main.js"))
                     .unwrap_or_default();
-                if asked.is_some_and(|asked| asked != app) {
+                if asked == Some("local/older-daemon") {
+                    // What a daemon from before `apps-reload` answers.
+                    out.push(json!({"id": id, "ok": false, "error_code": "bad-request",
+                        "error": "unknown variant `apps-reload`, expected one of `apps-list`, `apps-set`"}));
+                } else if asked.is_some_and(|asked| asked != app) {
                     out.push(json!({"id": id, "ok": false, "error_code": "apps.local.unknown",
                         "error": format!("{} is not an extension in a local folder (local: {app})", asked.unwrap_or(""))}));
                 } else if script.contains("THROW_AT_INIT") {
@@ -971,6 +975,10 @@ fn reload_asks_the_daemon_and_names_a_script_that_does_not_load() {
         super::reload_call(&global(&fake.socket), Some("local/nope")).unwrap_err();
     assert_eq!(code, 1);
     assert!(message.contains("local/nope is not an extension"), "{message}");
+    let (code, message) =
+        super::reload_call(&global(&fake.socket), Some("local/older-daemon")).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(message.contains("older than cmux ext reload"), "{message}");
     let gone = super::reload_call(&global(&root.path().join("missing.sock")), None).unwrap_err();
     assert_eq!(gone.0, exit::NO_DAEMON);
 }

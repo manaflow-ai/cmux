@@ -418,19 +418,26 @@ fn reload_call(global: &GlobalArgs, app: Option<&str>) -> Result<Value, (i32, St
     if let Some(app) = app {
         request["app"] = json!(app);
     }
-    let data = match daemon.call(request) {
-        Ok(Ok(data)) => data,
-        Ok(Err(message)) => return Err((1, message)),
-        Err(_) => return Err((exit::NO_DAEMON, "the cmux daemon did not answer".to_string())),
-    };
-    if data.field("reloaded").as_array().is_none() {
-        return Err((
+    let older = || {
+        (
             1,
             format!(
                 "the running daemon cannot reload extensions on request (it is older than cmux ext reload); restart it with this cmux: {}",
                 super::fix_command::restart_routed_daemon()
             ),
-        ));
+        )
+    };
+    let data = match daemon.call(request) {
+        Ok(Ok(data)) => data,
+        // A daemon from before `apps-reload` refuses the request it cannot parse.
+        Ok(Err(message)) if message.contains("unknown variant `apps-reload`") => {
+            return Err(older());
+        }
+        Ok(Err(message)) => return Err((1, message)),
+        Err(_) => return Err((exit::NO_DAEMON, "the cmux daemon did not answer".to_string())),
+    };
+    if data.field("reloaded").as_array().is_none() {
+        return Err(older());
     }
     Ok(data)
 }

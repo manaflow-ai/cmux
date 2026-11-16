@@ -234,6 +234,28 @@ pub fn start_apps_when_ready(mux: &Arc<Mux>) {
     }
 }
 
+/// Runs `job` on a thread of its own and replies to `id` with its result
+/// when it ends; the connection reads its next request meanwhile.
+fn answer_off_thread(
+    writer: &MessageWriter,
+    id: Option<Value>,
+    job: impl FnOnce() -> Result<Value, crate::apps::ApiError> + Send + 'static,
+) -> bool {
+    let answer = writer.clone();
+    let asked = id.clone();
+    let spawned = std::thread::Builder::new()
+        .name("cmux-apps-reload".into())
+        .spawn(move || reply(&answer, asked, job()));
+    match spawned {
+        Ok(_) => true,
+        Err(error) => reply(
+            writer,
+            id,
+            Err(crate::apps::ApiError::new("operation.failed", error.to_string())),
+        ),
+    }
+}
+
 fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<JoinHandle<()>> {
     std::thread::Builder::new().name("cmux-apps-start".into()).spawn(job)
 }
@@ -447,11 +469,28 @@ pub(super) fn try_handle(
     );
     let Request { id, origin, command } = request;
     let user = origin == crate::apps::Origin::User;
+    // A forced reload reads every local folder and may wait on a load trial
+    // per open view (seconds): it answers from its own thread, so this
+    // connection's mounts and events go on meanwhile (`apps-reload`, and the
+    // app's Reload Custom Views, the App Store op `apps.local.reload`).
+    let command = match command {
+        Command::Reload { app } => {
+            return Some(answer_off_thread(writer, id, move || {
+                supervisor.reload_local_now(app.as_deref())
+            }));
+        }
+        Command::Store { op, args } if op == "apps.local.reload" => {
+            return Some(answer_off_thread(writer, id, move || {
+                supervisor.store_call(client, &op, args, origin)
+            }));
+        }
+        command => command,
+    };
     let result = match command {
         Command::List => Ok(supervisor.list()),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
-        Command::Reload { app } => supervisor.reload_local_now(app.as_deref()),
+        Command::Reload { .. } => unreachable!("apps-reload answers on its own thread"),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
         Command::TeamEvent { event, data } => supervisor.team_event(&event, &data),

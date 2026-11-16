@@ -273,3 +273,18 @@ fn naming_a_folder_the_watch_never_reported_loads_it() {
     assert_eq!(answer["reloaded"], json!(["local/unseen"]), "{answer}");
     assert_eq!(app_entry(&f.supervisor.list(), "local/unseen")["version"], "1.0.0");
 }
+
+/// A folder deleted where the watch did not see it: a forced reload, of
+/// every app or of that one by name, reads it as removed and stops it.
+#[test]
+fn a_forced_reload_reads_a_folder_deleted_unseen_as_removed() {
+    for named in [false, true] {
+        let f = fixture();
+        f.supervisor.reload_local_apps(&Default::default());
+        assert_eq!(app_entry(&f.supervisor.list(), "local/spy")["version"], "1.0.0");
+        std::fs::remove_dir_all(f.state.join("apps/local/spy")).unwrap();
+        let answer = f.supervisor.reload_local_now(named.then_some("local/spy")).unwrap();
+        assert_eq!(answer["removed"], json!(["local/spy"]), "named {named}: {answer}");
+        assert_eq!(app_entry(&f.supervisor.list(), "local/spy"), Value::Null, "named {named}");
+    }
+}

@@ -277,9 +277,7 @@ impl Supervisor {
         self.emit(outs);
         if leaving {
             // Saves made in safe mode were held; apply them now.
-            let prints =
-                self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_prints.clone();
-            self.reload_local_apps(&prints);
+            self.reload_local_apps_since_last();
         }
         Ok(answer)
     }

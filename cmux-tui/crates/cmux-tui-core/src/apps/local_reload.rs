@@ -62,7 +62,7 @@ impl Supervisor {
     /// Starts the watch thread; returns at once. `prints` are the startup
     /// catalog's, taken before its read (`PrintsBefore`). In-crate tests
     /// build many supervisors and read no real folders.
-    pub(crate) fn start_local_watch(self: &Arc<Self>, prints: Prints) {
+    pub(crate) fn start_local_watch(self: &Arc<Self>) {
         if cfg!(test) {
             return;
         }
@@ -70,7 +70,7 @@ impl Supervisor {
         let dirs = watched_dirs(&self.config.sources);
         let spawned = std::thread::Builder::new()
             .name("apps-local-reload".into())
-            .spawn(move || watch(&me, dirs, prints));
+            .spawn(move || watch(&me, dirs));
         if let Err(error) = spawned {
             eprintln!("cmux-tui: apps local reload thread did not start: {error}");
         }
@@ -82,6 +82,19 @@ impl Supervisor {
         self.reload_local_apps_from(prints, catalog::load)
     }
 
+    /// Reads the local folders again and applies what changed since the
+    /// fingerprints the last reload kept (`Inner::local_prints`), whoever ran
+    /// it: the watch, `apps-reload`, a rollback or the end of safe mode.
+    pub(super) fn reload_local_apps_since_last(&self) {
+        let _one = self.local_reload.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let prints = self.local_prints_now();
+        self.reload_local_apps_reporting(&prints, catalog::load);
+    }
+
+    fn local_prints_now(&self) -> Prints {
+        self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner).local_prints.clone()
+    }
+
     /// `reload_local_apps` with the catalog read given: a test lands a save
     /// right after the read.
     pub(super) fn reload_local_apps_from(
@@ -89,6 +102,7 @@ impl Supervisor {
         prints: &Prints,
         load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
     ) -> Prints {
+        let _one = self.local_reload.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.reload_local_apps_reporting(prints, load).0
     }
 
@@ -106,23 +120,26 @@ impl Supervisor {
                 "safe mode is on: no extension runs or reloads until it is off (cmux safe-mode off)",
             ));
         }
-        let mut prints = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .local_prints
-            .clone();
-        // A folder the watch never reported is not in the prints yet: it
-        // reads as new, so naming it loads it.
+        // One reload at a time (the watch's too): each reads the prints the
+        // one before it kept, so neither undoes the other's read.
+        let _one = self.local_reload.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut prints = self.local_prints_now();
+        // `UNREAD` matches no read package, so the asked apps read as changed,
+        // and a folder deleted meanwhile still reads as removed. A folder the
+        // watch never reported is not in the prints yet: it reads as new, so
+        // naming it loads it.
         match app {
             Some(app) => {
-                prints.remove(app);
+                if let Some(print) = prints.get_mut(app) {
+                    *print = UNREAD;
+                }
             }
-            None => prints.clear(),
+            None => prints.values_mut().for_each(|print| *print = UNREAD),
         }
         let (next, report) = self.reload_local_apps_reporting(&prints, catalog::load);
         if let Some(app) = app
             && !next.contains_key(app)
+            && !report.removed.iter().any(|gone| gone == app)
         {
             let mut known: Vec<&String> = next.keys().collect();
             known.sort();
@@ -523,7 +540,7 @@ fn collect(dir: &Path, files: &mut Vec<(PathBuf, u64, u128)>) {
 }
 
 /// The watch thread over `dirs` (`watched_dirs`).
-fn watch(me: &Weak<Supervisor>, dirs: Vec<PathBuf>, mut prints: Prints) {
+fn watch(me: &Weak<Supervisor>, dirs: Vec<PathBuf>) {
     let (sender, events) = channel();
     let files = sender.clone();
     let watcher = notify::recommended_watcher(move |event| {
@@ -562,11 +579,11 @@ fn watch(me: &Weak<Supervisor>, dirs: Vec<PathBuf>, mut prints: Prints) {
     // is matched by its resolved spelling too.
     let mut roots = watch_roots(&dirs);
     // FSEvents reports only what changes after its stream starts, and the
-    // catalog in `prints` was read before this thread armed it: a write in
+    // startup catalog was read before this thread armed it: a write in
     // between (a loaded machine, an app saved as cmux starts) had no event
     // and was never read. Read once more now that the watch is on.
     match me.upgrade() {
-        Some(supervisor) => prints = supervisor.reload_local_apps(&prints),
+        Some(supervisor) => supervisor.reload_local_apps_since_last(),
         None => return,
     }
     loop {
@@ -580,7 +597,7 @@ fn watch(me: &Weak<Supervisor>, dirs: Vec<PathBuf>, mut prints: Prints) {
             roots = watch_roots(&dirs);
         }
         let Some(supervisor) = me.upgrade() else { return };
-        prints = supervisor.reload_local_apps(&prints);
+        supervisor.reload_local_apps_since_last();
     }
 }
 
