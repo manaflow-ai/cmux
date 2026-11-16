@@ -47,16 +47,22 @@ public struct Metrics {
     /// traffic lights inside it.
     public static var titlebarHeight: CGFloat { MetricTunables.titlebarHeight.value }
 
-    /// Height of a pane's tab strip: the density token, or, when `layout.cornerPadding` is set, the
-    /// tab height with that gap above and below the pills (`PaneChromeMetrics`: the pill top is
-    /// `(strip - tab - stripTopOutset) / 2`, so the padding is the gap the corners nest across).
+    /// Height of a pane's tab strip: a strip the person set (``tabStripIsSet``) keeps its height, with
+    /// or without `layout.cornerPadding` (``tabHeight`` then fits the pill inside it). Else the density
+    /// token, or, when `layout.cornerPadding` is set, the tab height with that gap above and below the
+    /// pills (`PaneChromeMetrics`: the pill top is `(strip - tab - stripTopOutset) / 2`, so the padding
+    /// is the gap the corners nest across).
     /// A tab that follows the sidebar's row (``chromeRowHeight``) grows the strip by as much, so the
     /// room around the pill stays exactly the density's (both pairs resolve and round alike).
+    ///
+    /// Never reads ``tabHeight`` while the strip is set, since ``tabHeight`` then reads the set strip:
+    /// the two reading each other overflowed the main thread's stack when a profile set both
+    /// `appearance.metrics.tabStripHeight` and `layout.cornerPadding` (2026-11-16).
     public static var tabStripHeight: CGFloat {
+        let strip = MetricTunables.tabStripHeight
+        // A strip the person set (Debug Settings, `appearance.metrics.tabStripHeight`) keeps its height.
+        if tabStripIsSet { return strip.value }
         guard let padding = DesignSettings.shared.paneChrome.cornerPadding else {
-            let strip = MetricTunables.tabStripHeight
-            // A strip the person set (Debug Settings, `appearance.metrics.tabStripHeight`) keeps its height.
-            if strip.tunable.override != nil || strip.key.flatMap({ DesignSettings.shared.overrides[$0] }) != nil { return strip.value }
             // A density with a browser row gap (Helium's 3 pt at Default): that gap above the pill and under it, the pane
             // padding above the strip counting toward the first (`browserRowGap`).
             if let gap = browserRowGap { return tabHeight + 2 * gap - min(stripTopOutset, gap) }
@@ -66,6 +72,13 @@ public struct Metrics {
             return strip.value + max(0, tabHeight - MetricTunables.tabHeight.value)
         }
         return tabHeight + 2 * scale(padding) + stripTopOutset
+    }
+
+    /// Whether the person set the tab strip's height: a Debug Settings override or
+    /// `appearance.metrics.tabStripHeight` (a density's own token does not count).
+    static var tabStripIsSet: Bool {
+        let strip = MetricTunables.tabStripHeight
+        return strip.tunable.override != nil || strip.key.flatMap({ DesignSettings.shared.overrides[$0] }) != nil
     }
 
     /// The density's one gap around the browser chrome's rows (`browserRowGap`: Helium's 3 pt at Default, Chrome's 6 at
@@ -111,16 +124,32 @@ public struct Metrics {
 
     /// A tab pill's height: the chrome row (``chromeRowHeight``), the Compact tabs option's tighter
     /// pill, or a set `tabHeight`; under `appearance.metrics.tabStripHeight` the bar's height less the
-    /// density's own room around its pill, so a taller bar has taller tabs. The Compact tabs pill is
-    /// never taller than the row it tightens: its 22 pt token predates Compact's 20 pt Helium rows.
+    /// density's own room around its pill, so a taller bar has taller tabs. With `layout.cornerPadding`
+    /// set too, both settings hold: the bar keeps its set height and the pill takes what is left inside
+    /// the padding above and below it (`strip - 2 * padding - stripTopOutset`, so
+    /// `PaneChromeMetrics.pillTop` is the padding). A tab height set explicitly (Debug Settings or a
+    /// density's own `tabHeight` token) keeps its size there instead, and the padding gives way; so
+    /// does a pill that would come out smaller than its icon (``iconSize``), never past the strip.
+    /// The Compact tabs pill is never taller than the row it tightens: its 22 pt token predates
+    /// Compact's 20 pt Helium rows.
+    ///
+    /// Reads the set strip's own value (`MetricTunables.tabStripHeight.value`), never
+    /// ``tabStripHeight``, which reads this under `layout.cornerPadding`.
     public static var tabHeight: CGFloat {
         let metric = MetricTunables.tabHeight
         let tab = metric.explicitValue ?? (compactTabs ? min(metric.value, chromeRowHeight) : chromeRowHeight)
-        guard DesignSettings.shared.overrides[.tabStripHeight] != nil else { return tab }
         let strip = MetricTunables.tabStripHeight
+        if let padding = DesignSettings.shared.paneChrome.cornerPadding {
+            // A set bar with the corner padding: the padding is the room around the pill.
+            guard tabStripIsSet else { return tab }
+            let room = max(strip.value - stripTopOutset, 0)
+            let fitted = metric.explicitValue ?? max(strip.value - 2 * scale(padding) - stripTopOutset, iconSize)
+            return min(fitted, room)
+        }
+        guard DesignSettings.shared.overrides[.tabStripHeight] != nil else { return tab }
         let densityStrip = scale(strip.tunable.resolve(tokens.resolve(compact: strip.compactValue, comfortable: strip.comfortable, token: strip.name)))
         // A set bar height sizes the pill: the density's own pill and room, not the chrome row's.
-        return max((metric.explicitValue ?? metric.value) + tabStripHeight - densityStrip, 0)
+        return max((metric.explicitValue ?? metric.value) + strip.value - densityStrip, 0)
     }
     public static var controlHeight: CGFloat { MetricTunables.controlHeight.value }
     public static var tabMaxWidth: CGFloat { MetricTunables.tabMaxWidth.value }
