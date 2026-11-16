@@ -407,8 +407,10 @@ fn a_commit_admitted_before_the_release_does_not_land_under_the_next_owner() {
     );
 }
 
-/// An owner that keeps its session says what of it still lives, and the
-/// session has its owner until that owner's process ended.
+/// An owner that keeps its session says what of it still lives. The next
+/// owner's open waits for that owner, has the session when that owner's
+/// process ended, and says in its start line what that owner wrote in its
+/// record.
 #[test]
 fn an_owner_that_keeps_its_session_says_what_of_it_still_lives() {
     let root = std::env::temp_dir()
@@ -419,11 +421,38 @@ fn an_owner_that_keeps_its_session_says_what_of_it_still_lives() {
     let release = held.mux.release_ownership(&root.join("control.sock"));
     // The writer ends, and the owner's value goes: the session stays kept.
     drop(held.finish());
-    let _ = set_owner_wait(SHORT_OWNER_WAIT);
-    let kept = refusal(&root, session);
+    // A bound that the test does not reach: the end of the kept owner's
+    // process ends the wait of the next owner's open.
+    let (next_owner, thread) = open_next_owner_on_a_thread(&root, session, LONG_OWNER_WAIT);
+    let first = next_owner
+        .recv_timeout(NEXT_OWNER_THREAD_WAIT)
+        .expect("the next owner's thread said nothing");
     // What the end of that owner's process does.
     crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
-    let freed = refusal(&root, session);
+    let (waited, opened) = match first {
+        NextOwner::Done(opened) => (false, opened),
+        NextOwner::Waiting => match next_owner.recv_timeout(NEXT_OWNER_THREAD_WAIT) {
+            Ok(NextOwner::Done(opened)) => (true, opened),
+            Ok(NextOwner::Waiting) => {
+                (true, Err("its open said two times that it waits".to_owned()))
+            }
+            Err(error) => (true, Err(format!("its open did not end: {error}"))),
+        },
+    };
+    let (outcome, record) = match &opened {
+        Ok(next) => (
+            "it has the session".to_owned(),
+            start_line(next, &folder)
+                .get(RELEASE_RECORD_KEY)
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+        ),
+        Err(error) => (format!("refused: {error}"), String::new()),
+    };
+    if !outcome.contains("its open did not end") {
+        let _ = thread.join();
+    }
+    drop(opened);
     let _ = std::fs::remove_dir_all(&root);
     let names = match &release {
         lifecycle::OwnershipRelease::KeptUntilExit { alive, .. } => alive.clone(),
@@ -435,9 +464,14 @@ fn an_owner_that_keeps_its_session_says_what_of_it_still_lives() {
          session because of that writer: its release: {release:?}"
     );
     assert!(
-        kept.contains("already owned by another daemon") && freed == "the open passed",
+        waited && outcome == "it has the session",
         "a kept session did not stay kept until the end of its owner's process, or it stayed \
-         kept after it: an open before that end: {kept}; an open after it: {freed}"
+         kept after it: the next owner's open waited: {waited}; the open's end: {outcome}"
+    );
+    assert!(
+        record.contains(KEPT_RELEASE) && record.contains("session journal writer"),
+        "the next owner's start line does not say what the owner before it wrote when it kept \
+         the session: field `{RELEASE_RECORD_KEY}`: {record:?}"
     );
 }
 
