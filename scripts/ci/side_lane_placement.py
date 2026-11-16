@@ -833,6 +833,73 @@ def light_rerun_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any
     return (label, tuple(jobs[:room])) if room > 0 else ("", ())
 
 
+# Borrowing an idle pool beside a backed-up one (borrow_route()). The lenders are role labels whose runners run a std
+# side job as is: the gui label (a std mini's logged-in runner; glaeda's hook admits any cmux-next.yml job there). Not
+# the DEV freshness slot (glaeda's dev_compile_refusal admits only feed compiles on it), not the nightly or promote
+# labels (nightly comes first on its dedicated Macs), and not root, whose runners already carry the side label.
+LENDER_ROLES = (pool.gui_label,)
+# At most this many lender runners run borrowed jobs at once, fleet-wide, and this many idle ones stay free for the
+# lender's own jobs: a GUI job arriving while borrowed work runs still finds an idle runner.
+BORROW_CAP = 2
+BORROW_RESERVE = 1
+# The borrowed jobs by job id, with the run name the janitor snapshot's `running` shows for them (cmux-next.yml).
+BORROW_NAMES = {"release-compile": "cmux-next Release compile (Xcode 26)"}
+
+
+def borrow_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any,
+                 taken: Sequence[str] = (), lender_own: int = 0) -> tuple[str, tuple[str, ...]]:
+    """(a lender label, the BORROW_JOBS its idle runners take), else ("", ()): an idle pool lends to a backed-up one.
+
+    2026-11-16 03:16Z, macos-pool-load: glaeda-std-xcode-26.6 had 48 queued (oldest 178 min) and
+    glaeda-side-std-xcode-26.6 44 (oldest 113 min), and the slowest PR verdicts ended on the Release compile, while
+    glaeda-gui-std-xcode-26.6 had 0 queued. Side jobs only ever took the side label, its wider classes, the session
+    label or Blacksmith, never an idle gui runner.
+
+    A job of BORROW_JOBS that runs this attempt (CASCADE_RUNS) and that no idle side or light runner took (`taken`)
+    takes the lender label, one per runner, only while all of these hold, read from a fresh janitor snapshot and the
+    live runners (latest reading wins; nothing is kept between placements, and an unread or stale reading borrows
+    nothing):
+    - the side route is backed up: a job queued on it;
+    - the lender has nothing queued (the snapshot's pool and glaeda's gates), is not unserved or full, and has more
+      idle online runners than BORROW_RESERVE plus `lender_own` (this run's own jobs bound for it);
+    - fewer than BORROW_CAP lender runners already run a borrowed job (the snapshot's `running`), counting this run's.
+    The lender's own work keeps first claim: its queue stops borrowing, and the reserve keeps a runner idle for it.
+    """
+    if runners is None or (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
+        return "", ()
+    snapshot = depth_snapshot(seen)
+    if snapshot is None:
+        return "", ()
+    label = (env.get("SIDE_LABEL") or "").strip()
+    allowed = set((env.get("BORROW_JOBS") or "").split())
+    runs = (env.get("CASCADE_RUNS") or "").split() if "CASCADE_RUNS" in env else None
+    jobs = [job for job in (env.get("JOBS") or "").split()
+            if job in allowed and job in BORROW_NAMES and job not in taken and (runs is None or job in runs)]
+    side = pool_depth(snapshot, side_route(label, runners) or label)
+    if not jobs or side is None or side[0] <= 0:
+        return "", ()
+    running = snapshot.get("running") if isinstance(snapshot.get("running"), Mapping) else {}
+    borrowed_names = set(BORROW_NAMES.values())
+    for role in LENDER_ROLES:
+        lender = _live_role_label(label, runners, role)
+        if not lender or lender in (getattr(seen, "unserved", None) or ()) \
+                or getattr(seen, "owned_full", {}).get(lender, False):
+            continue
+        depth = pool_depth(snapshot, lender)
+        gates = (snapshot.get("gates") or {}).get("labels") if isinstance(snapshot.get("gates"), Mapping) else None
+        gate = gates.get(lender) if isinstance(gates, Mapping) else None
+        if depth is None or depth[0] > 0 or isinstance(gate, Mapping) and int(gate.get("queued") or 0) > 0:
+            continue
+        carriers = [runner for runner in runners if lender in pool.runner_labels(runner)]
+        lent = sum(1 for runner in carriers
+                   if str((running.get(str(runner.get("name") or "")) or {}).get("job") or "") in borrowed_names)
+        idle = _role_online(lender, runners)[1]
+        room = min(BORROW_CAP - lent, idle - BORROW_RESERVE - lender_own)
+        if room > 0:
+            return lender, tuple(jobs[:room])
+    return "", ()
+
+
 def fresh_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, tuple[str, ...]]:
     """(FRESH_LABEL, the FRESH_JOBS it takes) while its online runners are idle for them, else ("", ()).
 
@@ -1347,6 +1414,17 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
     if session_jobs:
         why += (f"; no idle side runner for {', '.join(session_jobs)}, and `{spill_session}`'s queue is shorter "
                 f"than `{route or label}`'s, so they take it")
+    # The side jobs nothing above took: an idle lender pool (the gui label) while the side route is backed up and the
+    # lender has nothing queued, after this run's own GUI-label jobs, within BORROW_CAP (borrow_route()).
+    runs = (env.get("CASCADE_RUNS") or "").split() if "CASCADE_RUNS" in env else (env.get("JOBS") or "").split()
+    lender_own = sum(1 for job in (*(session_jobs if spill_session and spill_session == live_gui else ()),
+                                   *(job for job in (env.get("JOBS") or "").split() if job == "swift-test"))
+                     if job in runs)
+    borrow, borrow_jobs = borrow_route(env, runners, seen, (*owned, *light_jobs), lender_own)
+    if borrow_jobs:
+        env = without_jobs(env, borrow_jobs)
+        why += (f"; `{route or label}` is backed up and `{borrow}` has idle runners and nothing queued, so "
+                f"{', '.join(borrow_jobs)} borrow it")
     # Generated files' own session lane (vars.CI_SESSION_LANE_RUNNER, a glaeda-session-* label): written only while
     # it has room, so the variable never sends the job to a queue deeper than its pool.
     lane = (env.get("SESSION_LANE") or "").strip()
@@ -1433,6 +1511,7 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
                          f"fast_runner={fast}\n"
                          f"fresh_runner={fresh}\nfresh_jobs={delimited(fresh_jobs)}\n"
                          f"light_runner={light}\nlight_jobs={delimited(light_jobs)}\n"
+                         f"borrow_runner={borrow}\nborrow_jobs={delimited(borrow_jobs)}\n"
                          f"gateway_runner={gateway}\ngateway_attempt={attempt if gateway_label else ''}\n"
                          f"watch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")

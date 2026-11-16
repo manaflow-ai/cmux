@@ -105,8 +105,8 @@ import Testing
     }
 
     /// The running app is build 100.
-    static func updater(stagedBuild: String?) -> UpdaterService {
-        let identity = UpdateBuildIdentity(bundleIdentifier: bundleID, shortVersion: "1.0.0", build: "100", minimumSystemVersion: nil,
+    static func updater(stagedBuild: String?, bundleIdentifier: String = bundleID) -> UpdaterService {
+        let identity = UpdateBuildIdentity(bundleIdentifier: bundleIdentifier, shortVersion: "1.0.0", build: "100", minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let defaults = UserDefaults(testSuiteName: "StagedUpdatePrewarmTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
@@ -140,5 +140,71 @@ import Testing
             updater.followStagedUpdate(.ready(version: "0.9.9"))
             #expect(updater.prewarmedBuild == nil)
         }
+    }
+
+    // Leo's NIGHTLY (cmux#43890's second read-back, pid 12985): "staged, waiting for the user" at 22:38:18Z, "staged
+    // notes: 4376790554901" at 22:38:19Z (so the pre-warm was started with that build), "kept 4376544293601 for
+    // rollback" at 22:38:45Z, the click at 22:39:16Z, and no "launch pre-warm" line at all. The pre-warm's folder
+    // scan ran on the files lane's best-effort slot, behind the rollback keep the same staging starts and whatever
+    // else waits there, and its only line came after its last run.
+
+    func eventually(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async -> Bool {
+        // One check per pass, and its answer is the result: a condition that takes something (a semaphore's
+        // signal) answers true once, so a second check after the loop said false (#43979's first fleet run).
+        let deadline = ContinuousClock.now + timeout
+        while true {
+            if condition() { return true }
+            if ContinuousClock.now >= deadline { return false }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// The real updater's staged state: Sparkle's Installation folder in the user's caches holds the staged
+    /// bundle, `followStagedUpdate(.ready)` starts the pre-warm with no stand-in runner, and the files lane's
+    /// best-effort slot is busy (the rollback keep: a clone of the running app, then a signature read of every
+    /// kept build). The pre-warm still runs the staged bundle, and says so in the update log as it goes.
+    @Test func aStagedUpdateIsPrewarmedWhileTheRollbackKeepHoldsTheFilesLane() async throws {
+        let id = "\(Self.bundleID).\(UUID().uuidString.prefix(8).lowercased())"
+        let installation = UpdateInstallPreflight.stagedInstallation(bundleIdentifier: id)
+        let caches = installation.deletingLastPathComponent().deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: caches) }
+        try FileManager.default.createDirectory(at: installation, withIntermediateDirectories: true)
+        try Self.stage(installation, "u1", "x1", id: id, build: "200")
+        let updater = Self.updater(stagedBuild: "200", bundleIdentifier: id)
+        let started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        // As the real keep (UpdaterService+Rollback): a best-effort task, so `run` does not boost the item to
+        // this main-actor test's priority and the stand-in holds only the best-effort slot.
+        let keep = Task(priority: WorkPriority.bestEffort.taskPriority) {
+            try? await updater.work.run(.bestEffort, mayBlock: .files) {
+                started.signal()
+                _ = release.wait(timeout: .now() + 30)
+            }
+        }
+        defer { release.signal() }
+        try #require(await eventually { started.wait(timeout: .now()) == .success }, "the stand-in keep never ran")
+        updater.followStagedUpdate(.ready(version: "2.0.0"))
+        #expect(updater.log.recent.contains("launch pre-warm of 200: started"), "\(updater.log.recent)")
+        let ran = installation.appending(path: "ran.txt")
+        let firstRunLogged = await eventually { updater.log.recent.contains { $0.hasPrefix("launch pre-warm of 200: cmux exit 0") } }
+        // The update log's pre-warm lines show in the failure itself (a fleet summary keeps one line per issue).
+        let lines = updater.log.recent.filter { $0.contains("pre-warm") }
+        #expect(firstRunLogged, "no line as the first run ended while the keep still held the files lane: \(lines)")
+        #expect(lines.count >= 2, "\(lines)")
+        #expect(FileManager.default.fileExists(atPath: ran.path),
+                "the pre-warm waited behind the rollback keep on the files lane")
+        release.signal()
+        await keep.value
+    }
+
+    /// A staged update that is not pre-warmed says why in the update log, once per build.
+    @Test func aSkippedPrewarmSaysWhyOnce() {
+        let updater = Self.updater(stagedBuild: "99")
+        updater.followStagedUpdate(.ready(version: "0.9.9"))
+        updater.followStagedUpdate(.ready(version: "0.9.9"))
+        let skipped = updater.log.recent.filter { $0.hasPrefix("launch pre-warm: skipped") }
+        #expect(skipped == ["launch pre-warm: skipped (staged build 99 is not newer than running build 100)"], "\(updater.log.recent)")
+        let none = Self.updater(stagedBuild: nil)
+        none.followStagedUpdate(.ready(version: "2.0.0"))
+        #expect(none.log.recent.contains("launch pre-warm: skipped (no staged build)"), "\(none.log.recent)")
     }
 }
