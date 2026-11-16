@@ -9302,7 +9302,12 @@ class StallAPI:
         self.began = {attempt: started}
         self.calls: list[str] = []
         self.cancelled_at: float | None = None
+        self.workflow_text: str | None = None  # cmux-next.yml at the head (GitHub.workflow_file())
         rescue.SETTLED_HERE.clear()
+
+    def workflow_file(self, path, ref):
+        self.calls.append(f"workflow:{path}@{ref}")
+        return self.workflow_text
 
     def record(self):
         done = self.cancelled_at is not None and self.clock.seconds - self.cancelled_at >= self.settles_after
@@ -9809,6 +9814,63 @@ class StallMove(unittest.TestCase):
         self.assertEqual(rescue.stall_scan(dispatch, "manaflow-ai/cmux", now=clock.now, log=lambda text: None,
                                            moved=set(), moves=[], start=lambda *args: None,
                                            destination=(six,)), 1)
+
+    def test_pr_rescue_moves_a_same_tree_dispatch_whose_head_sends_the_bot_s_rerun_off_the_minis(self):
+        # cmuxterm-hq#12109, 2026-11-16: cmux#44529's scheme compile (job 133341854319) in same-tree run 43879624016,
+        # `cmux-next · <head>`, queued on the saturated glaeda-side-std-xcode-26.6 from 13:50Z; under `pr-rescue` the
+        # scan left every dispatch. A head whose cmux-next.yml sends a bot's re-run of such a dispatch to Blacksmith
+        # (PULL_DISPATCH_RESCUE_CLAUSE) is moved; an older head's re-run would rejoin the side lane, so it is left.
+        six = rescue.STALL_DESTINATION
+        clock = Clock()
+
+        def jobs(attempt, seconds):
+            return [stall_job("cmux app scheme compile (Debug)", job_id=attempt * 10 + 1)]
+
+        def dispatch_api(text, title=f"cmux-next · {HEAD}"):
+            api = StallAPI(clock, jobs, attempt=1, actor="teamleaderleo")
+            record = api.record
+            api.record = lambda: {**record(), "event": "workflow_dispatch", "display_title": title}
+            api.workflow_text = text
+            return api
+
+        def scan(api, logs):
+            starts = []
+            count = rescue.stall_scan(api, "manaflow-ai/cmux", now=clock.now, log=logs.append, moved=set(),
+                                      moves=[], start=lambda *args: starts.append(args), destination=(six,),
+                                      pull_only=True)
+            return count, starts
+
+        clock.advance(rescue.STALL_QUEUE_SECONDS + 1)
+        fallback = (f"{rescue.PULL_DISPATCH_RESCUE_CLAUSE} && vars.CI_BLACKSMITH_MACOS != 'on' && "
+                    "vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26")
+        logs = []
+        api = dispatch_api(f"runs-on: ${{{{ {fallback} }}}}\n")
+        count, starts = scan(api, logs)
+        self.assertEqual(count, 1, logs)
+        self.assertIn(f"workflow:{rescue.CMUX_NEXT_WORKFLOW_PATH}@{HEAD}", api.calls)
+        self.assertEqual(starts[0][0].event, "workflow_dispatch")
+        # The head before the clause: its bot re-run still takes CI_SIDE_LANE_RUNNER.
+        old = ("(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' || "
+               "github.run_attempt < 2) && vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER")
+        for text in (old, None):
+            with self.subTest(text=text):
+                logs = []
+                count, starts = scan(dispatch_api(text), logs)
+                self.assertEqual((count, starts), (0, []))
+                self.assertTrue(any("leaves it" in line for line in logs), logs)
+        # A dispatch with a name of its own (base tier, tip suite, DEV daily) is never read nor moved.
+        api = dispatch_api(fallback, title=f"cmux-next base tier · {HEAD}")
+        self.assertEqual(scan(api, [])[0], 0)
+        self.assertFalse([call for call in api.calls if call.startswith("workflow:")])
+        # A failed read leaves it to the next scan.
+        api = dispatch_api(fallback)
+
+        def refused(path, ref):
+            raise urllib.error.URLError("refused")
+        api.workflow_file = refused
+        logs = []
+        self.assertEqual(scan(api, logs)[0], 0)
+        self.assertTrue(any("next scan" in line for line in logs), logs)
 
     def test_a_handover_ends_a_pass_through_between_rounds(self):
         clock = Clock()
