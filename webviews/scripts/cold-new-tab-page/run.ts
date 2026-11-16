@@ -16,12 +16,17 @@
 //   - `--one-profile` keeps one browser profile on disk for the runs of an arm (a new page each, in
 //     the same context), so the browser's caches live from run to run; it prints each run's total in
 //     order. Without it each page is in a new context of its own. No coverage and no trace then.
+//   - `--one-renderer` starts the browser with `--process-per-site` and opens the pages of an arm one
+//     after the other in ONE context, and each stays open: a later page loads in a renderer process
+//     that already ran the same scripts. It prints each page in order and the browser's renderer
+//     process ids after each page. With `--trace` the whole row of pages is traced (slower): the
+//     process id of each page's own navigation, its split, and what its compile events say of a cache.
 //   - `--trace` adds one more run for each arm with the browser's own trace on (not timed with the
 //     others: the trace slows the page): the main thread's time by event name in each part, as self
 //     time (an event's time less the time of the events inside it).
 //
 // Usage:
-//   bun scripts/cold-new-tab-page/run.ts --dist DIR --out FILE.json [--runs 10] [--cache] [--one-profile] [--probe DIR] [--trace]
+//   bun scripts/cold-new-tab-page/run.ts --dist DIR --out FILE.json [--runs 10] [--cache] [--one-profile] [--one-renderer] [--probe DIR] [--trace]
 //
 // Arms: context `call` (the page asks `newTab.context` in an effect: the Chromium way) and context
 // `document` (`window.__cmuxNewTabContext` is there before the page's scripts: the WebKit way), each
@@ -89,13 +94,13 @@ function options(args: string[]) {
   const values = new Map<string, string>();
   const flags = new Set<string>();
   for (let i = 0; i < args.length; i++) {
-    if (["--cache", "--trace", "--one-profile"].includes(args[i])) flags.add(args[i]);
+    if (["--cache", "--trace", "--one-profile", "--one-renderer"].includes(args[i])) flags.add(args[i]);
     else if (["--dist", "--out", "--runs", "--probe"].includes(args[i])) values.set(args[i], args[++i] ?? "");
     else throw new Error(`unknown argument ${args[i]}`);
   }
   const dist = values.get("--dist");
   const out = values.get("--out");
-  if (!dist || !out) throw new Error("usage: run.ts --dist DIR --out FILE.json [--runs 10] [--cache] [--one-profile] [--probe DIR] [--trace]");
+  if (!dist || !out) throw new Error("usage: run.ts --dist DIR --out FILE.json [--runs 10] [--cache] [--one-profile] [--one-renderer] [--probe DIR] [--trace]");
   return {
     dist: path.resolve(dist),
     out: path.resolve(out),
@@ -103,6 +108,7 @@ function options(args: string[]) {
     cache: flags.has("--cache"),
     trace: flags.has("--trace"),
     oneProfile: flags.has("--one-profile"),
+    oneRenderer: flags.has("--one-renderer"),
     probe: values.get("--probe") ? path.resolve(values.get("--probe") as string) : undefined,
   };
 }
@@ -363,7 +369,7 @@ interface TraceEvent {
   tid: number;
   ts: number;
   dur?: number;
-  args?: { data?: { documentLoaderURL?: string } };
+  args?: { data?: Record<string, unknown> };
 }
 
 const TRACE_CATEGORIES = [
@@ -376,32 +382,29 @@ const TRACE_CATEGORIES = [
   "v8.execute",
 ];
 
-/** One run with the browser's trace: the page's main thread by event name (self time, ms) in each part. */
-async function traced(browser: Browser, url: string, arm: Arm, json: string) {
-  const { page, done } = await open(browser, arm, json);
-  await browser.startTracing(page, { categories: TRACE_CATEGORIES });
-  await page.goto(url, { waitUntil: "commit" });
-  await done;
-  const run = await read(page);
-  const buffer = await browser.stopTracing();
-  await page.close();
-  const events = (JSON.parse(buffer.toString("utf8")) as { traceEvents: TraceEvent[] }).traceEvents;
-  // The navigation of the page gives the time's start and the page's main thread.
-  const start = events.find((event) => event.name === "navigationStart" && event.args?.data?.documentLoaderURL === url);
-  if (!start) return { run, windows: [], note: "the trace has no navigation start of the page" };
+/** The navigations of `url` in a trace, in order. */
+function navigations(events: TraceEvent[], url: string) {
+  return events
+    .filter((event) => event.name === "navigationStart" && event.args?.data?.documentLoaderURL === url)
+    .sort((a, b) => a.ts - b.ts);
+}
+
+/** One navigation of a trace: its main thread by event name (self time, ms) in each part of `run`. */
+function split(events: TraceEvent[], start: TraceEvent, run: Run) {
   const at = (event: TraceEvent) => (event.ts - start.ts) / 1000;
-  const thread = events
-    .filter((event) => event.ph === "X" && event.pid === start.pid && event.tid === start.tid && event.dur !== undefined)
+  const mine = events.filter((event) => event.pid === start.pid && event.tid === start.tid);
+  const thread = mine
+    .filter((event) => event.ph === "X" && event.dur !== undefined)
     .sort((a, b) => a.ts - b.ts || (b.dur ?? 0) - (a.dur ?? 0));
   // Self time: an event's own time less its direct children's.
   const self = new Map<TraceEvent, number>();
-  const open_: TraceEvent[] = [];
+  const stack: TraceEvent[] = [];
   for (const event of thread) {
-    while (open_.length && open_[open_.length - 1].ts + (open_[open_.length - 1].dur ?? 0) <= event.ts) open_.pop();
-    const parent = open_[open_.length - 1];
+    while (stack.length && stack[stack.length - 1].ts + (stack[stack.length - 1].dur ?? 0) <= event.ts) stack.pop();
+    const parent = stack[stack.length - 1];
     if (parent) self.set(parent, (self.get(parent) ?? 0) - (event.dur ?? 0));
     self.set(event, (self.get(event) ?? 0) + (event.dur ?? 0));
-    open_.push(event);
+    stack.push(event);
   }
   const { marks } = run;
   const edges: [string, number, number][] = [
@@ -425,7 +428,79 @@ async function traced(browser: Browser, url: string, arm: Arm, json: string) {
       rows: rows.slice(0, 12).map(([event, ms]) => ({ event, ms })),
     };
   });
-  return { run, windows };
+  // What the compile events of this navigation say of a cache: each `key=value` of their data, counted.
+  const cache = new Map<string, number>();
+  for (const event of mine) {
+    if (at(event) < 0 || at(event) >= marks.barPainted || !/compile/i.test(event.name)) continue;
+    const data = event.args?.data;
+    if (!data) continue;
+    for (const [key, value] of Object.entries(data)) {
+      if (!/cache|streamed|eager|lazy/i.test(key)) continue;
+      const label = typeof value === "number" ? `${event.name} ${key} (sum)` : `${event.name} ${key}=${String(value)}`;
+      cache.set(label, (cache.get(label) ?? 0) + (typeof value === "number" ? value : 1));
+    }
+  }
+  return { pid: start.pid, run, windows, cache: Object.fromEntries(cache) };
+}
+
+function printSplit(result: ReturnType<typeof split>) {
+  for (const part of result.windows)
+    console.log(
+      `    ${part.name}: ${fixed(part.length)} ms long, main thread busy ${fixed(part.busy)} ms: ${part.rows
+        .filter((row) => row.ms >= 1)
+        .map((row) => `${row.event} ${fixed(row.ms)}`)
+        .join(", ")}`,
+    );
+  const cache = Object.entries(result.cache);
+  console.log(
+    `    compile events' cache data: ${cache.length ? cache.map(([label, count]) => `${label}: ${count}`).join("; ") : "none"}`,
+  );
+}
+
+/** One run with the browser's trace on. */
+async function traced(browser: Browser, url: string, arm: Arm, json: string) {
+  const { page, done } = await open(browser, arm, json);
+  await browser.startTracing(page, { categories: TRACE_CATEGORIES });
+  await page.goto(url, { waitUntil: "commit" });
+  await done;
+  const run = await read(page);
+  const buffer = await browser.stopTracing();
+  await page.close();
+  const events = (JSON.parse(buffer.toString("utf8")) as { traceEvents: TraceEvent[] }).traceEvents;
+  // The navigation of the page gives the time's start and the page's main thread.
+  const start = navigations(events, url)[0];
+  return start ? split(events, start, run) : undefined;
+}
+
+/** The pages of one arm, one after the other in one context of a `--process-per-site` browser; each stays open. */
+async function oneRendererRow(url: string, arm: Arm, json: string, pages: number, trace: boolean) {
+  const browser = await chromium.launch({ headless: true, args: ["--process-per-site"] });
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  const session = await browser.newBrowserCDPSession();
+  const renderers = async () =>
+    (await session.send("SystemInfo.getProcessInfo")).processInfo
+      .filter((process) => process.type === "renderer")
+      .map((process) => process.id);
+  if (trace) await browser.startTracing(undefined, { categories: TRACE_CATEGORIES });
+  const list: Run[] = [];
+  const processes: number[][] = [];
+  for (let nth = 0; nth < pages; nth++) {
+    const { page, done } = await open(context, arm, json);
+    await page.goto(url, { waitUntil: "commit" });
+    await done;
+    list.push(await read(page));
+    processes.push(await renderers());
+    // The page stays open: its renderer process lives for the next page.
+  }
+  let splits: ReturnType<typeof split>[] = [];
+  if (trace) {
+    const events = (JSON.parse((await browser.stopTracing()).toString("utf8")) as { traceEvents: TraceEvent[] })
+      .traceEvents;
+    splits = navigations(events, url).flatMap((start, nth) => (list[nth] ? [split(events, start, list[nth])] : []));
+  }
+  const version = browser.version();
+  await browser.close();
+  return { list, processes, splits, version };
 }
 
 function median(values: number[]) {
@@ -438,7 +513,7 @@ const fixed = (value: number) => (Number.isFinite(value) ? value.toFixed(1) : "n
 const load = () => fs.readFileSync("/proc/loadavg", "utf8").trim();
 
 async function main() {
-  const { dist, out, runs, cache, probe, trace, oneProfile } = options(process.argv.slice(2));
+  const { dist, out, runs, cache, probe, trace, oneProfile, oneRenderer } = options(process.argv.slice(2));
   const server = await serve(dist, cache);
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/index.html`;
   const loadAtStart = load();
@@ -461,6 +536,24 @@ async function main() {
   let version = "";
   for (const arm of arms) {
     const json = JSON.stringify(context(arm.size));
+    if (oneRenderer) {
+      const row = await oneRendererRow(url, arm, json, runs, trace);
+      version = row.version;
+      (report.arms as unknown[]).push({ arm, runs: row.list, renderers: row.processes, trace: row.splits });
+      console.log(
+        `\narm: context by ${arm.way}, ${arm.size === "empty" ? "0 rows" : "826 workspaces"}, one renderer${trace ? " (traced: slower)" : ""}`,
+      );
+      for (const name of Object.keys(row.list[0].parts))
+        console.log(
+          `  ${name.padEnd(18)} by page: ${row.list.map((one) => fixed(one.parts[name as keyof typeof one.parts])).join(", ")}`,
+        );
+      console.log(`  renderer process ids after each page: ${row.processes.map((ids) => `[${ids.join(" ")}]`).join(", ")}`);
+      row.splits.forEach((one, nth) => {
+        console.log(`  page ${nth + 1}: the process of its navigation = ${one.pid}`);
+        printSplit(one);
+      });
+      continue;
+    }
     if (oneProfile) {
       const profile = fs.mkdtempSync(path.join(os.tmpdir(), "cold-new-tab-page-"));
       const kept = await chromium.launchPersistentContext(profile, { headless: true, viewport: VIEWPORT });
@@ -499,9 +592,9 @@ async function main() {
       await page.close();
     }
     const covered = await coverage(browser, url, arm, json);
-    const split = trace ? await traced(browser, url, arm, json) : undefined;
+    const traceSplit = trace ? await traced(browser, url, arm, json) : undefined;
     await browser.close();
-    (report.arms as unknown[]).push({ arm, runs: list, coverage: covered, ...(split ? { trace: split } : {}) });
+    (report.arms as unknown[]).push({ arm, runs: list, coverage: covered, ...(traceSplit ? { trace: traceSplit } : {}) });
     const names = Object.keys(list[0].parts);
     console.log(`\narm: context by ${arm.way}, ${arm.size === "empty" ? "0 rows" : "826 workspaces"}`);
     for (const name of names) {
@@ -532,17 +625,9 @@ async function main() {
     console.log(
       `  run 1 host calls: ${first.calls.map((call) => `${call.op.replace("cmux.agent.", "")}@${fixed(call.at)}`).join(", ")}`,
     );
-    if (split) {
-      console.log(
-        `  traced run (slower: the trace is on): total ${fixed(split.run.parts.total)} ms${"note" in split ? `; ${split.note}` : ""}`,
-      );
-      for (const part of split.windows)
-        console.log(
-          `    ${part.name}: ${fixed(part.length)} ms long, main thread busy ${fixed(part.busy)} ms: ${part.rows
-            .filter((row) => row.ms >= 1)
-            .map((row) => `${row.event} ${fixed(row.ms)}`)
-            .join(", ")}`,
-        );
+    if (traceSplit) {
+      console.log(`  traced run (slower: the trace is on): total ${fixed(traceSplit.run.parts.total)} ms`);
+      printSplit(traceSplit);
     }
     const errors = list.flatMap((one) => one.errors);
     if (errors.length) console.log(`  page errors: ${errors.length}: ${[...new Set(errors)].slice(0, 5).join(" | ")}`);
