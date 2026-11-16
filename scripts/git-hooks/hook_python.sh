@@ -26,7 +26,9 @@ except Exception:
 # hook_python_pick NEED_YAML RECORDED [ROOT...]: sets HOOK_PYTHON (the resolved path of the pick; empty when none runs)
 # and HOOK_PYTHON_TRIED ("path (why); ..." for each candidate passed over, in order). Returns 1 when none runs.
 hook_python_pick() {
-    local need_yaml="$1" recorded="$2" candidate real root why status seen=$'\n' fallback=""
+    local need_yaml="$1" recorded="$2" candidate real root why status nl seen fallback=""
+    printf -v nl '\n'
+    seen="$nl"
     shift 2
     HOOK_PYTHON=""
     HOOK_PYTHON_TRIED=""
@@ -46,8 +48,8 @@ hook_python_pick() {
             fi
         fi
         if [[ -z "$why" ]]; then
-            case "$seen" in *$'\n'"$real"$'\n'*) continue ;; esac
-            seen="$seen$real"$'\n'
+            case "$seen" in *"$nl$real$nl"*) continue ;; esac
+            seen="$seen$real$nl"
             for root in "$@"; do
                 [[ -n "$root" ]] || continue
                 case "$candidate/" in "$root"/*) why="inside the checkout" ;; esac

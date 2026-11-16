@@ -178,6 +178,53 @@ class HardcodedInterpreterPaths(unittest.TestCase):
         installer = (SOURCE / "scripts/install-git-hooks.sh").read_text(encoding="utf-8")
         self.assertIn("hook_python_pick 1", installer)
         self.assertIn('install -m 0644 scripts/git-hooks/hook_python.sh "$TRUSTED_HOOK_DIR/hook_python.sh"', installer)
+        self.assertIn('install -m 0755 scripts/git-hooks/merge_python.sh "$TRUSTED_HOOK_DIR/merge_python.sh"', installer)
+
+    def test_the_pre_commit_hook_runs_the_picked_interpreter(self):
+        hook = (SOURCE / "scripts/git-hooks/pre-commit").read_text(encoding="utf-8")
+        self.assertIn('source "$HOOK_DIR/hook_python.sh"', hook)
+        self.assertIn('hook_python_pick 0 "$RECORDED_PYTHON"', hook)
+        self.assertIn('PYTHON3_BIN="$HOOK_PYTHON"', hook)
+
+    def test_no_hook_reads_the_recorded_path_as_its_interpreter(self):
+        for path in sorted((SOURCE / "scripts/git-hooks").iterdir()):
+            if path.is_file():
+                with self.subTest(hook=path.name):
+                    self.assertNotIn("read -r PYTHON3_BIN", path.read_text(encoding="utf-8"))
+
+    def test_every_merge_driver_runs_through_the_picker(self):
+        installer = (SOURCE / "scripts/install-git-hooks.sh").read_text(encoding="utf-8")
+        drivers = re.findall(r"^printf -v (\w+_DRIVER) '([^']*)' \\\n\s*(\S+) ", installer, re.M)
+        self.assertGreaterEqual(len(drivers), 5, drivers)
+        for name, form, interpreter in drivers:
+            with self.subTest(driver=name):
+                self.assertTrue(form.startswith("/bin/bash %q %q "), form)
+                self.assertEqual(interpreter, '"$TRUSTED_HOOK_DIR/merge_python.sh"')
+        self.assertNotRegex(installer, r'"\$PYTHON3_BIN" "\$MERGE_DRIVER_DIR/')
+
+
+class MergeDriverPythonTests(unittest.TestCase):
+    """scripts/git-hooks/merge_python.sh, run the way git runs a driver the install wrote."""
+
+    def test_a_driver_whose_recorded_interpreter_is_gone_runs_under_the_next_candidate(self):
+        with tempfile.TemporaryDirectory(prefix="cmux-merge-python-") as name:
+            root = Path(os.path.realpath(name))
+            hooks, home, work = root / "git" / "cmux-git-hooks", root / "home", root / "work"
+            for folder in (hooks, home / ".local/bin", work):
+                folder.mkdir(parents=True)
+            for script in ("hook_python.sh", "merge_python.sh"):
+                (hooks / script).write_bytes((SOURCE / "scripts/git-hooks" / script).read_bytes())
+            (hooks / "python3-path").write_text("/Users/cmux/.local/python-3.13.15/bin/python3.13\n")
+            ran = root / "ran.txt"
+            # Answers the picker's probe as a Python without PyYAML (exit 4), then records how the driver was run.
+            fake = home / ".local/bin/python3"
+            fake.write_text(f'#!/bin/sh\n[ "$2" = -c ] && exit 4\nprintf "%s\\n" "$@" > {shlex.quote(str(ran))}\n')
+            fake.chmod(0o755)
+            env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
+            done = subprocess.run(["/bin/bash", str(hooks / "merge_python.sh"), "/drivers/merge-pbxproj.py",
+                                   "O", "A", "B", "P"], cwd=work, env=env, text=True, capture_output=True, timeout=60)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(ran.read_text().split("\n")[:-1], ["-I", "/drivers/merge-pbxproj.py", "O", "A", "B", "P"])
 
 
 if __name__ == "__main__":

@@ -168,6 +168,8 @@ install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
 # the --namespace-fix helpers below are installed.
 # Its per-host Python picker first, so a push that starts mid-install never finds the new hook without it.
 install -m 0644 scripts/git-hooks/hook_python.sh "$TRUSTED_HOOK_DIR/hook_python.sh"
+# The merge drivers run through the same picker (their git config names this, below).
+install -m 0755 scripts/git-hooks/merge_python.sh "$TRUSTED_HOOK_DIR/merge_python.sh"
 install -m 0755 scripts/git-hooks/pre-push "$TRUSTED_HOOK_DIR/pre-push"
 install -m 0644 scripts/web_lint_prepush.py "$TRUSTED_HOOK_DIR/web_lint_prepush.py"
 install -m 0644 scripts/cmux-next/prepush-gate.py "$TRUSTED_HOOK_DIR/cmux_next_prepush_gate.py"
@@ -308,16 +310,16 @@ install -m 0755 scripts/merge-daemon-capabilities.py "$MERGE_DRIVER_DIR/merge-da
 install -m 0755 scripts/merge-insertions.py "$MERGE_DRIVER_DIR/merge-insertions.py"
 install -m 0644 scripts/ci/merge_main_resolver.py "$MERGE_DRIVER_DIR/ci/merge_main_resolver.py"
 install -m 0755 scripts/normalize-pbxproj.py "$MERGE_DRIVER_DIR/normalize-pbxproj.py"
-printf -v XCSTRINGS_DRIVER '%q -I %q %%O %%A %%B %%P %%L' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-xcstrings.py"
-printf -v PBXPROJ_DRIVER '%q -I %q %%O %%A %%B %%P' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-pbxproj.py"
-printf -v BASELINE_DRIVER '%q -I %q %%O %%A %%B %%P' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-baseline.py"
-printf -v CAPABILITIES_DRIVER '%q -I %q %%O %%A %%B %%P' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
-printf -v INSERTIONS_DRIVER '%q -I %q %%O %%A %%B %%P %%L' \
-    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-insertions.py"
+printf -v XCSTRINGS_DRIVER '/bin/bash %q %q %%O %%A %%B %%P %%L' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-xcstrings.py"
+printf -v PBXPROJ_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-pbxproj.py"
+printf -v BASELINE_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-baseline.py"
+printf -v CAPABILITIES_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
+printf -v INSERTIONS_DRIVER '/bin/bash %q %q %%O %%A %%B %%P %%L' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-insertions.py"
 git config merge.xcstrings-v2.name "Xcode string catalog (trusted key-wise three-way merge)"
 git config merge.xcstrings-v2.driver "$XCSTRINGS_DRIVER"
 # Neutralize the checkout-relative command installed by older setup versions.
