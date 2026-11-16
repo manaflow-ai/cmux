@@ -144,7 +144,7 @@ struct ChatWorkspaceShowsAtOnceTests {
         try #require(tabs.canHostChat, "this build has no agent page")
         let url = launched.root.appendingPathComponent("cmux.json")
         try Data(#"{"workspaces":{"newPlacement":"\#(placement)"}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings

@@ -9,9 +9,9 @@ import Foundation
 /// decides their engine as it does for browser tabs. Made once at the composition root
 /// (`AppDelegate`) and handed to ``PageWebView/chromiumHosting``.
 ///
-/// Every page shares one off-the-record profile: like the WebKit pages' non-persistent store, a
-/// page keeps nothing on disk, and no profile of the person's (their extensions, cookies) touches a
-/// cmux page.
+/// Every page shares one off-the-record profile (`CEFEngine.cmuxPageProfile`): like the WebKit
+/// pages' non-persistent store, a page keeps nothing on disk, and no profile of the person's (their
+/// extensions, cookies) touches a cmux page. Its store keeps a spare Chromium window for the next page.
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {
@@ -25,7 +25,6 @@ final class ChromiumPageHost: PageChromiumHosting {
     private let enginePreference: @MainActor () -> BrowserDefaultEngine
     private weak var keyRouter: KeyRouter?
     private let paneFocus: @MainActor (PageWebView) -> Bool
-    private var pageProfile: BrowserProfileID?
     let healthFeed: (any PageHealthFeed)?
 
     /// - Parameters:
@@ -62,10 +61,8 @@ final class ChromiumPageHost: PageChromiumHosting {
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
-        let profile = pageProfile ?? cef.stores.offTheRecord.begin()
-        pageProfile = profile
         // Its own pane id: a page is never a tab of a browser pane's Chromium window.
-        let configuration = BrowserTabConfiguration(profile: profile, pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
+        let configuration = BrowserTabConfiguration(profile: cef.cmuxPageProfile(), pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif

@@ -95,17 +95,32 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         return runs
     }
 
-    /// Finds the staged bundle on `work`'s files lane at best-effort priority, then starts each run
-    /// (``AsyncProcess``, nothing waits on a thread). Returns a line for the update log.
+    /// Finds the staged bundle on `work`'s files lane, then starts each run (``AsyncProcess``, nothing
+    /// waits on a thread). `progress` gets a line for the update log once the scan ends and as each run
+    /// ends, so a pre-warm cut short by the relaunch still says how far it got. Returns the last line.
+    ///
+    /// The scan runs at ``WorkPriority/userVisible``, not best effort: the files lane has one serial slot
+    /// per priority, and the best-effort one holds the rollback keep the same staging starts (a clone of the
+    /// running app, then a signature read of every kept build) and whatever else waits there. A scan queued
+    /// behind them ran after the person's click or never (Leo's NIGHTLY: staged 22:38:18Z, kept 22:38:45Z,
+    /// clicked 22:39:16Z, no pre-warm line). The scan reads three folder levels and some Info.plists.
+    ///
     /// With `marker`, a pre-warm that found the staged bundle leaves ``build`` there for that build's first
     /// launch (``consumeLaunchMarker(build:at:)``), which records itself as pre-warmed (`cmux app launch-times`).
+    /// The marker write runs at ``WorkPriority/userVisible`` too, for the same reason as the scan.
     public func perform(work: BackgroundWork, processes: AsyncProcess = AsyncProcess(),
-                        timeout: Duration = .seconds(20), marker: URL? = nil) async -> String {
-        let scanned = try? await work.run(.bestEffort, mayBlock: .files) { [self] () -> (URL, [Run])? in
+                        timeout: Duration = .seconds(20), marker: URL? = nil,
+                        progress: (@Sendable (String) -> Void)? = nil) async -> String {
+        let asked = ContinuousClock.now
+        let scanned = try? await work.run(.userVisible, mayBlock: .files) { [self] () -> (URL, [Run])? in
             stagedBundle().map { ($0, runs(bundle: $0)) }
         }
-        guard let staged = scanned ?? nil else { return "launch pre-warm: no staged bundle of \(build) in \(installation.path)" }
+        let scan = Self.milliseconds(ContinuousClock.now - asked)
+        guard let staged = scanned ?? nil else {
+            return "launch pre-warm: no staged bundle of \(build) in \(installation.path) (scan \(scan) ms)"
+        }
         let bundle = staged.0, planned = staged.1
+        progress?("launch pre-warm of \(build): \(planned.count) runs in \(bundle.lastPathComponent) (scan \(scan) ms)")
         var parts: [String] = []
         for run in planned {
             let started = ContinuousClock.now
@@ -116,14 +131,22 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             } catch {
                 status = "failed (\(error))"
             }
-            let elapsed = (ContinuousClock.now - started).components
-            parts.append("\(run.executable.lastPathComponent) \(status) \(elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000) ms")
+            let part = "\(run.executable.lastPathComponent) \(status) \(Self.milliseconds(ContinuousClock.now - started)) ms"
+            progress?("launch pre-warm of \(build): \(part)")
+            parts.append(part)
         }
         if let marker {
             let build = build
-            try? await work.run(.bestEffort, mayBlock: .files) { Self.writeLaunchMarker(build: build, at: marker) }
+            try? await work.run(.userVisible, mayBlock: .files) { Self.writeLaunchMarker(build: build, at: marker) }
         }
-        return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): " + (parts.isEmpty ? "nothing to run" : parts.joined(separator: ", "))
+        return "launch pre-warm of \(build) (\(bundle.lastPathComponent)): "
+            + (parts.isEmpty ? "nothing to run" : parts.joined(separator: ", ") + "; \(Self.milliseconds(ContinuousClock.now - asked)) ms in all")
+    }
+
+    /// Whole milliseconds of `duration`.
+    static func milliseconds(_ duration: Duration) -> Int {
+        let parts = duration.components
+        return Int(parts.seconds * 1000 + parts.attoseconds / 1_000_000_000_000_000)
     }
 
     /// `~/Library/Application Support/<bundle id>/launch-prewarm`: the build the last pre-warm ran, until
