@@ -31,8 +31,9 @@ forms (--launch-form; `launch_form` and `key_source` in the report say which one
             ONE `debug.key {"key"}` call at its time by this script's clock, with that time as the event's time.
             The app sends it to its window directly: the app's event queue, the key-up and the repeat flag are
             NOT in the rows, so the key router's repeat path is not measured. ONE thread sends the calls in key
-            order, and it waits for the reply to a call before it starts the next one, so the app gets the keys
-            in this order; `key_calls` says for each take if that was so (INPUT ORDER). The app can still RUN
+            order, and it waits for the end of a call (a reply, or the client's error) before it starts the next
+            one. With a reply of the app to each call the app got the keys in this order; `key_calls` says for
+            each take if that was so (INPUT ORDER). The app can still RUN
             2 actions in the other order: it answers a key that it keeps for later before that key's action. A
             call that takes longer than the gap of 2 keys makes the next call late; no key is dropped.
   auto      (default) `activate`; when its preflight fails, ONE new launch in the `one-key` form.
@@ -74,7 +75,9 @@ that did, and `first` names the first. It is null (no proof) when a key that did
 action, when the app ran no action at all, or at a fault of the tool: the row is then INVALID.
 When `in_key_order` is false, the row's state follows from `key_calls.each_call_ended_with_its_reply_before_the_next_began`
 (the `one-key` form: each call of the take got a reply of the app and ended before the next call started; null in the
-`activate` form, where the app plays the keys and the tool makes no call for each key):
+`activate` form, where the app plays the keys and the tool makes no call for each key). A reply with `error` is no
+reply: the client gives its own time-out and a lost connection in that form, the same form as a refusal of the app,
+so the tool does not know if the app got that key:
   not true  INVALID: the app can have got 2 keys in the other order, which is a fault of the tool's send.
   true      a finding: the app got the keys in the tool's order and ran their actions in another order. The row's
             `finding` has the word `THE APP RAN THE ACTIONS IN ANOTHER ORDER THAN THE KEYS`, the first 2 such keys
@@ -82,13 +85,19 @@ When `in_key_order` is false, the row's state follows from `key_calls.each_call_
             from the key's planned time) and `path`: for each of the 2 keys, if the reply came BEFORE the action
             started (`reply_before_the_action_start`), which is the mark of a key that the app kept and ran later.
             True is sure (the script read the reply before the action started); false is not (FINDING_LIMIT).
-            The finding's words are also the one entry of the row's `invalid`, so a reader that knows only
-            `invalid` takes no number of the row. The run has a failure for it, and the exit is not 0.
+            The finding's words are also an entry of the row's `invalid`, so a reader that knows only
+            `invalid` takes no number of the row. The run has a failure for it, and the exit is not 0. A finding
+            row can also have `errors` (of another act of the take): its state stays `finding`.
 A row with no proof of the order of its keys (INVALID for the order, no proof, a finding) has each field that is not
-in ROW_KEYS below ONE key, `not_for_a_person`: each number of the row, each key's fate, and the model's word for
-the order that the app ran (`order_by_the_acts`, with `model_by_the_acts_matches` and no field named `equal`). Its
-`order` has only a null `equal`, `verdict`, `why` and `openers_at_start`. An INVALID row for another cause (the
-row's `errors`, another entry of `invalid`) keeps its fields where they were.
+in ROW_KEYS below ONE key, `not_for_a_person`: each measure of the app's work, each key's fate, and the model's word
+for the order that the app ran (`order_by_the_acts`, with `model_by_the_acts_matches` and no field named `equal`).
+The data of the proof (the calls, the counts of keys and acts) stays beside that key. Its `order` has only a null
+`equal`, `verdict`, `why` and `openers_at_start`. A row with no fate of each key (the recorder made no stream) has
+no `input_order` at all: it is such a row too, with no `order_by_the_acts`.
+EACH row has `state`, also a row that was not run and the row of a killed take. A row with an entry of `errors` and
+none of `invalid` gets ONE entry of `invalid` (ERRORS_ONLY), so a reader that knows only `invalid` takes no number
+of it; the run's failures name the error itself, one time. An INVALID row for another cause than the order (the
+row's `errors`, another entry of `invalid`) that has the proof of the order keeps its fields where they were.
 `key_calls` says who sent the keys (`sent_by`) and which clock a key's time is on (`key_time`): in the `one-key` form
 each number from a key's time starts at the key's PLANNED time (the event's time that the app got), not at the start
 of its call, so it has the wait of a late call in it. There the record of a take has [the planned time, the start,
@@ -237,7 +246,8 @@ KEY_SOURCES = {"activate": "debug.key posts real key events to the app's own que
                           "not the app's event queue, no key-up, so the key router's repeat path is not in the rows"}
 PREFLIGHT_S = 120
 SENT_BY = {"activate": "the app plays the sequence: one call, and the app posts each key to its own event queue",
-           "one-key": "one thread of this script, in key order: it waits for the reply to a call before the next call"}
+           "one-key": "one thread of this script, in key order: it waits for the end of a call (a reply, or the client's "
+                      "error) before the next call"}
 KEY_TIME = {"activate": "the app's own clock: each key's intended press time in the sequence",
             "one-key": "the key's planned time by this script's clock (the event's time that the app got), not the start of its "
                        "call: a number from a key's time has the wait of a late call in it"}
@@ -247,7 +257,8 @@ INPUT_ORDER_BY = ("the app's own records: the start of each key's action (`actio
                   "time) against the key's number")
 OTHER_ORDER = "the app ran the actions of the keys in another order than the keys"
 NO_PROOF_OF_THE_SEND = {None: "the app plays the sequence: the tool makes no call for each key",
-                        False: "a call of the row had no reply of the app, or had not ended when the next call began"}
+                        False: "a call of the row had no reply of the app (a reply with `error` is none), or had not ended "
+                               "when the next call began"}
 FINDING = "THE APP RAN THE ACTIONS IN ANOTHER ORDER THAN THE KEYS"
 FINDING_LIMIT = ("the 2 keys are the first such pair of the row. A reply's time is this script's clock read after its call "
                  "returned, and an action's start is the app's own record; the 2 clocks are one by the pairing of a key with its "
@@ -257,6 +268,11 @@ NOT_FOR_A_PERSON = "not_for_a_person"
 HIDDEN_WHY = ("the row has no proof that the app ran the keys' actions in the order of the keys (the row's `state`, `invalid` and "
               "`input_order`): each field below is not for a person, and `order_by_the_acts` is the model's word for the order "
               "that the app ran, not a verdict of the row")
+NO_FATES = "the row has no fate of each key"
+NO_FATES_WHY = ("the row has no fate of each key, so it has no proof of the order of its keys (the row's `state`, `errors` "
+                "and `invalid`): each field below is not for a person")
+# The entry of `invalid` of a row that has an entry of `errors` and no other entry of `invalid` (`sealed`).
+ERRORS_ONLY = "the row has an error (the row's `errors`): no number of this row is for a person"
 # The fields of a row with no such proof that stay beside `not_for_a_person`: what the row is, its state and the proof.
 ROW_KEYS = ("scenario", "round", "state", "key_source", "key_form", "key_calls", "keys_posted", "errors", "invalid", "finding",
             "input_order", "order", "not_restored", "tabs_given_back")
@@ -284,8 +300,9 @@ def post_keys(source, rpc, steps, pane, form):
     `debug.key`'s reply to the sequence, which the app plays by its own clock in the shell window as the key window.
     `one-key`: each key-down of T or W in `steps` is ONE `debug.key` call with its planned time as the event's time
     (`base_s` and the event times are on the clock of an event's time). ONE thread sends the calls in key order
-    (`calls` has it): it waits for a key's planned time, and a call ends before the next one starts, so the app gets
-    the keys in this order. A call that takes longer than the gap of 2 keys makes the next call late, and no key is
+    (`calls` has it): it waits for a key's planned time, and a call ends before the next one starts. With a reply of
+    the app to each call, the app got the keys in this order (`key_calls`); a call that ended with an error leaves
+    that open. A call that takes longer than the gap of 2 keys makes the next call late, and no key is
     dropped (a call that raises is that key's reply, and the next key still goes). `sends` gets [the planned time,
     the start, the end] of each call (ms after `base_s`), `replies` what the app said to each. The function returns
     at once, as the sequence's call does. See `refused` and `key_calls`."""
@@ -319,13 +336,16 @@ def key_calls(sent, form):
     """The record's `key_calls` (the docstring, INPUT ORDER): who sent the keys and which clock a key's time is on;
     in the `one-key` form also `calls` ([the planned time, the start, the end] of each call, ms after the take's
     base time) and what they say of a late call. IN_TURN: true only when each key has a call that ended with a reply
-    of the app (a dict; an error of the call is no reply) and no call started before the call before it ended; null
-    for a sequence, which the app plays."""
+    of the app and no call started before the call before it ended; null for a sequence, which the app plays. A reply
+    of the app is a dict with no `error`. A call that raised is no reply, and a dict with `error` is none: the client
+    (`socket_rpc`) gives its own time-out and a lost connection in that form, the same form as a refusal of the app,
+    so the tool does not know if the app got that key."""
     out = {"sent_by": SENT_BY[form], "key_time": KEY_TIME[form], IN_TURN: None}
     if form != "one-key":
         return out
     calls, replies = [list(call) for call in sent.get("sends") or []], list(sent.get("replies") or [])
-    turn = bool(calls) and len(calls) == len(replies) and all(isinstance(reply, dict) for reply in replies) \
+    turn = bool(calls) and len(calls) == len(replies) \
+        and all(isinstance(reply, dict) and "error" not in reply for reply in replies) \
         and all(call[2] <= following[1] for call, following in zip(calls, calls[1:]))
     out.update({"calls": calls, IN_TURN: turn, "late": sum(start - planned > LATE_CALL_MS for planned, start, _ in calls),
                 "max_late_ms": round(max((start - planned for planned, start, _ in calls), default=0.0), 2),
@@ -496,9 +516,19 @@ def finding(proof, acts, runs, record, form):
 
 def not_for_a_person(row, model):
     """A row with no proof of the order of its keys: each field that is not in ROW_KEYS goes below NOT_FOR_A_PERSON,
-    with `model` (the model's word for the order that the app ran) as `order_by_the_acts`."""
+    with `model` (the model's word for the order that the app ran) as `order_by_the_acts`. `model` is None for a row
+    with no fate of each key: the model has no word for it."""
     hidden = {key: row.pop(key) for key in list(row) if key not in ROW_KEYS}
-    row[NOT_FOR_A_PERSON] = {"why": HIDDEN_WHY, "order_by_the_acts": model, **hidden}
+    row[NOT_FOR_A_PERSON] = {"why": NO_FATES_WHY, **hidden} if model is None else {"why": HIDDEN_WHY, "order_by_the_acts": model, **hidden}
+
+
+def sealed(row):
+    """The last act on EACH row before it goes into the report (the docstring, INPUT ORDER): a row with an entry of
+    `errors` and none of `invalid` gets ERRORS_ONLY as its entry, and the row gets its `state`. Returns the row."""
+    if row.get("errors") and not row.get("invalid"):
+        row["invalid"] = [ERRORS_ONLY]
+    row["state"] = "finding" if row.get("finding") else "valid" if valid(row) else "INVALID"
+    return row
 
 
 def printed(row):
@@ -1336,7 +1366,12 @@ def run(opts, app, signposts, report, form):
                     proof, acts = input_order(runs, row["press_fates"])
             except Exception as error:  # noqa: BLE001  a fault of the proof is no proof: the row is INVALID with the fault's words
                 proof, runs = {"by": INPUT_ORDER_BY, "in_key_order": None, "why": f"a fault of the tool: {error!r}"}, None
-            if proof is not None:
+            if proof is None:
+                # No fate of each key (no signpost stream, a burst that never ran): no proof of the order, with or
+                # without an error of the row.
+                if not row.get("errors"):
+                    row.setdefault("invalid", []).append(f"no proof of the order of the keys: {NO_FATES}")
+            else:
                 row["input_order"] = proof
                 turn = (record.get("key_calls") or {}).get(IN_TURN)
                 if proof["in_key_order"] is False:
@@ -1417,11 +1452,11 @@ def run(opts, app, signposts, report, form):
                     state, row["not_restored"], row["tabs_given_back"] = restore(builder, workspace, pane, state)
             except Exception as error:  # noqa: BLE001  a restore that stopped is a restore that left a difference
                 row["not_restored"] = [f"the restore stopped: {error!r}"]
-            row["state"] = "finding" if row.get("finding") else "valid" if valid(row) else "INVALID"
-            if model is not None:
+            if proof is None or proof["in_key_order"] is not True:
                 not_for_a_person(row, model)
-        report["rows"].append(row)
-        report["failures"] += [f"{index} {name}: {why}" for why in (row.get("errors") or []) + (row.get("invalid") or [])]
+        report["rows"].append(sealed(row))
+        report["failures"] += [f"{index} {name}: {why}" for why in (row.get("errors") or []) + (row.get("invalid") or [])
+                               if why != ERRORS_ONLY]
         report["failures"] += [f"{index} {name}: not restored: {why}" for why in row.get("not_restored") or []]
         print(f"HELD-NEW-TAB-ROW {index} {name}: " + json.dumps(printed(row)), flush=True)
         if ended:
