@@ -220,6 +220,100 @@ pub fn paint(p: &mut Nv12<'_>, counter: u32, phase: u32) {
             line.copy_from_slice(&chroma);
         }
     }
+    paint_scene(p, phase);
+}
+
+/// Measurement branch only (not for merge): `CMUX_RD_SYNTHETIC_SCENE=noise|text` paints a
+/// picture the encoder cannot shrink under the marker band: `noise` is new random luma and
+/// chroma every frame; `text` is a new page of dense 8x16 glyphs every frame (dark strokes on
+/// a light ground, as a terminal full of text that redraws at once).
+fn scene() -> Option<&'static str> {
+    static SCENE: OnceLock<Option<&'static str>> = OnceLock::new();
+    *SCENE.get_or_init(|| match std::env::var("CMUX_RD_SYNTHETIC_SCENE").as_deref() {
+        Ok("noise") => Some("noise"),
+        Ok("text") => Some("text"),
+        _ => None,
+    })
+}
+
+fn mix(mut z: u64) -> u64 {
+    z = z.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
+}
+
+fn noise_pool() -> &'static [u8] {
+    static POOL: OnceLock<Vec<u8>> = OnceLock::new();
+    POOL.get_or_init(|| {
+        let mut v = Vec::with_capacity(32 << 20);
+        let mut i = 0u64;
+        while v.len() < 32 << 20 {
+            v.extend_from_slice(&mix(i).to_le_bytes());
+            i += 1;
+        }
+        v
+    })
+}
+
+/// 256 glyphs of 8x16, each row a byte of set bits (rows 3..13, columns 1..6 inked).
+fn glyphs() -> &'static [[u8; 16]; 256] {
+    static GLYPHS: OnceLock<[[u8; 16]; 256]> = OnceLock::new();
+    GLYPHS.get_or_init(|| {
+        let mut g = [[0u8; 16]; 256];
+        for (i, glyph) in g.iter_mut().enumerate() {
+            for (r, row) in glyph.iter_mut().enumerate().take(13).skip(3) {
+                let bits = mix(((i as u64) << 8) | r as u64);
+                *row = (((bits & (bits >> 8)) as u8) | ((bits >> 16) as u8 & 0x18)) & 0x7e;
+            }
+        }
+        g
+    })
+}
+
+fn paint_scene(p: &mut Nv12<'_>, phase: u32) {
+    let Some(scene) = scene() else { return };
+    let (width, height) = (p.width, p.height);
+    let seed = mix(u64::from(phase));
+    if scene == "noise" {
+        let pool = noise_pool();
+        let rows = height - BAND_ROWS;
+        let need = rows * width + (height / 2) * width;
+        let base = (seed as usize) % (pool.len() - need);
+        for (i, row) in (BAND_ROWS..height).enumerate() {
+            let src = &pool[base + i * width..base + (i + 1) * width];
+            p.y[row * p.y_stride..row * p.y_stride + width].copy_from_slice(src);
+        }
+        let cbase = base + rows * width;
+        for (i, row) in (BAND_ROWS / 2..height / 2).enumerate() {
+            let src = &pool[cbase + i * width..cbase + (i + 1) * width];
+            let line = &mut p.uv[row * p.uv_stride..row * p.uv_stride + width];
+            for (d, s) in line.iter_mut().zip(src) {
+                *d = 64 + (s >> 1);
+            }
+        }
+        return;
+    }
+    let g = glyphs();
+    let cols = width / 8;
+    for row in BAND_ROWS..height {
+        let line_no = (row - BAND_ROWS) / 16;
+        let r = (row - BAND_ROWS) % 16;
+        let line = &mut p.y[row * p.y_stride..row * p.y_stride + width];
+        line.fill(235);
+        for c in 0..cols {
+            let code = mix(seed ^ ((line_no as u64) << 20) ^ c as u64) as u8;
+            let bits = g[usize::from(code)][r];
+            for b in 0..8 {
+                if bits & (0x80 >> b) != 0 {
+                    line[c * 8 + b] = 16;
+                }
+            }
+        }
+    }
+    for row in BAND_ROWS / 2..height / 2 {
+        p.uv[row * p.uv_stride..row * p.uv_stride + (width / 2) * 2].fill(NEUTRAL);
+    }
 }
 
 #[cfg(test)]
