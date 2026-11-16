@@ -262,7 +262,7 @@ let uiLayerPreviewTargets: [Target] = [
 let appLinksStatically = Context.environment["CMUX_LIVE_CODE_BUILD"] == "1"
 
 /// The framework's link, outside live code builds: it exports only the stub's
-/// entry point (`cmux_next_app_main`, CmuxNextAppEntry.swift), as the static
+/// entry point (`cmux_next_app_main`, CmuxNextApp.swift), as the static
 /// executable linked with `-no_exported_symbols` exported nothing, so dead code
 /// stripping keeps only what the entry reaches and dyld binds one symbol. The
 /// frameworks and flags the app target's OTHER_LDFLAGS gave the static link.
