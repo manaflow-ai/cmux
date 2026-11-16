@@ -61,6 +61,9 @@ impl ApiError {
 }
 
 /// Routes an app's catalog op to the daemon's own dispatcher.
+/// How `OpRouter::start_events` hands a change to the supervisor: a stream name and its body.
+pub type StreamPublish = Box<dyn Fn(&str, Value) + Send + Sync>;
+
 pub trait OpRouter: Send + Sync {
     /// Runs `op` for `app`. Ok is the ABI ok body (`{value, ...}`), Err the
     /// ABI error body (`{code, message, details?, retryable}`).
@@ -94,7 +97,7 @@ pub trait OpRouter: Send + Sync {
     /// (`workspace.changed`, `agent.changed`, …) and their bodies (`{}`, or
     /// `{"live": bool}` for a stream with a push channel). Called once, on the
     /// first app subscription.
-    fn start_events(&self, publish: Box<dyn Fn(&str, Value) + Send + Sync>);
+    fn start_events(&self, publish: StreamPublish);
     /// For a stream fed by a push channel outside this machine (`github.changed`, the Cloud's
     /// webhooks): whether that channel is live now. A new subscriber hears `{"live": bool}` first,
     /// so a watch knows whether to keep its slow re-read. `None` for every other stream.

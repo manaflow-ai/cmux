@@ -207,7 +207,7 @@ fn run_request(
 
 /// (app, op, params, idempotency key, origin)
 type RoutedCall = (String, String, Value, Option<String>, Origin);
-type Publish = Box<dyn Fn(&str, Value) + Send + Sync>;
+type Publish = super::supervisor::StreamPublish;
 
 #[derive(Default)]
 struct FakeRouter {
@@ -228,7 +228,7 @@ impl OpRouter for Arc<FakeRouter> {
         Ok(json!({ "value": { "routed": op } }))
     }
 
-    fn start_events(&self, publish: Box<dyn Fn(&str, Value) + Send + Sync>) {
+    fn start_events(&self, publish: Publish) {
         *self.publish.lock().unwrap() = Some(publish);
     }
 

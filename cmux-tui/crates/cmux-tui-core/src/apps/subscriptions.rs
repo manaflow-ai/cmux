@@ -14,6 +14,7 @@ pub(crate) const PROVIDER_CHANGED_CAPABILITY: &str = "app-provider-changed-v1";
 
 /// The read op `cmux-app-host/schema/v2/events.json` names for `stream`: an app hears the stream
 /// only when it may call that op. `None` for a stream the table does not declare.
+#[cfg(test)]
 pub(super) fn declared_reads(stream: &str) -> Option<&'static str> {
     declared(stream).map(|(reads, _)| reads)
 }

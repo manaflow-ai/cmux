@@ -93,7 +93,7 @@ impl OpRouter for MuxRouter {
         is_daemon_op(op) || op == AGENT_CHAT_LIST
     }
 
-    fn start_events(&self, publish: Box<dyn Fn(&str, Value) + Send + Sync>) {
+    fn start_events(&self, publish: super::supervisor::StreamPublish) {
         let Some(mux) = self.mux.upgrade() else { return };
         // Only the events that invalidate an app stream: every other daemon
         // event (terminal output, titles, notifications) was cloned into this
