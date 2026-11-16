@@ -199,6 +199,7 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   xmark: <path d="m4.5 4.5 7 7M11.5 4.5l-7 7" />,
+  plus: <path d="M8 3.5v9M3.5 8h9" />,
   "contextualmenu.and.cursorarrow": (
     <>
       <rect x="1.6" y="1.8" width="9.4" height="8.6" rx="1.6" />
