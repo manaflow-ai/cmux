@@ -420,3 +420,36 @@ mod read_waiter_tests {
         Stream::wait_readable(&second, &mut waiter).unwrap();
     }
 }
+
+/// CMUX-571: an accepted client's socket queues a whole attach batch without
+/// waiting for the client to read. With macOS's 8 KiB default a write blocked
+/// after about 8 KiB.
+#[cfg(all(test, target_os = "macos"))]
+mod accepted_send_buffer_tests {
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    #[test]
+    fn an_accepted_client_takes_more_than_128_kib_before_a_write_blocks() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        let path = PathBuf::from(format!("/tmp/cmux-sndbuf-{}-{nanos}.sock", std::process::id()));
+        let listener = super::listen(&path).expect("listen");
+        let _client = super::connect(&path).expect("connect");
+        let mut accepted = listener.accept().expect("accept");
+        accepted.set_write_timeout(Some(Duration::from_millis(50))).expect("timeout");
+        let chunk = [b'x'; 16 * 1024];
+        let mut queued = 0usize;
+        // The client never reads: each write lands in the kernel buffers until one times out.
+        while queued < 1 << 20 {
+            match accepted.write(&chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => queued += n,
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+        assert!(queued > 128 * 1024, "queued {queued} bytes before a write blocked");
+    }
+}
