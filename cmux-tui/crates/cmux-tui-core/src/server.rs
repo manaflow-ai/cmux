@@ -1934,6 +1934,8 @@ enum Command {
     SetRowHeights(rows::SetRowHeightsParams),
     /// Move a whole viewport column one place (`column-move-v1`).
     MoveColumn(column_move::MoveColumnParams),
+    /// `floating-panes-v1`: float a pane above the tiled layout, put it back, or move it.
+    FloatPane(floating_panes::FloatPaneParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
