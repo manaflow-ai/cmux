@@ -526,6 +526,7 @@ fn own_tree_open_refuses_a_git_folder_of_a_linked_work_tree_that_has_no_record_o
     assert_eq!(opened, [false; 3], "the work tree, the `.git` file, the `.git` link");
     for folder in folders {
         let problem = refusal(folder);
+        assert!(problem.contains("has no record of the place of its work tree"), "{problem}");
         assert!(names_no_command(&problem), "{problem}");
     }
 
@@ -661,4 +662,47 @@ fn own_tree_open_takes_no_work_tree_setting_when_a_record_of_the_extension_is_to
 
     assert_eq!(outcomes, [SETTINGS_TOO_LONG; 2], "the checkout's open, the repository's open");
     assert_eq!(top_folder(&other), other, "the other work tree still opens");
+}
+
+/// The read of the 2 work tree settings asks git for these 2 settings only. A long value of
+/// another setting is no part of what it reads.
+#[test]
+fn own_tree_open_opens_a_git_file_whose_git_folder_has_a_long_value_of_another_setting() {
+    let scratch = Scratch::new("long-other");
+    let (folder, store) = (scratch.folder("folder"), scratch.0.join("store"));
+    new_repository_with_its_git_folder_at(&folder, &store);
+    let long = "a".repeat(70_000);
+    add_to_file(&store.join("config"), &format!("[example]\n\ttext = {long}\n"));
+    // The control: git reads the long value, and gives the folder.
+    assert_eq!(git(&folder, &["config", "--get", "example.text"]).len(), 70_000);
+    assert_eq!(git(&folder, &["rev-parse", "--show-toplevel"]), text(&folder));
+
+    assert_eq!(top_folder(&folder), folder);
+}
+
+/// git reads the file `config.worktree` of a git folder only with the extension
+/// `worktreeConfig` on. With the extension not set or off, a setting of that file changes
+/// nothing: the open reads the name of the git folder, as with no setting.
+#[test]
+fn own_tree_open_takes_no_work_tree_setting_of_the_file_config_worktree_with_the_extension_off() {
+    let scratch = Scratch::new("tree-config-off");
+    let other = scratch.0.join("other");
+    new_repository(&other);
+    let folder = scratch.folder("folder");
+    let git_file = format!("gitdir: {}\n", text(&other.join(".git")));
+    std::fs::write(folder.join(".git"), git_file).expect("write a file");
+    let setting = format!("[core]\n\tworktree = {}\n", text(&folder));
+    std::fs::write(other.join(".git/config.worktree"), setting).expect("write a file");
+
+    for off in [None, Some("false")] {
+        if let Some(value) = off {
+            git(&other, &["config", "extensions.worktreeConfig", value]);
+        }
+        // The control: git does not read the file. With the extension on, git gives `folder`.
+        assert_eq!(git(&other, &["rev-parse", "--show-toplevel"]), text(&other), "{off:?}");
+
+        let problem = refusal(&folder);
+        assert!(problem.contains(NAME_IS_GIT), "{off:?}: {problem}");
+        assert_eq!(top_folder(&other), other, "{off:?}: the other work tree still opens");
+    }
 }
