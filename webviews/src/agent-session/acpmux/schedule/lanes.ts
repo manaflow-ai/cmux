@@ -347,7 +347,7 @@ export function createLanes(env: LanesEnv): Lanes {
         entries.push(entry);
       }
     } else {
-      for (const [k, entry] of [...idleLane.queue]) {
+      for (const [k, entry] of idleLane.queue) {
         if (durableOnly && !entry.durable) continue;
         idleLane.queue.delete(k);
         entries.push(entry);
