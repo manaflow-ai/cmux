@@ -84,7 +84,11 @@ extension CEFTab: PageInfoProviding {
         pageInfoActivity.documentCommitted(origin: origin)
         syncSecurityFromChromium()
         guard let origin, browserID != nil else { return }
-        runDocumentCommitScripts(runtime.stores.documentCommitScripts(origin))
+        // The site styles are already in the document when it started (`CEFSiteStyleBridge`);
+        // on the renderer paths, or before that script is in, they go in now.
+        if !agentRelay.siteStylesCoverNewDocuments {
+            runDocumentCommitScripts(runtime.stores.documentCommitScripts(origin))
+        }
         let store = sitePermissions
         Task { [weak self] in
             await store.whenLoaded()

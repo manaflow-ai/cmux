@@ -34,6 +34,21 @@ public final class CEFAgentRelay {
     /// Design mode's binding posts (`CEFDesignModeBridge`), on the same events once the user turned it on.
     private lazy var designMode = tab.map { CEFDesignModeBridge(tab: $0) }
     var designModeListens = false { didSet { updateWatch() } }
+    /// Extension site styles at document start (`CEFSiteStyleBridge`), on the DevTools path only.
+    private lazy var siteStyles = tab.map { CEFSiteStyleBridge(tab: $0) }
+
+    /// Brings the browser's document-start site styles to the current snapshot (DevTools path only).
+    func syncSiteStyles() {
+        guard let tab, tab.browserID != nil, !tab.runtime.forkFeatures.rendererPaths else { return }
+        siteStyles?.sync()
+    }
+
+    /// New documents get the current site styles at their start, so the commit-time installers
+    /// have nothing to add (`CEFSiteStyleBridge.coversNewDocuments`).
+    var siteStylesCoverNewDocuments: Bool {
+        guard let tab, !tab.runtime.forkFeatures.rendererPaths else { return false }
+        return siteStyles?.coversNewDocuments ?? false
+    }
 
     init(tab: CEFTab) { self.tab = tab }
 
@@ -155,6 +170,7 @@ public final class CEFAgentRelay {
             media?.attach(browser)
             verification?.attach(browser)
             firstPaint?.attach(browser)
+            siteStyles?.sync()
         }
         if sink != nil || mediaListens || designModeListens { updateWatch() }
     }

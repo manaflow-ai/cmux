@@ -68,6 +68,12 @@ extension CEFRuntime {
         for key in keys { pushSiteDecisions([origin: [kind: setting]], contextKey: key) }
     }
 
+    /// A new site style snapshot (``BrowserSharedStores/documentStartScript``): every live browser
+    /// registers it for its next documents (`CEFSiteStyleBridge`).
+    func syncSiteStyles() {
+        for tab in tabsByBrowser.values { tab.agentRelay.syncSiteStyles() }
+    }
+
     /// Answers a waiting PERMISSION_PROMPT (`CEFPermissionPrompts`).
     func permissionContinue(_ token: Int32, _ outcome: SitePermissionRequest.Outcome) {
         _ = shim?.permissionContinue(token, outcome == .grant ? 1 : outcome == .deny ? 2 : 0)
