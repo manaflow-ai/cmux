@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43780185693",
+  "recorded_at": "2026-11-16T00:35:43Z",
+  "reason": "cmux-tui e798fef75fa2 changes the image's cmux-tui (pinned e721c6a3945c)",
+  "dry_run": false,
+  "cmux_tui": "e798fef75fa2f7de8b8e1f5930d4d86c1210b11f",
+  "fixes": [
+    {
+      "sha": "e798fef75fa2f7de8b8e1f5930d4d86c1210b11f",
+      "mergedAt": "2026-11-15T16:07:51-08:00",
+      "subject": "Agent CLI terminal: records plus screen deltas reach 100% of cells at 527 B/s (PTY 924) for Claude Code, 312 B/s (PTY 1,494) for Codex (#43959)"
+    },
+    {
+      "sha": "46a687a90a075b604665e6a0bf722a3e4d073ff6",
+      "mergedAt": "2026-11-15T16:07:26-08:00",
+      "subject": "perf(launch): every build records its launch times; cmux app launch-times reads them (CMUX-571) (#43941)"
+    },
+    {
+      "sha": "491905d2be53dbaee65e133dcb4a625a65b5edf0",
+      "mergedAt": "2026-11-15T16:05:09-08:00",
+      "subject": "Action catalog: Run a PR as This App… and Undo Last PR Run (FFI step A) (#43637)"
+    },
+    {
+      "sha": "26b1e13ecfebc5649a5402796cbe713852a5352f",
+      "mergedAt": "2026-11-15T16:04:17-08:00",
+      "subject": "cmux repo mcp-lazy: a repo with project MCP servers starts Claude at its head (#43929)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-16T00:35:43Z",
+    "snapshot_id": "sh-d38fae1f31fa431d984fc3ae1c25029e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43780185693): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4b429dc3e89013f5ebe44cbe6d539dde61733892",
+    "image": "cloud-native-auto-e798fef7-43780185693-1",
+    "revision": "ci-43780185693-1",
+    "at": "2026-11-16T00:35:43Z"
+  },
+  "rolled_back": false
+}
