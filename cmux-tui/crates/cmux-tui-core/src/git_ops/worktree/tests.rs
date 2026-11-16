@@ -468,9 +468,13 @@ fn own_tree_a_create_gives_only_a_work_tree_that_its_repository_keeps() {
     let written = std::fs::read_to_string(root.join(".git")).unwrap_or_default();
     std::fs::remove_dir_all(top).unwrap();
     assert_eq!(written.trim_end(), entry, "the hook of the test did not write the `.git` file");
-    let reason = created.err().map(|error| error.details["reason"].clone());
+    let details = created.err().map(|error| error.details);
+    let reason = details.as_ref().map(|details| details["reason"].clone());
     let message = "the create gave a work tree that its repository does not keep";
     assert_eq!(reason, Some(json!("git_failed")), "{message}");
+    // A failure of `git worktree add` has the same reason: the message says which refusal it is.
+    let text = details.map(|details| details["extra"]["message"].to_string()).unwrap_or_default();
+    assert!(text.contains("is not a worktree that this repository keeps"), "{text}");
 }
 
 /// No setup starts in a folder that is not directly in the `worktrees` folder of the
