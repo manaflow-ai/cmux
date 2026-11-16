@@ -83,14 +83,19 @@ impl Family for Table {
     ) -> io::Result<()> {
         self.asks.push((root.chat_id.to_string(), cold));
         let page = if cold {
-            FamilyPage { rows: self.cold(root), cold_unread: false, deeper: Vec::new() }
+            FamilyPage {
+                rows: self.cold(root),
+                cold_unread: false,
+                closure: false,
+                deeper: Vec::new(),
+            }
         } else {
             let (rows, deeper) = self.hot(root);
             let cold_unread = self.snapshot_held || !self.cold(root).is_empty();
-            FamilyPage { rows, cold_unread, deeper }
+            FamilyPage { rows, cold_unread, closure: false, deeper }
         };
         // Two rows a page, so the walk is paged.
-        let FamilyPage { rows, cold_unread, deeper } = page;
+        let FamilyPage { rows, cold_unread, closure: _, deeper } = page;
         let pages: Vec<Vec<Summary>> = rows.chunks(2).map(<[Summary]>::to_vec).collect();
         let last = pages.len().saturating_sub(1);
         for (at, rows) in pages.into_iter().enumerate() {
@@ -98,6 +103,7 @@ impl Family for Table {
             let page = FamilyPage {
                 rows,
                 cold_unread: tail && cold_unread,
+                closure: false,
                 deeper: if tail { deeper.clone() } else { Vec::new() },
             };
             if each(page).is_break() {

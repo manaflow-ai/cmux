@@ -412,6 +412,7 @@ fn view_frame(
         has_before: page.has_before,
         has_after: page.has_after,
         cold_unread: page.cold_unread,
+        closure: page.closure,
         deeper: page.deeper.into_iter().filter_map(|key| rename_key(origin, key)).collect(),
         before_key: page.before_key.and_then(|key| rename_key(origin, key)),
         after_key: page.after_key.and_then(|key| rename_key(origin, key)),

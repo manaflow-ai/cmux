@@ -206,8 +206,13 @@ impl HubWriter {
                 {
                     self.turn_measure.changed = job.changed.len();
                 }
-                let (next, retired_shadow) = current
+                let capture_cold_before =
+                    result.captured_now.saturating_sub(acpmux_book::index::HOT_WINDOW_MS);
+                let (mut next, retired_shadow) = current
                     .with_compacted_snapshot(result.snapshot, std::mem::take(&mut job.changed));
+                // Publish the new partition before maintenance starts evicting
+                // `cold_keys`; reads never derive it from their own clock.
+                next.raise_cold_before(capture_cold_before);
                 #[cfg(test)]
                 {
                     self.turn_measure.overlay_ns = overlay_began.elapsed().as_nanos();

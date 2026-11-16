@@ -121,6 +121,8 @@ pub(crate) struct FamilyPage {
     pub(crate) rows: Vec<Summary>,
     /// The hot part's kin go on in the snapshot's part.
     pub(crate) cold_unread: bool,
+    /// Every cold page in this family walk came from the table closure.
+    pub(crate) closure: bool,
     /// Rows of this page at the depth bound that have hot children of their own.
     pub(crate) deeper: Vec<RowKey>,
 }
@@ -152,7 +154,12 @@ impl Family for Source {
                     .iter()
                     .map(|key| RowKey::new(&*key.origin, &*key.chat_id))
                     .collect();
-                let page = FamilyPage { rows: page.rows, cold_unread: page.cold_unread, deeper };
+                let page = FamilyPage {
+                    rows: page.rows,
+                    cold_unread: page.cold_unread,
+                    closure: page.closure,
+                    deeper,
+                };
                 if each(page).is_break() {
                     break;
                 }
@@ -195,12 +202,17 @@ pub(crate) fn kin(
             continue;
         }
         let mut cold_unread = false;
+        let mut cold_keys = Vec::new();
+        let mut cold_closure = true;
         for cold in [false, true] {
             if cold && !(with_cold && cold_unread) {
                 break;
             }
             list.family(&key, cold, &mut |page| {
                 cold_unread |= page.cold_unread;
+                if cold {
+                    cold_closure &= page.closure;
+                }
                 asks.extend(page.deeper);
                 for row in page.rows {
                     let row_key = RowKey::new(row.origin.as_str(), row.chat_id.as_str());
@@ -215,7 +227,7 @@ pub(crate) fn kin(
                         continue;
                     }
                     if cold {
-                        asks.push_back(row_key);
+                        cold_keys.push(row_key);
                     }
                     found.push(row);
                     if found.len() >= max {
@@ -227,6 +239,9 @@ pub(crate) fn kin(
             if found.len() >= max {
                 break;
             }
+        }
+        if !cold_closure {
+            asks.extend(cold_keys);
         }
     }
     Ok(found)

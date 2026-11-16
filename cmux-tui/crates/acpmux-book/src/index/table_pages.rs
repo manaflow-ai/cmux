@@ -226,6 +226,7 @@ impl SummaryIndex {
             after_key,
             bytes_read: 0,
             cold_unread: !has_after && self.disk().is_some_and(|disk| !disk.is_empty()),
+            closure: false,
             rows_read,
             parent_steps: 0,
             lookups: if folder_rows.is_some() { 1 } else { rows_read },

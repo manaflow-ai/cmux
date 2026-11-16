@@ -74,6 +74,8 @@ pub struct Rows {
     pub unknown: Vec<ListKey>,
     /// A family read's hot part has kin in the snapshot's part (said on its last page).
     pub cold_unread: bool,
+    /// Every cold page in this family walk came from the ancestor-closure table.
+    pub closure: bool,
     /// A family read's rows at the depth bound (64) that have hot children of their own.
     pub deeper: Vec<ListKey>,
 }
@@ -491,6 +493,7 @@ where
                 Ok(Some(Rows {
                     rows: reply.rows,
                     cold_unread: reply.cold_unread,
+                    closure: reply.closure,
                     deeper: reply.deeper,
                     ..Rows::default()
                 }))

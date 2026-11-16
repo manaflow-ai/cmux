@@ -147,14 +147,17 @@ impl SummaryIndex {
                 rows.push(row);
             }
         };
+        let (cold_unread, bytes_read) =
+            if has_after { (false, 0) } else { self.family_cold_unread(root) };
         Ok(IndexPage {
             rows,
             has_before,
             has_after,
             before_key,
             after_key,
-            bytes_read: 0,
-            cold_unread: !has_after && self.disk().is_some_and(|disk| !disk.is_empty()),
+            bytes_read,
+            cold_unread,
+            closure: false,
             rows_read,
             parent_steps,
             lookups,

@@ -56,6 +56,8 @@ pub(super) fn classify_read_error(error: io::Error) -> io::Error {
 
 #[cfg(test)]
 mod damage_tests;
+mod kin_read;
+pub(in crate::index) use kin_read::{KinRead, KinRequest, KinResult};
 mod kin_table;
 pub(super) use kin_table::write_failure as record_kin_write_failure;
 mod read;
@@ -216,11 +218,12 @@ pub struct SnapshotPiece {
     pub bytes_read: usize,
 }
 
-struct Position {
-    offset: u64,
-    ordinal: u64,
-    record_len: Option<usize>,
-    bytes_read: usize,
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Position {
+    pub(super) offset: u64,
+    pub(super) ordinal: u64,
+    pub(super) record_len: Option<usize>,
+    pub(super) bytes_read: usize,
 }
 
 struct BufferedRow {
@@ -511,17 +514,80 @@ fn sidecar_path(snapshot: &Path) -> std::path::PathBuf {
     std::path::PathBuf::from(name)
 }
 
-#[cfg(unix)]
+#[cfg(test)]
+thread_local! {
+    // Actual successful file reads, table-served asks, and set-asides. Keeping
+    // this per test thread avoids another test's I/O entering a gate sample.
+    static READ_PROBE: std::cell::Cell<(usize, usize, usize)> = const {
+        std::cell::Cell::new((0, 0, 0))
+    };
+}
+
+#[cfg(test)]
+pub(super) fn read_probe() -> (usize, usize, usize) {
+    READ_PROBE.get()
+}
+
+#[cfg(test)]
+fn record_kin_served() {
+    READ_PROBE.with(|probe| {
+        let (bytes, served, disabled) = probe.get();
+        probe.set((bytes, served + 1, disabled));
+    });
+}
+
+#[cfg(test)]
+fn record_kin_disabled() {
+    READ_PROBE.with(|probe| {
+        let (bytes, served, disabled) = probe.get();
+        probe.set((bytes, served, disabled + 1));
+    });
+}
+
+#[cfg(all(unix, not(test)))]
 fn read_at(file: &File, bytes: &mut [u8], offset: u64) -> io::Result<()> {
     use std::os::unix::fs::FileExt;
     file.read_exact_at(bytes, offset).map_err(classify_read_error)
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(test)))]
 fn read_at(file: &File, mut bytes: &mut [u8], mut offset: u64) -> io::Result<()> {
     use std::os::windows::fs::FileExt;
     while !bytes.is_empty() {
         let read = file.seek_read(bytes, offset)?;
+        if read == 0 {
+            return Err(fatal("short snapshot read"));
+        }
+        offset += read as u64;
+        bytes = bytes.get_mut(read..).ok_or_else(|| codec::invalid("short read"))?;
+    }
+    Ok(())
+}
+
+/// Test file wrapper: count bytes returned by each actual positional read,
+/// including a short read before a later failure. The reply's accounting is
+/// checked against this independent receipt, rather than used as its oracle.
+#[cfg(test)]
+fn read_at(file: &File, mut bytes: &mut [u8], mut offset: u64) -> io::Result<()> {
+    while !bytes.is_empty() {
+        #[cfg(unix)]
+        let result = {
+            use std::os::unix::fs::FileExt;
+            file.read_at(bytes, offset)
+        };
+        #[cfg(windows)]
+        let result = {
+            use std::os::windows::fs::FileExt;
+            file.seek_read(bytes, offset)
+        };
+        let read = match result {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result.map_err(classify_read_error)?,
+        };
+        READ_PROBE.with(|probe| {
+            let (count, served, disabled) = probe.get();
+            probe.set((count + read, served, disabled));
+        });
         if read == 0 {
             return Err(fatal("short snapshot read"));
         }

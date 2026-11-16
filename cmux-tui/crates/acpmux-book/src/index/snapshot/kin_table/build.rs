@@ -159,13 +159,20 @@ impl Builder {
         {
             let child = key_fingerprint(&key, FAMILY_KIND);
             let parent = key_fingerprint(parent, FAMILY_KIND);
-            // Hot rows still supply edges for a cold descendant's ancestor path.
+            // Ineligible rows still supply edges for a descendant's ancestor path.
             self.edges.push(Edge { child, parent })?;
-            self.first_level.push(Level {
-                entry: entry(parent, FAMILY_KIND),
-                own: child,
-                eligible,
-            })?;
+            // A pinned or live row contributes its edge above, but it
+            // cannot itself be cold under this snapshot. Do not enqueue its
+            // own level record: descendants still join through this edge,
+            // while the external sorter does not carry an ineligible record
+            // through every closure level.
+            if eligible {
+                self.first_level.push(Level {
+                    entry: entry(parent, FAMILY_KIND),
+                    own: child,
+                    eligible,
+                })?;
+            }
         }
         if eligible && let Some(fork) = &summary.fork_of {
             let source = key_fingerprint(&fork.key, FORK_KIND);
@@ -249,6 +256,13 @@ fn read_fingerprint(bytes: &mut &[u8]) -> io::Result<Fingerprint> {
 mod tests {
     use super::*;
 
+    fn row(id: &str, activity: u64) -> Summary {
+        let mut row = Summary::new(id);
+        row.last_activity = activity;
+        row.state = "closed".to_owned();
+        row
+    }
+
     fn check_truncated_record<R: Record>(record: R) {
         let mut bytes = vec![0; R::WIDTH];
         record.encode(&mut bytes).unwrap();
@@ -273,5 +287,39 @@ mod tests {
         };
         check_truncated_record(EntryRecord(entry));
         check_truncated_record(Level { entry, own: (11, 12), eligible: true });
+    }
+
+    #[test]
+    fn cold_descendant_joins_through_pinned_and_live_edges() {
+        let mut root = row("builder-bridge-root", 1);
+        root.state = "closed".to_owned();
+        let mut live = row("builder-bridge-live", 2);
+        live.state = "running".to_owned();
+        live.parent = Some(root.key());
+        let mut pinned = row("builder-bridge-pinned", 3);
+        pinned.pinned = true;
+        pinned.parent = Some(live.key());
+        let mut leaf = row("builder-bridge-leaf", 4);
+        leaf.parent = Some(pinned.key());
+
+        let directory = tempfile::tempdir().unwrap();
+        let mut builder = Builder::in_directory(directory.path()).unwrap();
+        for (offset, summary) in [(4096, root), (8192, live), (12_288, pinned), (16_384, leaf)] {
+            builder.push(&summary, offset, 128).unwrap();
+        }
+        let mut entries = builder.finish().unwrap();
+        let mut leaf_entries = Vec::new();
+        while let Some(entry) = entries.next().unwrap() {
+            if entry.offset == 16_384 {
+                leaf_entries.push(entry);
+            } else {
+                assert!(entry.offset != 8192 && entry.offset != 12_288);
+            }
+        }
+        assert_eq!(leaf_entries.len(), 3);
+        // The persisted order is ancestor hash, not ancestry depth.
+        let mut depths: Vec<_> = leaf_entries.iter().map(|entry| entry.depth).collect();
+        depths.sort_unstable();
+        assert_eq!(depths, vec![1, 2, 3]);
     }
 }

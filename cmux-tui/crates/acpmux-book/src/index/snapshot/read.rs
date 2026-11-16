@@ -45,6 +45,24 @@ impl DiskSnapshot {
             ReadSide::Around => true,
         };
         let position = self.seek_position(anchor, seek_inclusive)?;
+        self.read_piece_from_position(position, side, limit, max_bytes, position.bytes_read)
+    }
+
+    /// Read from a position whose sparse seek has already been charged to the
+    /// current request. This is used when a kin-table lookup fails after
+    /// placement: the pager resumes at the same snapshot position without
+    /// paying the seek a second time (decision 391).
+    pub(in crate::index) fn read_piece_from_position(
+        &self,
+        position: Position,
+        side: ReadSide,
+        limit: usize,
+        max_bytes: usize,
+        already_read: usize,
+    ) -> io::Result<SnapshotPiece> {
+        if limit == 0 || max_bytes == 0 || max_bytes > PAGE_BYTES {
+            return Err(page_bound());
+        }
         // Start with the expected frame span to preserve the bounded seek
         // cost. A caller that encounters complete corrupt frames extends the
         // same request within this original byte budget.
@@ -177,7 +195,7 @@ impl DiskSnapshot {
             next_offset,
             physical_count,
             next_ordinal,
-            position.bytes_read + bytes_read,
+            already_read + bytes_read,
         ))
     }
 

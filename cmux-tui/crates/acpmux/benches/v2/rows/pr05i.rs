@@ -2,12 +2,41 @@
 
 use super::super::GateRow;
 
-pub const ROWS: &[GateRow] = &[GateRow {
-    pr: "5i",
-    name: "v2.pr05i.table_write",
-    done_when: "Writing the optional cold kin sidecar at 11,000 rows stays within 1.5x of the same snapshot write without the table; the table has the fixture-implied entries and stays within 64 bytes per entry plus three pages.",
-    measured: false,
-    ratio: 1.5,
-    ratio_all: None,
-    god_max: None,
-}];
+pub const ROWS: &[GateRow] = &[
+    GateRow {
+        pr: "5i",
+        name: "v2.pr05i.table_write",
+        done_when: "Writing the optional cold kin sidecar at 11,000 rows stays within 1.5x of the same snapshot write without the table; the table has the fixture-implied entries and stays within 64 bytes per entry plus three pages.",
+        measured: false,
+        ratio: 1.5,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "5i",
+        name: "v2.pr05i.cold_family_bytes",
+        done_when: "A cold family page for eight cold kin rows reads no more than 1.2x the physical bytes of the same page from the snapshot pager.",
+        measured: false,
+        ratio: 1.2,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "5i",
+        name: "v2.pr05i.cold_family",
+        done_when: "A cold family page for eight cold kin rows has wall p95 no more than 1.2x the same page from the snapshot pager.",
+        measured: false,
+        ratio: 1.2,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "5i",
+        name: "v2.pr05i.cold_unread",
+        done_when: "coldUnread for the last hot page of a family with no cold kin has wall p95 no more than 1.2x the same snapshot pager check.",
+        measured: false,
+        ratio: 1.2,
+        ratio_all: None,
+        god_max: None,
+    },
+];

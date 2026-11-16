@@ -19,6 +19,8 @@ pub struct IndexPage {
     pub after_key: Option<SortKey>,
     pub bytes_read: usize,
     pub cold_unread: bool,
+    /// Every row of a cold family walk page came from the kin-table closure.
+    pub closure: bool,
     /// Summary rows loaded by this request, including lookahead.
     pub rows_read: usize,
     /// Hot ancestor rows loaded while placing a cursor or matching cold kin.
@@ -26,7 +28,8 @@ pub struct IndexPage {
     /// Table and row lookups performed by the hot pager (family is bounded by
     /// two per candidate plus its cursor climb).
     pub lookups: usize,
-    /// Family rows at the depth bound that have hot children.
+    /// Continue `family` at these rows: the hot walk's depth boundary, or a
+    /// listed cold row with hot children or a depth-64 table entry.
     pub deeper: Vec<SortKey>,
 }
 
@@ -136,6 +139,7 @@ impl SummaryIndex {
         if table_count > 1 || (cold && table_count == 0) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid table filter"));
         }
+        let mut cold_fallback = None;
         if let Some(filter) = filter {
             if filter.family.is_some() && side != ReadSide::After {
                 return Err(io::Error::new(
@@ -143,7 +147,19 @@ impl SummaryIndex {
                     "family supports only after",
                 ));
             }
-            if !cold {
+            if cold && filter.family.is_some() {
+                let read =
+                    self.read_cold_family_page(anchor, inclusive, limit, max_bytes, filter)?;
+                let read_position = read.position;
+                let read_bytes = read.io.bytes;
+                match read.result {
+                    super::snapshot::KinResult::Ready(page) => return Ok(page),
+                    super::snapshot::KinResult::Unavailable
+                    | super::snapshot::KinResult::BudgetExhausted => {
+                        cold_fallback = Some((read_position, read_bytes));
+                    }
+                }
+            } else if !cold {
                 if let Some(root) = filter.family.as_ref() {
                     return self
                         .read_family_page(root, inclusive, limit, max_bytes, anchor, filter);
@@ -170,14 +186,25 @@ impl SummaryIndex {
             // summary itself fits the response budget; selection below still
             // enforces `max_bytes` on returned rows. A full piece reads the
             // most one piece may, whatever the response budget.
-            let physical_bytes = if full_piece {
+            let physical_bytes = if let Some((_, spent)) = cold_fallback {
+                super::snapshot::PAGE_BYTES.saturating_sub(spent)
+            } else if full_piece {
                 super::snapshot::PAGE_BYTES
             } else {
                 max_bytes
                     .saturating_add(super::MAX_INDEX_RECORD_BYTES)
                     .min(super::snapshot::PAGE_BYTES)
             };
-            let piece = disk.read_piece(anchor, side, inclusive, limit, physical_bytes)?;
+            let mut piece = match cold_fallback {
+                Some((Some(position), spent)) => {
+                    disk.read_piece_from_position(position, side, limit, physical_bytes, spent)?
+                }
+                Some((None, _)) => disk.first_rows(limit, physical_bytes)?,
+                None => disk.read_piece(anchor, side, inclusive, limit, physical_bytes)?,
+            };
+            if let Some((None, spent)) = cold_fallback {
+                piece.bytes_read = piece.bytes_read.saturating_add(spent);
+            }
             bytes_read = piece.bytes_read;
             disk_before = piece.has_before;
             disk_after = piece.has_after;
@@ -344,6 +371,7 @@ impl SummaryIndex {
             after_key: last,
             bytes_read,
             cold_unread: false,
+            closure: false,
             rows_read,
             parent_steps,
             lookups,

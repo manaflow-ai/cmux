@@ -263,7 +263,6 @@ fn kin_table_write_gate() {
     use std::io::Read;
 
     const ROWS: usize = 11_000;
-    const ENTRIES: u64 = (ROWS - 1) as u64;
     const WRITE_SAMPLES: usize = 20;
 
     fn fixture() -> SummaryIndex {
@@ -274,13 +273,40 @@ fn kin_table_write_gate() {
         for n in 0..ROWS - 1 {
             let mut child = row(format!("kin-child-{n:05}"), 2 + n as u64);
             child.state = "closed".to_owned();
-            child.parent = Some(root_key.clone());
+            // A four-way tree exercises the external closure joins. The old
+            // fixture put every row directly under one root and never timed
+            // the multilevel path that the sidecar writes.
+            child.parent = if n < 4 {
+                Some(root_key.clone())
+            } else {
+                Some(RowKey::new("local", format!("kin-child-{:05}", n / 4 - 1)))
+            };
             index = index.apply(n as u64 + 2, child);
         }
         index
     }
 
-    fn write_once(index: &SummaryIndex, with_table: bool) -> (u128, KinWriteStats) {
+    fn expected_entries() -> u64 {
+        // Nodes are numbered root=0 and child n=n+1; parent=(node-1)/4.
+        // Every closed child contributes one entry for each ancestor.
+        (0..ROWS - 1)
+            .map(|n| {
+                let mut node = n + 1;
+                let mut depth = 0u64;
+                while node != 0 {
+                    depth += 1;
+                    node = (node - 1) / 4;
+                }
+                depth
+            })
+            .sum()
+    }
+
+    fn write_once(
+        index: &SummaryIndex,
+        with_table: bool,
+        entries_expected: u64,
+    ) -> (u128, KinWriteStats) {
         let directory = tempfile::tempdir().unwrap();
         let snapshot = directory.path().join("index.snap");
         let table = directory.path().join("index.snap.kin");
@@ -317,7 +343,7 @@ fn kin_table_write_gate() {
             let mut header = [0u8; 4096];
             std::fs::File::open(&table).unwrap().read_exact(&mut header).unwrap();
             let entries = u64::from_le_bytes(header[40..48].try_into().unwrap());
-            assert_eq!(entries, ENTRIES, "sidecar closure count");
+            assert_eq!(entries, entries_expected, "sidecar closure count");
             let bytes = std::fs::metadata(&table).unwrap().len();
             assert!(bytes <= entries * 64 + 3 * 4096);
         }
@@ -326,6 +352,7 @@ fn kin_table_write_gate() {
 
     let index = fixture();
     assert_eq!(index.len(), ROWS);
+    let entries_expected = expected_entries();
     let mut small = Vec::new();
     let mut god = Vec::new();
     for round in 0..ROUNDS {
@@ -336,8 +363,8 @@ fn kin_table_write_gate() {
         let mut closure_samples = Vec::with_capacity(WRITE_SAMPLES);
         let mut pages_samples = Vec::with_capacity(WRITE_SAMPLES);
         for _ in 0..WRITE_SAMPLES {
-            let (first_ns, first_stats) = write_once(&index, first);
-            let (second_ns, second_stats) = write_once(&index, second);
+            let (first_ns, first_stats) = write_once(&index, first, entries_expected);
+            let (second_ns, second_stats) = write_once(&index, second, entries_expected);
             let stats = if first {
                 table_samples.push(first_ns);
                 baseline_samples.push(second_ns);
