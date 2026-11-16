@@ -11,8 +11,11 @@ import XCTest
 /// 100-column grid on an iPhone). Both images come from the same Ghostty renderer drawing the
 /// same cells in the same font, so glyph antialiasing is identical; the channel tolerance covers
 /// GPU blend rounding and the bench's 1%-opacity result label, the share covers the cursor's
-/// blink phase. The status bar (its clock) and the home indicator are left out. Each pair and
-/// its diff image (red: differs) are kept as attachments.
+/// blink phase. Compared: the terminal grid, from just below the navigation bar to just above
+/// the home indicator. Left out: the status bar (its clock) and the navigation bar, which is
+/// translucent: in PTY mode the scrollback above the grid shows through it, and lean frames
+/// carry the visible screen only (scrollback is not part of the hybrid contract). Each pair
+/// and its diff image (red: differs) are kept as attachments.
 final class AgentCLIHybridPixelDiffUITests: XCTestCase {
     static let sessions = ["claude-code-2.1.310", "codex-0.164.0", "opencode-1.19.5"]
     static let channelTolerance = 24
@@ -103,14 +106,14 @@ final class AgentCLIHybridPixelDiffUITests: XCTestCase {
         return drawn ? (bytes, width, height) : nil
     }
 
-    /// The pixels of `a` and `b` that differ (rows of the status bar and the home indicator left
-    /// out), and an image of them: red where they differ, `b` dimmed elsewhere.
+    /// The pixels of `a` and `b` that differ (rows of the status and navigation bars and the home
+    /// indicator left out), and an image of them: red where they differ, `b` dimmed elsewhere.
     static func diff(_ a: UIImage, _ b: UIImage) -> (differing: Int, compared: Int, image: UIImage)? {
         guard let first = pixels(a), let second = pixels(b), first.width == second.width, first.height == second.height else {
             return nil
         }
         let (width, height) = (first.width, first.height)
-        let top = Int(Double(height) * 0.06)
+        let top = Int(Double(height) * 0.135)
         let bottom = height - Int(Double(height) * 0.03)
         var out = [UInt8](repeating: 0, count: width * height * 4)
         var differing = 0

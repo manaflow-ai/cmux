@@ -88,7 +88,9 @@ fn resume() -> AttachSurfaceRequest {
 fn a_new_viewer_on_an_old_daemon_falls_back_to_bytes() {
     let (path, daemon) = daemon(&["attach-initial-size", "size-lease-v1"], 2);
     let mut client = client(&path);
-    let error = client.attach_surface(resume()).unwrap_err();
+    let Err(error) = client.attach_surface(resume()) else {
+        panic!("an old daemon took a hybrid attach");
+    };
     assert!(
         matches!(error, Error::MissingCapability { capability: "agent-cli-hybrid-v1", .. }),
         "{error:?}"
