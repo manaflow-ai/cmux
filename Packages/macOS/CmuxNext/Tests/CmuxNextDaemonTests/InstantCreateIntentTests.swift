@@ -232,6 +232,9 @@ struct InstantCreateIntentTests {
         store.snapshotBarrier = 1
         store.advanceAppliedSequence(to: 1)
         #expect(try Self.pane(of: store).tabs.map(\.surface) == [base, daemonA, daemonB], "after the tree: two new tabs, the daemon's")
+        // The pane's list is the same for a crossed pair: the store's own word says which tab each stand-in became.
+        #expect(store.intentLog.replacement(ofStandIn: first.id) == daemonA, "the first stand-in became the tab with its terminal id")
+        #expect(store.intentLog.replacement(ofStandIn: second.id) == daemonB, "the second stand-in became the tab with its terminal id")
         #expect(store.pendingIntents.count == 2, "no reply came: the two creates still wait")
         #expect(store.mirrorViolations.isEmpty)
     }
