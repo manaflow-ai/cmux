@@ -217,6 +217,7 @@ import { callNative } from "./callNative";
 import { StreamReveal } from "./streamReveal";
 import { type NativeRegistry, type OpenDiff, type RowProps } from "./rows/rowProps";
 import { NoticeRow } from "./rows/NoticeRow";
+import { mountsOffscreen, OFFSCREEN_ROW_CLASS, skippedRow, skipsOffscreenRows } from "./conversation/offscreenRows";
 import { defaultRegistry, readOnlyRegistry } from "./rows/registry";
 import {
   NO_ROWS,
@@ -321,6 +322,9 @@ type QueueDrawn = (
 const noQueue = () => {};
 
 function drawnHeightOf(node: HTMLElement): number | undefined {
+  // A row whose contents the page skips (mounted away from the view, conversation/offscreenRows.ts)
+  // is as high as it was placed: that is no drawn height, and it must not overwrite the estimate.
+  if (skippedRow(node)) return undefined;
   const height = node.getBoundingClientRect().height;
   return height > 0 || node.getClientRects().length > 0 ? height : undefined;
 }
@@ -458,6 +462,8 @@ const RowFrame = React.memo(function RowFrame({
   onRowKeyDown,
   referenceScope,
   gapBelow,
+  offscreen,
+  placedHeight,
   children,
 }: {
   row: AcpmuxRow;
@@ -465,6 +471,12 @@ const RowFrame = React.memo(function RowFrame({
   /// The placed gap under the row (grid.md 5.5: the stack owns it, the row has no padding): the row's
   /// gap target spans it, so a drag from between two rows starts a selection.
   gapBelow: number;
+  /// Whether the row mounts away from the view (conversation/offscreenRows.ts): read at its first
+  /// mount only, so a row never changes whether its contents may be skipped.
+  offscreen: boolean;
+  /// The row's height as the transcript places it (measured, or the estimate): a skipped row's box
+  /// is this high. Read at its first mount only, with `offscreen`.
+  placedHeight: number;
   /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
@@ -544,6 +556,9 @@ const RowFrame = React.memo(function RowFrame({
       (row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice"));
   const [olderFade] = useState(older);
   const [loadFading] = useState(loadFade);
+  // The height a skipped row is placed at, from its first mount; once it renders the browser keeps
+  // its rendered height instead (`auto`), which the row's observer has measured by then.
+  const [skipHeight] = useState(() => (offscreen ? `auto ${placedHeight}px` : undefined));
   // A prompt sent from the latest row: what the composer drew of it moves into this row's bubble and
   // previews, as its entrance (conversation/sendMorph.ts). Its first mount only, before it paints.
   useLayoutEffect(() => {
@@ -663,7 +678,7 @@ const RowFrame = React.memo(function RowFrame({
       data-row-card={row.ended ? "true" : undefined}
       data-opens-turn={opensTurn ? "true" : undefined}
       data-send-thinking={sendThinking ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}${skipHeight ? ` ${OFFSCREEN_ROW_CLASS}` : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -676,7 +691,11 @@ const RowFrame = React.memo(function RowFrame({
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
       // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
-      style={{ top: integralTop, marginTop: placedTop - integralTop }}
+      style={
+        skipHeight
+          ? { top: integralTop, marginTop: placedTop - integralTop, containIntrinsicHeight: skipHeight }
+          : { top: integralTop, marginTop: placedTop - integralTop }
+      }
       onFocus={() => onFocus(row.id)}
     >
       {/* The row's own trailing gap is the only row-local empty surface owned by transcript selection.
@@ -829,7 +848,11 @@ type RowFrameSources = {
 type RowFramesView = {
   rows: readonly AcpmuxRow[];
   mountedRanges: readonly { first: number; last: number }[];
-  geometry: { topAt(index: number): number; gapAt(index: number): number };
+  geometry: { topAt(index: number): number; gapAt(index: number): number; heightAt(index: number): number };
+  /// The content in view, in the geometry's offsets: rows mounted far from it skip their contents
+  /// (conversation/offscreenRows.ts). `viewHeight` 0 skips none.
+  viewTop: number;
+  viewHeight: number;
   frameKey: string;
   registry: NativeRegistry;
   setSize: number;
@@ -868,6 +891,7 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
   const entering = view.enters ? sources.entering.current : undefined;
   const loadFade = view.loadFades ? sources.loadFade : undefined;
   const older = sources.older;
+  const skips = view.viewHeight > 0 && skipsOffscreenRows();
   cache.begin([
     view.frameKey,
     view.registry,
@@ -965,6 +989,12 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
           onOpenDiff={view.onOpenDiff}
           githubRepository={inputs.repository}
           referenceScope={inputs.scope as ReferenceScope | undefined}
+          // Read by the frame's first mount only, and not compared (sameRowFrame): no frame draws again
+          // for them, and a kept frame's values are the ones it mounted with.
+          offscreen={
+            skips && mountsOffscreen(inputs.top, geometry.heightAt(absoluteIndex), view.viewTop, view.viewHeight)
+          }
+          placedHeight={geometry.heightAt(absoluteIndex)}
         >
           <RowContent
             Component={Component}
@@ -6891,6 +6921,10 @@ function TranscriptView({
     rows,
     mountedRanges,
     geometry: layout.geometry,
+    // A followed view's offset is not where its rows draw until the placement pass runs: none is
+    // skipped then. Scrolled up, `shownTop` is the offset this commit draws at.
+    viewTop: shownTop,
+    viewHeight: renderFollowing ? 0 : height,
     frameKey,
     registry,
     setSize: canLoadOlder ? -1 : rows.length,
