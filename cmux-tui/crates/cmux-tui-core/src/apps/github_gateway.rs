@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use cmux_feed_core::client::github::parse_http;
 use serde_json::{Value, json};
@@ -200,15 +200,12 @@ impl Cache {
         if bytes > MAX_ENTRY_BYTES {
             return;
         }
-        while !self.entries.is_empty()
-            && (self.entries.len() >= MAX_ENTRIES || self.bytes + bytes > MAX_CACHE_BYTES)
-        {
-            let oldest = self
-                .entries
-                .iter()
-                .min_by_key(|(_, e)| e.used)
-                .map(|(k, _)| k.clone())
-                .expect("non-empty");
+        while self.entries.len() >= MAX_ENTRIES || self.bytes + bytes > MAX_CACHE_BYTES {
+            let Some(oldest) =
+                self.entries.iter().min_by_key(|(_, e)| e.used).map(|(k, _)| k.clone())
+            else {
+                break;
+            };
             self.remove(&oldest);
         }
         self.clock += 1;
@@ -229,10 +226,16 @@ impl GitHubGateway {
         Self { gh, cache: Mutex::new(Cache::default()), inflight: AtomicUsize::new(0) }
     }
 
+    /// The cache; a poisoned lock still holds a consistent cache (every
+    /// update finishes before it unlocks).
+    fn cache(&self) -> MutexGuard<'_, Cache> {
+        self.cache.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Paths kept and their bytes (tests and diagnostics).
     #[cfg(test)]
     pub(super) fn cached(&self) -> (usize, usize) {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache();
         (cache.entries.len(), cache.bytes)
     }
 
@@ -261,7 +264,7 @@ impl GitHubGateway {
     }
 
     fn read(&self, endpoint: &str) -> Result<Value, Value> {
-        let etag = self.cache.lock().unwrap().etag(endpoint);
+        let etag = self.cache().etag(endpoint);
         // gh runs outside the lock; reads of other paths go on meanwhile.
         let output = self.gh.run(&gh_args(endpoint, etag.as_deref())).map_err(|why| {
             let retryable = why.contains("timed out");
@@ -284,7 +287,7 @@ impl GitHubGateway {
             })
         };
         if response.status == 304 {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.cache();
             if let Some(body) = cache.hit(endpoint) {
                 return Ok(json!({ "value": Value::clone(&body), "integration": meta(304, true) }));
             }
@@ -334,7 +337,7 @@ impl GitHubGateway {
         };
         let body = Arc::new(body);
         {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.cache();
             match response.etag {
                 Some(etag) => cache.put(endpoint, etag, body.clone(), response.body.len()),
                 None => cache.remove(endpoint),
