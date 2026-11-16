@@ -71,8 +71,9 @@ pub(super) enum NoList {
     /// or its bytes are not a JSON object of ports (an empty file, a list
     /// that is cut short, a JSON value of a different form).
     NotAList,
-    /// The list with the new block is not written to the file: no later
-    /// allocation of the repository knows that block.
+    /// The list with the new block is not written to the file, or its
+    /// bytes are not flushed before it takes the name of the file: no
+    /// later allocation of the repository knows that block.
     NotWritten,
 }
 
@@ -197,14 +198,13 @@ pub(super) fn lookup(folder: &OwnFolder, root: &Path) -> Option<u16> {
 ///
 /// No port is given, and the thing at the name of the ports file stays,
 /// when the ports file gives no list ([`NoList`]): the setup of the
-/// worktree then does not start, and its log says why. The same holds
-/// when the list with the new block is not written
-/// ([`NoList::NotWritten`]): a block that no list has can be the block of
-/// another worktree later. No port is given
-/// either when `folder` is not open
-/// ([`OwnFolder::not_opened`]): the blocks that the other worktrees have
-/// are not known then, and a line on stderr says why the folder is not
-/// open.
+/// worktree then does not start, and its log says why when the log can
+/// be written. The same holds when the list with the new block is not
+/// written or is not flushed ([`NoList::NotWritten`]): a block that no
+/// list has can be the block of another worktree later. No port is given
+/// either when `folder` is not open ([`OwnFolder::not_opened`]): the
+/// blocks that the other worktrees have are not known then, and a line
+/// on stderr says why the folder is not open.
 pub(super) fn allocate(folder: &OwnFolder, root: &Path) -> Result<Option<u16>, NoList> {
     allocate_within(folder, root, WAIT)
 }
