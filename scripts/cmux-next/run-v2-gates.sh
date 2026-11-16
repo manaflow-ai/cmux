@@ -130,8 +130,67 @@ acpmux_lib_gates() {
 }
 run_group acpmux-lib acpmux_lib_gates
 
+# cmux-tui-core links libghostty-vt (ghostty-vt-sys): its build needs the ghostty-next
+# submodule's source and zig, which neither the nightly's Rust setup nor a plain `cmux-ci test`
+# checkout holds (`cmux-ci test --setup rust` does). Under CI the group gets both itself, the way
+# fast-checks.yml's "Initialize Rust native dependencies" step does (decision 282); off CI, or where
+# an input cannot be had, the group fails with a line naming it, never a build panic. Run from cmux-tui/.
+tui_core_native_ready() {
+  local root
+  root=$(git rev-parse --show-toplevel) || return 1
+  if [[ -z "${CMUX_GHOSTTY_SRC:-}" && ! -f "$root/ghostty-next/build.zig" ]]; then
+    if [[ -z "${CI:-}" ]]; then
+      echo "v2 gates: the ghostty-next submodule is empty; cmux-tui-core's gates need it (cmux-ci test --setup rust)" >&2
+      return 1
+    fi
+    echo "v2 gates: the ghostty-next submodule is empty; initializing it for cmux-tui-core"
+    (cd "$root" && bash scripts/ci/init-submodule.sh ghostty-next) || {
+      echo "v2 gates: cannot initialize ghostty-next; cmux-tui-core's gates need it (cmux-ci test --setup rust)" >&2
+      return 1
+    }
+  fi
+  if ! command -v zig >/dev/null 2>&1 && [[ -z "${CMUX_ZIG:-}" ]]; then
+    if [[ -z "${CI:-}" ]]; then
+      echo "v2 gates: no zig on PATH; cmux-tui-core's gates need it (cmux-ci test --setup rust)" >&2
+      return 1
+    fi
+    echo "v2 gates: no zig on PATH; installing the pinned zig for cmux-tui-core"
+    # The installer exports CMUX_ZIG only to a GitHub job's later steps; this shell reads it back.
+    local zig_env
+    zig_env=$(mktemp)
+    # ghostty-next names the Zig cmux-tui needs; the installer reads the classic tree's otherwise.
+    (cd "$root" && GHOSTTY_ZIG_SOURCE=ghostty-next GITHUB_ENV="$zig_env" \
+      GITHUB_PATH="$zig_env.path" ./scripts/install-zig-ci.sh > "$zig_env.log" 2>&1) || {
+      tail -n 5 "$zig_env.log" >&2
+      rm -f "$zig_env" "$zig_env.path" "$zig_env.log"
+      echo "v2 gates: cannot install zig; cmux-tui-core's gates need it (cmux-ci test --setup rust)" >&2
+      return 1
+    }
+    local zig_dir
+    zig_dir=$(head -n 1 "$zig_env.path" 2>/dev/null || true)
+    if [[ -n "$zig_dir" ]]; then
+      export PATH="$zig_dir:$PATH"
+    fi
+    local cmux_zig
+    cmux_zig=$(sed -n 's/^CMUX_ZIG=//p' "$zig_env" | tail -n 1)
+    if [[ -n "$cmux_zig" ]]; then
+      export CMUX_ZIG="$cmux_zig"
+    fi
+    rm -f "$zig_env" "$zig_env.path" "$zig_env.log"
+  fi
+  # bindgen loads libclang; fast-checks installs it with apt (sudo), which this script never does.
+  if [[ -z "${LIBCLANG_PATH:-}" ]] && ! ldconfig -p 2>/dev/null | grep -q 'libclang'; then
+    echo "v2 gates: no libclang for ghostty-vt-sys's bindgen; cmux-tui-core's gates need it (cmux-ci test --setup rust)" >&2
+    return 1
+  fi
+}
+
 # cmux-tui-core's list callers (row 7c), against an agent service in the test's process.
 tui_core_lib_gates() {
+  if ! tui_core_native_ready; then
+    failed=1
+    return
+  fi
   run_gates tui-core-lib
 }
 run_group cmux-tui-core-lib tui_core_lib_gates
