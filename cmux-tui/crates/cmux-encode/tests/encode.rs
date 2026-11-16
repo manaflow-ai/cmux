@@ -289,15 +289,29 @@ fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
         enc.encode(&still, i == 0, pts, &mut au).expect("encode");
         pts += 1_000_000 / i64::from(FPS);
     }
-    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    // Screen content, not noise: a page of text-like glyph cells (dark strokes on a light
+    // page) scrolled by 24 rows a frame, the change that smeared. Random noise is not a
+    // screen: no H.264 encoder fits incompressible pixels in one frame's budget at any QP
+    // (it measured 257 KB against 8 KB on a fleet Mac), so it tested nothing.
+    let glyph = |x: usize, y: usize| -> u8 {
+        let (cell, row) = ((x / 8) as u64, (y / 16) as u64);
+        let mut h =
+            cell.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ row.wrapping_mul(0xc2b2_ae3d_27d4_eb4f);
+        h ^= h >> 29;
+        let (gx, gy) = (x % 8, y % 16);
+        let stroke = gy >= 3 && gy < 13 && gx >= 1 && gx < 7 && (h >> (gx + 8 * (gy % 4))) & 1 == 1;
+        if stroke { 40 } else { 230 }
+    };
     let mut pic = I420::new(W, H);
+    pic.u.fill(128);
+    pic.v.fill(128);
     let mut sizes = Vec::new();
-    for _ in 0..3 {
-        for px in pic.y.iter_mut().chain(pic.u.iter_mut()).chain(pic.v.iter_mut()) {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            *px = 16 + (seed % 220) as u8;
+    for frame in 1..=3usize {
+        let scroll = frame * 24;
+        for (y, row) in pic.y.chunks_mut(W).enumerate() {
+            for (x, px) in row.iter_mut().enumerate() {
+                *px = glyph(x, y + scroll);
+            }
         }
         enc.encode(&pic, false, pts, &mut au).expect("encode");
         pts += 1_000_000 / i64::from(FPS);
