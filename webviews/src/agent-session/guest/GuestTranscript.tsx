@@ -4,7 +4,8 @@
 // (header, transcript area, composer at the bottom) and opens the room's socket first, while this
 // loads beside them (Leo, 2026-11-07: the composer "was the only thing that was seen for a while
 // and then it got repositioned").
-import { AcpmuxDirectClient, nextFrame } from "../acpmux/direct";
+import { AcpmuxDirectClient } from "../acpmux/direct";
+import { commitInFrame } from "../acpmux/frameCommit";
 import { GuestActionsBoundary } from "../acpmux/conversation/GuestActionsBoundary";
 import type { AcpmuxSnapshot } from "../acpmux/model";
 import { VirtualTranscript } from "../acpmux/VirtualTranscript";
@@ -17,7 +18,7 @@ import { installGuestHost } from "./guestHost";
  */
 export function installGuestPage(): void {
   installGuestHost();
-  AcpmuxDirectClient.scheduleFrame = nextFrame;
+  AcpmuxDirectClient.scheduleFrame = commitInFrame;
 }
 
 /** The part of the fed client the page uses. */
