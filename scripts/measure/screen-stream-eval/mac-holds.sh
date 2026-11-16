@@ -25,8 +25,57 @@ set -u
 ANCHOR="com.apple/rd-synth-stall"
 PIPE=7730
 ST=/var/tmp/rd-synth-stall
-PY=/usr/bin/python3
+PY=${MAC_HOLDS_PY:-/usr/bin/python3}
+DNCTL=${MAC_HOLDS_DNCTL:-dnctl}   # tests put a stub here
 PROFILES="stall wifi-away wifi-short wifi-long wifi-loss"
+BASE_DELAY_MS=4
+# Never configure a dummynet pipe with a delay under 1 ms. A zero-delay pipe reinjects packets inside
+# the network stack; five such pipes behind pf probability rules, with rd traffic, overflowed the kernel
+# stack and panicked a macOS 27 fleet Mac twice on 2026-11-16 ("Invalid kernel stack pointer (probable
+# overflow)", panicked task cmux-rd). Both places that configure the pipe (pipe_config here and delay()
+# in the hold loop) refuse it, so a later profile cannot bring it back.
+MIN_DELAY_MS=1
+
+pipe_config() {  # DELAY_MS PLR: configure the pipe, refusing a delay under MIN_DELAY_MS
+  [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge "$MIN_DELAY_MS" ] \
+    || { echo "refusing dummynet delay '$1' ms: under $MIN_DELAY_MS ms panics macOS (see MIN_DELAY_MS)" >&2; return 1; }
+  "$DNCTL" pipe "$PIPE" config delay "$1" plr "$2"
+}
+
+hold_loop() {  # PLR SCHEDULE OUT MAX_S BASE_MS: apply the schedule's holds (see "How a hold queues")
+  "$PY" -I - "$PIPE" "$1" "$2" "$3" "$4" "$5" "$MIN_DELAY_MS" "$DNCTL" <<'PYEOF'
+import json, subprocess, sys, time
+pipe, plr, sched, out = sys.argv[1:5]
+max_s, base_ms, min_ms, dnctl = float(sys.argv[5]), int(sys.argv[6]), int(sys.argv[7]), sys.argv[8]
+mono_us = lambda: time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1000
+def delay(ms):
+    # Under MIN_DELAY_MS a dummynet pipe panics macOS (see MIN_DELAY_MS in mac-holds.sh): stop instead.
+    if int(ms) < min_ms:
+        sys.exit(f"refusing dummynet delay {int(ms)} ms: under {min_ms} ms panics macOS (see MIN_DELAY_MS)")
+    subprocess.run([dnctl, "pipe", pipe, "config", "delay", str(int(ms)), "plr", plr], stdout=subprocess.DEVNULL)
+holds = [json.loads(line) for line in open(sched)]
+t_base = time.monotonic()
+with open(out, "a") as log:
+    for h in holds:
+        hold = h["hold_ms"]
+        wait = t_base + h["start_s"] - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        t0 = time.monotonic()
+        rec = {"kind": h["kind"], "hold_ms": hold, "start_mono_us": mono_us(), "start_wall_ms": int(time.time() * 1000)}
+        step = 10.0 if hold < 150 else 25.0
+        j = 0
+        while j * step < hold:
+            delay(base_ms + hold - j * step)
+            j += 1
+            time.sleep(max(0.0, t0 + min(j * step, hold) / 1000 - time.monotonic()))
+        delay(base_ms)
+        rec.update({"end_mono_us": mono_us(), "end_wall_ms": int(time.time() * 1000)})
+        log.write(json.dumps(rec) + "\n"); log.flush()
+# The base delay and loss stay on until MAX_S (or clear), also with no holds left (wifi-loss has none).
+time.sleep(max(0.0, t_base + max_s - time.monotonic()))
+PYEOF
+}
 
 plr_of() { case "$1" in wifi-away|wifi-loss) echo 0.02 ;; *) echo 0 ;; esac; }
 # A recorded pid may be stale (a killed watchdog, a reboot): act on it only while it still runs this
@@ -83,6 +132,12 @@ case "${1:-}" in
     schedule "$2" "${3:?MAX_S}"
     exit
     ;;
+  _pipe_config)  # DELAY_MS PLR (tests: with MAC_HOLDS_DNCTL set to a stub)
+    pipe_config "$2" "$3"; exit
+    ;;
+  _hold_loop)    # PLR SCHEDULE OUT MAX_S BASE_MS (tests: with MAC_HOLDS_DNCTL set to a stub)
+    hold_loop "$2" "$3" "$4" "$5" "$6"; exit
+    ;;
 esac
 mkdir -p "$ST"; chmod 700 "$ST"
 
@@ -101,7 +156,7 @@ case "${1:-}" in
     tok=$(pfctl -E 2>&1 | sed -n 's/^Token : //p')
     [ -n "$tok" ] || { echo "pfctl -E gave no token" >&2; clear_all; exit 1; }
     echo "$tok" > "$ST/token"
-    dnctl pipe "$PIPE" config delay 4 plr "$(plr_of "$prof")" >/dev/null || { clear_all; exit 1; }
+    pipe_config "$BASE_DELAY_MS" "$(plr_of "$prof")" >/dev/null || { clear_all; exit 1; }
     echo "dummynet out quick proto { tcp udp icmp } from any to { $* } pipe $PIPE" \
       | pfctl -a "$ANCHOR" -f - 2>&1 | grep -v -e "ALTQ" -e "^$" -e "flushing of rules" -e "present in the main ruleset"
     [ "$(pfctl -a "$ANCHOR" -s dummynet 2>/dev/null | wc -l)" -ge 1 ] || { echo "anchor did not load" >&2; clear_all; exit 1; }
@@ -114,35 +169,7 @@ case "${1:-}" in
     prof=$2 max=$3
     trap '[ -s "$ST/py.pid" ] && kill -TERM "$(cat "$ST/py.pid")" 2>/dev/null; clear_all; rm -f "$ST/watchdog.pid" "$ST/py.pid"; exit 0' TERM INT HUP
     # The hold loop runs in Python for its timing and the monotonic clock.
-    "$PY" -I - "$PIPE" "$(plr_of "$prof")" "$ST/schedule.jsonl" "$ST/holds.jsonl" "$max" <<'PYEOF' &
-import json, subprocess, sys, time
-pipe, plr, sched, out = sys.argv[1:5]
-max_s = float(sys.argv[5])
-mono_us = lambda: time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1000
-def delay(ms):
-    subprocess.run(["dnctl", "pipe", pipe, "config", "delay", str(int(ms)), "plr", plr], stdout=subprocess.DEVNULL)
-holds = [json.loads(line) for line in open(sched)]
-t_base = time.monotonic()
-with open(out, "a") as log:
-    for h in holds:
-        hold = h["hold_ms"]
-        wait = t_base + h["start_s"] - time.monotonic()
-        if wait > 0:
-            time.sleep(wait)
-        t0 = time.monotonic()
-        rec = {"kind": h["kind"], "hold_ms": hold, "start_mono_us": mono_us(), "start_wall_ms": int(time.time() * 1000)}
-        step = 10.0 if hold < 150 else 25.0
-        j = 0
-        while j * step < hold:
-            delay(4 + hold - j * step)
-            j += 1
-            time.sleep(max(0.0, t0 + min(j * step, hold) / 1000 - time.monotonic()))
-        delay(4)
-        rec.update({"end_mono_us": mono_us(), "end_wall_ms": int(time.time() * 1000)})
-        log.write(json.dumps(rec) + "\n"); log.flush()
-# The base delay and loss stay on until MAX_S (or clear), also with no holds left (wifi-loss has none).
-time.sleep(max(0.0, t_base + max_s - time.monotonic()))
-PYEOF
+    hold_loop "$(plr_of "$prof")" "$ST/schedule.jsonl" "$ST/holds.jsonl" "$max" "$BASE_DELAY_MS" &
     echo $! > "$ST/py.pid"
     wait $!
     clear_all

@@ -359,6 +359,9 @@ schedule wifi-away 900`), so a later run can check it gets the same holds.
 `wifi-short`, `wifi-long` and `wifi-loss` keep only the short holds, only the long holds, or only the
 loss. `stall` is a 600 ms hold every 5 s.
 
+The script refuses any pipe delay under 1 ms. A zero-delay dummynet pipe panicked a macOS fleet Mac
+twice. `bash test-mac-holds.sh` checks the refusal with a stub `dnctl`, needs no root, and runs on Linux.
+
 ## Needs
 
 A console worker, and the grants: the hosts capture with ScreenCaptureKit and inject input with
