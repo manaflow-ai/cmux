@@ -106,6 +106,9 @@ impl LaunchRecord {
         Self::from_bytes(bytes)
     }
     pub fn from_bytes(bytes: Vec<u8>) -> Option<Self> {
+        if bytes.len() > MAX_BYTES {
+            return None;
+        }
         let mut p = Parser::new(&bytes);
         if p.take(8)? != MAGIC || p.u16()? != FORMAT_VERSION {
             return None;
@@ -285,9 +288,12 @@ fn put_u16(o: &mut Vec<u8>, n: usize) {
     o.extend_from_slice(&(n as u16).to_le_bytes())
 }
 fn put_string(o: &mut Vec<u8>, s: &str) -> Result<(), &'static str> {
-    if s.len() > u16::MAX as usize || !s.is_ascii() {
-        return Err("string must be ASCII and <= 65535 bytes");
+    if s.len() > u16::MAX as usize {
+        return Err("string must be <= 65535 bytes");
     };
+    if o.len().saturating_add(2).saturating_add(s.len()) > MAX_BYTES {
+        return Err("record exceeds 64 KiB");
+    }
     put_u16(o, s.len());
     o.extend_from_slice(s.as_bytes());
     Ok(())
@@ -315,7 +321,7 @@ impl<'a> Parser<'a> {
     fn string_span(&mut self) -> Option<(usize, usize)> {
         let n = self.u16()? as usize;
         let s = self.p;
-        self.take(n)?;
+        std::str::from_utf8(self.take(n)?).ok()?;
         Some((s, n))
     }
 }
@@ -457,20 +463,28 @@ unsafe fn input_data(
     sidebar_count: usize,
     socket: *const c_char,
 ) -> Option<LaunchRecordData> {
-    if (window_count != 0 && windows.is_null()) || (sidebar_count != 0 && sidebars.is_null()) {
+    // A window needs at least 60 encoded bytes; a sidebar row needs six.
+    // Reject impossible counts before allocating or dereferencing an array.
+    if window_count > MAX_BYTES / 60
+        || sidebar_count > MAX_BYTES / 6
+        || (window_count != 0 && windows.is_null())
+        || (sidebar_count != 0 && sidebars.is_null())
+    {
         return None;
     }
     let mut output = LaunchRecordData {
         windows: Vec::with_capacity(window_count),
         sidebar_rows: Vec::with_capacity(sidebar_count),
-        session_socket_path: c_string(socket)?.to_owned(),
+        session_socket_path: unsafe { c_string(socket)? }.to_owned(),
     };
     for i in 0..window_count {
         let w = unsafe { &*windows.add(i) };
         let id = unsafe { c_string(w.window_id)? }.to_owned();
         let image_path = unsafe { c_string(w.image_path)? }.to_owned();
         let workspace = unsafe { c_string(w.visible_workspace_id)? }.to_owned();
-        if w.visible_tab_count != 0 && w.visible_tab_ids.is_null() {
+        if w.visible_tab_count > MAX_BYTES / 2
+            || (w.visible_tab_count != 0 && w.visible_tab_ids.is_null())
+        {
             return None;
         }
         let mut tabs = Vec::with_capacity(w.visible_tab_count);
@@ -507,7 +521,11 @@ unsafe fn input_data(
 }
 
 /// Writes a bounded launch record through the app FFI. Null pointers, invalid UTF-8,
-/// non-ASCII strings and records over 64 KiB return false without touching the destination.
+/// impossible counts and records over 64 KiB return false without touching the destination.
+///
+/// # Safety
+/// Non-null pointers must reference readable, NUL-terminated strings or arrays
+/// of the supplied lengths for the duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_launch_record_write(
     path: *const c_char,
@@ -531,24 +549,44 @@ impl Default for CmuxLaunchWindow {
     }
 }
 fn copy_c(dst: &mut [c_char], s: &str) {
+    // The caller has validated capacity and embedded NULs.
     for (d, b) in dst.iter_mut().zip(s.bytes()) {
-        *d = b as c_char
+        *d = b as c_char;
     }
+    dst[s.len()] = 0;
 }
+/// Returns false with a zeroed output when the record is unusable.
+///
+/// # Safety
+/// `out`, if non-null, must be writable and aligned. `path`, if non-null,
+/// must point to a readable NUL-terminated string for the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_launch_record_front_window(
     path: *const c_char,
     out: *mut CmuxLaunchWindow,
 ) -> bool {
-    if path.is_null() || out.is_null() {
+    if out.is_null() {
         return false;
     }
     let o = unsafe { &mut *out };
     *o = CmuxLaunchWindow::default();
+    if path.is_null() {
+        return false;
+    }
     let p = unsafe { CStr::from_ptr(path) };
     let Ok(p) = p.to_str() else { return false };
     let Some(record) = LaunchRecord::read(p) else { return false };
     let Some(w) = record.front_window() else { return false };
+    if w.id.len() >= o.window_id.len()
+        || w.image_path.len() >= o.image_path.len()
+        || w.id.contains('\0')
+        || w.image_path.contains('\0')
+        || ![w.frame.x, w.frame.y, w.frame.width, w.frame.height].iter().all(|n| n.is_finite())
+        || w.frame.width <= 0.0
+        || w.frame.height <= 0.0
+    {
+        return false;
+    }
     o.frame_x = w.frame.x;
     o.frame_y = w.frame.y;
     o.frame_width = w.frame.width;
@@ -605,6 +643,133 @@ mod tests {
         let mut b = encode(&sample()).unwrap();
         b[8] = 2;
         assert!(LaunchRecord::from_bytes(b).is_none())
+    }
+
+    struct TestDir(std::path::PathBuf);
+    impl TestDir {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "cmux-launch-record-test-{}-{}-{}",
+                std::process::id(),
+                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn record(&self) -> std::path::PathBuf {
+            self.0.join("record")
+        }
+    }
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn exact_cap_and_one_byte_over() {
+        // Zero windows/rows, then a socket string; both are structurally valid.
+        for extra in [0, 1] {
+            let mut bytes = Vec::from(&b"CMUXLR01\x01\x00\x00\x00\x00\x00"[..]);
+            bytes.extend_from_slice(&((MAX_BYTES - 16 + extra) as u16).to_le_bytes());
+            bytes.resize(MAX_BYTES + extra, b'x');
+            let dir = TestDir::new();
+            fs::write(dir.record(), &bytes).unwrap();
+            assert_eq!(LaunchRecord::from_bytes(bytes).is_some(), extra == 0);
+            assert_eq!(LaunchRecord::read(dir.record()).is_some(), extra == 0);
+        }
+    }
+
+    #[test]
+    fn atomic_write_preserves_previous_on_invalid_input() {
+        let dir = TestDir::new();
+        let mut data = sample();
+        write_atomic(dir.record(), &data).unwrap();
+        data.windows[0].id = "replacement".into();
+        write_atomic(dir.record(), &data).unwrap();
+        assert_eq!(
+            LaunchRecord::read(dir.record()).unwrap().front_window().unwrap().id,
+            "replacement"
+        );
+        let previous = fs::read(dir.record()).unwrap();
+        data.session_socket_path = "x".repeat(MAX_BYTES);
+        assert!(write_atomic(dir.record(), &data).is_err());
+        assert_eq!(fs::read(dir.record()).unwrap(), previous);
+        assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+        assert!(LaunchRecord::read(dir.0.join("missing")).is_none());
+    }
+
+    #[test]
+    fn ffi_strings_are_terminated_or_output_is_zero() {
+        let dir = TestDir::new();
+        let path = std::ffi::CString::new(dir.record().to_str().unwrap()).unwrap();
+        for (id_len, image_len, expected) in
+            [(64, 1024, true), (65, 1024, false), (64, 1025, false)]
+        {
+            let mut data = sample();
+            data.windows[0].id = "w".repeat(id_len);
+            data.windows[0].image_path = "p".repeat(image_len);
+            write_atomic(dir.record(), &data).unwrap();
+            let mut out = CmuxLaunchWindow { display_id: 999, ..Default::default() };
+            assert_eq!(
+                unsafe { cmux_launch_record_front_window(path.as_ptr(), &mut out) },
+                expected
+            );
+            if expected {
+                assert_eq!(
+                    unsafe { CStr::from_ptr(out.window_id.as_ptr()) }.to_bytes().len(),
+                    id_len
+                );
+                assert_eq!(
+                    unsafe { CStr::from_ptr(out.image_path.as_ptr()) }.to_bytes().len(),
+                    image_len
+                );
+            } else {
+                assert_eq!(out.display_id, 0);
+                assert_eq!(out.frame_width, 0.0);
+                assert!(out.window_id.iter().chain(out.image_path.iter()).all(|&v| v == 0));
+            }
+        }
+        let mut out = CmuxLaunchWindow { display_id: 999, ..Default::default() };
+        assert!(!unsafe { cmux_launch_record_front_window(std::ptr::null(), &mut out) });
+        assert_eq!(out.display_id, 0);
+        let mut data = sample();
+        data.windows[0].image_path = "a\0b".into();
+        write_atomic(dir.record(), &data).unwrap();
+        assert!(!unsafe { cmux_launch_record_front_window(path.as_ptr(), &mut out) });
+        assert_eq!(out.display_id, 0);
+    }
+
+    #[test]
+    fn ffi_rejects_impossible_counts_before_dereference() {
+        assert!(
+            unsafe {
+                input_data(std::ptr::null(), usize::MAX, std::ptr::null(), 0, std::ptr::null())
+            }
+            .is_none()
+        );
+        assert!(
+            unsafe {
+                input_data(std::ptr::null(), 0, std::ptr::null(), usize::MAX, std::ptr::null())
+            }
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn unicode_round_trip_and_invalid_utf8_rejected() {
+        let mut data = sample();
+        data.sidebar_rows[0].title = "作業 🦀".into();
+        data.windows[0].image_path = "/tmp/画面.png".into();
+        let bytes = encode(&data).unwrap();
+        let r = LaunchRecord::from_bytes(bytes).unwrap();
+        assert_eq!(r.sidebar_rows().next().unwrap().title, data.sidebar_rows[0].title);
+        assert_eq!(r.front_window().unwrap().image_path, data.windows[0].image_path);
+        let mut invalid = encode(&sample()).unwrap();
+        invalid[16] = 0xff; // First window id.
+        assert!(LaunchRecord::from_bytes(invalid).is_none());
     }
 
     #[test]

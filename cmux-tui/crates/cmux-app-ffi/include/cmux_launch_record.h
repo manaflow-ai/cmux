@@ -35,6 +35,8 @@ typedef struct CmuxLaunchSidebarInput {
   const char *icon_key;
 } CmuxLaunchSidebarInput;
 
+// False leaves a non-null output zeroed. Success strings are NUL-terminated.
+// IDs >=65 bytes, image paths >=1025 bytes and unusable frames return false.
 bool cmux_launch_record_front_window(const char *path, CmuxLaunchWindow *out);
 bool cmux_launch_record_write(const char *path,
                               const CmuxLaunchWindowInput *windows,
