@@ -21,7 +21,7 @@ export type EndedReplyCheck = {
   scroller: RefObject<HTMLElement | null>;
   host: RefObject<HTMLElement | null>;
   /// Whether the reader follows the newest row.
-  atLatest: () => boolean;
+  follow: RefObject<{ atLatest: boolean }>;
 };
 
 export function useEndedReplyCheck({
@@ -32,13 +32,11 @@ export function useEndedReplyCheck({
   dockSpace,
   scroller,
   host,
-  atLatest,
+  follow,
 }: EndedReplyCheck): void {
   const judged = useRef<string | undefined>(undefined);
   // The chat whose turn this page saw working; its next end is judged.
   const watched = useRef<string | undefined>(undefined);
-  const follows = useRef(atLatest);
-  follows.current = atLatest;
   useEffect(() => {
     // Another chat shown: the turn this page watched was that chat's.
     if (watched.current !== sessionId) watched.current = undefined;
@@ -52,7 +50,7 @@ export function useEndedReplyCheck({
     const timer = window.setTimeout(() => {
       const view = scroller.current;
       const thread = host.current;
-      if (!view || !thread || document.visibilityState !== "visible" || !follows.current()) return;
+      if (!view || !thread || document.visibilityState !== "visible" || !follow.current.atLatest) return;
       judged.current = id;
       const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
       const node = thread.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);

@@ -55,7 +55,8 @@ function harness() {
   function Probe(props: { sessionId: string; rows: AcpmuxRow[]; working: boolean }) {
     const scroller = useRef<HTMLElement>(null);
     const host = useRef<HTMLElement>(null);
-    useEndedReplyCheck({ ...props, loading: false, dockSpace: 0, scroller, host, atLatest: () => true });
+    const follow = useRef({ atLatest: true });
+    useEndedReplyCheck({ ...props, loading: false, dockSpace: 0, scroller, host, follow });
     return null;
   }
   return {

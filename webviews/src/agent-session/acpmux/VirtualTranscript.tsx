@@ -5164,7 +5164,7 @@ function TranscriptView({
     dockSpace,
     scroller: ref,
     host: thread,
-    atLatest: () => scrolledTo.current.atLatest,
+    follow: scrolledTo,
   });
   // Another chat shown, or the transcript unmounting: a fold still playing ends at once.
   useLayoutEffect(
