@@ -17,12 +17,9 @@ export function followActionsWidth(field: HTMLElement): (() => void) | undefined
   const box = field.closest<HTMLElement>(".acpmux-composer-box");
   if (!box) return undefined;
   let actions: HTMLElement | null = null;
-  /// The width last measured: a mutation that leaves it on the box needs no new measure.
-  let measured: string | undefined;
   const apply = () => {
     if (!actions?.isConnected) return;
     const value = `${Math.ceil(actions.getBoundingClientRect().width)}px`;
-    measured = value;
     if (box.style.getPropertyValue(PROPERTY) === value) return;
     // The new padding rewraps the draft after this frame's own scrolls ran (a resize observer is
     // told after animation frames): a draft shown to its end, as a paste or typing at the end leaves
@@ -39,12 +36,6 @@ export function followActionsWidth(field: HTMLElement): (() => void) | undefined
       if (actions) observer.unobserve(actions);
       actions = now;
       if (actions) observer.observe(actions);
-    } else if (measured !== undefined && box.style.getPropertyValue(PROPERTY) === measured) {
-      // The same actions with their width still on the box: a size change comes through the resize
-      // observer, so this mutation needs no layout read. The composer re-renders on every key, and
-      // a read here forced each key's layout before its frame (composer-typing bench --profile).
-      // perf-hot: no layout read per key composer-draft-typing
-      return;
     }
     apply();
   };
