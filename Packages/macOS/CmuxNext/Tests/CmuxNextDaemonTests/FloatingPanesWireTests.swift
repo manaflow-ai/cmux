@@ -79,11 +79,4 @@ struct FloatingPanesWireTests {
         #expect(answer.floating)
         #expect(!answer.changed)
     }
-
-    /// The answer of `split` names the pane it made: a new floating pane is that pane.
-    @Test func theAnswerOfASplitNamesItsPane() throws {
-        let created = try JSONDecoder().decode(SurfaceCreated.self, from: Data(#"{"surface":8,"pane":5}"#.utf8))
-        #expect(created.pane == PaneID(rawValue: 5))
-        #expect(try JSONDecoder().decode(SurfaceCreated.self, from: Data(#"{"surface":8}"#.utf8)).pane == nil)
-    }
 }

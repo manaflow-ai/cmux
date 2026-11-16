@@ -52,8 +52,8 @@ extension AppControl {
                 return await DebugWindowSnapshot.captureBackdrop(call.params, pattern: pattern, image: image, services: services)
             },
             Self.debugMouseMethod(services),
-            // The cursor the app shows now, by name (NSCursor.debugName), and the window server's; and each floating pane's zones.
-            .mainActor("debug.cursor") { _ in .value(.object(FloatingPaneDebugReport.withFloatingPanes(LayoutRootView.debugCursorReport()).mapValues(JSONValue.string))) },
+            // The cursor the app shows now and the window server's, by name; each screen's floating panes; the zone at `x`, `y`.
+            .mainActor("debug.cursor") { call in .value(.object(FloatingPaneDebugReport.cursor(at: call.params.compactMapValues(\.doubleValue)).mapValues(JSONValue.string))) },
             // The Home data path (homeRouter) from the socket (DebugHomeAPI).
             .async("debug.home.api") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }

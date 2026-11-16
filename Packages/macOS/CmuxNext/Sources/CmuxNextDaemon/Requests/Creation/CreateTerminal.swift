@@ -5,8 +5,6 @@ public struct SurfaceCreated: Decodable, Sendable, Equatable {
     public var surface: SurfaceID
     public var terminalID: TerminalID?
     public var terminalIncarnation: TerminalIncarnation?
-    /// The pane that holds the new tab, when the reply names it (`split`).
-    public var pane: PaneID?
 
     init(surface: SurfaceID, terminalID: TerminalID? = nil, terminalIncarnation: TerminalIncarnation? = nil) {
         self.surface = surface
@@ -18,7 +16,6 @@ public struct SurfaceCreated: Decodable, Sendable, Equatable {
         case surface
         case terminalID = "terminal_id"
         case terminalIncarnation = "terminal_incarnation"
-        case pane
     }
 }
 

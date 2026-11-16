@@ -52,9 +52,11 @@ public enum FloatingPaneActions {
         registry.register(Action(
             id: "newFloatingPane", title: FloatingPaneStrings.new, keywords: ["floating", "float", "overlay", "scratch"],
             shortcut: Shortcut("n", modifiers: [.control, .shift, .command]),
-            invoke: { invocation in
+            invoke: { [weak registry] invocation in
                 guard let (daemon, pane) = target(invocation) else { return }
-                NewFloatingPane.start(on: daemon, beside: pane)
+                // A key run shows the act's failure as a notice; a caller that waits (`action.run`) gets it.
+                let work = NewFloatingPane.start(on: daemon, beside: pane)
+                registry?.trackOrRefuse(work)
             },
             handler: {}
         ))

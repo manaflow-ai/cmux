@@ -1,50 +1,76 @@
+import CmuxNextActions
 import CmuxNextDaemon
 
 /// New Floating Pane as one unit: a split on the right of a tiled pane of the screen, then `float-pane` on the pane
-/// that the split made. The 2 requests are closures, so a test runs the act with stand-ins and no daemon.
+/// that the split made. The act ends with a floating pane or with an error that a person sees, never with a tiled
+/// pane and no error (decision 2026-11-16). The 2 requests are closures, so a test runs the act with stand-ins and
+/// no daemon.
 struct NewFloatingPane {
     /// The store that holds the screens.
     let store: DaemonStore
-    /// `split` on the right of the pane it gets; it returns the daemon's reply.
+    /// `split` on the right of the pane it gets; it returns the daemon's reply once the store holds the new pane.
     let split: @MainActor (PaneID) async throws -> SurfaceCreated
     /// `float-pane` with `mode: on` for the pane it gets.
     let float: @MainActor (PaneID) async throws -> Void
 
-    /// The pane that the split goes to: `pane`, or the last tiled pane of `screen` when `pane` floats.
+    /// The pane that the split goes to: `pane` when it is tiled and outside each dock, else the last tiled pane of
+    /// `screen` outside each dock (the daemon refuses a split in a docked column). Nil when the screen has no such pane.
     static func anchor(for pane: PaneID, on screen: ScreenModel) -> PaneID? {
         let floating = Set(screen.floating.map(\.pane))
-        guard floating.contains(pane) else { return pane }
-        return screen.panes.last { !floating.contains($0.handle) }?.handle ?? pane
+        let docked = Set(screen.columns.filter { $0.dock != nil }.flatMap(\.layout.paneIDs))
+        let isAnchor: (PaneID) -> Bool = { !floating.contains($0) && !docked.contains($0) }
+        return isAnchor(pane) ? pane : screen.panes.last { isAnchor($0.handle) }?.handle
     }
 
-    /// Runs the act for the focused pane `pane`: the split, then the float of the pane that the reply names.
+    /// Runs the act for the focused pane `pane`: the split, then the float of the pane that the split made. The
+    /// daemon's reply names the new tab's surface and no numeric pane, so the pane is the store's pane that holds
+    /// that surface.
+    ///
+    /// - Throws: ``ActionFailure`` with the notice's text when the screen has no pane that a split can go to, or
+    ///   when the store has no pane for the reply; the error of a request that the daemon refused.
     func run(beside pane: PaneID) async throws {
-        guard let screen = store.screen(containing: pane), let anchor = Self.anchor(for: pane, on: screen) else { return }
+        guard let screen = store.screen(containing: pane), let anchor = Self.anchor(for: pane, on: screen) else {
+            throw ActionFailure(message: FloatingPaneStrings.noTiledPane)
+        }
         let created = try await split(anchor)
-        if let new = created.pane { try await float(new) }
+        guard let new = store.pane(containing: created.surface)?.handle else {
+            throw ActionFailure(message: FloatingPaneStrings.notFloated)
+        }
+        try await float(new)
     }
 
-    /// Starts the act on `daemon` for the focused pane `pane`, with the daemon's 2 requests. A daemon without
-    /// floating panes gets no request.
-    static func start(on daemon: DaemonService, beside pane: PaneID) {
-        guard daemon.floatsPanes, daemon.store.screen(containing: pane) != nil else { return }
+    /// Starts the act on `daemon` for the focused pane `pane`, with the daemon's 2 requests.
+    ///
+    /// - Returns: The act's work: nil when the pane floats, else the failure. The caller gives it to the action
+    ///   registry, so a key run shows the failure and a caller that waits gets it.
+    static func start(on daemon: DaemonService, beside pane: PaneID) -> ActionWork {
         let label = "new-floating-pane"
         let options = SpawnOptions(workspace: daemon.store.workspace(containing: pane)?.key)
         // The ticket opens now, as `send` opens it: a caller that waits for the action's scope waits for the 2 requests.
         let ticket = daemon.openTicket(label)
-        Task {
+        return Task {
             do {
+                guard daemon.floatsPanes else { throw ActionFailure.needsDaemonCapability(DaemonCapability.floatingPanes.rawValue) }
                 guard let connection = daemon.connection else { throw DaemonError.notConnected }
+                let store = daemon.store
                 let act = NewFloatingPane(
-                    store: daemon.store,
-                    split: { try await connection.split($0, direction: .right, options: options) },
+                    store: store,
+                    split: { anchor in
+                        let target = try await store.daemonTarget(anchor)
+                        let created = try await connection.split(target, direction: .right, options: options)
+                        // The store holds each event that the daemon sent before the reply, so it holds the new pane.
+                        await store.applied(.generate(), connection: connection)
+                        return created
+                    },
                     float: { _ = try await connection.floatPane($0, mode: .on) }
                 )
                 try await act.run(beside: pane)
                 await daemon.closeTicket(ticket, label: label, error: nil, replying: connection)
+                return nil
             } catch {
                 daemon.logCommandFailure(label, error: error)
                 await daemon.closeTicket(ticket, label: label, error: error)
+                return daemon.workFailure(label, error)
             }
         }
     }
