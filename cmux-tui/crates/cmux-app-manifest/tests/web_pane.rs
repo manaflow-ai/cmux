@@ -189,4 +189,39 @@ mod apps {
         // Unknown junk keeps the strict policy.
         assert_eq!(effective_csp(Some(";;;")), effective_csp(None));
     }
+
+    /// `files: ["web/"]` covers `runtime.web.root: "web"` (the folder itself), not only the
+    /// files under it; before, only a root spelled `web/` passed.
+    #[test]
+    fn a_folder_in_files_covers_a_root_without_a_slash() {
+        let tmp = std::env::temp_dir().join(format!("cmux-web-pane-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("web")).expect("mkdir");
+        std::fs::create_dir_all(tmp.join("assets")).expect("mkdir");
+        std::fs::write(tmp.join("web/index.html"), "<p>ok</p>").expect("write");
+        std::fs::write(tmp.join("assets/icon.svg"), "<svg/>").expect("write");
+        for (root, files) in [
+            ("web", json!(["web/", "assets/"])),
+            ("web", json!(["web", "assets"])),
+            ("web/", json!(["web/", "assets/"])),
+        ] {
+            let mut m = web_app(root, "web/index.html", None);
+            m["files"] = files;
+            std::fs::write(tmp.join("cmux-app.json"), m.to_string()).expect("write");
+            let report = validate_package_file(&tmp, "cmux-app.json");
+            assert!(
+                !report.issues.iter().any(|i| i.code == "path.notInFiles"),
+                "{root} with {}: {:?}",
+                m["files"],
+                report.issues
+            );
+        }
+        // A folder that is not listed is still refused.
+        let mut m = web_app("web", "web/index.html", None);
+        m["files"] = json!(["assets/"]);
+        std::fs::write(tmp.join("cmux-app.json"), m.to_string()).expect("write");
+        let report = validate_package_file(&tmp, "cmux-app.json");
+        assert!(report.issues.iter().any(|i| i.code == "path.notInFiles"), "{:?}", report.issues);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

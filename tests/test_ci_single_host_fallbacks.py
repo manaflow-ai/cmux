@@ -917,7 +917,13 @@ class PrepushGateLayer(unittest.TestCase):
         self.commit("head")
         with unittest.mock.patch.object(self.gate, "has_pyyaml", return_value=False), \
                 unittest.mock.patch.object(self.gate, "pyyaml_install_command", return_value="PY -m pip install X"):
-            self.assertEqual(self.layer(), ["PyYAML missing: run PY -m pip install X"])
+            with unittest.mock.patch.dict(os.environ, {"CMUX_HOOK_PYTHON_TRIED": ""}):
+                self.assertEqual(self.layer(), ["PyYAML missing: run PY -m pip install X"])
+            # Under the hook, which tried every candidate on the host (scripts/git-hooks/hook_python.sh): it names them.
+            tried = "/Users/cmux/.local/python-3.13.15/bin/python3.13 (no PyYAML); /usr/local/bin/python3 (missing)"
+            with unittest.mock.patch.dict(os.environ, {"CMUX_HOOK_PYTHON_TRIED": tried}):
+                self.assertEqual(self.layer(), [f"PyYAML missing: run PY -m pip install X (no Python the hook tried "
+                                                f"imports yaml: {tried})"])
         # The probe asks the hook's own interpreter the way the hook runs it (-I, so no user site).
         self.assertTrue(self.gate.has_pyyaml(sys.executable))
         self.assertFalse(self.gate.has_pyyaml(str(Path(self.tmp.name) / "no-such-python")))

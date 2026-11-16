@@ -13,6 +13,7 @@ import { nextAsk, needsYouPillOn, pillAsks } from "./jumpPillModel";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
 import { findSession } from "../sessionIndex";
 import { needsYouMode, type NeedsYouActions, type NeedsYouMode, type NeedsYouPlace } from "./needsYouModel";
+import { focusRoute } from "../../../ui/focusRoute";
 
 type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
 
@@ -118,7 +119,7 @@ export function useNeedsYou({
           (each) => each.getAttribute("data-queued-message") === item.promptId,
         );
         card?.scrollIntoView({ block: "center" });
-        card?.focus({ preventScroll: true });
+        focusRoute(card, "system", "a Needs You card revealed", { preventScroll: true });
       } else
         document
           .querySelector(item.kind === "held" ? ".cv-agent-pair" : ".acpmux-permission")
