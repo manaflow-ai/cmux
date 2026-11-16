@@ -329,8 +329,8 @@ final class WindowManager {
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()
-        deferredWindows.start(make: { [unowned self] id in registry.value.window(id).flatMap { $0.isOpen && controller(for: id) == nil ? makeController(for: $0) : nil } != nil },
-                              stopped: { [unowned self] in isTerminating }, done: { [weak self] in DebugTimings.markLaunch("deferred_windows_restored"); self?.active?.reservedContent.fill() })
+        deferredWindows.start(make: { [weak self] id in self.flatMap { manager in manager.registry.value.window(id).flatMap { $0.isOpen && manager.controller(for: id) == nil ? manager.makeController(for: $0) : nil } } != nil },
+                              stopped: { [weak self] in self?.isTerminating ?? true }, done: { [weak self] in DebugTimings.markLaunch("deferred_windows_restored"); self?.active?.reservedContent.fill() })
     }
 
     /// Window `id`'s controller, made now when it still waits for its turn (a show aimed at it never waits).
