@@ -206,6 +206,11 @@ mod tests {
         assert_eq!(flight.progress(8.25), 1.);
         assert_eq!(flight.frame(8.25), FlightPhase::Still, "the flight did not end at its length");
         assert_eq!(flight.progress(9.), 1.);
+        // The flight runs on the curve of its motion, not on the curve of a surface at rest.
+        let mut flight = MotionFlight::new();
+        let even = TweenParameters::new(0.25, TweenCurve::Linear);
+        assert_eq!(flight.change(INSERT, true, even, 8.), FlightStep::Start);
+        assert_eq!(flight.progress(8.125), 0.5, "linear at half time");
     }
 
     #[test]
@@ -287,6 +292,13 @@ mod tests {
         assert_eq!(flight.change(CLOSE, false, LENGTH, 8.125), FlightStep::Keep);
         assert_eq!(flight, before);
         assert_eq!(flight.progress(8.125), 0.75);
+        // In a quiet time too.
+        assert_eq!(flight.change(INSERT, true, LENGTH, 8.125), FlightStep::AtOnce);
+        let before = flight;
+        assert_eq!(flight.change(INSERT, false, LENGTH, 8.1875), FlightStep::Keep);
+        assert_eq!(flight.change(CLOSE, false, LENGTH, 8.1875), FlightStep::Keep);
+        assert_eq!(flight, before);
+        assert_eq!(flight.frame(8.1875), FlightPhase::Quiet);
     }
 
     #[test]
@@ -310,13 +322,57 @@ mod tests {
         // No frame call between: the change itself sees that the flight is over.
         let mut flight = flying_since_8(INSERT);
         assert_eq!(flight.change(INSERT, true, LENGTH, 8.25), FlightStep::Start);
-        // Fifteen 1/60 s frames sum to just under 0.25 s and must end the flight.
-        let mut flight = flying_since_8(CLOSE);
-        let mut now = 8.;
+        // Fifteen 1/60 s frames from 0 sum to just under 0.25 s and must end the flight.
+        let mut flight = MotionFlight::new();
+        assert_eq!(flight.change(CLOSE, true, LENGTH, 0.), FlightStep::Start);
+        let mut now = 0.;
         for _ in 0..15 {
             now += 1. / 60.;
         }
+        assert!(now < 0.25, "the sum is not under the length: {now}");
         assert_eq!(flight.frame(now), FlightPhase::Still, "now = {now}");
+    }
+
+    /// The slack is 1e-9 s: a time that is less than the slack under an end is at the end, and
+    /// a time that is more than the slack under it is not.
+    #[test]
+    fn the_end_slack_ends_a_flight_and_a_quiet_time_just_under_their_length() {
+        let mut flight = MotionFlight::new();
+        assert_eq!(flight.change(INSERT, true, LENGTH, 0.), FlightStep::Start);
+        let (mut inside, mut outside) = (flight, flight);
+        assert_eq!(outside.frame(0.25 - 2e-9), FlightPhase::Flying);
+        assert_eq!(inside.progress(0.25 - 0.5e-9), 1.);
+        assert_eq!(inside.frame(0.25 - 0.5e-9), FlightPhase::Still);
+        // The quiet time of a second key at 0.0625 ends at 0.3125.
+        assert_eq!(flight.change(INSERT, true, LENGTH, 0.0625), FlightStep::AtOnce);
+        let (mut inside, mut outside) = (flight, flight);
+        assert_eq!(outside.frame(0.3125 - 2e-9), FlightPhase::Quiet);
+        assert_eq!(inside.frame(0.3125 - 0.5e-9), FlightPhase::Still);
+        let (mut inside, mut outside) = (flight, flight);
+        assert_eq!(outside.change(INSERT, true, LENGTH, 0.3125 - 2e-9), FlightStep::AtOnce);
+        assert_eq!(inside.change(INSERT, true, LENGTH, 0.3125 - 0.5e-9), FlightStep::Start);
+    }
+
+    /// A change with no motion (its kind is off) by another act or by no act, in the quiet
+    /// time of a held key: the held key's next change still applies at once.
+    #[test]
+    fn a_change_with_no_motion_leaves_a_quiet_time_in_place_as_it_is() {
+        let off = TweenParameters::new(0., TweenCurve::EaseOutQuad);
+        for other in [CLOSE, MotionFlight::NO_ACT] {
+            // The quiet time of INSERT ends at 8.3125.
+            let mut flight = flying_since_8(INSERT);
+            assert_eq!(flight.change(INSERT, true, LENGTH, 8.0625), FlightStep::AtOnce);
+            assert_eq!(flight.change(other, true, off, 8.125), FlightStep::AtOnce, "act {other}");
+            let (mut held, mut left) = (flight, flight);
+            assert_eq!(
+                held.change(INSERT, true, LENGTH, 8.1875),
+                FlightStep::AtOnce,
+                "act {other}"
+            );
+            // It is not longer either: it ends where it ended before.
+            assert_eq!(left.frame(8.25), FlightPhase::Quiet, "act {other}");
+            assert_eq!(left.frame(8.3125), FlightPhase::Still, "act {other}");
+        }
     }
 
     #[test]
@@ -325,8 +381,43 @@ mod tests {
         assert_eq!(flight.change(CLOSE, true, LENGTH, f64::NAN), FlightStep::AtOnce);
         assert_eq!(flight.progress(f64::NAN), 1.);
         assert_eq!(flight.frame(f64::NAN), FlightPhase::Still);
+        // A frame at such a clock ends the flight in the air.
+        let mut flight = flying_since_8(INSERT);
+        assert_eq!(flight.frame(f64::NAN), FlightPhase::Still);
+        assert_eq!(flight.frame(8.125), FlightPhase::Still);
         // A clock that goes back does not pass the start.
         let flight = flying_since_8(INSERT);
         assert_eq!(flight.progress(7.), 0.);
+    }
+
+    #[test]
+    fn a_clock_that_is_not_finite_moves_nothing() {
+        for now in [f64::INFINITY, f64::NEG_INFINITY] {
+            // At rest: no flight starts, so no flight is left in the air with no end.
+            let mut flight = MotionFlight::new();
+            assert_eq!(flight.change(INSERT, true, LENGTH, now), FlightStep::AtOnce, "clock {now}");
+            assert_eq!(flight.frame(8.), FlightPhase::Still, "clock {now}");
+            assert_eq!(flight.progress(8.), 1., "clock {now}");
+            // In a flight: the change ends it.
+            let mut flight = flying_since_8(INSERT);
+            assert_eq!(flight.change(CLOSE, true, LENGTH, now), FlightStep::AtOnce, "clock {now}");
+            assert_eq!(flight.frame(8.125), FlightPhase::Still, "clock {now}");
+            // A read and a frame at such a clock: nothing is in the air.
+            let mut flight = flying_since_8(INSERT);
+            assert_eq!(flight.progress(now), 1., "clock {now}");
+            assert_eq!(flight.frame(now), FlightPhase::Still, "clock {now}");
+            assert_eq!(flight.frame(8.125), FlightPhase::Still, "clock {now}");
+        }
+    }
+
+    /// The fields are public (the C calls copy them), so a host can give a length that
+    /// `change` never writes.
+    #[test]
+    fn a_length_in_the_state_that_is_not_finite_flies_nothing() {
+        for duration in [f64::INFINITY, f64::NAN] {
+            let mut flight = MotionFlight { duration, ..flying_since_8(INSERT) };
+            assert_eq!(flight.progress(8.125), 1., "length {duration}");
+            assert_eq!(flight.frame(8.125), FlightPhase::Still, "length {duration}");
+        }
     }
 }
