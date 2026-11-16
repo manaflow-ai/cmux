@@ -274,6 +274,30 @@ fn floating_pane_refuses_a_pane_of_a_column_with_rows() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// A member of a stack never floats. A pane of the same column that is not in the stack floats.
+#[test]
+fn floating_pane_refuses_a_member_of_a_stack() {
+    let (root, session) = seed("stack", |_| {});
+    let mux = open_restart_mux(&root, &session);
+    // The first column has no rows and no dock: the stack of panes 1 and 2 is above pane 3 in one split.
+    for member in [1, 2].map(restore_pane_id) {
+        let pane = live_pane(&mux, &member);
+        assert_eq!(
+            mux.float_pane_as(&Actor::Daemon, pane, FloatMode::On, None, None),
+            Err(FloatPaneError::FixedPane),
+            "{member}"
+        );
+    }
+    assert!(live_list(&mux).is_empty());
+
+    let low = live_pane(&mux, &restore_pane_id(3));
+    mux.float_pane_as(&Actor::Daemon, low, FloatMode::On, None, None).unwrap();
+    assert_eq!(live_list(&mux).len(), 1);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// The rows of the second column of the first screen.
 fn second_column_rows(mux: &Mux) -> usize {
     mux.with_state(|state| state.workspaces[0].screens[0].layout_columns[1].rows.len())

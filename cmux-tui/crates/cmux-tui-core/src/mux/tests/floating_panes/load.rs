@@ -12,36 +12,52 @@ fn stage(root: &Path, session: &str, sql: &str) {
     WorkspaceRegistry::open(root, session).unwrap().execute_sql_for_test(sql).unwrap();
 }
 
+/// A record of `pane` with a frame in the middle of the screen.
+fn centered(pane: PanePublicId) -> Floating<PanePublicId> {
+    Floating { pane, frame: FloatFrame::centered(500_000, 500_000) }
+}
+
+/// The faults of one record: a REAL, a TEXT, two values that are not a `u32`, and a pane id that is a BLOB.
+const FAULTS: [&str; 5] = ["x = 0.5", "y = 'abc'", "w = -1", "h = 5000000000", "pane_id = x'01'"];
+
+/// A store whose first screen has the records of `good` and a record of the low pane with `fault` in it. The
+/// table also has a record of a screen that the store does not have.
+fn store_with_a_wrong_value(
+    name: &str,
+    fault: &str,
+    good: &[Floating<PanePublicId>],
+) -> (PathBuf, String) {
+    let low = restore_pane_id(3);
+    let (root, session) = seed(name, |seeded| {
+        seeded.floating = good.to_vec();
+        seeded
+            .floating
+            .push(Floating { pane: low.clone(), frame: FloatFrame::centered(300_000, 300_000) });
+    });
+    stage(
+        &root,
+        &session,
+        &format!(
+            "UPDATE resource_floating_panes SET {fault} WHERE pane_id = '{low}';
+             INSERT INTO resource_floating_panes(screen_id, pane_id, position, x, y, w, h)
+             VALUES('{gone}', '{right}', 0, 0, 0, 500000, 500000);",
+            gone = restore_screen_id(99),
+            right = restore_pane_id(4),
+        ),
+    );
+    (root, session)
+}
+
 /// The column types of the table are affinities only: SQLite keeps a REAL, a TEXT or a BLOB in an `INTEGER`
 /// column. One record with such a value, or with a value that is not a `u32`, is dropped. The load goes on,
 /// the other records stay, and the next write of the screen takes the record out of the table.
 #[test]
 fn floating_pane_record_with_a_wrong_value_is_dropped_and_the_load_goes_on() {
     let right = restore_pane_id(4);
-    let low = restore_pane_id(3);
     let screen = restore_screen_id(1);
-    let good =
-        vec![Floating { pane: right.clone(), frame: FloatFrame::centered(500_000, 500_000) }];
-    let faults = ["x = 0.5", "y = 'abc'", "w = -1", "h = 5000000000", "pane_id = x'01'"];
-    for (index, fault) in faults.into_iter().enumerate() {
-        let (root, session) = seed(&format!("wrong-{index}"), |seeded| {
-            seeded.floating = good.clone();
-            seeded.floating.push(Floating {
-                pane: low.clone(),
-                frame: FloatFrame::centered(300_000, 300_000),
-            });
-        });
-        // The fault in the record of the low pane, and a record of a screen that the store does not have.
-        stage(
-            &root,
-            &session,
-            &format!(
-                "UPDATE resource_floating_panes SET {fault} WHERE pane_id = '{low}';
-                 INSERT INTO resource_floating_panes(screen_id, pane_id, position, x, y, w, h)
-                 VALUES('{gone}', '{right}', 0, 0, 0, 500000, 500000);",
-                gone = restore_screen_id(99),
-            ),
-        );
+    let good = vec![centered(right.clone())];
+    for (index, fault) in FAULTS.into_iter().enumerate() {
+        let (root, session) = store_with_a_wrong_value(&format!("wrong-{index}"), fault, &good);
 
         let opened = WorkspaceRegistry::open(&root, &session);
         assert!(opened.is_ok(), "{fault}: the store did not open: {:?}", opened.as_ref().err());
@@ -70,6 +86,73 @@ fn floating_pane_record_with_a_wrong_value_is_dropped_and_the_load_goes_on() {
             ))
             .unwrap();
         assert_eq!(records, "0", "{fault}: the next write of the screen removes the record");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// A commit that states the screen with the list that the load gave takes the record that is not valid out of
+/// the table: while such a record is there, the stored list does not agree with the list of a commit. The same
+/// commit one more time writes no record of the screen, so the first write came from that record and from no
+/// other part of the screen.
+#[test]
+fn floating_pane_record_with_a_wrong_value_goes_at_a_commit_of_the_loaded_list() {
+    let screen = restore_screen_id(1);
+    let good = vec![centered(restore_pane_id(4))];
+    // The fixture with the list that the load gives: the good record only.
+    let (snapshot, mut topology) = resource_restore_fixture();
+    topology.screens.iter_mut().find(|stated| stated.public_id == screen).unwrap().floating =
+        good.clone();
+    let patch = resource_restore_patch(&snapshot, &topology);
+    let commit = |registry: &mut WorkspaceRegistry, mutation: String| {
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::daemon(mutation, "test").unwrap(),
+                "session.restore_fixture",
+                &serde_json::json!({"fixture":"floating"}),
+                None,
+                None,
+                &patch,
+                &serde_json::json!({"restored":true}),
+                &serde_json::json!([{"event":"session.restored"}]),
+            )
+            .unwrap();
+    };
+    let of_records = |registry: &WorkspaceRegistry, value: &str| {
+        registry
+            .query_text_for_test(&format!(
+                "SELECT CAST({value} AS TEXT) FROM resource_floating_panes
+                 WHERE screen_id = '{screen}'"
+            ))
+            .unwrap()
+    };
+    for (index, fault) in FAULTS.into_iter().enumerate() {
+        let (root, session) = store_with_a_wrong_value(&format!("stated-{index}"), fault, &good);
+        let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
+        assert_eq!(stored_list_in(&registry), good, "{fault}: the load drops the record");
+        assert_eq!(of_records(&registry, "COUNT(*)"), "2", "{fault}: the load writes nothing");
+
+        commit(&mut registry, format!("stated-{index}"));
+        assert_eq!(
+            of_records(&registry, "COUNT(*)"),
+            "1",
+            "{fault}: the commit removes the record"
+        );
+        assert_eq!(stored_list_in(&registry), good, "{fault}: the good record stays");
+
+        // The compare of the stored list with the list of a commit does not read the position: a position
+        // that stays shows that a commit wrote no record.
+        registry
+            .execute_sql_for_test(&format!(
+                "UPDATE resource_floating_panes SET position = 7 WHERE screen_id = '{screen}'"
+            ))
+            .unwrap();
+        commit(&mut registry, format!("stated-again-{index}"));
+        assert_eq!(
+            of_records(&registry, "position"),
+            "7",
+            "{fault}: a commit that changes nothing of the screen writes no record"
+        );
+        drop(registry);
         std::fs::remove_dir_all(root).unwrap();
     }
 }
@@ -180,6 +263,77 @@ fn floating_panes_of_two_screens_load_each_on_its_own_screen() {
         (on_selected, selected_rows),
         "a restart keeps the list and the rows of the first screen"
     );
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A record for each pane of each of the two screens, with the screens in the order of the test above: the
+/// first record that the load reads is a record of the second screen. The table keeps each record. The load
+/// keeps one pane tiled on each screen: the rules of the list apply to each screen with the panes of that
+/// screen.
+#[test]
+fn floating_pane_records_of_two_screens_keep_one_tiled_pane_on_each_screen() {
+    let [columns, selected] = [1, 2].map(restore_screen_id);
+    let order = [4, 3, 1, 2].map(restore_pane_id);
+    let back = [4, 3].map(restore_pane_id);
+    // The screen `selected` has one pane in the fixture.
+    let alone = [restore_pane_id(5)];
+    let (root, session) = seed_screens("two-grounds", |screens| {
+        screens.sort_by_key(|screen| screen.public_id == columns);
+        for (position, screen) in screens.iter_mut().enumerate() {
+            screen.position = position;
+            let panes: &[PanePublicId] = if screen.public_id == columns { &order } else { &alone };
+            screen.floating = panes.iter().cloned().map(centered).collect();
+        }
+    });
+    let panes = |list: &[Floating<PanePublicId>]| {
+        list.iter().map(|entry| entry.pane.clone()).collect::<Vec<_>>()
+    };
+
+    let (records, first_record, stored) = {
+        let registry = WorkspaceRegistry::open(&root, &session).unwrap();
+        let records = registry
+            .query_text_for_test("SELECT CAST(COUNT(*) AS TEXT) FROM resource_floating_panes")
+            .unwrap();
+        let first_record = registry
+            .query_text_for_test(
+                "SELECT screen_id FROM resource_floating_panes ORDER BY screen_id, position LIMIT 1",
+            )
+            .unwrap();
+        (records, first_record, registry.resource_topology_snapshot().unwrap().screens)
+    };
+    assert_eq!(records, "5", "the table has a record for each pane of each screen");
+    assert_eq!(
+        first_record,
+        columns.to_string(),
+        "the first record is a record of the second screen"
+    );
+    let positions = stored.iter().map(|screen| screen.public_id.clone()).collect::<Vec<_>>();
+    assert_eq!(
+        positions,
+        [selected.clone(), columns.clone()],
+        "the screens in the order of their positions"
+    );
+    for screen in &stored {
+        let list = panes(&screen.floating);
+        if screen.public_id == columns {
+            assert!(
+                list.len() < order.len(),
+                "one pane of the second screen stays tiled: {list:?}"
+            );
+            assert!(list.starts_with(&back), "the list keeps its order from the back: {list:?}");
+        } else {
+            assert!(list.is_empty(), "the one pane of the first screen stays tiled: {list:?}");
+        }
+    }
+
+    let mux = open_restart_mux(&root, &session);
+    let list = panes(&live_screen(&mux, &columns).0);
+    assert!(list.len() < order.len(), "after a restart, the second screen: {list:?}");
+    assert!(list.starts_with(&back), "after a restart, the order from the back: {list:?}");
+    let list = panes(&live_screen(&mux, &selected).0);
+    assert!(list.is_empty(), "after a restart, the first screen: {list:?}");
     mux.shutdown();
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
