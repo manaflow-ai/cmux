@@ -46,6 +46,42 @@ export function replyFolders(source: string): readonly string[] {
   return folders.length ? folders : NONE;
 }
 
+/// replyFolders for a text that grows at its end (a streaming reply, revealed a frame at a time).
+/// No path, link or code span the scan reads crosses a line break, so the folders of a text are its
+/// complete lines' folders, then its last line's, in order: complete lines are scanned once, as they
+/// complete, and only the line still arriving is scanned again. Once MAX_REPLY_FOLDERS are found in
+/// complete lines nothing more is scanned. A text that is not the last one grown starts over.
+export class ReplyFolderScan {
+  private source = "";
+  /// Where the complete lines end (after the last line break scanned).
+  private done = 0;
+  private settled: string[] = [];
+  private folders: readonly string[] = NONE;
+  // perf-hot: O(new text) per reveal frame chat-100k-flat
+  update(source: string): readonly string[] {
+    if (source === this.source) return this.folders;
+    if (!(source.length > this.source.length && source.startsWith(this.source))) {
+      this.done = 0;
+      this.settled = [];
+    }
+    this.source = source;
+    if (this.settled.length < MAX_REPLY_FOLDERS) {
+      const end = source.lastIndexOf("\n") + 1;
+      if (end > this.done) {
+        for (const folder of replyFolders(source.slice(this.done, end)))
+          if (this.settled.length < MAX_REPLY_FOLDERS && !this.settled.includes(folder)) this.settled.push(folder);
+        this.done = end;
+      }
+    }
+    const all = [...this.settled];
+    if (all.length < MAX_REPLY_FOLDERS)
+      for (const folder of replyFolders(source.slice(this.done)))
+        if (all.length < MAX_REPLY_FOLDERS && !all.includes(folder)) all.push(folder);
+    this.folders = all.length ? all : NONE;
+    return this.folders;
+  }
+}
+
 /// A file name with no folder, as an agent writes one: a name and an extension of letters and
 /// digits (`chromium-fixed-opaque.png`, `notes_v2.md`). Not a version (`4.5`), a host
 /// (`example.com` has no file extension we know of below) or a sentence's last word.

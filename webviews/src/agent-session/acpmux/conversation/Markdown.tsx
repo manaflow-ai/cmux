@@ -26,7 +26,7 @@ import type { Reveal } from "./revealedMarkdownModel";
 import { installSelectionCopy } from "./selectionCopy";
 
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
-import { ReplyFoldersContext, replyFolders } from "../chips/replyFolders";
+import { ReplyFolderScan, ReplyFoldersContext } from "../chips/replyFolders";
 
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
@@ -35,7 +35,7 @@ import { acpmuxPerf } from "../perf";
 import { useStartedMentions } from "../started/startedSessionCardModel";
 import { entranceAllowed } from "../../shared/pageReveal";
 
-import { type MdBlock, parseMarkdown, footnoteOrder, MAX_REPLY_DATA_URLS, dataUrlsOverBudget } from "./markdownModel";
+import { type MdBlock, parseMarkdown, FootnoteScan, MAX_REPLY_DATA_URLS, dataUrlsOverBudget } from "./markdownModel";
 import { type InlineOptions, renderInline, InlineImage } from "./inlineMarkdown";
 
 /// A long list number (`1000.`) widens its items' indent so it never draws over their text; a
@@ -475,12 +475,16 @@ export function Markdown({
   const awayBlocks = useRef(new Set<string>());
   // Notes are numbered by first reference; the key keeps `opts` (and every memoized block) the
   // same object until a new reference arrives.
-  // The reveal clock can re-render a streaming reply while its source is unchanged. Keep the
-  // full footnote scan on source changes instead of repeating it for each animation frame.
-  const noteIds = useMemo(() => footnoteOrder(children).join(" "), [children]);
+  // A revealing reply's source grows every frame: both scans read only what is new
+  // (FootnoteScan, ReplyFolderScan), not the whole reply each frame.
+  const noteScan = useRef<FootnoteScan | null>(null);
+  noteScan.current ??= new FootnoteScan();
+  const folderScan = useRef<ReplyFolderScan | null>(null);
+  folderScan.current ??= new ReplyFolderScan();
+  const noteIds = useMemo(() => noteScan.current!.update(children).join(" "), [children]);
   // The folders this reply's paths are in, joined so a streaming reply keeps the same value (and
   // its memoized blocks) until a new folder arrives; its bare file names may be files there.
-  const folderKey = useMemo(() => replyFolders(children).join("\n"), [children]);
+  const folderKey = useMemo(() => folderScan.current!.update(children).join("\n"), [children]);
   const folders = useMemo(() => (folderKey ? folderKey.split("\n") : []), [folderKey]);
   // The reply's data URL budget; only a reply longer than the budget can pass it.
   const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";

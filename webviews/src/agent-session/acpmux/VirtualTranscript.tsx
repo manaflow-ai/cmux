@@ -50,6 +50,7 @@ import {
   rowFrameKey,
   rowPropsWindow,
   SINCE_DIVIDER,
+  LayoutBuffers,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
@@ -2487,6 +2488,9 @@ function TranscriptView({
   const [drawn, setDrawn] = useState(LayeredMap.empty<DrawnHeight>);
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
   const pendingMeasures = useRef(new Map<HTMLElement, () => void>());
+  // This transcript's layout arrays, reused from one estimate to the next (model.ts LayoutBuffers).
+  const layoutBuffers = useRef<LayoutBuffers | null>(null);
+  layoutBuffers.current ??= new LayoutBuffers();
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   /// The last estimate, whose unchanged leading rows the next one keeps.
   const lastEstimate = useRef<LastEstimate | undefined>(undefined);
@@ -3866,6 +3870,7 @@ function TranscriptView({
       sessionId,
       resizing,
       nearView(lastPlaced.current, rows, sessionId),
+      layoutBuffers.current ?? undefined,
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId, partial };
     // Prepared text is kept for the PREPARED_ROWS most recently measured rows (model.ts), whatever the
