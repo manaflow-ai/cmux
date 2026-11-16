@@ -336,7 +336,7 @@ extension SidebarSettingsSchema {
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.workspaceRow.lines.default", "Item switches"),
                 keywords: ["sidebar", "workspace", "row", "layout", "lines", "customize", "tokens"]
-            ).hiddenFromSettingsPage("The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working."),
+            ),
             SettingDescriptor(
                 WorkspaceRowSetting.linesByKindPath,
                 section: .appearance,
@@ -347,7 +347,7 @@ extension SidebarSettingsSchema {
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.workspaceRow.lines.default", "Item switches"),
                 keywords: ["sidebar", "workspace", "row", "layout", "lines", "customize", "tokens", "kind", "terminal", "agent", "browser"]
-            ).hiddenFromSettingsPage("The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working."),
+            ),
             SettingDescriptor(
                 WorkspaceRowSetting.linesByAgentPath,
                 section: .appearance,
@@ -358,7 +358,7 @@ extension SidebarSettingsSchema {
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.workspaceRow.lines.default", "Item switches"),
                 keywords: ["sidebar", "workspace", "row", "layout", "lines", "customize", "tokens", "agent", "claude", "codex"]
-            ).hiddenFromSettingsPage("The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working."),
+            ),
         ]
     }
 }
