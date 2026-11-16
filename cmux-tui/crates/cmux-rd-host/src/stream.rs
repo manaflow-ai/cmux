@@ -15,10 +15,10 @@ use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
+use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
-use cmux_rd_proto::{flags, DatagramHeader, DatagramKind, Feedback};
 use std::collections::VecDeque;
 
 #[derive(Clone)]
@@ -74,7 +74,6 @@ pub struct MediaSession {
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     stats_frames_sent: u64,
-    queue_recovery: QueueRecovery,
     encode_ms: VecDeque<f64>,
     next_stats_ns: u64,
     stats_every_ns: u64,
@@ -85,6 +84,18 @@ pub struct MediaSession {
     /// The cursor as metadata, when the viewer draws it (cap `cursor`) and the desktop
     /// reports it: the pictures leave it out.
     cursor: Option<CursorChannel>,
+    /// Spreads each frame's datagrams over part of its frame interval (`None` with
+    /// `CMUX_RD_PACE=0`, for comparison): a keyframe written as one burst of hundreds of
+    /// datagrams is queued or dropped by a Wi-Fi radio or the kernel.
+    pacer: Option<Pacer>,
+    frame_interval_us: u64,
+    /// Timing lines of frames still in the pacer: datagrams left, the line without `sent_us`.
+    paced_logs: VecDeque<(usize, serde_json::Value)>,
+}
+
+/// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
+fn pacing_enabled() -> bool {
+    std::env::var_os("CMUX_RD_PACE").is_none_or(|v| v != "0")
 }
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
@@ -116,27 +127,31 @@ impl Timing {
         }
     }
 
+    /// One frame's line, without `sent_us` (added when its last datagram leaves).
     fn frame(
         &mut self,
         shown: Option<(u64, u64)>,
         release_us: u64,
         encoded_us: u64,
-        sent_us: u64,
         encoded_bytes: usize,
         idr: bool,
-    ) {
-        use std::io::Write;
-        let line = serde_json::json!({
+    ) -> serde_json::Value {
+        serde_json::json!({
             "input_us": self.input_us.take(),
             "shown_us": shown.map(|t| t.0),
             "arrived_us": shown.map(|t| t.1),
             "damage_us": self.damage_us.take(),
             "release_us": release_us,
             "encoded_us": encoded_us,
-            "sent_us": sent_us,
             "encoded_bytes": encoded_bytes,
             "idr": idr,
-        });
+        })
+    }
+
+    /// Writes a frame's line once its last datagram was handed to the carrier at `sent_us`.
+    fn frame_sent(&mut self, mut line: serde_json::Value, sent_us: u64) {
+        use std::io::Write;
+        line["sent_us"] = serde_json::json!(sent_us);
         let _ = writeln!(self.out, "{line}");
     }
 
@@ -170,62 +185,6 @@ fn viewer_silent_too_long(silent_us: u64) -> bool {
 fn wants_cursor(negotiated_caps: &[String]) -> bool {
     crate::desktop::reports_cursor()
         && negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::CURSOR)
-}
-
-/// Queue replacement is local loss. Remember the last real viewer ACK and
-/// feed a recovery request through the same engine path as receiver feedback.
-#[derive(Default)]
-struct QueueRecovery {
-    acked_frame: u32,
-    dropped_frames: u64,
-}
-
-impl QueueRecovery {
-    fn observe(&mut self, datagram: &[u8]) {
-        if let Ok((header, payload)) = DatagramHeader::decode(datagram) {
-            if header.stream == 0 && header.kind == DatagramKind::Feedback {
-                if let Ok(feedback) = Feedback::decode(payload) {
-                    self.acked_frame = self.acked_frame.max(feedback.acked_frame);
-                }
-            }
-        }
-    }
-
-    fn on_drops(&mut self, dropped_frames: u64) -> Option<Vec<u8>> {
-        let changed = dropped_frames > self.dropped_frames;
-        self.dropped_frames = dropped_frames;
-        if !changed {
-            return None;
-        }
-        let mut datagram = DatagramHeader {
-            flags: 0,
-            kind: DatagramKind::Feedback,
-            stream: 0,
-            frame: 0,
-            index: 0,
-            count: 0,
-            fec_count: 0,
-            transport_seq: 0,
-        }
-        .encode()
-        .to_vec();
-        datagram.extend(
-            Feedback { acked_frame: self.acked_frame, need_recovery: true, ..Feedback::default() }
-                .encode(),
-        );
-        Some(datagram)
-    }
-}
-
-/// Original parity belongs to its frame: when an obsolete delta is replaced,
-/// its parity is obsolete too. Repair/NACK sends take the protected single
-/// datagram path instead. Unknown or non-video payloads remain protected.
-fn encoded_frame_droppable(datagrams: &[Vec<u8>]) -> bool {
-    datagrams.iter().all(|datagram| {
-        let Ok((header, _)) = DatagramHeader::decode(datagram) else { return false };
-        matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
-            && header.flags & (flags::KEYFRAME | flags::RECOVERY | flags::TILE) == 0
-    })
 }
 
 fn now_us() -> u64 {
@@ -300,7 +259,6 @@ impl MediaSession {
             engine,
             upstreams: Upstreams::new(sink, negotiated_caps),
             stats_frames_sent: 0,
-            queue_recovery: QueueRecovery::default(),
             encode_ms: VecDeque::new(),
             next_stats_ns: now_ns(),
             stats_every_ns: cfg.stats_every_ms * 1_000_000,
@@ -308,6 +266,9 @@ impl MediaSession {
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
             cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
+            pacer: pacing_enabled().then(Pacer::new),
+            frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
+            paced_logs: VecDeque::new(),
         })
     }
 
@@ -348,7 +309,18 @@ impl MediaSession {
             if let Some(req) = self.engine.poll(now) {
                 self.encoder.submit(req);
             }
-            let timeout = self.engine.next_deadline_us().map(|t| t.saturating_sub(now_us()) * 1000);
+            if let Err(e) = self.send_paced(carrier) {
+                return format!("send failed: {e}");
+            }
+            // The engine's deadlines and the pacer's next datagram.
+            let deadline = [
+                self.engine.next_deadline_us(),
+                self.pacer.as_ref().and_then(Pacer::next_deadline_us),
+            ]
+            .into_iter()
+            .flatten()
+            .min();
+            let timeout = deadline.map(|t| t.saturating_sub(now_us()) * 1000);
             let stats_in = self.next_stats_ns.saturating_sub(now_ns());
             // The engine's deadline covers held frames and input held behind a gap.
             let timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(REATTACH_GRACE_NS);
@@ -405,12 +377,6 @@ impl MediaSession {
             // A frame the encode thread finished: packetize and send it.
             if let Err(e) = self.send_encoded(carrier) {
                 return format!("encode/send failed: {e}");
-            }
-            if let Some(queue) = carrier.media_queue_stats() {
-                if let Some(feedback) = self.queue_recovery.on_drops(queue.dropped_frames) {
-                    let out = self.engine.on_datagram(&feedback, false, now_us());
-                    self.apply(carrier, out, table, session, viewer);
-                }
             }
             // Damage from the desktop.
             damage.clear();
@@ -530,12 +496,53 @@ impl MediaSession {
             // Too large to send (about 4.6 MB): the engine dropped it and asks for a keyframe.
             self.encoder.halve_bitrate();
         }
-        let droppable = encoded_frame_droppable(&out.datagrams);
-        carrier.send_datagram_frame(out.datagrams, droppable)?;
-        if let (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) =
-            (self.timing.as_mut(), logged)
-        {
-            timing.frame(shown, t_capture_us, encoded_us, now_us(), len, idr);
+        let line = match (self.timing.as_mut(), logged) {
+            (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) => {
+                Some(timing.frame(shown, t_capture_us, encoded_us, len, idr))
+            }
+            _ => None,
+        };
+        let Some(pacer) = self.pacer.as_mut() else {
+            for datagram in &out.datagrams {
+                carrier.send_datagram(datagram)?;
+            }
+            if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
+                timing.frame_sent(line, now_us());
+            }
+            return Ok(());
+        };
+        if out.datagrams.is_empty() {
+            return Ok(());
+        }
+        if let Some(line) = line {
+            self.paced_logs.push_back((out.datagrams.len(), line));
+        }
+        pacer.push_frame(out.datagrams, self.engine.target_bps(), self.frame_interval_us, now_us());
+        Ok(self.send_paced(carrier)?)
+    }
+
+    /// Sends the paced datagrams that are due, telling the engine when each left.
+    fn send_paced(&mut self, carrier: &mut dyn Carrier) -> std::io::Result<()> {
+        let Some(pacer) = self.pacer.as_mut() else { return Ok(()) };
+        let now = now_us();
+        let due = pacer.due(now);
+        for datagram in &due {
+            carrier.send_datagram(datagram)?;
+            self.engine.datagram_sent(datagram, now);
+        }
+        let mut left = due.len();
+        while left > 0 {
+            let Some((remaining, _)) = self.paced_logs.front_mut() else { break };
+            let take = left.min(*remaining);
+            *remaining -= take;
+            left -= take;
+            if *remaining == 0 {
+                if let (Some((_, line)), Some(timing)) =
+                    (self.paced_logs.pop_front(), self.timing.as_mut())
+                {
+                    timing.frame_sent(line, now_us());
+                }
+            }
         }
         Ok(())
     }
@@ -578,7 +585,6 @@ impl MediaSession {
         if let Some(timing) = self.timing.as_mut() {
             timing.recv_us = Some(now);
         }
-        self.queue_recovery.observe(datagram);
         let out = self.engine.on_datagram(datagram, may_inject, now);
         self.apply(carrier, out, table, session, viewer);
         if let Some(timing) = self.timing.as_mut() {
@@ -635,7 +641,6 @@ impl MediaSession {
         let mut sorted: Vec<f64> = self.encode_ms.iter().copied().collect();
         sorted.sort_by(f64::total_cmp);
         let encode_ms_p50 = sorted.get(sorted.len() / 2).copied().unwrap_or(0.0);
-        let queue = carrier.media_queue_stats();
         let stats = Control::Stats {
             kbps: self.encoder.kbps(),
             frames: stats.frames,
@@ -643,20 +648,6 @@ impl MediaSession {
             cpu_pct,
             encode_ms_p50,
             loss_pct: stats.loss * 100.0,
-            queue_frames: queue.map(|s| s.queue_frames),
-            queue_datagrams: queue.map(|s| s.queue_datagrams),
-            queue_dropped_frames: queue.map(|s| s.dropped_frames),
-            queue_dropped_datagrams: queue.map(|s| s.dropped_datagrams),
-            queue_dropped_replaced_frames: queue.map(|s| s.dropped_replaced_frames),
-            queue_dropped_replaced_datagrams: queue.map(|s| s.dropped_replaced_datagrams),
-            queue_dropped_evicted_for_protected_frames: queue
-                .map(|s| s.dropped_evicted_for_protected_frames),
-            queue_dropped_evicted_for_protected_datagrams: queue
-                .map(|s| s.dropped_evicted_for_protected_datagrams),
-            queue_dropped_rejected_protected_frames: queue
-                .map(|s| s.dropped_rejected_protected_frames),
-            queue_dropped_rejected_protected_datagrams: queue
-                .map(|s| s.dropped_rejected_protected_datagrams),
         };
         let _ = carrier.send_control(&stats);
     }
@@ -664,68 +655,7 @@ impl MediaSession {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn local_queue_loss_requests_recovery_without_inventing_an_ack() {
-        let mut recovery = QueueRecovery::default();
-        assert!(recovery.on_drops(0).is_none());
-        let mut engine = MediaEngine::new(EngineConfig::default(), 0);
-        let first = engine.start(0).unwrap();
-        engine
-            .encoded(
-                &first,
-                Some(Encoded { access_unit: vec![1, 2, 3], idr: true, t_capture_us: 0 }),
-                1,
-            )
-            .unwrap();
-        let notification = recovery.on_drops(1).unwrap();
-        let (_, payload) = DatagramHeader::decode(&notification).unwrap();
-        let feedback = Feedback::decode(payload).unwrap();
-        assert_eq!(feedback.acked_frame, 0);
-        assert!(feedback.need_recovery);
-        assert!(feedback.arrivals.is_empty());
-        let out = engine.on_datagram(&notification, false, 300_000);
-        assert!(out.encode.unwrap().force_idr, "a dropped reference must force recovery");
-        assert!(recovery.on_drops(1).is_none(), "one notification per local drop");
-
-        let mut real_ack = notification[..cmux_rd_proto::HEADER_LEN].to_vec();
-        real_ack.extend(Feedback { acked_frame: 1, ..Feedback::default() }.encode());
-        recovery.observe(&real_ack);
-        let next = recovery.on_drops(2).unwrap();
-        let (_, payload) = DatagramHeader::decode(&next).unwrap();
-        assert_eq!(Feedback::decode(payload).unwrap().acked_frame, 1);
-    }
-
-    #[test]
-    fn original_delta_parity_does_not_disable_frame_replacement() {
-        let shard = |kind, flags| {
-            DatagramHeader {
-                kind,
-                flags,
-                stream: 1,
-                frame: 1,
-                index: if kind == DatagramKind::Fec { 1 } else { 0 },
-                count: 1,
-                fec_count: 1,
-                transport_seq: 0,
-            }
-            .encode()
-            .to_vec()
-        };
-        assert!(encoded_frame_droppable(&[
-            shard(DatagramKind::Video, 0),
-            shard(DatagramKind::Fec, 0),
-        ]));
-        for flag in [flags::KEYFRAME, flags::RECOVERY, flags::TILE] {
-            assert!(!encoded_frame_droppable(&[
-                shard(DatagramKind::Video, flag),
-                shard(DatagramKind::Fec, flag),
-            ]));
-        }
-        assert!(!encoded_frame_droppable(&[shard(DatagramKind::Input, 0)]));
-        assert!(!encoded_frame_droppable(&[vec![0]]));
-    }
+    use super::viewer_silent_too_long;
 
     #[test]
     fn viewer_silence_allows_the_ninety_second_reattach_window() {
@@ -823,11 +753,6 @@ mod encode_off_loop_tests {
     }
 
     impl Carrier for FakeCarrier {
-        fn drain_departures(&mut self, _out: &mut Vec<cmux_rd_proto::DatagramDeparture>) {}
-        fn departure_overflows(&self) -> u64 {
-            0
-        }
-
         fn fds(&self) -> Vec<RawFd> {
             vec![self.ready.1.as_raw_fd()]
         }
@@ -864,13 +789,6 @@ mod encode_off_loop_tests {
             Ok(())
         }
         fn send_datagram(&mut self, _datagram: &[u8]) -> std::io::Result<()> {
-            Ok(())
-        }
-        fn send_datagram_frame(
-            &mut self,
-            _datagrams: Vec<Vec<u8>>,
-            _droppable: bool,
-        ) -> std::io::Result<()> {
             Ok(())
         }
         fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {

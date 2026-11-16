@@ -5,7 +5,8 @@ public import CmuxNextDesign
 ///
 /// The app applies it once per launch, before its first window (``ProcessFontSmoothing``): AppKit
 /// fixes its text weight at the first draw, so a change takes effect after cmux restarts.
-public nonisolated enum FontSmoothingSetting {
+public nonisolated struct FontSmoothingSetting {
+    public nonisolated init() {}
     // The path and default are generated from schemas/settings/source/appearance.json.
 
     /// A missing key is ``fallback`` with no diagnostic; a bad value is ``fallback`` plus a diagnostic.
