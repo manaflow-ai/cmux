@@ -180,6 +180,11 @@
       "what": "one keystroke in the New Tab field: screenRows ranks the open tabs, workspaces, visited pages, palette actions, chats and agent starts for the typed text (webviews newtab/screenModel.ts, launchRows.ts), over lists folded once per host update (omnibar.ts foldedTexts)",
       "bench": "cd webviews && bun bench/new-tab-omnibar-keystroke.bench.ts (stress fixture: 2,000 actions, 500 chats, 200 folders; prints p50/p95/p99/max µs per key; --no-agents for the rows without the agent sources)",
       "owner": "new tab"
+    },
+    "transcript-scroll-frame": {
+      "what": "one display frame of a transcript scroll (webviews acpmux/VirtualTranscript.tsx scrollDrawsAt): the scroll pacer's frame works out what the offset draws (mounted rows, view, Jump to latest, soft edges) in a few layout searches and renders the transcript only when that changed",
+      "bench": "cd webviews && bun bench/transcript-scroll-frame.bench.ts [rows=3000] (frame intervals and vt.renders per frame, fling and wheel)",
+      "owner": "agent chat"
     }
   }
 }
