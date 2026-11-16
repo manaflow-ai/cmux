@@ -503,11 +503,8 @@ async fn v2_pr07b_usage_first_read() {
     let rebuilt =
         [small.hub.list_order_rebuilds_for_test(), god.hub.list_order_rebuilds_for_test()];
     assert_eq!(rebuilt, built, "a timed pass sorted every chat again");
-    acpmux_book::gate_rounds::report(
-        "v2.pr07b.usage_first_read",
-        &[("small", &small_wall), ("god", &god_wall)],
-    );
-    // The row's line last, with no assert after it: the home judges the ratio.
+    // The row's rounds and line last (`emit` prints both), with no assert after it: the home
+    // judges the ratio.
     emit("v2.pr07b.usage_first_read", &small_wall, &god_wall, "ns");
 }
 
