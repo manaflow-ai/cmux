@@ -2286,12 +2286,21 @@ The rules:
   after `a` still launches; a `move-tab` puts `c` at index 1. The strip is
   then `[a, new, c, b]`. The same requests applied one by one give
   `[a, c, new, b]`.
-- Only a creation writes the record of the active tab: a select or a move
-  between a request and its tab does not. The tab that comes later takes the
-  active tab if no later create request with a slot took it. The active tab
-  after a close of the tab of that later request, while the earlier tab
-  still launches, is not a rule of this capability: a client must not rely
-  on it.
+- A creation writes the record of the active tab, and so does a close of the
+  active tab: a select or a move between a request and its tab does not. The
+  tab that comes later takes the active tab if no later create request with
+  a slot took it.
+- A close of the active tab while a tab still launches follows the rule of
+  the requests applied one by one too. One by one, the close gives the
+  active tab to the next entry of the strip, or to the entry before when no
+  next one is there. When that entry is the slot of a tab that still
+  launches, a tab that the pane has is the active tab until the new tab
+  comes, and the new tab takes the active tab then. Example: the strip is
+  `[a]`; a `new-tab` with a `transaction` after `a` still launches; a page
+  with `place: {after_creation}` of that `transaction` comes and is the
+  active tab; the page closes. `a` is the active tab until the terminal's
+  tab comes, and the terminal's tab is the active tab after that. A close of
+  a tab that is not the active tab gives the active tab to no tab.
 - A retry of a create request with an `idempotency_key` sends the same
   `place` and `transaction` as the first request: both are part of the
   request that the key names.
