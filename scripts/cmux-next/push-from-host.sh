@@ -343,8 +343,16 @@ gate_hook_runs() {
     # other files than the ones git runs: refused.
     [[ "$hooks" == /* && -x "$hooks/pre-push" ]] || return 1
     [[ "$(cd "$hooks" && pwd -P)" == "$(cd "$own" && pwd -P)" ]] && return 0
-    # The wiring install-git-hooks.sh prints for a clone with hooks of its own: a pre-push that calls this one.
+    # The wiring install-git-hooks.sh prints for a clone with hooks of its own: a pre-push that calls this one. Its
+    # path may name the clone another way than git does (macOS: /var/folders is /private/var/folders; a symlinked
+    # ~/fun), so each .../cmux-git-hooks/pre-push it names is compared by real folder, not by text.
     grep -qF "$own/pre-push" "$hooks/pre-push" && return 0
+    local named own_real
+    own_real="$(cd "$own" && pwd -P)"
+    while IFS= read -r named; do
+        named="${named%/pre-push}"
+        [[ "$named" == /* && -d "$named" && "$(cd "$named" && pwd -P)" == "$own_real" ]] && return 0
+    done < <(grep -oE "/[^'\" ]*/cmux-git-hooks/pre-push" "$hooks/pre-push" || true)
     # A shared hooks folder that runs each repo's own hooks (run_repo_hooks, defined in the repo-hook beside it).
     [[ -f "$hooks/repo-hook" ]] && grep -q 'run_repo_hooks' "$hooks/pre-push" && grep -q '^run_repo_hooks()' "$hooks/repo-hook"
 }
