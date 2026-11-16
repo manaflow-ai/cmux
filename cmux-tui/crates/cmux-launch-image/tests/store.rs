@@ -145,7 +145,8 @@ fn prune_keeps_live_windows_and_drops_partial_writes() {
     store.publish_at(odd, &png(1, 1, 40), 3).unwrap();
     fs::write(dir.join(".live.9.png.123.tmp"), b"partial").unwrap();
     fs::write(dir.join("README"), b"not ours").unwrap();
-    assert_eq!(store.prune(&["live", odd]), 2);
+    assert_eq!(store.prune(&["live", odd]), 0, "nothing is old enough yet");
+    assert_eq!(store.prune_older_than(&["live", odd], std::time::Duration::ZERO), 2);
     assert_eq!(
         files(&dir),
         vec!["README".to_owned(), "live.1.png".to_owned(), format!("{}.3.png", window_key(odd))]
@@ -159,4 +160,28 @@ fn ids_that_are_not_file_safe_never_leave_the_folder() {
     let image = store.publish_at("../../escape", &png(1, 1, 40), 1).unwrap();
     assert_eq!(image.path.parent(), Some(dir.as_path()));
     assert_eq!(store.current("../../escape"), Some(image));
+}
+
+#[test]
+fn concurrent_publishes_of_one_window_never_share_a_path() {
+    let dir = fresh_dir("race");
+    let store = Store::new(&dir, Caps { keep_per_window: 64, ..Caps::default() });
+    let images: Vec<_> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8_u32)
+            .map(|i| {
+                let store = &store;
+                scope.spawn(move || store.publish_at("win", &png(i + 1, 1, 40), 5).unwrap())
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let mut paths: Vec<_> = images.iter().map(|i| i.path.clone()).collect();
+    paths.sort();
+    paths.dedup();
+    assert_eq!(paths.len(), 8, "every publish got its own path");
+    for image in &images {
+        let bytes = fs::read(&image.path).unwrap();
+        assert_eq!(cmux_launch_image::png_pixel_size(&bytes), Some((image.pixel_width, 1)));
+    }
+    assert!(files(&dir).iter().all(|n| !n.ends_with(".tmp")));
 }

@@ -11,6 +11,11 @@
 //! The store functions take the folder each call and use the default caps (8 MiB per image, 16
 //! windows, 2 images per window). They do file I/O: call them off the main thread. A schedule is
 //! used by one thread at a time. No function unwinds across the boundary.
+//!
+//! A capture: `take_due` (or `take_quit`) true, read `epoch`, capture and encode, then publish only
+//! while `is_current(epoch)` holds, hand the path to the launch record, and note 7 (done); note 6
+//! (failed) when nothing was published. Calls for one folder may run concurrently: a publish never
+//! reuses a path, and a prune leaves files younger than 60 s alone.
 
 use crate::schedule::{Event, Schedule};
 use crate::{Caps, Image, Store};
@@ -21,6 +26,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 pub const CMUX_LAUNCH_IMAGE_ABI_VERSION: u32 = 1;
 /// The size of [`CmuxLaunchImage::path`], NUL included (the launch record's image path limit).
 pub const CMUX_LAUNCH_IMAGE_PATH_CAPACITY: usize = 1025;
+/// The age a file must reach before `cmux_launch_image_prune` removes it (60 s).
+pub const CMUX_LAUNCH_IMAGE_PRUNE_GRACE_MS: u64 = 60_000;
 /// `cmux_launch_image_schedule_note`'s reply when no capture is due.
 pub const CMUX_LAUNCH_IMAGE_NOT_DUE: i64 = -1;
 
@@ -56,6 +63,17 @@ unsafe fn string<'a>(ptr: *const c_char) -> Option<&'a str> {
 
 fn store(dir: &str) -> Store {
     Store::new(dir, Caps::default())
+}
+
+/// Zeroes `out` (null does nothing).
+///
+/// # Safety
+/// `out` is null or valid for writes of one `CmuxLaunchImage`.
+unsafe fn zero(out: *mut CmuxLaunchImage) {
+    if !out.is_null() {
+        // SAFETY: valid for writes (caller contract); all-zero is a valid `CmuxLaunchImage`.
+        unsafe { out.write_bytes(0, 1) };
+    }
 }
 
 /// Fills `out` from `image`; false (and `out` zeroed) when its path does not fit.
@@ -102,6 +120,8 @@ pub unsafe extern "C" fn cmux_launch_image_publish(
     len: usize,
     out: *mut CmuxLaunchImage,
 ) -> bool {
+    // SAFETY: caller contract on `out`; zeroed first, so a panic below still leaves it zeroed.
+    unsafe { zero(out) };
     guard(false, || {
         // SAFETY: caller contract.
         let (dir, id) = unsafe { (string(dir), string(window_id)) };
@@ -131,6 +151,8 @@ pub unsafe extern "C" fn cmux_launch_image_current(
     window_id: *const c_char,
     out: *mut CmuxLaunchImage,
 ) -> bool {
+    // SAFETY: caller contract on `out`; zeroed first, so a panic below still leaves it zeroed.
+    unsafe { zero(out) };
     guard(false, || {
         // SAFETY: caller contract.
         let image = match unsafe { (string(dir), string(window_id)) } {
@@ -159,7 +181,9 @@ pub unsafe extern "C" fn cmux_launch_image_remove_window(
 }
 
 /// Keeps only the images of the `count` windows in `live_ids` in `dir`, and removes stray partial
-/// writes. Returns how many files went. Does nothing (returns 0) when an id is null or not UTF-8.
+/// writes, each only once older than `grace_ms` (the app passes `CMUX_LAUNCH_IMAGE_PRUNE_GRACE_MS`:
+/// a publish in progress or a window opened after `live_ids` was read keeps its files). Returns how many files went. Does
+/// nothing (returns 0) when an id is null or not UTF-8.
 ///
 /// # Safety
 /// `dir` is a NUL-terminated string; `live_ids` is valid for reads of `count` pointers to
@@ -169,6 +193,7 @@ pub unsafe extern "C" fn cmux_launch_image_prune(
     dir: *const c_char,
     live_ids: *const *const c_char,
     count: usize,
+    grace_ms: u64,
 ) -> usize {
     guard(0, || {
         // SAFETY: caller contract.
@@ -184,7 +209,7 @@ pub unsafe extern "C" fn cmux_launch_image_prune(
                 None => return 0,
             }
         }
-        store(dir).prune(&live)
+        store(dir).prune_older_than(&live, std::time::Duration::from_millis(grace_ms))
     })
 }
 
@@ -210,8 +235,8 @@ pub unsafe extern "C" fn cmux_launch_image_schedule_free(schedule: *mut CmuxLaun
 }
 
 /// Records `event` (1 changed, 2 hidden, 3 shown, 4 transition began, 5 transition ended, 6 capture
-/// failed) at `now_ms` and returns when a capture is due, in the same clock's milliseconds, or
-/// `CMUX_LAUNCH_IMAGE_NOT_DUE`. An unknown event changes nothing.
+/// failed, 7 capture done: published and handed to the launch record) at `now_ms` and returns when
+/// a capture is due, in the same clock's milliseconds, or `CMUX_LAUNCH_IMAGE_NOT_DUE`. An unknown event changes nothing.
 ///
 /// # Safety
 /// `schedule` is null or a live schedule used by no other thread during the call.

@@ -78,7 +78,8 @@ fn quit_captures_a_changed_or_never_captured_window_once() {
 #[test]
 fn unknown_raw_events_are_refused() {
     assert_eq!(Event::from_raw(0), None);
-    assert_eq!(Event::from_raw(7), None);
+    assert_eq!(Event::from_raw(8), None);
+    assert_eq!(Event::from_raw(7), Some(Event::CaptureDone));
     assert_eq!(Event::from_raw(1), Some(Event::Changed));
 }
 
@@ -102,4 +103,41 @@ fn a_capture_is_current_only_while_nothing_moved() {
     let e = hidden.epoch();
     hidden.note(Event::Hidden, 5);
     assert!(!hidden.is_current(e));
+}
+
+#[test]
+fn a_capture_made_stale_by_a_hide_or_transition_is_due_again() {
+    let mut s = shown(100);
+    s.note(Event::Changed, 0);
+    assert!(s.take_due(100));
+    let started = s.epoch();
+    // Occluded and shown again while it encodes: the capture is stale and dropped...
+    s.note(Event::Hidden, 110);
+    s.note(Event::Shown, 120);
+    assert!(!s.is_current(started));
+    // ...and its change is due again, a debounce after the window settled.
+    assert_eq!(s.due_at(), Some(220));
+    assert!(s.take_due(220));
+    let again = s.epoch();
+    s.note(Event::TransitionBegan, 230);
+    s.note(Event::TransitionEnded, 240);
+    assert!(!s.is_current(again));
+    assert_eq!(s.due_at(), Some(340));
+}
+
+#[test]
+fn repeated_visibility_events_and_finished_captures_change_nothing() {
+    let mut s = shown(100);
+    s.note(Event::Changed, 0);
+    assert!(s.take_due(100));
+    let started = s.epoch();
+    s.note(Event::Shown, 105);
+    s.note(Event::TransitionEnded, 106);
+    assert!(s.is_current(started), "a repeated show or an unmatched end is no change");
+    s.note(Event::CaptureDone, 110);
+    // After it is done, a hide and show does not ask for another capture.
+    s.note(Event::Hidden, 120);
+    s.note(Event::Shown, 130);
+    assert_eq!(s.due_at(), None);
+    assert!(!s.take_quit());
 }

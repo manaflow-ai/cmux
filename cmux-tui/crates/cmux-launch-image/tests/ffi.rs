@@ -101,7 +101,7 @@ fn bad_arguments_write_nothing() {
             bytes.len(),
             ptr::null_mut()
         ));
-        assert_eq!(cmux_launch_image_prune(dir.as_ptr(), ptr::null(), 3), 0);
+        assert_eq!(cmux_launch_image_prune(dir.as_ptr(), ptr::null(), 3, 0), 0);
         assert_eq!(cmux_launch_image_remove_window(ptr::null(), id.as_ptr()), 0);
     }
     assert_eq!(out.generation, 0);
@@ -130,7 +130,11 @@ fn prune_through_the_abi() {
             &mut out
         ));
         let ids = [live.as_ptr()];
-        assert_eq!(cmux_launch_image_prune(dir.as_ptr(), ids.as_ptr(), ids.len()), 1);
+        assert_eq!(
+            cmux_launch_image_prune(dir.as_ptr(), ids.as_ptr(), ids.len(), 0),
+            1,
+            "grace 0: everything not live goes"
+        );
         assert!(cmux_launch_image_current(dir.as_ptr(), live.as_ptr(), &mut out));
         assert!(!cmux_launch_image_current(dir.as_ptr(), dead.as_ptr(), &mut out));
     }

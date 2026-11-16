@@ -41,7 +41,7 @@ fn committed_launch_image_header_is_cbindgen_output() {
     panic!(
         "cmux-launch-image/include/cmux_launch_image.h is not cbindgen's output for src/ffi.rs. \
          Regenerate it with `CMUX_APP_FFI_HEADER_BLESS=1 cargo test --test launch_image_header` \
-         (cmux-tui/crates/cmux-app-ffi) and commit it; bump CMUX_HEALTH_ABI_VERSION if a type or \
+         (cmux-tui/crates/cmux-app-ffi) and commit it; bump CMUX_LAUNCH_IMAGE_ABI_VERSION if a type or \
          function changed.\n{diff}"
     );
 }

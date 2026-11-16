@@ -47,7 +47,8 @@ pub mod schedule;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub use png::png_pixel_size;
 
@@ -55,6 +56,12 @@ pub use png::png_pixel_size;
 pub const EXTENSION: &str = "png";
 /// The suffix of a file being written ([`Store::publish`]); never read, removed by [`Store::prune`].
 pub const TMP_SUFFIX: &str = ".tmp";
+/// How old a `.tmp` file or another window's image must be before [`Store::prune`] removes it, so a
+/// prune never takes a publish in progress or a window that opened after its live list was read.
+pub const PRUNE_GRACE: Duration = Duration::from_millis(ffi::CMUX_LAUNCH_IMAGE_PRUNE_GRACE_MS);
+/// How many generations a publish tries when another publish took its name.
+const PUBLISH_ATTEMPTS: u64 = 8;
+
 /// The longest window id used as its own key.
 pub const MAX_PLAIN_KEY: usize = 64;
 /// The longest path the launch record carries (`cmux_launch_record.h`: image paths of 1025 bytes or
@@ -230,18 +237,44 @@ impl Store {
         let entries = self.entries();
         let newest =
             entries.iter().filter(|e| e.key == key).map(|e| e.generation).max().unwrap_or(0);
-        let generation = now_nanos.max(newest.saturating_add(1));
-        let name = format!("{key}.{generation}.{EXTENSION}");
-        let path = self.dir.join(&name);
-        if path.as_os_str().len() > MAX_PATH_BYTES {
+        let first = now_nanos.max(newest.saturating_add(1));
+        let longest = self.dir.join(format!("{key}.{}.{EXTENSION}", u64::MAX));
+        if longest.as_os_str().len() > MAX_PATH_BYTES {
             return Err(PublishError::PathTooLong);
         }
         fs::create_dir_all(&self.dir)?;
-        let tmp = self.dir.join(format!(".{name}.{}{TMP_SUFFIX}", std::process::id()));
-        if let Err(error) = write_synced(&tmp, png).and_then(|()| fs::rename(&tmp, &path)) {
+        static NONCE: AtomicU64 = AtomicU64::new(0);
+        let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
+        let tmp = self.dir.join(format!(".{key}.{}.{nonce}{TMP_SUFFIX}", std::process::id()));
+        if let Err(error) = write_synced(&tmp, png) {
             let _ = fs::remove_file(&tmp);
             return Err(error.into());
         }
+        // A hard link never replaces: a name another publish took is skipped, so a published path
+        // never gets other bytes.
+        let mut published = None;
+        let mut last_error = None;
+        for offset in 0..PUBLISH_ATTEMPTS {
+            let generation = first.saturating_add(offset);
+            let path = self.dir.join(format!("{key}.{generation}.{EXTENSION}"));
+            match fs::hard_link(&tmp, &path) {
+                Ok(()) => {
+                    published = Some((generation, path));
+                    break;
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    last_error = Some(error);
+                }
+                Err(error) => {
+                    last_error = Some(error);
+                    break;
+                }
+            }
+        }
+        let _ = fs::remove_file(&tmp);
+        let Some((generation, path)) = published else {
+            return Err(last_error.unwrap_or_else(|| io::Error::other("no free name")).into());
+        };
         // The rename is durable once the folder is synced; a failure here only risks the newest
         // image after a power loss, which reads as the previous one or none.
         let _ = File::open(&self.dir).and_then(|dir| dir.sync_all());
@@ -323,9 +356,15 @@ impl Store {
             .count()
     }
 
-    /// Keeps only the images of `live` windows and removes every `.tmp` file (a publish a crash cut
-    /// short). Files the store did not name are left alone. Returns how many files went.
+    /// Keeps only the images of `live` windows and removes `.tmp` files (a publish a crash cut
+    /// short), each only once older than [`PRUNE_GRACE`]. Files the store did not name are left
+    /// alone. Returns how many files went.
     pub fn prune<S: AsRef<str>>(&self, live: &[S]) -> usize {
+        self.prune_older_than(live, PRUNE_GRACE)
+    }
+
+    /// [`Self::prune`] with the age a file must reach given (tests pass zero).
+    pub fn prune_older_than<S: AsRef<str>>(&self, live: &[S], grace: Duration) -> usize {
         let live: std::collections::HashSet<String> =
             live.iter().map(|id| window_key(id.as_ref())).collect();
         let Ok(read) = fs::read_dir(&self.dir) else { return 0 };
@@ -335,7 +374,15 @@ impl Store {
                 Some((key, _)) => !live.contains(key),
                 None => name.starts_with('.') && name.ends_with(TMP_SUFFIX),
             };
-            if stale && fs::remove_file(self.dir.join(&name)).is_ok() {
+            let path = self.dir.join(&name);
+            let old = || {
+                fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age >= grace)
+            };
+            if stale && old() && fs::remove_file(&path).is_ok() {
                 removed = removed.saturating_add(1_usize);
             }
         }

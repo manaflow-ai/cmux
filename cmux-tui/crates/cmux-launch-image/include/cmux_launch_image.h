@@ -23,6 +23,11 @@
 #define CMUX_LAUNCH_IMAGE_PATH_CAPACITY 1025
 
 /*
+ The age a file must reach before `cmux_launch_image_prune` removes it (60 s).
+ */
+#define CMUX_LAUNCH_IMAGE_PRUNE_GRACE_MS 60000
+
+/*
  `cmux_launch_image_schedule_note`'s reply when no capture is due.
  */
 #define CMUX_LAUNCH_IMAGE_NOT_DUE -1
@@ -84,13 +89,15 @@ size_t cmux_launch_image_remove_window(const char *dir, const char *window_id);
 
 /*
  Keeps only the images of the `count` windows in `live_ids` in `dir`, and removes stray partial
- writes. Returns how many files went. Does nothing (returns 0) when an id is null or not UTF-8.
+ writes, each only once older than `grace_ms` (the app passes `CMUX_LAUNCH_IMAGE_PRUNE_GRACE_MS`:
+ a publish in progress or a window opened after `live_ids` was read keeps its files). Returns how many files went. Does
+ nothing (returns 0) when an id is null or not UTF-8.
 
  # Safety
  `dir` is a NUL-terminated string; `live_ids` is valid for reads of `count` pointers to
  NUL-terminated strings (or null with `count` 0).
  */
-size_t cmux_launch_image_prune(const char *dir, const char *const *live_ids, size_t count);
+size_t cmux_launch_image_prune(const char *dir, const char *const *live_ids, size_t count, uint64_t grace_ms);
 
 /*
  A new window's capture schedule (hidden, unchanged, no capture yet); `debounce_ms` 0 takes the
@@ -108,8 +115,8 @@ void cmux_launch_image_schedule_free(CmuxLaunchImageSchedule *schedule);
 
 /*
  Records `event` (1 changed, 2 hidden, 3 shown, 4 transition began, 5 transition ended, 6 capture
- failed) at `now_ms` and returns when a capture is due, in the same clock's milliseconds, or
- `CMUX_LAUNCH_IMAGE_NOT_DUE`. An unknown event changes nothing.
+ failed, 7 capture done: published and handed to the launch record) at `now_ms` and returns when
+ a capture is due, in the same clock's milliseconds, or `CMUX_LAUNCH_IMAGE_NOT_DUE`. An unknown event changes nothing.
 
  # Safety
  `schedule` is null or a live schedule used by no other thread during the call.

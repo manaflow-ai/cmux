@@ -25,6 +25,8 @@ pub enum Event {
     TransitionEnded = 5,
     /// A capture [`Schedule::take_due`] started wrote nothing: it is due again after the debounce.
     CaptureFailed = 6,
+    /// A capture [`Schedule::take_due`] started was published and handed to the launch record.
+    CaptureDone = 7,
 }
 
 impl Event {
@@ -36,6 +38,7 @@ impl Event {
             4 => Self::TransitionBegan,
             5 => Self::TransitionEnded,
             6 => Self::CaptureFailed,
+            7 => Self::CaptureDone,
             _ => return None,
         })
     }
@@ -56,8 +59,11 @@ pub struct Schedule {
     hidden: bool,
     transitions: u32,
     captured: bool,
-    /// Bumped by every event but a failed capture: a capture started at one epoch is stale once it
-    /// moved ([`Self::is_current`]).
+    /// A capture was started ([`Self::take_due`], [`Self::take_quit`]) and has not reported
+    /// [`Event::CaptureDone`] or [`Event::CaptureFailed`].
+    in_flight: bool,
+    /// Bumped when the window changes, its visibility flips or a transition begins or ends: a capture
+    /// started at one epoch is stale once it moved ([`Self::is_current`]).
     epoch: u64,
 }
 
@@ -70,6 +76,7 @@ impl Schedule {
             hidden: true,
             transitions: 0,
             captured: false,
+            in_flight: false,
             epoch: 0,
         }
     }
@@ -81,15 +88,33 @@ impl Schedule {
     /// Records `event` at `now_ms` and returns [`Self::due_at`].
     pub fn note(&mut self, event: Event, now_ms: u64) -> Option<u64> {
         let was_capturable = self.capturable();
-        if event != Event::CaptureFailed {
-            self.epoch = self.epoch.wrapping_add(1);
-        }
+        // A repeated hide or show (occlusion notifications repeat) is no change.
+        let moves = match event {
+            Event::Changed | Event::TransitionBegan => true,
+            Event::TransitionEnded => self.transitions > 0,
+            Event::Hidden => !self.hidden,
+            Event::Shown => self.hidden,
+            Event::CaptureFailed | Event::CaptureDone => false,
+        };
         match event {
-            Event::Changed | Event::CaptureFailed => self.dirty_since = Some(now_ms),
+            Event::Changed => self.dirty_since = Some(now_ms),
+            Event::CaptureFailed => {
+                self.in_flight = false;
+                self.dirty_since = Some(now_ms);
+            }
+            Event::CaptureDone => self.in_flight = false,
             Event::Hidden => self.hidden = true,
             Event::Shown => self.hidden = false,
             Event::TransitionBegan => self.transitions = self.transitions.saturating_add(1),
             Event::TransitionEnded => self.transitions = self.transitions.saturating_sub(1),
+        }
+        if moves {
+            self.epoch = self.epoch.wrapping_add(1);
+            // The capture in flight is stale now and will be dropped: its change is due again.
+            if self.in_flight {
+                self.in_flight = false;
+                self.dirty_since.get_or_insert(now_ms);
+            }
         }
         if self.capturable() && !was_capturable {
             self.settled_at = now_ms;
@@ -112,8 +137,8 @@ impl Schedule {
     }
 
     /// True when nothing happened to the window since `epoch` (no change, hide, show or transition)
-    /// and it is still capturable. A stale capture is dropped: the change that made it stale already
-    /// armed the next one.
+    /// and it is still capturable. Check it after the capture and before publishing it: a stale
+    /// capture is dropped, and the event that made it stale already armed the next one.
     pub fn is_current(&self, epoch: u64) -> bool {
         self.epoch == epoch && self.capturable()
     }
@@ -124,6 +149,7 @@ impl Schedule {
         if self.due_at().is_some_and(|due| now_ms >= due) {
             self.dirty_since = None;
             self.captured = true;
+            self.in_flight = true;
             return true;
         }
         false
@@ -135,6 +161,7 @@ impl Schedule {
         if self.capturable() && (self.dirty_since.is_some() || !self.captured) {
             self.dirty_since = None;
             self.captured = true;
+            self.in_flight = true;
             return true;
         }
         false
