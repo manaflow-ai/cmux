@@ -52,6 +52,23 @@ struct LinkOpenPlacementTests {
     }
 
     /// With the right column not measured, the pane on the right gets the tab.
+    /// Lawrence 2026-11-15: "i cmd click on …/PRODUCT.md. and it opened in bottom right. i expected it to
+    /// just open in the right side tho". A terminal with one browser pane on its right: a file, a page or a
+    /// web link it opens is a tab in that pane, whatever that pane holds, never a split below it; with
+    /// nothing on the right it splits right, even from a narrow source, never a tab in the source.
+    @Test func aLinkBesideOnePaneIsATabInItNeverASplitBelow() {
+        let rule = Rule(setting: .splitRight), wide: (String) -> CGFloat? = { _ in 700 }
+        let holds: (String, RightColumnPlacement.Kind) -> Bool = { pane, kind in pane == "browser" && kind == .browser }
+        for kind in [nil, .browser, .document] as [RightColumnPlacement.Kind?] {
+            #expect(rule.target(source: "terminal", takesTabs: true, right: "browser", column: ["browser"], sourceWidth: 1400, width: wide,
+                                kind: kind, holds: holds) == .pane("browser"), "\(String(describing: kind)) split below the browser pane")
+            #expect(rule.target(source: "terminal", takesTabs: true, right: "shell", column: ["shell"], sourceWidth: 1400, width: wide,
+                                kind: kind, holds: holds) == .pane("shell"), "\(String(describing: kind)) split below the terminal pane")
+        }
+        #expect(rule.target(source: "terminal", takesTabs: true, right: nil, sourceWidth: 600) == .splitRight(of: "terminal"),
+                "a narrow source kept the link as a tab in its own pane")
+    }
+
     @Test func thePaneOnTheRightIsReused() {
         let rule = Rule(setting: .splitRight)
         #expect(rule.target(source: "terminal", takesTabs: true, right: "opened") == .pane("opened"))
