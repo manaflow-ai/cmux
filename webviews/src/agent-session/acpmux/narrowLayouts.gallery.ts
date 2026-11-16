@@ -8,6 +8,7 @@ import { agentPaneEntry } from "../../gallery/format";
 import type { Play, PlayContext } from "../../gallery/play";
 import { activity, assistant, chat, CWD, noChat, session, summary, tool, user } from "../../gallery/fixtures/acpmux";
 import { setComposerSettings } from "./composerSettings";
+import { MODEL_PICKER } from "./composerSelectors";
 
 const controls = {
   model: "claude-opus-5-5",
@@ -142,7 +143,7 @@ export function narrowProblems(document: Document): string[] {
     }
   // The effort is the model button's detail ("Opus 5.5  Medium", Leo 2026-10-20): it may shrink to
   // its short name, never go.
-  for (const button of document.querySelectorAll(".acpmux-model .acpmux-picker-button")) {
+  for (const button of document.querySelectorAll(MODEL_PICKER)) {
     const details = [...button.querySelectorAll(".acpmux-model-detail")];
     if (details.length && !details.some(visible)) problems.push("the model button's effort is hidden");
   }
@@ -161,7 +162,7 @@ export function narrowProblems(document: Document): string[] {
   // controls (composerRowFit.ts modelMark, a composer under 370 px): wider, a name shows whole, in
   // full, without its vendor ("Opus 5.5") or as its family ("Opus").
   if (view.innerWidth >= 420)
-    for (const button of document.querySelectorAll(".acpmux-model .acpmux-picker-button")) {
+    for (const button of document.querySelectorAll(MODEL_PICKER)) {
       const named = [button, ...button.querySelectorAll("*")].some(
         (part) =>
           visible(part) &&
