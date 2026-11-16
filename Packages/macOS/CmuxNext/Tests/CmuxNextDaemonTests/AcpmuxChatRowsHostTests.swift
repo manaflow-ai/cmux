@@ -16,7 +16,9 @@ private func chatSteps(_ name: String) throws -> [ChatStep] {
     for line in data.split(separator: 0x0A) {
         if line.first == UInt8(ascii: "\"") {
             try #require(!steps.isEmpty)
-            steps[steps.count - 1].changes += 1
+            // The host acts on a `fallback` change itself and never hands it to the page.
+            let change = try JSONSerialization.jsonObject(with: Data(line), options: .fragmentsAllowed) as? String
+            if AcpmuxChatRowsBatch.kind(of: Data((change ?? "").utf8)) != "fallback" { steps[steps.count - 1].changes += 1 }
             continue
         }
         let object = try #require(try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any])
@@ -106,7 +108,7 @@ struct AcpmuxChatRowsHostTests {
         #expect(await fed.host.open(sid: "rows.3", request: ChatWire.request(["sid": "rows.3", "chat": "chat-a"])) == .success("rows.3"))
         #expect(fed.clientCount == 2, "a new handle")
         let upgrade = try #require(fed.client?.takeSend())
-        #expect(String(decoding: upgrade, as: UTF8.self).contains("\"upgrade\""), "the new handle upgrades again")
+        #expect(String(decoding: upgrade, as: UTF8.self).contains("\"method\":\"_acpmux/v2\""), "the new handle upgrades again")
     }
 
     @Test("no batch is over 64 KiB unless it is one change: a 200 KiB window and a run of small ops")
