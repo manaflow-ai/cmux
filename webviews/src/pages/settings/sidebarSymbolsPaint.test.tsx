@@ -59,6 +59,7 @@ test("Settings reports its first frame only once every sidebar icon it draws is 
   expect(gate).toBeDefined();
   void gate!.then(() => (reported = true));
   // Let the page's reads answer and React draw the sidebar.
+  // fixed-wait: polls the sidebar-drawn condition in 5 ms act() turns, at most 50, not a fixed delay.
   for (let turn = 0; turn < 50 && document.querySelectorAll(".section-symbol").length === 0; turn++)
     await act(async () => await new Promise((resolve) => setTimeout(resolve, 5)));
   const icons = () => [...document.querySelectorAll<HTMLElement>(".section-symbol")];
@@ -71,6 +72,7 @@ test("Settings reports its first frame only once every sidebar icon it draws is 
       .filter((icon) => icon.style.maskImage !== "")
       .map((icon) => icon.dataset.symbol),
   ).toEqual([]);
+  // fixed-wait: proves an absence (no first frame before the icons answer); no event marks "did not happen".
   await act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
   expect(reported).toBe(false);
   // The host answers every icon: the first frame comes, with each icon the sidebar draws.

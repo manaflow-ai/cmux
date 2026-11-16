@@ -1775,15 +1775,19 @@ fn write_atomic_with(
     bytes: &[u8],
     sync: impl FnOnce(&std::fs::File, &Path) -> Result<()>,
 ) -> Result<()> {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
-    let written = write_then_rename(&tmp, path, bytes, sync);
-    // A failed write (a full disk) leaves no partial temporary file to hold
-    // the space it ran out of; every retry uses a new name.
-    if written.is_err() {
-        let _ = crate::home_fs::remove_file(&tmp);
-    }
+    // One name per file and process, every write (`dead_temps`: each new name is one more
+    // path fseventsd keeps); this process's writers of it take turns.
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let written = {
+        let _turn = crate::dead_temps::hold(&tmp);
+        let written = write_then_rename(&tmp, path, bytes, sync);
+        // A failed write (a full disk) leaves no partial temporary file to hold
+        // the space it ran out of.
+        if written.is_err() {
+            let _ = crate::home_fs::remove_file(&tmp);
+        }
+        written
+    };
     // A writer stopped between its copy's open and its rename (a daemon stopped mid-write)
     // never removed its copy: the next write of the file does.
     crate::dead_temps::remove_beside(path);

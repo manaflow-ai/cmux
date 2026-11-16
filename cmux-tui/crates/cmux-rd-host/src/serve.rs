@@ -309,7 +309,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     #[cfg(target_os = "linux")]
     say(linux_displays(capture, &display));
     #[cfg(target_os = "macos")]
-    match crate::mac::capture::displays() {
+    match crate::desktop::displays() {
         Ok((sizes, current)) => {
             say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
         }

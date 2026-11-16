@@ -80,6 +80,15 @@ def main_window():
     return None
 
 
+def off_card(point, frame):
+    """A window point away from the row and from its card, at the row's height: near the window's right edge. The card
+    opens beside the sidebar and lingers while the pointer is on it, so a point just right of the sidebar can sit on
+    the card and keep it open: step 8003f043 (cmux20-bench, 2026-11-16, real glides) parked 260 px right of the
+    sidebar and every sample after the first read "not cold" with the first card still shown."""
+    width = ((main_window() or {}).get("frame") or {}).get("width") or 0
+    return [max(frame[0] + frame[2] + 260, width - 40), point[1]]
+
+
 def workspace_count():
     snap = rpc("snapshot.get", timeout=60)
     return len(((snap.get("topology") or {}) if isinstance(snap, dict) else {}).get("workspaces") or [])
@@ -345,7 +354,7 @@ def app_saw(move, route):
         return None
     key, point, frame = found[0]
     before = cards()
-    move(to_screen([frame[0] + frame[2] + 260, point[1]]))
+    move(to_screen(off_card(point, frame)))
     move(to_screen(point))
     seen = wait(lambda: (lambda c: c.get("events") != before.get("events") or c.get("last_hit", "-") != "-"
                          or c.get("pending_target", "-") != "-")(cards()), 1.5)
@@ -355,8 +364,15 @@ def app_saw(move, route):
         "route": route, "row": key, "row_hovered": hovered, "pointer": where(),
         "events": [before.get("events"), after.get("events")], "last_hit": after.get("last_hit"),
         "app_active": (rpc("debug.focus") or {}).get("app_active")})
-    move(to_screen([frame[0] + frame[2] + 260, point[1]]))  # off the row again: the first sample starts cold
+    move(to_screen(off_card(point, frame)))  # off the row again: the first sample starts cold
     return bool(seen) or bool(hovered)
+
+
+def unseen(landed_ok, saw):
+    """Why a route that moved the pointer did not count: the app saw no move (False), or no row was there to check."""
+    if not landed_ok:
+        return ""
+    return ", the app saw no move" if saw is False else ", no sidebar row to check that the app saw it"
 
 
 def real_input_works():
@@ -373,23 +389,24 @@ def real_input_works():
         try:
             helper_glide(target[0] - 40, target[1], target[0], target[1], 2)
             at, ok = landed(target)
-            if ok and app_saw(lambda p: helper_glide(p[0] - 1, p[1], p[0], p[1], 2), "helper") is True:
+            saw = app_saw(lambda p: helper_glide(p[0] - 1, p[1], p[0], p[1], 2), "helper") if ok else None
+            if saw is True:
                 ROUTE = "helper"
                 return None
-            why.append(f"helper glide to {target[0]:.0f} {target[1]:.0f}: pointer after {at}"
-                       + (", the app saw no move" if ok else ""))
+            why.append(f"helper glide to {target[0]:.0f} {target[1]:.0f}: pointer after {at}" + unseen(ok, saw))
         except (OSError, RuntimeError, subprocess.SubprocessError) as error:
             why.append(str(error)[-300:])
     else:
         why.append(f"no helper app at {HELPER_APP}")
     run = subprocess.run([PROBE, "move", str(target[0]), str(target[1])], capture_output=True, text=True, timeout=20)
     at, ok = landed(target)
-    if ok and app_saw(lambda p: probe("move", p[0], p[1]), "posted") is True:
+    saw = app_saw(lambda p: probe("move", p[0], p[1]), "posted") if ok else None
+    if saw is True:
         ROUTE = "posted"
         REPORT["route_failures"] = why  # why each earlier route was passed over, also when a later one works
         return None
     why += [f"pointer-probe move {target[0]:.0f} {target[1]:.0f}: exit {run.returncode}, "
-           f"stderr {run.stderr.strip()[-300:]!r}, pointer after {at}" + (", the app saw no move" if ok else "")]
+           f"stderr {run.stderr.strip()[-300:]!r}, pointer after {at}" + unseen(ok, saw)]
     if not CUA_PATH:
         return "; ".join(why + [f"no cua-driver at {' or '.join(CUA_CANDIDATES)}"])
     try:
@@ -401,12 +418,13 @@ def real_input_works():
         at, ok = landed(target)
         # Only when the app is seen getting its moves: move_cursor warps (no mouse-moved event), so an unproven
         # check (None: no row to tell) must not pick it (step 87a83e6c took it on None and measured nothing).
-        if ok and app_saw(lambda p: cua_move(*p), "cua") is True:
+        saw = app_saw(lambda p: cua_move(*p), "cua") if ok else None
+        if saw is True:
             ROUTE = "cua"
             REPORT["route_failures"] = why
             return None
         why.append(f"cua-driver move_cursor {target[0]:.0f} {target[1]:.0f} (scale {CUA_SCALE:g}): pointer after {at}"
-                   + (", the app saw no move (a warp sends no mouse-moved event)" if ok else ""))
+                   + unseen(ok, saw) + (" (a warp sends no mouse-moved event)" if saw is False else ""))
     except (OSError, RuntimeError, ValueError) as error:
         why.append(f"cua-driver at {CUA_PATH}: {error}")
     REPORT["route_failures"] = why
@@ -451,7 +469,7 @@ def row_target(key):
 
 
 def sample(count, index, key, point, frame):
-    off = [frame[0] + frame[2] + 260, point[1]]  # right of the sidebar, in the content, at the row's height
+    off = off_card(point, frame)  # in the content, clear of the card, at the row's height
     move_path(point, off, 3)
     # Cold start: no card open and the coordinator idle, or the sample is not counted (a card already open would
     # read as shown in a few ms with no pending phase, as the 200 workspace cell did in step b13acff317b8d8977670a944).
@@ -571,6 +589,11 @@ try:
         except (OSError, RuntimeError, subprocess.SubprocessError) as error:
             REPORT["pointer_helper"] = {"app": HELPER_APP, "error": str(error)[-300:]}
             REPORT["notes"].append(f"bench pointer app unavailable: {str(error)[-300:]}")
+    # The route check hovers a sidebar row, and a just-launched app may list none yet: step 2af64408 (cmux20-bench,
+    # 2026-11-16) ran it right after launch, found no row (no route_checks) and fell back to synthetic though the
+    # granted glide moved the pointer.
+    if opts.input == "real":
+        fill(2)
     why = real_input_works() if opts.input == "real" else None
     if why:
         REPORT["notes"].append(f"real input fell back to synthetic: {why}")
