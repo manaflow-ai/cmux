@@ -29,7 +29,10 @@
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
 #               against a Debug app; with ui= and no only=, the kit run is skipped
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
-#               to ui-video.mp4 in the artifact: before/after videos of a change
+#               to ui-video.mp4 in the artifact: before/after videos of a change;
+#               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
+#               540 wide, H.264 CRF 30, no audio, small enough for PR media
+#               (lane-gh media takes at most 25 MiB)
 #             profile record a CPU stack-sampling profile of the UI test run:
 #               `xctrace record --instrument 'Time Profiler' --all-processes`
 #               on the host (a simulator app is a host process, so every launch
@@ -868,6 +871,19 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
     kill -INT "$recorder" 2>/dev/null
     wait "$recorder"
     note "- UI test video: ui-video.mp4 ($(du -h "$out/ui-video.mp4" 2>/dev/null | cut -f1 || echo missing))"
+    ffmpeg_bin="$(command -v ffmpeg || true)"
+    [[ -n "$ffmpeg_bin" || ! -x /opt/homebrew/bin/ffmpeg ]] || ffmpeg_bin=/opt/homebrew/bin/ffmpeg
+    if [[ -s "$out/ui-video.mp4" && -n "$ffmpeg_bin" ]]; then
+      if "$ffmpeg_bin" -v error -y -i "$out/ui-video.mp4" -vf "scale=540:-2" -c:v libx264 -preset veryfast \
+          -crf 30 -pix_fmt yuv420p -an -movflags +faststart "$out/ui-video-small.mp4" </dev/null; then
+        note "- UI test video, small copy: ui-video-small.mp4 ($(du -h "$out/ui-video-small.mp4" | cut -f1))"
+      else
+        rm -f "$out/ui-video-small.mp4"
+        note "- UI test video, small copy: ffmpeg failed, none"
+      fi
+    elif [[ -s "$out/ui-video.mp4" ]]; then
+      note "- UI test video, small copy: no ffmpeg on this host, none"
+    fi
   fi
   if [[ $ui_profile -eq 1 ]]; then
     ui_profile_finish

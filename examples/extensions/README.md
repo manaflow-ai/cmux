@@ -15,6 +15,7 @@ and the sample stays installed. `cmux ext remove ID` uninstalls it.
 | [Standup](agent-standup) | What your agents did since yesterday, by project | `cmux ext dev examples/extensions/agent-standup` |
 | [Workspace notes](workspace-notes) | A short to-do list for each workspace | `cmux ext dev examples/extensions/workspace-notes` |
 | [Link hints](link-hints) | Browse the built-in browser with the keyboard: follow links by their labels, go back, bookmark, find | `cmux ext dev examples/extensions/link-hints` |
+| [The Leo collection](leo-collection) | Clock, weather, gacha and usage, riced up, with a look that ties them together | `examples/extensions/leo-collection/install.sh` |
 
 `cmux ext dev` packs `src/main.ts` with `bun`, so `bun` must be on your PATH. `bun
 examples/extensions/build.ts --check` packs every sample and validates its manifest.
