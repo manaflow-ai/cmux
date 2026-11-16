@@ -77,8 +77,9 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   version 2 or later), so control works on Wayland; otherwise the desktop is shared view
   only. A grant the person revoked makes the next share show the dialog once, then it is
   saved again. `cmux-rd linux-host grant [--control]` makes the grant again by itself.
-- Machine join: `cmux-rd linux-host enable --non-interactive --stack-token-file PATH|-` is the
-  one command the join runs after the acpmux join, often over ssh. It never opens a browser
+- Machine join: `cmux-rd linux-host enable --non-interactive --stack-token-file -` is the
+  one command the join runs after the acpmux join, often over ssh. It takes the access token
+  on stdin only (never a file, argv or the environment) and stores it nowhere. It never opens a browser
   (with no token file it signs in nothing, and runs on a desktop that is still enabled), finds
   the desktop through logind, leaves the portal dialog up for a minute at most, and installs,
   enables and starts the host unit itself. A Wayland desktop gets the one grant above, and

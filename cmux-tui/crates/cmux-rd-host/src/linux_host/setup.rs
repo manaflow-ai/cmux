@@ -63,7 +63,9 @@ pub fn choose_desktop(
     display: Option<&str>,
     sessions: &[String],
 ) -> Desktop {
-    let set = |v: Option<&str>| v.map(str::trim).filter(|v| !v.is_empty());
+    fn set(v: Option<&str>) -> Option<&str> {
+        v.map(str::trim).filter(|v| !v.is_empty())
+    }
     if session_type.is_some_and(|t| t.trim().eq_ignore_ascii_case("wayland"))
         || set(wayland_display).is_some()
     {

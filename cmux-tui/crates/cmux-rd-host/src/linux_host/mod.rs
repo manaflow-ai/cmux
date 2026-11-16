@@ -319,8 +319,11 @@ fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
     Ok((dir, hub, account))
 }
 
-/// Why `enable --non-interactive` has no account to sign in with.
-const NO_JOIN_TOKEN: &str = "--non-interactive signs in with a cmux access token on --stack-token-file PATH (or - for stdin): the join's machine identity cannot sign in to the device hub yet";
+/// Why `enable --non-interactive` has no account to sign in with. The join hands the access token
+/// over on stdin only: a token file could be left behind, and argv and the environment can be read
+/// by other processes. The token signs in once and is stored nowhere (only the device key and the
+/// anchor are), so nothing remains to remove on unjoin.
+const NO_JOIN_TOKEN: &str = "--non-interactive signs in with a cmux access token on stdin only (--stack-token-file -): the join's machine identity cannot sign in to the device hub yet";
 
 /// How long `enable --non-interactive` leaves the portal's dialog up for someone at the screen;
 /// past it the join goes on and the first share asks once.
@@ -375,6 +378,7 @@ fn enable(args: &Args) -> Res<()> {
 /// it and turns sharing on; the device. `--non-interactive` never opens a browser sign-in.
 fn sign_in_and_register(args: &Args, dir: &std::path::Path, non_interactive: bool) -> Res<Device> {
     let token = match args.get("stack-token-file") {
+        Some(path) if non_interactive && path != "-" => return Err(NO_JOIN_TOKEN.into()),
         None if non_interactive => return Err(NO_JOIN_TOKEN.into()),
         path => stack_login::access_token(path)?,
     };
@@ -1029,9 +1033,20 @@ mod tests {
         // Over ssh nobody could follow the link: with no token file, enable says what it needs.
         let args = Args::parse(&["enable".into(), "--non-interactive".into()]).unwrap();
         let dir = std::env::temp_dir().join(format!("cmux-rd-join-{}", std::process::id()));
-        let e = sign_in_and_register(&args, &dir, true).unwrap_err();
+        let Err(e) = sign_in_and_register(&args, &dir, true) else { panic!("signed in") };
         assert_eq!(e.to_string(), NO_JOIN_TOKEN);
         assert!(!dir.exists(), "nothing is written before the sign-in");
+        // A token file could outlive the join: only stdin is taken.
+        let file = Args::parse(&[
+            "enable".into(),
+            "--non-interactive".into(),
+            "--stack-token-file".into(),
+            "/tmp/token".into(),
+        ])
+        .unwrap();
+        let Err(e) = sign_in_and_register(&file, &dir, true) else { panic!("signed in") };
+        assert_eq!(e.to_string(), NO_JOIN_TOKEN);
+        assert!(!dir.exists());
     }
 
     #[test]
