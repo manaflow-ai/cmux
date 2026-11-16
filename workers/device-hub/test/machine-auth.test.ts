@@ -42,7 +42,7 @@ async function renew(d: Device) {
 
 /** A session token's claims. */
 function claims(session: string): Record<string, any> {
-  const part = session.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+  const part = (session.split(".")[1] ?? "").replace(/-/g, "+").replace(/_/g, "/");
   return JSON.parse(atob(part + "=".repeat((4 - (part.length % 4)) % 4)));
 }
 
