@@ -8,16 +8,17 @@ on a dark theme). This launches the tagged app and asks `debug.text_weight` for 
 both classes next to a stock NSTextField (same text, font, color; 4 inks x 3 fonts) in a dark
 and a light theme, as the window server shows them. Each value must be within 1% of stock.
 
-appearance.fontSmoothing (ProcessFontSmoothing): the app launches twice, with the default
-("antialiased") and with "system". Both launches hold the 1% parity, and the stock label itself
-must draw thinner under the default than under "system" (the AppleFontSmoothing default reached
-AppKit before its first text draw), unless the Mac turned smoothing off for every app.
+appearance.fontSmoothing (ProcessFontSmoothing), the way a person changes it: the app launches
+with no saved value and the default ("antialiased"); the settings file then changes to "system"
+while it runs (the app's saved AppleFontSmoothing must go), and the app quits and launches again.
+Both launches hold the 1% parity, and the stock label itself must draw thinner under the default
+than under "system", unless the Mac turned smoothing off for every app.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   text-weight-e2e.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS" [--tolerance 0.01]
 Stop the app afterwards with "$NX_APP_STOP". Exit 1 on any failed check.
 """
-import argparse, json, os, socket, subprocess, sys, tempfile, time
+import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -69,10 +70,25 @@ def wait(predicate, seconds, step=0.5):
     return None
 
 
+CONFIG, GHOSTTY = os.path.join(SCRATCH, "cmux.json"), os.path.join(SCRATCH, "ghostty")
+with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as handle:
+    BUNDLE_ID = plistlib.load(handle)["CFBundleIdentifier"]
+
+
+def write_config(mode):
+    """The settings file with appearance.fontSmoothing `mode` (None: unset)."""
+    open(CONFIG, "w").write(json.dumps({"appearance": {"fontSmoothing": mode}} if mode else {}))
+
+
+def saved_smoothing():
+    """The app's saved AppleFontSmoothing (None: none saved)."""
+    out = subprocess.run(["defaults", "read", BUNDLE_ID, "AppleFontSmoothing"], capture_output=True, text=True)
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
 def launch(mode):
-    """Starts the tagged app with appearance.fontSmoothing `mode` (None: unset); returns the process."""
-    config, ghostty = os.path.join(SCRATCH, f"cmux-{mode}.json"), os.path.join(SCRATCH, "ghostty")
-    open(config, "w").write(json.dumps({"appearance": {"fontSmoothing": mode}} if mode else {}))
+    """Starts the tagged app on the settings file (`mode` names the launch); returns the process."""
+    config, ghostty = CONFIG, GHOSTTY
     open(ghostty, "w").write("")
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
@@ -121,6 +137,9 @@ def weights(label):
 
 
 try:
+    # A first launch: nothing saved yet, so the launch read's write is what AppKit reads.
+    subprocess.run(["defaults", "delete", BUNDLE_ID, "AppleFontSmoothing"], capture_output=True)
+    write_config(None)
     app = launch(None)
     try:
         thin = weights("antialiased")
@@ -140,6 +159,11 @@ try:
         # The real chrome (sidebar rows, tab titles) for a look: text upright and in place.
         shot = rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "window.png")})
         check(isinstance(shot, dict) and "error" not in shot, f"debug.window_snapshot wrote window.png ({shot})")
+        check(saved_smoothing() == "0", f"the default launch saved AppleFontSmoothing 0 ({saved_smoothing()})")
+        # Settings writes the file; the running app saves the new value for its next launch.
+        write_config("system")
+        check(wait(lambda: saved_smoothing() is None, 30) is not None,
+              f"after the change to system the saved AppleFontSmoothing is gone ({saved_smoothing()})")
     finally:
         stop(app)
     app = launch("system")
