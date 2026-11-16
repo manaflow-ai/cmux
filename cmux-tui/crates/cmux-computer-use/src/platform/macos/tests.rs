@@ -3106,16 +3106,18 @@ fn the_menu_bar_walk_ends_only_at_known_roots() {
     assert_eq!(roles::menu_bar_walk_step("AXMenuBar"), Some(true));
     assert_eq!(roles::menu_bar_walk_step("AXWindow"), Some(false));
     assert_eq!(roles::menu_bar_walk_step("AXApplication"), Some(false));
-    assert_eq!(roles::menu_bar_walk_step("AXGroup"), Some(false));
+    assert_eq!(roles::menu_bar_walk_step("AXGroup"), None);
+    assert_eq!(roles::menu_bar_walk_step("AXButton"), None);
     assert_eq!(roles::menu_bar_walk_step("AXMenuItem"), None);
     assert_eq!(roles::menu_bar_walk_step("AXMenu"), None);
     assert_eq!(roles::menu_bar_walk_step("AXMenuBarItem"), None);
 }
 
-/// Review of 431ddaa: an element 25 levels deep in a window (VS Code, Slack,
-/// a deep web page) is not in the menu bar; the walk did not end within its
-/// bound and refused every click on it. A menu item under the menu bar is
-/// in it; an unreadable role on the menu chain is unknown.
+/// Review of 431ddaa: an element 25 or 30 levels deep in a window (VS Code,
+/// Slack, a deep web page) is not in the menu bar; the walk's cap of 16
+/// refused every click on it. The walk still ends only at the menu bar, a
+/// window or the application, so a subview of a menu item's custom view is
+/// in the menu bar; an unreadable role, or a walk past the cap, is unknown.
 #[test]
 fn a_deep_element_is_not_in_the_menu_bar() {
     let chain =
@@ -3125,10 +3127,18 @@ fn a_deep_element_is_not_in_the_menu_bar() {
     deep.push("AXWindow");
     assert_eq!(roles::menu_bar_walk(chain(deep)), Some(false));
     let mut deep_web = vec!["AXGroup"; 30];
-    deep_web.push("AXWebArea");
+    deep_web.extend(["AXWebArea", "AXScrollArea", "AXGroup", "AXWindow", "AXApplication"]);
     assert_eq!(roles::menu_bar_walk(chain(deep_web)), Some(false));
     let item = vec!["AXMenuItem", "AXMenu", "AXMenuItem", "AXMenu", "AXMenuBarItem", "AXMenuBar"];
     assert_eq!(roles::menu_bar_walk(chain(item)), Some(true));
+    // A subview of a menu item's custom view (Help's search field, a
+    // volume-style slider) has its own role and is in the menu bar.
+    let custom = vec!["AXButton", "AXGroup", "AXMenuItem", "AXMenu", "AXMenuBarItem", "AXMenuBar"];
+    assert_eq!(roles::menu_bar_walk(chain(custom)), Some(true));
+    let field = vec!["AXSearchField", "AXMenuItem", "AXMenu", "AXMenuBarItem", "AXMenuBar"];
+    assert_eq!(roles::menu_bar_walk(chain(field)), Some(true));
     // The parent of a menu item cannot be read: unknown, refused.
     assert_eq!(roles::menu_bar_walk(chain(vec!["AXMenuItem", "AXMenu"])), None);
+    // Past the cap without reaching a root: unknown.
+    assert_eq!(roles::menu_bar_walk(chain(vec!["AXGroup"; roles::MENU_WALK_MAX + 1])), None);
 }

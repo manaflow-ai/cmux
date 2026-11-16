@@ -1068,9 +1068,9 @@ pub fn in_menu_bar(el: &Ax) -> bool {
 }
 
 /// [`in_menu_bar`], read strictly ([`roles::menu_bar_walk`]): `Some(true)`
-/// under the menu bar, `Some(false)` at the first role that is not a menu,
-/// menu item or menu bar item, `None` when a role or parent along the menu
-/// chain could not be read.
+/// under the menu bar, `Some(false)` at the window or the application,
+/// `None` when a role or parent could not be read or the walk passed its
+/// cap.
 pub fn try_in_menu_bar(el: &Ax) -> Option<bool> {
     let mut current = Some(el.clone());
     roles::menu_bar_walk(|depth| {
