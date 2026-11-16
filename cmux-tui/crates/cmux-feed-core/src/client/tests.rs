@@ -876,3 +876,40 @@ fn the_reports_basket_shows_the_newest_reports() {
         "never back"
     );
 }
+
+/// GitHub changes over the feed socket (`github.changed`, backend integrations/github-push.ts):
+/// every live connection asks for them after presence, and the owner's `integration.watching` and
+/// `integration.changed` become actions only on a live stream and for a watched provider.
+#[test]
+fn a_live_stream_watches_github_and_passes_on_its_changes() {
+    let mut stream = CloudStream::new();
+    stream.on_connect();
+    stream.on_text(&json!({"t": "welcome", "principal": {"user": "u"}}).to_string());
+    let changed = json!({"t": "integration.changed", "provider": "github", "changes": [{"repo": "o/r", "number": 1, "kind": "check_run"}]}).to_string();
+    assert!(stream.on_text(&changed).is_empty(), "nothing before the snapshot");
+    let actions =
+        stream.on_text(&json!({"t": "snapshot", "seq": 1, "state": {"items": {}}}).to_string());
+    let watch: Vec<Value> = actions
+        .iter()
+        .filter_map(|action| match action {
+            CloudAction::Send(frame) => serde_json::from_str::<Value>(frame).ok(),
+            _ => None,
+        })
+        .filter(|frame| frame["t"] == "integration.watch")
+        .collect();
+    assert_eq!(watch, vec![json!({"t": "integration.watch", "provider": "github"})]);
+    assert_eq!(
+        stream.on_text(
+            &json!({"t": "integration.watching", "provider": "github", "live": true}).to_string()
+        ),
+        vec![CloudAction::IntegrationLive { provider: "github".into(), live: true }]
+    );
+    assert_eq!(
+        stream.on_text(&changed),
+        vec![CloudAction::IntegrationChanged { provider: "github".into() }]
+    );
+    let slack = json!({"t": "integration.changed", "provider": "slack"}).to_string();
+    assert!(stream.on_text(&slack).is_empty(), "an unwatched provider is dropped");
+    stream.on_disconnect();
+    assert!(stream.on_text(&changed).is_empty(), "nothing after the socket closed");
+}
