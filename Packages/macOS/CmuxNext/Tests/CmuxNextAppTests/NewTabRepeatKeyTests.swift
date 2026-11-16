@@ -30,7 +30,8 @@ import Testing
 /// journal (2026-11-16): key-ups with Command down came for shortcut letters; none of them was the T key.
 ///
 /// Frames are the app's own, and a test waits for one by an event (`NewTabPageAtItsFrameTests.frame`). No wait
-/// polls and no wait reads a clock.
+/// polls and no wait reads a clock: a page that the rule gives a tab comes at ONE frame, and a test asks after
+/// that one frame.
 ///
 /// The engine: each page view here is a real one, and each test prints the engine of each page view that it made
 /// (`engine-of-test:` in the run's output, with the case's name). The package's tests have no Chromium host, so
@@ -62,37 +63,35 @@ struct NewTabRepeatKeyTests {
         send(try event(.keyDown, repeats: repeats, in: window), services) { NewTabPage.open(in: pane, seed: nil) }
     }
 
-    /// Frames until `built` is over `count`, 240 at most: the tab that the pane shows gets its page at the next
-    /// frame, or at a later one when the launch still held it.
-    private static func framesUntilMore(than count: Int, _ built: () -> Int, _ services: AppServices) async {
-        for _ in 0..<240 where built() == count { await NewTabPageAtItsFrameTests.frame(services) }
-    }
-
     /// A press and `repeats` repeats of the New Tab key, with a frame after each key. Returns the count of page
-    /// views after the press's own page: the repeats must add none to it.
+    /// views after the press's own page: the repeats must add none to it. The fixture counts the repeats' tabs by
+    /// the store's entries, not by their keys: the store can give a tab a new key between two frames.
     private static func heldNewTabKey(repeats: Int, in pane: PaneController, _ window: NSWindow, _ services: AppServices,
                                       _ built: () -> Int) async throws -> Int {
         let tabs = services.agentTabs
         let start = built()
         try newTabKey(repeats: false, in: pane, window, services)
-        await framesUntilMore(than: start, built, services)
-        try #require(built() == start + 1, "the press of the key (no repeat) made \(built() - start) page views")
-        let pages = Set(tabs.newTabPages.keys)
+        await NewTabPageAtItsFrameTests.frame(services)
+        try #require(built() == start + 1, "fixture: the press of the key (no repeat) had \(built() - start) page views at its frame")
+        let before = tabs.newTabPages.keys
         for _ in 0..<repeats {
             try newTabKey(repeats: true, in: pane, window, services)
             await NewTabPageAtItsFrameTests.frame(services)
         }
-        let opened = tabs.newTabPages.keys.filter { !pages.contains($0) }.count
-        try #require(opened == repeats, "the \(repeats) repeats opened \(opened) New Tab pages")
+        let after = tabs.newTabPages.keys
+        let opened = after.count - before.count
+        try #require(opened == repeats, "fixture: the \(repeats) repeats opened \(opened) New Tab pages; the keys before \(before), after \(after)")
         return start + 1
     }
 
-    /// After the hold's end: one page view more, for the tab that the pane has selected, and no other one later.
+    /// After the hold's end: one page view more at the first frame, for the tab that the pane has selected, and no
+    /// other one in the 3 frames after it.
     private static func expectOnePageForTheSelectedTab(after held: Int, _ why: String, in pane: PaneController, _ services: AppServices,
                                                        _ built: () -> Int) async {
-        await framesUntilMore(than: held, built, services)
+        await NewTabPageAtItsFrameTests.frame(services)
+        #expect(built() == held + 1, "\(built() - held) page views were made by the first frame after \(why); exactly one is right")
         for _ in 0..<3 { await NewTabPageAtItsFrameTests.frame(services) }
-        #expect(built() == held + 1, "\(built() - held) page views were made after \(why); exactly one is right")
+        #expect(built() == held + 1, "\(built() - held) page views were made by the fourth frame after \(why); exactly one is right")
         let selected = pane.stripModel.selectedID?.rawValue
         #expect(pane.currentTabKey == selected, "the pane does not show its selected tab after \(why)")
         #expect(selected.map { services.agentTabs.existingView($0) != nil } == true, "the selected tab has no page view after \(why)")
@@ -126,7 +125,7 @@ struct NewTabRepeatKeyTests {
     @Test(arguments: HoldEnd.allCases) func eachEndOfAHeldNewTabKeyMakesOnePageViewForTheSelectedTab(_ end: HoldEnd) async throws {
         try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-repeat-key-end-\(end.rawValue)") { services, window, pane, built in
             let held = try await Self.heldNewTabKey(repeats: 3, in: pane, window, services, built)
-            try #require(built() == held, "\(built() - held) page views were made for the tabs of 3 repeats, with the key still down")
+            #expect(built() == held, "\(built() - held) page views were made for the tabs of 3 repeats, with the key still down")
             switch end {
             case .keyUp: Self.send(try Self.event(.keyUp, in: window), services)
             case .commandUp: Self.send(try Self.event(.flagsChanged, code: 55, flags: [], in: window), services)
@@ -149,7 +148,7 @@ struct NewTabRepeatKeyTests {
     @Test func commandUpBeforeTheKeyMakesThePageAtTheNextFrame() async throws {
         try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-repeat-key-command-first") { services, window, pane, built in
             let held = try await Self.heldNewTabKey(repeats: 3, in: pane, window, services, built)
-            try #require(built() == held, "\(built() - held) page views were made for the tabs of 3 repeats, with the key still down")
+            #expect(built() == held, "\(built() - held) page views were made for the tabs of 3 repeats, with the key still down")
             Self.send(try Self.event(.flagsChanged, code: 55, flags: [], in: window), services)
             #expect(built() == held, "\(built() - held) page views were made in the flags event's own turn, before a frame")
             await NewTabPageAtItsFrameTests.frame(services)
@@ -167,8 +166,8 @@ struct NewTabRepeatKeyTests {
             for press in 1...2 {
                 let before = built()
                 try Self.newTabKey(repeats: false, in: pane, window, services)
-                await Self.framesUntilMore(than: before, built, services)
-                #expect(built() == before + 1, "press \(press) of the key (no repeat) made \(built() - before) page views with no end event")
+                await NewTabPageAtItsFrameTests.frame(services)
+                #expect(built() == before + 1, "press \(press) of the key (no repeat) had \(built() - before) page views at its frame, with no end event")
                 #expect(pane.currentTabKey == pane.stripModel.selectedID?.rawValue, "the pane does not show the tab of press \(press)")
             }
         }
@@ -191,7 +190,8 @@ struct NewTabRepeatKeyTests {
             defer { (input.now, input.scheduleDeadline) = (wiredNow, wiredDeadline) }
 
             let held = try await Self.heldNewTabKey(repeats: 3, in: pane, window, services, built)
-            try #require(input.isHolding(in: window), "the last repeat began no key hold: \(input.log.suffix(4))")
+            #expect(built() == held, "\(built() - held) page views were made for the tabs of 3 repeats, with the key still down")
+            try #require(input.isHolding(in: window), "fixture: the last repeat began no key hold: \(input.log.suffix(4))")
             now = began + input.holdLimit + .seconds(1)
             let last = try #require(deadlines.last, "the key hold asked for no deadline")
             last()
@@ -206,8 +206,9 @@ struct NewTabRepeatKeyTests {
         }
     }
 
-    /// A repeat takes no page out of the pool: the parked page stays for the next press. The press then takes it in
-    /// its own turn, as before.
+    /// A repeat takes no page out of the pool: the parked page stays while the key is down. The tab of the hold's
+    /// end is the next open: it adopts the parked page at its frame. Limit: after that the pool has no parked page
+    /// until its own refill made one, as after each open that adopts a page.
     @Test func aRepeatOfTheNewTabKeyLeavesTheParkedPageInThePool() async throws {
         try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-repeat-key-pool") { services, window, pane, built in
             let pool = services.newTabSpares
@@ -248,11 +249,9 @@ struct NewTabRepeatKeyTests {
             #expect(built() == before, "\(built() - before) page views were made in a repeat's own turn")
             Self.send(try Self.event(.keyUp, in: window), services)
             await Self.expectOnePageForTheSelectedTab(after: before, "the key-up", in: pane, services, built)
-
-            let single = built()
-            try Self.newTabKey(repeats: false, in: pane, window, services)
-            #expect(pool.spare?.view !== parked, "a press of the key (no repeat) did not take the parked page")
-            #expect(built() == single + 1, "the press's tab got \(built() - single) page views in the key's own turn")
+            let selected = try #require(pane.stripModel.selectedID?.rawValue, "the pane has no selected tab after the key-up")
+            #expect(services.agentTabs.existingView(selected) === parked, "the tab of the hold's end did not adopt the parked page")
+            #expect(pool.spare?.view !== parked, "the parked page is still the pool's after the tab of the hold's end adopted it")
         }
     }
 }
