@@ -467,3 +467,62 @@ fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
     e.on_datagram(&feedback(&Feedback::default()), false, 660_000);
     assert!(e.stats().target_bps >= start, "two percent loss stays below the congestion threshold");
 }
+
+/// A typing-sized frame on a nearly idle link goes out twice (its one data shard
+/// and a parity copy), so losing either copy costs no tail-probe wait: the
+/// viewer rebuilds the frame from the one that arrived. On a Mac pair over a
+/// clean LAN, 11 of 300 key presses lost such a frame's only copy, and each
+/// waited the whole probe interval.
+#[test]
+fn a_small_frame_on_an_idle_link_goes_out_twice_and_survives_losing_a_copy() {
+    use cmux_rd_core::reassembly::Reassembler;
+    let mut e = engine();
+    let mut viewer = Reassembler::new(500_000);
+    let first = e.start(0).expect("first");
+    for d in send(&mut e, &first, true, 1_000, 0) {
+        let (h, payload) = DatagramHeader::decode(&d).expect("header");
+        viewer.push(&h, payload, 1_000);
+    }
+    assert_eq!(viewer.last_released(), first.frame);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        10_000,
+    );
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let p = e.damage(0, small, 20_000).expect("second frame");
+    let sent = send(&mut e, &p, false, 100, 20_000);
+    assert_eq!(sent.len(), 2, "a small frame on an idle link is sent twice");
+    // The data datagram is lost; the copy alone gives the viewer the frame.
+    let copy = sent.last().expect("copy");
+    let (h, payload) = DatagramHeader::decode(copy).expect("header");
+    assert_eq!(h.kind, DatagramKind::Fec);
+    let released = viewer.push(&h, payload, 21_000);
+    assert_eq!(released.iter().map(|f| f.frame).collect::<Vec<_>>(), vec![p.frame]);
+}
+
+/// The copy is spent only while the link is nearly idle: while the last
+/// second's sends pass 1 % of the target, a small frame goes out once.
+#[test]
+fn a_small_frame_on_a_busy_link_goes_out_once() {
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    // 40 KB in the last second is far over 1 % of the 8 Mbps starting target.
+    send(&mut e, &first, true, 40_000, 0);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        10_000,
+    );
+    let small = Rect { x: 1, y: 1, width: 10, height: 10 };
+    let p = e.damage(0, small, 20_000).expect("second frame");
+    assert_eq!(send(&mut e, &p, false, 100, 20_000).len(), 1);
+    e.on_datagram(
+        &feedback(&Feedback { acked_frame: p.frame, ..Feedback::default() }),
+        true,
+        30_000,
+    );
+    // A second later the keyframe has left the window: the link is idle again.
+    let q = e.damage(0, small, 1_100_000).expect("third frame");
+    assert_eq!(send(&mut e, &q, false, 100, 1_100_000).len(), 2);
+}
