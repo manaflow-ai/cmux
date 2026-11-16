@@ -109,8 +109,8 @@ class Control:
             return {"error": answer["error"]}
         return answer.get("result") if answer.get("result") is not None else {}
 
-    def action(self, name, focus=True, **args):
-        params = {"action": name, "args": args, "wait": True, "origin": "script",
+    def action(self, action, /, focus=True, **args):
+        params = {"action": action, "args": args, "wait": True, "origin": "script",
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
         if focus:
             params["focus"] = True
