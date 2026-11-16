@@ -543,7 +543,9 @@ impl MediaEngine {
             .map(|s| if s.last_frame == 0 { REF_NONE } else { s.last_frame });
         let Some(state) = self.streams.get_mut(&req.stream) else { return Ok(Output::default()) };
         let Some(enc) = encoded.filter(|e| !e.access_unit.is_empty()) else {
+            // The encoder dropped the frame: its change still has to reach the viewer.
             state.gate.clear_in_flight();
+            state.gate.requeue(req.damage);
             return Ok(Output::default());
         };
         let tile = state.tile_of.is_some();
