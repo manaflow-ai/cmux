@@ -140,11 +140,8 @@ extension CmuxRemoteActionEnvironment {
                             return await CmuxDialogCenter.shared.present(spec, in: .window(window)).button
                         }
                         switch step {
-                        case .nothing:
-                            return true
-                        case .apply:
-                            // Always Allow skips the overview; a missing macOS grant still gets its own step.
-                            return try await setup.proceed(after: "continue", present: present)
+                        case .nothing, .apply:
+                            return try await Self.shareWithoutOverview(step, setup: setup, present: present)
                         case .ask:
                             guard let window else { return false }
                             let answer = try await setup.confirmRequest(in: window, personPressed: personPressed)
@@ -181,6 +178,14 @@ extension CmuxRemoteActionEnvironment {
     /// settings.set from an agent, the CLI or MCP is refused.
     nonisolated static func shareStep(alreadyShared: Bool, withoutAsking: Bool) -> ShareStep {
         alreadyShared ? .nothing : withoutAsking ? .apply : .ask
+    }
+
+    /// A share request with no overview: `.apply` (Always Allow) turns sharing on, and a missing
+    /// macOS grant still gets its own step; `.nothing` (this Mac already shares) is done.
+    static func shareWithoutOverview(_ step: ShareStep, setup: CmuxRemoteSharingSetup,
+                                     present: (CmuxDialogSpec) async -> String) async throws -> Bool {
+        guard step == .apply else { return true }
+        return try await setup.proceed(after: "continue", present: present)
     }
 
     /// Whether a share request may skip the overview: `remote.shareWithoutAsking` is on and the
