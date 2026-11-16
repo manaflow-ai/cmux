@@ -291,6 +291,32 @@ Each target also leaves its raw files under
 `fail`. The row includes the exact source-results SHA-256, host/viewer/link/revision, and motion FPS
 observations. It never invents a comparison number from a one-Mac loopback run.
 
+## Linux, kernel netem jitter (no Mac)
+
+`rd-netem-linux.py` builds `cmux-rd` at each `--commit` and runs the Linux host (Xvfb,
+`cmux-rd testapp --workload motion`, `--profile baseline`) and `cmux-rd bench --carrier udp` in two
+network namespaces joined by a veth, with `tc netem` on each direction: clean, 5±5 ms,
+15±15 ms with 1 % burst loss (Gilbert-Elliott, bursts of about 4 packets), 30±30 ms with 2 % loss.
+Per commit and profile it writes one JSON line (`cmux.rd-netem-linux/1`): key-to-frame p50/p95 and
+lost, received Mbps for every second of a 20 s passive session, the host's target kbps for every
+second (its stats message), IDRs from the host's timing records, and the bench line's
+`stage_ledger` (`cmux.rd-stage-ledger/1`) when that commit has one. `results.md` is the table;
+`rd-netem-linux.py table results.jsonl` redraws it.
+
+It needs root for `ip netns` and `tc` and a kernel with `sch_netem`, so on the fleet it runs through
+HQ's netem route (cmuxterm-hq `docs/handbook/netem-route-without-host-module.md`), from an HQ checkout:
+
+```
+cmux-ci test --setup netem --timeout 7200 --artifact DIR -- 'set -e; d=$(mktemp -d);
+  git -C "$d" init -q; git -C "$d" fetch -q --depth=1 https://github.com/manaflow-ai/cmux.git DRIVER_SHA;
+  git -C "$d" checkout -q FETCH_HEAD -- scripts/measure/screen-stream-eval/rd-netem-linux.py;
+  python3 "$d/scripts/measure/screen-stream-eval/rd-netem-linux.py" --deps --out "$FAST_CHECKS_OUT" \
+    --commit FULL_SHA [--commit FULL_SHA ...]'
+```
+
+DRIVER_SHA is any commit with this script; each `--commit` is the cmux revision measured. A
+prebuilt binary runs with `--bin LABEL=PATH` instead of `--commit`.
+
 ## Two Macs
 
 By default host and viewer run on one Mac, so the network leg is loopback. For the LAN row, run two
