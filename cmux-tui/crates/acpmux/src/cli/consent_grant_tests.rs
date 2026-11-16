@@ -612,6 +612,34 @@ fn an_explicit_account_off_replaces_a_kept_default_whatever_its_age() {
     assert!(!policy_replaces(&authority, ACCOUNT_ID, &older_on));
 }
 
+/// The same Mac signs an account Off, then (signing in again) a default: a target that gets the
+/// default first still takes the older Off when it arrives. A default does not move the counter
+/// the Mac's explicit account grants are checked against (re-review of #43983).
+#[test]
+fn a_default_from_the_same_mac_never_blocks_its_older_off() {
+    let a = key();
+    let (_dir, authority) = fixture();
+    pin(&authority, &a, ACCOUNT_ID);
+    let off = account_grant(&a, NOW, |g| {
+        g["control"] = json!("off");
+        g["screen"] = json!("off");
+    });
+    apply(&authority, &default_grant(&a, NOW + 30_000), &target(), None, NOW + 30_000).unwrap();
+    assert_eq!(consent_of(&status(&authority, Some(ACCOUNT_ID)), "control"), "granted");
+    apply(&authority, &off, &target(), None, NOW + 40_000).unwrap();
+    assert_eq!(consent_of(&status(&authority, Some(ACCOUNT_ID)), "control"), "none");
+    // Each kind still refuses its own replay.
+    assert_eq!(
+        apply(&authority, &off, &target(), None, NOW + 41_000).unwrap_err().reason,
+        REPLAYED
+    );
+    let again = default_grant(&a, NOW + 30_000);
+    assert_eq!(
+        apply(&authority, &again, &target(), None, NOW + 41_000).unwrap_err().reason,
+        REPLAYED
+    );
+}
+
 /// A sign-in default ranks below every per-machine record: it never undoes a per-machine Off
 /// another Mac signed for this machine, even though it is newer.
 #[test]
