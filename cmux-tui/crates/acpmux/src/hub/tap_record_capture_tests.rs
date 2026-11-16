@@ -148,6 +148,21 @@ fn replay(capture: &Capture) {
     }
 }
 
+/// The committed recording is the v1 oracle; the hand-written matrix covers additional cases.
+#[test]
+fn v2_record_replays_recorded_v1_fixture() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/v2-record/v1-tap.json");
+    let bytes = std::fs::read(path).expect("committed hosted v1 fixture");
+    assert!(bytes.len() <= LIMIT);
+    let capture: Capture = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(capture.format, "v2-record-capture/v1-tap-1");
+    assert_eq!(capture.base_sha.len(), 40);
+    assert!(!capture.run_id.is_empty());
+    assert!(capture.command.contains("v2_record_capture_fixture_run"));
+    assert_capture_coverage(&capture.entries);
+    replay(&capture);
+}
+
 fn assert_capture_coverage(entries: &[CapturedEntry]) {
     assert!(entries.iter().any(|e| e.message["method"] == "session/prompt"));
     assert!(entries.iter().any(|e| e.message["method"] == "claude.result"));
