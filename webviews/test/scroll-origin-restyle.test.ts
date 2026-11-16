@@ -18,6 +18,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -42,11 +43,12 @@ await requireBrowserLane("scroll-origin-restyle.test.ts", async () => {
     await vite?.close();
   });
 
-  const twoFrames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
   /** Elements Chromium restyled (UpdateLayoutTree elementCount, summed) while `run` ran. */
   async function restyled(page: Page, run: () => Promise<unknown>): Promise<number> {
-    await page.evaluate(twoFrames);
+    await page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
     await browser!.startTracing(page, { categories: ["devtools.timeline", "disabled-by-default-devtools.timeline"] });
     await run();
     const trace = JSON.parse((await browser!.stopTracing()).toString()) as {
@@ -62,6 +64,7 @@ await requireBrowserLane("scroll-origin-restyle.test.ts", async () => {
 
   test("a write of the scroll origin restyles the thread, not every mounted row", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/?mock`);
     await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
@@ -86,7 +89,8 @@ await requireBrowserLane("scroll-origin-restyle.test.ts", async () => {
         else coordinates.clearScrollOrigin(scroller);
         void scroller.scrollTop;
         const moved = thread.getBoundingClientRect().top - before;
-        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
         return moved;
       }, write);
     let moved = 0;
