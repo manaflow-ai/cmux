@@ -164,7 +164,10 @@ class World:
         # The calls of the keys, as the tool's one thread makes them ([the planned time, the start, the end], ms after the
         # base): a call starts at its key's time and ends 3 ms later, after its action started (2 ms after the key). The
         # faults of the case, each for one key of that take (a count from 1): the call of the key had not ended when the
-        # next call started (`calls_overlap`); the call ended with an error and no reply (`call_with_no_reply`).
+        # next call started (`calls_overlap`); the call ended with an error and no reply (`call_with_no_reply`); the
+        # call ended with the client's error in the form of a reply (`call_with_an_error_reply`: the real client gives
+        # its own time-out, a lost connection and a refusal of the app as a dict with `error`, and the take then has
+        # the error `keys: key N: ...` in its record).
         calls, replies = [[100.0 * index, 100.0 * index, 100.0 * index + 3.0] for index in range(len(letters))], [{} for _ in letters]
         long = (self.faults.get("calls_overlap") or {}).get(len(self.takes))
         if long is not None:
@@ -172,6 +175,13 @@ class World:
         lost = (self.faults.get("call_with_no_reply") or {}).get(len(self.takes))
         if lost is not None:
             replies[lost] = "OSError('no socket')"
+        failed = (self.faults.get("call_with_an_error_reply") or {}).get(len(self.takes))
+        if failed is not None:
+            replies[failed] = {"error": "timed out"}
+        # 2 more faults, each for one take (a count from 1): the take's record has an error of its own (`record_error`:
+        # the words); the recorder made no signpost stream (`no_stream`).
+        errors = [f"keys: key {failed}: timed out"] if failed is not None else []
+        errors += [why for why in [(self.faults.get("record_error") or {}).get(len(self.takes))] if why]
         said = M.key_calls({"sends": calls, "replies": replies}, form)
         for index in acts:
             letter, at = letters[index], times[index]
@@ -194,7 +204,7 @@ class World:
                 intervals.append(self.interval("stall.main_task", "stall", at + 0.001, 270.0,
                                                {"class": "control", "owner": "debug.key"}))
                 intervals.append(self.interval("switch", "tab-switch", at + 0.21, 20.0, {}))
-        record = {"scenario": name, "errors": [], "invalid": [], "unit": "tabs", "key_window": "none", "presses": len(letters),
+        record = {"scenario": name, "errors": errors, "invalid": [], "unit": "tabs", "key_window": "none", "presses": len(letters),
                   "before": count, "after": {"tabs": len(self.tabs), "panes": 1}, "press_letters": letters,
                   "press_times_s": times, "trace": {"events": list(self.marks), "dropped": 0}, "frames": {}, "settled_ms": 1,
                   "tabs_after": [tab["id"] for tab in self.tabs], "order": {"before": before, "after": self.order()},
@@ -202,8 +212,9 @@ class World:
                   "take": {"key_form": form, "key_calls": {key: value for key, value in said.items() if key != "calls"}}}
         with open(os.path.join(out, "scenario.json"), "w") as f:
             json.dump(record, f)
-        with open(os.path.join(out, "run.ndjson"), "w") as f:
-            f.write("".join(json.dumps(i) + "\n" for i in intervals if i["category"] in categories))
+        if self.faults.get("no_stream") != len(self.takes):
+            with open(os.path.join(out, "run.ndjson"), "w") as f:
+                f.write("".join(json.dumps(i) + "\n" for i in intervals if i["category"] in categories))
         if self.faults.get("pane_gone") == f"after {name}":
             self.faults["pane_gone"] = "now"
 
@@ -696,6 +707,74 @@ class Rows(Case):
                                   mixed["order"].get("verdict")), ("INVALID", said, False, "INVALID"))
                 self.assertTrue([why for why in mixed.get("invalid") or [] if "the tool has no proof" in why], mixed.get("invalid"))
 
+    def test_acts_in_another_order_are_invalid_when_one_call_ended_with_an_error_in_the_form_of_a_reply(self):
+        """The call of key 5 ended with the client's own error (a time-out), which the client gives in the form of a
+        reply. The tool does not know if the app got that key, so it has no proof of its send for the row: 2 acts in
+        another order make the row INVALID, and the row does not put the order on the app."""
+        report = self.rows(World(keys_change_places={1: (2, 3)}, call_with_an_error_reply={1: 5}))
+        mixed = report["rows"][0]
+        self.assertEqual((mixed.get("state"), (mixed.get("key_calls") or {}).get(IN_TURN, "no such field"), "finding" in mixed,
+                          mixed["order"].get("verdict")), ("INVALID", False, False, "INVALID"))
+        self.assertTrue([why for why in mixed.get("invalid") or [] if "the tool has no proof" in why], mixed.get("invalid"))
+        self.assertEqual(mixed.get("errors"), ["keys: key 5: timed out"])
+        self.assertFalse([why for why in report["failures"] if "THE APP RAN" in why], report["failures"])
+
+    def test_a_row_with_an_error_and_no_other_cause_has_an_entry_of_invalid_and_its_state(self):
+        """A reader that knows only `invalid` (the bench) takes each number of a row with no entry there. A row with an
+        error of its take and a true proof of the order gets ONE entry that says so; its fields stay where they are,
+        and the run's failures name the error one time."""
+        report = self.rows(World(record_error={1: "a fake error of the take"}))
+        mixed = report["rows"][0]
+        self.assertEqual(((mixed.get("input_order") or {}).get("in_key_order"), mixed.get("state"), mixed.get("errors")),
+                         (True, "INVALID", ["a fake error of the take"]))
+        self.assertEqual(len(mixed.get("invalid") or []), 1, mixed.get("invalid"))
+        self.assertIn("no number of this row is for a person", mixed["invalid"][0])
+        self.assertEqual((HIDDEN in mixed, "tabs_made" in mixed), (False, True))
+        self.assertEqual([why for why in report["failures"] if why.startswith("0 mixed: ")], ["0 mixed: a fake error of the take"])
+        self.assertEqual([(row.get("invalid"), row.get("state")) for row in report["rows"][1:]], [([], "valid")] * 3)
+        self.assertEqual(M.exit_code(report, 1), 2)
+
+    def test_a_row_with_no_signpost_stream_is_invalid_and_has_no_number_outside_the_key_that_says_so(self):
+        """The recorder made no stream: the row has no fate of a key and so no proof of the order of its keys. A count of
+        0 made tabs is then the recorder's fault, not a measure: the row is INVALID for each reader, and its numbers
+        are below the key that says that they are not for a person."""
+        report = self.rows(World(no_stream=1))
+        mixed = report["rows"][0]
+        self.assertEqual((mixed.get("state"), mixed.get("errors")), ("INVALID", ["no signpost stream"]))
+        self.assertEqual(len(mixed.get("invalid") or []), 1, mixed.get("invalid"))
+        self.assertIn("no number of this row is for a person", mixed["invalid"][0])
+        numbers = {"tabs_made", "tabs_closed", "keys_without_effect", "daemon_requests", "daemon_slow"}
+        hidden = mixed.get(HIDDEN) or {}
+        self.assertEqual((numbers & set(mixed), numbers - set(hidden)), (set(), set()))
+        self.assertIn("not for a person", hidden.get("why", ""))
+        self.assertNotIn("order_by_the_acts", hidden)
+        self.assertEqual((mixed["order"]["equal"], "input_order" in mixed), (None, False))
+        self.assertEqual([why for why in report["failures"] if why.startswith("0 mixed: ")], ["0 mixed: no signpost stream"])
+
+    def test_a_row_with_no_fate_of_its_keys_is_not_valid(self):
+        """`valid` needs the proof of the order. A row with no fate of each key has none, with or without an error."""
+        real = M.BENCH.summarize
+
+        def no_fates(*args, **more):
+            return {key: value for key, value in real(*args, **more).items() if key != "press_fates"}
+
+        with mock.patch.object(M.BENCH, "summarize", no_fates):
+            report = self.rows(World())
+        mixed = report["rows"][0]
+        self.assertEqual((mixed.get("state"), mixed.get("errors") or [], "input_order" in mixed), ("INVALID", [], False))
+        self.assertTrue([why for why in mixed.get("invalid") or [] if why.startswith("no proof of the order of the keys")],
+                        mixed.get("invalid"))
+        self.assertEqual(({"tabs_made", "frames", "input_to_next_commit_ms"} & set(mixed), HIDDEN in mixed), (set(), True))
+
+    def test_the_row_of_a_killed_take_and_a_row_that_was_not_run_have_their_state_and_an_entry_of_invalid(self):
+        killed = self.rows(World(take_never_ends=2))["rows"][1]
+        self.assertEqual((killed.get("state"), len(killed.get("errors") or []), len(killed.get("invalid") or [])), ("INVALID", 1, 1))
+        self.assertIn("no number of this row is for a person", killed["invalid"][0])
+        report = self.rows(World(pane_gone="after mixed"))
+        not_run = report["rows"][1]
+        self.assertEqual((not_run.get("state"), len(not_run.get("invalid") or [])), ("INVALID", 1))
+        self.assertTrue(not_run["invalid"][0].startswith("not run: "), not_run["invalid"])
+
     def test_acts_in_another_order_with_each_call_ended_before_the_next_are_a_finding_row(self):
         """`mixed` is T T W T T W. Each call ended with its reply before the next call started, so the app got the keys in
         the tool's order, and it ran the action of key 3 (a T) before the action of key 2 (the W). That is not a fault of
@@ -936,7 +1015,10 @@ class KeyCalls(Case):
         """True only with the proof for each call of the take: a reply of the app to each key, and no call that started
         before the call before it ended."""
         turn = lambda sends, replies: M.key_calls({"sends": sends, "replies": replies}, "one-key").get(IN_TURN, "no such field")
-        self.assertIs(turn([[0.0, 0.0, 5.0], [10.0, 10.0, 12.0], [20.0, 12.0, 30.0]], [{}, {"error": "the app's own words"}, {}]), True)
+        self.assertIs(turn([[0.0, 0.0, 5.0], [10.0, 10.0, 12.0], [20.0, 12.0, 30.0]], [{}, {"refused_action": "closeTab"}, {}]), True)
+        # A reply with `error` is no reply: the client gives its own time-out and a lost connection in that form, the
+        # same form as a refusal of the app, so the tool cannot tell if the app got that key.
+        self.assertIs(turn([[0.0, 0.0, 5.0], [10.0, 10.0, 12.0], [20.0, 12.0, 30.0]], [{}, {"error": "timed out"}, {}]), False)
         self.assertIs(turn([[0.0, 0.0, 5.0], [10.0, 4.99, 12.0]], [{}, {}]), False)  # the second call started before the first ended
         self.assertIs(turn([[0.0, 0.0, 5.0], [10.0, 10.0, 12.0]], [{}, "OSError('no socket')"]), False)  # a call that raised: no reply
         self.assertIs(turn([[0.0, 0.0, 5.0]], [{}, None]), False)  # the sender did not end: a key has no call and no reply
