@@ -3254,7 +3254,11 @@ def test_react_doctor_runs_as_an_independent_required_lane() -> None:
     assert "bun run react-doctor:ci" in block
     assert "hashFiles('webviews/bun.lock')" in block
     # 16 vCPU from the capability map: on 4 vCPU it hit its 10 min timeout.
-    assert "runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}" in block
+    # A fork head keeps the ephemeral 16 vCPU size, since fork code never
+    # reaches the owned pool the map names for manaflow-ai.
+    runs_on = next(line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:"))
+    assert runs_on.endswith("|| fromJSON(needs.runners.outputs.map).linux_16 }}"), runs_on
+    assert "head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404'" in runs_on, runs_on
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:
