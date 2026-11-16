@@ -15,6 +15,9 @@ import SystemConfiguration
 public final class MacScreenShareHost {
     public private(set) var screenRecordingGranted = false
     public private(set) var accessibilityGranted = false
+    /// The last read answered (a failed or unavailable probe did not): only then does a missing
+    /// Screen Recording grant turn sharing off by itself (MacScreenHubHost+DefaultSharing).
+    public private(set) var permissionsKnown = false
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
     /// A fresh child reads TCC under this app's responsibility, just like `rd serve`. A long-running
     /// process can cache Screen Recording denial even after the person grants it in Settings.
@@ -48,6 +51,7 @@ public final class MacScreenShareHost {
         guard read == reads, !Task.isCancelled else { return }
         screenRecordingGranted = granted?.screen ?? false
         accessibilityGranted = granted?.control ?? false
+        permissionsKnown = granted != nil
     }
 
     public func requestScreenRecording() {
