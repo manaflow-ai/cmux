@@ -110,6 +110,8 @@ pub enum ListEvent {
     },
     Error {
         sid: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
         code: String,
     },
 }
@@ -229,11 +231,12 @@ impl ListDriver {
         self.client.disconnected();
         self.deferred.clear();
         self.held = None;
-        for question in self.questions.values_mut() {
+        for (id, question) in self.questions.iter_mut() {
             if question.in_flight {
                 question.in_flight = false;
                 self.synthetic.push_back(ListEvent::Error {
                     sid: Some(question.sid.clone()),
+                    id: Some(id.clone()),
                     code: "list.lost".into(),
                 });
             }
@@ -588,7 +591,7 @@ impl ListDriver {
             Change::Error { method, sid, code, .. } if method == "sub" && code == "surface_off" => {
                 ListEvent::Off { sid, code: "unsupported".into() }
             }
-            Change::Error { sid, code, .. } => ListEvent::Error { sid, code },
+            Change::Error { sid, id, code, .. } => ListEvent::Error { sid, id, code },
             Change::Dropped { .. }
             | Change::ResumeEnd { .. }
             | Change::Unconfirmed { .. }
