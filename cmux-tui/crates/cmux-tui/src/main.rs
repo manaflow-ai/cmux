@@ -1857,6 +1857,8 @@ pub fn main() -> std::process::ExitCode {
     acpmux::hub::install_build(acpmux_build_id::build());
     #[cfg(unix)]
     cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
+    // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.
+    cmux_tui_core::device_setup::on_device_setup(devices::setup::daemon_run);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()

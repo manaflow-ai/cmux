@@ -62,9 +62,13 @@ extension DaemonStore {
             mirrorFingerprint = nil
             return
         }
-        mirrorFingerprintTakenAt = now
         mirrorFingerprint = layoutFingerprint()
         verifyUnreadTotals()
+        // Stamped after the walk, never before it: the interval caps how often an O(workspaces x
+        // tabs) fingerprint runs, so timing it from the start means a store big enough for the walk
+        // to outlast the interval stops being throttled at all (hq docs/handbook
+        // latency-gate-its-own-slowness-switches-off.md).
+        mirrorFingerprintTakenAt = .now
         #endif
     }
 

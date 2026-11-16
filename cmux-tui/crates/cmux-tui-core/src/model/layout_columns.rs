@@ -361,6 +361,11 @@ pub(crate) enum LayoutMutationKey {
         owner: LayoutResizeOwner,
         transaction: u64,
     },
+    /// `float-pane` changes with one connection's transaction: the frames of one drag are one undo entry.
+    FloatingPane {
+        owner: LayoutResizeOwner,
+        transaction: u64,
+    },
 }
 
 impl Screen {

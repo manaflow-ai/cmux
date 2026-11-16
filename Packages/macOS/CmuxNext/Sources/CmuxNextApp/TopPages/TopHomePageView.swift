@@ -421,7 +421,7 @@ final class TopHomePageView: NSView {
     /// the message box at once or, while the shown conversation's first page loads, once it exists.
     func focusPrimaryInput() {
         if isComposingNewMessage {
-            if let target = newMessage?.focusTarget { window?.makeFirstResponder(target) }
+            if let target = newMessage?.focusTarget { FocusRoute(.system, "Home's new message field").moveKeyboard(in: window, to: target) }
             return
         }
         host?.takeKeyboardOnOpen()
@@ -449,7 +449,7 @@ final class TopHomePageView: NSView {
         list.select(HomeSidebarView.draftRowID)
         page.needsLayout = true
         page.layoutSubtreeIfNeeded()
-        window?.makeFirstResponder(page.focusTarget)
+        FocusRoute(.system, "Home's primary input").moveKeyboard(in: window, to: page.focusTarget)
     }
 
     private func makeNewMessage(_ services: AppServices) -> HomeNewMessageView {
