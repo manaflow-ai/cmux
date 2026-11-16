@@ -91,7 +91,16 @@ import Testing
         }
         // A `confirm` op of a page that has one needs the sheet; a click is not enough.
         let apps = try Self.channel("cmux.apps")
-        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 8)) == .refused)
+        #expect(await Self.outcome(apps, "apps.uninstall", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 8)) == .refused)
+        #expect(await Self.outcome(apps, "apps.uninstall", PageCallContext(page: "cmux.apps", origin: "user", confirmed: true)) == .forwarded)
+    }
+
+    /// The App Store's Install click installs: `apps.install` is a `gesture` op, so the person's own
+    /// click is enough and no second sheet asks (Leo, 2026-11-16). A call with no click is refused.
+    @Test func anAppStoreInstallGoesOnTheClickAlone() async throws {
+        let apps = try Self.channel("cmux.apps")
+        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps")) == .refused)
+        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 9)) == .forwarded)
         #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", origin: "user", confirmed: true)) == .forwarded)
     }
 

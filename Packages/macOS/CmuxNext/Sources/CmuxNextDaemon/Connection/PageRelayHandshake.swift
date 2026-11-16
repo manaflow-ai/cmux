@@ -91,7 +91,7 @@ public struct PageOperations: Sendable, Equatable {
         "agent": PageOperations(read: ["agent_session.trust.get"],
                               gesture: ["agent_session.trust.set"], confirm: []),
         "apps": PageOperations(read: ["apps.asset.get", "apps.catalog.get", "apps.catalog.list", "apps.grants.get", "apps.installed.list", "apps.logs"],
-                              gesture: ["apps.grant.revoke", "apps.hidden.set"], confirm: ["apps.grant.set", "apps.install", "apps.set", "apps.uninstall"]),
+                              gesture: ["apps.grant.revoke", "apps.hidden.set", "apps.install"], confirm: ["apps.grant.set", "apps.set", "apps.uninstall"]),
         "bookmarks": PageOperations(read: ["bookmarks.list", "bookmarks.search"],
                               gesture: ["bookmarks.apply"], confirm: []),
         "feed": PageOperations(read: ["feed.github.find_work", "feed.item.get", "feed.items.list", "feed.reports.read", "feed.view.read"],

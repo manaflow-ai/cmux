@@ -3,17 +3,26 @@ import Foundation
 
 /// Which calls of the React App Store page (`cmux.apps.*`, react-pages.md 3.3) pass a native sheet
 /// before they reach the owner, and what the sheet says (coordinator Q4: page JS cannot prove a
-/// gesture, so the sheet makes the call the user's own). Install, update, Remove, `set` (turn on or
-/// off, the sandbox) and allowing a scope ask. Reads, Hide/Show (`cmux.apps.hidden.set`) and
-/// revoking a scope (`cmux.apps.grant.revoke`) need only the person's gesture (page-router.json
-/// `gesture`); Open is the host action `app.open`. In CmuxNextPages (not the app target) so every
+/// gesture, so the sheet makes the call the user's own). Update, Remove, `set` (turn on or off, the
+/// sandbox) and allowing a scope ask, and so does an install from the CLI, palette or MCP. Reads,
+/// Hide/Show (`cmux.apps.hidden.set`), revoking a scope (`cmux.apps.grant.revoke`) and the page's
+/// own Install click (``installOnClick``) need only the person's gesture (page-router.json `gesture`); Open is the host action `app.open`. In CmuxNextPages (not the app target) so every
 /// host shares one sheet table.
 public nonisolated struct AppsPageConfirmations {
-    public init() {}
+    /// The App Store page's own provider: its Install click is the person's gesture
+    /// (page-router.json `apps.gesture`), and the relay spends that click, so an install shows no
+    /// second sheet (Leo, 2026-11-16: "if i click th[e install button it shoudl just install").
+    /// False for the CLI, palette and MCP (``AppsStoreChange``): they have no click and keep the card.
+    public var installOnClick: Bool
+
+    public init(installOnClick: Bool = false) {
+        self.installOnClick = installOnClick
+    }
 
     /// Whether `op` may need a sheet, so the caller reads the listing (`cmux.apps.catalog.get`) first.
     public func needsDetail(_ op: String) -> Bool {
-        ["cmux.apps.install", "cmux.apps.update", "cmux.apps.uninstall", "cmux.apps.grant.set", "cmux.apps.set"].contains(op)
+        if installOnClick, op == "cmux.apps.install" { return false }
+        return ["cmux.apps.install", "cmux.apps.update", "cmux.apps.uninstall", "cmux.apps.grant.set", "cmux.apps.set"].contains(op)
     }
 
     /// The sheet for `op` with `params`, or nil when the call needs none. `detail` is the

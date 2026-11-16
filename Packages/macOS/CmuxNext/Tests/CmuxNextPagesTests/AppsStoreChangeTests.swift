@@ -73,4 +73,15 @@ struct AppsStoreChangeTests {
         #expect(change.deploy == nil && change.op == "cmux.apps.uninstall")
         #expect(change.params["deploy"] == nil && change.params["grant_optional"] == nil)
     }
+
+    /// The App Store page's Install click installs with no sheet (Leo, 2026-11-16); the CLI,
+    /// palette and MCP still ask, and every other change asks on the page too.
+    @Test func onlyThePagesInstallClickSkipsTheSheet() {
+        let page = AppsPageConfirmations(installOnClick: true)
+        #expect(!page.needsDetail("cmux.apps.install"))
+        for op in ["cmux.apps.uninstall", "cmux.apps.update", "cmux.apps.set", "cmux.apps.grant.set"] {
+            #expect(page.needsDetail(op), "\(op)")
+        }
+        #expect(AppsPageConfirmations().needsDetail("cmux.apps.install"))
+    }
 }
