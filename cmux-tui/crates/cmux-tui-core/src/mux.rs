@@ -1197,6 +1197,7 @@ impl Mux {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        eprintln!("mux-drop-probe: thread {:?}", std::thread::current().name());
         if let Some(maintenance) =
             self.journal_maintenance.get_mut().unwrap_or_else(PoisonError::into_inner).take()
         {
