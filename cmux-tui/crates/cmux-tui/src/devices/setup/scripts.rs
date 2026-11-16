@@ -2,10 +2,11 @@
 
 use super::*;
 
-/// What the target is: OS, user, who is at the screen, the installed NIGHTLY build, whether it
+/// What the target is: OS, CPU (`uname -m`), user, who is at the screen, the installed NIGHTLY build, whether it
 /// runs: its control socket answers the bundled CLI (a socket connect; nothing lists processes).
 pub(super) const PROBE: &str = r#"os=$(uname -s); echo "os=$os"; echo "uid=$(id -u)"; echo "user=$(id -un)"
 [ "$os" = Darwin ] || exit 0
+echo "arch=$(uname -m)"
 echo "console=$(stat -f%Su /dev/console 2>/dev/null)"
 echo "version=$(defaults read '/Applications/cmux NIGHTLY.app/Contents/Info' CFBundleVersion 2>/dev/null)"
 case "$('/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux' version --json 2>/dev/null)" in *'"app_error":null'*) echo running=1 ;; *) echo running=0 ;; esac"#;

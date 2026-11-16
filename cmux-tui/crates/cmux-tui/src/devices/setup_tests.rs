@@ -16,6 +16,7 @@ use super::*;
 #[derive(Clone)]
 struct Mac {
     os: &'static str,
+    arch: &'static str,
     user: &'static str,
     console: &'static str,
     version: String,
@@ -31,6 +32,7 @@ impl Default for Mac {
     fn default() -> Self {
         Self {
             os: "Darwin",
+            arch: "arm64",
             user: "me",
             console: "me",
             version: String::new(),
@@ -90,7 +92,8 @@ impl Remote for FakeMac {
                 ok(format!("os={}\nuid=1000\nuser={}\n", mac.os, mac.user))
             } else {
                 ok(format!(
-                    "os=Darwin\nuid=501\nuser={}\nconsole={}\nversion={}\nrunning={}\n",
+                    "os=Darwin\nuid=501\narch={}\nuser={}\nconsole={}\nversion={}\nrunning={}\n",
+                    mac.arch,
                     mac.user,
                     mac.console,
                     mac.version,
@@ -436,6 +439,22 @@ fn a_route_that_is_not_a_mac_is_skipped() {
     assert_eq!(run.not_a_mac().map(|l| l.detail.as_str()), Some("not a Mac (Linux)"));
     let mac = FakeMac::new(Mac::default());
     assert!(setup(&mac, &Asker::default()).not_a_mac().is_none());
+}
+
+/// #43385 review F1 at 0a493be7: the feed has only arm64 builds, so an Intel Mac is skipped
+/// before the app step, and nothing on it is installed or replaced.
+#[test]
+fn an_intel_mac_is_skipped_before_anything_is_installed() {
+    let mac = FakeMac::new(Mac { arch: "x86_64", version: "2000".into(), ..Mac::default() });
+    let run = setup(&mac, &Asker::default());
+    assert_eq!(state(&run, "reach"), StepState::Skip);
+    assert_eq!(
+        detail(&run, "reach"),
+        "not an Apple silicon Mac (x86_64): cmux NIGHTLY is arm64 only"
+    );
+    assert!(run.lines.iter().all(|l| l.step == "reach" || l.step == "agents"), "{run:?}");
+    assert!(run.not_a_mac().is_some());
+    assert!(mac.scripts().iter().all(|s| s != INSTALL && s != KEEPALIVE && s != START));
 }
 
 /// #43385 review F1: the feed is the one nightly.yml publishes cmux NIGHTLY to

@@ -260,6 +260,8 @@ pub(crate) fn allow_answer(answer: Result<Value, Value>) -> Line {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Probe {
     os: String,
+    /// `uname -m`: `arm64` on Apple silicon; the NIGHTLY feed has only arm64 builds.
+    arch: String,
     user: String,
     console: String,
     version: String,
@@ -274,6 +276,7 @@ impl Probe {
             let value = value.trim().to_owned();
             match key.trim() {
                 "os" => probe.os = value,
+                "arch" => probe.arch = value,
                 "user" => probe.user = value,
                 "console" => probe.console = value,
                 "version" => probe.version = value,
@@ -361,6 +364,18 @@ pub(crate) fn run_device(
     if probe.os != "Darwin" {
         let os = if probe.os.is_empty() { "an unknown OS".to_owned() } else { probe.os.clone() };
         push(&mut run, "reach", StepState::Skip, format!("not a Mac ({os})"), String::new());
+        return run;
+    }
+    // The feed (FEED, appcast-arm64.xml) has only Apple silicon builds: an Intel Mac is skipped
+    // before anything is installed or replaced (#43385 review F1 at 0a493be7).
+    if !probe.arch.is_empty() && probe.arch != "arm64" {
+        push(
+            &mut run,
+            "reach",
+            StepState::Skip,
+            format!("not an Apple silicon Mac ({}): cmux NIGHTLY is arm64 only", probe.arch),
+            String::new(),
+        );
         return run;
     }
     let at_screen = if probe.gui() {
