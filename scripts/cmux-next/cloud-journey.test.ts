@@ -83,6 +83,7 @@ describe("cloud journey", () => {
       post_bind_login: "receipt",
       first_chat_ms: null,
       first_reply_ms: null,
+      reply_not_judged: null,
       claimed_behind: null,
       spare_skips: null,
       spare_fallback: null,
