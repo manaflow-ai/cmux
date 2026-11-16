@@ -40,7 +40,7 @@ extension HoverCardPanel {
     }
 
     /// The corner of the card that stays on its target while it resizes (unit, y up).
-    private var fixedCorner: CGPoint {
+    var fixedCorner: CGPoint {
         switch restingPlacement {
         case .above: CGPoint(x: isLeading ? 1 : 0, y: 0)
         case .below, .beside: CGPoint(x: isLeading ? 1 : 0, y: 1)
@@ -52,11 +52,12 @@ extension HoverCardPanel {
 
     /// Morphs the card from `previous` (screen, as drawn before this show) to its rest frame:
     /// a translation and a resize on one spring. Returns false (nothing done) when the sizes
-    /// match, or when motion is off; the caller then slides or places it at once.
+    /// match (unless `always`: a tab card's glide, which needs the window to hold the whole way),
+    /// or when motion is off; the caller then slides or places it at once.
     @discardableResult
-    func morph(from previous: CGRect, spring: MotionSpring = .panel) -> Bool {
+    func morph(from previous: CGRect, spring: MotionSpring = .panel, always: Bool = false) -> Bool {
         let rest = cardFrame
-        guard abs(previous.width - rest.width) > 0.5 || abs(previous.height - rest.height) > 0.5 else { return false }
+        guard always || abs(previous.width - rest.width) > 0.5 || abs(previous.height - rest.height) > 0.5 else { return false }
         // The same gate as the slide it runs with (`Motion.set`): Reduce Motion, speed off, or a live resize of the
         // window this card is a child of, resize at once.
         guard Motion.hoverCards.animatesMovement(in: self), let host, let body, let glassLayer = glass.layer else { return false }
@@ -103,7 +104,11 @@ extension HoverCardPanel {
 
         let shownFrom = CGRect(origin: .zero, size: previous.size)
         CATransaction.begin()
-        CATransaction.setMainCompletion { [weak self] in self?.finishMorph(generation) }
+        CATransaction.setMainCompletion { [weak self] in
+            guard let self, self.activeMorph?.generation == generation else { return }
+            self.finishMorph(generation)
+            self.endLeaving()
+        }
         Motion.hoverCards.set(mask, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: rest.size)), spring: spring, from: NSValue(rect: shownFrom))
         // The shadow and its cutout follow the visible card (host coordinates, before the slide).
         let cardInHost = glass.frame

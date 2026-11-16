@@ -342,10 +342,11 @@ public final class HoverCardCoordinator {
     }
 
     /// `id`'s content changed: the shown card updates in place.
-    public func contentChanged(_ id: HoverTargetID) {
+    /// - Parameter animated: The card grows or folds to its new size on its spring (a tab's picture landing).
+    public func contentChanged(_ id: HoverTargetID, animated: Bool = false) {
         guard machine.shownTarget?.id == id, let body = owners[id]?.source?.hoverCardBody(for: id) else { return }
         body.applyTheme()
-        panel?.refit()
+        panel?.refit(animated: animated)
         updateCardMouse()
     }
 

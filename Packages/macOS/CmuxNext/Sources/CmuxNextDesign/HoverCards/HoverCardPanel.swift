@@ -67,6 +67,9 @@ final class HoverCardPanel: NSPanel {
     var sizeConstraints: [NSLayoutConstraint] = []
     /// A resize in flight between two cards of different sizes.
     var activeMorph: HoverCardMorph?
+    /// The last card's content fading out at its own size, pinned to the fixed corner, while the
+    /// next card's fades in over it (a tab card's glide, `HoverCardPanel+Glide.swift`).
+    var leavingBody: NSView?
     /// The card takes clicks and scrolls (the update highlights' "See all changes").
     private(set) var isInteractive = false
     /// The current press began in the clear band around the card: it and its drags and release
@@ -173,8 +176,13 @@ final class HoverCardPanel: NSPanel {
         // row with its new content in this frame. Restarting the slide and the crossfade on
         // every row made it trail the pointer with doubled text (msg 15501).
         let time = now()
-        let sweeping = previous != nil && !wasDismissing
+        // A tab card is never swept: it glides from where it is drawn (`glidesWholeWay`).
+        let glides = previous != nil && Self.glidesWholeWay(placement)
+        let sweeping = previous != nil && !wasDismissing && !glides
             && lastPresentAt.map { time - $0 < HoverCardTiming.sweepInterval.hoverCardSeconds } == true
+        // The last card's content fades out at its own size while the next one's fades in, instead of a
+        // snapshot of the card stretched over the next card's size (msg 34360).
+        let fadesBodies = glides && body != nil && body !== newBody && Motion.hoverCards.animatesMovement(in: self)
         lastPresentAt = time
         isDismissing = false
         dismissCompletion = nil
@@ -183,14 +191,15 @@ final class HoverCardPanel: NSPanel {
         finishMorph()
         if sweeping {
             glass.contentView.layer?.removeAnimation(forKey: Self.crossfadeKey)
-        } else if previous != nil, sliding || body !== newBody {
+        } else if previous != nil, !fadesBodies, sliding || body !== newBody {
             // A return to the card fading out (not sliding, the same body) keeps its content as drawn: a
             // crossfade of a card over itself flickered its spinners (Leo 2026-11-02, "IT RE-RENDERS THE
             // SPINNER VIEW"). Another target's content (`sliding`) still fades over the last.
             crossfadeContent()
         }
         if body !== newBody {
-            body?.removeFromSuperview()
+            if newBody === leavingBody { endLeaving() }
+            if fadesBodies, let body { leave(body) } else { body?.removeFromSuperview() }
             newBody.translatesAutoresizingMaskIntoConstraints = false
             let container = glass.contentView
             container.addSubview(newBody)
@@ -213,6 +222,7 @@ final class HoverCardPanel: NSPanel {
             sizeConstraints = [newBody.widthAnchor.constraint(equalToConstant: 0), newBody.heightAnchor.constraint(equalToConstant: 0)]
             NSLayoutConstraint.activate(edgeConstraints)
             body = newBody
+            if fadesBodies { fadeIn(newBody) }
         }
         isInteractive = interactive
         ignoresMouseEvents = !interactive
@@ -247,7 +257,7 @@ final class HoverCardPanel: NSPanel {
             // A visible card: it slides from where it is drawn to its new place, and resizes
             // there when the next card is another size (a quick return during the fade-out
             // fades back in from the alpha it reached).
-            if !morph(from: previous) { slide(from: offset(of: previous, to: cardFrame)) }
+            if !morph(from: previous, always: glides) { slide(from: offset(of: previous, to: cardFrame)) }
             if wasDismissing || alphaValue < 1 { Self.motion.resume(self) }
         } else if placement == .besideRow {
             // Leo: "We can just have it instantly come in on the first load; the delay
@@ -389,6 +399,7 @@ final class HoverCardPanel: NSPanel {
             guard let self, self.isDismissing else { return }
             self.isDismissing = false
             self.finishMorph()
+            self.endLeaving()
             self.parentWindowRef?.removeChildWindow(self)
             self.parentWindowRef = nil
             self.orderOut(nil)
