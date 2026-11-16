@@ -14,8 +14,8 @@ public import Foundation
 /// trusts another Mac's key here), so it takes the person's own HID click or key in this page, spent once
 /// on the shared gate as `join_consent`'s on, and then Touch ID or the password (``PageWideningGate/widen``):
 /// an agent driving the page with posted input never signs or trusts. A refresh takes the click only (it
-/// grants nothing, but pins the account's keys). Off, back-to-default, Not now and Remove only narrow and
-/// take any input.
+/// grants nothing, but pins the account's keys). Back to the account's default widens as an on does (it turns
+/// the machine on when the account is on). Off, Not now and Remove only narrow and take any input.
 @MainActor public final class RemoteControlConsentPage: PageProvider {
     public static let ops = ["cmux.settings.devices.remote_control", "cmux.settings.devices.remote_control_account",
                              "cmux.settings.devices.trust_refresh", "cmux.settings.devices.grantor_trust"]

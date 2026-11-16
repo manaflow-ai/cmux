@@ -81,15 +81,6 @@ public nonisolated struct RemoteControlStatus: Equatable, Sendable {
             controlSource: ((answer["effective"] as? [String: Any])?["control"] as? [String: Any])?["source"] as? String)
     }
 
-    /// The same status with `self` kept from `previous` (a set's answer carries none).
-    func keepingSelf(of previous: RemoteControlStatus?) -> RemoteControlStatus {
-        guard selfAccount == nil, selfGrantor == nil, selfWords == nil, let previous else { return self }
-        var status = self
-        status.selfAccount = previous.selfAccount
-        status.selfGrantor = previous.selfGrantor
-        status.selfWords = previous.selfWords
-        return status
-    }
 }
 
 /// What the owner side asks of the app, so tests run it with fakes. Every call runs on the main actor.
@@ -189,7 +180,8 @@ public final class RemoteControlConsent {
     public private(set) var setting: Set<String> = []
     /// The last set's error, by machine, until the next set.
     public private(set) var errors: [String: String] = [:]
-    /// The words a machine's refusal (`grant.unpinned`) showed: it holds this Mac's ask until its person allows it.
+    /// This Mac's own words (its acpmux's `self.words`) for a machine that refused with `grant.unpinned`: that
+    /// machine holds this Mac's ask until its person allows it, comparing these words. Never the far answer's.
     public private(set) var asks: [String: [String]] = [:]
     /// Bumped by ``pageShown()``: every entry read before it is read again when drawn.
     public private(set) var shownEpoch = 0

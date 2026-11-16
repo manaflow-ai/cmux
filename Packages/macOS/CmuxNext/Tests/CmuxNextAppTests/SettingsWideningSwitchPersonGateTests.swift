@@ -553,7 +553,7 @@ extension SettingsWideningSwitchPersonGateTests {
         let toDefault: JSONValue = .object(["id": .string("m1"), "on": .null])
         #expect(try await refused(h, ConsentOp.remoteControl.rawValue, toDefault, h.posted()))
         #expect(h.recorder.sets == ["refresh"], "a posted click sends no default")
-        #expect(try await !refused(h, ConsentOp.remoteControl.rawValue, toDefault, try h.click(1)))
+        #expect(try await !refused(h, ConsentOp.remoteControl.rawValue, toDefault, try h.click(0)))
         #expect(h.recorder.sets == ["refresh", "control default"])
         #expect(owner.reasons == [RemoteControlStrings.confirmReason], "the default asks Touch ID as an on does")
     }
