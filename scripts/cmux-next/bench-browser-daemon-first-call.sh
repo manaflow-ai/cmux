@@ -6,6 +6,7 @@ set -u
 # Everything (daemon, host, both Chromes, load) runs in one scope capped at CPUS cpus and MEM of memory, the
 # probe VM's size. Modes: plain, cua (a display Chrome started 5 s before). LOAD=1: 4 busy processes per cpu
 # and 2 fsync writers inside the scope.
+self=$(readlink -f "$0")
 if [ "${INNER:-0}" != 1 ]; then
   work=$(mktemp -d)
   cd "$work" || exit 1
@@ -21,7 +22,7 @@ if [ "${INNER:-0}" != 1 ]; then
   exec sudo -n systemd-run --scope --quiet -p "AllowedCPUs=0-$last" -p "MemoryMax=${MEM:-4G}" -- \
     setpriv --reuid="$(id -u)" --regid="$(id -g)" --init-groups \
     env HOME="$HOME" PATH="$PATH" INNER=1 WORK="$work" LOAD="${LOAD:-0}" ROUNDS="${ROUNDS:-30}" MODES="${MODES:-plain cua}" CPUS="${CPUS:-2}" \
-    bash "$(readlink -f "$0")"
+    bash "$self"
 fi
 
 cd "$WORK" || exit 1
