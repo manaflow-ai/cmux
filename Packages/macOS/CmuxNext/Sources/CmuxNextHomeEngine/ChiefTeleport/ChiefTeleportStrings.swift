@@ -2,6 +2,8 @@ import Foundation
 
 /// The Chief teleport texts (Resources/Home.xcstrings).
 nonisolated enum ChiefTeleportStrings {
+    /// The bundle of Home.xcstrings, this module's own (tests hand it to an `AppLanguage`).
+    static var moduleBundle: Bundle { .module }
     static var thisMac: String { text("home.teleport.thisMac", "This Mac") }
     static var cloud: String { text("home.teleport.cloud", "cmux Cloud") }
     static var menuTitle: String { text("home.teleport.menuTitle", "Teleport Chief") }

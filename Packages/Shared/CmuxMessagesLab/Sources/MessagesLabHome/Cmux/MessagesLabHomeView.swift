@@ -273,6 +273,14 @@ public final class MessagesLabHomeView: NSView {
         controller.intents?.rowsPlaced()  // layers over rows (table skeleton shimmers) take the new colours
     }
 
+    /// This package's own strings bundle (every MessagesLab catalog: Localizable, AppKitNative, CmuxHome).
+    /// A host that picks the language itself hands ``useStrings(_:)`` that bundle's `.lproj`
+    /// (CmuxNext: `Bundle.inAppLanguage`, the `app.language` setting).
+    public static var packageStrings: Bundle { .module }
+
+    /// The composer's placeholder, as its field's accessibility label (drawn and labelled together; tests).
+    var composerPlaceholder: String? { controller.demo?.compose.textView.view.accessibilityLabel() }
+
     /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
     /// opens it in the app (`link.open`). Nil: the link opens nothing.
     public var onAppLink: ((URL) -> Void)? {
