@@ -422,3 +422,92 @@ test("a drag let go deep in the next message: the chip keeps the selected text's
   ]);
   expect(selectionReplyTarget(doc)!.column).toEqual({ left: 100, right: 820 });
 });
+
+// User 2026-11-15 (CleanShot 8.08.35 PM): the Reply chip sat over the middle of a selection in the
+// person's prompt, hiding the words they had just selected. The chip covers no text at all, the
+// selection's own included: it goes above the selection or below it. A paragraph of four 22 px
+// lines, 8 px a character from x 24; the first line is one short word, so the spot just over the
+// selection's end lies over its own first line only.
+const PARAGRAPH_LINES: Record<string, { top: number; bottom: number }> = {
+  p0: { top: 100, bottom: 122 },
+  p1: { top: 122, bottom: 144 },
+  p2: { top: 144, bottom: 166 },
+  p3: { top: 166, bottom: 188 },
+};
+const PARAGRAPH = `<div data-row-id="prompt"><p id=para><span id=p0>Hi</span><span id=p1>maybe it is a state ownership issue</span><span id=p2>please help me fix from first principles</span><span id=p3>This codebase is yours to keep building</span></p></div>`;
+
+function layOutParagraph(doc: Document): () => void {
+  const view = doc.defaultView! as unknown as typeof globalThis & Window;
+  const box = (left: number, right: number, line: { top: number; bottom: number }) =>
+    new view.DOMRect(left, line.top, right - left, line.bottom - line.top);
+  const rangeRects = view.Range.prototype.getClientRects;
+  const elementBox = view.Element.prototype.getBoundingClientRect;
+  const texts = Object.keys(PARAGRAPH_LINES).map((id) => doc.getElementById(id)!.firstChild as Text);
+  view.Range.prototype.getClientRects = function (this: Range) {
+    const rects: DOMRect[] = [];
+    for (const text of texts) {
+      if (!this.intersectsNode(text)) continue;
+      const from = text === this.startContainer ? this.startOffset : 0;
+      const to = text === this.endContainer ? this.endOffset : text.length;
+      if (to > from) rects.push(box(24 + from * 8, 24 + to * 8, PARAGRAPH_LINES[text.parentElement!.id]!));
+    }
+    return rects as unknown as DOMRectList;
+  };
+  view.Element.prototype.getBoundingClientRect = function (this: Element) {
+    if (this.id === "para" || this.getAttribute("data-row-id") === "prompt")
+      return box(0, 760, { top: 100, bottom: 188 });
+    const line = PARAGRAPH_LINES[this.id];
+    return line ? box(24, 24 + (this.textContent?.length ?? 0) * 8, line) : box(0, 0, { top: 0, bottom: 0 });
+  };
+  const size = (name: "offsetWidth" | "offsetHeight", px: number) =>
+    Object.defineProperty(view.HTMLElement.prototype, name, {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList.contains("cv-selection-reply") ? px : 0;
+      },
+    });
+  size("offsetWidth", 72);
+  size("offsetHeight", 28);
+  return () => {
+    view.Range.prototype.getClientRects = rangeRects;
+    view.Element.prototype.getBoundingClientRect = elementBox;
+    delete (view.HTMLElement.prototype as unknown as Record<string, unknown>).offsetWidth;
+    delete (view.HTMLElement.prototype as unknown as Record<string, unknown>).offsetHeight;
+  };
+}
+
+test("the chip never covers the selected text: it goes above or below the selection", () => {
+  const doc = mount(PARAGRAPH);
+  const restore = layOutParagraph(doc);
+  try {
+    // "it is a state ownership issue" on the second line through "please" on the third.
+    const range = doc.createRange();
+    range.setStart(doc.getElementById("p1")!.firstChild!, 6);
+    range.setEnd(doc.getElementById("p2")!.firstChild!, 6);
+    const selection = doc.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    act(() => {
+      doc.dispatchEvent(new doc.defaultView!.Event("pointerup", { bubbles: true }));
+    });
+    const button = chip(doc)!;
+    expect(button).not.toBeNull();
+    expect(button.dataset.hidden).toBeUndefined();
+    const left = parseFloat(button.style.left);
+    const top = parseFloat(button.style.top);
+    const pill = { left, top, right: left + 72, bottom: top + 28 };
+    // Every line's text, selected or not.
+    for (const id of Object.keys(PARAGRAPH_LINES)) {
+      const line = PARAGRAPH_LINES[id]!;
+      const text = { left: 24, right: 24 + doc.getElementById(id)!.textContent!.length * 8, ...line };
+      const crosses =
+        Math.min(pill.right, text.right) - Math.max(pill.left, text.left) > 0.5 &&
+        Math.min(pill.bottom, text.bottom) - Math.max(pill.top, text.top) > 0.5;
+      expect({ id, crosses }).toEqual({ id, crosses: false });
+    }
+    // Over the selection's first line or under its last, not beside it.
+    expect(pill.bottom <= PARAGRAPH_LINES.p1!.top || pill.top >= PARAGRAPH_LINES.p2!.bottom).toBe(true);
+  } finally {
+    restore();
+  }
+});
