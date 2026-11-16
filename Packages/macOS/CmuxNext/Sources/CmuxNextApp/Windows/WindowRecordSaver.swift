@@ -24,7 +24,8 @@ struct WindowRecordSaves {
 /// an unchanged document writes nothing. Geometry settles for 500 ms first. Owned by `WindowManager`.
 @MainActor
 final class WindowRecordSaver {
-    unowned let manager: WindowManager
+    weak var owner: WindowManager?
+    private let host: AppServices
     /// Debounced save of window geometry (architecture.md 1: 500 ms).
     let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
     /// The focused pane's save waits for the commit that shows the move (``focusDidSettle(_:pane:)``).
@@ -41,35 +42,40 @@ final class WindowRecordSaver {
     var saves = WindowRecordSaves()
     /// The daemon's window records of this install (`window-records-v1`).
     private let recordMirror = WindowRecordMirror()
-    private(set) lazy var launchRecord = AppLaunchRecord(host: manager.services)
+    private(set) lazy var launchRecord = AppLaunchRecord(host: host)
     private var selectedTabsCache: [String: TabSelectionRecord] = [:]
     /// Panes whose remembered tab a record build read on the main thread (`SpaceSwitchRecordSaveTests`).
     var paneReads: Int { selectedTabsCache.values.reduce(0) { $0 + $1.paneReads } }
-    private var services: AppServices { manager.services }
+    private var services: AppServices { host }
 
     init(manager: WindowManager) {
-        self.manager = manager
+        owner = manager
+        host = manager.services
     }
 
     /// A selection, focus, membership or sidebar change: save on the next turn.
     func stateDidChange(_ state: WindowState) {
+        guard let manager = owner else { return }
         guard manager.restored, !manager.isTerminating else { return }
         requestSave()
     }
 
     /// A frame change: save once it has settled for 500 ms.
     func geometryDidChange(_ state: WindowState) {
+        guard let manager = owner else { return }
         guard manager.restored, !manager.isTerminating else { return }
         geometryTimer.schedule(after: .milliseconds(500)) { @MainActor [weak self] in self?.requestSave() }
     }
 
     func scheduleSave() {
+        guard let manager = owner else { return }
         guard let any = manager.states.values.first else { return }
         stateDidChange(any)
     }
 
     /// Records the window's focused pane when it changed (the focus coordinator settled), and saves.
     func focusDidSettle(_ state: WindowState, pane: String?) {
+        guard let manager = owner else { return }
         guard state.savedFocusedPane != pane else { return }
         state.savedFocusedPane = pane
         guard manager.restored, !manager.isTerminating else { return }
@@ -129,7 +135,7 @@ final class WindowRecordSaver {
         guard !saves.inFlight else { return }
         saves.inFlight = true
         // wakeup-allow: each iteration writes one requested save; ends when none is pending
-        while saves.requested, !manager.isTerminating {
+        while saves.requested, let manager = owner, !manager.isTerminating {
             saves.requested = false
             let tickets = saves.tickets
             saves.tickets = []
@@ -150,6 +156,7 @@ final class WindowRecordSaver {
     /// nil: the action that asked for the save did its work, only its record is not kept.
     @discardableResult
     func saveNow() async -> (any Error)? {
+        guard let manager = owner else { return nil }
         guard !manager.savedWindowsUnread else { return nil }
         guard let windowState = services.daemon.windowState else { return DaemonError.notConnected }
         DebugPaneFocus.noteMainWork("record_saves")
@@ -191,6 +198,7 @@ final class WindowRecordSaver {
     /// Front first by the registry's recency (`WindowManager.windowDidOrder`): a save never asks the
     /// window server (`NSApp.orderedWindows` is a synchronous query, cx-8w027.25).
     func currentRecords() -> [WindowRecord] {
+        guard let manager = owner else { return [] }
         let value = manager.registry.value
         let states = manager.states
         let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: min)
@@ -210,6 +218,7 @@ final class WindowRecordSaver {
 
     /// The pane last focused in each workspace the window lists (focus memory, the shown one's pane).
     private func focusedPanes(window: WindowRegistry.Window) -> [String: String] {
+        guard let manager = owner else { return [:] }
         guard let state = manager.states[window.id] else { return [:] }
         let focus = state.focus.state
         var panes = state.focus.rememberedPanes()
@@ -221,6 +230,7 @@ final class WindowRecordSaver {
     /// Remembered tab per pane across the window's workspaces, kept between saves (`TabSelectionRecord`): a save
     /// after a switch reads no pane.
     private func selectedTabs(window: WindowRegistry.Window, in registry: WindowRegistry) -> [String: String] {
+        guard let manager = owner else { return [:] }
         guard let memory = manager.states[window.id]?.selection else { return [:] }
         return selectedTabsCache[window.id, default: TabSelectionRecord()].tabs(
             of: memory, workspaces: window.workspaceIDs, stores: services.machines.daemons.map(\.store),
@@ -270,6 +280,7 @@ extension AppServices: LaunchRecordHost {
     }
 
     private static func launchRecordByte(_ component: Double) -> UInt8 {
-        UInt8(clamping: Int((min(1, max(0, component)) * 255).rounded()))
+        let rounded = (min(1, max(0, component)) * 255).rounded()
+        return UInt8(exactly: rounded) ?? 0
     }
 }
