@@ -790,6 +790,7 @@ where
             last_activity: value.get("lastActivity")?.as_u64()?,
             chat_id: value.get("chatId").or_else(|| value.get("sessionId"))?.as_str()?.to_owned(),
             origin: value.get("origin").and_then(Value::as_str).unwrap_or("local").to_owned(),
+            past: false,
         })
     }
 
@@ -861,6 +862,7 @@ where
                     last_activity: 0,
                     chat_id: parent.1.clone(),
                     origin: parent.0.clone(),
+                    past: false,
                 };
                 mirror.wanted.insert(parent.clone(), key.clone());
                 mirror.internal_wanted.insert(parent);
@@ -3142,8 +3144,12 @@ tail"#;
             let mut client = ready_mirror();
             mirror_window(&mut client);
             assert_eq!(take_pages(&mut client).len(), 1);
-            let key =
-                ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+            let key = ListKey {
+                last_activity: 1,
+                chat_id: "wanted".into(),
+                origin: "local".into(),
+                past: false,
+            };
             client.want("m", [key]).unwrap();
             assert!(take_pages(&mut client).is_empty());
             mirror_page_error(&mut client);
@@ -3172,7 +3178,12 @@ tail"#;
         mirror_window(&mut client);
         assert_eq!(take_pages(&mut client).len(), 1);
         finish_empty_walk(&mut client);
-        let key = ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+        let key = ListKey {
+            last_activity: 1,
+            chat_id: "wanted".into(),
+            origin: "local".into(),
+            past: false,
+        };
         client.want("m", [key]).unwrap();
         assert_eq!(take_pages(&mut client).len(), 1);
         mirror_page_error(&mut client);
@@ -3210,7 +3221,12 @@ tail"#;
         mirror_page_error(&mut client);
         assert!(take_pages(&mut client).is_empty());
 
-        let key = ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+        let key = ListKey {
+            last_activity: 1,
+            chat_id: "wanted".into(),
+            origin: "local".into(),
+            past: false,
+        };
         client.want("m", [key]).unwrap();
         assert_eq!(take_pages(&mut client).len(), 1);
         mirror_page_error(&mut client);
@@ -3228,8 +3244,12 @@ tail"#;
             let mut client = ready_mirror();
             mirror_window(&mut client);
             assert_eq!(take_pages(&mut client).len(), 1);
-            let key =
-                ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+            let key = ListKey {
+                last_activity: 1,
+                chat_id: "wanted".into(),
+                origin: "local".into(),
+                past: false,
+            };
             client.want("m", [key]).unwrap();
             assert!(take_pages(&mut client).is_empty());
             for error in 0..prior_errors {
@@ -3653,13 +3673,18 @@ tail"#;
                     last_activity: index as u64,
                     chat_id: id.1.clone(),
                     origin: id.0.clone(),
+                    past: false,
                 };
                 mirror.wanted.insert(id.clone(), key);
                 mirror.internal_wanted.insert(id);
             }
         }
-        let caller_key =
-            ListKey { last_activity: 1, chat_id: "caller".into(), origin: "local".into() };
+        let caller_key = ListKey {
+            last_activity: 1,
+            chat_id: "caller".into(),
+            origin: "local".into(),
+            past: false,
+        };
         client.want("m", [caller_key.clone()]).unwrap();
         let mirror = client.subscriptions["m"].mirror.as_ref().unwrap();
         assert!(mirror.caller_wanted.contains(&Client::<Value>::row_identity(&caller_key)));
@@ -3685,12 +3710,18 @@ tail"#;
                     last_activity: index as u64,
                     chat_id: id.1.clone(),
                     origin: id.0.clone(),
+                    past: false,
                 };
                 mirror.wanted.insert(id.clone(), key);
                 mirror.caller_wanted.insert(id);
             }
         }
-        let extra = ListKey { last_activity: 0, chat_id: "extra".into(), origin: "local".into() };
+        let extra = ListKey {
+            last_activity: 0,
+            chat_id: "extra".into(),
+            origin: "local".into(),
+            past: false,
+        };
         assert!(all_caller.want("m", [extra]).is_err());
     }
 
@@ -3707,8 +3738,10 @@ tail"#;
         while client.take_send().is_some() {}
         client.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), true).unwrap();
         let _ = client.take_send();
-        let key1 = ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into() };
-        let key2 = ListKey { last_activity: 2, chat_id: "b".into(), origin: "local".into() };
+        let key1 =
+            ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into(), past: false };
+        let key2 =
+            ListKey { last_activity: 2, chat_id: "b".into(), origin: "local".into(), past: false };
         client.want("m", [key1, key2.clone()]).unwrap();
         let _ = client.take_send().expect("wanted read");
         let partial = Frame::json(
@@ -3741,7 +3774,8 @@ tail"#;
         while client.take_send().is_some() {}
         client.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), true).unwrap();
         let _ = client.take_send();
-        let key = ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into() };
+        let key =
+            ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into(), past: false };
         client.want("m", [key]).unwrap();
         let _ = client.take_send().expect("wanted page");
         let error = Frame::json(

@@ -2497,6 +2497,111 @@ button.menu-disclosure {
   gap: 4px;
 }
 
+/* Personalization > Customization Library (CustomizeLibraryCard): one row per entry, top first.
+   The mark is the entry's swatches (its thumbnail is its colors and keys, never a capture); its
+   order buttons show on hover and focus like the menu rows'; an entry that is off reads dimmed. */
+.library-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-control-row);
+  height: var(--ds-control-row);
+  overflow: hidden;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-md);
+  color: var(--ds-color-muted);
+}
+
+.library-mark[data-wide] {
+  width: 100%;
+  height: var(--ds-space-48);
+}
+
+/* The swatch's color is the entry's own, set inline as other swatches are. */
+.library-swatch {
+  flex: 1;
+  align-self: stretch;
+}
+
+.library-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.library-order {
+  display: inline-flex;
+  opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
+}
+
+[data-library-entry]:hover .library-order,
+[data-library-entry]:has(:focus-visible) .library-order,
+[data-library-entry]:has([data-popup-open]) .library-order {
+  opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+
+[data-library-entry]:has(:focus-visible) .library-order {
+  transition: none;
+}
+
+[data-library-entry]:not([data-on]) :is(.library-mark, .row-title, .library-detail) {
+  opacity: 0.55;
+}
+
+.library-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.library-beaten {
+  color: var(--ds-color-attention);
+}
+
+.library-position {
+  flex: none;
+  min-width: var(--ds-space-4);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.library-line .row-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.library-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-lg);
+}
+
+.library-tile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.library-tile .library-order {
+  align-self: flex-end;
+}
+
 /* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.
    One row under "No settings match.", a hover fill on its own box like a result row, the words
    quoted under the action; Return in the search does the same. */
