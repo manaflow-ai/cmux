@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
 import landingImage from "@/app/[locale]/(landing)/assets/landing-image.png";
 import { HeroPhone } from "./hero-phone";
@@ -14,18 +14,19 @@ import {
 
 export function HeroPlayground() {
   const [appearance, setAppearance] = useState<HeroAppearance>("system");
-  const [systemDark, setSystemDark] = useState(false);
   const [themeID, setThemeID] = useState("catppuccin-mocha");
   const [transparency, setTransparency] = useState(18);
   const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const update = () => setSystemDark(media.matches);
-    update();
-    media.addEventListener?.("change", update);
-    return () => media.removeEventListener?.("change", update);
-  }, []);
+  const systemDark = useSyncExternalStore(
+    (onChange) => {
+      const media = window.matchMedia("(prefers-color-scheme: dark)");
+      media.addEventListener("change", onChange);
+      return () => media.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
+    () => false,
+  );
 
   const effectiveAppearance = appearance === "system"
     ? (systemDark ? "dark" : "light")
@@ -40,36 +41,58 @@ export function HeroPlayground() {
   return (
     <div className="relative">
       <div
-        className={`relative overflow-hidden rounded-[1.1rem] border border-black/20 bg-[var(--cmux-surface-background)] shadow-[0_24px_44px_rgba(0,0,0,0.55)] transition-opacity duration-700 ${loaded ? "opacity-100" : "opacity-0"}`}
+        className={`relative transition-opacity duration-700 ${loaded ? "opacity-100" : "opacity-0"}`}
         style={variables as CSSProperties}
       >
-        <Image
-          src={landingImage}
-          alt="cmux terminal app screenshot"
-          priority
-          quality={85}
-          sizes="(min-width: 1440px) 1440px, 100vw"
-          onLoad={() => setLoaded(true)}
-          className="block w-full"
-        />
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0"
-          style={{
-            backgroundColor: "var(--cmux-terminal-background)",
-            mixBlendMode: "color",
-            opacity: tintOpacity,
-          }}
-        />
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0"
-          style={{
-            backgroundColor: "var(--cmux-surface-background)",
-            mixBlendMode: "soft-light",
-            opacity: transparency / 100 * 0.45,
-          }}
-        />
+        <div className="relative overflow-hidden rounded-[1.1rem] border border-black/20 bg-[var(--cmux-surface-background)] shadow-[0_24px_44px_rgba(0,0,0,0.55)]">
+          <Image
+            src={landingImage}
+            alt="cmux terminal app screenshot"
+            priority
+            quality={85}
+            sizes="(min-width: 1440px) 1440px, 100vw"
+            onLoad={() => setLoaded(true)}
+            className="block w-full"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{
+              backgroundColor: "var(--cmux-terminal-background)",
+              mixBlendMode: "color",
+              opacity: tintOpacity,
+            }}
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{
+              backgroundColor: "var(--cmux-surface-background)",
+              mixBlendMode: "soft-light",
+              opacity: transparency / 100 * 0.45,
+            }}
+          />
+          <div
+            className="pointer-events-none absolute left-4 top-4 rounded-lg border border-[var(--cmux-chrome-divider)] bg-[var(--cmux-sidebar-surface)]/90 px-3 py-2 text-[10px] font-medium text-[var(--cmux-text)] shadow-lg backdrop-blur-sm"
+            aria-label={`${theme.label} live theme preview`}
+          >
+            <span className="mr-2 text-[var(--cmux-text-secondary)]">LIVE THEME</span>
+            {theme.label}
+          </div>
+          <div
+            className="pointer-events-none absolute bottom-3 left-3 right-3 flex items-center gap-2 rounded-lg border border-[var(--cmux-chrome-divider)] bg-[var(--cmux-terminal-background)]/90 px-3 py-2 font-mono text-[10px] text-[var(--cmux-terminal-foreground)] shadow-lg backdrop-blur-sm"
+            aria-hidden="true"
+          >
+            <span style={{ color: "var(--cmux-terminal-selection)" }}>cmux</span>
+            <span className="text-[var(--cmux-text-secondary)]">~</span>
+            <span style={{ color: "var(--cmux-terminal-foreground)" }}>theme playground</span>
+            <span className="ml-auto flex gap-0.5">
+              {theme.palette.slice(0, 8).map((color) => (
+                <span key={color} className="h-2 w-2 rounded-sm" style={{ backgroundColor: color }} />
+              ))}
+            </span>
+          </div>
+        </div>
         <HeroPhone />
       </div>
 
