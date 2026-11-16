@@ -19,6 +19,9 @@
 mod actions;
 #[cfg(unix)]
 mod activation;
+// `agent.ask` (apps/agent_ask.rs): the binary installs the asker.
+#[cfg(unix)]
+pub mod agent_ask;
 #[cfg(unix)]
 mod budget;
 #[cfg(unix)]
@@ -59,6 +62,9 @@ mod openers;
 // command and the Mac page host wire it in a follow-up.
 #[cfg_attr(not(test), allow(dead_code))]
 mod page_bridge;
+// `page.*` ops: per-site styles kept here, page reads through the Mac app.
+#[cfg(unix)]
+mod page_ops;
 #[cfg(unix)]
 mod page_keys;
 #[cfg(unix)]

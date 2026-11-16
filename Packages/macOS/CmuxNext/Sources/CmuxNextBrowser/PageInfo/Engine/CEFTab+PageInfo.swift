@@ -84,6 +84,7 @@ extension CEFTab: PageInfoProviding {
         pageInfoActivity.documentCommitted(origin: origin)
         syncSecurityFromChromium()
         guard let origin, browserID != nil else { return }
+        runDocumentCommitScripts(runtime.stores.documentCommitScripts(origin))
         let store = sitePermissions
         Task { [weak self] in
             await store.whenLoaded()

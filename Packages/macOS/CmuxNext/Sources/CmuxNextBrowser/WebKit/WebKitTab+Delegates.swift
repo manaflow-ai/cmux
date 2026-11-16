@@ -119,7 +119,9 @@ extension WebKitTab: WKNavigationDelegate {
         pageDidCommit()
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.committed(id, url: webView.url))
-        pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
+        let origin = webView.url.flatMap(PageInfoSite.origin(of:))
+        pageInfoActivity.documentCommitted(origin: origin)
+        if let origin, let stores = engine?.stores { runDocumentCommitScripts(stores.documentCommitScripts(origin)) }
         // The title can arrive before the commit (back/forward cache), and
         // the commit clears it, so read the authoritative value again.
         apply(.titleChanged(webView.title))

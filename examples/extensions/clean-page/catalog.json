@@ -1,0 +1,29 @@
+{
+  "family": "local.showcase_clean_page",
+  "owner": "app:local/showcase-clean-page",
+  "operations": [
+    {
+      "name": "local.showcase_clean_page.clean",
+      "owner": "app:local/showcase-clean-page",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "gesture": "required",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": { "again": { "type": "boolean", "description": "Clean a site that is already clean, replacing its rules." } }
+      },
+      "cli": { "path": "clean", "visible": true },
+      "mcp": { "expose": "never" },
+      "palette": {
+        "title": { "en": "Clean this page" },
+        "presets": [{ "id": "again", "title": { "en": "Clean this page again" }, "args": { "again": true } }]
+      },
+      "docs": "Ask your default agent which elements of the front browser page are clutter, then hide them on that site. It runs only from a gesture, since it spends your agent's quota.",
+      "since": "local.showcase_clean_page/1",
+      "export": "clean"
+    }
+  ]
+}

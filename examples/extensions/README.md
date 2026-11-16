@@ -14,6 +14,8 @@ and the sample stays installed. `cmux ext remove ID` uninstalls it.
 | [Standup](agent-standup) | What your agents did since yesterday, by project | `cmux ext dev examples/extensions/agent-standup` |
 | [Workspace notes](workspace-notes) | A short to-do list for each workspace | `cmux ext dev examples/extensions/workspace-notes` |
 | [Link hints](link-hints) | Browse the built-in browser with the keyboard: follow links by their labels, go back, bookmark, find | `cmux ext dev examples/extensions/link-hints` |
+| [Clean this page](clean-page) | Your agent picks the ads, banners and sticky bars on a web page, and cmux hides them on that site | `cmux ext dev examples/extensions/clean-page` |
+| [JavaScript for this site](site-js) | One palette command turns JavaScript off for the site in the front tab, or back on | `cmux ext dev examples/extensions/site-js` |
 
 `cmux ext dev` packs `src/main.ts` with `bun`, so `bun` must be on your PATH. `bun
 examples/extensions/build.ts --check` packs every sample and validates its manifest.

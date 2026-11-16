@@ -177,9 +177,18 @@ pub const PANEL_OPS: &[&str] = &["fs.pick"];
 /// marks a chat read or pins it only in answer to a tap, never on its own.
 pub const PERSON_MARK_OPS: &[&str] = &["chat.mark_read", "chat.pin"];
 
+/// Ops that spend something of the person's or change how a site behaves for them:
+/// a question to their own agent (`agent.ask` uses their model quota) and turning a
+/// site's JavaScript on or off (it reloads the page). Only in answer to a tap or a
+/// command they ran, so a background extension can do neither on its own.
+pub const PERSON_SPEND_OPS: &[&str] = &["agent.ask", "browser.site.javascript.set"];
+
 /// Whether an app call of `op` needs a live user gesture.
 pub fn needs_gesture(op: &str) -> bool {
-    VIEW_STATE_OPS.contains(&op) || PANEL_OPS.contains(&op) || PERSON_MARK_OPS.contains(&op)
+    VIEW_STATE_OPS.contains(&op)
+        || PANEL_OPS.contains(&op)
+        || PERSON_MARK_OPS.contains(&op)
+        || PERSON_SPEND_OPS.contains(&op)
 }
 
 /// The escalation of `op`, if it has one.

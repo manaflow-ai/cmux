@@ -26,6 +26,14 @@ extension BrowserChromeView {
             if Self.isWakingAddress(live) { shown = held } else { wakingAddress = nil }
         }
         addressBar.update(url: Self.omnibarURL(for: shown), security: PageInfoSite.omnibarSecurity(for: shown))
+        addressBar.javaScriptBlocked = Self.javaScriptBlocked(tab, url: shown.url)
+    }
+
+    /// Whether `url`'s site has JavaScript blocked in `tab`'s profile (Page Info's store, whoever
+    /// set it). Read inside the toolbar's observed render, so a change redraws the chip.
+    static func javaScriptBlocked(_ tab: any BrowserTab, url: URL?) -> Bool {
+        guard let provider = tab as? any PageInfoProviding, let origin = url.flatMap(PageInfoSite.origin(of:)) else { return false }
+        return provider.pageInfoSettings.permissions(for: tab.profileID).setting(.javascript, for: origin) == .block
     }
 
     /// True while a woken page has no address of its own yet: none, a blank or New Tab page, or

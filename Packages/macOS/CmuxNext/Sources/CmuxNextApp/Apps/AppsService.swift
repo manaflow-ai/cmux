@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextApps
+import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemonService
 import CmuxNextIcons
@@ -36,6 +37,8 @@ final class AppsService {
     /// The route of the show running now, for the page it makes (``makeView(for:in:)``).
     private var pendingRoute: String?
     private var machineCatalog: MachineCatalogPublisher?
+    /// The daemon's latest `apps-page-styles` snapshot (memory only; the daemon persists it).
+    var pageStyles = PageStyleSnapshot()
     init(services: AppServices) {
         self.services = services
         transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats()], inventoryRoutes: { [weak machines = services.machines] in
@@ -71,8 +74,11 @@ final class AppsService {
         let memory = AgentMemorySearchHandler(enabled: { [weak services] in
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
+        // Extension site styles: run on open tabs when a snapshot arrives, and at each document commit.
+        transport.provider.onPageStyles = { [weak self] payload in self?.applyPageStyles(payload) }
+        services.browserStores.documentCommitScripts = { [weak self] origin in self?.pageStyles.sources(for: origin) ?? [] }
         transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(),
-                                                           BrowserPageAppOps(control: actionControl)]))
+                                                           BrowserPageAppOps(control: actionControl), pageOps()]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()
@@ -213,6 +219,98 @@ extension AppsService: InternalPageProvider {
             return "#/discover?" + (query.percentEncodedQuery ?? "")
         }
         return "#/" + (tab ?? .discover).rawValue
+    }
+}
+
+// MARK: The `page` family and extension site styles
+
+extension AppsService {
+    /// `page.*` over this Mac's browser tabs (scripts and validation are the daemon's).
+    func pageOps() -> PageAppOps {
+        PageAppOps(host: PageAppHost(tab: { [weak self] id in self?.pageTab(id) }, origin: { raw in
+            Self.webOrigin(raw)
+        }, javaScriptAllowed: { [weak self] origin, tab in
+            guard let self else { return true }
+            return services.browserStores.siteSettings.permissions(for: profile(of: tab)).setting(.javascript, for: origin) != .block
+        }, setJavaScript: { [weak self] origin, tab, allowed in
+            await self?.setJavaScript(allowed, origin: origin, tab: tab)
+        }))
+    }
+
+    /// The live page of tab `id`, or of the key window's selected browser tab.
+    private func livePage(_ id: String?) -> (id: String, page: any BrowserTab)? {
+        if let id { return services.cache.existingBrowser(id).map { (id, $0.tab) } }
+        guard let pane = services.windows.active?.focusedPane, let selected = pane.stripModel.selectedID,
+              let tab = pane.tab(selected), tab.kind == .browser, let entry = services.cache.existingBrowser(tab.id) else { return nil }
+        return (tab.id, entry.tab)
+    }
+
+    private func pageTab(_ id: String?) -> PageAppTab? {
+        guard let (id, page) = livePage(id) else { return nil }
+        let url = page.state.url
+        return PageAppTab(id: id, url: url?.absoluteString ?? "", origin: url.flatMap(PageInfoSite.origin(of:)), title: page.state.title ?? "") { [weak page] script in
+            guard let page else { throw BrowserTabError.closed }
+            try await AppBrowserPage.ensureBrowser(page)
+            let value = try await page.evaluate(script, world: .isolated, gesture: .cmux)
+            return Self.appJSON(value)
+        }
+    }
+
+    private func profile(of tab: String?) -> BrowserProfileID { livePage(tab)?.page.profileID ?? .default }
+
+    /// Page Info's JavaScript row: the profile's store, Chromium's content setting, then a reload of
+    /// the origin's open tabs (WebKit decides JavaScript per navigation from the store).
+    private func setJavaScript(_ allowed: Bool, origin: String, tab: String?) async {
+        let profile = profile(of: tab)
+        let store = services.browserStores.siteSettings.permissions(for: profile)
+        await store.whenLoaded()
+        let setting: SitePermissionSetting = allowed ? .allow : .block
+        store.set(setting, .javascript, for: origin)
+        var chromiumTold = false
+        for page in services.cache.browsers.values.map(\.tab) where page.profileID == profile {
+            let shown = page.state.url.flatMap(PageInfoSite.origin(of:)) == origin
+            // One Chromium page of the profile sets its content setting (the profile's request context).
+            guard shown || (!chromiumTold && page.engineKind == .cef) else { continue }
+            if let provider = page as? any PageInfoProviding {
+                if shown { provider.pageInfoActivity.recordChange(.javascript) }
+                await provider.pageInfoDidChange(.javascript, to: setting, origin: origin)
+            }
+            if page.engineKind == .cef { chromiumTold = true }
+            if shown { page.reload() }
+        }
+    }
+
+    /// `apps-page-styles`: keeps the snapshot for document commits and runs each changed entry's
+    /// installer on the open tabs of its origin now (a removal entry runs once and is dropped).
+    func applyPageStyles(_ payload: AppJSON) {
+        var byOrigin: [String: [String]] = [:]
+        for entry in pageStyles.replace(with: payload) { byOrigin[entry.origin, default: []].append(entry.source) }
+        guard !byOrigin.isEmpty else { return }
+        for page in services.cache.browsers.values.map(\.tab) {
+            guard let origin = page.state.url.flatMap(PageInfoSite.origin(of:)), let scripts = byOrigin[origin] else { continue }
+            // task-owner: one tab's installers for this snapshot, in order; a closed page drops them
+            Task { [weak page] in
+                for script in scripts { _ = try? await page?.evaluate(script, world: .isolated, gesture: .cmux) }
+            }
+        }
+    }
+
+    /// `raw` as Page Info's origin key when it is an http(s) `scheme://host[:port]` (no path, query or fragment).
+    nonisolated static func webOrigin(_ raw: String) -> String? {
+        guard let url = URL(string: raw), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.path().isEmpty || url.path() == "/", url.query() == nil, url.fragment() == nil, url.user() == nil else { return nil }
+        return PageInfoSite.origin(of: url)
+    }
+
+    nonisolated static func appJSON(_ value: BrowserJSValue) -> AppJSON {
+        switch value {
+        case .null: .null
+        case .bool(let value): .bool(value)
+        case .number(let value): .number(value)
+        case .string(let value): .string(value)
+        case .array(let values): .array(values.map(appJSON))
+        case .object(let fields): .object(fields.mapValues(appJSON))
+        }
     }
 }
 

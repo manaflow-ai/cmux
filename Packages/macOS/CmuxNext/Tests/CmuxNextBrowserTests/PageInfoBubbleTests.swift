@@ -199,3 +199,38 @@ struct PageInfoSiteNameTests {
         #expect(fitted("example.com", 5) == "example.com")
     }
 }
+
+/// The omnibox chip's "JavaScript off" state (opt-in: only a site whose JavaScript setting is block).
+@MainActor
+struct PageInfoJavaScriptChipTests {
+    /// A site with JavaScript blocked (Page Info or an extension) says so on the chip; nothing else changes.
+    @Test func theChipSaysJavaScriptOffOnlyForABlockedSite() {
+        let secure = PageInfoSite(url: URL(string: "https://example.com/a"), kind: .web(.secure))
+        let off = PageInfoIndicator.resolve(site: secure, chip: .page, javaScriptBlocked: true)
+        #expect(off.symbol == PageInfoIndicator.javaScriptOffSymbol)
+        #expect(off.label == .javaScriptOff)
+        #expect(off.isTriggerable)
+        #expect(PageInfoIndicator.resolve(site: secure, chip: .page) == PageInfoIndicator.resolve(site: secure, chip: .page, javaScriptBlocked: false))
+        #expect(PageInfoIndicator.resolve(site: secure, chip: .page).label == nil)
+        // An insecure site keeps "Not secure"; a dangerous one keeps its warning.
+        let insecure = PageInfoSite(url: URL(string: "http://example.com/"), kind: .web(.insecure))
+        let insecureOff = PageInfoIndicator.resolve(site: insecure, chip: .page, javaScriptBlocked: true)
+        #expect(insecureOff.symbol == PageInfoIndicator.notSecureSymbol)
+        #expect(insecureOff.label == .notSecureJavaScriptOff)
+        let dangerous = PageInfoSite(url: URL(string: "https://bad.test/"), kind: .web(.dangerous))
+        #expect(PageInfoIndicator.resolve(site: dangerous, chip: .page, javaScriptBlocked: true) == PageInfoIndicator.resolve(site: dangerous, chip: .page))
+        // While the person types, the chip describes the input.
+        #expect(PageInfoIndicator.resolve(site: secure, chip: .input(symbol: "magnifyingglass"), javaScriptBlocked: true).label == nil)
+    }
+
+    @Test func theToolbarReadsTheTabsProfileStore() {
+        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: nil))
+        let url = URL(string: "https://example.com/page")
+        #expect(!BrowserChromeView.javaScriptBlocked(tab, url: url))
+        tab.sitePermissions.set(.block, .javascript, for: "https://example.com")
+        #expect(BrowserChromeView.javaScriptBlocked(tab, url: url))
+        #expect(!BrowserChromeView.javaScriptBlocked(tab, url: URL(string: "https://other.test/")))
+        tab.sitePermissions.set(.allow, .javascript, for: "https://example.com")
+        #expect(!BrowserChromeView.javaScriptBlocked(tab, url: url))
+    }
+}
