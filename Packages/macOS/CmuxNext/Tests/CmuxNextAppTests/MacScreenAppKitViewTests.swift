@@ -253,8 +253,8 @@ struct MacScreenAppKitViewTests {
         #expect(shown.contains(L.t("macScreen.approval.bodyFull", "It can see your screen and use your mouse and keyboard.")))
         #expect(!shown.contains(DeviceIdentity.displayFingerprint(fingerprint)), "the key waits behind Details")
         let buttons = views(under: view).compactMap { $0 as? MacScreenButton }
-        #expect(buttons.map(\.accessibilityIdentifier()) == ["macScreen.approval.details", "macScreen.approval.deny", "macScreen.approval.allow"])
-        #expect(buttons.filter { $0.role == .primary }.map(\.accessibilityIdentifier()) == ["macScreen.approval.allow"])
+        #expect(buttons.map { $0.accessibilityIdentifier() } == ["macScreen.approval.details", "macScreen.approval.deny", "macScreen.approval.allow"])
+        #expect(buttons.filter { $0.role == .primary }.map { $0.accessibilityIdentifier() } == ["macScreen.approval.allow"])
         #expect(view.fittingSize.width == MacScreenApprovalView.width && view.fittingSize.height > 80)
 
         view.toggleDetails()
