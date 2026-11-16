@@ -41,7 +41,8 @@ function testNamer(): () => string {
 function harness(answer: (call: Call) => unknown = echo) {
   const calls: Call[] = [];
   const falls: ChatFall[] = [];
-  const store = new ChatRowStore({ onFall: (fall) => falls.push(fall) });
+  const pageEnds: string[] = [];
+  const store = new ChatRowStore({ onFall: (fall) => falls.push(fall), onPageEnd: (sid) => pageEnds.push(sid) });
   const post: ChatRowsPost = async (method, params) => {
     const call = { method, params };
     calls.push(call);
@@ -53,7 +54,7 @@ function harness(answer: (call: Call) => unknown = echo) {
   const feed = chatRowsFeed(host, post);
   const send = (...changes: unknown[]) =>
     feed(changes.map((change) => (typeof change === "string" ? change : JSON.stringify(change))));
-  return { calls, falls, store, host, send };
+  return { calls, falls, pageEnds, store, host, send };
 }
 
 const row = (id: number, extra: Partial<ChatRow> = {}): ChatRow => ({
@@ -412,12 +413,14 @@ describe("chatPage", () => {
   });
 
   test("a page error drops that ask and nothing else", async () => {
-    const { send, store, host } = await opened();
+    const { send, store, host, pageEnds } = await opened();
     send(window(range(3), { hasBefore: true }));
     host.page("c", "before");
     const before = store.snapshot("c");
     send({ kind: "chatError", sid: "c", method: "page", id: null, code: "stale_edition" });
     expect(store.snapshot("c")).toBe(before);
+    // No snapshot, but who waits on the page learns it ended.
+    expect(pageEnds).toEqual(["c"]);
     expect(store.has("c")).toBe(true);
     expect(host.page("c", "before")).toBe(true);
   });

@@ -221,8 +221,6 @@ This section is the input for rows/notYet.ts.
 ### A0
 
 - `presence`, typing and the read mark (`_acpmux/view`): home f through the hold attach (decision 234). They leave this list once PR 3 sends the hold.
-- `earlierPrompts`: built in 6d. The store holds one page of turn heads (`page {turns: true}`, decision 235), asked after the first window, once an edition.
-  A head is drawn as its prompt's row id, `row-<turn>`, so a rail jump lands on that row once a page holds it.
 - Untraced and marked b?: `frame`, `laneNoticeBatch`, `subagentReport`, `subagentReportFirst`.
 
 ### row 11

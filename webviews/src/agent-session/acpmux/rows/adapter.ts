@@ -46,6 +46,7 @@ function earlierPrompt(head: ChatRow): AcpmuxRow | undefined {
   if (prompt === undefined) return undefined;
   return {
     id: `row-${prompt}`,
+    version: head.rev,
     kind: "user",
     at: head.at * 1000,
     text: typeof body.head === "string" ? body.head : "",

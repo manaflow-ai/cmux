@@ -173,6 +173,8 @@ class SidRows {
   /// A resume's ops, applied in one step at its end.
   private replayed: ChatOp[] = [];
   private page: PageAsk | null = null;
+  /// A page error let go of the page out since the store last read it.
+  pageEnded = false;
   private assemblies = new Map<string, Assembly>();
   private bodies = new Map<string, { value: unknown; bytes: number }>();
   private bodyBytes = 0;
@@ -249,8 +251,8 @@ class SidRows {
         if (change.method === "page") {
           if (this.page?.turns && change.code === TURNS_UNSUPPORTED) this.setHeads(NO_HEADS, 0);
           this.page = null;
-          // A new snapshot, so whoever waits on the page learns that it is no longer out.
-          this.changed = true;
+          // No new snapshot: whoever waits on the page learns it is no longer out from `onPageEnd`.
+          this.pageEnded = true;
         } else if (change.method === "blob" && change.id) this.blobFailed(change.id);
         return;
     }
@@ -735,9 +737,12 @@ export class ChatRowStore {
   private sids = new Map<string, SidRows>();
   private listeners = new Map<string, Set<Listener>>();
   private onFall: (fall: ChatFall) => void;
+  private onPageEnd: (sid: string) => void;
 
-  constructor(options: { onFall?: (fall: ChatFall) => void } = {}) {
+  /// `onPageEnd`: a sid's page out ended with an error, which makes no snapshot.
+  constructor(options: { onFall?: (fall: ChatFall) => void; onPageEnd?: (sid: string) => void } = {}) {
     this.onFall = options.onFall ?? (() => {});
+    this.onPageEnd = options.onPageEnd ?? (() => {});
   }
 
   open(sid: string, anchor: ChatAnchor = "end"): void {
@@ -824,6 +829,11 @@ export class ChatRowStore {
       touched.add(rows);
     }
     for (const rows of touched) this.notify(rows);
+    for (const rows of touched)
+      if (rows.pageEnded) {
+        rows.pageEnded = false;
+        if (this.sids.get(rows.sid) === rows) this.onPageEnd(rows.sid);
+      }
   }
 
   private notify(rows: SidRows): void {

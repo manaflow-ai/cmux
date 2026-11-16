@@ -102,8 +102,8 @@ test("the page of turns' heads older than the first row held are the earlier pro
   const first = adapter.adapt({ ...snapshot(), heads });
   // The turn whose prompt is held (row 50) is drawn from its rows, not as an earlier prompt.
   expect(first.earlierPrompts).toEqual([
-    { id: "row-10", kind: "user", at: 1794480726000, text: "prompt 10", turnId: "10", promptId: "p10" },
-    { id: "row-30", kind: "user", at: 1794480726000, text: "prompt 30", turnId: "30", promptId: "p30" },
+    { id: "row-10", version: 1, kind: "user", at: 1794480726000, text: "prompt 10", turnId: "10", promptId: "p10" },
+    { id: "row-30", version: 1, kind: "user", at: 1794480726000, text: "prompt 30", turnId: "30", promptId: "p30" },
   ]);
   // A change below the first row held makes no new list.
   op({ op: "patch", row: row(51, { rev: 2, body: { text: "edited" } }) });
