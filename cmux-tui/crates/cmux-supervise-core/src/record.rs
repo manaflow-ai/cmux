@@ -107,18 +107,41 @@ pub fn owner_liveness(path: &Path) -> Liveness {
 
 /// Write `record` to `path`: beside it, synced, then renamed over it, then the folder synced.
 pub fn store(path: &Path, record: &OwnerRecord) -> std::io::Result<()> {
+    store_with(path, record, &write_file)
+}
+
+/// [`store`] through the caller's own atomic writer.
+pub fn store_with(path: &Path, record: &OwnerRecord, write: Writer<'_>) -> std::io::Result<()> {
     let text = serde_json::to_vec(record).map_err(std::io::Error::other)?;
-    write_atomic(path, &text)
+    write(path, &text)
 }
 
 /// Write the record for this process at `path`, one epoch past what is there now.
 pub fn claim_current(path: &Path) -> std::io::Result<OwnerRecord> {
+    claim_current_with(path, &write_file)
+}
+
+/// [`claim_current`] through the caller's own atomic writer.
+pub fn claim_current_with(path: &Path, write: Writer<'_>) -> std::io::Result<OwnerRecord> {
     let previous = load(path);
     let record = OwnerRecord::for_current(previous.record()).ok_or_else(|| {
         std::io::Error::other("this process's identity cannot be read (no /proc or proc_pidinfo)")
     })?;
-    store(path, &record)?;
+    store_with(path, &record, write)?;
     Ok(record)
+}
+
+/// An atomic writer of a whole file: the old file or the new one, never half. Every write of
+/// this crate goes through one, so an adopter with its own rule for its state folder (acpmux's
+/// held home) keeps it.
+pub type Writer<'a> = &'a dyn Fn(&Path, &[u8]) -> std::io::Result<()>;
+
+/// The default [`Writer`]: makes the folder, then [`write_atomic`].
+pub fn write_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir)?;
+    }
+    write_atomic(path, bytes)
 }
 
 /// `bytes` into `path` by tmp-then-rename: a crash or a full disk leaves the old file whole.

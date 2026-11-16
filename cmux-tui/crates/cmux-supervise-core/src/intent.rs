@@ -34,13 +34,20 @@ impl Intent {
 
     /// Write down that the owner of `epoch` is being stopped on purpose.
     pub fn record(&self, reason: &str, epoch: u64) -> std::io::Result<()> {
+        self.record_with(reason, epoch, &crate::record::write_file)
+    }
+
+    /// [`Self::record`] through the caller's own atomic writer.
+    pub fn record_with(
+        &self,
+        reason: &str,
+        epoch: u64,
+        write: crate::record::Writer<'_>,
+    ) -> std::io::Result<()> {
         let intent =
             StopIntent { reason: reason.to_owned(), epoch, at_ms: crate::budget::now_ms() };
-        if let Some(dir) = self.path.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir)?;
-        }
         let bytes = serde_json::to_vec(&intent).map_err(std::io::Error::other)?;
-        crate::record::write_atomic(&self.path, &bytes)
+        write(&self.path, &bytes)
     }
 
     /// The standing intent, if any.

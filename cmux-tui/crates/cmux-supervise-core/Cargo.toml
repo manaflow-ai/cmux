@@ -13,6 +13,11 @@ workspace = true
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+cmux-process.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The one-pid start read (`process_start`), shared with the daemon: no /proc read of our own.
+cmux-tui-platform.workspace = true

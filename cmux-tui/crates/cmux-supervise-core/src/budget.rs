@@ -122,6 +122,17 @@ impl Budget {
     }
 
     pub fn record_at(&self, cause: StopCause, now_ms: u64) -> std::io::Result<BudgetState> {
+        self.record_with(cause, now_ms, &crate::record::write_file)
+    }
+
+    /// [`Self::record_at`] through the caller's own atomic writer (acpmux writes under its held
+    /// home only).
+    pub fn record_with(
+        &self,
+        cause: StopCause,
+        now_ms: u64,
+        write: crate::record::Writer<'_>,
+    ) -> std::io::Result<BudgetState> {
         let mut ledger = self.today_at(now_ms);
         ledger.stops = ledger.stops.saturating_add(1);
         if cause.counts() {
@@ -132,11 +143,8 @@ impl Budget {
             let extra = ledger.recent.len() - KEPT_PER_DAY;
             ledger.recent.drain(..extra);
         }
-        if let Some(dir) = self.path.parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir)?;
-        }
         let bytes = serde_json::to_vec(&ledger).map_err(std::io::Error::other)?;
-        crate::record::write_atomic(&self.path, &bytes)?;
+        write(&self.path, &bytes)?;
         Ok(self.state_of(&ledger))
     }
 

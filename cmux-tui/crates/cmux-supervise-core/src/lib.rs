@@ -11,6 +11,8 @@
 //! - [`budget`]: a persisted per-day ledger of stops and their causes; above the budget the
 //!   state is `restart-budget-exceeded`, with the causes, on the health the thing serves.
 //! - [`death`]: on death, one event names what the dead thing owned.
+//! - [`ends`]: for a process a service manager restarts, the end it wrote for itself, and the
+//!   death of one that wrote none, settled once at the next start.
 //! - [`swap`]: make-before-break replacement; a new one that fails readiness is dropped and the
 //!   old one keeps serving (F9, F10).
 //! - [`supervisor`]: `Supervisor::run(spec)`, the whole loop for a process nothing else
@@ -19,6 +21,7 @@
 pub mod budget;
 pub mod death;
 pub mod decide;
+pub mod ends;
 pub mod identity;
 pub mod intent;
 pub mod record;

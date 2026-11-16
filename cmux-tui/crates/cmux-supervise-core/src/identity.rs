@@ -98,33 +98,23 @@ mod platform {
         (!id.is_empty()).then(|| id.to_owned())
     }
 
+    /// The one pid's start (clock ticks since the boot), through the platform crate's single-process
+    /// read (`cmux_tui_platform::process_resources::process_start`), never a scan. A zombie still reads running: it
+    /// holds its pid until reaped, so no other process can take it meanwhile.
     pub(super) fn read(pid: u32) -> Read {
-        let stat = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-            Ok(stat) => stat,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Read::Gone,
-            Err(e) if e.raw_os_error() == Some(libc::ESRCH) => return Read::Gone,
-            Err(_) => return Read::Unknown,
+        let Some(start) = cmux_tui_platform::process_resources::process_start(pid) else {
+            // No start: gone, or there and unreadable (another user's under hidepid).
+            // SAFETY: signal 0 only checks that the pid exists.
+            let exists = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0
+                || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
+            return if exists { Read::Unknown } else { Read::Gone };
         };
-        parse_stat(&stat)
-    }
-
-    /// `/proc/<pid>/stat`: the command sits in parentheses and may hold spaces or `)`, so the
-    /// fields are counted from the last `)`. After it: state (3), ppid, pgrp (5), ...,
-    /// starttime (22).
-    pub(super) fn parse_stat(stat: &str) -> Read {
-        let Some(close) = stat.rfind(')') else { return Read::Unknown };
-        let rest: Vec<&str> = stat[close + 1..].split_whitespace().collect();
-        let (Some(state), Some(pgid), Some(start)) = (rest.first(), rest.get(2), rest.get(19))
-        else {
-            return Read::Unknown;
-        };
-        if matches!(*state, "Z" | "X" | "x") {
+        // SAFETY: getpgid reads one pid's process group.
+        let pgid = unsafe { libc::getpgid(pid as libc::pid_t) };
+        if pgid < 0 {
             return Read::Gone;
         }
-        match (start.parse(), pgid.parse()) {
-            (Ok(start_time), Ok(pgid)) => Read::Running { start_time, pgid },
-            _ => Read::Unknown,
-        }
+        Read::Running { start_time: start.0, pgid: pgid as u32 }
     }
 }
 
@@ -197,18 +187,10 @@ mod platform {
     }
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
+#[cfg(target_os = "linux")]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_command_with_spaces_and_parens_still_parses() {
-        let stat = "42 (a b) c)) S 1 77 77 0 -1 4194560 1 0 0 0 0 0 0 0 20 0 1 0 98765 0 0";
-        assert_eq!(platform::parse_stat(stat), Read::Running { start_time: 98765, pgid: 77 });
-        let zombie = "42 (x) Z 1 77 77 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 98765 0 0";
-        assert_eq!(platform::parse_stat(zombie), Read::Gone);
-        assert_eq!(platform::parse_stat("42 (x"), Read::Unknown);
-    }
 
     #[test]
     fn this_process_is_alive_and_a_reused_pid_or_another_boot_is_dead() {
@@ -228,16 +210,19 @@ mod tests {
     }
 
     #[test]
-    fn an_exited_unreaped_child_reads_gone() {
+    fn an_exited_child_holds_its_pid_until_reaped_then_reads_gone() {
         let mut child = std::process::Command::new("true").spawn().unwrap();
         let pid = child.id();
+        let before = of(pid).expect("a child that just started reads");
         // Wait for the exit without reaping, so the pid stays a zombie.
         let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
         // SAFETY: waitid on our own child with WNOWAIT leaves it unreaped.
         let rc =
             unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) };
         assert_eq!(rc, 0);
-        assert_eq!(read(pid), Read::Gone, "a zombie has exited");
+        assert_eq!(check(&before), Liveness::Alive, "a zombie still holds its pid");
         child.wait().unwrap();
+        assert_eq!(read(pid), Read::Gone, "reaped, the pid is free");
+        assert_eq!(check(&before), Liveness::Dead);
     }
 }

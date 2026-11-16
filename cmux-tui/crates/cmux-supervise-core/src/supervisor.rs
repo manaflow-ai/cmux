@@ -3,9 +3,8 @@
 //! epoll agent) use the same pieces through [`Files`] and [`crate::decide`]; this loop is the
 //! whole contract for a process nothing else supervises (and for the fault tests).
 
+use cmux_process::{Child, Command};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -20,7 +19,10 @@ use crate::record::{self, OwnerRecord};
 /// The files one supervised thing keeps in its state folder.
 #[derive(Clone, Debug)]
 pub struct Files {
+    pub name: String,
     pub owner: PathBuf,
+    /// The end the owner wrote for itself ([`crate::ends`]).
+    pub end: PathBuf,
     pub budget: Budget,
     pub intent: Intent,
     pub deaths: PathBuf,
@@ -28,12 +30,14 @@ pub struct Files {
 }
 
 impl Files {
-    /// `<dir>/<name>.owner.json`, `.stops.json`, `.stop-intent.json`, `.deaths.jsonl`,
-    /// `.health.json`.
+    /// `<dir>/<name>.owner.json`, `.end.json`, `.stops.json`, `.stop-intent.json`,
+    /// `.deaths.jsonl`, `.health.json`.
     pub fn new(dir: &Path, name: &str, budget_per_day: u32) -> Self {
         let at = |suffix: &str| dir.join(format!("{name}.{suffix}"));
         Self {
+            name: name.to_owned(),
             owner: at("owner.json"),
+            end: at("end.json"),
             budget: Budget::new(at("stops.json"), budget_per_day),
             intent: Intent::new(at("stop-intent.json")),
             deaths: at("deaths.jsonl"),
@@ -115,7 +119,6 @@ pub struct Supervisor {
     spec: Spec,
     files: Files,
     child: Option<Child>,
-    exits: Option<mpsc::Receiver<()>>,
     /// The child's exit was seen and it is not reaped yet.
     exited: bool,
     on_death: Option<OnDeath>,
@@ -127,7 +130,7 @@ type OnDeath = Box<dyn FnMut(&Death) + Send>;
 impl Supervisor {
     pub fn new(spec: Spec) -> Self {
         let files = Files::new(&spec.state_dir, &spec.name, spec.budget_per_day);
-        Self { spec, files, child: None, exits: None, exited: false, on_death: None }
+        Self { spec, files, child: None, exited: false, on_death: None }
     }
 
     pub fn files(&self) -> &Files {
@@ -242,34 +245,18 @@ impl Supervisor {
         Ok(owner)
     }
 
-    /// Wait for the child's exit on its own thread, so an exit wakes the loop at once.
+    /// The supervisor owns the child: it ends with the supervisor (`cmux_process::Child`).
     fn watch(&mut self, child: Child) {
-        let (tx, rx) = mpsc::channel();
-        let pid = child.id();
         self.child = Some(child);
-        std::thread::spawn(move || {
-            #[cfg(unix)]
-            {
-                let mut info: libc::siginfo_t = unsafe {
-                    // SAFETY: an out parameter of plain integers; zero is valid.
-                    std::mem::zeroed()
-                };
-                // SAFETY: waits for our own child's exit without reaping it (WNOWAIT): the
-                // supervisor reaps it, so its pid is not reused while the record names it.
-                unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) };
-            }
-            #[cfg(not(unix))]
-            let _ = pid;
-            let _ = tx.send(());
-        });
-        self.exits = Some(rx);
     }
 
-    /// Whether the child has exited, waiting up to `within` for it. Sticky until reaped.
+    /// Whether the child has exited, waiting up to `within` for it (an exit event, not a poll).
+    /// Unreaped until [`Self::reap`], so its pid is not reused while the record names it. Sticky
+    /// until reaped.
     fn wait_exit(&mut self, within: Duration) -> bool {
         if !self.exited {
-            self.exited = match &self.exits {
-                Some(rx) => rx.recv_timeout(within).is_ok(),
+            self.exited = match self.child.as_mut() {
+                Some(child) => child.exited_within(within).unwrap_or(false),
                 None => {
                     std::thread::sleep(within);
                     false
@@ -284,7 +271,6 @@ impl Supervisor {
         if let Some(mut child) = self.child.take() {
             let _ = child.wait();
         }
-        self.exits = None;
     }
 
     fn restart(&mut self, owner: &OwnerRecord, liveness: Liveness) -> std::io::Result<OwnerRecord> {
