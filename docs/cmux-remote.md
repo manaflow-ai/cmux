@@ -57,7 +57,8 @@ which `docs/cloud-guest-upgrades.md` requires of every long-lived child:
 | Host crash | The daemon restarts it with `Backoff` (200 ms to 30 s; reset after 30 s healthy). The host restarts a crashed worker the same way. |
 | Daemon handoff (`shutdown-daemon`, upgrade) | The host keeps running and keeps serving. The new daemon adopts it within the host's adoption grace (60 s), else the host exits, so no host outlives every daemon. |
 | New cmux build (another host build) | An idle host is replaced at once (`drain`, exit, start the new copy). A busy host (a Screen Sharing session) stays, with `upgrade: "pending"`; it reports `idle` when the session ends, and the daemon replaces it then. A session is never cut to upgrade. |
-| macOS "Quit & Reopen" after a grant | The host answers the quit with a worker restart and cancels it; the host and its supervisor link stay. The app rechecks its own TCC state when it becomes active. A copy that LaunchServices opens without the daemon exits at once. |
+| The person quits cmux Remote (Activity Monitor, `quit app`, logout) | The host sends the daemon a `quit` event, ends its workers and exits. The daemon does not restart it on its own; status reads `unavailable` with the reason, and the next request or the next daemon start starts it again. |
+| macOS "Quit & Reopen" after a grant (the quit sent by System Settings) | The host answers the quit with a worker restart and cancels it; the host and its supervisor link stay. The app rechecks its own TCC state when it becomes active. A copy that LaunchServices opens without the daemon exits at once. |
 | Feature off (both) | The daemon stops the host (EOF on its supervisor link). |
 
 The adoption record (`host.json`, 0600 in a 0700 directory) holds the host's

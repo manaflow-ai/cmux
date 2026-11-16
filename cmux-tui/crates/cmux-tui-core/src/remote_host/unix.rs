@@ -36,6 +36,9 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 /// A host that ran at least this long before it stopped restarts at the
 /// first backoff delay again.
 const HEALTHY_RUN: Duration = Duration::from_secs(30);
+/// Status reason after the person quit cmux Remote.
+const QUIT_REASON: &str =
+    "cmux Remote was quit; it starts again with the next request or the next cmux start";
 
 /// What the person turned on (`config.json`, kept for the next daemon start).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -172,6 +175,8 @@ struct Connection {
     status: Mutex<Value>,
     /// Set when the host's connection ended (it exited or drained).
     closed: (Mutex<bool>, std::sync::Condvar),
+    /// The person quit cmux Remote (its `quit` event): no restart on its own.
+    quit: std::sync::atomic::AtomicBool,
 }
 
 impl RemoteHostSupervisor {
@@ -493,6 +498,7 @@ impl Inner {
             next_id: std::sync::atomic::AtomicU64::new(1),
             status: Mutex::new(answer),
             closed: (Mutex::new(false), std::sync::Condvar::new()),
+            quit: std::sync::atomic::AtomicBool::new(false),
         });
         let reading = Arc::clone(&connection);
         std::thread::Builder::new()
@@ -523,6 +529,10 @@ impl Inner {
                 if let Some(waiting) = lock(&connection.pending).remove(&id) {
                     let _ = waiting.send(message);
                 }
+                continue;
+            }
+            if message.get("event").and_then(Value::as_str) == Some("quit") {
+                connection.quit.store(true, std::sync::atomic::Ordering::Relaxed);
                 continue;
             }
             if message.get("event").and_then(Value::as_str) == Some("status") {
@@ -591,7 +601,8 @@ impl Inner {
     }
 
     /// The host's connection ended (it exited, crashed or drained): forget it,
-    /// and start a new one after the backoff delay while one is wanted.
+    /// and start a new one after the backoff delay while one is wanted. A host
+    /// the person quit stays stopped until the next request or daemon start.
     fn host_gone(this: &Arc<Self>, connection: &Arc<Connection>) {
         // Fence the identity clear with the exact connection pointer. The
         // state and UUID transition are linearized together, so a replacement
@@ -619,6 +630,14 @@ impl Inner {
             && capture::may_remove_record(this, &connection.record)
         {
             let _ = std::fs::remove_file(paths.record());
+        }
+        if connection.quit.load(std::sync::atomic::Ordering::Relaxed) {
+            eprintln!(
+                "cmux-tui: cmux Remote pid {} was quit; not starting it again",
+                connection.pid
+            );
+            *lock(&this.unavailable) = Some(QUIT_REASON.into());
+            return;
         }
         if !lock(&this.config).wanted() || capture::require_open(this).is_err() {
             return;
@@ -847,7 +866,7 @@ impl crate::mux::Mux {
 #[cfg(test)]
 mod tests {
     use super::{
-        Connection, HostRecord, Inner, State, screen_device_id_from_status,
+        Connection, HostRecord, Inner, QUIT_REASON, State, screen_device_id_from_status,
         validated_screen_device_id,
     };
     use serde_json::{Value, json};
@@ -874,6 +893,7 @@ mod tests {
             next_id: std::sync::atomic::AtomicU64::new(1),
             status: Mutex::new(status),
             closed: (Mutex::new(false), Condvar::new()),
+            quit: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -1010,5 +1030,44 @@ mod tests {
             &*super::lock(&inner.state),
             State::Running(current) if Arc::ptr_eq(current, &second)
         ));
+    }
+
+    /// The daemon's reader for a host that writes `lines` and then exits.
+    fn read_until_exit(inner: &Arc<Inner>, running: &Arc<Connection>, lines: &str) {
+        use std::io::Write;
+        let (reader, mut host) = std::os::unix::net::UnixStream::pair().unwrap();
+        host.write_all(lines.as_bytes()).unwrap();
+        drop(host);
+        Inner::read(&Arc::downgrade(inner), running, std::io::BufReader::new(reader));
+    }
+
+    #[test]
+    fn a_host_the_person_quit_is_not_started_again() {
+        let inner = Arc::new(Inner::default());
+        super::lock(&inner.config).computer_use = true;
+        let running = Inner::install_running(&inner, connection(json!({}))).unwrap();
+
+        read_until_exit(&inner, &running, "{\"type\":\"event\",\"event\":\"quit\"}\n");
+
+        assert!(matches!(&*super::lock(&inner.state), State::Idle));
+        assert_eq!(super::lock(&inner.unavailable).as_deref(), Some(QUIT_REASON));
+        assert!(super::lock(&inner.backoff).is_none(), "a quit host must not schedule a restart");
+    }
+
+    #[test]
+    fn a_host_that_exits_without_quit_is_started_again() {
+        let inner = Arc::new(Inner::default());
+        super::lock(&inner.config).computer_use = true;
+        let running = Inner::install_running(&inner, connection(json!({}))).unwrap();
+
+        read_until_exit(
+            &inner,
+            &running,
+            "{\"type\":\"event\",\"event\":\"status\",\"status\":{}}\n",
+        );
+
+        assert!(matches!(&*super::lock(&inner.state), State::Idle));
+        assert_eq!(super::lock(&inner.unavailable).as_deref(), None);
+        assert!(super::lock(&inner.backoff).is_some(), "a crashed host restarts after the backoff");
     }
 }
