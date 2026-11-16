@@ -71,6 +71,7 @@ public final class StarPromptCenter {
         var next = record
         if next.firstLaunchAt == nil { next.firstLaunchAt = now() }
         next.launches += 1
+        if let shown = next.shownInLaunch, shown < next.launches { next.done = true }
         store(next)
     }
 
@@ -110,7 +111,8 @@ public final class StarPromptCenter {
 
     /// Whether `record` allows the ask at `date` (pure).
     public static func isEligible(_ record: StarPromptRecord, at date: Date, budgetOpen: Bool) -> Bool {
-        !record.done
+        guard !record.done, budgetOpen, record.launches >= minimumLaunches, let first = record.firstLaunchAt else { return false }
+        return date.timeIntervalSince(first) >= Double(minimumDays) * 86_400
     }
 
     /// DEV/NIGHTLY (`debug.updater {action: "star"}`, the Toast Playground): shows the card now, whatever the
