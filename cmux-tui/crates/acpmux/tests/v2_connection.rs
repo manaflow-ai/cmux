@@ -217,6 +217,15 @@ fn outside_session_file_sizes(root: &std::path::Path) -> BTreeMap<String, u64> {
     sizes
 }
 
+fn outside_file_summary(
+    samples: &Option<(BTreeMap<String, u64>, BTreeMap<String, u64>)>,
+) -> serde_json::Value {
+    match samples {
+        Some((first, last)) => json!({"first": first, "last": last}),
+        None => serde_json::Value::Null,
+    }
+}
+
 async fn daemon_hello_inner(socket: &std::path::Path) {
     let mut client = tokio::time::timeout(Duration::from_secs(30), UnixStream::connect(socket))
         .await
@@ -313,8 +322,8 @@ fn v2_pr09_listen_start() {
         "v2.pr09.listen_start startup phases small={} god={} outside files small={} god={}",
         startup_phase_summary(&startup_phases[0]),
         startup_phase_summary(&startup_phases[1]),
-        json!(outside_files[0]),
-        json!(outside_files[1])
+        outside_file_summary(&outside_files[0]),
+        outside_file_summary(&outside_files[1])
     );
     assert_eq!(forced_kills, 0, "daemon required force-kill during orderly gate stop");
     assert_eq!(chat_count(&god_fixture.path().join("sessions")), 527, "god fixture chats");
