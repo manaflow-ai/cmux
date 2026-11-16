@@ -187,22 +187,26 @@ test("a commit at rest reads a few frames, not IDLE_FRAMES; frames that keep mis
   budget.dispose();
 
   // Load that keeps coming in bursts, frames in budget between them: each burst's misses count toward the
-  // window although the loop stops between bursts, and the chat goes minimal as it did reading every frame.
+  // window although the loop stops between bursts, and the chat goes minimal as it did reading every frame. Its
+  // frames in budget after the burst that took it there settle the loop, and the mark goes as it stops.
   const again = createFrameBudget(chat, {
     now: () => now,
     frame: (callback) => queue.push(callback),
     cancel: () => {},
   });
-  for (let burst = 0; burst < 4 && !again.minimal; burst += 1) {
+  let wentMinimal = false;
+  for (let burst = 0; burst < 4 && !wentMinimal; burst += 1) {
     again.poke();
     run(FRAME);
     for (let index = 0; index < 3; index += 1) {
       again.poke();
       run(60);
+      wentMinimal ||= again.minimal;
     }
     drain(FRAME);
   }
-  expect(again.minimal).toBe(true);
+  expect(wentMinimal).toBe(true);
+  expect(again.minimal).toBe(false);
   again.dispose();
 });
 
