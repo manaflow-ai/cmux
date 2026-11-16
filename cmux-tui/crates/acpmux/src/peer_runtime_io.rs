@@ -89,6 +89,9 @@ impl Peer {
                 *self.pipelined_key.lock_or_recover() = Some(key.clone());
             }
         }
+        if m == crate::server::controls::METHOD && params.get("live") == Some(&Value::Bool(true)) {
+            self.controls_request(epoch.unwrap_or_else(|| self.link_epoch()), &key);
+        }
         // Only this link stamps a `dualId` (`peer_dual.rs`).
         let mut params = params;
         dual::drop_foreign_id(&mut params);
@@ -855,6 +858,7 @@ impl Peer {
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             // The peer's list stream feeds the index from here, when it lists one.
             me.start_mirror(link);
+            me.start_controls(link);
             // The path it is ready on is the one to dial first next time, also after a restart.
             me.note_ready_path();
             // What the last link bound to its connection and never answered, on this one.
@@ -967,6 +971,7 @@ impl Peer {
                     Result<Value, RpcError>,
                     oneshot::Sender<Result<Value, RpcError>>,
                 ) = ($key, $reply, $tx);
+                self.controls_reply(link, &key, &reply);
                 let watch = self.watch_key.lock_or_recover().take_if(|k| *k == key).is_some();
                 // The handshake's last step answered on this link, as a peer serving
                 // this daemon: GitHub actions are taken from here on, and the
@@ -1248,6 +1253,12 @@ impl Peer {
                         }
                         Message::Notification { method: m, params } => {
                             let p = params.unwrap_or(Value::Null);
+                            if m == crate::server::controls::NOTICE {
+                                if let Err(error) = self.controls_notice(link, p).await {
+                                    break Err(error.message);
+                                }
+                                continue;
+                            }
                             if matches!(m.as_str(), method::MUX_EVENT | method::SESSION_UPDATE) {
                                 let mut highwater = self.replay_highwater.lock_or_recover();
                                 let id = p.get("sessionId").and_then(Value::as_str);
@@ -1408,6 +1419,7 @@ impl Peer {
             }
         };
         handshake.abort();
+        self.stop_controls(link);
         result
     }
 }

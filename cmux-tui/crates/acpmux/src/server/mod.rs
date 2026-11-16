@@ -191,6 +191,7 @@ pub struct Conn {
     message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
+    controls: controls::Controls,
     watch_all: AtomicBool,
     watch_tools: AtomicBool,
     watch_inventory: StdMutex<bool>,
@@ -593,7 +594,11 @@ impl Conn {
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line_replying(reply_to) {
             Ok(line) => {
-                self.out.push(line);
+                if reply_to == Some(controls::METHOD) {
+                    self.controls.reply(self, msg, line);
+                } else {
+                    self.out.push(line);
+                }
             }
             Err(bytes) => self.left_out_too_large(msg.method(), bytes),
         }
@@ -1716,6 +1721,7 @@ async fn serve_connection_from(
         subs: StdMutex::new(HashMap::new()),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
+        controls: Default::default(),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         watch_inventory: StdMutex::new(false),
@@ -1952,6 +1958,8 @@ async fn serve_connection_from(
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
                     let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
+                    let controls_ready =
+                        m == controls::METHOD && result.is_ok() && conn.controls.ready();
                     // A shared session list, sent already as the bytes it was serialized to.
                     if !(sent.is_some() && result.is_ok()) {
                         let answer = result.map_err(|mut e| {
@@ -1966,8 +1974,8 @@ async fn serve_connection_from(
                     }
                     // A Mac that lends GitHub counts from here: its watch answer is queued, so
                     // no action reaches it before the answer that opens its side.
-                    if watched
-                        && conn.watch_all.load(Ordering::SeqCst)
+                    if (watched && conn.watch_all.load(Ordering::SeqCst)
+                        || (controls_ready && conn.controls.ready()))
                         && conn.client_requests.lends_github.load(Ordering::SeqCst)
                     {
                         hub.add_github_owner(&conn);
@@ -2142,6 +2150,7 @@ async fn refuse_unauthenticated(
 
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
+    conn.controls.event(hub, conn, &ev);
     if ev.record.kind == crate::hub::PEER_LAGGED {
         if conn.sub_opts(&ev.session_id).is_some() {
             conn.send(&Message::notification("_acpmux/lagged", ev.record.msg.clone()));
@@ -2389,6 +2398,7 @@ mod cancel_classes_tests;
 mod cancel_prompt_tests;
 mod client_request;
 mod clock_text;
+pub(crate) mod controls;
 mod in_flight;
 pub(crate) use change_kind::session_change_kind;
 pub(crate) use clock_text::{civil_from_days, iso};

@@ -54,6 +54,7 @@ pub(crate) fn status() -> Value {
         "connections": live.len(),
         "bytes": total,
         "overruns": outbound::OVERRUNS.load(Ordering::Relaxed),
+        "controlsResyncs": super::controls::RESYNCS.load(Ordering::Relaxed),
         "largest": top,
     })
 }

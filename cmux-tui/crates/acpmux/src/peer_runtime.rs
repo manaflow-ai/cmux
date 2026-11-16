@@ -72,6 +72,7 @@ impl Peer {
             github_broker: AtomicBool::new(false),
             github_slots: crate::github_broker::owner_slots(name),
             github_link: AtomicU64::new(0),
+            controls: StdMutex::new(None),
             github_revoked: tokio::sync::Notify::new(),
             github_app: std::sync::OnceLock::new(),
             file_put: AtomicBool::new(false),

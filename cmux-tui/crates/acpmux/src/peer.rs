@@ -54,6 +54,8 @@ mod tokens;
 #[path = "peer_wanted.rs"]
 mod wanted;
 use wanted::BackoffWait;
+#[path = "peer_controls.rs"]
+mod controls;
 #[path = "peer_runtime.rs"]
 mod runtime;
 #[path = "peer_runtime_io.rs"]
@@ -347,6 +349,7 @@ pub struct Peer {
     /// The link (`link_epoch` + 1; 0 for none) whose handshake's watch was answered by the peer
     /// serving this daemon as a peer: the only link a GitHub action is taken on.
     github_link: AtomicU64,
+    controls: StdMutex<Option<controls::Open>>,
     /// Wakes this peer's running GitHub actions when lending ends (`githubBroker` off, the link
     /// ended, the peer stopped), so they stop then rather than run on.
     github_revoked: tokio::sync::Notify,

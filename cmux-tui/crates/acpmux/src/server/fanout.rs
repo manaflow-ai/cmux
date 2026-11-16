@@ -86,6 +86,7 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
                     deliver(&hub, &conn, ev);
                 }
                 Err(broadcast::error::RecvError::Lagged(n)) => {
+                    conn.controls.resync(&conn, "lagged");
                     conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
                 }
                 Err(broadcast::error::RecvError::Closed) => break,

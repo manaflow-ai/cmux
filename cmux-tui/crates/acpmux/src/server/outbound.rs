@@ -63,13 +63,13 @@ impl Overrun {
 
 /// The queue's state, under its one lock.
 struct State {
-    queue: VecDeque<String>,
+    queue: VecDeque<Line>,
     /// Bytes queued and not yet taken by the transport's reader: [`State::queue`], the pump's
     /// lines, and [`State::sent`].
     held: usize,
     /// The sizes of the lines the pump sent to the transport that may still be in its channel,
     /// oldest first.
-    sent: VecDeque<usize>,
+    sent: VecDeque<(usize, Option<super::controls::Ticket>)>,
     /// Lines the pump took and has not sent yet (waiting for the durable gate, or for room).
     taken: usize,
     /// The transport, to read its room. Weak: once the pump ends, nothing holds it open.
@@ -91,7 +91,7 @@ impl State {
         };
         let in_channel = self.capacity.saturating_sub(transport.capacity());
         while self.sent.len() > in_channel {
-            let Some(size) = self.sent.pop_front() else { break };
+            let Some((size, _ticket)) = self.sent.pop_front() else { break };
             self.held = self.held.saturating_sub(size);
         }
     }
@@ -112,11 +112,11 @@ impl Shared {
     }
 
     /// Queues `line` with the lock held; false (and nothing queued) once it overran.
-    fn push_locked(&self, state: &mut State, line: String) -> bool {
+    fn push_locked(&self, state: &mut State, line: Line) -> bool {
         if state.overrun.is_some() || state.ended {
             return false;
         }
-        let size = line.len();
+        let size = line.text.len();
         if state.held + size > self.bound {
             state.settle();
         }
@@ -130,7 +130,7 @@ impl Shared {
             );
             OVERRUNS.fetch_add(1, Ordering::Relaxed);
             state.overrun = Some(overrun);
-            state.held = state.sent.iter().sum();
+            state.held = state.sent.iter().map(|(size, _)| size).sum();
             state.queue = VecDeque::new();
             self.closed.send_replace(true);
             self.wake.notify_one();
@@ -144,7 +144,7 @@ impl Shared {
 
     /// Takes every queued line into `batch`; false once there is nothing more to send (every
     /// handle is gone and the queue is empty, or it overran).
-    async fn take(&self, batch: &mut Vec<String>) -> bool {
+    async fn take(&self, batch: &mut Vec<Line>) -> bool {
         loop {
             {
                 let mut state = self.lock();
@@ -189,11 +189,25 @@ pub(super) struct Queue<'a> {
 
 impl Queue<'_> {
     pub(super) fn push(&mut self, line: String) -> bool {
-        self.shared.push_locked(&mut self.state, line)
+        self.shared.push_locked(&mut self.state, Line { text: line, ticket: None })
     }
 }
 
+/// A control ticket stays held through the pump and the transport channel.
+pub(super) struct Line {
+    pub(super) text: String,
+    pub(super) ticket: Option<super::controls::Ticket>,
+}
+
 impl Outbound {
+    pub(super) fn push_control(&self, line: Line) -> bool {
+        self.shared.push_locked(&mut self.shared.lock(), line)
+    }
+
+    pub(super) fn settle(&self) {
+        self.shared.lock().settle();
+    }
+
     /// Queues `line`; false when the connection overran or its reader is gone.
     pub(super) fn push(&self, line: String) -> bool {
         self.lock().push(line)
@@ -274,13 +288,13 @@ impl Drop for Pump {
 
 impl Pump {
     /// See [`Shared::take`].
-    pub(super) async fn take(&self, batch: &mut Vec<String>) -> bool {
+    pub(super) async fn take(&self, batch: &mut Vec<Line>) -> bool {
         self.shared.take(batch).await
     }
 
     /// Sends `line` to the transport once it has room, keeping its last slot free; false when its
     /// reader is gone or the queue overran.
-    pub(super) async fn forward(&self, line: String) -> bool {
+    pub(super) async fn forward(&self, line: Line) -> bool {
         let keep = if self.transport.max_capacity() > 1 { 2 } else { 1 };
         let mut closed = self.shared.closed.subscribe();
         let room = tokio::select! {
@@ -290,14 +304,14 @@ impl Pump {
         };
         let Ok(mut room) = room else { return false };
         let Some(permit) = room.next() else { return false };
-        let size = line.len();
+        let size = line.text.len();
         let mut state = self.shared.lock();
         if state.overrun.is_some() {
             return false;
         }
-        permit.send(line);
+        permit.send(line.text);
         state.taken = state.taken.saturating_sub(1);
-        state.sent.push_back(size);
+        state.sent.push_back((size, line.ticket));
         // Forget what the reader took meanwhile, so `sent` stays as short as the channel.
         state.settle();
         true

@@ -1332,6 +1332,18 @@ async fn dispatch_request_with_identity(
                 features.push(json!(crate::link_v2::FEATURE));
                 features.push(json!(acpmux_core::hub::PEER_PAGES_FEATURE));
             }
+            if super::controls::offered(hub, conn) {
+                if let Some(features) =
+                    reply.pointer_mut("/_meta/acpmux/features").and_then(Value::as_array_mut)
+                {
+                    features.push(json!(super::controls::FEATURE));
+                }
+                if let Some(extensions) =
+                    reply.pointer_mut("/_meta/acpmux/extensions").and_then(Value::as_array_mut)
+                {
+                    extensions.push(json!(super::controls::METHOD));
+                }
+            }
             // The daemon's v2 list holds the hub machines' rows (`hub/list_tee.rs`): a fact of
             // its index, named on every connection.
             if hub.v2_lists_hub_rows()
@@ -3309,6 +3321,7 @@ async fn dispatch_request_with_identity(
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
         // A lending Mac counts once this answer is queued (`server/mod.rs`, `github_owner.rs`).
+        super::controls::METHOD => super::controls::handle(hub, conn, &params),
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => {
             events::handle(hub, m, &params, conn.caller())
