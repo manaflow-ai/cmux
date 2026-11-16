@@ -88,12 +88,12 @@ def terminals(workspace):
 
 
 def drawn(pane):
-    terminal = pane.get("terminal") or {}
-    return bool(terminal.get("in_window")) and not terminal.get("hidden")
+    surface = pane.get("surface") or {}
+    return bool(pane.get("content_in_window")) and bool(surface.get("exists")) and bool(surface.get("in_window")) and not surface.get("hidden")
 
 
 def text_of(pane):
-    return json.dumps(pane)  # the mirror's viewport text is one of the pane's fields
+    return pane.get("text") or ""  # the view's own viewport text (`debug.surfaces {text}`)
 
 
 checks, notes = {}, {}
@@ -145,7 +145,7 @@ views = wait(lambda: (v := terminals(x)) and len(v) == 2 and all(any(drawn(p) fo
 ids = sorted({p.get("terminal_id") for panes in views for p in panes if drawn(p)} - {None})
 judge("one-terminal-two-views", len(views) == 2 and len(ids) == 1 and all(any(drawn(p) for p in panes) for panes in views),
       {"windows_drawing": len(views), "terminal_ids": ids,
-       "panes": [[{k: p.get(k) for k in ("pane", "kind", "phase", "terminal_id")} for p in panes] for panes in views]})
+       "panes": [[{k: p.get(k) for k in ("pane", "kind", "phase", "terminal_id", "attach", "link")} for p in panes] for panes in views]})
 
 # 3. Keys in B's terminal reach both views.
 rpc("debug.window.focus", {"window": b})
