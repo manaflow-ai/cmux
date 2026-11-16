@@ -11,20 +11,26 @@ import CmuxNextWakeups
 import Foundation
 import LocalAuthentication
 
-/// This Mac's join consent in the app (contract §5): the join status from the bundled cmux-tui's acpmux
-/// (`acp host join --status --json`), and the consent record over a person-proof acpmux line
-/// (`_acpmux/machine_consent_get` and `_set`, under `machine-consent-v1`). acpmux changes the record only
-/// for a connection proven as the person on its local socket (the Full access pattern); no command line
-/// can, so the app calls it directly.
+/// This Mac's join consent in the app (contract §5): the join status (`acp host join --status --json`) and the consent
+/// record over a person-proof acpmux line (`_acpmux/machine_consent_get`, `_set`), which acpmux changes only for a
+/// connection proven as the person on its local socket (the Full access pattern; no command line can).
 extension JoinConsentServices {
     static let askShownKey = "cmux.join.consentAskShown"
 
     static func app(_ services: AppServices) -> JoinConsentServices {
-        let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment))
-            .map { HostCLI(binary: $0, environment: SSHService.environment) }
+        let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)).map { HostCLI(binary: $0, environment: SSHService.environment) }
         #if DEBUG
         let fixtures = services.debugFixtures
         #endif
+        // A person-proof line, `deadline` for the whole connection (45 s: calls that reach other machines).
+        let open = { @MainActor [weak services] (deadline: Duration) async -> (any JoinConsentLine)? in
+            #if DEBUG
+            if fixtures.joinStatus != nil { return fixtures.joinLine }
+            #endif
+            guard let services, let environment = QuitAgents.environment(services),
+                  let line = await AcpmuxPersonLine.open(environment, deadline: deadline) else { return nil }
+            return JoinConsentPersonLine(line)
+        }
         return JoinConsentServices(
             status: {
                 #if DEBUG
@@ -34,15 +40,9 @@ extension JoinConsentServices {
                 else { return nil }
                 return JoinStatus.parse(data)
             },
-            openLine: { [weak services] in
-                #if DEBUG
-                if fixtures.joinStatus != nil { return fixtures.joinLine }
-                #endif
-                guard let services, let environment = QuitAgents.environment(services),
-                      let line = await AcpmuxPersonLine.open(environment) else { return nil }
-                return JoinConsentPersonLine(line)
-            },
+            openLine: { await open(.seconds(5)) },
             enabled: { [weak services] in services?.settings?.snapshot.machineJoin == true },
+            openLongLine: { await open(.seconds(45)) },
             settingsEpoch: { [weak services] in services?.settings?.loadCount ?? -1 },
             confirmOwner: { surface in
                 // Touch ID or the login password, every grant (LocalDeviceOwnerAuthenticator, as the

@@ -72,7 +72,9 @@ public import Foundation
                 throw PageError.invalidParams("id and on (true, false or null) are required")
             }
             let value = on.boolValue
-            error = try await widen("remoteControl \(id)", value == true, context, RemoteControlStrings.confirmReason) { [actions] _ in
+            // SECURITY: null (back to the account-wide grant) turns the machine on when the account is on, so
+            // it takes the person's gesture and Touch ID as an on does; only an off narrows.
+            error = try await widen("remoteControl \(id)", value != false, context, RemoteControlStrings.confirmReason) { [actions] _ in
                 await actions.setMachine(id, value)
             }
         case "cmux.settings.devices.remote_control_account":

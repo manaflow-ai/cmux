@@ -286,7 +286,11 @@ public final class RemoteControlConsent {
         guard let grant = await services.sign(account, "*", "*", on, services.thisMacName()) else { return RemoteControlStrings.noKey }
         switch await services.call("_acpmux/consent_account_set", ["grant": grant]) {
         case .failure(let error): return error.message ?? RemoteControlStrings.setFailed
-        case .success(let answer): return Self.refusal(answer)
+        case .success(let answer):
+            if let own = answer["self"] as? [String: Any], own["ok"] as? Bool == false {
+                return (own["error"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? RemoteControlStrings.setFailed
+            }
+            return Self.refusal(answer)
         }
     }
 
@@ -407,7 +411,10 @@ public final class RemoteControlConsent {
             let reason = answer["reason"] as? String
             if reason == "grant.unpinned" {
                 // The target recorded this Mac's ask: its person allows it once, matching the words.
-                asks[machine.id] = (answer["words"] as? [String]).map { Array($0.prefix(4)) } ?? status.selfWords ?? []
+                // SECURITY: the words shown here are this Mac's own key's, from this Mac's acpmux
+                // (`self`), never the far answer's: whoever answered the dial could name another key's
+                // words, and the person's comparison on the target is the only check of the key.
+                asks[machine.id] = status.selfWords ?? []
                 return nil
             }
             if reason == "machine.unreachable" { return RemoteControlStrings.offline }

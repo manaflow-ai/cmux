@@ -287,6 +287,9 @@ public struct JoinConsentServices {
     public var status: @MainActor () async -> JoinStatus?
     /// A person-proof line to this Mac's acpmux; nil when no acpmux answers.
     public var openLine: @MainActor () async -> (any JoinConsentLine)?
+    /// ``openLine`` with room for a request acpmux answers only after reaching other machines (up to
+    /// its 20 s carrier wait each): Control between my devices' reads and sets. nil: ``openLine``.
+    public var openLongLine: (@MainActor () async -> (any JoinConsentLine)?)?
     /// `labs.machineJoin`.
     public var enabled: @MainActor () -> Bool
     /// Moves on every settings load (`SettingsController.loadCount`): a grant is sent only when no load
@@ -301,11 +304,13 @@ public struct JoinConsentServices {
     public var markAskShown: @MainActor () -> Void
 
     public init(status: @escaping @MainActor () async -> JoinStatus?, openLine: @escaping @MainActor () async -> (any JoinConsentLine)?,
-                enabled: @escaping @MainActor () -> Bool, settingsEpoch: @escaping @MainActor () -> Int = { 0 },
+                enabled: @escaping @MainActor () -> Bool, openLongLine: (@MainActor () async -> (any JoinConsentLine)?)? = nil,
+                settingsEpoch: @escaping @MainActor () -> Int = { 0 },
                 confirmOwner: @escaping @MainActor (JoinConsentSurface) async -> JoinConsentConfirm = JoinConsentServices.cannotConfirm,
                 askShown: @escaping @MainActor () -> Bool, markAskShown: @escaping @MainActor () -> Void) {
         self.status = status
         self.openLine = openLine
+        self.openLongLine = openLongLine
         self.enabled = enabled
         self.settingsEpoch = settingsEpoch
         self.confirmOwner = confirmOwner
@@ -589,8 +594,9 @@ public final class JoinConsentModel {
 
     /// One request over a line acpmux proved as the person (Control from this Mac's status and sets): its
     /// result, or the error to show (nil words: no answer). Nothing goes out over a line that is not the person's.
-    public func personCall(_ method: String, _ params: [String: Any]) async -> Result<[String: Any], RemoteControlCallError> {
-        guard let line = await services.openLine() else { return .failure(RemoteControlCallError(nil)) }
+    public func personCall(_ method: String, _ params: [String: Any], long: Bool = true) async -> Result<[String: Any], RemoteControlCallError> {
+        let open = long ? (services.openLongLine ?? services.openLine) : services.openLine
+        guard let line = await open() else { return .failure(RemoteControlCallError(nil)) }
         defer { line.close() }
         guard line.isPerson else { return .failure(RemoteControlCallError(nil)) }
         return await line.call(method, params)
@@ -602,8 +608,10 @@ public final class JoinConsentModel {
     /// False on any error, a missing answer, or a line that is not the person's: the panel asks as before.
     /// The hub's user id is a sign-in provider's id, not the account id acpmux knows, so it is not sent.
     public func screenAuto(control: Bool, viewerId: String, viewerName: String) async -> Bool {
+        // With the Labs switch off this Mac shows no joined consent, so nothing skips the panel.
+        guard services.enabled() else { return false }
         let params: [String: Any] = ["surface": control ? "control" : "screen", "viewerId": viewerId, "viewerName": viewerName]
-        guard case .success(let answer) = await personCall("_acpmux/consent_screen_auto", params) else { return false }
+        guard case .success(let answer) = await personCall("_acpmux/consent_screen_auto", params, long: false) else { return false }
         return answer["allowed"] as? Bool == true
     }
 
