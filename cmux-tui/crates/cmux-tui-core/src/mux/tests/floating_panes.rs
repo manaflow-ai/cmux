@@ -9,6 +9,7 @@ use crate::workspace_registry::RegistryRow;
 use std::path::PathBuf;
 
 mod acts;
+mod follow;
 mod load;
 
 fn open_restart_mux(root: &Path, session: &str) -> Arc<Mux> {
@@ -27,6 +28,18 @@ fn seed(name: &str, edit: impl FnOnce(&mut RegistryScreen)) -> (PathBuf, String)
     let root = std::env::temp_dir()
         .join(format!("cmux-floating-{name}-{}", WorkspacePublicId::random().unwrap()));
     let session = format!("floating-{name}");
+    let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
+    commit_fixture(&mut registry, &format!("seed-floating-{name}"), Some(0), edit);
+    (root, session)
+}
+
+/// Commits the restore fixture on `registry` as the mutation `id`, with its first screen changed by `edit`.
+fn commit_fixture(
+    registry: &mut WorkspaceRegistry,
+    id: &str,
+    expected_revision: Option<u64>,
+    edit: impl FnOnce(&mut RegistryScreen),
+) {
     let (fixture_snapshot, mut fixture_topology) = resource_restore_fixture();
     let screen = fixture_topology
         .screens
@@ -34,20 +47,18 @@ fn seed(name: &str, edit: impl FnOnce(&mut RegistryScreen)) -> (PathBuf, String)
         .find(|screen| screen.public_id == restore_screen_id(1))
         .unwrap();
     edit(screen);
-    let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::daemon(format!("seed-floating-{name}"), "test").unwrap(),
+            &WorkspaceMutation::daemon(id.to_owned(), "test").unwrap(),
             "session.restore_fixture",
             &serde_json::json!({"fixture":"floating"}),
             None,
-            Some(0),
+            expected_revision,
             &resource_restore_patch(&fixture_snapshot, &fixture_topology),
             &serde_json::json!({"restored":true}),
             &serde_json::json!([{"event":"session.restored"}]),
         )
         .unwrap();
-    (root, session)
 }
 
 /// The stored list of the fixture's first screen.
@@ -184,6 +195,11 @@ fn floating_panes_in_the_store_follow_a_focus_and_a_close() {
     };
 
     let mux = open_restart_mux(&root, &session);
+    assert_eq!(
+        mux.float_pane_as(&Actor::Daemon, live_pane(&mux, &one), FloatMode::On, None, None),
+        Err(FloatPaneError::FixedPane),
+        "a member of a stack never floats"
+    );
     for pane in [&right, &low] {
         mux.float_pane_as(&Actor::Daemon, live_pane(&mux, pane), FloatMode::On, None, None)
             .unwrap();

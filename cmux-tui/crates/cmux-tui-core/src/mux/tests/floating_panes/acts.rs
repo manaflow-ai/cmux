@@ -7,10 +7,11 @@ use super::*;
 use crate::model::{ColumnDock, DockEdge, DockMode};
 
 /// The frame of a new floating pane that brings none: 60 percent wide and high in the middle.
-const CENTERED: FloatFrame = FloatFrame { x: 200_000, y: 200_000, w: 600_000, h: 600_000 };
+pub(super) const CENTERED: FloatFrame =
+    FloatFrame { x: 200_000, y: 200_000, w: 600_000, h: 600_000 };
 
 /// A mux with one workspace whose screen has `count` panes side by side. Returns the panes from left to right.
-fn mux_with_panes(count: usize) -> (Arc<Mux>, Vec<PaneId>) {
+pub(super) fn mux_with_panes(count: usize) -> (Arc<Mux>, Vec<PaneId>) {
     let mux = test_mux();
     let first = mux.new_workspace(None, Some((80, 22))).unwrap();
     let mut panes = vec![mux.with_state(|state| state.pane_of(first.id).unwrap())];
@@ -26,7 +27,7 @@ fn pane_right_of(mux: &Arc<Mux>, target: PaneId) -> PaneId {
     mux.with_state(|state| state.pane_of(surface.id).unwrap())
 }
 
-fn float(
+pub(super) fn float(
     mux: &Arc<Mux>,
     pane: PaneId,
     mode: FloatMode,
@@ -35,7 +36,7 @@ fn float(
 }
 
 /// Gives `pane` a frame. `transaction` is the transaction of control client 7.
-fn float_at(
+pub(super) fn float_at(
     mux: &Arc<Mux>,
     pane: PaneId,
     frame: FloatFrame,
@@ -46,12 +47,12 @@ fn float_at(
 }
 
 /// The list of the first screen, back to front.
-fn list(mux: &Mux) -> Vec<Floating<PaneId>> {
+pub(super) fn list(mux: &Mux) -> Vec<Floating<PaneId>> {
     mux.with_state(|state| state.workspaces[0].screens[0].floating.clone())
 }
 
 /// The floating panes of the first screen, back to front.
-fn floating(mux: &Mux) -> Vec<PaneId> {
+pub(super) fn floating(mux: &Mux) -> Vec<PaneId> {
     list(mux).into_iter().map(|entry| entry.pane).collect()
 }
 

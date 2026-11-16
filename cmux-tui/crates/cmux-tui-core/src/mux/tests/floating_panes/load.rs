@@ -56,6 +56,22 @@ fn floating_pane_record_with_a_wrong_value_is_dropped_and_the_load_goes_on() {
             .floating;
         assert_eq!(stored, good, "{fault}: only the record with the fault is dropped");
 
+        // A commit that states the screen with the list of the load. It changes no row and no entry of the
+        // list, so only the record with the fault makes the table differ from the list: the commit writes
+        // the list, and the record goes.
+        let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
+        commit_fixture(&mut registry, &format!("again-floating-wrong-{index}"), None, |seeded| {
+            seeded.floating = good.clone();
+        });
+        let records = registry
+            .query_text_for_test(&format!(
+                "SELECT group_concat(CAST(pane_id AS TEXT), ',') FROM resource_floating_panes
+                 WHERE screen_id = '{screen}'"
+            ))
+            .unwrap();
+        assert_eq!(records, right.to_string(), "{fault}: the screen has 1 record, the good one");
+        drop(registry);
+
         let mux = open_restart_mux(&root, &session);
         assert_eq!(live_list(&mux), good, "{fault}");
         mux.float_pane_as(&Actor::Daemon, live_pane(&mux, &right), FloatMode::Off, None, None)
@@ -74,31 +90,113 @@ fn floating_pane_record_with_a_wrong_value_is_dropped_and_the_load_goes_on() {
     }
 }
 
-/// Records for each pane of the screen: the load keeps one pane tiled, as the rules of the list say.
+fn panes_of(list: Vec<Floating<PanePublicId>>) -> Vec<PanePublicId> {
+    list.into_iter().map(|entry| entry.pane).collect()
+}
+
+/// Records for each pane of the screen: the load keeps one pane tiled, as the rules of the list say. The
+/// screen has 2 panes that can float, and a build that this build does not know wrote a record for each.
 #[test]
 fn floating_pane_records_keep_one_tiled_pane_at_load() {
-    let order = [4, 3, 1, 2].map(restore_pane_id);
-    let (root, session) = seed("ground", |screen| {
-        screen.floating = order
-            .iter()
-            .map(|pane| Floating {
-                pane: pane.clone(),
-                frame: FloatFrame::centered(500_000, 500_000),
-            })
-            .collect();
-    });
-    let panes = |list: Vec<Floating<PanePublicId>>| {
-        list.into_iter().map(|entry| entry.pane).collect::<Vec<_>>()
-    };
+    let [one, two, low, right] = [1, 2, 3, 4].map(restore_pane_id);
+    let screen = restore_screen_id(1);
+    let (root, session) = seed("ground", |_| {});
+    // The 2 members of the stack close: the low pane and the right pane are the panes of the screen.
+    let mux = open_restart_mux(&root, &session);
+    for pane in [&one, &two] {
+        assert!(mux.close_pane(live_pane(&mux, pane)).unwrap());
+    }
+    mux.shutdown();
+    drop(mux);
+    stage(
+        &root,
+        &session,
+        &format!(
+            "INSERT INTO resource_floating_panes(screen_id, pane_id, position, x, y, w, h)
+             VALUES('{screen}', '{right}', 0, 250000, 250000, 500000, 500000),
+                   ('{screen}', '{low}', 1, 250000, 250000, 500000, 500000);"
+        ),
+    );
 
-    let stored = panes(stored_list(&root, &session));
-    assert!(stored.len() < order.len(), "one pane of the screen stays tiled: {stored:?}");
-    assert_eq!(stored[..2], order[..2], "the list keeps its order from the back");
+    let stored = panes_of(stored_list(&root, &session));
+    assert_eq!(stored, [right.clone()], "the front pane stays tiled, the pane behind floats");
 
     let mux = open_restart_mux(&root, &session);
-    let live = panes(live_list(&mux));
-    assert!(live.len() < order.len(), "one pane of the screen stays tiled: {live:?}");
-    assert_eq!(live[..2], order[..2]);
+    assert_eq!(panes_of(live_list(&mux)), [right]);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A record of a pane that never floats is dropped at the load: a build that this build does not know put the
+/// pane into a stack, or gave its column rows, after the pane floated. The records of the other panes stay.
+#[test]
+fn floating_pane_record_of_a_pane_that_never_floats_is_dropped_at_load() {
+    let [one, low, right] = [1, 3, 4].map(restore_pane_id);
+    let records = |panes: &[&PanePublicId]| {
+        panes
+            .iter()
+            .map(|pane| Floating {
+                pane: (*pane).clone(),
+                frame: FloatFrame::centered(500_000, 500_000),
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // Pane 1 is a member of the stack of the first column.
+    let (root, session) = seed("never-stack", |screen| {
+        screen.floating = records(&[&one, &right]);
+    });
+    assert_eq!(panes_of(stored_list(&root, &session)), [right.clone()], "a member of a stack");
+    let mux = open_restart_mux(&root, &session);
+    assert_eq!(panes_of(live_list(&mux)), [right.clone()], "a member of a stack, live");
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+
+    // The first column has 2 rows; the low pane is the pane of its second row.
+    let (root, session) = seed("never-rows", |screen| {
+        screen.viewport.columns[0].rows = vec![
+            RegistryRow { id: restore_split_id(9), height: 700 },
+            RegistryRow { id: restore_split_id(1), height: 300 },
+        ];
+        screen.floating = records(&[&low, &right]);
+    });
+    assert_eq!(panes_of(stored_list(&root, &session)), [right.clone()], "a column with rows");
+    let mux = open_restart_mux(&root, &session);
+    assert_eq!(panes_of(live_list(&mux)), [right], "a column with rows, live");
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A floating pane is never zoomed. A build that this build does not know zoomed a pane that floats: the load
+/// ends the zoom and keeps the record.
+#[test]
+fn floating_pane_record_of_the_zoomed_pane_ends_the_zoom_at_load() {
+    let low = restore_pane_id(3);
+    let (root, session) = seed("zoom", |screen| {
+        assert_eq!(screen.zoomed_pane, Some(low.clone()), "the fixture zooms the low pane");
+        screen.floating =
+            vec![Floating { pane: low.clone(), frame: FloatFrame::centered(500_000, 500_000) }];
+    });
+
+    let stored = WorkspaceRegistry::open(&root, &session)
+        .unwrap()
+        .resource_topology_snapshot()
+        .unwrap()
+        .screens
+        .into_iter()
+        .find(|stored| stored.public_id == restore_screen_id(1))
+        .unwrap();
+    assert_eq!(panes_of(stored.floating), [low.clone()], "the pane floats");
+    assert_eq!(stored.zoomed_pane, None, "the load ends the zoom");
+
+    let mux = open_restart_mux(&root, &session);
+    assert_eq!(panes_of(live_list(&mux)), [low]);
+    mux.with_state(|state| {
+        assert_eq!(state.workspaces[0].screens[0].zoomed_pane, None, "no zoom in the live screen");
+    });
     mux.shutdown();
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
