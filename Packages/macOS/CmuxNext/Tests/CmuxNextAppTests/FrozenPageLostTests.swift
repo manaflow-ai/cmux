@@ -18,7 +18,7 @@ import Testing
         let keys = try await rig.pages(["lost", "other"])
         let key = keys[0]
         let page = try #require(rig.services.cache.browsers[key]?.tab as? WebKitTab)
-        try await rig.until("the hidden page freezes") { rig.hibernation.frozen.contains(key) }
+        try await rig.until("the hidden page freezes") { rig.hibernation.frozen.contains(key) && page.isFrozen }
         guard case .pids(let pids) = page.contentProcesses, let pid = pids.first else {
             Issue.record("the frozen page has no web process")
             return

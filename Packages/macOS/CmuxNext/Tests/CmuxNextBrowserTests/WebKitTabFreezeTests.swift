@@ -32,29 +32,34 @@ import WebKit
         #expect(live.entries[live.current].scrollY == 300)
 
         #expect(tab.setFrozen(true))
+        #expect(tab.isFrozen)
+        #expect(!tab.setFrozen(true), "a frozen page froze twice")
         // The history writer's save (`BrowserHistoryWriter.flushNow`), the call that crashed.
         #expect(await tab.currentScrollY() == nil)
         let frozen = try #require(await tab.savedSession(measuringScroll: true))
         #expect(frozen.entries.map(\.url) == live.entries.map(\.url))
         #expect(frozen.entries[frozen.current].scrollY == 300, "the frozen tab's session lost its last known scroll")
-        await #expect(throws: BrowserTabError.self) { try await tab.evaluate("1", world: .isolated, gesture: .cmux) }
-        await #expect(throws: BrowserTabError.self) { try await tab.evaluate("1", world: .page, gesture: .agent) }
-        await #expect(throws: BrowserTabError.self) { try await tab.callFunction("return 1", gesture: .cmux) }
-        await #expect(throws: BrowserTabError.self) { try await tab.callFunction("return 1", gesture: .agent) }
-        await #expect(throws: BrowserTabError.self) { try await tab.snapshot() }
+        await #expect(throws: BrowserTabError.frozen) { try await tab.evaluate("1", world: .isolated, gesture: .cmux) }
+        await #expect(throws: BrowserTabError.frozen) { try await tab.evaluate("1", world: .page, gesture: .agent) }
+        await #expect(throws: BrowserTabError.frozen) { try await tab.callFunction("return 1", gesture: .cmux) }
+        await #expect(throws: BrowserTabError.frozen) { try await tab.callFunction("return 1", gesture: .agent) }
+        await #expect(throws: BrowserTabError.frozen) { try await tab.snapshot() }
         #expect(await tab.find("tall", direction: .forward, caseSensitive: false) == .none)
         tab.clearFind()
         tab.exitContentFullscreen()
 
         // A command WebKit refuses on a suspended page resumes it first.
         tab.stop()
+        #expect(!tab.isFrozen)
         #expect(try await tab.evaluate("6 * 7", world: .page, gesture: .cmux) == .number(42))
         #expect(tab.setFrozen(true))
         tab.reload()
+        #expect(!tab.isFrozen)
         #expect(try await tab.evaluate("6 * 7", world: .page, gesture: .agent) == .number(42))
         // Another tab of the site zoomed (`SiteZoomFollower`).
         #expect(tab.setFrozen(true))
         tab.setZoom(1.25)
+        #expect(!tab.isFrozen)
         #expect(tab.webView.pageZoom == 1.25)
         // A hidden tab closed while frozen (the `defer`) stops its load on a live page.
         #expect(tab.setFrozen(true))
@@ -71,14 +76,19 @@ import WebKit
             Issue.record("the loaded page has no web process")
             return tab.close()
         }
+        let lost = Counter()
+        tab.onFrozenPageLost = { lost.count += 1 }
         #expect(tab.setFrozen(true))
         #expect(kill(pid, SIGKILL) == 0)
         for _ in 0..<600 where tab.state.processExit == nil { try await Task.sleep(for: .milliseconds(25)) }
         try #require(tab.state.processExit != nil, "the killed page never reported its end")
+        #expect(lost.count == 1)
+        #expect(tab.isFrozen, "WebKit keeps a page suspended once its process ended")
+        #expect(!tab.setFrozen(false))
 
         #expect(await tab.savedSession(measuringScroll: true) != nil)
-        await #expect(throws: BrowserTabError.self) { try await tab.evaluate("1", world: .page, gesture: .agent) }
-        await #expect(throws: BrowserTabError.self) { try await tab.snapshot() }
+        await #expect(throws: BrowserTabError.frozen) { try await tab.evaluate("1", world: .page, gesture: .agent) }
+        await #expect(throws: BrowserTabError.frozen) { try await tab.snapshot() }
         #expect(tab.hibernationState() != nil, "the lost page's history is gone")
         tab.reload()
         tab.load(try #require(URL(string: "https://freeze.example/next")))
