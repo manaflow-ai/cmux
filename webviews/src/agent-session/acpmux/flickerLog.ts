@@ -19,6 +19,8 @@
 //   (`what`: row or tool, `kind`): it draws again from nothing, a flash where nothing changed.
 // - `reply-unpainted`: a turn ended with a reply the chat holds, and once the page settled the
 //   followed view did not paint it (conversation/replyPainted.ts): `why` and the row's height `h`.
+// - `focus-lost`: a text input lost the keyboard with no key or click in the last half second
+//   (focusLossWatch.ts): `cause`, `what`, `to`; the app also writes it to its focus log.
 //
 // Frames are timed only while the page changes: a DOM mutation arms a frame watch that stops a
 // second after the last one, never a loop that runs while the page is still.
@@ -29,6 +31,7 @@
 // handler, and tests that hand it no sender, send nothing. Before the page host sent them (Leo's
 // NIGHTLY, 2026-11-11), the ring file held no page line at all, only the app's own.
 
+import { watchFocusLoss } from "./focusLossWatch";
 import { postNative } from "./native";
 
 export type FlickerEvent = { kind: string; at: number } & Record<string, string | number | boolean>;
@@ -345,4 +348,6 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
     if (doc.visibilityState === "visible") watch.arm();
   });
   win.addEventListener("pagehide", () => flicker.flush());
+  // A text input that loses the keyboard with no key or click: the app's focus log (focusLossWatch.ts).
+  watchFocusLoss(win, (fields) => flicker.record("focus-lost", fields));
 }
