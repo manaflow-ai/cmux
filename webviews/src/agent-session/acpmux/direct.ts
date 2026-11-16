@@ -2799,19 +2799,17 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     }
     prepend.pending = [];
     page.sort((a, b) => key(a) - key(b) || a.at - b.at);
-    const merged: AcpmuxRow[] = new Array(page.length + ordered.length);
+    const merged: AcpmuxRow[] = [];
     let left = 0;
     let right = 0;
-    let out = 0;
     while (left < page.length && right < ordered.length) {
       const a = page[left]!;
       const b = ordered[right]!;
-      if (key(a) - key(b) < 0 || (key(a) === key(b) && a.at <= b.at)) merged[out++] = page[left++]!;
-      else merged[out++] = ordered[right++]!;
+      if (key(a) - key(b) < 0 || (key(a) === key(b) && a.at <= b.at)) merged.push(page[left++]!);
+      else merged.push(ordered[right++]!);
     }
-    while (left < page.length) merged[out++] = page[left++]!;
-    while (right < ordered.length) merged[out++] = ordered[right++]!;
-    merged.length = out;
+    while (left < page.length) merged.push(page[left++]!);
+    while (right < ordered.length) merged.push(ordered[right++]!);
     this.ordered = merged;
     this.orderedIndex = new Map();
     for (let index = 0; index < merged.length; index += 1) this.orderedIndex.set(merged[index]!.id, index);
