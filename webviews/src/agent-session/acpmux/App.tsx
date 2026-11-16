@@ -7131,6 +7131,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       pendingAdoption.current = adoption;
       return;
     }
+    // A chat on the store opens its rows around that place (direct.ts `restAt`).
+    directClient.current?.restAt(sessionId, anchor?.rowId ?? null);
     setScrollAnchor(anchor);
     await adopt({ sessionId }).then(
       (selected) => {
@@ -8224,6 +8226,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               ? undefined
               : await fetchScrollAnchor(host.sessionId);
           if (cancelled) return;
+          if (host.sessionId) directClient.current?.restAt(host.sessionId, anchor?.rowId ?? null);
           setScrollAnchor(anchor);
         }
         // Reconnect handshakes for an existing session do not carry its cwd. Keep the current
@@ -11747,8 +11750,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     onAnchor={
                                                                       quick || childRows || !shownSessionId
                                                                         ? undefined
-                                                                        : (anchor) =>
-                                                                            postScrollAnchor(shownSessionId, anchor)
+                                                                        : (anchor) => {
+                                                                            // The client reads where the pane rests (a chat on the store re-confirms its rows there).
+                                                                            directClient.current?.restAt(
+                                                                              shownSessionId,
+                                                                              anchor?.rowId ?? null,
+                                                                            );
+                                                                            postScrollAnchor(shownSessionId, anchor);
+                                                                          }
                                                                     }
                                                                     expanded={folds}
                                                                     showMinimap={minimapVisible}

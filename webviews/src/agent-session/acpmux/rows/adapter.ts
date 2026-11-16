@@ -30,6 +30,8 @@ export type AdaptedChat = {
   rows: AcpmuxRow[];
   queue: QueuedPrompt[];
   canLoadOlder: boolean;
+  /// The first row held (its rowId): the list keys its ask for older rows on it, as on v1's first seq.
+  historyFrom: number | undefined;
   /// The page of turns' prompts older than the rows held (the snapshot's `earlierPrompts`), for
   /// the thread rail: absent until a page of turns came, and for a daemon with none.
   earlierPrompts?: readonly AcpmuxRow[];
@@ -127,6 +129,7 @@ export class ChatAdapter {
         return { id: entry.id, prompt: typeof whole === "string" ? whole : entry.text };
       }),
       canLoadOlder: snapshot.hasBefore,
+      historyFrom: snapshot.rows[0]?.id,
     };
   }
 }

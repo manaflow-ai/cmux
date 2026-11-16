@@ -119,18 +119,15 @@ test("the chat recording, step by step", async () => {
       .rows.filter((entry) => entry.gapBefore)
       .map((entry) => entry.id),
   ).toEqual([31]);
-  expect(
-    snapshot()
-      .rows.filter((entry) => entry.unconfirmed)
-      .map((entry) => entry.id),
-  ).toEqual(range(1, 14));
+  expect([...snapshot().unconfirmed].sort((a, b) => a - b)).toEqual(range(1, 14));
   expect(store.edge("rows.1", "before")).toBe(31);
 
   // A new edition replaces everything; its open row's body is behind `blob`.
   step("window-new-edition");
   expect(ids(snapshot())).toEqual(range(21, 30));
   expect(snapshot().rows.at(-1)!.bodyLen).toBe(37);
-  expect(snapshot().rows.some((entry) => entry.gapBefore || entry.unconfirmed)).toBe(false);
+  expect(snapshot().rows.some((entry) => entry.gapBefore)).toBe(false);
+  expect(snapshot().unconfirmed.size).toBe(0);
 
   expect(host.page("rows.1", "before")).toBe(true);
   asked("page");

@@ -170,7 +170,7 @@ describe("chatWindow", () => {
     send(window([row(4, { rev: 2, body: { text: "new" } }), row(5), row(6)], {}, false));
     const rows = store.snapshot("c")!.rows;
     expect(rows.map((entry) => entry.id)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(rows.filter((entry) => entry.unconfirmed).map((entry) => entry.id)).toEqual([1, 2, 3]);
+    expect([...store.snapshot("c")!.unconfirmed]).toEqual([1, 2, 3]);
     expect(rows[3]!.rev).toBe(2);
     // The edge before is still the old window's.
     expect(store.snapshot("c")!.hasBefore).toBe(true);
@@ -349,6 +349,7 @@ describe("chatPage", () => {
     const { send, store, host } = await opened();
     send(window(range(4, 5), { hasBefore: true }));
     send(window([row(7), row(8)], {}, false));
+    expect([...store.snapshot("c")!.unconfirmed]).toEqual([5, 6]);
     host.page("c", "before");
     const kept = store.snapshot("c")!.rows[1]!;
     send({
@@ -358,8 +359,9 @@ describe("chatPage", () => {
     const rows = store.snapshot("c")!.rows;
     expect(rows.map((entry) => entry.id)).toEqual([4, 5, 6, 7, 8]);
     expect(rows[1]!.rev).toBe(2);
-    expect(rows.some((entry) => entry.unconfirmed)).toBe(false);
-    expect(kept.unconfirmed).toBe(true);
+    expect(store.snapshot("c")!.unconfirmed.size).toBe(0);
+    // Row 6, the same settled row at the same rev, keeps its object: confirming it redraws nothing.
+    expect(rows[2]!.row).toBe(kept.row);
   });
 
   test("a page lets go of an unconfirmed row it neither gives nor refuses; a confirmed one stays", async () => {
@@ -377,7 +379,7 @@ describe("chatPage", () => {
     const rows = store.snapshot("c")!.rows;
     // 6 is gone; 1 and 2 are outside the page and stay unconfirmed; the page reached 3 and 5.
     expect(rows.map((entry) => entry.id)).toEqual([1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12]);
-    expect(rows.filter((entry) => entry.unconfirmed).map((entry) => entry.id)).toEqual([1, 2]);
+    expect([...store.snapshot("c")!.unconfirmed].sort((a, b) => a - b)).toEqual([1, 2]);
     expect(rows.some((entry) => entry.gapBefore)).toBe(false);
   });
 
@@ -401,7 +403,8 @@ describe("chatPage", () => {
     send({ kind: "chatPage", page: { sid: "c", edition: 1, rows: range(14), hasBefore: false, hasAfter: true } });
     rows = store.snapshot("c")!.rows;
     expect(rows.map((entry) => entry.id)).toEqual(range(22).map((r) => r.id));
-    expect(rows.some((entry) => entry.gapBefore || entry.unconfirmed)).toBe(false);
+    expect(rows.some((entry) => entry.gapBefore)).toBe(false);
+    expect(store.snapshot("c")!.unconfirmed.size).toBe(0);
   });
 
   test("a page asks from the row it is given", async () => {
@@ -764,5 +767,31 @@ describe("the page of turns", () => {
     const gaps = snapshot.rows.filter((entry) => entry.gapBefore).map((entry) => entry.id);
     expect(gaps).toEqual([100]);
     expect(snapshot.hasBefore).toBe(true);
+  });
+});
+
+describe("one row object per (id, rev)", () => {
+  test("a window of the same edition keeps the rows it holds again; a new rev is a new row", async () => {
+    const { send, store } = await opened();
+    send(window(range(5)));
+    const before = store.snapshot("c")!;
+    send(window([row(3), row(4, { rev: 2, body: { text: "now" } }), row(5)], {}, false));
+    const after = store.snapshot("c")!;
+    expect(after.rows[0]).toBe(before.rows[0]!);
+    expect(after.rows[2]!.row).toBe(before.rows[2]!.row);
+    expect(after.rows[3]!.row).not.toBe(before.rows[3]!.row);
+    expect(after.rows[3]!.row!.body).toEqual({ text: "now" });
+    // Marking rows unconfirmed made no new row objects.
+    expect([...after.unconfirmed]).toEqual([1, 2]);
+    expect(after.rows[1]).toBe(before.rows[1]!);
+  });
+
+  test("an open row is never taken for the same: its body grows under one rev", async () => {
+    const { send, store } = await opened();
+    send(window(range(2), { open: [{ row: row(3, { open: true, body: { text: "a" } }) }] }));
+    const before = store.snapshot("c")!.rows[2]!.row;
+    send(window(range(2), { open: [{ row: row(3, { open: true, body: { text: "ab" } }) }] }, false));
+    expect(store.snapshot("c")!.rows[2]!.row).not.toBe(before);
+    expect(store.snapshot("c")!.rows[2]!.row!.body).toEqual({ text: "ab" });
   });
 });

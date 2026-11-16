@@ -4287,7 +4287,7 @@ export class AcpmuxDirectClient {
           // The switch is asked once the kept draw is on screen; the attach goes after its answer. The
           // attach asked with the list asked it already (`sendAttachAfterSwitch`).
           if (!adopted && this.chatRows.asks(this.capabilities))
-            await this.chatRows.choose(sessionId, this.capabilities);
+            await this.chatRows.choose(sessionId, this.capabilities, this.restingRows.get(sessionId));
           page = await this.attach(sessionId, generation, keptThrough, 1, adopted);
         } catch (error) {
           // A newer attach of the chat (a select, a switch) took it over while this one was out:
@@ -6516,6 +6516,18 @@ export class AcpmuxDirectClient {
   /// The capability ids acpmux's `initialize` named (`_meta.acpmux.capabilities`), or undefined
   /// from one that names none.
   capabilities: ReadonlySet<string> | undefined;
+  /// Where each chat's pane last rested, by its view row id (App.tsx's kept scroll anchor): a chat
+  /// on the store opens its sub around that row (`chatRows.choose`). Page memory, one entry a chat.
+  private readonly restingRows = new Map<string, string>();
+
+  /// The pane's kept place for `sessionId`, read before the chat opens: its row id, or null at the
+  /// latest message.
+  restAt(sessionId: string, rowId: string | null): void {
+    if (rowId === null) this.restingRows.delete(sessionId);
+    else this.restingRows.set(sessionId, rowId);
+    this.chatRows.readingAt(sessionId, rowId);
+  }
+
   /// Where the chat on screen draws its rows from, the row store or v1 (rows/chatSource.ts). One that
   /// falls while shown is opened again, as v1.
   private readonly chatRows = new ChatSource(postNative, {
@@ -10919,7 +10931,7 @@ export class AcpmuxDirectClient {
         : this.shownEarlierPrompts().length > 0 && { earlierPrompts: this.shownEarlierPrompts() }),
       // A chat on the store has no prompt count: its rail draws the page of turns it holds.
       ...(!fromStore && this.promptCountAwaited() !== undefined ? { promptCount: this.promptCountAwaited() } : {}),
-      historyFrom: this.firstSeq,
+      historyFrom: fromStore ? fromStore.historyFrom : this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       unavailable: this.unavailableNow(),
       missingReason: this.selectedSessionId ? undefined : this.missingReason,
@@ -12932,7 +12944,9 @@ export class AcpmuxDirectClient {
     let mine = this.copyAttaches;
     // Once what the kept draw drew is on screen, the switch is asked, and the v1 attach (the hold or
     // the plain one) goes after its answer. With the switch off nothing waits.
-    const onStore = this.chatRows.asks(this.capabilities) && (await this.chatRows.choose(sessionId, this.capabilities));
+    const onStore =
+      this.chatRows.asks(this.capabilities) &&
+      (await this.chatRows.choose(sessionId, this.capabilities, this.restingRows.get(sessionId)));
     if (!onStore && generation === this.selectionGeneration) {
       this.chatRows.close();
       // A kept window whose chat fell to v1 stays until the v1 attach's page replaces it.
@@ -14992,7 +15006,7 @@ export class AcpmuxDirectClient {
   loadOlder(through?: number, fill = false, rising = false): Promise<void> {
     // A chat on the store pages from it.
     if (this.selectedSessionId && this.chatRows.holds(this.selectedSessionId))
-      return Promise.resolve(void this.chatRows.page(this.selectedSessionId));
+      return this.chatRows.pageOlder(this.selectedSessionId);
     if (!this.canPageOlder()) return Promise.resolve();
     if (this.loadingOlder) return this.loadingOlder;
     // An ask inside the back-off after a failed page waits it out, then reads. One that returned

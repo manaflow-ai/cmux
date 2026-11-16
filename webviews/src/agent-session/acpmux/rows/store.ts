@@ -56,8 +56,6 @@ export type ChatRowEntry = {
   /// The body's length when the daemon left an open row's body out (read by `blob`).
   readonly bodyLen?: number;
   readonly est: number;
-  /// Held outside the last window's range and not covered by a page since.
-  readonly unconfirmed?: true;
   readonly refused?: true;
   /// Rows are missing between the entry before this one and this one: the store holds two
   /// stretches (a window in place of a resume, or a page that did not reach the other). A page
@@ -73,6 +71,9 @@ export type ChatRowsSnapshot = {
   readonly sid: string;
   /// In rowId order, which is the order the page draws.
   readonly rows: readonly ChatRowEntry[];
+  /// The rows held outside the last window's range and not covered by a page since, by id. Kept
+  /// beside the rows, never in them: marking or confirming one makes no new row and no redraw.
+  readonly unconfirmed: ReadonlySet<number>;
   /// Open rows past the rows held (decision 243): the stretch does not reach them, so they are
   /// drawn apart from `rows`, in rowId order. They join `rows` when a page reaches them.
   readonly apart: readonly ChatRowEntry[];
@@ -156,6 +157,8 @@ class SidRows {
   anchor: ChatAnchor;
   private entries = new Map<number, ChatRowEntry>();
   private ids: number[] = [];
+  private unconfirmed = new Set<number>();
+  private unconfirmedChanged = false;
   /// Each entry's bytes, kept so a text op adds its delta instead of measuring the row again.
   private sizes = new Map<number, number>();
   private bytes = 0;
@@ -314,7 +317,7 @@ class SidRows {
     if (!this.changed) return null;
     this.trim();
     this.snapshot = this.build(this.rowsChanged, this.apartChanged, this.bodiesChanged);
-    this.changed = this.rowsChanged = this.apartChanged = this.bodiesChanged = false;
+    this.changed = this.rowsChanged = this.apartChanged = this.bodiesChanged = this.unconfirmedChanged = false;
     return this.snapshot;
   }
 
@@ -342,6 +345,7 @@ class SidRows {
       this.bytes -= this.sizes.get(entry.id)!;
       if (was.gapBefore && !entry.gapBefore) entry = marked(entry, true);
     } else this.ids.splice(lowerBound(this.ids, entry.id), 0, entry.id);
+    this.confirm(entry.id);
     if (this.apart.delete(entry.id)) this.touchApart();
     this.entries.set(entry.id, entry);
     this.sizes.set(entry.id, size);
@@ -356,8 +360,13 @@ class SidRows {
     this.bytes -= this.sizes.get(id)!;
     this.sizes.delete(id);
     this.entries.delete(id);
+    this.confirm(id);
     this.assemblies.delete(`row:${id}`);
     this.touchRows();
+  }
+
+  private confirm(id: number): void {
+    if (this.unconfirmed.delete(id)) this.changed = this.unconfirmedChanged = true;
   }
 
   private setGap(id: number, gap: boolean): void {
@@ -370,6 +379,13 @@ class SidRows {
   private holdApart(entry: ChatRowEntry): void {
     this.apart.set(entry.id, entry.gapBefore ? marked(entry, false) : entry);
     this.touchApart();
+  }
+
+  /// The row held for `row`'s id when it is the same settled row (same rev, neither open), else
+  /// `row`. An open row's body grows under one rev, so it is never taken for the same.
+  private sameRow(row: ChatRow): ChatRow {
+    const held = this.entries.get(row.id)?.row;
+    return held && !held.open && !row.open && held.rev === row.rev ? held : row;
   }
 
   private inside(id: number): boolean {
@@ -403,7 +419,9 @@ class SidRows {
       if (this.heads) this.setHeads(null, 0);
     }
     for (const row of window.rows) this.noteHead(row);
-    const incoming: ChatRowEntry[] = window.rows.map((row) => entryOf(row));
+    // A settled row held at the same rev keeps its object: the list draws one row object per (id,
+    // rev), so a window of the same edition redraws nothing it held.
+    const incoming: ChatRowEntry[] = window.rows.map((row) => entryOf(this.sameRow(row)));
     for (const open of window.open ?? []) incoming.push(openEntry(open));
     for (const id of window.refused ?? []) incoming.push(hole(id, this.entries.get(id)));
     if (replaces || !this.ready) {
@@ -419,6 +437,10 @@ class SidRows {
       }
       if (this.apart.size) this.touchApart();
       this.apart.clear();
+      if (this.unconfirmed.size) {
+        this.unconfirmed.clear();
+        this.unconfirmedChanged = true;
+      }
       this.hasBefore = window.hasBefore;
       this.hasAfter = window.hasAfter;
       this.page = null;
@@ -434,9 +456,16 @@ class SidRows {
       const aboveAt = lowerBound(this.ids, hi + 1);
       const above = aboveAt < this.ids.length ? this.ids[aboveAt]! : undefined;
       // Rows held that this window does not hold stay, unconfirmed until a page covers them.
-      for (const [id, entry] of this.entries)
-        if (!fresh.has(id) && !entry.unconfirmed) this.entries.set(id, { ...entry, unconfirmed: true });
-      for (const entry of incoming) this.put(entry);
+      for (const id of this.ids)
+        if (!fresh.has(id) && !this.unconfirmed.has(id)) {
+          this.unconfirmed.add(id);
+          this.unconfirmedChanged = true;
+        }
+      for (const entry of incoming) {
+        // The same row held: nothing to put, only its mark to lift.
+        if (this.entries.get(entry.id)?.row === entry.row && entry.row) this.confirm(entry.id);
+        else this.put(entry);
+      }
       if (ids.length && !reaches) {
         if (below && window.hasBefore) this.setGap(lo, true);
         if (above !== undefined && window.hasAfter) this.setGap(above, true);
@@ -562,24 +591,22 @@ class SidRows {
     const stale: number[] = [];
     for (let at = lowerBound(this.ids, lo); at < this.ids.length && this.ids[at]! <= hi; at += 1) {
       const id = this.ids[at]!;
-      if (!kept.has(id) && this.entries.get(id)!.unconfirmed) stale.push(id);
+      if (!kept.has(id) && this.unconfirmed.has(id)) stale.push(id);
     }
     for (const id of stale) this.remove(id);
     for (const row of page.rows) {
       const held = this.entries.get(row.id);
-      if (held && held.row && held.rev === row.rev && !held.unconfirmed && !held.refused) continue;
+      // The same settled row held keeps its object: the page only lifts its mark.
+      if (held && held.row && held.rev === row.rev && !held.row.open && !row.open && !held.refused) {
+        this.confirm(row.id);
+        continue;
+      }
       this.put(entryOf(row));
     }
     for (const id of page.refused ?? []) this.put(hole(id, this.entries.get(id)));
     // The page covers its range: what it held there is confirmed.
-    for (let at = lowerBound(this.ids, lo); at < this.ids.length && this.ids[at]! <= hi; at += 1) {
-      const entry = this.entries.get(this.ids[at]!)!;
-      if (entry.unconfirmed) {
-        const confirmed: Mutable<ChatRowEntry> = { ...entry };
-        delete confirmed.unconfirmed;
-        this.entries.set(entry.id, confirmed);
-      }
-    }
+    for (let at = lowerBound(this.ids, lo); at < this.ids.length && this.ids[at]! <= hi; at += 1)
+      this.confirm(this.ids[at]!);
     if (ask.fold === undefined) {
       // A page runs on from the row asked from: nothing is missing inside it.
       for (const id of given) this.setGap(id, false);
@@ -683,6 +710,7 @@ class SidRows {
       this.entries.delete(id);
       this.sizes.delete(id);
       this.bytes -= size;
+      this.confirm(id);
       if (isOpen(entry)) {
         this.holdApart(entry);
         continue;
@@ -709,6 +737,7 @@ class SidRows {
     return Object.freeze({
       sid: this.sid,
       rows: list,
+      unconfirmed: this.unconfirmedChanged || !was ? new Set(this.unconfirmed) : was.unconfirmed,
       apart: apartList,
       hasBefore: this.hasBefore,
       hasAfter: this.hasAfter,
