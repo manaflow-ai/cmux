@@ -577,6 +577,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     }
 }
 
-private extension Duration {
-    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
+extension Duration {
+    /// The duration in seconds, fractions included (the planners' clocks).
+    package var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }
