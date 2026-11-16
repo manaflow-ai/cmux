@@ -281,6 +281,34 @@ pub fn at_daemon_start(home: &Path) -> Status {
     read(home, Options { install: true })
 }
 
+/// Written when the person set this machine up from another of their devices
+/// (`cmux device setup`): that is a join too, though its credential came from a sign-in.
+const JOINED_MARK: &str = "joined-from-another-device";
+
+/// Records that this machine was set up from another of the person's devices.
+pub fn mark_joined(home: &Path) -> std::io::Result<()> {
+    let folder = dir(home);
+    std::fs::create_dir_all(&folder)?;
+    std::fs::write(folder.join(JOINED_MARK), b"")
+}
+
+/// Whether this machine's device asks the hub to turn its sharing on (`POST /v1/devices
+/// {shareByJoin: true}` from its machine sign-in; design Z4, joining is the consent): it was
+/// joined from another device (a join line, a pair code, `cmux device add`, or `cmux device
+/// setup`'s mark). A machine joined only by signing in to cmux here (`joined_by: sign-in`)
+/// never asks, so its switch stays off. The hub keeps a person's explicit off over this.
+pub fn share_by_join(joined_by: Option<&str>, marked: bool) -> bool {
+    marked || joined_by != Some("sign-in")
+}
+
+/// [`share_by_join`] for this machine: its join record and the mark. False with no join record.
+pub fn share_by_join_here(home: &Path) -> bool {
+    let Ok(Some(credential)) = crate::machine_record::load_at(home) else {
+        return false;
+    };
+    share_by_join(credential.joined_by.as_deref(), dir(home).join(JOINED_MARK).is_file())
+}
+
 fn keep(home: &Path, status: &Status) -> std::io::Result<()> {
     let folder = dir(home);
     std::fs::create_dir_all(&folder)?;

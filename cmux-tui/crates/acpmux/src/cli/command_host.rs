@@ -562,7 +562,15 @@ pub enum ScreenShareCmd {
         /// Install or update the helper from a cmux app here first.
         #[arg(long)]
         install: bool,
+        /// This machine is being set up from another of the person's devices
+        /// (`cmux device setup`): a join, so its sharing turns on unless the person turned it off.
+        #[arg(long)]
+        joined: bool,
     },
     /// Install or update the helper from a cmux app here, then read the status.
-    Install,
+    Install {
+        /// As for `status --joined`.
+        #[arg(long)]
+        joined: bool,
+    },
 }

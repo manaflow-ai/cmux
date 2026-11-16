@@ -103,7 +103,7 @@ out=$("$CLI" auth handoff redeem --json 2>&1); echo "rc=$?"; printf '%s\n' "$out
 /// Sharing helper beside the daemon from the cmux app there, then reads its grants from a fresh
 /// helper process. The joined daemon's acpmux first, else NIGHTLY's own CLI; `{}` from neither.
 pub(super) const SHARE_PREPARE: &str = r#"A="$HOME/.local/bin/acpmux"; C='/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux'
-if [ -x "$A" ]; then out=$("$A" machine screen-share status --install --json 2>/dev/null); case "$out" in *cmux.screen-share.status/1*) printf '%s\n' "$out"; exit 0 ;; esac; fi
+if [ -x "$A" ]; then out=$("$A" machine screen-share status --install --joined --json 2>/dev/null); case "$out" in *cmux.screen-share.status/1*) printf '%s\n' "$out"; exit 0 ;; esac; fi
 if [ -x "$C" ]; then out=$("$C" share prepare --json 2>/dev/null); case "$out" in *cmux.screen-share.status/1*) printf '%s\n' "$out"; exit 0 ;; esac; fi
 echo '{}'"#;
 

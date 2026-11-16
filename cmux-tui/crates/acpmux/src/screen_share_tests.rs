@@ -170,3 +170,24 @@ fn helpers_are_found_in_an_apps_library_and_its_bundle_from_the_binary() {
     assert_eq!(app_of(&bin), Some(app));
     assert_eq!(app_of(Path::new("/home/u/.local/bin/acpmux")), None);
 }
+
+#[test]
+fn a_join_from_another_device_asks_for_sharing_and_a_plain_sign_in_never_does() {
+    // A join line, a pair code or `cmux device add` (no joined_by), or any other join.
+    assert!(share_by_join(None, false));
+    assert!(share_by_join(Some("pair"), false));
+    // Signing in to cmux here enrolled it: that is no join, its switch stays off.
+    assert!(!share_by_join(Some("sign-in"), false));
+    // ...unless the person set it up from another device (`cmux device setup`).
+    assert!(share_by_join(Some("sign-in"), true));
+}
+
+#[test]
+fn no_join_record_asks_for_nothing_and_the_mark_is_kept() {
+    let home = tempfile::tempdir().unwrap();
+    assert!(!share_by_join_here(home.path()));
+    mark_joined(home.path()).unwrap();
+    // Still no join record: nothing to sign in with, so nothing asks.
+    assert!(!share_by_join_here(home.path()));
+    assert!(dir(home.path()).join(JOINED_MARK).is_file());
+}

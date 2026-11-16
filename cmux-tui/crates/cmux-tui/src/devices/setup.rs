@@ -5,8 +5,11 @@
 //!
 //! Steps, in order: `reach`, `app`, `login-item`, `start`, `sign-in`, `share`, `agents`. Every remote
 //! script is a fixed string; data goes on stdin. Nothing here quits, kills, relaunches or
-//! replaces a running app, uses sudo, or turns sharing on: Share This Mac and device access
-//! stay a person's click (hq#11046). A credential goes only over the ssh channel's stdin.
+//! replaces a running app, or uses sudo. Setting a Mac up from your computer is a join, and
+//! joining is the consent to share it (cmuxterm-hq remote-screen-share-zero-touch Z4): the
+//! share step marks it (`acpmux machine screen-share status --joined`), so its daemon asks the
+//! hub to turn Mac Screen sharing on, which a person's explicit off always overrides. The macOS
+//! grant stays a person's click. A credential goes only over the ssh channel's stdin.
 
 use std::process::Stdio;
 use std::sync::LazyLock;

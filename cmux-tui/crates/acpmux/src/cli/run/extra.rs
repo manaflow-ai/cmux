@@ -900,11 +900,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         },
         Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
         Command::Host(PeerCmd::ScreenShare { cmd }) => {
-            let install = match cmd {
-                crate::cli::command_host::ScreenShareCmd::Status { install } => install,
-                crate::cli::command_host::ScreenShareCmd::Install => true,
+            let (install, joined) = match cmd {
+                crate::cli::command_host::ScreenShareCmd::Status { install, joined } => {
+                    (install, joined)
+                }
+                crate::cli::command_host::ScreenShareCmd::Install { joined } => (true, joined),
             };
             let home = crate::config::home();
+            if joined {
+                crate::screen_share::mark_joined(&home)?;
+            }
             let options = crate::screen_share::Options { install };
             let status =
                 tokio::task::spawn_blocking(move || crate::screen_share::read(&home, options))
