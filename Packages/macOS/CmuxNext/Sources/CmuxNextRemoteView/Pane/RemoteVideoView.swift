@@ -1,4 +1,5 @@
 package import AppKit
+import CmuxNextDesign
 
 /// Hosts the presenter's layer at the image rect (1:1 device pixels, padded
 /// or clipped, never scaled; `RemoteViewGeometry`) and the remote cursor
@@ -34,8 +35,9 @@ package final class RemoteVideoView: NSView {
         cursorLayer.zPosition = 1
         // The shadow the window server draws under every macOS cursor (HIServices cursors/*/info.plist:
         // black at 0.45, blur 2, 1 pt down), in this view's points, as on a worn remote shape.
-        // Cursor images carry none. Flipped: positive y falls below.
-        cursorLayer.shadowColor = CGColor(gray: 0, alpha: 1)
+        // Cursor images carry none. Flipped: positive y falls below. The color is the theme's opaque
+        // shadow token (near black in every theme; the app theme, as RemotePaneColors' defaults), not a raw gray.
+        cursorLayer.shadowColor = ThemeTokens.unresolved.shadow.cgColor
         cursorLayer.shadowOpacity = 0.45
         cursorLayer.shadowRadius = 1
         cursorLayer.shadowOffset = CGSize(width: 0, height: 1)
