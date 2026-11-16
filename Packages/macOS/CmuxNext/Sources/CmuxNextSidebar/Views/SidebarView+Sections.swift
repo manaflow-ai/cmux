@@ -110,10 +110,10 @@ extension SidebarViewComponents {
         // App sections in the scrolling area after the list (`defaultRegion: "middle"`): they draw after it.
         let appsAfterList = shownBelow.filter { $0.content == .app && $0.region == .middle }
         let look = SidebarSectionTunables.currentLook
-        // The footer keeps the full row (its avatar and search); the bands' rows follow Minimal Mode like the list's.
+        // The footer keeps the full row (its avatar and search); the bands' rows are the band's.
         let footerBase = SidebarRegionMetrics.standard
         // The bands' rows end where the list's do, `rowEdgeGap` from the sidebar's edge (Leo 2026-10-27); the footer keeps its own.
-        var metrics = SidebarRegionMetrics.standard(minimal: design.sidebarSections.minimal)
+        var metrics = SidebarRegionMetrics.bands
         metrics.trailingTrim = SidebarStyle.rowTrailingTrim
         // The selection is not content: `showActiveTopItem` marks its item active (its glyph, accessibility).
         var selectedInfos = model.resolvedItemInfo

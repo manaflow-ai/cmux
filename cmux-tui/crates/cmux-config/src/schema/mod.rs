@@ -3,6 +3,7 @@
 //! bundled daemon and its app always agree.
 
 mod accepts;
+mod app_id;
 mod chat_roots;
 mod json_schema;
 mod retired;
@@ -142,6 +143,9 @@ pub enum DomainKind {
     /// `agentPane.display.commandLabels`: a list of preset names and command
     /// label rules (Swift `CommandLabelsSetting.accepts`).
     CommandLabels,
+    /// `tabs.newTabApp`: an id an app manifest may have
+    /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
+    AppId,
 }
 
 /// One descriptor row.
@@ -396,6 +400,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:search_template" => Validation::Domain(DomainKind::SearchTemplate),
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
         "domain:command_labels" => Validation::Domain(DomainKind::CommandLabels),
+        "domain:app_id" => Validation::Domain(DomainKind::AppId),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {

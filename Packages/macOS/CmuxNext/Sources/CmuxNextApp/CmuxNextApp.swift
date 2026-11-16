@@ -14,7 +14,7 @@ import CmuxNextWakeups
 public struct CmuxNextApp {
     public static let shared = Self()
     public func main() {
-        DebugTimings.markLaunch("main_start")
+        if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld
         announceBenchHooksBuild()
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chromium's
