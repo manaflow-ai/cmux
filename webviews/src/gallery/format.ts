@@ -333,6 +333,8 @@ export type AppsPageVariant = VariantBase & {
     grants: Record<string, Grants>;
     /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
     examples?: boolean;
+    /** Package files `cmux.apps.asset.get` serves (screenshots, icon images), by app and path. */
+    assets?: Record<string, Record<string, string>>;
   };
 };
 

@@ -641,11 +641,11 @@
 {"file":"optchat-inspector/styles.css","kind":"token-copy","property":"padding","values":{"2px":3}}
 {"file":"pages/apps/styles.css","kind":"duration","property":"transition","values":{"border-color 120ms ease, background 120ms ease, transform 120ms ease":1}}
 {"file":"pages/apps/styles.css","kind":"easing","property":"transition","values":{"transform var(--cmux-motion-micro) ease":1}}
-{"file":"pages/apps/styles.css","kind":"font-weight","property":"font-weight","values":{"500":5,"650":1,"700":1}}
+{"file":"pages/apps/styles.css","kind":"font-weight","property":"font-weight","values":{"500":4,"650":1,"700":1}}
 {"file":"pages/apps/styles.css","kind":"height","property":"height","values":{"13px":1,"44px":1,"9px":1,"11px":1,"220px":1,"18px":1,"14px":1,"112px":1}}
 {"file":"pages/apps/styles.css","kind":"height","property":"min-height","values":{"150px":1,"220px":2,"180px":1}}
 {"file":"pages/apps/styles.css","kind":"radius","property":"border-radius","values":{"10px":1,"9px":1}}
-{"file":"pages/apps/styles.css","kind":"spacing","property":"gap","values":{"2px":5,"4px 10px":1,"6px":8,"14px":3,"10px":10,"18px":1}}
+{"file":"pages/apps/styles.css","kind":"spacing","property":"gap","values":{"2px":5,"4px 10px":1,"6px":6,"14px":2,"10px":10,"18px":1}}
 {"file":"pages/apps/styles.css","kind":"spacing","property":"left","values":{"2px":1}}
 {"file":"pages/apps/styles.css","kind":"spacing","property":"margin-left","values":{"-2px":1}}
 {"file":"pages/apps/styles.css","kind":"spacing","property":"margin-top","values":{"22px":1,"10px":2}}
