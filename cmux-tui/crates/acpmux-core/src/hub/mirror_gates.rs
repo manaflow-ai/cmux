@@ -389,6 +389,51 @@ fn pr08_mirror_local_row_thirty() {
     assert!(capped_p95 <= 10_000_000, "local row p95 under 30 units over 10 ms: {capped_p95} ns");
 }
 
+/// Decision 451 (b): a local row's submit-to-publish p95 while each of 30 origins, then each
+/// of 256, queues a unit of [`MAX_UNIT_CHANGES`] changes before one writer turn, with 11k
+/// chats and 16,000 rows held. The clock stops when the turn publishes the row, and the queued
+/// units are counted before it starts. At most 1 ms at both counts.
+#[test]
+#[ignore = "release measurement; run with --ignored --release --nocapture"]
+fn pr08_mirror_local_row_publish() {
+    let measure = |origins: usize| {
+        let mut god = fixture(11_000, origins, 16_000);
+        thirty_sample(&mut god, origins);
+        let mut rounds = Vec::new();
+        let mut kept = Vec::new();
+        let mut pooled = Vec::new();
+        for _ in 0..LOCAL_ROUNDS {
+            let mut samples: Vec<u128> =
+                (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god, origins).publish).collect();
+            pooled.extend_from_slice(&samples);
+            kept.push(samples.clone());
+            rounds.push(p95(&mut samples));
+        }
+        gate_rounds::report(
+            &format!("v2.pr08.mirror_local_row_publish_{origins}"),
+            &[("publish", &kept)],
+        );
+        let counts = god.hub.mirror_counts();
+        assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
+        (rounds.into_iter().min().unwrap_or(1), p95(&mut pooled))
+    };
+    let (p95_30, all_30) = measure(30);
+    let (p95_256, all_256) = measure(256);
+    let line = format!(
+        "{{\"name\":\"v2.pr08.mirror_local_row_publish\",\"small_p95\":0,\"god_p95\":{},\"god_p95_all\":{},\"p95_30\":{p95_30},\"p95_30_all\":{all_30},\"p95_256\":{p95_256},\"p95_256_all\":{all_256},\"unit_changes\":{MAX_UNIT_CHANGES},\"turn_changes\":{MAX_TURN_UNIT_CHANGES},\"unit\":\"ns\"}}",
+        p95_30.max(p95_256),
+        all_30.max(all_256)
+    );
+    eprintln!("{line}");
+    if let Ok(path) = std::env::var("V2_GATE_OUT")
+        && let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path)
+    {
+        let _ = writeln!(file, "{line}");
+    }
+    assert!(p95_30 <= 1_000_000, "local row publish p95 under 30 units over 1 ms: {p95_30} ns");
+    assert!(p95_256 <= 1_000_000, "local row publish p95 under 256 units over 1 ms: {p95_256} ns");
+}
+
 /// Decision 451 (c): the turn that publishes the local row, split into taking the batch,
 /// rows, origin slots (units) and the sync, with its index publishes, under both orders in
 /// one build: units first (the order before decision 300) and rows first. One line for

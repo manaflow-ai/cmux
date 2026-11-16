@@ -59,6 +59,15 @@ pub const ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "8",
+        name: "v2.pr08.mirror_local_row_publish",
+        done_when: "A local row's submit-to-publish p95, the clock stopping when the writer turn publishes it, while 30 origins and then 256 each queue a unit of 512 changes before that turn, 11k chats and 16,000 rows held, the queued units counted before the clock starts: at most 1 ms at both counts (decision 451). The line's god_p95 is the larger of the two, small_p95 0: the bound is god_max.",
+        measured: false,
+        ratio: f64::INFINITY,
+        ratio_all: None,
+        god_max: Some(1_000_000.0),
+    },
+    GateRow {
+        pr: "8",
         name: "v2.pr08.dial_resume",
         done_when: "A dial's resume with nothing missed into a hub reopened from its store, from the dial to the frame that ends it, and the link's bytes: a peer of 500 live rows with 11k closed beside them against none, rounds alternating, two hubs over a pipe, the serving side the real connection in peer role. One empty frame marked end, no walk; bytes equal but for the cursor's digits.",
         measured: true,
