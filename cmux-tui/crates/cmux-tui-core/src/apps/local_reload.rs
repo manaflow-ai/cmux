@@ -77,7 +77,10 @@ impl Supervisor {
     }
 
     /// Reads the catalog again and applies what changed in local apps since
-    /// `prints`; returns the new fingerprints.
+    /// `prints`; returns the new fingerprints. Tests drive the reload with
+    /// prints of their own; cmux reloads from the last kept ones
+    /// (`reload_local_apps_since_last`).
+    #[cfg(test)]
     pub(crate) fn reload_local_apps(&self, prints: &Prints) -> Prints {
         self.reload_local_apps_from(prints, catalog::load)
     }
@@ -97,6 +100,7 @@ impl Supervisor {
 
     /// `reload_local_apps` with the catalog read given: a test lands a save
     /// right after the read.
+    #[cfg(test)]
     pub(super) fn reload_local_apps_from(
         &self,
         prints: &Prints,
