@@ -37,6 +37,7 @@ import { godLog } from "./godFixture";
 import { papercutPane, type PapercutStep } from "../test/support/papercutChat";
 import { traceUpwardAnchors } from "../test/support/upwardAnchorTrace";
 import { perfRow } from "./perfRow";
+import { reportOlderSplit, type CpuProfile } from "./olderPageSplit";
 
 const TURNS = Number(process.env.TURNS ?? 600);
 const STEP = Number(process.env.STEP ?? 1);
@@ -61,6 +62,11 @@ const PAGES = Number(process.env.PAGES ?? 0);
 /// SMALL_PAGES=1: the stand-in serves pages of the attach's size (160 records) whatever the pane asks, as the
 /// bench did before it served the asked `limit` and `maxBytes`.
 const ASKED_PAGE_SIZE = process.env.SMALL_PAGES !== "1";
+/// SPLIT=1 (Chromium, implies PROFILE=1): a trace and CPU profile of the run, and each older page's ask to drawn cut
+/// into the wait for its records, its fold, React's render and commit, and style and layout, plus the frames over
+/// 16.7 ms and long tasks by what filled them (olderPageSplit.ts `OLDER-SPLIT` lines).
+const SPLIT = process.env.SPLIT === "1";
+const PROFILE = process.env.PROFILE === "1" || SPLIT;
 
 // The chat: the generated ordinary log at TURNS turns, its records as the stand-in daemon's lead steps; the
 // papercut chat adds one finished turn after it ("Answer 1:"), which the page waits for. FIXTURE=flat: the
@@ -102,7 +108,7 @@ async function run(name: string, engine: BrowserType) {
     daemonIndexes: true,
     askedPageSize: ASKED_PAGE_SIZE,
     // DEV=1 measures the dev server (React's development build); timing is of the production build.
-    ...(process.env.DEV === "1" ? {} : { production: { minify: process.env.PROFILE === "1" ? false : undefined } }),
+    ...(process.env.DEV === "1" ? {} : { production: { minify: PROFILE ? false : undefined } }),
   });
   try {
     // Each older page on the wire (its `_acpmux/events` ask with `beforeSeq`, the reply's arrival and size)
@@ -155,6 +161,39 @@ async function run(name: string, engine: BrowserType) {
           }
         };
       });
+      // SPLIT=1: direct.ts's reply, fold and published phases kept by time, every phase stamped into the trace
+      // (the page's clock there), and each React commit through the DevTools hook React calls in production too.
+      if (SPLIT)
+        await page.addInitScript(() => {
+          const holder = window as unknown as {
+            __cmuxOlderTrace: (phase: string, at: number, ask: number) => void;
+            __olderSplit: Record<"reply" | "fold" | "published" | "commits", number[]>;
+            __REACT_DEVTOOLS_GLOBAL_HOOK__: unknown;
+          };
+          const split = {
+            reply: [] as number[],
+            fold: [] as number[],
+            published: [] as number[],
+            commits: [] as number[],
+          };
+          holder.__olderSplit = split;
+          const inner = holder.__cmuxOlderTrace;
+          holder.__cmuxOlderTrace = (phase, at, ask) => {
+            console.timeStamp(`cmux-older ${phase} ${ask} ${at}`);
+            if (phase === "reply" || phase === "fold" || phase === "published") split[phase].push(at);
+            else inner(phase, at, ask);
+          };
+          let renderers = 0;
+          holder.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+            supportsFiber: true,
+            renderers: new Map(),
+            inject: () => ++renderers,
+            checkDCE: () => {},
+            onCommitFiberRoot: () => void split.commits.push(performance.now()),
+            onCommitFiberUnmount: () => {},
+            onPostCommitFiberRoot: () => {},
+          };
+        });
     });
     await page.emulateMedia({ reducedMotion: "no-preference" });
     // PLAIN=1: no shadows, filters or blends, to tell an engine's raster cost from the page's work.
@@ -229,8 +268,12 @@ async function run(name: string, engine: BrowserType) {
     });
     // PROFILE=1 (Chromium): a CPU profile of the wheel, its busiest functions by self time printed at the end.
     let profiledAt = 0;
-    const cdp =
-      process.env.PROFILE === "1" && name === "chromium" ? await page.context().newCDPSession(page) : undefined;
+    const cdp = PROFILE && name === "chromium" ? await page.context().newCDPSession(page) : undefined;
+    const splitting = SPLIT && name === "chromium";
+    if (splitting)
+      await browser!.startTracing(page, {
+        categories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack"],
+      });
     if (cdp) {
       await cdp.send("Profiler.enable");
       await cdp.send("Profiler.setSamplingInterval", { interval: 250 });
@@ -324,6 +367,8 @@ async function run(name: string, engine: BrowserType) {
       return { pages: held.pages, asks: [...held.asks.values()] };
     });
     const askToDrawn: number[] = [];
+    const drawnAsks: { askAt: number; settledAt: number; drawnAt: number }[] = [];
+    let cpuProfile: CpuProfile | undefined;
     let undrawnAsks = 0;
     for (const ask of wire.asks) {
       if (ask.settledAt === undefined) continue;
@@ -331,8 +376,10 @@ async function run(name: string, engine: BrowserType) {
       const drawn = watched.frames.find(
         (frame) => frame.paint > ask.settledAt! && (!before || frame.scrollHeight !== before.scrollHeight),
       );
-      if (drawn && drawn.paint - ask.settledAt < 1000) askToDrawn.push(drawn.paint - ask.askAt);
-      else undrawnAsks += 1;
+      if (drawn && drawn.paint - ask.settledAt < 1000) {
+        askToDrawn.push(drawn.paint - ask.askAt);
+        drawnAsks.push({ askAt: ask.askAt, settledAt: ask.settledAt, drawnAt: drawn.paint });
+      } else undrawnAsks += 1;
     }
     const wireMs = wire.pages.map((each) => each.recvAt - each.sentAt);
     // A frame the reader asked to go up and the view moved less (held at the loaded rows' top, or a wheel
@@ -351,8 +398,9 @@ async function run(name: string, engine: BrowserType) {
         children?: number[];
       };
       const { profile } = (await cdp.send("Profiler.stop")) as unknown as {
-        profile: { nodes: Node[]; samples: number[]; timeDeltas: number[] };
+        profile: { nodes: Node[]; samples: number[]; timeDeltas: number[]; startTime: number };
       };
+      cpuProfile = profile;
       // Self time inside the long tasks only (each sample's page time: the profile's start, read on
       // the page, plus the deltas so far), by function.
       const inLong = new Map<string, number>();
@@ -438,6 +486,18 @@ async function run(name: string, engine: BrowserType) {
       }
       for (const [key, ms] of top(total, 40))
         console.log(`transcript-scroll-up profile total ${Math.round(ms)} ms ${key}`);
+    }
+    if (splitting) {
+      const events = JSON.parse((await browser!.stopTracing()).toString()).traceEvents;
+      const split = (await page.evaluate(
+        () => (window as unknown as { __olderSplit: Record<string, number[]> }).__olderSplit,
+      )) as Record<"reply" | "fold" | "published" | "commits", number[]>;
+      reportOlderSplit(events, cpuProfile, {
+        asks: drawnAsks,
+        ...split,
+        frames: traces.map((trace) => trace.samples.map((sample) => sample.paint)),
+        longSpans: watched.spans,
+      });
     }
     const reachedTop = rounds < MAX_ROUNDS;
     const pages = pane.methods.filter((method) => method === "_acpmux/events").length;
