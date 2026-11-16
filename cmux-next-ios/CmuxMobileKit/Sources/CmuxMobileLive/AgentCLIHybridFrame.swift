@@ -132,7 +132,7 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
     var invalidReason: String? {
         guard let delta else { return "data is not a delta" }
         guard columns > 0, rows > 0, columns <= Int(UInt16.max), rows <= Int(UInt16.max) else { return "grid \(columns)x\(rows)" }
-        guard abs(delta.shift) <= rows else { return "shift \(delta.shift) on \(rows) rows" }
+        guard delta.shift.magnitude <= UInt(rows) else { return "shift \(delta.shift) on \(rows) rows" }
         guard (0..<columns).contains(cursorX), (0..<rows).contains(cursorY) else { return "cursor \(cursorX),\(cursorY)" }
         for span in delta.spans {
             switch span {
@@ -222,21 +222,25 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
 
         init?(_ bytes: Data) {
             var reader = Reader(bytes: [UInt8](bytes))
+            // Every count, place and style is bounded before it becomes an Int: a frame the
+            // phone cannot read falls back, it never traps.
             guard let seq = reader.varint(), let atMs = reader.varint(),
-                  let zigzag = reader.varint(), let count = reader.varint() else { return nil }
+                  let zigzag = reader.varint(), zigzag >> 1 <= UInt64(UInt16.max), let count = reader.varint() else { return nil }
             self.seq = seq
             self.atMs = atMs
             shift = Int(zigzag >> 1) ^ -Int(zigzag & 1)
             var spans: [Span] = []
             for _ in 0..<count {
-                guard let row = reader.varint(), let column = reader.varint(),
-                      let length = reader.varint() else { return nil }
+                guard let row = reader.varint(), let column = reader.varint(), let length = reader.varint(),
+                      row <= UInt64(UInt16.max), column <= UInt64(UInt16.max), length >> 1 <= UInt64(UInt16.max)
+                else { return nil }
                 let count = Int(length >> 1)
                 if length & 1 == 0 {
                     spans.append(.clear(row: Int(row), column: Int(column), count: count))
                     continue
                 }
-                guard let fg = reader.color(), let bg = reader.color(), let attrs = reader.varint() else {
+                guard let fg = reader.color(), let bg = reader.color(), let attrs = reader.varint(),
+                      attrs <= UInt64(UInt16.max) else {
                     return nil
                 }
                 let style = Style(fg: fg, bg: bg, attrs: Int(attrs))
@@ -292,9 +296,9 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
             case 0x20...0x7E: return String(UnicodeScalar(tag))
             case 2: return ""
             case 1:
-                guard let length = varint(), position + Int(length) <= bytes.count else { return nil }
-                defer { position += Int(length) }
-                return String(bytes: bytes[position..<position + Int(length)], encoding: .utf8)
+                guard let length = varint().flatMap(Int.init(exactly:)), length <= bytes.count - position else { return nil }
+                defer { position += length }
+                return String(bytes: bytes[position..<position + length], encoding: .utf8)
             default: return nil
             }
         }
