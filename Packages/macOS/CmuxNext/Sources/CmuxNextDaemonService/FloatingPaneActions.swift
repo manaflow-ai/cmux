@@ -37,14 +37,15 @@ public enum FloatingPaneActions {
     /// - Parameters:
     ///   - registry: The registry the actions go into; Toggle Pane Zoom is bound in it already.
     ///   - openLook: Opens Debug Settings on the section it gets; the flag says if the window can take the focus.
-    ///   - target: The daemon and the pane an invocation is for (the focused pane, or the pane it names).
+    ///   - target: The daemon and the pane an invocation is for (the focused pane, or the pane it names), and the
+    ///     focus of the window that shows that pane (nil when no window shows it).
     public static func register(into registry: ActionRegistry, openLook: @escaping @MainActor (String, Bool) throws -> Void,
-                                target: @escaping @MainActor (ActionInvocation) -> (DaemonService, PaneID)?) {
+                                target: @escaping @MainActor (ActionInvocation) -> (DaemonService, PaneID, NewPaneFocus?)?) {
         registry.register(Action(
             id: "toggleFloatingPane", title: FloatingPaneStrings.float, keywords: ["floating", "float", "tile", "overlay"],
             shortcut: Shortcut("\r", modifiers: [.option, .shift, .command]),
             invoke: { invocation in
-                guard let (daemon, pane) = target(invocation) else { return }
+                guard let (daemon, pane, _) = target(invocation) else { return }
                 daemon.toggleFloating(pane)
             },
             handler: {}
@@ -53,16 +54,16 @@ public enum FloatingPaneActions {
             id: "newFloatingPane", title: FloatingPaneStrings.new, keywords: ["floating", "float", "overlay", "scratch"],
             shortcut: Shortcut("n", modifiers: [.control, .shift, .command]),
             invoke: { [weak registry] invocation in
-                guard let (daemon, pane) = target(invocation) else { return }
+                guard let (daemon, pane, window) = target(invocation) else { return }
                 // A key run shows the act's failure as a notice; a caller that waits (`action.run`) gets it.
-                let work = NewFloatingPane.start(on: daemon, beside: pane)
+                let work = NewFloatingPane.start(on: daemon, beside: pane, window: window)
                 registry?.trackOrRefuse(work)
             },
             handler: {}
         ))
         withholdZoom(in: registry) { [weak registry] invocation in
             // A read behind a rule: a target that is gone refuses nothing here.
-            guard let registry, let (daemon, pane) = registry.withoutRefusals({ target(invocation) }) else { return false }
+            guard let registry, let (daemon, pane, _) = registry.withoutRefusals({ target(invocation) }) else { return false }
             return daemon.store.screen(containing: pane)?.floating.contains { $0.pane == pane } ?? false
         }
         // DEV and NIGHTLY, with Internal Developer Mode on (`DebugActionGate`): a palette row only.

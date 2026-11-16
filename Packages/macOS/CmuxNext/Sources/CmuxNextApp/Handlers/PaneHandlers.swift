@@ -17,7 +17,7 @@ enum PaneHandlers {
         bindFocus(registry, ctx)
         bindSizing(registry, ctx)
         PaneHandlers.bindPaneVerbs(into: registry, context: ctx)
-        FloatingPaneActions.register(into: registry, openLook: { try ctx.services.debugSettings.show(selection: .section($0), focus: $1) }) { ctx.daemonPane($0).map { (ctx.services.daemon(for: $0), $0.handle) } }
+        FloatingPaneActions.register(into: registry, openLook: { try ctx.services.debugSettings.show(selection: .section($0), focus: $1) }) { ctx.daemonPane($0).map { pane in (ctx.services.daemon(for: pane), pane.handle, ctx.services.paneController(for: pane)?.workspace.map { content in NewPaneFocus(begin: content.beginFocusIntent, expect: { content.expectFocus(on: $0, generation: $1) }) }) } }
     }
 
     // MARK: Geometry helpers

@@ -1,10 +1,36 @@
 import CmuxNextActions
 import CmuxNextDaemon
 
+/// The focus of the window that shows a pane, for an act that makes a pane there. The focus state is the app's: the
+/// app gives the 2 functions of its window.
+public struct NewPaneFocus {
+    /// Starts an intent of the person whose result comes later. It returns the intent's generation.
+    let begin: @MainActor () -> UInt64
+    /// Asks for the focus on the tab of the surface it gets, once the window has that tab. The window refuses the
+    /// request when the person acted after the intent of the generation it gets.
+    let expect: @MainActor (SurfaceID, UInt64) -> Void
+
+    /// - Parameters:
+    ///   - begin: Starts an intent in the window and returns its generation.
+    ///   - expect: Asks the window for the focus on a surface, for the intent of a generation.
+    public init(begin: @escaping @MainActor () -> UInt64, expect: @escaping @MainActor (SurfaceID, UInt64) -> Void) {
+        self.begin = begin
+        self.expect = expect
+    }
+
+    /// Starts the intent now, in the turn of the person's key, as a split starts it before its request goes.
+    ///
+    /// - Returns: The request that asks for the focus on a surface with the generation of this intent.
+    @MainActor func started() -> @MainActor (SurfaceID) -> Void {
+        let generation = begin(), expect = expect
+        return { expect($0, generation) }
+    }
+}
+
 /// New Floating Pane as one unit: a split on the right of a tiled pane of the screen, then `float-pane` on the pane
 /// that the split made. The act ends with a floating pane or with an error that a person sees, never with a tiled
-/// pane and no error (decision 2026-11-16). The 2 requests are closures, so a test runs the act with stand-ins and
-/// no daemon.
+/// pane and no error (decision 2026-11-16). The 2 requests and the focus request are closures, so a test runs the
+/// act with stand-ins and no daemon.
 struct NewFloatingPane {
     /// The store that holds the screens.
     let store: DaemonStore
@@ -12,6 +38,9 @@ struct NewFloatingPane {
     let split: @MainActor (PaneID) async throws -> SurfaceCreated
     /// `float-pane` with `mode: on` for the pane it gets.
     let float: @MainActor (PaneID) async throws -> Void
+    /// Asks the window for the focus on the tab of the surface it gets, as a split asks for its new pane
+    /// (`NewPaneFocus.started`).
+    let focus: @MainActor (SurfaceID) -> Void
 
     /// The pane that the split goes to: `pane` when it is tiled and outside each dock, else the last tiled pane of
     /// `screen` outside each dock (the daemon refuses a split in a docked column). Nil when the screen has no such pane.
@@ -41,10 +70,13 @@ struct NewFloatingPane {
 
     /// Starts the act on `daemon` for the focused pane `pane`, with the daemon's 2 requests.
     ///
+    /// - Parameter window: The focus of the window that shows `pane`; nil when no window shows it. Its intent starts
+    ///   in this call, before the first request goes.
     /// - Returns: The act's work: nil when the pane floats, else the failure. The caller gives it to the action
     ///   registry, so a key run shows the failure and a caller that waits gets it.
-    static func start(on daemon: DaemonService, beside pane: PaneID) -> ActionWork {
+    static func start(on daemon: DaemonService, beside pane: PaneID, window: NewPaneFocus?) -> ActionWork {
         let label = "new-floating-pane"
+        let focus = window?.started() ?? { _ in }
         let options = SpawnOptions(workspace: daemon.store.workspace(containing: pane)?.key)
         // The ticket opens now, as `send` opens it: a caller that waits for the action's scope waits for the 2 requests.
         let ticket = daemon.openTicket(label)
@@ -62,7 +94,8 @@ struct NewFloatingPane {
                         await store.applied(.generate(), connection: connection)
                         return created
                     },
-                    float: { _ = try await connection.floatPane($0, mode: .on) }
+                    float: { _ = try await connection.floatPane($0, mode: .on) },
+                    focus: focus
                 )
                 try await act.run(beside: pane)
                 await daemon.closeTicket(ticket, label: label, error: nil, replying: connection)

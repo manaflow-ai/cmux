@@ -27,6 +27,12 @@ import Testing
         var splits: [PaneID] = []
         /// Each pane that a float request named.
         var floats: [PaneID] = []
+        /// Each surface that the act asked the focus for.
+        var focused: [SurfaceID] = []
+        /// The window's focus intent and each request of the act, in the order in which they came.
+        var events: [String] = []
+        /// The generation of the intent that the window's stand-in starts.
+        static let generation: UInt64 = 7
         /// Whether the store gets the split's new pane before the reply comes.
         var storeGetsThePane = true
         /// The handle of the next pane that a split makes; its tab's surface is the handle plus 100.
@@ -59,6 +65,7 @@ import Testing
 
         private func split(_ anchor: PaneID) throws -> SurfaceCreated {
             splits.append(anchor)
+            events.append("split \(anchor.rawValue)")
             guard let index = columns.firstIndex(where: { $0.panes.contains(anchor) }), columns[index].dock?.role != .agentChat else { throw DockColumnRefusal() }
             let new = PaneID(rawValue: next)
             next += 1
@@ -72,6 +79,7 @@ import Testing
 
         private func float(_ pane: PaneID) {
             floats.append(pane)
+            events.append("float \(pane.rawValue)")
             floating.append(pane)
             publish()
         }
@@ -79,7 +87,13 @@ import Testing
         /// Runs the act for the focused pane `pane`. Returns nil when it threw nothing, else the failure that a key
         /// run of the action shows (`ActionRegistry.refuse(failure:)`) and that a caller of the action gets.
         func run(beside pane: PaneID) async -> ActionWorkFailure? {
-            let act = NewFloatingPane(store: store, split: { try self.split($0) }, float: { self.float($0) })
+            // The window's focus as a stand-in. The intent starts here, before the act runs, as `NewFloatingPane.start`
+            // starts it in the turn of the person's key.
+            let window = NewPaneFocus(begin: { self.events.append("intent"); return Self.generation }) { surface, generation in
+                self.focused.append(surface)
+                self.events.append("focus \(surface.rawValue) for intent \(generation)")
+            }
+            let act = NewFloatingPane(store: store, split: { try self.split($0) }, float: { self.float($0) }, focus: window.started())
             do {
                 try await act.run(beside: pane)
                 return nil
@@ -100,7 +114,7 @@ import Testing
         #expect(failure == nil)
         #expect(fixture.splits == [1], "the split goes to the focused pane")
         #expect(fixture.floatingInStore == [10], "the pane that the split made floats")
-        // The focus is on the floating pane now: the next split goes to the last tiled pane.
+        // When the focus is on the floating pane, the next split goes to the last tiled pane.
         let second = await fixture.run(beside: 10)
         #expect(second == nil)
         #expect(fixture.splits == [1, 1])
@@ -119,6 +133,22 @@ import Testing
         #expect(docked.splits.isEmpty, "no split request goes to the dock")
         #expect(refusal?.notice(title: nil) == FloatingPaneStrings.noTiledPane)
         #expect(refusal?.refusal == .unavailable, "a caller of the action gets the reason")
+    }
+
+    /// Float Pane directly after New Floating Pane must go to the new pane, and the person's keys too: the act asks
+    /// for the focus on the new pane, as a split does (a display run 2026-11-16: the focus stayed on the old pane).
+    @Test func aNewFloatingPaneAsksForTheFocusOnItsPane() async {
+        let fixture = Fixture(columns: [Column(panes: [1])])
+        let failure = await fixture.run(beside: 1)
+        #expect(failure == nil)
+        #expect(fixture.floatingInStore == [10])
+        #expect(fixture.focused == [110], "one focus request, for the surface of the new pane's tab")
+        #expect(fixture.events == ["intent", "split 1", "focus 110 for intent 7", "float 10"],
+                "the intent starts before the split; the focus request has that intent's generation and comes before the float")
+        // An act that makes no pane asks for no focus.
+        let docked = Fixture(columns: [Column(panes: [3], dock: Self.agentChatDock)])
+        _ = await docked.run(beside: 3)
+        #expect(docked.focused.isEmpty)
     }
 
     @Test func aSplitReplyWithNoPaneOfTheStoreIsAnErrorThatAPersonSees() async {
