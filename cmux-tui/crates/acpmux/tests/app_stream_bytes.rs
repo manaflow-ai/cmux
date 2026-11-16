@@ -204,6 +204,12 @@ struct Counts {
     own_stream: u64,
     /// `_acpmux/lagged` notices: read again from your cursor.
     lagged: u64,
+    /// The last `_acpmux/lagged` notice's params.
+    lag: Option<Value>,
+    /// The page's cursor (direct.ts `lastSeq`): the newest seq of its own chat's records it heard.
+    cursor: u64,
+    /// The seqs of its own chat's `agent_message_chunk` records it heard.
+    chunks: Vec<u64>,
     counting: bool,
 }
 
@@ -231,6 +237,8 @@ struct Pane {
     replies: tokio::sync::mpsc::UnboundedReceiver<Value>,
     counts: Arc<Mutex<Counts>>,
     next: i64,
+    /// The attach reply's `lastSeq`: where the page's cursor starts.
+    attached_seq: u64,
 }
 
 impl Pane {
@@ -270,6 +278,15 @@ impl Pane {
                     }
                     if method == "_acpmux/lagged" {
                         c.lagged += 1;
+                        c.lag = Some(params.clone());
+                    }
+                    if of_own && method == "_acpmux/event" {
+                        let seq = params.get("seq").and_then(Value::as_u64).unwrap_or(0);
+                        c.cursor = c.cursor.max(seq);
+                        let kind = params.get("kind").and_then(Value::as_str);
+                        if kind == Some("agent_message_chunk") {
+                            c.chunks.push(seq);
+                        }
                     }
                     if c.counting {
                         let e = c.by_kind.entry(label(&v)).or_default();
@@ -282,7 +299,8 @@ impl Pane {
                 }
             }
         });
-        let mut pane = Self { session: session.to_owned(), tx, replies, counts, next: 0 };
+        let mut pane =
+            Self { session: session.to_owned(), tx, replies, counts, next: 0, attached_seq: 0 };
         let init = pane
             .call("initialize", json!({"protocolVersion": 1,
                 "clientInfo": {"name": "cmux-react-agent-pane", "version": "1"}, "clientCapabilities": {},
@@ -317,7 +335,40 @@ impl Pane {
             )
             .await;
         assert!(attached.get("error").is_none(), "{attached}");
+        let last = attached.pointer("/result/lastSeq").and_then(Value::as_u64).unwrap_or(0);
+        {
+            let mut c = pane.counts.lock().unwrap();
+            c.cursor = c.cursor.max(last);
+        }
+        pane.attached_seq = last;
         pane
+    }
+
+    /// The seqs of the chat's `agent_message_chunk` records after `after_seq`, as the page's lag
+    /// read pages them (direct.ts `fetchMissedEvents`).
+    async fn chunks_after(&mut self, after_seq: u64) -> Vec<u64> {
+        let session = self.session.clone();
+        let mut cursor = after_seq;
+        let mut out = Vec::new();
+        loop {
+            let params = json!({"sessionId": session, "afterSeq": cursor, "limit": 5000});
+            let page = self.call("_acpmux/events", params).await;
+            let events = page
+                .pointer("/result/events")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            for event in &events {
+                let seq = event.get("seq").and_then(Value::as_u64).unwrap_or(0);
+                cursor = cursor.max(seq);
+                if event.get("kind").and_then(Value::as_str) == Some("agent_message_chunk") {
+                    out.push(seq);
+                }
+            }
+            if events.is_empty() || page.pointer("/result/hasMore") != Some(&json!(true)) {
+                return out;
+            }
+        }
     }
 
     async fn call(&mut self, method: &str, params: Value) -> Value {
@@ -531,4 +582,42 @@ async fn a_hidden_quiet_pane_hears_no_stream_until_shown_then_one_lag() {
     quiet.view(true).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(quiet.lagged(), 2, "one more lag for the second hide, none for an empty one");
+}
+
+/// A chat streams while its quiet pane is hidden: the pane hears none of its chunks, but its turn
+/// records still move its cursor past them. Shown, the pane reads from where the show's lag notice
+/// says (direct.ts `lagCursor`: the older of its cursor and the notice's `afterSeq`) and has every
+/// chunk, in order. Before `afterSeq` it read from its cursor, after the last chunk, and the hidden
+/// turn's text never came back (cmux#44453 review).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_quiet_pane_shown_again_reads_back_every_chunk_it_missed_in_order() {
+    let d = Daemon::start("quiet-read");
+    let (ids, mut quiet, _older, _shown) = three_panes(&d).await;
+    let start = quiet.attached_seq;
+    stream_all(&d, &ids[..1], 50, 0).await;
+    let truth = quiet.chunks_after(start).await;
+    assert!(truth.len() >= 50, "the hidden turn's chunks: {}", truth.len());
+    let last_chunk = *truth.last().unwrap();
+    until(|| quiet.counts.lock().unwrap().cursor > last_chunk).await;
+    let (heard, cursor) = {
+        let c = quiet.counts.lock().unwrap();
+        (c.chunks.clone(), c.cursor)
+    };
+    assert!(heard.is_empty(), "a hidden quiet pane hears no chunk: {heard:?}");
+    assert!(
+        cursor > last_chunk,
+        "the turn's own records still went out and moved the cursor past the chunks: {cursor}"
+    );
+    quiet.view(true).await;
+    until(|| quiet.lagged() > 0).await;
+    let lag = quiet.counts.lock().unwrap().lag.clone().expect("a lag notice on show");
+    let from = match lag.get("afterSeq").and_then(Value::as_u64) {
+        Some(after) => cursor.min(after),
+        None => cursor,
+    };
+    let mut got = quiet.chunks_after(from).await;
+    got.extend(heard);
+    got.sort_unstable();
+    got.dedup();
+    assert_eq!(got, truth, "every chunk it missed, in order (lag {lag}, cursor {cursor})");
 }
