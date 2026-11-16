@@ -118,7 +118,8 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// them on purpose; inherited from another cmux they are that build's
     /// roots (per-build isolation S4, cx-is1kf.5).
     public static let stateRootKnobs = ["CHIEF_HOME", "CHIEF_ROOT", "CHIEF_BUILD_ID", "CHIEF_ACCOUNT",
-                                        "MUX_HOME", "ACPMUX_ROOT", "SOCKET_PATH", "CONFIG_FILE"].map { "CMUX_NEXT_" + $0 }
+                                        "MUX_HOME", "ACPMUX_ROOT", "SOCKET_PATH", "CONFIG_FILE",
+                                        "CLOUD_SECRETS_FILE", "CLOUD_SECRETS_SERVICE", "KEYS_AUDIT_FILE"].map { "CMUX_NEXT_" + $0 }
 
     /// The Cloud selection an app exports to its own terminals once its Cloud bootstrap resolves (AppDelegate):
     /// the `cmux` CLI there reads them as that app's backend. A person or a script may set them on purpose to
@@ -158,7 +159,7 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs,
     /// ``liveCodeDirKey``, ``noCustomizationsKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
     /// When another cmux started this process (``otherCmuxMarkers``), also
-    /// the ``stateRootKnobs``, every `MUX_*` but `MUX_HARNESS`, and every
+    /// the ``stateRootKnobs`` and that build's files (``BuildStatePaths/environmentKeys``), every `MUX_*` but `MUX_HARNESS`, and every
     /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots. Its
     /// ``cloudSelectionKnobs`` go too, unless the inherited `CMUX_BUNDLE_ID`
     /// is `bundleID`: a launcher that names this app sets them for this app.
@@ -176,6 +177,8 @@ public struct LaunchIdentity: Sendable, Equatable {
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
             if key.hasPrefix("CMUX") { return true }
             guard fromOtherCmux else { return false }
+            // A DEV build's files (BuildStatePaths) that carry no cmux prefix: that build's host budget.
+            if BuildStatePaths.environmentKeys.contains(key) { return true }
             return (key.hasPrefix("MUX_") && key != "MUX_HARNESS") || key.hasPrefix("OPTCHAT_")
         }
     }

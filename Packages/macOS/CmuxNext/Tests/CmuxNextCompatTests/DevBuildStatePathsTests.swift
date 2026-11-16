@@ -59,6 +59,7 @@ import Testing
             #expect(build.ownRoot == nil)
             #expect(build.environment.isEmpty, "\(build.build.key) points its children elsewhere")
             #expect(build.importsOtherBuildsPreferences)
+            #expect(build.cloudSecretsService == "cmux-cloud-secret")
             let paths = Dictionary(uniqueKeysWithValues: build.all.map { ($0.name, $0.url.path) })
             #expect(paths == [
                 "configDirectory": "/Users/me/.config/cmux",
@@ -68,12 +69,14 @@ import Testing
                 "keysAuditFile": "/Users/me/.config/cmux/keys.json",
                 "automationsDirectory": "/Users/me/.config/cmux/automations",
                 "customizeDirectory": "/Users/me/.config/cmux/customize",
+                "agentSkillsDirectory": "/Users/me/.config/cmux/skills",
                 "githubWorktrees": "/Users/me/.config/cmux/github-worktrees",
                 "recoveryDrafts": "/Users/me/Library/Application Support/cmux-next/recovery",
                 "agentHome": "/Users/me/Library/Application Support/cmux/agent-home",
                 "chatUploads": "/Users/me/Library/Application Support/cmux/Chat Uploads",
                 "projectAvatarsCache": "/Users/me/Library/Caches/cmux/project-avatars",
                 "shellCompletionCache": "/Users/me/Library/Caches/cmux-next",
+                "homeCachesRoot": "/Users/me/Library/Caches",
             ], "\(build.build.key)")
         }
     }
@@ -89,6 +92,9 @@ import Testing
         #expect(environment["ACPMUX_HOST_BUDGET"] == Self.dev.hostBudgetFile.path)
         #expect(environment["CMUX_AUTOMATIONS_DIR"] == Self.dev.automationsDirectory.path)
         #expect(environment["CMUX_CUSTOMIZE_DIR"] == Self.dev.customizeDirectory.path)
+        #expect(environment["CMUX_AGENT_SKILLS_DIR"] == Self.dev.agentSkillsDirectory.path)
+        #expect(environment["CMUX_NEXT_CLOUD_SECRETS_SERVICE"] == "cmux-cloud-secret.com.cmuxterm.app.debug.my-tag")
+        #expect(Self.otherTag.cloudSecretsService != Self.dev.cloudSecretsService)
         #expect(environment.values.allSatisfy { !$0.contains("/.config/cmux") })
     }
 
@@ -108,9 +114,11 @@ import Testing
         #expect(BuildStatePaths.childEnvironment(from: ["PATH": "/usr/bin"]).isEmpty)
     }
 
-    /// The Swift reader of the Cloud secrets index follows the variable, as Rust's does.
-    @Test func cloudSecretsIndexFollowsTheVariable() {
+    /// The Swift readers of the Cloud secrets index and Keychain service follow the variables, as Rust's do.
+    @Test func cloudSecretsFollowTheVariables() {
         #expect(BuildStatePaths.cloudSecretsIndex(environment: Self.dev.environment, home: Self.home) == Self.dev.cloudSecretsIndex)
         #expect(BuildStatePaths.cloudSecretsIndex(environment: [:], home: Self.home) == Self.nightly.cloudSecretsIndex)
+        #expect(BuildStatePaths.cloudSecretsService(environment: Self.dev.environment) == Self.dev.cloudSecretsService)
+        #expect(BuildStatePaths.cloudSecretsService(environment: [:]) == "cmux-cloud-secret")
     }
 }

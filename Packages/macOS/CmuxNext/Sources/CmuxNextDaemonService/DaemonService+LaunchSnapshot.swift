@@ -102,10 +102,11 @@ extension DaemonService {
         let process = ProcessInfo.processInfo.environment
         environment.merge(DaemonDiagnosticKnobs(processEnvironment: process).daemonEnvironment) { own, _ in own }
         // The settings file the app reads, when a launch names another than the default
-        // (`CMUX_NEXT_CONFIG_FILE`, a tagged or test launch): the daemon's settings owner, the file's
-        // one writer, then serves the same file (settings-react.md section 7, item 1). A captured
-        // login environment would not carry it.
-        if let config = process["CMUX_NEXT_CONFIG_FILE"], !config.isEmpty { environment["CMUX_NEXT_CONFIG_FILE"] = config }
+        // (`CMUX_NEXT_CONFIG_FILE`, a DEV build's own or a test launch's): the daemon's settings owner, the
+        // file's one writer, then serves the same file (settings-react.md section 7, item 1). With it the
+        // DEV build's other files (BuildStatePaths: customize, automations, host budget). A captured
+        // login environment would not carry them.
+        environment.merge(BuildStatePaths.childEnvironment(from: process)) { _, file in file }
         return environment
     }
 
