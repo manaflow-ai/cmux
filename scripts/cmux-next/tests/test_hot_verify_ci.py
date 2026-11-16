@@ -18,6 +18,8 @@ import tarfile
 import tempfile
 import textwrap
 import unittest
+from contextlib import redirect_stderr
+from unittest import mock
 import zlib
 from pathlib import Path
 
@@ -204,6 +206,19 @@ class Result(unittest.TestCase):
         with self.assertRaises(hv.Refused):
             hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt")
 
+    def test_a_look_the_worker_stopped_says_why_not_just_no_marker(self) -> None:
+        # Runs 43779426587 (#44015: plan ran past 300 s on cmux17) and 43758485104 (#43472: a fetch timed out) ended
+        # as "the receipt has no hot-verify marker"; the reason was only in the out.tar's step.json.
+        why = "plan: Command '[...hot-verify.py, plan, ...]' timed out after 300 seconds"
+        out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "worker": "cmux17", "error": why,
+                                                          "phases": {"plan": 300.26}}).encode(),
+                             "out/log.txt": b"plan: ...\n"})
+        with self.assertRaises(hv.Refused) as refused:
+            hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt")
+        self.assertIn("cmux17", str(refused.exception))
+        self.assertIn("timed out after 300 seconds", str(refused.exception))
+        self.assertIn("plan 300", str(refused.exception))
+
     def test_needs_build_stages_nothing(self) -> None:
         out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": True}).encode()})
         self.assertEqual(hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt"),
@@ -283,6 +298,42 @@ class Comment(unittest.TestCase):
             self.assertEqual(len(calls), 1)
         finally:
             hv.gh = original
+
+
+    def test_a_call_out_of_quota_waits_for_the_reset_then_retries(self) -> None:
+        # Run 43790108433 (cmux#44086, 2026-11-16): the look passed, then "post the look" died on
+        # "API rate limit exceeded for installation" and the finished look was never posted.
+        limited = subprocess.CompletedProcess([], 1, "", "gh: API rate limit exceeded for installation. If you ...")
+        answers, calls, slept = [], [], []
+
+        def run(argv, **kw):
+            calls.append(argv)
+            if argv[1:3] == ["api", "rate_limit"]:
+                return subprocess.CompletedProcess(argv, 0, "0 1000300\n", "")
+            return answers.pop(0)
+
+        with mock.patch.object(hv.subprocess, "run", side_effect=run), \
+                mock.patch.object(hv.time, "time", return_value=1000000.0), \
+                mock.patch.object(hv.time, "sleep", side_effect=slept.append), redirect_stderr(io.StringIO()):
+            answers[:] = [limited, subprocess.CompletedProcess([], 0, "ok\n", "")]
+            self.assertEqual(hv.gh("api", "repos/manaflow-ai/cmux/pulls/7"), "ok\n")
+            self.assertEqual(slept, [305.0])  # the core reset, 300 s on, plus 5
+            self.assertEqual([c[1:3] for c in calls], [["api", "repos/manaflow-ai/cmux/pulls/7"],
+                                                       ["api", "rate_limit"],
+                                                       ["api", "repos/manaflow-ai/cmux/pulls/7"]])
+            # Past QUOTA_WAIT_SECONDS in all, it stops waiting and says why.
+            slept.clear()
+            answers[:] = [limited] * 20
+            with self.assertRaises(hv.Refused) as refused:
+                hv.gh("api", "repos/manaflow-ai/cmux/pulls/7")
+            self.assertLessEqual(sum(slept), hv.QUOTA_WAIT_SECONDS)
+            self.assertIn("rate limit", str(refused.exception))
+            # Any other failure is not retried.
+            slept.clear()
+            answers[:] = [subprocess.CompletedProcess([], 1, "", "HTTP 404: Not Found")]
+            with self.assertRaises(hv.Refused):
+                hv.gh("api", "repos/manaflow-ai/cmux/pulls/7")
+            self.assertEqual(slept, [])
 
 
 class Workflow(unittest.TestCase):

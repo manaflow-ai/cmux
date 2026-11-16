@@ -15,6 +15,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane, sessionInfoPushAlways } from "./support/papercutChat";
+import { SESSION_INFO_SHOWN, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
+import { JUMP_LATEST, JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -52,17 +54,20 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
 
   /// The button's and the composer card's horizontal centers, as drawn.
   const centers = (page: Page) =>
-    page.evaluate(() => {
-      const center = (selector: string) => {
-        const box = document.querySelector(selector)?.getBoundingClientRect();
-        return box ? (box.left + box.right) / 2 : Number.NaN;
-      };
-      return {
-        button: center(".acpmux-jump-latest"),
-        composer: center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
-        shown: document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)")?.hasAttribute("data-shown") ?? false,
-      };
-    });
+    page.evaluate(
+      ({ JUMP_LATEST }) => {
+        const center = (selector: string) => {
+          const box = document.querySelector(selector)?.getBoundingClientRect();
+          return box ? (box.left + box.right) / 2 : Number.NaN;
+        };
+        return {
+          button: center(".acpmux-jump-latest"),
+          composer: center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
+          shown: document.querySelector(JUMP_LATEST)?.hasAttribute("data-shown") ?? false,
+        };
+      },
+      { JUMP_LATEST },
+    );
 
   /// Resolves once no finite animation or transition runs and two more frames have painted.
   const settle = (page: Page) =>
@@ -81,8 +86,8 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
       });
     });
 
-  const panel = (page: Page) => page.locator('aside.acpmux-session-info[data-presence="shown"]');
-  const toggle = (page: Page) => page.locator("button.acpmux-session-info-toggle");
+  const panel = (page: Page) => page.locator(SESSION_INFO_SHOWN);
+  const toggle = (page: Page) => page.locator(SESSION_INFO_TOGGLE);
   /// Session Info offered (Debug Settings `agent.sessionInfo`), then open or closed.
   const sessionInfo = async (page: Page, open: boolean) => {
     await page.evaluate(() =>
@@ -115,7 +120,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
     await page.evaluate(() => {
       document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
     });
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor({ timeout: 10_000 });
+    await page.locator(JUMP_LATEST_SHOWN).waitFor({ timeout: 10_000 });
     await settle(page);
     return page;
   };
