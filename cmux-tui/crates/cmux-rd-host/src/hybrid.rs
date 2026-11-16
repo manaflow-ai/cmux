@@ -299,6 +299,20 @@ mod with_link {
     }
 
     impl<S: Read + Write + AsRawFd> Carrier for HybridCarrier<'_, S> {
+        fn drain_departures(&mut self, out: &mut Vec<cmux_rd_proto::DatagramDeparture>) {
+            // A route switch must not hide receipts from the previous carrier.
+            self.stream.drain_departures(out);
+            if let Some(net) = &self.net {
+                net.drain_departures(out);
+            }
+        }
+
+        fn departure_overflows(&self) -> u64 {
+            self.stream
+                .departure_overflows()
+                .saturating_add(self.net.as_ref().map_or(0, |net| net.departure_overflows()))
+        }
+
         fn fds(&self) -> Vec<RawFd> {
             let mut fds = self.stream.fds();
             fds.extend(self.net.as_ref().map(Net::event_fd));

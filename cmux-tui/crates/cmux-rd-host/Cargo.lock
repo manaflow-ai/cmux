@@ -603,6 +603,7 @@ dependencies = [
 name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
+ "cmux-rd-proto",
  "cmux-transport",
  "hmac",
  "libc",

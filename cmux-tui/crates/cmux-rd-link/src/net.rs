@@ -22,6 +22,7 @@
 use crate::endpoint::{Endpoint, EndpointEvent, MAX_PATHS, Route};
 use crate::turn::{TurnClient, TurnEvent, TurnReceive};
 use crate::{KeyPair, LinkError, Role};
+use cmux_rd_proto::{DatagramDeparture, DatagramHeader, MAX_DEPARTURE_RECEIPTS};
 use cmux_transport::PathKind;
 use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success};
 use std::collections::VecDeque;
@@ -29,6 +30,7 @@ use std::io;
 use std::mem::size_of_val;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Instant;
@@ -187,6 +189,7 @@ const MAX_WAITING_MEDIA_FRAMES: usize = 1;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NetStats {
+    pub departure_overflows: u64,
     pub queue_frames: usize,
     pub queue_datagrams: usize,
     pub dropped_frames: u64,
@@ -255,6 +258,7 @@ impl MediaQueue {
 
     fn stats(&self) -> NetStats {
         NetStats {
+            departure_overflows: 0,
             queue_frames: self.frames.len(),
             queue_datagrams: self.queued_datagrams,
             dropped_frames: self.dropped_frames,
@@ -292,6 +296,8 @@ impl MediaQueue {
 
 /// A running driver. Dropping it closes the link and stops the thread.
 pub struct Net {
+    departures: mpsc::Receiver<DatagramDeparture>,
+    departure_overflows: Arc<AtomicU64>,
     commands: mpsc::Sender<Command>,
     events: mpsc::Receiver<NetEvent>,
     command_wake: Pipe,
@@ -461,10 +467,15 @@ impl Net {
         endpoint.set_keep_awake(keep_awake_us());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
+        let (departure_tx, departure_rx) = mpsc::sync_channel(MAX_DEPARTURE_RECEIPTS);
+        let departure_overflows = Arc::new(AtomicU64::new(0));
         let media_queue = Arc::new(Mutex::new(MediaQueue::default()));
         let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let event_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let mut driver = Driver {
+            departures: departure_tx,
+            departure_overflows: Arc::clone(&departure_overflows),
+            departure_wake: false,
             socket,
             endpoint,
             commands: command_rx,
@@ -518,6 +529,8 @@ impl Net {
             .spawn(move || driver.run())
             .map_err(|e| LinkError::Io(e.to_string()))?;
         Ok(Self {
+            departures: departure_rx,
+            departure_overflows,
             commands: command_tx,
             events: event_rx,
             command_wake,
@@ -583,9 +596,21 @@ impl Net {
         self.command_wake.wake();
     }
 
+    /// Drain at most one bounded batch, without waiting for the driver.
+    pub fn drain_departures(&self, out: &mut Vec<DatagramDeparture>) {
+        out.extend(self.departures.try_iter().take(MAX_DEPARTURE_RECEIPTS));
+    }
+
+    pub fn departure_overflows(&self) -> u64 {
+        self.departure_overflows.load(Ordering::Relaxed)
+    }
+
     /// A snapshot of the bounded media queue and its drop counters.
     pub fn stats(&self) -> NetStats {
-        self.media_queue.lock().map_or_else(|_| NetStats::default(), |queue| queue.stats())
+        let mut stats =
+            self.media_queue.lock().map_or_else(|_| NetStats::default(), |queue| queue.stats());
+        stats.departure_overflows = self.departure_overflows();
+        stats
     }
 
     /// One control record (ordered, reliable).
@@ -645,6 +670,9 @@ struct StunQuery {
 }
 
 struct Driver {
+    departures: mpsc::SyncSender<DatagramDeparture>,
+    departure_overflows: Arc<AtomicU64>,
+    departure_wake: bool,
     socket: UdpSocket,
     endpoint: Endpoint,
     commands: mpsc::Receiver<Command>,
@@ -678,9 +706,7 @@ impl Driver {
         let frame = self.media_queue.lock().ok().and_then(|mut queue| queue.pop());
         let Some(frame) = frame else { return Ok(()) };
         for datagram in frame.datagrams {
-            for transmit in self.endpoint.send_datagram(&datagram)? {
-                self.send(transmit.route, &transmit.packet, now);
-            }
+            self.send_media_datagram(&datagram, now)?;
         }
         Ok(())
     }
@@ -700,23 +726,40 @@ impl Driver {
         }
     }
 
-    fn send(&mut self, route: Route, packet: &[u8], now: u64) {
-        match route {
-            Route::Udp(addr) => {
-                let _ = self.socket.send_to(packet, addr);
-            }
-            Route::Relay { relay, peer } => {
-                let Some(r) = self.relays.get_mut(usize::from(relay)) else { return };
-                if let Some(wrapped) = r.client.send(peer, packet, now) {
-                    let _ = self.socket.send_to(&wrapped, r.server);
+    fn send_media_datagram(&mut self, datagram: &[u8], now: u64) -> Result<(), LinkError> {
+        // Preserve identity before sealing; never infer departure from enqueue.
+        let header = DatagramHeader::decode(datagram).ok().map(|(header, _)| header);
+        for transmit in self.endpoint.send_datagram(datagram)? {
+            if let Some((departed_us, wire_bytes)) =
+                self.send(transmit.route, &transmit.packet, now)
+            {
+                if let Some(header) = header {
+                    let receipt = DatagramDeparture { header, departed_us, wire_bytes };
+                    if self.departures.try_send(receipt).is_ok() {
+                        self.departure_wake = true;
+                    } else {
+                        self.departure_overflows.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
+            }
+        }
+        Ok(())
+    }
+
+    fn send(&mut self, route: Route, packet: &[u8], now: u64) -> Option<(u64, usize)> {
+        match route {
+            Route::Udp(addr) => send_to_observed(&self.socket, packet, addr),
+            Route::Relay { relay, peer } => {
+                let r = self.relays.get_mut(usize::from(relay))?;
+                let wrapped = r.client.send(peer, packet, now)?;
+                send_to_observed(&self.socket, &wrapped, r.server)
             }
         }
     }
 
     fn flush(&mut self, now: u64) -> Result<(), LinkError> {
         for t in self.endpoint.poll_transmit(now)? {
-            self.send(t.route, &t.packet, now);
+            let _ = self.send(t.route, &t.packet, now);
         }
         for event in self.endpoint.take_events() {
             self.emit(NetEvent::Endpoint(event));
@@ -964,9 +1007,7 @@ impl Driver {
                     Command::Datagram(datagram) => {
                         // Input, cursor and repair traffic never replaces queued video.
                         if self.endpoint.link().is_established() {
-                            for transmit in self.endpoint.send_datagram(&datagram)? {
-                                self.send(transmit.route, &transmit.packet, now);
-                            }
+                            self.send_media_datagram(&datagram, now)?;
                         }
                     }
                     Command::NetworkChange => {
@@ -976,7 +1017,7 @@ impl Driver {
                     Command::Close => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {
-                                self.send(t.route, &t.packet, now);
+                                let _ = self.send(t.route, &t.packet, now);
                             }
                         }
                         for r in &mut self.relays {
@@ -1032,13 +1073,43 @@ impl Driver {
             }
             self.flush(now)?;
             self.drain_media(now)?;
+            if std::mem::take(&mut self.departure_wake) {
+                // One wake per driver turn, not a syscall per media datagram.
+                // SAFETY: one byte to the nonblocking event pipe owned by Net.
+                unsafe { libc::write(self.event_fd, [1u8].as_ptr().cast(), 1) };
+            }
         }
     }
+}
+
+/// Sample the protocol clock only after the complete payload is accepted.
+fn send_to_observed(socket: &UdpSocket, packet: &[u8], addr: SocketAddr) -> Option<(u64, usize)> {
+    let sent = socket.send_to(packet, addr).ok()?;
+    if sent != packet.len() {
+        return None;
+    }
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: the kernel writes a valid, live timespec; this is the host's clock domain.
+    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) } != 0 {
+        return None;
+    }
+    Some((ts.tv_sec as u64 * 1_000_000 + ts.tv_nsec as u64 / 1000, sent))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn departure_failed_socket_send_has_no_success_timestamp() {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        assert!(send_to_observed(&socket, &[0; 65_536], peer.local_addr().unwrap()).is_none());
+        let (departed, bytes) =
+            send_to_observed(&socket, b"ok", peer.local_addr().unwrap()).unwrap();
+        assert!(departed > 0);
+        assert_eq!(bytes, 2);
+    }
 
     fn set_socket_buffer(socket: &UdpSocket, option: libc::c_int, value: i32) {
         // SAFETY: the descriptor is open for the borrow of `socket`, and the
