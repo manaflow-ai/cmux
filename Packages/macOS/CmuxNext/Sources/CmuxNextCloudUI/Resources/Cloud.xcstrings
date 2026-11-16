@@ -132,6 +132,137 @@
         }
       }
     },
+    "cloud.error.machineLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This team is at its Cloud machine limit, and paused machines count. Delete a machine you no longer need, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وصل هذا الفريق إلى الحد الأقصى لأجهزة Cloud، والأجهزة المتوقفة مؤقتًا تُحتسب. احذف جهازًا لم تعد بحاجة إليه، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj tim je dostigao ograničenje Cloud mašina, a pauzirane mašine se računaju. Izbrišite mašinu koja vam više ne treba, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette team har nået sin grænse for Cloud-maskiner, og maskiner på pause tæller med. Slet en maskine, du ikke længere har brug for, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Team hat sein Limit für Cloud-Maschinen erreicht, pausierte Maschinen zählen mit. Lösche eine Maschine, die du nicht mehr brauchst, und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este equipo alcanzó su límite de máquinas de Cloud, y las máquinas en pausa cuentan. Elimina una máquina que ya no necesites e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette équipe a atteint sa limite de machines Cloud, et les machines en pause comptent. Supprimez une machine dont vous n’avez plus besoin, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo team ha raggiunto il limite di macchine Cloud, e quelle in pausa contano. Elimina una macchina che non ti serve più, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチームは Cloud マシンの上限に達しています。一時停止中のマシンも数に含まれます。不要なマシンを削除してから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមនេះបានដល់ដែនកំណត់ម៉ាស៊ីន Cloud ហើយ ម៉ាស៊ីនដែលផ្អាកក៏ត្រូវរាប់ដែរ។ សូមលុបម៉ាស៊ីនដែលអ្នកលែងត្រូវការ រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 팀은 Cloud 머신 한도에 도달했으며, 일시 중지된 머신도 포함됩니다. 더 이상 필요 없는 머신을 삭제한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette teamet har nådd grensen for Cloud-maskiner, og maskiner på pause teller med. Slett en maskin du ikke lenger trenger, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten zespół osiągnął limit maszyn Cloud, a wstrzymane maszyny też się liczą. Usuń maszynę, której już nie potrzebujesz, i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta equipe atingiu o limite de máquinas do Cloud, e as máquinas pausadas contam. Exclua uma máquina de que você não precisa mais e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта команда достигла лимита машин Cloud, приостановленные машины тоже учитываются. Удалите машину, которая больше не нужна, и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทีมนี้ถึงขีดจำกัดจำนวนเครื่อง Cloud แล้ว และเครื่องที่หยุดชั่วคราวก็นับรวมด้วย ลบเครื่องที่ไม่ใช้แล้ว จากนั้นลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ekip Cloud makine sınırına ulaştı ve duraklatılmış makineler de sayılıyor. Artık gerekmeyen bir makineyi silin, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця команда досягла ліміту машин Cloud, призупинені машини теж враховуються. Видаліть машину, яка більше не потрібна, і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm này đã đạt giới hạn máy Cloud, và máy đang tạm dừng cũng được tính. Hãy xóa một máy bạn không còn cần, rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此团队已达到 Cloud 机器数量上限，已暂停的机器也计入其中。请删除不再需要的机器，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此團隊已達 Cloud 機器數量上限，已暫停的機器也計入其中。請刪除不再需要的機器，然後再試一次。"
+          }
+        }
+      }
+    },
     "cloud.machineRoute.noDaemon": {
       "extractionState": "manual",
       "localizations": {

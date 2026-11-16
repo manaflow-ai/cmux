@@ -47,6 +47,15 @@ struct CloudErrorTextTests {
         #expect(CloudStrings.errorText(error) == "It failed. \(CloudStrings.trace("t-1"))")
     }
 
+    /// The app server's refusal at the team's machine count limit says so, not "Something went wrong": a person
+    /// who reads it can delete a machine and start the chat (cmux#40159, the dev team at 18 of 18).
+    @Test func aCreateAtTheMachineLimitSaysSo() {
+        let refusal = CloudAppOpFailure(code: "cmux.cloud.vm_limit", message: "cloud.quota.vm_limit")
+        #expect(CloudStrings.errorText(refusal) == CloudMoveStrings.machineLimit)
+        #expect(CloudStrings.errorText(refusal) != PlainErrorText.generic)
+        #expect(CloudStrings.errorText(CloudAppOpFailure(code: "cmux.cloud.other", message: "x")) == PlainErrorText.generic)
+    }
+
     @Test func aFailedCreationReadsAsTheErrorText() {
         let creation = CloudMachineCreation(windowID: nil)
         creation.fail(CloudAPIError.timedOut("POST /api/vm"))

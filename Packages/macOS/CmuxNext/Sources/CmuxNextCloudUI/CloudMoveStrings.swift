@@ -113,4 +113,16 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.tabFailed", defaultValue: "The chat moved to %1$@, but its tab didn't open: %2$@",
                               table: "Cloud", bundle: .module), machine, detail)
     }
+    /// The app server's refusal of a create at the team's machine count limit (upstream `cloud.quota.vm_limit`).
+    public static let machineLimitCode = "cmux.cloud.vm_limit"
+    public static var machineLimit: String {
+        String(localized: "cloud.error.machineLimit", defaultValue: "This team is at its Cloud machine limit, and paused machines count. Delete a machine you no longer need, then try again.", table: "Cloud", bundle: .module)
+    }
+}
+
+/// An app-server refusal a person can act on reads as its own sentence wherever an error is put in plain words
+/// (`PlainErrorText.personal`): a create at the machine limit says so, not "Something went wrong". Any other
+/// code has no description here and keeps the caller's wording.
+extension CloudAppOpFailure: LocalizedError {
+    public var errorDescription: String? { code == CloudMoveStrings.machineLimitCode ? CloudMoveStrings.machineLimit : nil }
 }
