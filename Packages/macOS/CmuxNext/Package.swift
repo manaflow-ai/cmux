@@ -1632,6 +1632,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
+                "CmuxNextPages",
+                "CmuxNextPagesTestSupport",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
@@ -1693,6 +1696,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
                 "CmuxNextActions",
+                "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
                 "CmuxNextControl",

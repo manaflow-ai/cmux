@@ -187,6 +187,8 @@ all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. Th
   observation, instant create, main-thread budget, off-main frames, daemon request path) and meet
   [REVIEW-STANDARD.md](plans/cmux-next/REVIEW-STANDARD.md): root-cause fixes, no hacks, no partial fixes. Review
   landed work with the repo workflow `.claude/workflows/cmux-next-deep-review.js`.
+- A measurement lands as a registered bench in `scripts/bench/benches/` (`scripts/bench/cmux-bench list`), or extends
+  one, never as a one-off script; perf PRs cite `cmux-bench compare` output ([scripts/bench/README.md](scripts/bench/README.md)).
 - Budget: every action reaches its committed frame in < 10 ms p95; motion runs at full refresh, 0 drops.
   Measure on the fleet yourself, light and STRESS ([perf-lead.md](plans/cmux-next/perf-lead.md)), before and after.
 - Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI tests (Lawrence 2026-10-23: "not to

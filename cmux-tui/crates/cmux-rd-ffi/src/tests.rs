@@ -508,3 +508,20 @@ fn a_flood_of_empty_control_messages_is_bounded() {
     // Each message costs its overhead, so the queue budget ends the session.
     assert_eq!(rc, CMUX_RD_ERR_FAILED);
 }
+
+#[test]
+fn a_frame_is_ready_in_the_push_that_completes_it() {
+    // A long deadline: release must not wait on it or on a tick.
+    let mut r = Receiver::new(Carrier::Datagram, 10_000_000, 5_000);
+    for (_, datagrams) in frames(3, 3000, 1) {
+        // The parity shard goes last: the frame is complete before it.
+        let (last, rest) = datagrams.split_last().expect("datagrams");
+        for d in rest {
+            r.push_datagram(d, 0).expect("push");
+        }
+        assert_eq!(r.ready_frames(), 1, "ready without parity or a tick");
+        r.push_datagram(last, 0).expect("late parity");
+        assert_eq!(r.ready_frames(), 1);
+        assert!(r.pop_frame().is_some());
+    }
+}
