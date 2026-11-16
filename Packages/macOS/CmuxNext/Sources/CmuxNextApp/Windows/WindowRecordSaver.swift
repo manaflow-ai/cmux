@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextControl
 import CmuxNextWakeups
 
 /// Pending window record saves: at most one in flight and one after it, in order.
@@ -40,7 +41,7 @@ final class WindowRecordSaver {
     var saves = WindowRecordSaves()
     /// The daemon's window records of this install (`window-records-v1`).
     private let recordMirror = WindowRecordMirror()
-    private(set) lazy var launchRecord = AppLaunchRecord(services: manager.services)
+    private(set) lazy var launchRecord = AppLaunchRecord(host: manager.services)
     private var selectedTabsCache: [String: TabSelectionRecord] = [:]
     /// Panes whose remembered tab a record build read on the main thread (`SpaceSwitchRecordSaveTests`).
     var paneReads: Int { selectedTabsCache.values.reduce(0) { $0 + $1.paneReads } }
@@ -226,5 +227,49 @@ final class WindowRecordSaver {
             workspace: { services.workspace(id: $0) },
             // The registry names the first window that lists a workspace: this one's list only for another's.
             lists: { registry.owner(of: $0) == window.id || window.workspaceIDs.contains($0) })
+    }
+}
+
+@MainActor
+extension AppServices: LaunchRecordHost {
+    var launchRecordBundleID: String? { environment.launch.bundleID }
+    var launchRecordWork: BackgroundWork { work }
+    var launchRecordRestored: Bool { windows.restored }
+    var launchRecordSocketPath: String? {
+        get async { await daemon.connection?.endpoint?.socketPath }
+    }
+
+    func launchRecordSnapshot(images: [String: LaunchRecordImage], socketPath: String) -> LaunchRecordSnapshot {
+        let manager = windows
+        let front = manager.active
+        let controllers = manager.controllers.filter { !manager.isIncognito(window: $0.state.id) }
+        let ordered = controllers.filter { $0 === front } + controllers.filter { $0 !== front }
+        let shown = Set(ordered.flatMap { $0.mountedContents.filter { !$0.isParked }.map { $0.workspace.id } })
+        var seen = Set<String>()
+        let sidebars = ordered.flatMap { controller in
+            let model = controller.sidebar.model
+            let sidebar = SidebarSnapshot(sections: model.sections, profiles: model.profiles, activeProfileID: model.activeProfileID)
+            return sidebar.sections.flatMap(\.nodes).flatMap { $0.workspace.map { [$0] } ?? $0.group?.workspaces ?? [] }
+        }.filter { !shown.contains($0.id) && seen.insert($0.id).inserted }
+            .map { LaunchRecordSidebarSnapshot(id: $0.id, title: $0.title, iconKey: $0.icon ?? "") }
+        let windows = ordered.compactMap { controller -> LaunchRecordWindowSnapshot? in
+            guard let window = controller.window else { return nil }
+            let image = images[controller.state.id]
+            let color = controller.themeScope.tokens.surfaceBackground
+            let rgba = (Self.launchRecordByte(color.red), Self.launchRecordByte(color.green), Self.launchRecordByte(color.blue), Self.launchRecordByte(color.alpha))
+            let tabs = controller.mountedContents.filter { !$0.isParked }.flatMap { content in
+                content.panes.values.filter { !$0.view.isHiddenOrHasHiddenAncestor }.compactMap { $0.stripModel.selectedID?.rawValue }
+            }
+            let display = (window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
+            return LaunchRecordWindowSnapshot(id: controller.state.id, frame: window.frame, displayID: display,
+                backgroundRGBA: rgba, barRGBA: rgba, imagePath: image?.path ?? "",
+                imagePixelSize: (image?.pixelWidth ?? 0, image?.pixelHeight ?? 0),
+                workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs)
+        }
+        return LaunchRecordSnapshot(windows: windows, sidebarRows: sidebars, sessionSocketPath: socketPath)
+    }
+
+    private static func launchRecordByte(_ component: Double) -> UInt8 {
+        UInt8(clamping: Int((min(1, max(0, component)) * 255).rounded()))
     }
 }
