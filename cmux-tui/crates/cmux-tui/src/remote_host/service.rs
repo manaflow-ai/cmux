@@ -354,6 +354,35 @@ pub(crate) fn restart(exe: &Path, with_service: bool) -> anyhow::Result<String> 
     Ok(format!("started cmux host serve (pid {pid}){why}"))
 }
 
+/// Best effort and noninteractive: hosting stays available when logind refuses the grant.
+pub(crate) fn enable_linger() -> String {
+    use wait_timeout::ChildExt as _;
+    let enabled = Command::new("loginctl")
+        .args(["--no-ask-password", "enable-linger"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()
+        .is_some_and(|mut child| match child.wait_timeout(Duration::from_secs(5)) {
+            Ok(Some(status)) => status.success(),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                false
+            }
+        });
+    linger_note(enabled).to_owned()
+}
+
+fn linger_note(enabled: bool) -> &'static str {
+    if enabled {
+        "linger enabled: hosting survives logout"
+    } else {
+        "linger could not be enabled; run `sudo loginctl enable-linger $USER` so hosting survives logout"
+    }
+}
+
 fn run_quiet(program: &str, args: &[&str]) -> anyhow::Result<()> {
     let out = Command::new(program)
         .args(args)

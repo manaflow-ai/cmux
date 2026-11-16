@@ -144,7 +144,7 @@ case "\$*" in
     esac ;;
   "daemon restart") [ "\${JT_RESTART:-ok}" != fail ] || exit 1 ;;
   "host doctor --help") [ "\${JT_DOCTOR:-0}" = 1 ] && echo "  --here" || exit 2 ;;
-  "host doctor --here") echo '{"step":"credential","state":"ok"}' ;;
+  "host doctor --here --fix") echo '{"step":"credential","state":"ok"}' ;;
   "host join --status --json")
     inc=false
     [ ! -f "\$JT_PENDING" ] || inc=true
@@ -630,7 +630,7 @@ suite() {
   check "revoked, no token: no join attempted" test ! -e "$d/log/joins"
 
   # Once joined: Claude Code from its own installer, Codex from acpmux's
-  # runtime (macOS), and a sign-in line for each, through its own flow.
+  # runtime (macOS and Linux), and a sign-in line for each, through its own flow.
   new_case harnesses
   JT_OS=Darwin JT_ARCH=arm64 JT_CODEX_RT=1
   run_join env
@@ -668,9 +668,12 @@ suite() {
   check "none: no sign-in" eval '! out_has "sign in to"'
 
   new_case harnesses-linux
+  JT_CODEX_RT=1 JT_DOCTOR=1
   run_join env CMUX_JOIN_HARNESSES=codex
   check "linux codex: exit 0 (got $rc)" rc_is 0
-  check "linux codex: says how" out_has "Codex is not installed: npm install -g @openai/codex"
+  check "linux codex: installed" test -f "$d/home/codex-ready"
+  check "linux codex: uses managed installer" grep -q "^acpmux harness codex-runtime install" "$d/log/argv"
+  check "linux sandbox: join repairs prerequisites" grep -q "^acpmux host doctor --here --fix$" "$d/log/argv"
   check "linux codex: no claude" eval '! grep -q "claude.ai" "$d/log/argv"'
 
   new_case harnesses-bad

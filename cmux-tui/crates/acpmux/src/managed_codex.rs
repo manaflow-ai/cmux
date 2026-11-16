@@ -28,11 +28,20 @@ pub fn ready_path() -> PathBuf {
     root().join("ready.json")
 }
 
+const LINUX_ARM64_URL: &str = "https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-aarch64-unknown-linux-musl.tar.gz";
+const LINUX_ARM64_SHA256: &str = "558e12aaa6dacb335ec47240bf9721db8a54746806d64f01185a403f44f79b72";
+const LINUX_X64_URL: &str = "https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-x86_64-unknown-linux-musl.tar.gz";
+const LINUX_X64_SHA256: &str = "aff46539a83aff86e3c62c592bce2c50d95391f9df289afaf03a50c01d14533d";
+
 fn target() -> (&'static str, &'static str) {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         (ARM64_URL, ARM64_SHA256)
     } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
         (X64_URL, X64_SHA256)
+    } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+        (LINUX_ARM64_URL, LINUX_ARM64_SHA256)
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        (LINUX_X64_URL, LINUX_X64_SHA256)
     } else {
         ("", "")
     }
@@ -64,7 +73,7 @@ pub fn status() -> serde_json::Value {
 pub async fn install() -> Result<serde_json::Value> {
     let (url, expected) = target();
     if url.is_empty() {
-        bail!("managed Codex is currently supported on macOS only")
+        bail!("managed Codex needs macOS or Linux on arm64 or x86_64")
     }
     // The workspace builds reqwest with `rustls-no-provider`; a standalone CLI run has no
     // process-level provider until one is installed (as `catalog/fetch.rs`).
@@ -119,11 +128,11 @@ pub async fn install() -> Result<serde_json::Value> {
     Ok(ready)
 }
 
-/// Only macOS installs a managed runtime (`target`), and the swap below needs a Unix symlink:
+/// macOS and Linux install a managed runtime (`target`); the swap needs a Unix symlink:
 /// elsewhere `install` has already refused before it gets here.
 #[cfg(not(unix))]
 fn activate(_base: &Path, _install: &Path) -> Result<()> {
-    bail!("managed Codex is currently supported on macOS only")
+    bail!("managed Codex needs macOS or Linux on arm64 or x86_64")
 }
 
 /// Points `current` at the finished install directory with one rename over the old link: the

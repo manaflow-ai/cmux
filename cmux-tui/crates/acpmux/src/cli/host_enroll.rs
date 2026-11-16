@@ -484,7 +484,7 @@ const PROBE_BINS: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~
 /// starts there runs in (`linux_sandbox::bwrap::probe`'s flags): `ok`,
 /// `broken` (installed, but too old or user namespaces are off), `missing`,
 /// or `n/a` off Linux.
-const PROBE_BWRAP: &str = r#"printf 'bwrap\t%s\n' "$(if [ "$(uname -s)" != Linux ]; then echo n/a; elif /usr/bin/bwrap --unshare-user --unshare-net --disable-userns --ro-bind / / true >/dev/null 2>&1; then echo ok; elif [ -x /usr/bin/bwrap ]; then echo broken; else echo missing; fi)"; "#;
+const PROBE_BWRAP: &str = super::host_sandbox::PROBE;
 
 /// [`PROBE_BWRAP`], [`PROBE_BINS`], then the remote daemon config.
 fn probe_script() -> String {

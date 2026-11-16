@@ -125,6 +125,7 @@ export interface Evidence {
   machineId: string | null
   teamId: string | null
   joinTokenId: string | null
+  joinSeconds: number | null
   status: {
     credentialPresent: boolean | null
     joinIncomplete: boolean | null
@@ -287,6 +288,7 @@ export async function runE2E(
     machineId: null,
     teamId: null,
     joinTokenId: null,
+    joinSeconds: null,
     status: { credentialPresent: null, joinIncomplete: null, revoked: null, hubReachable: null, heartbeatAgeSeconds: null },
     consent: { screen: null, control: null },
     credentialFileMode: null,
@@ -664,6 +666,7 @@ export async function runE2E(
     // 3. Join: the token goes to stdin only, then this process drops it.
     live()
     joinStarted = true
+    const joinStartedAt = deps.now()
     joining = acpmux(["host", "join", "--hub", opts.origin, "--name", opts.name, "--json"], `${token}\n`, joinStop.signal)
     joinSettled = joining.then(
       () => (joinEnded = true),
@@ -678,9 +681,18 @@ export async function runE2E(
       throw new Failed(`join: exit ${joined.code}${joined.code !== null && meaning[joined.code] ? ` (${meaning[joined.code]})` : ""}`)
     }
     evidence.machineId = safeId(j.machineId)
+    evidence.joinSeconds = Math.max(0, Math.round((deps.now() - joinStartedAt) / 100) / 10)
     if (!evidence.machineId) throw new Failed("join: no valid machineId")
     expect(j.teamId === evidence.teamId, "join team differs from the mint's team")
-    say(`joined as machine ${evidence.machineId}`)
+    say(`joined as machine ${evidence.machineId} in ${evidence.joinSeconds}s`)
+
+    // The join's own doctor is the machine-readable readiness receipt. It may return 1 for a
+    // signed-out harness or an unavailable optional sandbox, but it must always emit its report.
+    const doctor = await deps.run(asUserTool(["host", "doctor", "--here", "--json"]), { env: childEnv, timeoutMs: 30_000 })
+    childText.push(doctor.stdout, doctor.stderr)
+    const doctorLines = doctor.stdout.split("\n").filter((line) => line.trim())
+    const doctorReport = doctorLines.map((line) => { try { return JSON.parse(line) } catch { return null } }).find((v: any) => v?.report)
+    expect(doctorReport?.report?.steps instanceof Array, "doctor: no machine-readable report")
 
     // The stored credential is masked before anything else could print it.
     const pre = await status()

@@ -1344,8 +1344,10 @@ fn a_host_without_bwrap_warns_at_the_daemon_step_and_fix_installs_it() {
         Fake::new(move |script, _| {
             if script == probe_script().as_str() {
                 out(probed.clone())
-            } else if script.starts_with("sudo -n apt-get install -y bubblewrap") {
+            } else if script == super::super::host_sandbox::install_script() {
                 RemoteOut { ok: sudo, stdout: String::new(), stderr: String::new() }
+            } else if script == super::super::host_sandbox::fix_script() {
+                out("sudo apt-get install -y bubblewrap\n".into())
             } else {
                 panic!("unexpected script: {script}")
             }
