@@ -864,11 +864,13 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
                 // chat's relayed prompts would then pass ungated. One retry, then the chat goes.
                 let saved = hub.mark_hub_via(id, via).or_else(|_| hub.mark_hub_via(id, via));
                 if let Err(why) = saved {
-                    if let Ok(session) = hub.resolve(id) {
-                        let gone = crate::heap_future::heap(|| hub.kill(&session, true)).await;
-                        if let Err(e) = gone {
-                            tracing::warn!(session = %id, "removing an unmarked hub start: {e:?}");
-                        }
+                    // The refusal must be true: the chat goes, or at least stops and leaves this
+                    // run's sessions when its delete fails (review F9 of #38377).
+                    if let Err(e) = hub.discard_unmarked_start(id).await {
+                        tracing::warn!(
+                            session = %id,
+                            "an unmarked hub start was stopped and unlisted, not deleted: {e}"
+                        );
                     }
                     return Some(Ack::refused(format!(
                         "mesh.start_unsaved: this machine could not save the chat's trust mark \

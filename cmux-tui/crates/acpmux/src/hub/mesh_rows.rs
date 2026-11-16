@@ -109,6 +109,43 @@ impl Hub {
         })
     }
 
+    /// Take chat `id` away, a hub start whose trust mark could not be saved (`mark_hub_via`), so
+    /// the start's refusal is true: nothing of it runs or resolves here after. The delete is tried
+    /// twice. When both fail, the chat is stopped (a stop deletes nothing, so it cannot fail the
+    /// way a delete does) and taken out of this run's sessions: no prompt, relayed or local,
+    /// reaches it again. Its closed record may stay on disk; it carries the mark its first record
+    /// was written with (`start_mark`). The error is the delete's, for the log.
+    pub(crate) async fn discard_unmarked_start(&self, id: &str) -> Result<(), String> {
+        let Some(session) = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(id)
+            .cloned()
+        else {
+            return Ok(());
+        };
+        let mut why = String::new();
+        for _ in 0..2 {
+            match crate::heap_future::heap(|| self.kill(&session, true)).await {
+                Ok(()) => return Ok(()),
+                Err(e) => why = e.message,
+            }
+        }
+        if let Err(e) = crate::heap_future::heap(|| self.kill(&session, false)).await {
+            why = format!("{why}; the stop failed too: {}", e.message);
+        }
+        {
+            let mut sessions =
+                self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if sessions.get(id).is_some_and(|current| Arc::ptr_eq(current, &session)) {
+                sessions.remove(id);
+            }
+        }
+        self.remove_live_session_index(id);
+        Err(why)
+    }
+
     /// The mark a prompt the hub relays to `session` takes (`SessionMeta::hub_via`).
     pub(crate) fn hub_via(&self, session: &Session) -> Option<String> {
         session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).hub_via.clone()
