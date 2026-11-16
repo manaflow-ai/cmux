@@ -152,7 +152,7 @@ pub enum Mode {
 }
 
 /// A message's kind: text for a session, or a request to its daemon (start, resume or stop a
-/// session, [`ControlHook`]). A kind this build does not know is refused.
+/// session, `server::mesh_relay::ControlHook`). A kind this build does not know is refused.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Kind {
@@ -481,33 +481,6 @@ mod wire_tests {
         assert!(message(Kind::Control, Some("pause")).validate().is_err());
         assert!(message(Kind::Prompt, None).validate().is_ok());
         assert!(message(Kind::Prompt, Some("start")).validate().is_err());
-    }
-}
-
-/// What runs a control message (start, resume or stop a session). The hub grants nothing: a hook
-/// first checks the stamped sender daemon against the owner's `meshRelay.controlFrom` allowlist,
-/// then acts through requests on a connection of `Origin::Peer` (`server::mesh_relay::
-/// relay_connection`, proven as `ConnAuth::PeerToken`). The message has already been checked to be
-/// for this daemon (`Hub::mesh_for_here`). None leaves the message unacked (its lease ends and it
-/// comes back).
-pub trait ControlHook: Send + Sync {
-    fn control<'a>(
-        &'a self,
-        hub: &'a Arc<crate::hub::Hub>,
-        message: &'a InMessage,
-    ) -> BoxFuture<'a, Option<Ack>>;
-}
-
-/// The control hook of a daemon that runs no control messages: each one is refused.
-pub struct RefuseControl;
-
-impl ControlHook for RefuseControl {
-    fn control<'a>(
-        &'a self,
-        _hub: &'a Arc<crate::hub::Hub>,
-        _message: &'a InMessage,
-    ) -> BoxFuture<'a, Option<Ack>> {
-        Box::pin(async { Some(Ack::refused("this daemon runs no control messages")) })
     }
 }
 

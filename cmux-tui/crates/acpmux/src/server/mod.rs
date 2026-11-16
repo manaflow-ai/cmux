@@ -1630,7 +1630,7 @@ async fn serve_connection_from(
     // for, with `list` and `peers` on (`link_v2.rs`). Every other connection drops its frames.
     let mut link_v2 = link
         .filter(|_| origin == Origin::Peer)
-        .and_then(|slot| crate::link_v2::Link::serving(&hub, slot));
+        .and_then(|slot| link_v2_serve::Link::serving(&hub, slot));
     // Opt-in usage patterns: connections by listener, and distinct paired machines (an opaque
     // stand-in for the device id, never the id).
     if cmux_usage_patterns::enabled() {
@@ -2340,6 +2340,8 @@ mod ephemeral;
 mod fanout;
 mod fix_from_link;
 mod forum;
+mod github_lane;
+mod link_v2_serve;
 mod media_forward;
 mod mesh_control_send;
 pub mod mesh_relay;
@@ -2479,6 +2481,13 @@ mod outbound_queue_tests;
 /// Owner-only TLS ingress from the embedded tailnet node.
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod tailnet_ingress;
+
+/// The embedded tailnet listener's lifecycle, a server module (it serves the hub through
+/// `tailnet_ingress`; it was `tailnet::embedded_service`). Its file stays where it was: the
+/// spawn-owner ratchet (`check-spawn-owner.py`) keeps its row by path and does not follow a move.
+#[cfg(all(unix, feature = "tailnet"))]
+#[path = "../tailnet/embedded_service.rs"]
+pub(crate) mod tailnet_service;
 
 #[cfg(test)]
 mod message_notice_tests;

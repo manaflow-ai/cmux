@@ -221,6 +221,7 @@ pub mod race_records;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
+pub(crate) mod replay_rules;
 pub mod request_cancel;
 pub mod resume;
 pub mod review_box;

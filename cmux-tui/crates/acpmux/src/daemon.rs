@@ -1039,7 +1039,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     tokio::spawn(cloud_activity::activity_loop(hub.clone()));
 
     #[cfg(all(unix, feature = "tailnet"))]
-    let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
+    let tailnet = crate::server::tailnet_service::Service::spawn(hub.clone());
     // The store asks for a restart when it cannot go on safely (`Store::stop_reason`): a frozen
     // event journal checkpoint, whose logs only the next start's replay writes again.
     let mut store_stop = std::pin::pin!(store_asks_to_stop(hub.clone()));

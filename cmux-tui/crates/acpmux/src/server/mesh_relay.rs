@@ -28,9 +28,7 @@
 //! restart) answers with its first run instead of running twice (`hub/prompt_ledger.rs`).
 
 use super::*;
-use crate::mesh::{
-    Ack, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode, StartWork,
-};
+use crate::mesh::{Ack, Backoff, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode, StartWork};
 use crate::mesh_http::MeshControlFrom;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -555,6 +553,34 @@ pub fn relay_connection(hub: &Arc<Hub>) -> (mpsc::Sender<String>, mpsc::Receiver
     let (out_tx, out_rx) = mpsc::channel(1024);
     tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Peer));
     (in_tx, out_rx)
+}
+
+/// What runs a control message (start, resume or stop a session). The hub grants nothing: a hook
+/// first checks the stamped sender daemon against the owner's `meshRelay.controlFrom` allowlist,
+/// then acts through requests on a connection of `Origin::Peer` (`server::mesh_relay::
+/// relay_connection`, proven as `ConnAuth::PeerToken`). The message has already been checked to be
+/// for this daemon (`Hub::mesh_for_here`). None leaves the message unacked (its lease ends and it
+/// comes back). Moved from `mesh.rs`: it takes the hub, which `mesh.rs` (a lower module) does
+/// not reach.
+pub trait ControlHook: Send + Sync {
+    fn control<'a>(
+        &'a self,
+        hub: &'a Arc<Hub>,
+        message: &'a InMessage,
+    ) -> futures::future::BoxFuture<'a, Option<Ack>>;
+}
+
+/// The control hook of a daemon that runs no control messages: each one is refused.
+pub struct RefuseControl;
+
+impl ControlHook for RefuseControl {
+    fn control<'a>(
+        &'a self,
+        _hub: &'a Arc<Hub>,
+        _message: &'a InMessage,
+    ) -> futures::future::BoxFuture<'a, Option<Ack>> {
+        Box::pin(async { Some(Ack::refused("this daemon runs no control messages")) })
+    }
 }
 
 /// Runs an owner-allowlisted hub control message through the same authenticated peer-origin

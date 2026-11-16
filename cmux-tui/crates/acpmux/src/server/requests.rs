@@ -1405,7 +1405,7 @@ async fn dispatch_request_with_identity(
             }
             hub.github_app.set(&params)
         }
-        method::MUX_GITHUB_ACTION => crate::github_broker::handle(hub, conn, params).await,
+        method::MUX_GITHUB_ACTION => super::github_lane::handle(hub, conn, params).await,
         // Decided in order in `Conn::bind_person`; this only reports it.
         method::MUX_PERSON_PROVE => {
             if conn.is_person() {
@@ -3713,7 +3713,7 @@ async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcE
     }
     let (hub2, id, params) = (hub.clone(), s.id.clone(), params.clone());
     let (reply, following) =
-        tokio::task::spawn_blocking(move || crate::rows::read(&hub2, &id, &params))
+        tokio::task::spawn_blocking(move || crate::rows::read(&*hub2, &id, &params))
             .await
             .map_err(|e| RpcError::internal(format!("rows: {e}")))??;
     if let Some(following) = following
