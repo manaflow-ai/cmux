@@ -283,6 +283,11 @@ fn floating_pane_floats_beside_rows_that_new_row_made() {
     let mux = open_restart_mux(&root, &session);
     assert_eq!(second_column_rows(&mux), 2, "a restart keeps the rows");
     assert_eq!(live_list(&mux), expected, "a restart keeps the list");
+    // The screen that the restart loaded takes a float request: the pane goes back into the tiled panes.
+    let low = live_pane(&mux, &restore_pane_id(3));
+    mux.float_pane_as(&Actor::Daemon, low, FloatMode::Off, None, None).unwrap();
+    assert!(live_list(&mux).is_empty(), "the request after the restart commits");
+    assert_eq!(second_column_rows(&mux), 2, "the rows stay");
     mux.shutdown();
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
