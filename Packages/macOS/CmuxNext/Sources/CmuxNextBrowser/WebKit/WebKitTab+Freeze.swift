@@ -42,7 +42,7 @@ extension WebKitTab: BrowserFreezeReporting {
     /// while it was suspended: WebKit keeps such a page suspended for good, the call must be skipped, and
     /// hibernation replaces the page (``onFrozenPageLost``).
     @discardableResult
-    func resumeIfSuspended() -> Bool {
+    package func resumeIfSuspended() -> Bool {
         guard let view = webView as? WebKitWebView, view.pageSuspended else { return true }
         guard hasContentProcess, view.responds(to: Self.resumeSelector) else { return false }
         view.pageSuspended = false

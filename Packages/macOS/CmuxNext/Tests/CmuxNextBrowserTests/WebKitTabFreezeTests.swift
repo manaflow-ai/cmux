@@ -13,6 +13,9 @@ import WebKit
         defer { tab.close() }
         let freezing = try #require((tab as any BrowserTab) as? any BrowserFreezing)
         #expect(tab.webView.responds(to: WebKitTab.suspendSelector))
+        // WebKit launches a page's process at its first load and suspends only a page whose process runs.
+        #expect(!freezing.setFrozen(true), "a page with no web process froze")
+        try await Self.loadTallPage(in: tab)
         #expect(freezing.setFrozen(true))
         #expect(freezing.setFrozen(false))
     }
