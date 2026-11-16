@@ -139,7 +139,7 @@ jobs:
           echo "hot verify plan: $(grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)" >> "$GITHUB_STEP_SUMMARY"
 
   # Start the look on feat-cmux-next. Data only: the run there reads the pull request again and takes nothing
-  # else from here. Before this file is on feat-cmux-next the dispatch has nothing to start, and says so.
+  # else from here. A dispatch that never starts ends this job red (below).
   hand-off:
     name: start the look on feat-cmux-next
     needs: plan
@@ -175,8 +175,9 @@ jobs:
             echo "hot verify: attempt $attempt could not start the look: $why"
             wait_s=$pause
             if grep -qi "rate limit" "$RUNNER_TEMP/dispatch.err"; then
-              reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
-              [[ "$reset" =~ ^[0-9]+$ ]] && (( reset > $(date +%s) )) && wait_s=$(( reset - $(date +%s) + 5 ))
+              # Only a spent core bucket waits for its reset; a secondary rate limit keeps the short backoff.
+              read -r remaining reset < <(gh api rate_limit --jq '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null || echo "1 0")
+              [[ "$remaining" == 0 && "$reset" =~ ^[0-9]+$ ]] && (( reset > $(date +%s) )) && wait_s=$(( reset - $(date +%s) + 5 ))
             fi
             (( $(date +%s) + wait_s < deadline )) || break
             sleep "$wait_s"
