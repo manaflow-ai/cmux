@@ -16,6 +16,7 @@
               "window.titlebarButtons",
               "app.globalHotKey",
               "app.startAgentGlobalHotKey",
+              "app.captureScreenshotGlobalHotKey",
               "app.hideDockIconWithoutWindows",
               "app.showMenuBarIcon"
             ],
@@ -3728,6 +3729,144 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.captureScreenshotGlobalHotKey.help",
+        "text" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.captureScreenshotGlobalHotKey",
+      "keywords" : [
+        "global",
+        "hotkey",
+        "hot key",
+        "screenshot",
+        "capture",
+        "screen",
+        "region",
+        "image",
+        "agent",
+        "chat",
+        "system-wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "captureScreenshotGlobalHotKey"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:app.captureScreenshotGlobalHotKey"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.captureScreenshotGlobalHotKey",
+        "text" : "Capture Screenshot to Chat from Any App"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
@@ -5505,7 +5644,7 @@
       },
       "help" : {
         "key" : "settings.tabs.toolbarButtons.help",
-        "text" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
+        "text" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.toolbarButtons",
@@ -5593,7 +5732,7 @@
           "operations" : [
 
           ],
-          "reason" : "action ids; toggled from the tab bar's right-click menu (Show in Tab Bar)",
+          "reason" : "action ids; toggled from the tab bar's More menu (Show in Tab Bar)",
           "row" : null
         },
         "socket" : {

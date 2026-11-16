@@ -637,6 +637,12 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
+    "app.captureScreenshotGlobalHotKey" : {
+      "default" : false,
+      "description" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.",
+      "title" : "Capture Screenshot to Chat from Any App",
+      "type" : "boolean"
+    },
     "app.confirmQuit" : {
       "default" : true,
       "description" : "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.",
@@ -5648,7 +5654,7 @@
       "default" : [
 
       ],
-      "description" : "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu.",
+      "description" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back.",
       "items" : {
         "enum" : [
           "splitRight",
