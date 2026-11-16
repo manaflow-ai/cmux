@@ -1725,6 +1725,7 @@ public final class ComputerUseRuntimeService {
         guard !Task.isCancelled else { return }
         if daemonListening {
             missedHelperHealthChecks = 0
+            restoreAuthenticationTokenFileIfMissing()
             return
         }
 
@@ -1740,6 +1741,29 @@ public final class ComputerUseRuntimeService {
             return
         }
         scheduleHelperRecovery()
+    }
+
+    /// Writes the agent token file again when it is gone while the helper runs.
+    ///
+    /// The file lives beside the sockets under the temp folder, where macOS
+    /// deletes files older than three days and leaves sockets alone. Agent
+    /// wrappers read the token from this file, so without it new sessions
+    /// start without Computer Use. An entry of any other kind at the path is
+    /// left for the next launch to reject.
+    private func restoreAuthenticationTokenFileIfMissing() {
+        guard acceptsNewLaunches else { return }
+        var metadata = stat()
+        guard Darwin.lstat(paths.authenticationTokenFileURL.path, &metadata) != 0,
+              errno == ENOENT,
+              Self.ensurePrivateDirectory(paths.runtimeDirectoryURL.deletingLastPathComponent()),
+              Self.ensurePrivateDirectory(paths.runtimeDirectoryURL)
+        else {
+            return
+        }
+        _ = Self.writeAuthenticationToken(
+            paths.authenticationToken,
+            to: paths.authenticationTokenFileURL
+        )
     }
 
     /// Starts one pass immediately, then schedules maintenance after it finishes.
