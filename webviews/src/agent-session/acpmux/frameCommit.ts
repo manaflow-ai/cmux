@@ -8,9 +8,10 @@
 // changes coalesce to one frame per display refresh and are drawn by that frame, so the snapshot is committed
 // synchronously in the frame callback (or the 50 ms fallback's task) that delivers it. The work is the same render
 // the scheduler task would have done, moved before the paint instead of after it.
+import { flushSync } from "react-dom";
 import { nextFrame } from "./direct";
 
 /// `AcpmuxDirectClient.scheduleFrame` for a page that draws the client's snapshots with React: `run` (the client's
 /// emit, whose listener sets the pane's state) runs once before the next display frame, and what it sets is
 /// committed before that frame paints.
-export const commitInFrame = (run: () => void): (() => void) => nextFrame(run);
+export const commitInFrame = (run: () => void): (() => void) => nextFrame(() => flushSync(run));
