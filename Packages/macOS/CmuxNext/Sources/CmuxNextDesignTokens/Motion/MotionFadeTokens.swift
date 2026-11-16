@@ -64,6 +64,15 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// Seconds at `MotionSpeed.fast` (`MotionTunables`; overridable in
     /// Debug Settings).
     public var baseDuration: TimeInterval { MotionTunables.fades[self]?.value ?? MotionScale.quick }
+
+    /// A long fade that no one waits for, so not a transition: it is off the motion scale and the
+    /// speed scales it with no cap (`MotionPolicy.cap`; MotionScaleTests says why for each).
+    public var isAmbient: Bool {
+        switch self {
+        case .focusFlash, .wallpaper, .highlight, .hibernateRing: true
+        default: false
+        }
+    }
 }
 
 /// Repeating indicators. These show state, so speed does not scale them;

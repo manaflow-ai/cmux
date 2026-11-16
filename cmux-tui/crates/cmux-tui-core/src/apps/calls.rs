@@ -118,7 +118,8 @@ impl Supervisor {
         });
         // Ops the daemon does not own go to their provider (the Mac app), or
         // fail at once when none is connected (APP-R1).
-        let supervisor_op = op.starts_with("app.storage.") || op == "net.fetch";
+        let supervisor_op =
+            op.starts_with("app.storage.") || op == "net.fetch" || self.github_read(&op, &params);
         if !supervisor_op && !self.router.owns(&op) {
             if op == "integration.request" {
                 // The provider sees the method the grant check decided on.
@@ -186,7 +187,26 @@ impl Supervisor {
                 .map(egress::response_json)
                 .map_err(|e| error(e.code, e.message));
         }
+        if self.github_read(&op, &params)
+            && let Some(github) = self.github.get()
+        {
+            // The grant check ran; the gateway admits only its read paths.
+            return github.request(&params);
+        }
         self.router.route(&app, &op, params, idempotency_key, origin)
+    }
+
+    /// `integration.request` for GitHub, which the daemon's gateway answers
+    /// when it has one (`github_gateway.rs`).
+    fn github_read(&self, op: &str, params: &Value) -> bool {
+        op == "integration.request"
+            && self.github.get().is_some()
+            && params.get("provider").and_then(Value::as_str) == Some("github")
+    }
+
+    /// Installs the GitHub gateway (once; the daemon's slot does it at start).
+    pub fn set_github_gateway(&self, gateway: super::github_gateway::GitHubGateway) {
+        let _ = self.github.set(Arc::new(gateway));
     }
 
     /// Writes the answer if the host that asked is still the current process.
