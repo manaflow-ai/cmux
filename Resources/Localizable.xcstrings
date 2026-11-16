@@ -675134,6 +675134,65 @@
           }
         }
       }
+    },
+    "cloud.vm.sshEndpointUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machines do not expose SSH credentials, so `cmux vm ssh-info` has nothing to print.\n\nWhat to do:\n  Open the machine with `cmux vm ssh <id>` or `cmux vm shell <id>`.\n  Run a single command with `cmux vm exec <id> -- <command>`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توفّر أجهزة السحاب (Cloud) بيانات اعتماد SSH، لذلك لا يوجد ما يعرضه `cmux vm ssh-info`.\n\nما الذي يمكنك فعله:\n  افتح الجهاز باستخدام `cmux vm ssh <id>` أو `cmux vm shell <id>`.\n  شغّل أمرًا واحدًا باستخدام `cmux vm exec <id> -- <command>`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen stellen keine SSH-Zugangsdaten bereit, daher hat `cmux vm ssh-info` nichts auszugeben.\n\nSo geht es weiter:\n  Öffnen Sie die Maschine mit `cmux vm ssh <id>` oder `cmux vm shell <id>`.\n  Führen Sie einen einzelnen Befehl mit `cmux vm exec <id> -- <command>` aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas de la nube no exponen credenciales SSH, así que `cmux vm ssh-info` no tiene nada que mostrar.\n\nQué hacer:\n  Abra la máquina con `cmux vm ssh <id>` o `cmux vm shell <id>`.\n  Ejecute un solo comando con `cmux vm exec <id> -- <command>`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines Cloud n’exposent pas d’identifiants SSH, donc `cmux vm ssh-info` n’a rien à afficher.\n\nQue faire :\n  Ouvrez la machine avec `cmux vm ssh <id>` ou `cmux vm shell <id>`.\n  Exécutez une seule commande avec `cmux vm exec <id> -- <command>`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines は SSH 認証情報を公開しないため、`cmux vm ssh-info` で表示する内容はありません。\n\n対処方法:\n  `cmux vm ssh <id>` または `cmux vm shell <id>` でマシンを開きます。\n  単一のコマンドは `cmux vm exec <id> -- <command>` で実行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신은 SSH 자격 증명을 제공하지 않으므로 `cmux vm ssh-info`로 표시할 내용이 없습니다.\n\n해결 방법:\n  `cmux vm ssh <id>` 또는 `cmux vm shell <id>`로 머신을 여세요.\n  `cmux vm exec <id> -- <command>`로 명령 하나를 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云机器不提供 SSH 凭据，因此 `cmux vm ssh-info` 没有可显示的内容。\n\n接下来：\n  使用 `cmux vm ssh <id>` 或 `cmux vm shell <id>` 打开机器。\n  使用 `cmux vm exec <id> -- <command>` 运行单个命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端機器不提供 SSH 憑證，因此 `cmux vm ssh-info` 沒有可顯示的內容。\n\n接下來：\n  使用 `cmux vm ssh <id>` 或 `cmux vm shell <id>` 開啟機器。\n  使用 `cmux vm exec <id> -- <command>` 執行單一指令。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

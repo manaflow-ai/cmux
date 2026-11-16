@@ -57,13 +57,16 @@ public enum VMClientError: Error, CustomStringConvertible {
                   Machines here stay available until you delete them; `cmux vm rm <id>` when the work is done.
                 """
         case .sshEndpointUnsupported:
-            return """
-                Cloud machines do not expose SSH credentials, so `cmux vm ssh-info` has nothing to print.
+            return String(
+                localized: "cloud.vm.sshEndpointUnsupported",
+                defaultValue: """
+                    Cloud machines do not expose SSH credentials, so `cmux vm ssh-info` has nothing to print.
 
-                What to do:
-                  Open the machine with `cmux vm ssh <id>` or `cmux vm shell <id>`.
-                  Run a single command with `cmux vm exec <id> -- <command>`.
-                """
+                    What to do:
+                      Open the machine with `cmux vm ssh <id>` or `cmux vm shell <id>`.
+                      Run a single command with `cmux vm exec <id> -- <command>`.
+                    """
+            )
         case .disabledByManagedPolicy:
             return String(
                 localized: "cloud.managed.disabled",
