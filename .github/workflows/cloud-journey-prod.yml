@@ -43,6 +43,10 @@ on:
         description: "Staging only: measure the shipped spare-ready preclaim login path"
         type: boolean
         default: false
+      ensure_bench:
+        description: "With preclaim: time acp ensure on one fresh staging machine (5 each right after boot, settled, both cores loaded) instead of the burst"
+        type: boolean
+        default: false
       claims:
         description: "Preclaim burst size (1-20)"
         type: string
@@ -286,6 +290,7 @@ jobs:
           CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           HQ_GH_TOKEN: ${{ steps.hq-preclaim-token.outputs.token }}
+          PRECLAIM_ENSURE_BENCH: ${{ inputs.ensure_bench && '5' || '' }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-preclaim"

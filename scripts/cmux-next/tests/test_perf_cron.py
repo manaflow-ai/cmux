@@ -2,7 +2,7 @@
 """The perf cron's decisions (scripts/cmux-next/perf-cron.py): what a tick runs, when it yields to the fleet,
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23)."""
-import argparse, contextlib, datetime, importlib.util, io, json, os, tempfile, unittest, urllib.error, urllib.request
+import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, tempfile, unittest, urllib.error, urllib.request
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -648,6 +648,25 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(mem.rows_from({"samples": [{"label": "idle-10", "workspaces": 10, "total_footprint_mb": 1}]}), [],
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
+
+    def test_the_memory_agents_part_measures_the_optimized_app(self):
+        """CMUX-571 ram-baseline compares the app with other apps' release builds and with the 2026-11-08 Release
+        baseline (app process 243-285 MB). The part measured the Debug build (app process 323.3 MB at 8c515cc5), so
+        the goal read a build difference as growth. It measures the bench configuration, the build throughput uses,
+        and the change rebases the stored Debug rows instead of comparing the two builds."""
+        args = cron.PART_BY_NAME["memory-agents"]["args"]
+        self.assertIn("--config=bench", args, "the memory rows come from the optimized (Release) app, not Debug")
+        self.assertIn("--app-cache", args, "it reuses the measurement's bench build (throughput's) when there is one")
+        self.assertEqual([a for a in args if a.startswith("--config=")],
+                         [a for a in cron.PART_BY_NAME["throughput"]["args"] if a.startswith("--config=")],
+                         "one bench build serves both parts")
+        name = "memory.app_agents.empty.total_footprint_mb@cmux20-bench"
+        debug_cfg = hashlib.sha256(json.dumps([*cron.MEASURE, "--suite=memory-agents", "--agents=10"],
+                                              sort_keys=True).encode()).hexdigest()[:12]
+        self.assertNotEqual(cron.part_config("memory-agents"), debug_cfg)
+        now = {name: {"p95": 930.0, "part_config": cron.part_config("memory-agents")}}
+        base = {name: {"p95": 980.6, "part_config": debug_cfg}}
+        self.assertEqual(cron.version_changed(now, base), [name], "a Debug reference is rebased, never compared")
 
     def test_the_update_one_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-scale"))
