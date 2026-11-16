@@ -24,12 +24,20 @@
 // #44389 reported the crash at is 100,000 here.
 /// <reference types="bun" />
 import { chromium } from "./browsers";
-import { buildLabel, devRequested, gotoBenchPage, requireProductionReact, serveBenchPage } from "./support/benchPage";
+import {
+  benchPositionals,
+  buildLabel,
+  devRequested,
+  gotoBenchPage,
+  requireProductionReact,
+  serveBenchPage,
+} from "./support/benchPage";
 
-const ROWS = Number(process.argv[2] ?? 100_000);
+const args = benchPositionals();
+const ROWS = Number(args[0] ?? 100_000);
 /// A mode is how rows are shaped, with `-nomap` to draw the transcript without the thread minimap:
 /// `app` and `app-nomap` together say how much of a frame is the rail's.
-const MODES = (process.argv[3] ?? "scratch,app").split(",").map((name) => {
+const MODES = (args[1] ?? "scratch,app").split(",").map((name) => {
   const minimap = !name.endsWith("-nomap");
   const shaping = minimap ? name : name.slice(0, -"-nomap".length);
   if (shaping !== "scratch" && shaping !== "app")

@@ -13,15 +13,22 @@
 // Each line: interval, react, layout and other are p50/p95/max ms per frame.
 /// <reference types="bun" />
 import { webkit } from "./browsers";
-import { buildLabel, gotoBenchPage, requireProductionReact, serveBenchPage } from "./support/benchPage";
+import {
+  benchPositionals,
+  buildLabel,
+  gotoBenchPage,
+  requireProductionReact,
+  serveBenchPage,
+} from "./support/benchPage";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { frameStats } from "../src/agent-session/acpmux/perf";
 import { perfRow, TARGET_MS } from "./perfRow";
 import { startScrollCoverage, type ScrollCoverage } from "./scrollCoverage";
 
-const ROWS = Number(process.argv[2] ?? 3000);
-const ROUNDS = Number(process.argv[3] ?? 3);
-const HZ = Number(process.argv[4] ?? 120);
+const args = benchPositionals();
+const ROWS = Number(args[0] ?? 3000);
+const ROUNDS = Number(args[1] ?? 3);
+const HZ = Number(args[2] ?? 120);
 const COVERAGE = process.env.CMUX_SCROLL_COVERAGE === "1";
 if (!Number.isInteger(ROWS) || ROWS < 3 || !Number.isInteger(ROUNDS) || ROUNDS < 1 || !Number.isFinite(HZ) || HZ <= 0)
   throw new Error("usage: transcript-scroll-frame.bench.ts [rows>=3] [rounds>=1] [hz>0]");

@@ -18,11 +18,19 @@
 //   bun bench/transcript-resize-frame.bench.ts [turns=100,1500] [rounds=3]
 /// <reference types="bun" />
 import { chromium } from "./browsers";
-import { buildLabel, devRequested, gotoBenchPage, requireProductionReact, serveBenchPage } from "./support/benchPage";
+import {
+  benchPositionals,
+  buildLabel,
+  devRequested,
+  gotoBenchPage,
+  requireProductionReact,
+  serveBenchPage,
+} from "./support/benchPage";
 import { perfRow, TARGET_MS } from "./perfRow";
 
-const TURNS = (process.argv[2] ?? "100,1500").split(",").map(Number);
-const ROUNDS = Number(process.argv[3] ?? 3);
+const args = benchPositionals();
+const TURNS = (args[0] ?? "100,1500").split(",").map(Number);
+const ROUNDS = Number(args[1] ?? 3);
 if (TURNS.some((turns) => !Number.isInteger(turns) || turns < 3) || !Number.isInteger(ROUNDS) || ROUNDS < 1)
   throw new Error("usage: transcript-resize-frame.bench.ts [turns>=3,...] [rounds>=1]");
 /// The drag: from WIDE to NARROW and back, STEPS frames each way.

@@ -11,11 +11,19 @@
 //   bun bench/transcript-resize-profile.bench.ts [rows=100000] [shaping=app] [top=25]
 /// <reference types="bun" />
 import { chromium } from "./browsers";
-import { buildLabel, devRequested, gotoBenchPage, requireProductionReact, serveBenchPage } from "./support/benchPage";
+import {
+  benchPositionals,
+  buildLabel,
+  devRequested,
+  gotoBenchPage,
+  requireProductionReact,
+  serveBenchPage,
+} from "./support/benchPage";
 
-const ROWS = Number(process.argv[2] ?? 100_000);
-const SHAPING = process.argv[3] ?? "app";
-const TOP = Number(process.argv[4] ?? 25);
+const args = benchPositionals();
+const ROWS = Number(args[0] ?? 100_000);
+const SHAPING = args[1] ?? "app";
+const TOP = Number(args[2] ?? 25);
 /// `--dev` takes the number from a dev server instead of the build, labelled `dev`: React is then
 /// its development bundle, whose commit-phase instrumentation was about a third of every frame of
 /// this drag (bench/support/benchPage.ts).
@@ -40,7 +48,9 @@ type Profile = {
 };
 
 const pagePath = "/test/browser/transcript-fling.html";
-const served = await serveBenchPage(pagePath, { dev: DEV });
+// Names, not mangled identifiers: this bench prints a profile by function name, and a build is
+// minified by default.
+const served = await serveBenchPage(pagePath, { dev: DEV, unminified: true });
 const browser = await chromium.launch({ headless: true, args: ["--js-flags=--expose-gc"] });
 try {
   const page = await browser.newPage({ viewport: { width: WIDE + 100, height: 900 } });

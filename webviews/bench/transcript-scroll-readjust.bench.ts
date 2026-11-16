@@ -24,7 +24,8 @@
 import fs from "node:fs";
 import type { Browser } from "playwright";
 import { chromium, webkit } from "./browsers";
-import { buildLabel, devRequested, requireProductionReact, serveBenchPage } from "./support/benchPage";
+import type { BenchPage } from "./support/benchPage";
+import { buildLabel, devRequested, gotoBenchPage, requireProductionReact, serveBenchPage } from "./support/benchPage";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { perfRow } from "./perfRow";
 
@@ -113,11 +114,13 @@ export function score(frames: ScrollFrame[]): Round {
   return { readjusts, settles, anchorShifts, frames: frames.length, bottomed };
 }
 
-async function round(browser: Browser, url: string): Promise<Round> {
+async function round(browser: Browser, served: BenchPage): Promise<Round> {
   const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
   try {
     await installPaintedFrames(page);
-    await page.goto(url);
+    // Through the helper, so a 404 (a built page whose chunks landed elsewhere) is an error here
+    // rather than a 30 s wait for hooks the page never installed.
+    await gotoBenchPage(page, served);
     await requireProductionReact(page, { dev: DEV });
     await page.waitForFunction(() => "__debug" in window);
     await page.evaluate(`window.__debug.seedRows(${ROWS})`);
@@ -186,7 +189,6 @@ if (import.meta.main) {
   let failed = 0;
   const report: Record<string, Round[]> = {};
   try {
-    const url = served.url;
     for (const engine of ENGINES) {
       const isChromium = engine === "chromium";
       let browser: Browser;
@@ -201,7 +203,7 @@ if (import.meta.main) {
       }
       const rounds: Round[] = [];
       try {
-        for (let index = 0; index < ROUNDS; index++) rounds.push(await round(browser, url));
+        for (let index = 0; index < ROUNDS; index++) rounds.push(await round(browser, served));
       } catch (error) {
         failed += 1;
         console.log(
