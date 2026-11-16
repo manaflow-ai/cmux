@@ -1,5 +1,5 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:max(var(--cv-edge,16px),calc((100% - var(--cmux-composer-column,calc(var(--cv-column,720px) * var(--cmux-composer-zoom,1))) / var(--cmux-composer-zoom,1))/2));padding:var(--nt-screen-top) var(--nt-screen-inset) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:max(var(--cv-edge,16px),calc((100% - var(--cmux-composer-column,calc(var(--cv-column,720px) * var(--cmux-composer-zoom,1))))/2));padding:var(--nt-screen-top) var(--nt-screen-inset) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll): 12px at 360px tall
    and under, rising with the height to the 14vh above 480px. One continuous curve, so a window resized
@@ -149,7 +149,8 @@
    spanning the card, its top corners the template's --acpmux-strip-radius. Its wrapper only marks the page as touched, so it
    draws nothing of its own. */
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
-/* The composer and create row share the density-scaled column width. */
+/* The page inset reserves the drawn, density-scaled column. Composer and create row
+   convert that width once for their zoomed CSS pixels. */
 .nt-screen .nt-composer,
 .nt-screen[data-minimal] .nt-create {
   /* The column is a drawn width. Convert it to CSS pixels once; zoom restores its density. */

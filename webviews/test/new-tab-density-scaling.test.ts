@@ -157,6 +157,13 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
         plus: number;
         send: number;
         stroke: number;
+        layout: {
+          composerZoom: string;
+          composerWidth: string;
+          column: string;
+          screenWidth: number;
+          screenPadding: string;
+        };
       }[] = [];
       for (const scale of [0.8, 1, 1.2]) {
         await page.goto(
@@ -180,6 +187,8 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
             const zoom = parseFloat(getComputedStyle(popover).zoom);
             const plus = composer.querySelector<HTMLElement>(".acpmux-newtab-plus .acpmux-icon")!;
             const send = composer.querySelector<HTMLElement>(".acpmux-send .acpmux-icon")!;
+            const screen = composer.closest<HTMLElement>(".nt-screen")!;
+            const composerStyle = getComputedStyle(composer);
             return {
               scale,
               boxWidth: box.width,
@@ -192,6 +201,15 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
               plus: plus.getBoundingClientRect().width,
               send: send.getBoundingClientRect().width,
               stroke: parseFloat(getComputedStyle(send).strokeWidth),
+              layout: {
+                composerZoom: composerStyle.zoom,
+                composerWidth: composerStyle.width,
+                column:
+                  composerStyle.getPropertyValue("--cmux-composer-column") ||
+                  composerStyle.getPropertyValue("--cv-column"),
+                screenWidth: screen.getBoundingClientRect().width,
+                screenPadding: getComputedStyle(screen).paddingInline,
+              },
             };
           }, scale),
         );
@@ -203,7 +221,10 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
       for (const result of results) {
         expect(Math.abs(result.popupWidth - result.boxWidth)).toBeLessThan(1);
         expect(Math.abs(result.left)).toBeLessThan(1);
-        expect(Math.abs(result.boxWidth - reference.boxWidth * result.scale)).toBeLessThan(1);
+        expect(
+          Math.abs(result.boxWidth - reference.boxWidth * result.scale),
+          JSON.stringify({ engine, result, reference }),
+        ).toBeLessThan(1);
         for (const key of ["glyph", "text", "prompt", "row", "plus", "send"] as const) {
           expect(Math.abs(result[key] - reference[key] * result.scale)).toBeLessThan(0.5);
         }
