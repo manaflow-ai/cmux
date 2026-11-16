@@ -119,7 +119,11 @@ try {
       // The page's URL for the module, which tsc cannot resolve from here: a variable, not a literal.
       const perfUrl = "/src/agent-session/acpmux/perf.ts";
       type PerfModule = typeof import("../src/agent-session/acpmux/perf");
-      const { acpmuxPerf, isBlank } = (await import(/* @vite-ignore */ perfUrl)) as PerfModule;
+      // The page hands over the pane's own measuring module (__acpmuxPerf); perfUrl is the dev
+      // server's route for it, which a build does not serve (the module is inside a chunk).
+      const { acpmuxPerf, isBlank } =
+        (window as unknown as { __acpmuxPerf?: PerfModule }).__acpmuxPerf ??
+        ((await import(/* @vite-ignore */ perfUrl)) as PerfModule);
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       scroller.scrollTop = scroller.scrollHeight;
       for (let frame = 0; frame < 30; frame += 1) await new Promise(requestAnimationFrame);

@@ -114,7 +114,11 @@ try {
         async ({ wide, narrow, steps }) => {
           const perfUrl = "/src/agent-session/acpmux/perf.ts";
           type PerfModule = typeof import("../src/agent-session/acpmux/perf");
-          const { acpmuxPerf } = (await import(/* @vite-ignore */ perfUrl)) as PerfModule;
+          // The page hands over the pane's own measuring module (__acpmuxPerf); perfUrl is the dev
+          // server's route for it, which a build does not serve (the module is inside a chunk).
+          const { acpmuxPerf } =
+            (window as unknown as { __acpmuxPerf?: PerfModule }).__acpmuxPerf ??
+            ((await import(/* @vite-ignore */ perfUrl)) as PerfModule);
           const root = document.getElementById("root")!;
           root.style.width = `${wide}px`;
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
