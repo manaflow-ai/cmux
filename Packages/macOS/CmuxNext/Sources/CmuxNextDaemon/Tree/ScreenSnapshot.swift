@@ -67,6 +67,8 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
     public var group: ScreenGroupID?
     /// Splits whose divider draws no line (`split-divider-visibility-v1`); they still drag.
     public var hiddenDividers: Set<SplitID>
+    /// The panes shown above the tiled layout, back to front (`floating-panes-v1`). Each one stays a leaf of `layout`.
+    public var floating: [FloatingPaneSnapshot]
 
     public init(
         id: ScreenID,
@@ -85,7 +87,8 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         icon: String? = nil,
         pinned: Bool = false,
         group: ScreenGroupID? = nil,
-        hiddenDividers: Set<SplitID> = []
+        hiddenDividers: Set<SplitID> = [],
+        floating: [FloatingPaneSnapshot] = []
     ) {
         self.id = id
         self.resourceID = resourceID
@@ -104,10 +107,11 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         self.pinned = pinned
         self.group = group
         self.hiddenDividers = hiddenDividers
+        self.floating = floating
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, active, layout, columns, panes, color, icon, pinned, group
+        case id, name, active, layout, columns, panes, color, icon, pinned, group, floating
         case resourceID = "resource_id"
         case shortID = "short_id"
         case activePane = "active_pane"
@@ -136,5 +140,6 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         group = try c.decodeIfPresent(ScreenGroupID.self, forKey: .group)
         hiddenDividers = Set(((try? c.decodeIfPresent([SplitID].self, forKey: .hiddenDividers)) ?? nil) ?? [])
+        floating = FloatingPaneSnapshot.list(in: c, forKey: .floating)
     }
 }
