@@ -31,6 +31,28 @@ HARNESS = r"""
 const { pluginPath, helperLog, events, mode } = JSON.parse(process.env.CMUX_TEST_HARNESS);
 const fs = await import("node:fs");
 const { pathToFileURL } = await import("node:url");
+const { createRequire, syncBuiltinESMExports } = await import("node:module");
+
+// Track every helper the plugin spawns, so the test can wait for each one to
+// exit instead of sleeping. This must run before the plugin imports `spawn`.
+const childProcess = createRequire(import.meta.url)("node:child_process");
+const realSpawn = childProcess.spawn;
+const helperExits = [];
+childProcess.spawn = (...args) => {
+  const child = realSpawn(...args);
+  helperExits.push(new Promise((resolve) => child.on("close", resolve)));
+  return child;
+};
+syncBuiltinESMExports();
+
+// Fails the run instead of hanging if a completion signal never arrives.
+function within(promise, what) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), 10000);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
 
 const result = { shape: {}, subscribeOptions: null, aborted: false, cleanupType: null, calls: [] };
 const mod = await import(pathToFileURL(pluginPath).href);
@@ -42,23 +64,19 @@ result.shape = {
   effectType: typeof plugin?.effect,
 };
 
-const expected = events.filter((event) => event.journaled).length;
-const lines = () =>
-  fs.existsSync(helperLog) ? fs.readFileSync(helperLog, "utf8").split("\n").filter(Boolean) : [];
+// Call once every event has been handled: by then the plugin has spawned every
+// helper it will spawn, and each one has written its record before exiting.
 async function collectCalls() {
-  const deadline = Date.now() + 5000;
-  while (lines().length < expected && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  // Let any unexpected extra spawn land before reading the log.
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  return lines().map((line) => JSON.parse(line));
+  await within(Promise.all(helperExits), "the hook helpers to exit");
+  const lines = fs.existsSync(helperLog) ? fs.readFileSync(helperLog, "utf8").split("\n").filter(Boolean) : [];
+  return lines.map((line) => JSON.parse(line));
 }
 
 if (mode === "v1") {
-  // OpenCode 1.x (v1.19.5 packages/opencode/src/plugin/{index,shared}.ts): a
-  // default object with `id` or `server` must provide `server(input)`;
-  // otherwise every export must be a plugin function.
+  // OpenCode 1.4.0+ (checked at v1.19.5, packages/opencode/src/plugin/{index,shared}.ts):
+  // a default object with `id` or `server` must provide `server(input)`;
+  // otherwise every export must be a plugin function. OpenCode before 1.4.0
+  // calls every export as a function, so it can't load an object default.
   const isV1Object =
     plugin && typeof plugin === "object" && ("id" in plugin || "server" in plugin || "tui" in plugin);
   const servers = isV1Object
@@ -73,6 +91,8 @@ if (mode === "v1") {
   result.calls = await collectCalls();
 } else if (typeof plugin?.setup === "function") {
   let signal;
+  let drained;
+  const streamDrained = new Promise((resolve) => (drained = resolve));
   const context = {
     location: {
       directory: "/work/project",
@@ -84,6 +104,8 @@ if (mode === "v1") {
         result.subscribeOptions = { hasSignal: signal instanceof AbortSignal };
         return (async function* () {
           for (const event of events) yield event;
+          // The plugin asked for the next event, so it has handled every one.
+          drained();
           // A live stream stays open until the subscriber aborts.
           await new Promise((resolve) => signal?.addEventListener("abort", resolve, { once: true }));
         })();
@@ -92,6 +114,7 @@ if (mode === "v1") {
   };
   const cleanup = await plugin.setup(context);
   result.cleanupType = typeof cleanup;
+  await within(streamDrained, "the plugin to read every event");
   result.calls = await collectCalls();
 
   if (typeof cleanup === "function") await cleanup();
