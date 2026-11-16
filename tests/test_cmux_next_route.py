@@ -1734,7 +1734,11 @@ class RouteLabels(unittest.TestCase):
             subprocess.run([*git, "add", "-A"], check=True)
             subprocess.run([*git, "commit", "-qm", "head"], check=True)
             out = Path(tmp) / "out"
-            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "EVENT_NAME": "pull_request",
+            # Every variable the step's env block sets exists on a runner, so the fixture sets each one
+            # (empty unless named below): a new env line under `set -u` no longer fails this test
+            # (#44253 added SAME_REPO_PR and the step stopped at "unbound variable").
+            step_env = {name: "" for name in step.get("env", {})}
+            env = {**step_env, **os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "EVENT_NAME": "pull_request",
                    "PR_NUMBER": "7", "GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ATTEMPT": attempt,
                    "EVENT_LABELS": "full-ci,risk:low", "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(out),
                    "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary"), "DEV_DAILY": "false",

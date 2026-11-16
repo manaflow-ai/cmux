@@ -71,6 +71,15 @@ public nonisolated struct RemoteViewGeometry: Sendable, Equatable {
         return CGPoint(x: rect.minX + x / pixelsPerPoint(rect), y: rect.minY + y / pixelsPerPoint(rect))
     }
 
+    /// Pane points per stream pixel: how large a stream-pixel image (the remote
+    /// cursor's shape) shows so it matches the picture under it.
+    public var pointsPerStreamPixel: CGFloat { 1 / pixelsPerPoint(imageRect) }
+
+    /// Whether stream pixel (x, y) is inside the frame.
+    public func containsStreamPixel(_ x: Double, _ y: Double) -> Bool {
+        x >= 0 && y >= 0 && x < framePixels.width && y < framePixels.height
+    }
+
     /// Stream pixels per pane point: the backing scale for `.native`.
     private func pixelsPerPoint(_ rect: CGRect) -> CGFloat {
         guard scaling == .fit, rect.width > 0 else { return backingScale }
