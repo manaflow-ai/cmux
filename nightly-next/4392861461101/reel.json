@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "build": "4392861461101",
+  "notes": "notes/4392861461101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44275,
+      "title": "cmux-next: two windows on one space share its workspaces and terminals",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44679,
+      "title": "measure: the pane films ask for the key window that has the keys, and get a group `cap` at 2 animation speeds",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44690,
+      "title": "cmux-vm-image: retry the provider's \"at capacity\" 429 on every image-script call",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44644,
+      "title": "perf(quit): Restart to Update and Quit stop waiting up to 4 s on a stuck CefShutdown (1 s bound after the windows go)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44666,
+      "title": "bench: measure the production build by default, and refuse an unlabelled dev number",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44669,
+      "title": "perf cron: memory-agents measures the Release (bench) build, not Debug (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44623,
+      "title": "NEXT stages its Computer Use helper copies under cmux-next, out of classic's folder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44615,
+      "title": "CmuxNext: attach a create before its bootstrap waits for the machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44648,
+      "title": "chat-open seed agent: match commands past acpmux's sender and context blocks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44552,
+      "title": "cmux-rd on GPU-less Linux: threads from the core count, a loud XShm fallback, and where OpenH264's 8 ms goes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44678,
+      "title": "cmux-platform logs: `window` reads the whole window's id-free totals (cmux-platform#1442)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
