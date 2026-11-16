@@ -244,6 +244,19 @@ fn still_open(mut error: Value) -> Value {
     error
 }
 
+/// `remote.confirm {"action":"allow_agents","on":true}` to this machine's cmux app: turns on
+/// "My agents can turn screen sharing and control on my machines". The app always asks the
+/// person first. `cmux device setup --allow-agents` (devices/setup.rs) sends it.
+pub(crate) fn confirm_allow_agents() -> Result<Value, Value> {
+    super::mcp::agent_app(
+        &GlobalArgs::default(),
+        "remote.confirm",
+        json!({"action": "allow_agents", "on": true}),
+        CONFIRM_TIMEOUT,
+        None,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -304,17 +317,4 @@ mod tests {
         let other = json!({"code": "app.unreachable", "message": "no app"});
         assert_eq!(still_open(other.clone()), other);
     }
-}
-
-/// `remote.confirm {"action":"allow_agents","on":true}` to this machine's cmux app: turns on
-/// "My agents can turn screen sharing and control on my machines". The app always asks the
-/// person first. `cmux device setup --allow-agents` (devices/setup.rs) sends it.
-pub(crate) fn confirm_allow_agents() -> Result<Value, Value> {
-    super::mcp::agent_app(
-        &GlobalArgs::default(),
-        "remote.confirm",
-        json!({"action": "allow_agents", "on": true}),
-        CONFIRM_TIMEOUT,
-        None,
-    )
 }
