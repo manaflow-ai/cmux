@@ -272,11 +272,33 @@ import CmuxNextWakeupsTestSupport
         defer { Motion.reduceMotionOverride = nil }
         let s = Self.strip()
         defer { s.tearDown() }
-        let previews = Previews()
+        let previews = HeldPreviews()
         s.strip.hoverCard.previewProvider = previews
         try await Self.open("a", s)
+        try await Self.settle(until: { previews.waiting })
+        try #require(previews.waiting, "the card asked for no picture")
+        // Counted, not read off a morph in flight: with no display its spring may end before the next check.
+        let before = HoverCardPanel.morphGeneration
+        previews.release()
         try await Self.settle(until: { s.strip.hoverCard.shownThumbnail != nil })
         try #require(s.strip.hoverCard.shownThumbnail != nil, "the picture never landed")
-        #expect(s.coordinator.panel?.activeMorph != nil, "the card took the picture's height at once")
+        #expect(HoverCardPanel.morphGeneration > before, "the card took the picture's height at once")
+    }
+
+    /// A picture that lands when the test says so.
+    private final class HeldPreviews: TabPreviewProvider {
+        private var held: CheckedContinuation<Void, Never>?
+        var waiting: Bool { held != nil }
+        let image: CGImage? = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+                                        space: CGColorSpaceCreateDeviceRGB(),
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage()
+        func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? {
+            await withCheckedContinuation { held = $0 }
+            return image
+        }
+        func release() {
+            held?.resume()
+            held = nil
+        }
     }
 }

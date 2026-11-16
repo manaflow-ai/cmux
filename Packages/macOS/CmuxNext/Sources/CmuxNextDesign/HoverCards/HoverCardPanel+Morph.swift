@@ -27,7 +27,7 @@ struct HoverCardMorph {
 // at its own size, and a rounded mask shows the part the animation is at; the shadow's path and
 // its cutout follow the same spring. When the spring settles the card is laid out at rest again.
 extension HoverCardPanel {
-    private static var morphGeneration = 0
+    private(set) static var morphGeneration = 0
 
     /// The card's rest frame at the size a morph in flight shows now.
     var presentedSize: CGRect {

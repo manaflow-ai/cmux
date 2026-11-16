@@ -606,6 +606,7 @@ public final class HoverCardCoordinator {
             "retiring_windows": "\(retiring.count)",
             "card_showing": "\(panel?.isShowingCard == true)",
             "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
+            "last_present": panel?.lastPresent.text ?? "-",
             "anchor_frame": panel.map { NSStringFromRect($0.anchorFrame) } ?? "-",
             "timer_armed": "\(timer.isScheduled)",
             "monitor": "\(monitor != nil)",

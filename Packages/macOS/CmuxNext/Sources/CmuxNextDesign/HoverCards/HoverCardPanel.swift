@@ -70,6 +70,8 @@ final class HoverCardPanel: NSPanel {
     /// The last card's content fading out at its own size, pinned to the fixed corner, while the
     /// next card's fades in over it (a tab card's glide, `HoverCardPanel+Glide.swift`).
     var leavingBody: NSView?
+    /// How the last show moved (`debug.hover_cards` `last_present`): flags only, formatted when read.
+    private(set) var lastPresent = HoverCardPresentNote()
     /// The card takes clicks and scrolls (the update highlights' "See all changes").
     private(set) var isInteractive = false
     /// The current press began in the clear band around the card: it and its drags and release
@@ -251,13 +253,17 @@ final class HoverCardPanel: NSPanel {
         // may have changed the radius since the last card.
         host?.cornerRadius = cornerRadius ?? Self.cornerRadius
         place()
+        lastPresent = HoverCardPresentNote(onScreen: previous != nil, glides: glides, sweeping: sweeping, fadesBodies: fadesBodies,
+                                           sameBody: body === newBody, moves: Motion.hoverCards.animatesMovement(in: self),
+                                           liveResize: Motion.isLiveResizing(self))
         if sweeping {
             snapToRest()
         } else if let previous {
             // A visible card: it slides from where it is drawn to its new place, and resizes
             // there when the next card is another size (a quick return during the fade-out
             // fades back in from the alpha it reached).
-            if !morph(from: previous, always: glides) { slide(from: offset(of: previous, to: cardFrame)) }
+            lastPresent.morphed = morph(from: previous, always: glides)
+            if !lastPresent.morphed { slide(from: offset(of: previous, to: cardFrame)) }
             if wasDismissing || alphaValue < 1 { Self.motion.resume(self) }
         } else if placement == .besideRow {
             // Leo: "We can just have it instantly come in on the first load; the delay

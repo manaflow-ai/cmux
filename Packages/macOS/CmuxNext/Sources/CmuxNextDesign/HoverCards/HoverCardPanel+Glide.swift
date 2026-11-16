@@ -63,3 +63,15 @@ extension HoverCardPanel {
         view.autoresizingMask = []
     }
 }
+
+/// What the last `present` decided (`debug.hover_cards` `last_present`, live checks of the glide).
+struct HoverCardPresentNote {
+    var onScreen = false, glides = false, sweeping = false, fadesBodies = false, sameBody = false
+    var moves = false, liveResize = false, morphed = false
+
+    var text: String {
+        [("on_screen", onScreen), ("glides", glides), ("sweeping", sweeping), ("fades_bodies", fadesBodies),
+         ("same_body", sameBody), ("moves", moves), ("live_resize", liveResize), ("morphed", morphed)]
+            .map { "\($0.0)=\($0.1)" }.joined(separator: " ")
+    }
+}
