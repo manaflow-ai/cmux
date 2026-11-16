@@ -10,7 +10,8 @@
 #   On a Mac that must not build: bash scripts/measure/screen-stream-eval.sh prebuilt=DIR [targets=rd] ...
 #     (DIR holds the built tools; README.md, "Prebuilt tools"). They come from a fleet step with
 #     --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz (no console needed).
-# Output: SCREEN-STREAM-EVAL lines, the summary table, and artifacts/screen-stream-eval/results.json
+# Output: SCREEN-STREAM-EVAL lines, the summary table, artifacts/screen-stream-eval/results.json,
+# and probe.json (schema cmux.screen-share-fast/1) for the screen-share-fast goal board.
 # (also each target's raw files and the host and viewer frames under that folder). No gate: it
 # reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
 # 5: no target measured a window).
@@ -235,10 +236,16 @@ trap cleanup EXIT
 # results.json from whatever the targets wrote; blocked=REASON marks a run that measured nothing.
 finish() {
   local blocked="${1:-}"
-  python3 -I - "$out" "$run" "$blocked" "$targets" "$here" "$video_path" <<'EOF'
+  python3 -I - "$out" "$run" "$blocked" "$targets" "$here" "$video_path" "$work/peer/agent.json" <<'EOF'
 import json, sys
 from pathlib import Path
 out, run, blocked, names = Path(sys.argv[1]), json.loads(sys.argv[2]), sys.argv[3], sys.argv[4].split(",")
+peer = Path(sys.argv[7])
+if peer.exists():
+    try:
+        run["viewer"] = json.loads(peer.read_text()).get("host")
+    except (OSError, ValueError):
+        pass
 sys.path.insert(0, sys.argv[5])
 from eval import SCHEMA, empty_target
 if blocked:
@@ -252,6 +259,7 @@ results = {"schema": SCHEMA, "run": run, "scenarios": scenarios, "targets": targ
 (out / "results.json").write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
 EOF
   python3 -I "$here/eval.py" summary "$out/results.json" "$out/summary.md"
+  python3 -I "$here/probe.py" "$out/results.json" "$out/probe.json"
   cat "$out/summary.md"
   # Includes only explicit eval outputs, never the host's authentication token.
   tar -czf "$work/evidence.tar.gz" -C "$out" .

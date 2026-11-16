@@ -82,6 +82,39 @@ pub fn check_listen(listen: &str, addrs: &[SocketAddr], allow_network: bool) -> 
     )
 }
 
+/// `server::check_listen_address` for a caller off the async executor (`Config::start_refusal`, which
+/// `config --set` and `_acpmux/reload_config` run): the same rule, a name resolved the same way.
+pub fn check_listen_address_blocking(addr: &str, allow_network: bool) -> anyhow::Result<()> {
+    if allow_network {
+        return Ok(());
+    }
+    let addrs: Vec<std::net::SocketAddr> = match addr.parse() {
+        Ok(one) => vec![one],
+        Err(_) => std::net::ToSocketAddrs::to_socket_addrs(addr)
+            .map(Iterator::collect)
+            .unwrap_or_default(),
+    };
+    check_listen(addr, &addrs, false)
+}
+
+/// Whether a direct (not ssh) peer URL may carry the peer token: `wss://`,
+/// or `ws://` to a loopback host. Over plain `ws://` to any other host the
+/// token would cross a network in clear, and the peer serves it as Web
+/// anyway (`server/peer_auth.rs`). An `ssh://` peer connects through a
+/// tunnel to the remote's loopback, so it always may.
+pub fn carries_peer_token(url: &str) -> bool {
+    let Ok(uri) = url.parse::<tokio_tungstenite::tungstenite::http::Uri>() else { return false };
+    let host = uri.host().unwrap_or_default().trim_start_matches('[').trim_end_matches(']');
+    match uri.scheme_str() {
+        Some("wss") => true,
+        Some("ws") => {
+            host.eq_ignore_ascii_case("localhost")
+                || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.to_canonical().is_loopback())
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
