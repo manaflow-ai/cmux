@@ -1,4 +1,8 @@
 public import Foundation
+import os
+
+/// A refused offer's reason (a policy case, never mail or codes).
+private let inboxLog = Logger(subsystem: "com.cmuxterm.app.next", category: "verification-autofill")
 
 /// The pages waiting for a verification email and the offers made to them,
 /// in memory only (plans/cmux-next/email-verification-autofill/DESIGN.md).
@@ -41,7 +45,7 @@ public final class VerificationInbox {
     public func tabNavigated(_ tab: BrowserTabID, to url: URL) {
         let site = policy.site(of: url)
         if let signal = waiting[tab], site == nil || policy.site(of: signal.pageURL) != site { waiting[tab] = nil }
-        if let offer = offers[tab], site != offer.senderSite { offers[tab] = nil }
+        if let offer = offers[tab], site != offer.pageSite { offers[tab] = nil }
     }
 
     /// The tab closed: its wait and offer end.
@@ -70,7 +74,11 @@ public final class VerificationInbox {
         waiting = waiting.filter { now <= $0.value.startedAt.addingTimeInterval(VerificationOfferPolicy.window) }
         var offered: [BrowserTabID] = []
         for (tab, signal) in waiting.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
-            guard case .success(let offer) = policy.offer(for: email, on: signal, enabled: enabled, now: now) else { continue }
+            let decision = policy.offer(for: email, on: signal, enabled: enabled, now: now)
+            guard case .success(let offer) = decision else {
+                if case .failure(let reason) = decision { inboxLog.debug("no offer: \(String(describing: reason), privacy: .public)") }
+                continue
+            }
             offers[tab] = offer
             offered.append(tab)
         }
@@ -102,7 +110,7 @@ public final class VerificationInbox {
     public func take(for tab: BrowserTabID, emailID: String? = nil, currentURL: URL, now: Date) -> VerificationOffer? {
         guard let current = offers[tab], emailID == nil || current.emailID == emailID else { return nil }
         guard let offer = offers.removeValue(forKey: tab) else { return nil }
-        guard now <= offer.expiresAt, policy.site(of: currentURL) == offer.senderSite else { return nil }
+        guard now <= offer.expiresAt, policy.site(of: currentURL) == offer.pageSite else { return nil }
         use(offer.emailID)
         waiting[tab] = nil
         return offer

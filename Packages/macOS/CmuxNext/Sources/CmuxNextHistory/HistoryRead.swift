@@ -35,7 +35,7 @@ public nonisolated struct HistoryRead: Sendable {
                           symbol: "exclamationmark.triangle", canRetry: true)
         }
         if !pending.isEmpty {
-            return Status(id: "history.status.pending", title: HistoryStrings.stillLoading, detail: HistoryStrings.stillLoadingHint,
+            return Status(id: "history.status.pending", title: HistoryStrings.stillLoading, detail: nil,
                           symbol: "hourglass", canRetry: false)
         }
         guard entries.isEmpty, query.kinds == [.closed], query.text.isEmpty, query.range == .all else { return nil }
