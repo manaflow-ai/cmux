@@ -92,6 +92,7 @@ public nonisolated struct SwiftExecutorFrames {
     @discardableResult
     public static func recoverDeadRecord(in site: StaticString) -> UInt? {
         guard let dead = deadRecord() else { return nil }
+        Slots(record: 0, task: 0).install()
         let name = "\(site)"
         log.fault(
             "Swift executor record lost before \(name, privacy: .public): an Objective-C exception unwound a Swift job frame that no guard covers (#44060); cleared dead record 0x\(String(dead, radix: 16), privacy: .public)")
@@ -138,6 +139,7 @@ nonisolated final class UnwindHandler {
     /// Repairs the slots after an exception left the guarded frame, and records where it came from.
     func unwound() {
         let lost = SwiftExecutorFrames.Slots.current()
+        outer.install()
         let stack = Thread.callStackSymbols.prefix(48).joined(separator: "\n")
         SwiftExecutorFrames.log.fault(
             "Objective-C exception unwound the Swift job frame of \(self.site, privacy: .public) (#44060); executor record 0x\(String(lost.record, radix: 16), privacy: .public) restored to 0x\(String(self.outer.record, radix: 16), privacy: .public). Throw stack:\n\(stack, privacy: .public)")
