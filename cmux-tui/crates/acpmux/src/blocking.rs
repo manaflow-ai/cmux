@@ -55,7 +55,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
+    use std::collections::BTreeMap;
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -94,26 +94,52 @@ mod tests {
     fn bare_request_blockers_are_in_the_migration_allowlist() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut files = Vec::new();
-        for dir in [root.join("server"), root.join("hub")] {
-            rust_files(&dir, &mut files);
-        }
+        rust_files(&root, &mut files);
         let allowlisted = include_str!("blocking_allowlist.txt")
             .lines()
             .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
-            .filter_map(|line| line.split_once('#').map(|(site, _)| site.trim()))
-            .map(str::to_owned)
-            .collect::<BTreeSet<_>>();
-        let mut found = BTreeSet::new();
+            .filter_map(|line| line.split_once('='))
+            .filter_map(|(path, count)| {
+                Some((path.trim().to_owned(), count.trim().parse::<usize>().ok()?))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut found = BTreeMap::<String, usize>::new();
         for file in files {
             let relative = file.strip_prefix(&root).unwrap_or(&file);
-            let relative = relative.to_string_lossy();
-            if relative.ends_with("_tests.rs") || relative.ends_with("/tests.rs") {
+            let relative = relative.to_string_lossy().into_owned();
+            if relative == "blocking.rs"
+                || relative.ends_with("_tests.rs")
+                || relative.ends_with("/tests.rs")
+            {
                 continue;
             }
             let Ok(text) = fs::read_to_string(&file) else { continue };
-            for (line, source) in text.lines().enumerate() {
-                if source.contains("tokio::task::spawn_blocking") {
-                    found.insert(format!("{relative}:{}", line + 1));
+            let mut depth = 0i32;
+            let mut test_depth = None;
+            let mut pending_test = false;
+            let lines = text.lines().collect::<Vec<_>>();
+            for (line, source) in lines.iter().enumerate() {
+                let delta = source.matches('{').count() as i32 - source.matches('}').count() as i32;
+                if source.contains("#[cfg(test)]") {
+                    pending_test = true;
+                }
+                if pending_test && source.contains('{') {
+                    test_depth = Some(depth + delta);
+                    pending_test = false;
+                }
+                let in_test = test_depth.is_some_and(|start| depth >= start);
+                let trimmed = source.trim_start();
+                let is_site =
+                    source.contains("spawn_blocking") || source.contains("block_in_place");
+                let exempt = line > 0
+                    && (lines[line - 1].trim_start().starts_with("// bare blocking (shutdown):")
+                        || lines[line - 1].trim_start().starts_with("// bare blocking (daemon):"));
+                if !in_test && !trimmed.starts_with("//") && is_site && !exempt {
+                    *found.entry(relative.clone()).or_default() += 1;
+                }
+                depth += delta;
+                if test_depth.is_some_and(|start| depth < start) {
+                    test_depth = None;
                 }
             }
         }

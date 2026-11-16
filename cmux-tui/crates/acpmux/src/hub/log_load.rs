@@ -56,6 +56,7 @@ impl Hub {
     /// `load_live_logs` off the executor.
     pub async fn load_live_logs_async(self: &Arc<Self>) {
         let hub = self.clone();
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         if let Err(e) = tokio::task::spawn_blocking(move || hub.load_live_logs()).await {
             tracing::error!("reading the chat logs of running agents failed: {e}");
         }
@@ -111,6 +112,7 @@ impl Hub {
     /// `load_logs` off the executor.
     pub async fn load_logs_async(self: &Arc<Self>) {
         let hub = self.clone();
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         if let Err(e) = tokio::task::spawn_blocking(move || hub.load_logs()).await {
             tracing::error!("reading the chat logs failed: {e}");
             // A task that never ran dropped no guard.
@@ -191,6 +193,7 @@ impl Hub {
                 hub.warm_chat(&s);
                 hub.load_session_log(&s);
             };
+            // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
             if let Err(e) = tokio::task::spawn_blocking(warm).await {
                 tracing::error!(session = %session.id, "rehydrating the chat failed: {e}");
             }
@@ -207,6 +210,7 @@ impl Hub {
                 hub.load_session_log(&s)
             }
         };
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         if let Err(e) = tokio::task::spawn_blocking(read).await {
             // It answers from the session list, as a failed load does (`LogsReady`).
             tracing::error!(session = %session.id, "reading the chat log failed: {e}");
@@ -320,6 +324,7 @@ impl Hub {
             && tokio::runtime::Handle::try_current().is_ok()
         {
             let session = session.clone();
+            // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
             tokio::task::spawn_blocking(move || {
                 crate::qos::background(|| drop(session.inbox()));
             });
@@ -590,6 +595,7 @@ impl Hub {
         // All hosted chats were considered by adoption. Read their liveness once for this
         // settling pass, off the executor, rather than reading every host record per chat.
         // A failed read proves no host gone; keep its turn for later recovery.
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
         for id in hosted {
             let Ok(session) = self.resolve(&id) else { continue };
@@ -598,6 +604,7 @@ impl Hub {
             }
             let gone = live.as_ref().is_some_and(|live| !live.contains(&id));
             let hub = self.clone();
+            // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
             let settled = tokio::task::spawn_blocking(move || hub.settle_one(&session, gone));
             if let Err(e) = settled.await {
                 tracing::error!(session = %id, "settling a chat whose agent was not adopted failed: {e}");

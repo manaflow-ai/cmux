@@ -106,6 +106,7 @@ impl Hub {
             return;
         }
         let cached =
+// bare blocking (daemon): owned startup, loader, probe, timer, or restore work
             tokio::task::spawn_blocking(move || crate::live_models::AcpCache::new(dir).load_all())
                 .await
                 .unwrap_or_default();
@@ -166,6 +167,7 @@ impl Hub {
             == Some(&entry);
         if !on_disk {
             let (harness, (key, list)) = (name.to_owned(), entry.clone());
+            // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
             let stored = tokio::task::spawn_blocking(move || {
                 crate::live_models::AcpCache::new(dir).store(&harness, &key, &list)
             })
@@ -310,6 +312,7 @@ impl Hub {
             true
         });
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
             .unwrap_or_else(|_| std::env::temp_dir());
@@ -371,6 +374,7 @@ impl Hub {
         drain.abort();
         // The probe's session leaves no transcript behind (it listed as an empty chat).
         let folder = cwd.clone();
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         let _ = tokio::task::spawn_blocking(move || {
             crate::probe_cleanup::remove_probe_transcripts(&folder)
         })

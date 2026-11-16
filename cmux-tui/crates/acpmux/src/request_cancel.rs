@@ -69,7 +69,10 @@ pub async fn until_cancelled<F: Future>(
     cancel: oneshot::Receiver<()>,
     fut: F,
 ) -> Option<F::Output> {
-    until_either(cancel, None, fut).await
+    match until_either_with_stop(cancel, None, None, fut).await {
+        WaitOutcome::Complete(value) => Some(value),
+        WaitOutcome::Cancelled | WaitOutcome::Stopped => None,
+    }
 }
 
 /// [`until_cancelled`], cancelled by whichever of `cancel` and `also` fires first: a request's
@@ -79,7 +82,19 @@ pub async fn until_either<F: Future>(
     also: Option<oneshot::Receiver<()>>,
     fut: F,
 ) -> Option<F::Output> {
-    until_either_with_stop(cancel, also, None, fut).await
+    match until_either_with_stop(cancel, also, None, fut).await {
+        WaitOutcome::Complete(value) => Some(value),
+        WaitOutcome::Cancelled | WaitOutcome::Stopped => None,
+    }
+}
+
+/// The owner that ended a request's wait. A daemon stop is deliberately distinct from a
+/// client cancel: only the latter sets [`requested`] while the dropped future is unwound.
+#[derive(Debug)]
+pub enum WaitOutcome<T> {
+    Complete(T),
+    Cancelled,
+    Stopped,
 }
 
 /// [`until_either`] with the daemon stop fence. The ordinary client-cancel behavior remains
@@ -89,12 +104,12 @@ pub async fn until_shutdown<F: Future>(
     also: Option<oneshot::Receiver<()>>,
     stop: StopFence,
     fut: F,
-) -> Option<F::Output> {
+) -> WaitOutcome<F::Output> {
     until_either_with_stop(cancel, also, Some(stop), fut).await
 }
 
 /// Runs work until the daemon stop fence fires before a request has a ticket.
-pub async fn until_stop<F: Future>(stop: StopFence, fut: F) -> Option<F::Output> {
+pub async fn until_stop<F: Future>(stop: StopFence, fut: F) -> WaitOutcome<F::Output> {
     let (_never, cancel) = oneshot::channel();
     until_either_with_stop(cancel, None, Some(stop), fut).await
 }
@@ -104,7 +119,7 @@ async fn until_either_with_stop<F: Future>(
     also: Option<oneshot::Receiver<()>>,
     stop: Option<StopFence>,
     fut: F,
-) -> Option<F::Output> {
+) -> WaitOutcome<F::Output> {
     // A receiver whose sender is dropped never fires.
     let fired = |rx: Option<oneshot::Receiver<()>>| async move {
         let fired = match rx {
@@ -126,12 +141,12 @@ async fn until_either_with_stop<F: Future>(
     tokio::pin!(scoped);
     let out = tokio::select! {
         biased;
-        out = &mut scoped => Some(out),
-        () = fired(Some(cancel)) => None,
-        () = fired(also) => None,
-        () = stopped => None,
+        out = &mut scoped => WaitOutcome::Complete(out),
+        () = fired(Some(cancel)) => WaitOutcome::Cancelled,
+        () = fired(also) => WaitOutcome::Cancelled,
+        () = stopped => WaitOutcome::Stopped,
     };
-    if out.is_none() {
+    if matches!(out, WaitOutcome::Cancelled) {
         flag.store(true, Ordering::SeqCst);
     }
     // `scoped` is dropped as this returns, inside its scope (tokio's `TaskLocalFuture` drops its
@@ -254,6 +269,28 @@ mod tests {
         tx.send(()).unwrap();
         assert!(until_cancelled(rx, fut).await.is_none());
         assert!(seen.load(Ordering::SeqCst), "the drop saw the cancel");
+        assert!(!requested(), "outside the scope no cancel is seen");
+    }
+
+    #[tokio::test]
+    async fn a_stopped_future_is_dropped_without_marking_a_client_cancel() {
+        struct Probe(Arc<AtomicBool>);
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                self.0.store(requested(), Ordering::SeqCst);
+            }
+        }
+        let seen = Arc::new(AtomicBool::new(true));
+        let probe = Probe(seen.clone());
+        let stop = StopFence::new();
+        let fence = stop.clone();
+        let fut = async move {
+            let _probe = probe;
+            std::future::pending::<()>().await
+        };
+        fence.cancel();
+        assert!(matches!(until_stop(stop, fut).await, WaitOutcome::Stopped));
+        assert!(!seen.load(Ordering::SeqCst), "the drop must not look like a client cancel");
         assert!(!requested(), "outside the scope no cancel is seen");
     }
 

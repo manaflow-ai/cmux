@@ -68,6 +68,7 @@ impl Hub {
         let Some(child) = session.child.lock().await.clone() else { return };
         let procs = child.harness_processes().await;
         let (watched, turn) = (session.clone(), turn_id.to_owned());
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         let ended = tokio::task::spawn_blocking(move || {
             // Checked for each listing just before its signal, not once for all of them.
             crate::agent_host::tree::terminate_picked(&procs, |argv| {

@@ -72,12 +72,17 @@ pub(super) struct First {
 
 impl Drop for First {
     fn drop(&mut self) {
-        if !self.fence.is_cancelled() {
-            return;
-        }
         let mut book = book();
         let Some(entry) = book.entries.get_mut(&self.key) else { return };
         if entry.generation != self.generation || entry.done_at.is_some() {
+            return;
+        }
+        if !self.fence.is_cancelled() {
+            entry.done_at = Some(Instant::now());
+            entry.stop = None;
+            let _ = self
+                .tx
+                .send_replace(Some(Outcome::Answer(Err(crate::request_cancel::cancelled_error()))));
             return;
         }
         // The repeat is fenced independently and must observe the stop, rather than receiving
@@ -353,6 +358,10 @@ mod tests {
 
     fn seen(principal: &str, id: &str) -> (Key, u64) {
         key_for(Some(principal), crate::rpc::method::MUX_STATS, Some(&stamped(id))).unwrap()
+    }
+
+    fn key(id: &str) -> Key {
+        (PEER_LINK.to_owned(), id.to_owned())
     }
 
     #[tokio::test]
