@@ -253,8 +253,9 @@ struct MacScreenHubCardTests {
 @MainActor
 struct MacScreenViewOnlyTests {
     @Test func aViewOnlyScreenTakesNoInput() {
-        #expect(MacScreenPaneView.takesInput(gate: .open, card: nil))
-        #expect(!MacScreenPaneView.takesInput(gate: .open, card: nil, viewOnly: true))
+        #expect(MacScreenPaneView.takesInput(gate: .open, card: nil, hasFrame: true, sessionConnected: true))
+        #expect(!MacScreenPaneView.takesInput(gate: .open, card: nil, viewOnly: true,
+                                              hasFrame: true, sessionConnected: true))
     }
 
     @Test func theSessionsScopeDecidesViewOnly() {
