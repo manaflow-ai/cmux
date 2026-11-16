@@ -189,13 +189,14 @@ async function pasteCompactImages(ctx: PlayContext, count: number) {
   canvas.width = 320;
   canvas.height = 180;
   const paint = canvas.getContext("2d")!;
-  paint.fillStyle = "#5783b5";
-  paint.fillRect(0, 0, canvas.width, canvas.height);
-  const blob = await new Promise<Blob>((done) => canvas.toBlob((value) => done(value!), "image/png"));
-  const files = Array.from(
-    { length: count },
-    (_, i) => new view.File([blob], `compact-image-${i}.png`, { type: "image/png" }),
-  );
+  const files: File[] = [];
+  for (let i = 0; i < count; i++) {
+    // Paste intake collapses identical image bytes even when their filenames differ.
+    paint.fillStyle = i === 0 ? "#5783b5" : "#b58357";
+    paint.fillRect(0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob>((done) => canvas.toBlob((value) => done(value!), "image/png"));
+    files.push(new view.File([blob], `compact-image-${i}.png`, { type: "image/png" }));
+  }
   const held: Array<() => void> = [];
   const original = view.Worker.prototype.postMessage;
   view.Worker.prototype.postMessage = function (

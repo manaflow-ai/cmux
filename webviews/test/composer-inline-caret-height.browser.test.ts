@@ -131,7 +131,10 @@ await requireBrowserLane("composer-inline-caret-height.browser.test.ts", async (
                 timeout: 90_000,
               });
               const proof = await page.locator(".acpmux-md").getAttribute("data-image-height-proof");
-              expect(proof).not.toBeNull();
+              if (!proof)
+                throw new Error(
+                  `${variant}: ${JSON.stringify(await page.evaluate(() => window.cmuxGalleryPlayReport))}`,
+                );
               report.push(`${engine} ${look} ${surface} ${scene}: ${proof}`);
               const before = await page
                 .locator(".acpmux-composer-box, .nt-composer")
