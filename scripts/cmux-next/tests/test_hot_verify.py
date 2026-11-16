@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -485,6 +486,7 @@ class VideoTest(unittest.TestCase):
 
         def stop(self, out):
             self.calls.append(("stop",))
+            self.cap_at_stop = self.kit.MAX_CLIP_BYTES
             self.process = None
             dest = Path(out) / "clips" / f"{hv.LOOK_CLIP}.mp4"
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -496,8 +498,48 @@ class VideoTest(unittest.TestCase):
             self.process = None
 
     def kit(self):
+        """A stand-in for the kit module: its Recorder and the steps-clip cap (nightly_steps.MAX_CLIP_BYTES)."""
         recorder = self.FakeRecorder()
-        return type("Kit", (), {"Recorder": staticmethod(lambda: recorder)})(), recorder
+        kit = type("Kit", (), {"Recorder": staticmethod(lambda: recorder), "MAX_CLIP_BYTES": 30 << 20})()
+        recorder.kit = kit
+        return kit, recorder
+
+    def test_a_look_lifts_the_steps_clip_cap_for_its_own_stop_only(self):
+        kit, recorder = self.kit()
+        with tempfile.TemporaryDirectory() as tmp:
+            video = hv.Video(Path(tmp), kit)
+            video.start(1)
+            with unittest.mock.patch.object(hv, "window_frame", return_value=None), \
+                    unittest.mock.patch.object(hv, "main_display_points", return_value=None):
+                video.stop()
+        self.assertEqual(recorder.cap_at_stop, hv.RAW_VIDEO_MAX_BYTES)
+        self.assertEqual(kit.MAX_CLIP_BYTES, 30 << 20)
+
+    def test_fit_video_keeps_a_video_that_fits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mp4 = Path(tmp) / "video.mp4"
+            mp4.write_bytes(b"x" * 100)
+            hv.fit_video(mp4, most=100)
+            self.assertEqual(mp4.stat().st_size, 100)
+
+    def test_fit_video_removes_a_video_too_big_to_bring_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mp4 = Path(tmp) / "video.mp4"
+            mp4.write_bytes(b"x" * (2 << 20))
+            with unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                    self.assertRaisesRegex(hv.LookError, "over the 1 MiB a look brings back"):
+                hv.fit_video(mp4, most=1 << 20)
+            self.assertFalse(mp4.exists())
+
+    def test_a_failed_move_is_a_look_error(self):
+        kit, recorder = self.kit()
+        with tempfile.TemporaryDirectory() as tmp:
+            video = hv.Video(Path(tmp), kit)
+            video.start(1)
+            with unittest.mock.patch.object(hv, "window_frame", return_value=None), \
+                    unittest.mock.patch.object(hv.os, "replace", side_effect=OSError("disk full")), \
+                    self.assertRaisesRegex(hv.LookError, "did not become video.mp4"):
+                video.stop()
 
     def test_the_kit_records_through_cua_driver_and_the_clip_becomes_video_mp4(self):
         kit, recorder = self.kit()

@@ -649,6 +649,11 @@ class Shooter:
 # The clip name the look's own recording takes in the kit's Recorder: an underscore, which a steps file's clip name
 # (SHOT_NAME) never has, so it never meets a clip the steps record.
 LOOK_CLIP = "hot_verify_look"
+# The most a look's video.mp4 may be: a fleet look's out.tar keeps a file of at most 32 MiB (cmuxterm-hq pr-capture
+# RESULT_MAX_BYTES), so a bigger video is shrunk (fit_video) rather than dropped on the way back.
+LOOK_VIDEO_MAX_BYTES = 30 << 20
+# The most the kit's Recorder may hand over before the cut and the fit: the display for a look's whole length.
+RAW_VIDEO_MAX_BYTES = 2 << 30
 
 
 class Video:
@@ -667,7 +672,8 @@ class Video:
         self.out = out
         self.mov = out / ".video.mov"
         self.process = None
-        self.recorder = kit.Recorder() if kit is not None and hasattr(kit, "Recorder") else None
+        self.kit = kit if kit is not None and hasattr(kit, "Recorder") else None
+        self.recorder = self.kit.Recorder() if self.kit is not None else None
         self.pid = None
         self.facts = {"by": "cua-driver" if self.recorder is not None else "record-window"}
 
@@ -756,19 +762,33 @@ class Video:
 
     def stop_cua(self) -> Path:
         frame = window_frame(self.pid) if self.pid is not None else None
+        # The kit's clip cap (MAX_CLIP_BYTES) is sized for a steps clip, and its stop deletes a clip over it. A look
+        # records the whole display from the change going in, often for minutes: its cap is lifted for this stop,
+        # and the window cut, then LOOK_VIDEO_MAX_BYTES, bound what comes back.
+        kit = self.kit
+        capped = getattr(kit, "MAX_CLIP_BYTES", None)
         try:
+            if capped is not None:
+                kit.MAX_CLIP_BYTES = RAW_VIDEO_MAX_BYTES
             made = self.recorder.stop(self.out)
         except (OSError, RuntimeError) as error:
             raise LookError(f"CuaDriver's recording: {str(error)[:300]}") from error
+        finally:
+            if capped is not None:
+                kit.MAX_CLIP_BYTES = capped
         clip = self.out / made["clip"]
         mp4 = self.out / "video.mp4"
-        os.replace(clip, mp4)
-        with contextlib.suppress(OSError):
-            clip.parent.rmdir()  # clips/ only when the steps recorded none of their own
-        why = cut_to_window(mp4, frame, main_display_points())
-        self.facts["window"] = why is None
-        if why is not None:
-            self.facts["display"] = why
+        try:
+            os.replace(clip, mp4)
+            with contextlib.suppress(OSError):
+                clip.parent.rmdir()  # clips/ only when the steps recorded none of their own
+            why = cut_to_window(mp4, frame, main_display_points())
+            self.facts["window"] = why is None
+            if why is not None:
+                self.facts["display"] = why
+            fit_video(mp4)
+        except OSError as error:
+            raise LookError(f"the recording did not become video.mp4: {error}") from error
         return mp4
 
 
@@ -849,6 +869,31 @@ def cut_to_window(mp4: Path, frame: dict | None, display: tuple[float, float] | 
             return None
     cut.unlink(missing_ok=True)
     return "ffmpeg could not cut the window out"
+
+
+def fit_video(mp4: Path, most: int = LOOK_VIDEO_MAX_BYTES) -> None:
+    """MP4 shrunk in place until it is at most MOST bytes (half the size, then a quarter, each at a lower quality);
+    a video that still does not fit, or no ffmpeg to shrink it, is removed with a LookError naming its size."""
+    size = mp4.stat().st_size
+    if size <= most:
+        return
+    ffmpeg = shutil.which("ffmpeg")
+    small = mp4.with_name(".video-small.mp4")
+    for scale, crf in ((2, 28), (4, 32)) if ffmpeg else ():
+        try:
+            done = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(mp4), "-vf",
+                                   f"scale=trunc(iw/{scale * 2})*2:trunc(ih/{scale * 2})*2", "-c:v", "libx264",
+                                   "-preset", "veryfast", "-crf", str(crf), "-an", "-movflags", "+faststart",
+                                   str(small)], capture_output=True, text=True, timeout=600)
+        except (OSError, subprocess.SubprocessError):
+            break
+        if done.returncode == 0 and small.is_file() and 0 < small.stat().st_size <= most:
+            os.replace(small, mp4)
+            return
+    small.unlink(missing_ok=True)
+    mp4.unlink(missing_ok=True)
+    raise LookError(f"the video was {size >> 20} MiB, over the {most >> 20} MiB a look brings back, and "
+                    f"{'did not shrink to fit' if ffmpeg else 'no ffmpeg here shrinks it'}")
 
 
 # ---------------------------------------------------------------- the steps
