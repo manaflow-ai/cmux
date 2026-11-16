@@ -238,7 +238,7 @@ pub(super) fn write_durable(path: &Path, bytes: &[u8], replace: bool) -> Result<
         if replace {
             crate::home_fs::rename(&temp, path)?;
         } else {
-            std::fs::hard_link(&temp, path)?;
+            crate::home_fs::hard_link(&temp, path)?;
         }
         Ok(())
     })();

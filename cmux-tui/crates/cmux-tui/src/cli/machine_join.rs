@@ -11,14 +11,7 @@
 //!
 //! The leading space keeps it out of shell history where the shell ignores
 //! such lines, and the token rides in `sh`'s environment, never in an argument
-//! list. A Windows PC pastes the PowerShell form beside it (`windowsLine`):
-//!
-//! ```text
-//!  $env:CMUX_JOIN='cmj_…'; irm <origin>/v1/machines/join.ps1 | iex
-//! ```
-//!
-//! whose script (`cmux-tui/scripts/machine-join.ps1`) takes the token out of
-//! the environment before it starts anything. With a host (`machine add HOST`, `--destination HOST`) the command is
+//! list; a Windows PC pastes the PowerShell line beside it (`windows.rs`). With a host (`machine add HOST`, `--destination HOST`) the command is
 //! the app's ssh Add Machine card, as before.
 //!
 //! The platform origin comes from `--platform` (or `CMUX_PLATFORM_URL`) and
@@ -71,8 +64,7 @@ const WAIT_EVERY: Duration = Duration::from_secs(2);
 /// instead: its 90 s rows and its heartbeat stamp, which moves at most every 30 s.
 pub(super) const LEGACY_ONLINE_WITHIN_MS: u64 = 120_000;
 /// How soon a revoke takes effect: the platform checks revocation on every heartbeat (each
-/// 10 s, a third of the hub's row TTL) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces
-/// this.
+/// 10 s, a third of the hub's row TTL) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces this.
 const REVOKE_BOUND: &str = "30 seconds";
 /// The minted line's default life when the answer's `expiresAt` is unreadable.
 const DEFAULT_TTL_SECS: u64 = 600;
@@ -83,6 +75,7 @@ pub(super) const USB_TTL_SECS: u64 = MAX_TTL_SECS;
 
 mod bootstrap;
 pub(super) mod vault;
+mod windows;
 
 const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|--no-wait] [--vault [--yes]]
        cmux machine add --usb PATH [--ttl 10m] [--vault [--yes]]
@@ -706,8 +699,7 @@ pub(super) enum WaitEnd {
     Interrupted,
 }
 
-/// The list in a credentials answer: an array, or one under `credentials`,
-/// `machines` or `items`.
+/// The list in a credentials answer: an array, or one under `credentials`, `machines` or `items`.
 fn entries(body: Value) -> Option<Vec<Value>> {
     match body {
         Value::Array(rows) => Some(rows),
@@ -881,12 +873,6 @@ pub(super) fn join_line(origin: &str, token: &str) -> String {
     format!(" curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN={token} sh")
 }
 
-/// The same line for a Windows PC, in PowerShell. The token is `cmj_` and `A-Z a-z 0-9 _ -`
-/// only ([`valid_token`]), so it needs no escaping inside the single quotes.
-pub(super) fn windows_join_line(origin: &str, token: &str) -> String {
-    format!(" $env:CMUX_JOIN='{token}'; irm {origin}/v1/machines/join.ps1 | iex")
-}
-
 /// A minted join token, checked: the token is `cmj_` and shell-safe, and no
 /// field printed beside it holds it or the caller's credential.
 #[derive(Debug)]
@@ -980,20 +966,18 @@ fn add_machine(
 ) -> Result<i32, Failure> {
     let minted = mint_for(platform, add)?;
     let line = join_line(&platform.origin, &minted.token);
-    let windows_line = windows_join_line(&platform.origin, &minted.token);
     let name = minted.label.clone().or_else(|| add.name.map(str::to_owned));
     let mut summary = json!({
         "line": line,
-        "windowsLine": windows_line,
         "token": minted.token,
         "joinTokenId": minted.join_token_id,
         "expiresAt": minted.expires_at,
         "teamId": minted.team_id,
         "name": name,
         "scriptUrl": format!("{}/v1/machines/join.sh", platform.origin),
-        "windowsScriptUrl": format!("{}/v1/machines/join.ps1", platform.origin),
         "joined": null,
     });
+    windows::add(&mut summary, &platform.origin, &minted.token);
     let now = now_ms();
     let io = |e: std::io::Error| Failure::new("io", e.to_string());
     match output {
@@ -1001,7 +985,7 @@ fn add_machine(
             let when = expiry_words(minted.expires_at_ms, now);
             writeln!(out, "Run this on the new machine. It works once and {when}:\n\n{line}\n")
                 .map_err(io)?;
-            writeln!(out, "On a Windows PC, in PowerShell:\n\n{windows_line}\n").map_err(io)?;
+            windows::print(out, &summary).map_err(io)?;
         }
         OutputMode::JsonLines => {
             let mut event = summary.clone();
@@ -1285,8 +1269,7 @@ fn duration_words(seconds: u64) -> String {
     }
 }
 
-/// Rotates the machine's credential. The answer may carry the new credential;
-/// nothing of it is printed.
+/// Rotates the machine's credential. The answer may carry the new credential; none of it prints.
 fn rotate(
     platform: &Platform,
     key: &str,
