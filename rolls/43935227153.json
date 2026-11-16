@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43935227153",
+  "recorded_at": "2026-11-16T19:24:07Z",
+  "reason": "cmux-tui 47254fcf65a9 changes the image's cmux-tui (pinned c2ccb8326c93)",
+  "dry_run": false,
+  "cmux_tui": "47254fcf65a9b4498432fd9949a8b72db445636c",
+  "fixes": [
+    {
+      "sha": "47254fcf65a9b4498432fd9949a8b72db445636c",
+      "mergedAt": "2026-11-16T10:38:40-08:00",
+      "subject": "cmux device setup: agents install, start and keep cmux NIGHTLY running on your Macs (#43385)"
+    },
+    {
+      "sha": "9bbe07477705bcbd20cb61c852d494aec6749fd8",
+      "mergedAt": "2026-11-16T10:33:38-08:00",
+      "subject": "fix(cmux NEXT): no two rows of one context menu share an icon"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-16T19:24:07Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
