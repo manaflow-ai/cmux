@@ -158,7 +158,13 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
         writer = next;
         hydration.push(elapsed);
     }
-    assert_eq!(hub.snapshot().len(), 11_000);
+    // The diagnostic deliberately starts from a closed tree, so those rows
+    // remain cold on disk until the update stream touches them. The default
+    // fixture is live and hydrates all rows into the hot index.
+    assert_eq!(hub.snapshot().len(), if tree_fixture { 0 } else { 11_000 });
+    if tree_fixture {
+        assert_eq!(hub.snapshot().merged_rows().count(), 11_000);
+    }
     eprintln!("PR5b startup_writer_turns: batches={} p95_ns={}", hydration.len(), p95(&hydration));
     let mut during = Vec::new();
     let mut changes = 0_u64;
@@ -352,12 +358,24 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     );
     eprintln!("{line}");
     if tree_fixture {
+        let expected_entries: u64 = (0..11_000)
+            .map(|index| {
+                let mut node = index;
+                let mut depth = 0u64;
+                while node > 0 {
+                    depth += 1;
+                    node = (node - 1) / 4;
+                }
+                depth.min(64)
+            })
+            .sum();
         let entries = fs::read(dir.path().join("index.snap.kin"))
             .ok()
             .and_then(|bytes| {
                 bytes.get(40..48).and_then(|bytes| bytes.try_into().ok()).map(u64::from_le_bytes)
             })
             .unwrap_or(0);
+        assert_eq!(entries, expected_entries, "four-way sidecar closure count");
         eprintln!("PR5i compaction_fixture=four_way_closed kin_entries={entries}");
     }
     if let Ok(path) = std::env::var("V2_GATE_OUT") {
