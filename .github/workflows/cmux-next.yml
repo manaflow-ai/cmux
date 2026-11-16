@@ -1910,6 +1910,7 @@ jobs:
             python3 scripts/cmux-next/tests/test_chat_open_frames.py
             python3 scripts/cmux-next/tests/test_chat_open_seed_cache.py
             python3 scripts/cmux-next/tests/test_check_pr_split.py
+            python3 scripts/cmux-next/tests/test_check_v2_app_callers.py
             python3 scripts/cmux-next/tests/test_ci_apply.py
             python3 scripts/cmux-next/tests/test_diff_tab_cells.py
             python3 scripts/cmux-next/tests/test_every_action_sweep.py
@@ -1936,6 +1937,7 @@ jobs:
             python3 scripts/cmux-next/tests/test_prepush_gate_watchdog.py
             python3 scripts/cmux-next/tests/test_prepush_window_freeze.py
             python3 scripts/cmux-next/tests/test_push_from_host.py
+            python3 scripts/cmux-next/tests/test_renderer_rest.py
             python3 scripts/cmux-next/tests/test_rj_fake_cli_agent.py
             python3 scripts/cmux-next/tests/test_script_storm_worker.py
             python3 scripts/cmux-next/tests/test_sidebar_churn_typed_terminal.py
@@ -2936,7 +2938,7 @@ jobs:
           # CmuxNextApp). The app check cannot vouch for them.
           for target in $SWIFT_CANARY_TARGETS; do
             case "$target" in
-              CmuxNextAgentList|CmuxNextServerHelperDaemon|CmuxNextUiLayerPreview)
+              CmuxNextServerHelperDaemon|CmuxNextUiLayerPreview)
                 echo "::notice title=Build fleet compile check::$target is not linked into the app; the Mac canary runs."
                 echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
                 exit 0 ;;
