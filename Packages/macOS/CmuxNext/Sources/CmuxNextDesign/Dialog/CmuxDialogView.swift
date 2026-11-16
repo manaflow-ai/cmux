@@ -252,7 +252,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         lines.translatesAutoresizingMaskIntoConstraints = false
         guard spec.lines.count > CmuxDialogMetrics.scrollingLineCount
             || spec.lines.reduce(0, { $0 + $1.count }) > CmuxDialogMetrics.scrollingCharacterCount else { return lines }
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
