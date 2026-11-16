@@ -17,7 +17,8 @@
 //! `cargo test -p acpmux --release --test app_stream_bytes -- --ignored --nocapture`
 //! (`ACPMUX_BENCH_CHATS`, `ACPMUX_BENCH_SHOWN`, `ACPMUX_BENCH_TICKS`, `ACPMUX_BENCH_TICK_MS`;
 //! `ACPMUX_BENCH_QUIET=0` attaches as a pane before `quietHidden`, the before of the same build).
-//! It prints one `app-stream-bytes: {json}` line. The plain tests below hold the fix: a hidden
+//! It prints one `app-stream-bytes: {json}` line and one `app-stream-bytes-kind:` line per kind.
+//! The plain tests below hold the fix: a hidden
 //! pane hears no stream of its chat until it is shown, and then it is told to read again.
 #![cfg(unix)]
 
@@ -260,7 +261,11 @@ impl Pane {
                     let params = v.get("params").unwrap_or(&Value::Null);
                     let of_own =
                         params.get("sessionId").and_then(Value::as_str) == Some(own.as_str());
-                    if of_own && matches!(method, "session/update" | "_acpmux/event") {
+                    // The agent's stream: `session/update`, or an event of a record it sent (`dir: in`).
+                    let stream = method == "session/update"
+                        || (method == "_acpmux/event"
+                            && params.get("dir").and_then(Value::as_str) == Some("in"));
+                    if of_own && stream {
                         c.own_stream += 1;
                     }
                     if method == "_acpmux/lagged" {
@@ -394,14 +399,12 @@ fn total(m: &BTreeMap<String, (u64, u64)>) -> u64 {
     m.values().map(|(b, _)| b).sum()
 }
 
-fn as_json(m: &BTreeMap<String, (u64, u64)>, seconds: f64) -> Value {
+fn as_rows(m: &BTreeMap<String, (u64, u64)>, seconds: f64) -> Vec<Value> {
     let mut rows: Vec<(&String, &(u64, u64))> = m.iter().collect();
-    rows.sort_by(|a, b| b.1.0.cmp(&a.1.0));
-    Value::Array(
-        rows.into_iter()
-            .map(|(k, (b, n))| json!({"kind": k, "bytesPerSec": (*b as f64 / seconds).round(), "messages": n}))
-            .collect(),
-    )
+    rows.sort_by_key(|row| std::cmp::Reverse(row.1.0));
+    rows.into_iter()
+        .map(|(k, (b, n))| json!({"kind": k, "bytesPerSec": (*b as f64 / seconds).round(), "messages": n}))
+        .collect()
 }
 
 async fn measure(chats: usize, shown: usize, ticks: usize, tick_ms: usize, quiet: bool) -> Report {
@@ -440,7 +443,8 @@ async fn measure(chats: usize, shown: usize, ticks: usize, tick_ms: usize, quiet
     report
 }
 
-/// The bench: N chats streaming, S panes shown and the rest hidden. One `app-stream-bytes:` line.
+/// The bench: N chats streaming, S panes shown and the rest hidden. One `app-stream-bytes:` line,
+/// then one `app-stream-bytes-kind:` line per kind and scope (a log may cut a long line).
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "bench: run by hand with --ignored --nocapture"]
 async fn app_stream_bytes_bench() {
@@ -458,10 +462,16 @@ async fn app_stream_bytes_bench() {
         "shownBytesPerSec": (total(&r.shown) as f64 / s).round(),
         "hiddenBytesPerSec": (total(&r.hidden) as f64 / s).round(),
         "daemonCpuMsPerSec": r.cpu_ms.map(|ms| (ms / s * 10.0).round() / 10.0),
-        "shownKinds": as_json(&r.shown, s),
-        "hiddenKinds": as_json(&r.hidden, s),
     });
     println!("app-stream-bytes: {out}");
+    for (scope, kinds) in [("shown", &r.shown), ("hidden", &r.hidden)] {
+        for kind in as_rows(kinds, s) {
+            println!(
+                "app-stream-bytes-kind: {}",
+                json!({"quietHidden": quiet, "scope": scope, "row": kind})
+            );
+        }
+    }
 }
 
 /// One quiet hidden pane, one hidden pane of an older app (no `quietHidden`), one shown pane, each
