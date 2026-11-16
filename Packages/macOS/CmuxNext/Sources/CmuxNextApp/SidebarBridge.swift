@@ -311,7 +311,7 @@ final class SidebarBridge {
             top: .make(layout, machines: machines, room: window.profileID.rawValue), pageFace: pageFace ?? services.sidebarPageFace,
             tabTitle: tabTitle(services), rows: rows, listing: feed?.listingSource, groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
             harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none }, faces: faces)
-        return (sections, launching && services.windows.restoresSession(window.id), failed) // a new window shows its own rows (#38128)
+        return (SidebarScreenActions(macs: services.macScreenPages.hub?.macScreenAvailability ?? [:], aliases: DaemonService.screenDeviceAliases(in: services.machines.daemons)).applying(to: sections), launching && services.windows.restoresSession(window.id), failed) // a new window shows its own rows (#38128)
     }
 
     /// The window's live sidebar, whether the app is still launching (its
