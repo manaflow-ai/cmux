@@ -72,13 +72,13 @@ select {
 mark {
   background: var(--accent-soft);
   color: inherit;
-  border-radius: 2px;
+  border-radius: var(--page-size-2);
 }
 
 .settings {
   position: relative;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: var(--page-size-220) minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
 }
@@ -105,12 +105,12 @@ mark {
 .content {
   overflow-y: auto;
   overscroll-behavior: contain;
-  --content-fade-top: 18px;
-  --content-fade-bottom: 28px;
+  --content-fade-top: var(--page-size-18);
+  --content-fade-bottom: var(--page-size-28);
   /* A row or card scrolled into view at an edge (a deep link, a capture's scroll) lands clear of
      the fade, not half-faded under it. */
-  scroll-padding-top: calc(var(--content-fade-top) + 6px);
-  scroll-padding-bottom: calc(var(--content-fade-bottom) + 6px);
+  scroll-padding-top: calc(var(--content-fade-top) + var(--page-size-6));
+  scroll-padding-bottom: calc(var(--content-fade-bottom) + var(--page-size-6));
   mask-image:
     linear-gradient(
       to bottom,
@@ -211,6 +211,9 @@ mark {
 
 .section-name {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .badge {
@@ -253,8 +256,8 @@ mark {
 
 .harness-update-cards {
   display: grid;
-  gap: 8px;
-  margin: 0 0 12px;
+  gap: var(--ds-space-2);
+  margin: 0 0 var(--ds-space-3);
 }
 
 .harness-update-cards:empty {
@@ -264,11 +267,11 @@ mark {
 .harness-update-card {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--ds-space-3);
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: var(--ds-space-2) var(--ds-space-3);
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--page-size-10);
   background: var(--input-bg);
 }
 
@@ -282,25 +285,25 @@ mark {
 }
 
 .harness-update-card-copy p {
-  margin: 3px 0 0;
+  margin: var(--page-size-3) 0 0;
 }
 
 .harness-update-card-copy code {
   display: block;
-  margin-top: 5px;
+  margin-top: var(--page-size-5);
   overflow-wrap: anywhere;
 }
 
 /* A provider's accounts under its harness row (ProviderAccounts). */
 .harness-accounts {
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .harness-account {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--ds-space-3);
 }
 
 .harness-account-copy {
@@ -318,9 +321,9 @@ mark {
   --agent-text: var(--text);
   --agent-muted: var(--muted-text);
   --agent-accent: var(--cmux-accent, var(--text));
-  width: 300px;
+  width: var(--page-size-300);
   max-width: 100%;
-  margin-top: 4px;
+  margin-top: var(--ds-space-1);
 }
 
 .harness-account-usage > .acpmux-plan-usage {
@@ -330,13 +333,13 @@ mark {
 .harness-account-name {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   font-weight: 600;
 }
 
 .harness-update-card > .button {
   flex: 0 0 auto;
-  margin-top: 1px;
+  margin-top: var(--page-size-1);
 }
 
 .rows {
@@ -364,7 +367,7 @@ mark {
 
 /* A device row's Full access switch, under the device's own line (Settings > Devices). */
 .row-main.device-full-access {
-  padding-top: 8px;
+  padding-top: var(--ds-space-2);
 }
 
 .row-label {
@@ -379,7 +382,7 @@ mark {
 .row-help,
 .row-key {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-detail);
   color: var(--muted-text);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -387,7 +390,7 @@ mark {
 
 .row-key {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--text-caption);
   color: var(--soft-text);
 }
 
@@ -395,16 +398,16 @@ mark {
 .row-error {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-top: 2px;
-  font-size: 12px;
+  gap: var(--ds-space-1);
+  margin-top: var(--page-size-2);
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
 .row-error,
 .field-error {
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .row-control {
@@ -426,15 +429,15 @@ mark {
 .banner {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0 8px;
+  gap: var(--ds-space-2);
+  padding: var(--page-size-6) 0 var(--ds-space-2);
   color: var(--warning);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .banner {
-  margin-bottom: 14px;
-  padding: 8px 0;
+  margin-bottom: var(--page-size-14);
+  padding: var(--ds-space-2) 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -549,7 +552,7 @@ mark {
 
 .text,
 .hex {
-  width: 220px;
+  width: var(--page-size-220);
 }
 
 .hex {
@@ -612,7 +615,7 @@ mark {
 }
 
 .slider {
-  width: 160px;
+  width: var(--page-size-160);
   accent-color: var(--accent, var(--text));
 }
 
@@ -624,15 +627,15 @@ mark {
 
 .select .ui-select-native {
   position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
+  inline-size: var(--page-size-1);
+  block-size: var(--page-size-1);
   opacity: 0;
   pointer-events: none;
 }
 
 .select .ui-select-button {
   appearance: none;
-  padding-right: 24px;
+  padding-right: var(--ds-space-5);
 }
 
 .row-control .select .ui-select-button {
@@ -651,11 +654,11 @@ mark {
 
 .inherit-badge {
   position: absolute;
-  top: calc(100% + 1px);
+  top: calc(100% + var(--page-size-1));
   right: 0;
   color: var(--muted-text);
   font-size: var(--text-caption);
-  line-height: 12px;
+  line-height: var(--text-detail);
   white-space: nowrap;
   pointer-events: none;
   letter-spacing: var(--text-caption--letter-spacing);
@@ -680,7 +683,7 @@ mark {
 
 .select .ui-select-chevron {
   position: absolute;
-  right: 6px;
+  right: var(--page-size-6);
   color: var(--muted-text);
   pointer-events: none;
 }
@@ -789,28 +792,28 @@ mark {
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-2);
-  max-width: 260px;
+  max-width: var(--page-size-260);
 }
 
 /* A pop-up over the rows (cx-jh7kq): opening it pushes no row down. */
 .domain-panel {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-1);
   /* Fixed, so filtering never resizes it, and no wider than a font row plus its Recent tag and
      check need (design/menus.md menu-fit: at most 112 px spare past the fullest row). */
-  width: 240px;
+  width: var(--page-size-240);
 }
 
 /* Fit font names and the search field, while keeping long installed family names in the viewport. */
 .font-picker-panel {
   width: max-content;
-  min-width: min(220px, calc(100vw - 16px));
-  max-width: calc(100vw - 16px);
+  min-width: min(var(--page-size-220), calc(100vw - var(--ds-space-4)));
+  max-width: calc(100vw - var(--ds-space-4));
 }
 
 .domain-list {
-  max-height: 260px;
+  max-height: var(--page-size-260);
   margin: 0;
   padding: 0;
   overflow-y: auto;
@@ -819,8 +822,8 @@ mark {
 
 /* A font row draws in its own face (FontPicker); the highlight is the theme list's. */
 .domain-option {
-  padding: 3px 6px;
-  border-radius: 5px;
+  padding: var(--page-size-3) var(--page-size-6);
+  border-radius: var(--page-size-5);
 }
 
 .domain-option[data-highlighted] {
@@ -831,7 +834,7 @@ mark {
 .font-option-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .font-option-name {
@@ -856,7 +859,7 @@ mark {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .tokens {
@@ -864,23 +867,23 @@ mark {
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 4px;
-  max-width: 360px;
+  gap: var(--ds-space-1);
+  max-width: var(--page-size-360);
 }
 
 .token {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 1px 2px 1px 8px;
+  gap: var(--page-size-2);
+  padding: var(--page-size-1) var(--page-size-2) var(--page-size-1) var(--ds-space-2);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  font-size: 12px;
+  border-radius: var(--ds-space-1);
+  font-size: var(--text-detail);
 }
 
 .token-remove {
   display: inline-flex;
-  padding: 1px;
+  padding: var(--page-size-1);
   border: 0;
   border-radius: 50%;
   background: transparent;
@@ -892,7 +895,7 @@ mark {
 }
 
 .token-input {
-  width: 140px;
+  width: var(--page-size-140);
 }
 
 .time-range {
@@ -903,13 +906,13 @@ mark {
 }
 
 .time {
-  width: 96px;
+  width: var(--page-size-96);
 }
 
 .visually-hidden {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  width: var(--page-size-1);
+  height: var(--page-size-1);
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
@@ -971,7 +974,7 @@ mark {
 .keys-request {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .keys-purpose {
@@ -982,27 +985,27 @@ mark {
 .keys-answer {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .keys-answer > .keys-field {
   flex: 1 1 auto;
   min-width: 0;
-  max-width: 320px;
+  max-width: var(--page-size-320);
 }
 
 .keys-control {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-3);
 }
 
 .host-footer,
 .host-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 8px;
+  gap: var(--ds-space-3);
+  margin-top: var(--ds-space-2);
 }
 
 .clear-browsing-data-error {
@@ -1032,8 +1035,8 @@ mark {
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: var(--page-size-20);
+  height: var(--page-size-20);
   border-radius: 50%;
   background: var(--accent-soft);
   color: var(--muted-text);
@@ -1047,30 +1050,30 @@ mark {
 }
 
 .host-avatar-image {
-  width: 16px;
-  height: 16px;
+  width: var(--ds-space-4);
+  height: var(--ds-space-4);
   object-fit: contain;
 }
 
 .host-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 0 4px 32px;
+  gap: var(--ds-space-2);
+  padding: var(--page-size-10) 0 var(--ds-space-1) var(--ds-space-6);
 }
 
 .host-field {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .host-field > .row-help {
-  width: 80px;
+  width: var(--page-size-80);
 }
 
 .host-field > .field {
-  width: 240px;
+  width: var(--page-size-240);
 }
 
 /* Settings > Cloud Environments' editor: the setup script and the variables take the form's width
@@ -1079,13 +1082,13 @@ mark {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .environment-script {
   box-sizing: border-box;
   width: 100%;
-  max-width: 520px;
+  max-width: var(--page-size-520);
   resize: vertical;
 }
 
@@ -1093,11 +1096,11 @@ mark {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .environment-variable > .field {
-  width: 160px;
+  width: var(--page-size-160);
 }
 
 /* Wrap complete controls rather than shrinking their labels in narrow profile editors. */
@@ -1128,12 +1131,12 @@ mark {
 
 .host-swatches {
   display: inline-flex;
-  gap: 6px;
+  gap: var(--page-size-6);
 }
 
 .host-swatch {
-  width: 14px;
-  height: 14px;
+  width: var(--page-size-14);
+  height: var(--page-size-14);
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -1154,25 +1157,25 @@ mark {
 .accounts-linked {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   flex-wrap: wrap;
 }
 
 .accounts-header {
   justify-content: flex-end;
-  margin-bottom: 8px;
+  margin-bottom: var(--ds-space-2);
 }
 
 /* Part of its row (indented under the title), not a second outlined card inside the row's card. */
 .accounts-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 4px 0 0;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-1) 0 0;
 }
 
 .accounts-row {
-  --accounts-mark-width: 20px;
+  --accounts-mark-width: var(--page-size-20);
 }
 
 .accounts-mark {
@@ -1184,8 +1187,8 @@ mark {
 .accounts-status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: var(--page-size-6);
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
@@ -1211,9 +1214,9 @@ mark {
 .accounts-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--page-size-6);
   /* Under the title: the mark plus the row's gap; refined.css sets it from --row-main-gap. */
-  padding: 6px 0 0 40px;
+  padding: var(--page-size-6) 0 0 var(--ds-space-40);
 }
 
 .accounts-body:empty {
@@ -1221,7 +1224,7 @@ mark {
 }
 
 .accounts-form > .field {
-  max-width: 320px;
+  max-width: var(--page-size-320);
 }
 
 /* Teams: a team row has no provider mark, so its details start under the title. */
@@ -1238,13 +1241,13 @@ mark {
 .accounts-team-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .accounts-badge {
-  padding: 0 4px;
+  padding: 0 var(--ds-space-1);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--ds-space-1);
   font-size: var(--text-caption);
   font-weight: 400;
   line-height: var(--text-caption--line-height);
@@ -1254,7 +1257,7 @@ mark {
 .accounts-facts {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 24px;
+  gap: var(--ds-space-1) var(--ds-space-5);
   margin: 0;
 }
 
@@ -1262,7 +1265,7 @@ mark {
   display: flex;
   /* The label is smaller than its value: share a baseline, not a top edge. */
   align-items: baseline;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .accounts-fact > dd {
@@ -1272,7 +1275,7 @@ mark {
 .accounts-team-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .accounts-team-role {
@@ -1307,13 +1310,13 @@ mark {
 .devices-title {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--page-size-6);
 }
 
 .devices-badge {
-  padding: 0 6px;
+  padding: 0 var(--page-size-6);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--ds-space-1);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
@@ -1323,7 +1326,7 @@ mark {
 .devices-field-inline {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--page-size-6);
 }
 
 .devices-screen-action {
@@ -1336,18 +1339,18 @@ mark {
 }
 
 .devices-form {
-  margin-top: 6px;
+  margin-top: var(--page-size-6);
 }
 
 .devices-field {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--page-size-3);
 }
 
 .devices-field > .field,
 .devices-field > .select {
-  max-width: 360px;
+  max-width: var(--page-size-360);
 }
 
 .devices-urls {
@@ -1355,7 +1358,7 @@ mark {
 }
 
 .devices-priority {
-  width: 80px;
+  width: var(--page-size-80);
 }
 
 .devices-history-scroll {
@@ -1373,7 +1376,7 @@ mark {
 
 .devices-history th,
 .devices-history td {
-  padding: 5px 6px;
+  padding: var(--page-size-5) var(--page-size-6);
   text-align: left;
   vertical-align: top;
   box-shadow: inset 0 -1px 0 var(--border);
@@ -1453,7 +1456,7 @@ mark {
 }
 
 .devices-copy {
-  padding: 0 6px;
+  padding: 0 var(--page-size-6);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }
@@ -1464,7 +1467,7 @@ mark {
   max-width: 100%;
   white-space: normal;
   text-align: center;
-  padding: 0 7px;
+  padding: 0 var(--page-size-7);
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--muted-text);
@@ -1484,19 +1487,19 @@ mark {
 
 /* All Workspaces | This Workspace (cx-t2x.5). */
 .backdrop-scope {
-  margin-bottom: 8px;
+  margin-bottom: var(--ds-space-2);
 }
 
 /* Wallpaper grid (R82 commit 4). */
 .backdrop-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  gap: 8px;
-  margin-top: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-112), 1fr));
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-2);
 }
 
 .backdrop-group-title {
-  margin: 12px 0 0;
+  margin: var(--ds-space-3) 0 0;
   font-weight: 600;
 }
 
@@ -1504,7 +1507,7 @@ mark {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--page-size-2);
   min-width: 0;
   padding: 0;
   border: 0;
@@ -1516,19 +1519,19 @@ mark {
 
 .backdrop-thumb {
   width: 100%;
-  height: 68px;
+  height: var(--page-size-68);
   border: 2px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--page-size-6);
   object-fit: cover;
 }
 
 /* A moving wallpaper (cx-14vdf): a play mark over its first frame. */
 .backdrop-badge {
   position: absolute;
-  top: 6px;
-  left: 8px;
-  padding: 0 4px;
-  border-radius: 4px;
+  top: var(--page-size-6);
+  left: var(--ds-space-2);
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-space-1);
   background: var(--input-bg);
   color: var(--text);
   font-size: var(--text-caption);
@@ -1567,10 +1570,10 @@ mark {
 /* On a chip like the moving wallpaper's badge, so it reads over any picture. */
 .backdrop-download {
   position: absolute;
-  right: 6px;
-  bottom: 6px;
-  padding: 2px;
-  border-radius: 4px;
+  right: var(--page-size-6);
+  bottom: var(--page-size-6);
+  padding: var(--page-size-2);
+  border-radius: var(--ds-space-1);
   background: var(--input-bg);
   color: var(--text);
 }
@@ -1590,9 +1593,9 @@ mark {
    button in each tile's corner, shown on hover or focus. */
 .backdrop-own-bar {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-2);
   align-items: center;
-  margin-top: 4px;
+  margin-top: var(--ds-space-1);
 }
 
 .backdrop-own {
@@ -1618,12 +1621,12 @@ mark {
 
 /* Browse More Art (cx-t2x.8). */
 .art-browser {
-  margin: 12px 0;
+  margin: var(--ds-space-3) 0;
 }
 
 .art-browser-search {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-2);
   align-items: center;
 }
 
@@ -1641,7 +1644,7 @@ mark {
 
 .backdrop-title {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-detail);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -1744,17 +1747,17 @@ mark {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .string-map-item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .string-map-key {
-  max-width: 220px;
+  max-width: var(--page-size-220);
   overflow: hidden;
   font-size: var(--text-detail);
   white-space: nowrap;
@@ -1767,25 +1770,25 @@ mark {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 /* Why a chat root is refused: its own line under the path, wrapping rather than clipped. */
 .folder-reason {
-  max-width: 320px;
+  max-width: var(--page-size-320);
   text-align: right;
 }
 
 .folder-item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .folder-path {
-  max-width: 260px;
+  max-width: var(--page-size-260);
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-detail);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -1797,7 +1800,7 @@ mark {
 .section-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 /* Settings > Appearance's floating Undo, Redo and Reset: pinned to the bottom right of the content
@@ -1806,16 +1809,16 @@ mark {
    content's bottom fade, not 16px above the padding, where it covered the last row's control. */
 .appearance-bar {
   position: sticky;
-  bottom: calc(var(--content-fade-bottom, 28px) + 4px - var(--content-pad-end, 0px));
+  bottom: calc(var(--content-fade-bottom, var(--page-size-28)) + var(--ds-space-1) - var(--content-pad-end, 0px));
   z-index: var(--layer-sticky);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
   width: fit-content;
-  margin: 16px 0 0 auto;
-  padding: 4px;
+  margin: var(--ds-space-4) 0 0 auto;
+  padding: var(--ds-space-1);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--page-size-10);
   background: var(--surface-popup);
   box-shadow: var(--ui-popup-drop);
 }
@@ -1824,25 +1827,25 @@ mark {
   /* While the bar floats over the page, a row scrolled into view at the bottom (a Tab stop, a
      click's scroll) lands above the bar, not under it: the bar's height (a button and its 4px frame)
      joins the fade's clearance. */
-  scroll-padding-bottom: calc(var(--content-fade-bottom) + 4px + var(--ds-control-row) + 10px + 6px);
+  scroll-padding-bottom: calc(var(--content-fade-bottom) + var(--ds-space-1) + var(--ds-control-row) + var(--page-size-10) + var(--page-size-6));
 }
 
 .appearance-bar-button {
-  width: 28px;
-  height: 26px;
+  width: var(--page-size-28);
+  height: var(--page-size-26);
 }
 
 .appearance-bar-reset {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--page-size-6);
 }
 
 .appearance-bar-confirm {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding-left: 6px;
+  gap: var(--page-size-6);
+  padding-left: var(--page-size-6);
 }
 
 .appearance-bar-question {
@@ -1856,7 +1859,7 @@ mark {
   flex-direction: row;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
+  gap: var(--page-size-10);
   width: 100%;
   border: 0;
   background: transparent;
@@ -1880,9 +1883,9 @@ mark {
   display: grid;
   flex: none;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
+  width: var(--page-size-28);
+  height: var(--page-size-28);
+  border-radius: var(--page-size-7);
   overflow: hidden;
   background: var(--input-bg);
 }
@@ -1911,13 +1914,13 @@ mark {
 }
 .chiefs-card.editing .ce-body {
   overflow: visible;
-  padding-left: 36px;
+  padding-left: var(--page-size-36);
 }
 
 /* Settings > Appearance > Density (DensityCard): tiles that draw each density at its own sizes.
    The --density-* sizes come from the density's tokens (density.ts), set inline per preview. */
 .density-help {
-  margin: 0 0 10px;
+  margin: 0 0 var(--page-size-10);
   color: var(--muted-text);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
@@ -1925,18 +1928,18 @@ mark {
 
 .density-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-150), 1fr));
+  gap: var(--page-size-10);
 }
 
 .density-tile {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--page-size-6);
   min-width: 0;
-  padding: 6px;
+  padding: var(--page-size-6);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--ds-space-2);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -1950,7 +1953,7 @@ mark {
 .density-name {
   display: flex;
   justify-content: space-between;
-  gap: 6px;
+  gap: var(--page-size-6);
   font-weight: 600;
 }
 
@@ -1965,7 +1968,7 @@ mark {
   flex: 1;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--page-size-6);
   background: var(--input-bg);
   color: var(--text);
 }
@@ -1973,7 +1976,7 @@ mark {
 .density-strip {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
   height: var(--density-strip);
   padding: 0 var(--density-inset);
   border-bottom: 1px solid var(--border);
@@ -1982,7 +1985,7 @@ mark {
 .density-tab {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--page-size-6);
   height: var(--density-tab);
   padding: 0 var(--density-inset);
   border-radius: var(--density-radius);
@@ -1996,7 +1999,7 @@ mark {
 }
 
 .density-list {
-  padding: 4px var(--density-inset);
+  padding: var(--ds-space-1) var(--density-inset);
 }
 
 .density-item {
@@ -2025,11 +2028,11 @@ mark {
   width: var(--density-icon);
   height: var(--density-icon);
   border: 1.5px solid var(--border-strong);
-  border-radius: 3px;
+  border-radius: var(--page-size-3);
 }
 
 .density-caption {
-  padding: 2px var(--density-inset) 6px;
+  padding: var(--page-size-2) var(--density-inset) var(--page-size-6);
   color: var(--muted-text);
   font-size: var(--density-caption);
 }
@@ -2043,8 +2046,8 @@ mark {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--ds-space-2);
+  margin-top: var(--page-size-10);
 }
 
 .density-notice {
@@ -2055,31 +2058,31 @@ mark {
 
 .density-import {
   display: flex;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--ds-space-2);
+  margin-top: var(--page-size-10);
 }
 
 .density-import textarea {
   flex: 1;
-  min-height: 72px;
+  min-height: var(--page-size-72);
   font-family: ui-monospace, monospace;
 }
 
 .density-editor {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(200px, 300px);
-  gap: 16px;
-  margin-top: 14px;
-  padding-top: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(var(--page-size-200), var(--page-size-300));
+  gap: var(--ds-space-4);
+  margin-top: var(--page-size-14);
+  padding-top: var(--page-size-14);
   border-top: 1px solid var(--border);
 }
 
 .density-field {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr) 44px;
+  grid-template-columns: var(--page-size-110) minmax(0, 1fr) var(--page-size-44);
   align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: var(--page-size-10);
+  margin-bottom: var(--ds-space-2);
 }
 
 .density-field > span {
@@ -2097,7 +2100,7 @@ mark {
    hover and keyboard focus. */
 .menus-editor {
   display: grid;
-  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
+  grid-template-columns: minmax(var(--page-size-150), var(--page-size-190)) minmax(0, 1fr);
   gap: var(--ds-space-4);
   align-items: start;
 }
@@ -2116,7 +2119,7 @@ mark {
 }
 
 .menus-area-title {
-  margin: 0 0 3px 8px;
+  margin: 0 0 var(--page-size-3) var(--ds-space-2);
   font-size: var(--text-caption);
   font-weight: 600;
   color: var(--muted-text);
@@ -2127,10 +2130,10 @@ mark {
   align-items: center;
   gap: var(--ds-space-2);
   width: 100%;
-  min-height: 24px;
+  min-height: var(--ds-space-5);
   padding: 0 var(--ds-space-2);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--page-size-6);
   background: transparent;
   color: var(--text);
   font: inherit;
@@ -2154,8 +2157,8 @@ mark {
 
 .menus-edited {
   margin-inline-start: auto;
-  width: 6px;
-  height: 6px;
+  width: var(--page-size-6);
+  height: var(--page-size-6);
   border-radius: 50%;
   background: var(--accent);
 }
@@ -2167,7 +2170,7 @@ mark {
 .menus-detail-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .menus-detail-title {
@@ -2181,7 +2184,7 @@ mark {
 }
 
 .menus-help {
-  margin: 4px 0 10px;
+  margin: var(--ds-space-1) 0 var(--page-size-10);
 }
 
 /* Preview the same glass, rim and grid as the menu the person is arranging. */
@@ -2191,7 +2194,7 @@ mark {
 }
 
 .menu-preview {
-  max-width: 420px;
+  max-width: var(--page-size-420);
   position: relative;
 }
 
@@ -2258,8 +2261,8 @@ mark {
 
 .menu-row-icon {
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: var(--ds-space-4);
+  height: var(--ds-space-4);
 }
 
 .menu-row-title {
@@ -2304,7 +2307,7 @@ button.menu-disclosure {
 .menu-separator .menu-separator-line {
   flex: 1;
   height: 0;
-  margin: 0 6px;
+  margin: 0 var(--page-size-6);
   border-top: 1px solid var(--border-strong);
 }
 
@@ -2323,7 +2326,7 @@ button.menu-disclosure {
 .menu-row-badge {
   flex: none;
   padding: 0 var(--ds-space-1);
-  border-radius: 4px;
+  border-radius: var(--ds-space-1);
   background: var(--input-bg);
   color: var(--muted-text);
   font-size: var(--text-caption);
@@ -2337,9 +2340,9 @@ button.menu-disclosure {
 
 .menu-twisty {
   flex: none;
-  width: 12px;
-  height: 12px;
-  margin-inline-start: -2px;
+  width: var(--ds-space-3);
+  height: var(--ds-space-3);
+  margin-inline-start: var(--page-size-negative-2);
   color: var(--muted-text);
 }
 
@@ -2350,14 +2353,14 @@ button.menu-disclosure {
 .menu-rename {
   flex: 1;
   min-width: 0;
-  height: 20px;
+  height: var(--page-size-20);
 }
 
 .menus-move-picker {
   display: flex;
   flex-direction: column;
   margin-top: var(--ds-space-2);
-  max-width: 420px;
+  max-width: var(--page-size-420);
 }
 
 .menus-move-picker .menus-list-item {
@@ -2379,7 +2382,7 @@ button.menu-disclosure {
 }
 
 .menus-failure {
-  margin: 0 0 10px;
+  margin: 0 0 var(--page-size-10);
   color: var(--danger);
   font-size: var(--text-detail);
 }
@@ -2399,16 +2402,16 @@ button.menu-disclosure {
 }
 
 .app-update-progress-row {
-  padding: 0 8px 8px;
+  padding: 0 var(--ds-space-2) var(--ds-space-2);
 }
 
 .app-update-progress {
   display: block;
   width: 100%;
-  block-size: 4px;
+  block-size: var(--ds-space-1);
   overflow: hidden;
   border: 0;
-  border-radius: 2px;
+  border-radius: var(--page-size-2);
   appearance: none;
   background: var(--input-bg);
 }
@@ -2418,12 +2421,12 @@ button.menu-disclosure {
 }
 
 .app-update-progress::-webkit-progress-value {
-  border-radius: 2px;
+  border-radius: var(--page-size-2);
   background: var(--text);
 }
 
 .app-update-progress::-moz-progress-bar {
-  border-radius: 2px;
+  border-radius: var(--page-size-2);
   background: var(--text);
 }
 
@@ -2438,18 +2441,18 @@ button.menu-disclosure {
 .worktree-setup-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 8px 0 0;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-2) 0 0;
 }
 
 .worktree-setup-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .worktree-setup-field > textarea.field {
-  min-height: 32px;
+  min-height: var(--ds-space-6);
   resize: vertical;
 }
 
@@ -2457,8 +2460,8 @@ button.menu-disclosure {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  min-height: 24px;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-space-5);
 }
 
 .worktree-setup-footer {
@@ -2481,7 +2484,7 @@ button.menu-disclosure {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--ds-space-4);
   margin: 0 0 var(--ds-space-3);
 }
 
@@ -2498,7 +2501,7 @@ button.menu-disclosure {
 
 .personalization-more-links {
   display: flex;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 /* Personalization > Customization Library (CustomizeLibraryCard): one row per entry, top first.
