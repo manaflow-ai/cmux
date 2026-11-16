@@ -168,10 +168,13 @@ import Testing
         updater.followStagedUpdate(.ready(version: "2.0.0"))
         #expect(updater.log.recent.contains("launch pre-warm of 200: started"), "\(updater.log.recent)")
         let ran = installation.appending(path: "ran.txt")
-        #expect(await eventually { FileManager.default.fileExists(atPath: ran.path) },
+        let firstRunLogged = await eventually { updater.log.recent.contains { $0.hasPrefix("launch pre-warm of 200: cmux exit 0") } }
+        // The update log's pre-warm lines show in the failure itself (a fleet summary keeps one line per issue).
+        let lines = updater.log.recent.filter { $0.contains("pre-warm") }
+        #expect(firstRunLogged && lines.contains { $0.hasPrefix("launch pre-warm of 200: cmux exit 0") },
+                "no line as the first run ended")
+        #expect(FileManager.default.fileExists(atPath: ran.path),
                 "the pre-warm waited behind the rollback keep on the files lane")
-        #expect(await eventually { updater.log.recent.contains { $0.hasPrefix("launch pre-warm of 200: cmux exit 0") } },
-                "no line as the first run ended: \(updater.log.recent)")
         release.signal()
         await keep.value
     }
