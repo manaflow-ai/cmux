@@ -148,7 +148,8 @@ public final class ChiefVoiceController {
                 guard let self, let sources, self.accountID == accountID, sources.activeUserID == accountID else {
                     throw AccountChanged()
                 }
-                try await sources.primary.send(ConversationComposeMessage(text: text))
+                // Chief offline: the note stays in its own outbox (VoiceNoteOutbox) for the next try.
+                guard sources.primary.send(ConversationComposeMessage(text: text)) else { throw ChiefNotConnected() }
             },
             noTranscript: noTranscript
         )
@@ -184,5 +185,7 @@ public final class ChiefVoiceController {
         var accountID: String?
     }
     private struct AccountChanged: Error {}
+    /// Chief is offline: nothing was sent (ChiefSession has no outbox), so the note is kept.
+    private struct ChiefNotConnected: Error {}
 }
 #endif

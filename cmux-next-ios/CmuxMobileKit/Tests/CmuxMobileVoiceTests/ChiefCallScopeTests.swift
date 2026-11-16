@@ -23,10 +23,11 @@ import Testing
     static func connected(_ chief: ChiefSession) async {
         if chief.store.meID != nil { return }
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            var resumed = false
-            _ = chief.store.addObserver { _ in
-                guard !resumed, chief.store.meID != nil else { return }
-                resumed = true
+            var token: Int?
+            token = chief.store.addObserver { _ in
+                guard let mine = token, chief.store.meID != nil else { return }
+                token = nil
+                chief.store.removeObserver(mine)
                 done.resume()
             }
         }
@@ -62,6 +63,8 @@ import Testing
         #expect(!toolbox.isScoped)
         let sent = await toolbox.sendToChief("Push the branch.")
         #expect(sent.output.contains("chief_closed"))
+        #expect(!cloud.store.messages.contains { $0.text == "Push the branch." }, "a call to Atlas sent to Nova")
+        #expect(cloud.store.draft.isEmpty)
         #expect(toolbox.readChiefMessages(count: 5).output.contains("chief_closed"))
         #expect(toolbox.chiefName == "Atlas")
     }
@@ -77,5 +80,15 @@ import Testing
         #expect(!toolbox.isScoped)
         let sent = await toolbox.sendToChief("Run the tests again.")
         #expect(sent.output.contains("chief_closed"))
+        #expect(mac.store.messages.isEmpty)
+        #expect(mac.store.draft.isEmpty)
+    }
+
+    /// No outbox: a call to a Chief that is offline says nothing was sent, never "queued".
+    @Test func aCallToAnOfflineChiefSaysNotSent() async {
+        let mac = Self.chief("agent_mux", "Chief")
+        let sent = await Self.toolbox(mac).sendToChief("Run the tests again.")
+        #expect(sent.output.contains("not_sent"))
+        #expect(mac.store.messages.isEmpty)
     }
 }

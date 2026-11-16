@@ -199,6 +199,16 @@ public final class ChiefSession {
     /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is
     /// up, or to ``ChiefCloudBackend`` with the Cloud Chief's `identity`).
     public func use(_ backend: any ConversationBackend, identity: ChiefIdentity? = nil) {
+        // Sends the old store never confirmed (still sending, Not Delivered, or waiting for its first
+        // connection) live only in it: their text goes into the next store's composer as a draft,
+        // which the user sends again. Nothing is queued or resent on its own (no outbox).
+        let unconfirmed = store.messages.filter { message in
+            message.senderID == store.meID && message.seq == nil && !message.isScheduled
+                && (message.delivery == .sending || message.delivery?.isFailed == true)
+        }.map(\.text) + awaitingSender.map(\.text)
+        let carriedDraft = ([store.draft] + unconfirmed).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }.joined(separator: "\n")
+        awaitingSender = []
         // What the old store shows now is what a later store shows first.
         store.saveTranscript()
         store.stop()
@@ -224,6 +234,7 @@ public final class ChiefSession {
         // The Chief's newest messages as this phone last saw them show at once (an offline
         // backend keeps the Chief that was open), until this backend reads the newest page.
         store.useTranscriptCache(transcripts, key: transcriptKey)
+        if !carriedDraft.isEmpty { store.setDraft(carriedDraft) }
         attach()
         syncHistory()
     }
@@ -694,22 +705,49 @@ public final class ChiefSession {
         if isMuted != (listState?.muted ?? false) { isMuted = listState?.muted ?? false }
         if sendsReadReceipts != (listState?.sendReadReceipts ?? true) { sendsReadReceipts = listState?.sendReadReceipts ?? true }
         alertNewMessages()
+        // The store has its sender now: `sendWhenConnected` sent what waited for it.
+        if store.meID != nil, !awaitingSender.isEmpty { awaitingSender = [] }
     }
 
-    /// Sends a message to Chief through its conversation store: now when Chief
-    /// has connected, else when this store connects.
-    /// `asksForAlerts`: the composer's first send asks for notification
-    /// permission (Chief's replies alert); a live call's send doesn't, so no
-    /// system prompt lands over the call screen.
+    /// Messages handed to a store still coming up (``send(_:asksForAlerts:)``), until it has a
+    /// sender. Memory only: a backend swap puts their text in the next store's draft (``use(_:identity:)``).
+    private var awaitingSender: [ConversationComposeMessage] = []
+
     /// A text message (Send Message… on a workspace or a tab, with its link at the start).
-    public func send(text: String) {
+    @discardableResult
+    public func send(text: String) -> Bool {
         send(ConversationComposeMessage(text: text))
     }
 
-    public func send(_ message: ConversationComposeMessage, asksForAlerts: Bool = true) {
-        guard !message.isEmpty else { return }
+    /// ``send(_:asksForAlerts:)``, or, when Chief is offline, the text into its composer as a draft
+    /// (New Message, Message Chief, Ask Cloud Chief: what the user wrote stays on screen to send again).
+    public func sendKeepingDraft(_ message: ConversationComposeMessage, asksForAlerts: Bool = true) {
+        guard !send(message, asksForAlerts: asksForAlerts) else { return }
+        let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        store.setDraft(store.draft.isEmpty ? text : store.draft + "\n" + text)
+    }
+
+    /// ``sendKeepingDraft(_:asksForAlerts:)`` for a text message.
+    public func sendKeepingDraft(text: String) {
+        sendKeepingDraft(ConversationComposeMessage(text: text))
+    }
+
+    /// Sends a message to Chief through its conversation store. There is no outbox: with Chief
+    /// offline (``ChiefOfflineBackend``) nothing is sent or kept and this returns false, so the
+    /// caller says so (the composer's "Not sent", a voice note staying in its own outbox). A
+    /// store still connecting sends it once it connects; a backend swap before then leaves the
+    /// text in the next store's composer. `asksForAlerts`: the composer's first send asks for
+    /// notification permission (Chief's replies alert); a live call's send doesn't, so no system
+    /// prompt lands over the call screen.
+    @discardableResult
+    public func send(_ message: ConversationComposeMessage, asksForAlerts: Bool = true) -> Bool {
+        guard !message.isEmpty else { return false }
+        guard store.meID != nil || !(backend is ChiefOfflineBackend) else { return false }
         if asksForAlerts { ChiefAlerts.shared.requestPermissionIfUndetermined() }
+        if store.meID == nil { awaitingSender.append(message) }
         store.sendWhenConnected(message)
+        return true
     }
 
     /// Alerts for Chief's messages that arrived live (not the first page).

@@ -316,7 +316,6 @@ Packages/macOS/CmuxNext/Tests/CmuxNextPhoneTests/PhoneProcessRunnerTests.swift	a
 Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests/ScreenshotFolderReaderTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests/ScreenshotListingTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileAgentChatTests/DiffPrepareTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
-cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileChiefTests/ChiefOutboxTargetTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ConnectivityMatrixTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/DaemonTerminalHistoryTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized
 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/DaemonTerminalSessionTests.swift	sleep-then-assert	debt the widened gate first saw; remove once determinized

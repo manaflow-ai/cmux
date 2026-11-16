@@ -100,6 +100,8 @@ import Testing
         let open = session()
         await loader.load { open }
         await loader.load({ throw Offline() }, tryAgain: {})
+        // Offline: nothing is queued for the Mac's return (no outbox).
+        #expect(!open.send(ConversationComposeMessage(text: "Run the tests again"), asksForAlerts: false))
 
         let live = session()
         await loader.load { live }

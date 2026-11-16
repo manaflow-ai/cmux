@@ -54,7 +54,7 @@ extension ChiefSources {
         } else {
             context = Array(mac.store.messages.suffix(20))
         }
-        cloud.send(ConversationComposeMessage(text: Self.handOffText(trimmed, context: context, meID: ChiefIdentity.standard.meID)))
+        cloud.sendKeepingDraft(ConversationComposeMessage(text: Self.handOffText(trimmed, context: context, meID: ChiefIdentity.standard.meID)))
     }
 
     nonisolated static func read(_ http: ChiefCloudHTTP, _ op: String, _ params: [String: Any]) async throws -> [String: Any] {

@@ -214,10 +214,12 @@ extension ConversationStore {
             send(text: message.text, images: images)
             return
         }
-        var sent = false
-        addObserver { [weak self] change in
-            guard !sent, change == .connection, let self, self.meID != nil else { return }
-            sent = true
+        // One observer per waiting message, removed once it sends (it ran on every change before).
+        var token: Int?
+        token = addObserver { [weak self] change in
+            guard change == .connection, let self, self.meID != nil, let mine = token else { return }
+            token = nil
+            self.removeObserver(mine)
             self.send(text: message.text, images: images)
         }
     }

@@ -7,7 +7,7 @@ import SwiftUI
 import UIKit
 
 /// Under the chat header: Try Again for a failed turn, why Chief is
-/// unavailable, or the Mac away, and the messages waiting to send.
+/// unavailable, or the Mac away.
 struct ChiefQuestionBar: View {
     let session: ChiefSession
     /// The bar grew, shrank or went away: its UIKit host lays it out again.

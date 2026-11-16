@@ -232,7 +232,8 @@ public struct LiveCallScreen: View {
     }
 
     private func sendDraft() {
-        session.send(text: draft)
+        // Chief offline: nothing was sent, so the draft stays in the field.
+        guard session.send(text: draft) else { return }
         draft = ""
     }
 

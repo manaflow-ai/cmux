@@ -640,6 +640,51 @@ let waitBackstop: Duration = .seconds(600)
     }
 }
 
+/// A Mac Chief whose sends never come back (a link that died mid-send): the
+/// rest of the conversation is the mock Chief's.
+private final class StalledSendBackend: ConversationBackend, @unchecked Sendable {
+    let inner = ChiefMockBackend(sleep: { _ in })
+    func events() -> AsyncStream<ConversationBackendEvent> { inner.events() }
+    func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage { try await inner.history(beforeSeq: beforeSeq, limit: limit) }
+    func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
+        try await Task.sleep(for: .seconds(3600))
+        throw CancellationError()
+    }
+    func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage { try await inner.react(messageID: messageID, reaction: reaction) }
+    func edit(messageID: String, text: String) async throws -> ConversationMessage { try await inner.edit(messageID: messageID, text: text) }
+    func unsend(messageID: String) async throws -> ConversationMessage { try await inner.unsend(messageID: messageID) }
+    func setTyping(_ isTyping: Bool) async { await inner.setTyping(isTyping) }
+    func markRead(upToSeq: Int) async { await inner.markRead(upToSeq: upToSeq) }
+    func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment { try await inner.uploadImage(data, mimeType: mimeType) }
+    func close() { inner.close() }
+    func linkPreview(for url: URL) async throws -> ConversationLinkPreview? { nil }
+    func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
+        try await inner.votePoll(messageID: messageID, optionID: optionID, selected: selected)
+    }
+    func addPollOption(messageID: String, text: String) async throws -> ConversationMessage { try await inner.addPollOption(messageID: messageID, text: text) }
+    func scheduledMessages() async throws -> [ConversationMessage] { [] }
+    func scheduleSend(_ draft: ConversationOutgoingDraft, at date: Date) async throws -> ConversationMessage { try await inner.scheduleSend(draft, at: date) }
+    func reschedule(scheduledID: String, to date: Date) async throws -> ConversationMessage { try await inner.reschedule(scheduledID: scheduledID, to: date) }
+    func cancelScheduled(scheduledID: String) async throws { try await inner.cancelScheduled(scheduledID: scheduledID) }
+    func sendScheduledNow(scheduledID: String) async throws -> ConversationMessage { try await inner.sendScheduledNow(scheduledID: scheduledID) }
+}
+
+/// No outbox (Aziz 2026-11-14), and nothing lost on a backend swap: a send the old store never
+/// confirmed (the link died mid-send) comes back as the next store's composer draft, to send again.
+@Suite @MainActor struct ChiefSwapKeepsUnsentTextTests {
+    @Test(.timeLimit(.minutes(1))) func anUnconfirmedSendBecomesTheNextStoresDraft() async throws {
+        let session = ChiefSession(backend: StalledSendBackend())
+        defer { session.store.stop() }
+        try await waitUntil("Chief to connect") { session.store.meID != nil }
+        #expect(session.send(ConversationComposeMessage(text: "in flight when the link died"), asksForAlerts: false))
+        try await waitUntil("the send to show as sending") { session.store.messages.contains { $0.text == "in flight when the link died" } }
+        session.use(ChiefOfflineBackend())
+        #expect(session.store.draft == "in flight when the link died")
+        // Not resent on its own: the offline store has no message for it.
+        #expect(!session.store.messages.contains { $0.text == "in flight when the link died" && $0.seq == nil })
+    }
+}
+
 @Suite struct ChiefMockBackendTests {
     @Test func repliesWithTypingAndTapback() async throws {
         let backend = ChiefMockBackend(sleep: { _ in })
