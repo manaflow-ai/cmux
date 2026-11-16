@@ -38,6 +38,7 @@ mod mirror_gates;
 #[cfg(test)]
 mod mirror_tests;
 mod origins;
+mod relay;
 pub use acpmux_book::index::MirrorMark;
 #[cfg(test)]
 mod peer_tests;
@@ -48,6 +49,10 @@ pub use mirror::{
     TakeoverTurns, UnitChange,
 };
 pub use origins::{MAX_ORIGINS, Source, refused_held_rows};
+pub use relay::{
+    PageRelay, RELAY_BUSY, RELAY_FAILED, RELAY_IN_FLIGHT, RELAY_PAGE_DEADLINE, RelayAnswer,
+    RelayError, RelayFailed, RelayFuture, Relayed, RelayedPage,
+};
 
 pub use crate::wire::{DeltaFrame, Window};
 
@@ -535,6 +540,8 @@ pub struct Hub {
     peer_history: Arc<Mutex<Option<PeerHistory>>>,
     folder_state: Arc<Mutex<folders::FolderState>>,
     page_provider: Arc<Mutex<Option<Arc<dyn PageProvider>>>>,
+    /// The relay a local page that names another origin asks (row 8b).
+    relay: Arc<relay::RelayState>,
     sources: Arc<ArcSwap<HashMap<String, Source>>>,
     rebuild_requested: Arc<AtomicBool>,
     rebuild_count: Arc<AtomicU64>,
@@ -549,6 +556,16 @@ pub struct Hub {
 /// Supplies rows that are outside the hot summary index for a bounded keyed page.
 pub trait PageProvider: Send + Sync {
     fn row(&self, key: &RowKey) -> std::io::Result<Option<Arc<Summary>>>;
+    /// A page of view `all` filtered by `origin`, another machine, read from outside the
+    /// index when the relay does not take that origin (decision 265), in the list's order.
+    /// `None`: this provider has no such read, and the index answers as before.
+    fn view_page(
+        &self,
+        _origin: &str,
+        _request: &crate::wire::Page,
+    ) -> std::io::Result<Option<crate::wire::PageResult<Arc<Summary>>>> {
+        Ok(None)
+    }
 }
 
 /// Explicit name for the published summary hub used by later actors.
@@ -817,6 +834,7 @@ impl Hub {
             peer_history: peer_history.clone(),
             folder_state: folder_state.clone(),
             page_provider: Arc::new(Mutex::new(None)),
+            relay: Arc::default(),
             sources: sources.clone(),
             rebuild_requested: rebuild_requested.clone(),
             rebuild_count: rebuild_count.clone(),
@@ -1597,6 +1615,9 @@ impl Hub {
             None if request.before.is_none() && request.after.is_none() => (None, ReadSide::After),
             _ => return Err(HubError::InvalidPage),
         };
+        if let Some(frame) = self.provider_view_page(request)? {
+            return Ok(frame);
+        }
         let index = self.snapshot();
         let page = if matches!(request.view, Some(crate::wire::ListView::Live)) {
             index
@@ -1639,6 +1660,35 @@ impl Hub {
             return Err(HubError::InvalidPage);
         }
         Ok(frame)
+    }
+
+    /// A view page of another origin the provider answers (decision 265), framed for `request`.
+    fn provider_view_page(&self, request: &crate::wire::Page) -> Result<Option<Frame>, HubError> {
+        let Some(origin) = relay::relayed_view_origin(request) else { return Ok(None) };
+        let Some(provider) = self.page_provider.lock().ok().and_then(|slot| slot.clone()) else {
+            return Ok(None);
+        };
+        let Some(page) = provider.view_page(origin, request).map_err(HubError::page_error)? else {
+            return Ok(None);
+        };
+        let reply = crate::wire::PageResult {
+            sid: request.sid.clone(),
+            rows: page.rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
+            has_before: page.has_before,
+            has_after: page.has_after,
+            cold_unread: page.cold_unread,
+            deeper: page.deeper,
+            before_key: page.before_key,
+            after_key: page.after_key,
+            missing: Vec::new(),
+            unknown: Vec::new(),
+            rest: Vec::new(),
+        };
+        let frame = Frame::json(FrameKind::Page, &reply)?;
+        if frame.encoded_len() > request.max_bytes as usize {
+            return Err(HubError::InvalidPage);
+        }
+        Ok(Some(frame))
     }
 
     fn page_error(&self, error: std::io::Error) -> HubError {
