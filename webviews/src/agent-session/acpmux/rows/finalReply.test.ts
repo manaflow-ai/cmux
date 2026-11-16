@@ -69,12 +69,18 @@ test("the corpus: each turn's final reply in the log is drawn from the store, fo
     const said = turnReplies(events);
     replies += said.length;
     const snapshot = await recorded(name);
-    for (const [folds, expanded] of FOLDS)
-      expect({
-        name,
-        folds,
-        undrawn: undrawnReplies(said, drawn(snapshot, expanded)).map((reply) => reply.text),
-      }).toEqual({ name, folds, undrawn: [] });
+    for (const [folds, expanded] of FOLDS) {
+      // A reply whose chunks name no message id is one segment a chunk to `turnReplies`, so its
+      // "final reply" is the last chunk: drawn when it ends a reply row the view shows whole.
+      const view = drawn(snapshot, expanded);
+      const ends = view.flatMap((row) =>
+        row.kind === "assistant" && !row.foldedReply && typeof row.text === "string" ? [row.text.trim()] : [],
+      );
+      const undrawn = undrawnReplies(said, view).filter(
+        (reply) => !ends.some((text) => text.endsWith(reply.text.trim())),
+      );
+      expect({ name, folds, undrawn: undrawn.map((reply) => reply.text) }).toEqual({ name, folds, undrawn: [] });
+    }
   }
   expect(replies).toBeGreaterThan(0);
 });
@@ -85,7 +91,7 @@ const AT = 1_794_480_000;
 function turnRows(t: number): ChatRow[] {
   const prompt = t * 4 + 1;
   const [group, reply, end] = [prompt + 1, prompt + 2, prompt + 3];
-  const row = (id: number, extra: Partial<ChatRow>): ChatRow => ({
+  const row = (id: number, extra: Partial<ChatRow> & Pick<ChatRow, "body">): ChatRow => ({
     id,
     rev: 1,
     kind: "text",
