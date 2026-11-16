@@ -1727,6 +1727,39 @@ describe("VM Effect workflows", () => {
     expect(providerCalls).toBe(0);
   });
 
+  test.each([
+    ["a deal at or below the plan ceiling", { memoryMb: 24 * 1024 }, 8 * 1024],
+    ["disk past the plan ceiling", { storageMb: 256 * 1024 }, 24 * 1024],
+  ] as const)("a Team keeps the Max upgrade hint for %s", async (_case, request, dealMaxMemoryMb) => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000151",
+      userId: "user-workflow-resize-team-deal-hint",
+      billingTeamId: "team-workflow-resize-team-deal-hint",
+      billingPlanId: "team",
+      providerVmId: "provider-vm-resize-team-deal-hint",
+      status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 8, memoryMb: 16 * 1024, diskMb: 65536 } },
+    });
+    const error = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        billingPlanId: "team",
+        ...request,
+        entitlementOverride: {
+          maxActiveVms: null,
+          poolVcpus: null,
+          poolMemoryMb: null,
+          maxMemoryMb: dealMaxMemoryMb,
+          planLabel: null,
+          monthlyPriceCents: null,
+        },
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(testWorkflowRepo({ vm }), unusedProviderGateway()))),
+    );
+    expect(error).toMatchObject({ _tag: "VmResizePlanLimitError", planId: "team", upgradePlanId: "max" });
+  });
+
   test("rejects an unsupported port before attempting to resume a paused VM", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000130",

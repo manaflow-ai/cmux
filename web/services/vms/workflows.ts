@@ -5314,6 +5314,8 @@ export function resizeVm(input: {
     const providers = yield* VmProviderGateway;
     let vm = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
     const planId = input.billingPlanId ?? vm.billingPlanId ?? "free";
+    const dealRaisesMachineCeiling = maxMemoryMbForPlan(planId, process.env, input.entitlementOverride) >
+      maxMemoryMbForPlan(planId, process.env);
     for (const [resource, requested, max] of [
       ["cpu", input.cpu, maxVcpusForPlan(planId, process.env, input.entitlementOverride)],
       ["memory", input.memoryMb, maxMemoryMbForPlan(planId, process.env, input.entitlementOverride)],
@@ -5322,8 +5324,9 @@ export function resizeVm(input: {
       if (requested !== undefined && requested > max) {
         return yield* Effect.fail(new VmResizePlanLimitError({
           vmId: input.providerVmId, resource, requested, max, planId,
-          // A custom deal sets its own machine ceiling; Max does not raise it.
-          ...(planId === "max" || input.entitlementOverride?.maxMemoryMb != null ? {} : { upgradePlanId: "max" }),
+          // A deal that raises the machine ceiling past the plan's caps CPU and
+          // memory itself, so Max does not lift it. Disk ignores the deal.
+          ...(planId === "max" || (resource !== "storage" && dealRaisesMachineCeiling) ? {} : { upgradePlanId: "max" }),
         }));
       }
     }
