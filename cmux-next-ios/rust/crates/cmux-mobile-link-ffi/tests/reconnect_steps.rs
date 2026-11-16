@@ -222,15 +222,15 @@ fn summarize(scenario: &str, samples: &[BTreeMap<String, f64>]) {
             steps.entry(name.clone()).or_default().push(*at);
         }
     }
-    let mut out = serde_json::Map::new();
+    // One short line per step: CI logs cut long lines.
     for (name, mut values) in steps {
         values.sort_by(f64::total_cmp);
-        out.insert(
-            name,
-            json!({"n": values.len(), "p50": percentile(&values, 0.5), "p95": percentile(&values, 0.95)}),
+        println!(
+            "RECONNECT_STEP {}",
+            json!({"scenario": scenario, "rtt_ms": ms(RTT), "step": name, "n": values.len(),
+                   "p50": percentile(&values, 0.5), "p95": percentile(&values, 0.95)})
         );
     }
-    println!("RECONNECT_SUMMARY {}", json!({"scenario": scenario, "rtt_ms": ms(RTT), "steps": out}));
 }
 
 /// Foreground after a short background: the warm socket still answers.
