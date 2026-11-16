@@ -38,7 +38,7 @@ default hot-verify, under $CMUX_SIDE_ROOT), and writes into --out:
                                       walk (Home, a New Tab, Settings)
   video.mp4                           the copy's window from the change going in to the last step, unless
                                       --no-video: with --kit, CuaDriver's recording of the display (its
-                                      Screen Recording grant) cut to the window when ffmpeg is here;
+                                      Screen Recording grant) cut to the window (ffmpeg, else AVFoundation);
                                       else media/record-window.swift
   steps.json, receipt.json
 
@@ -661,8 +661,8 @@ class Video:
 
     With the kit (a fleet display worker) CuaDriver records it: the kit's Recorder (nightly_steps.Recorder, one
     `cua-driver mcp` session's start_recording) records the main display under CuaDriver's own Screen Recording
-    grant, and ffmpeg, when here, cuts the copy's window out of it. media/record-window.swift cannot record there:
-    it is a new ad-hoc binary per source digest, started under the root worker daemon (launchctl asuser), and TCC
+    grant, cut to the copy's window (ffmpeg, else media/crop-video.swift). media/record-window.swift cannot record
+    there: it is a new ad-hoc binary per source digest, started under the root worker daemon (launchctl asuser), and TCC
     asks for the grant of a process that has none and cannot be given one (a PPPC payload never allows
     ScreenCapture). Every look on a fleet worker on 2026-11-15/16 said "no Screen Recording grant" while CuaDriver
     held the grant on the same minis. Without a kit (a person's Mac, whose terminal holds the grant),
@@ -683,19 +683,7 @@ class Video:
         return self.facts["by"]
 
     def binary(self) -> Path:
-        source = HERE / "media/record-window.swift"
-        digest = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
-        binary = cache_dir() / f"record-window-{digest}"
-        if not binary.is_file():
-            binary.parent.mkdir(parents=True, exist_ok=True)
-            part = binary.with_name(f".{binary.name}.{os.getpid()}")
-            done = subprocess.run(["xcrun", "swiftc", "-O", "-parse-as-library", str(source), "-o", str(part)],
-                                  capture_output=True, text=True, timeout=300)
-            if done.returncode != 0:
-                part.unlink(missing_ok=True)
-                raise LookError(f"record-window did not compile: {done.stderr.strip()[-300:]}")
-            os.replace(part, binary)
-        return binary
+        return swift_tool("record-window", "-parse-as-library")
 
     def start(self, pid: int) -> int:
         self.pid = pid
@@ -836,64 +824,117 @@ def main_display_points() -> tuple[float, float] | None:
     return (rect.w, rect.h) if rect.w > 0 and rect.h > 0 else None
 
 
-def window_crop(frame: dict | None, display: tuple[float, float] | None) -> str | None:
-    """ffmpeg's crop filter for FRAME (points) on a main-display video of DISPLAY points, in the video's own
-    pixels (iw, ih: no probe), even sizes for H.264; None when the window is not wholly on the main display."""
+def swift_tool(name: str, *flags: str) -> Path:
+    """media/NAME.swift compiled once per source digest into the cache (a LookError when it does not compile)."""
+    source = HERE / f"media/{name}.swift"
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
+    binary = cache_dir() / f"{name}-{digest}"
+    if not binary.is_file():
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        part = binary.with_name(f".{binary.name}.{os.getpid()}")
+        done = subprocess.run(["xcrun", "swiftc", "-O", *flags, str(source), "-o", str(part)],
+                              capture_output=True, text=True, timeout=300)
+        if done.returncode != 0:
+            part.unlink(missing_ok=True)
+            raise LookError(f"{name} did not compile: {done.stderr.strip()[-300:]}")
+        os.replace(part, binary)
+    return binary
+
+
+def window_box(frame: dict | None, display: tuple[float, float] | None) -> tuple[float, float, float, float] | None:
+    """FRAME (points) on a main-display video of DISPLAY points as fractions of the video (x, y, width, height from
+    the top left), so no probe of its pixels is needed; None when the window is not wholly on the main display."""
     if frame is None or display is None:
         return None
     dw, dh = display
     x, y, w, h = frame["X"], frame["Y"], frame["Width"], frame["Height"]
     if x < 0 or y < 0 or w <= 0 or h <= 0 or x + w > dw + 0.5 or y + h > dh + 0.5:
         return None
-    fx, fy, fw, fh = (round(v, 6) for v in (x / dw, y / dh, min(w / dw, 1.0), min(h / dh, 1.0)))
+    return tuple(round(v, 6) for v in (x / dw, y / dh, min(w / dw, 1.0), min(h / dh, 1.0)))
+
+
+def window_crop(frame: dict | None, display: tuple[float, float] | None) -> str | None:
+    """ffmpeg's crop filter for window_box, in the video's own pixels (iw, ih), even sizes for H.264."""
+    box = window_box(frame, display)
+    if box is None:
+        return None
+    fx, fy, fw, fh = box
     return (f"crop=trunc(iw*{fw}/2)*2:trunc(ih*{fh}/2)*2:trunc(iw*{fx}/2)*2:trunc(ih*{fy}/2)*2")
 
 
+def crop_video(mp4: Path, box: tuple[float, float, float, float], scale: float, dest: Path) -> str | None:
+    """MP4's BOX (window_box's fractions) at SCALE into DEST through media/crop-video.swift (AVFoundation, on every
+    Mac: no display worker has ffmpeg). None when DEST was written; else why not."""
+    try:
+        tool = swift_tool("crop-video")
+        done = subprocess.run([str(tool), str(mp4), str(dest), *(f"{v:.6f}" for v in box), f"{scale:g}"],
+                              capture_output=True, text=True, timeout=660)
+    except LookError as error:
+        return str(error)
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"crop-video: {error}"
+    if done.returncode == 0 and dest.is_file() and dest.stat().st_size > 0:
+        return None
+    dest.unlink(missing_ok=True)
+    return (done.stderr or done.stdout).strip()[-300:] or f"crop-video exited {done.returncode}"
+
+
 def cut_to_window(mp4: Path, frame: dict | None, display: tuple[float, float] | None) -> str | None:
-    """MP4 (the main display) cut to the copy's window in place. None when cut; else why it stays the display."""
-    crop = window_crop(frame, display)
-    if crop is None:
+    """MP4 (the main display) cut to the copy's window in place: ffmpeg when it is here, else AVFoundation
+    (crop_video). The rest of the display shows what else runs there (another step's system dialogs), which the
+    privacy check withholds the video for. None when cut; else why it stays the display."""
+    box = window_box(frame, display)
+    if box is None:
         return "the copy's window was not wholly on the main display"
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        return "no ffmpeg here to cut the window out"
     cut = mp4.with_name(".video-window.mp4")
-    for codec in (["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"], ["-c:v", "h264_videotoolbox", "-b:v", "6M"]):
+    ffmpeg = shutil.which("ffmpeg")
+    for codec in (["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"], ["-c:v", "h264_videotoolbox", "-b:v", "6M"]) \
+            if ffmpeg else ():
         try:
-            done = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(mp4), "-vf", crop, *codec, "-an",
-                                   "-movflags", "+faststart", str(cut)], capture_output=True, text=True, timeout=300)
+            done = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(mp4), "-vf", window_crop(frame, display),
+                                   *codec, "-an", "-movflags", "+faststart", str(cut)], capture_output=True, text=True,
+                                  timeout=300)
         except (OSError, subprocess.SubprocessError):
             continue
         if done.returncode == 0 and cut.is_file() and cut.stat().st_size > 0:
             os.replace(cut, mp4)
             return None
+    why = crop_video(mp4, box, 1.0, cut)
+    if why is None:
+        os.replace(cut, mp4)
+        return None
     cut.unlink(missing_ok=True)
-    return "ffmpeg could not cut the window out"
+    return f"{'ffmpeg and ' if ffmpeg else ''}AVFoundation could not cut the window out: {why}"
 
 
 def fit_video(mp4: Path, most: int = LOOK_VIDEO_MAX_BYTES) -> None:
     """MP4 shrunk in place until it is at most MOST bytes (half the size, then a quarter, each at a lower quality);
-    a video that still does not fit, or no ffmpeg to shrink it, is removed with a LookError naming its size."""
+    a video that still does not fit (ffmpeg, else media/crop-video.swift) is removed with a LookError naming its
+    size."""
     size = mp4.stat().st_size
     if size <= most:
         return
     ffmpeg = shutil.which("ffmpeg")
     small = mp4.with_name(".video-small.mp4")
-    for scale, crf in ((2, 28), (4, 32)) if ffmpeg else ():
-        try:
-            done = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(mp4), "-vf",
-                                   f"scale=trunc(iw/{scale * 2})*2:trunc(ih/{scale * 2})*2", "-c:v", "libx264",
-                                   "-preset", "veryfast", "-crf", str(crf), "-an", "-movflags", "+faststart",
-                                   str(small)], capture_output=True, text=True, timeout=600)
-        except (OSError, subprocess.SubprocessError):
-            break
-        if done.returncode == 0 and small.is_file() and 0 < small.stat().st_size <= most:
+    for scale, crf in ((2, 28), (4, 32)):
+        if ffmpeg:
+            try:
+                done = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(mp4), "-vf",
+                                       f"scale=trunc(iw/{scale * 2})*2:trunc(ih/{scale * 2})*2", "-c:v", "libx264",
+                                       "-preset", "veryfast", "-crf", str(crf), "-an", "-movflags", "+faststart",
+                                       str(small)], capture_output=True, text=True, timeout=600)
+                made = done.returncode == 0
+            except (OSError, subprocess.SubprocessError):
+                made = False
+        else:
+            made = crop_video(mp4, (0.0, 0.0, 1.0, 1.0), 1 / scale, small) is None
+        if made and small.is_file() and 0 < small.stat().st_size <= most:
             os.replace(small, mp4)
             return
     small.unlink(missing_ok=True)
     mp4.unlink(missing_ok=True)
-    raise LookError(f"the video was {size >> 20} MiB, over the {most >> 20} MiB a look brings back, and "
-                    f"{'did not shrink to fit' if ffmpeg else 'no ffmpeg here shrinks it'}")
+    raise LookError(f"the video was {size >> 20} MiB, over the {most >> 20} MiB a look brings back, and did not "
+                    f"shrink to fit ({'ffmpeg' if ffmpeg else 'AVFoundation'})")
 
 
 # ---------------------------------------------------------------- the steps
@@ -1245,6 +1286,12 @@ def finish(out: Path, receipt: dict, phases, began: float, code: int) -> int:
     return code
 
 
+def side_make_args(the_app: Path) -> list[str]:
+    """side-instance.sh make's arguments for the look's copy. --neutral-shell: its terminals show `$ `, never the
+    worker's `cmux@cmux23 ~ %`, which the privacy check withheld every new-tab shot and video for (2026-11-16)."""
+    return ["make", "--from", str(the_app), "--label", SIDE_LABEL, "--neutral-shell"]
+
+
 def stop_video(video: Video, receipt: dict, side, phases) -> None:
     """VIDEO ended into video.mp4 (its errors in the receipt's), and the receipt's video facts: which recorder, and
     whether it is the copy's window alone or the whole display (and why)."""
@@ -1273,7 +1320,7 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
             if side.exists():
                 side.stop()
                 side.run("remove", timeout=300)
-            side.run("make", "--from", str(the_app), "--label", SIDE_LABEL, timeout=600)
+            side.run(*side_make_args(the_app), timeout=600)
             set_browser_engine(Path(side.env()["CMUX_NEXT_CONFIG_FILE"]), engine)
             launched = side.run("launch", timeout=LAUNCH_SECONDS)
             found = re.search(r"pid (\d+)", launched)

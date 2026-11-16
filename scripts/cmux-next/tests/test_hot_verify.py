@@ -527,9 +527,28 @@ class VideoTest(unittest.TestCase):
             mp4 = Path(tmp) / "video.mp4"
             mp4.write_bytes(b"x" * (2 << 20))
             with unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                    unittest.mock.patch.object(hv, "crop_video", return_value="no frames"), \
                     self.assertRaisesRegex(hv.LookError, "over the 1 MiB a look brings back"):
                 hv.fit_video(mp4, most=1 << 20)
             self.assertFalse(mp4.exists())
+
+    def test_fit_video_shrinks_through_avfoundation_without_ffmpeg(self):
+        """No display worker has ffmpeg: a video over the cap is scaled down by media/crop-video.swift instead."""
+        calls = []
+
+        def crop(mp4, box, scale, dest):
+            calls.append((box, scale))
+            dest.write_bytes(b"s" * (100 if scale <= 0.25 else 300))
+            return None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            mp4 = Path(tmp) / "video.mp4"
+            mp4.write_bytes(b"x" * 1000)
+            with unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                    unittest.mock.patch.object(hv, "crop_video", side_effect=crop):
+                hv.fit_video(mp4, most=200)
+            self.assertEqual(mp4.read_bytes(), b"s" * 100)
+        self.assertEqual(calls, [((0.0, 0.0, 1.0, 1.0), 0.5), ((0.0, 0.0, 1.0, 1.0), 0.25)])
 
     def test_a_failed_move_is_a_look_error(self):
         kit, recorder = self.kit()
@@ -593,14 +612,73 @@ class VideoTest(unittest.TestCase):
         self.assertIsNone(hv.window_crop(None, (1920.0, 1080.0)))
         self.assertIsNone(hv.window_crop({"X": 0.0, "Y": 0.0, "Width": 800.0, "Height": 600.0}, None))
 
-    def test_cut_to_window_keeps_the_display_without_ffmpeg(self):
+    def fake_crop_tool(self, folder: Path, code: int = 0) -> tuple[Path, Path]:
+        """A stand-in for the compiled media/crop-video.swift: it logs its argv and writes OUT (exit 0) or fails."""
+        log = folder / "crop-args.json"
+        tool = folder / "crop-video"
+        tool.write_text("#!/usr/bin/env python3\nimport json, sys\n"
+                        f"json.dump(sys.argv[1:], open({str(log)!r}, 'w'))\n"
+                        + ("open(sys.argv[2], 'wb').write(b'window')\n" if code == 0 else
+                           "sys.stderr.write('the export ended 4')\nsys.exit(1)\n"))
+        tool.chmod(0o755)
+        return tool, log
+
+    def test_cut_to_window_without_ffmpeg_cuts_with_avfoundation(self):
+        """2026-11-16: no display worker has ffmpeg, so every fleet look's video was the whole display, which showed
+        other steps' system dialogs; the window is cut out by media/crop-video.swift (AVFoundation) instead."""
         with tempfile.TemporaryDirectory() as tmp:
-            mp4 = Path(tmp) / "video.mp4"
-            mp4.write_bytes(b"x")
-            with unittest.mock.patch.object(hv.shutil, "which", return_value=None):
+            folder = Path(tmp)
+            mp4 = folder / "video.mp4"
+            mp4.write_bytes(b"display")
+            tool, log = self.fake_crop_tool(folder)
+            with unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                    unittest.mock.patch.object(hv, "swift_tool", return_value=tool) as compiled:
+                why = hv.cut_to_window(mp4, {"X": 480.0, "Y": 270.0, "Width": 960.0, "Height": 540.0},
+                                       (1920.0, 1080.0))
+            self.assertIsNone(why)
+            self.assertEqual(mp4.read_bytes(), b"window")
+            compiled.assert_called_once_with("crop-video")
+            argv = json.loads(log.read_text())
+            self.assertEqual(argv[0], str(mp4))
+            self.assertEqual(argv[2:], ["0.250000", "0.250000", "0.500000", "0.500000", "1"])
+            self.assertFalse((folder / ".video-window.mp4").exists())
+
+    def test_cut_to_window_keeps_the_display_when_avfoundation_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            mp4 = folder / "video.mp4"
+            mp4.write_bytes(b"display")
+            tool, _ = self.fake_crop_tool(folder, code=1)
+            with unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                    unittest.mock.patch.object(hv, "swift_tool", return_value=tool):
                 why = hv.cut_to_window(mp4, {"X": 0.0, "Y": 0.0, "Width": 800.0, "Height": 600.0}, (1920.0, 1080.0))
-            self.assertIn("no ffmpeg", why)
-            self.assertEqual(mp4.read_bytes(), b"x")
+            self.assertIn("AVFoundation could not cut the window out: the export ended 4", why)
+            self.assertEqual(mp4.read_bytes(), b"display")
+            self.assertFalse((folder / ".video-window.mp4").exists())
+
+    def test_the_stopped_cua_video_is_the_window_without_ffmpeg(self):
+        """The receipt says window: true when the AVFoundation cut ran (it said "no ffmpeg here" on every fleet look)."""
+        kit, _ = self.kit()
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            tool, _ = self.fake_crop_tool(out)
+            video = hv.Video(out, kit)
+            video.start(123)
+            with unittest.mock.patch.object(hv, "window_frame",
+                                            return_value={"X": 0.0, "Y": 25.0, "Width": 1280.0, "Height": 800.0}), \
+                    unittest.mock.patch.object(hv, "main_display_points", return_value=(1920.0, 1080.0)), \
+                    unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                    unittest.mock.patch.object(hv, "swift_tool", return_value=tool):
+                mp4 = video.stop()
+            self.assertEqual(mp4.read_bytes(), b"window")
+            self.assertEqual(video.facts, {"by": "cua-driver", "window": True})
+
+    def test_the_looks_copy_has_a_neutral_shell(self):
+        """The copy's terminals said `cmux@cmux23 ~ %`, and the privacy check withheld the new-tab shot and the video
+        for the worker's name (2026-11-16): the look makes its copy with side-instance.sh --neutral-shell."""
+        args = hv.side_make_args(Path("/Apps/cmux NIGHTLY.app"))
+        self.assertEqual(args[:3], ["make", "--from", "/Apps/cmux NIGHTLY.app"])
+        self.assertIn("--neutral-shell", args)
 
 
 if __name__ == "__main__":
