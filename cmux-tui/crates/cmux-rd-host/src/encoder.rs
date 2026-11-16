@@ -5,7 +5,7 @@
 //! loaded after its pinned SHA-256 matches (Cisco pays the H.264 patent royalties for that
 //! binary); compiled from source in bench builds only. x264 (`x264` feature, opt-in) waits
 //! for Lawrence's legal decision on H.264 patent royalties: dev and test builds only.
-//! On Linux, `--codec auto` (the default) uses the GPU through VAAPI (cmux-encode `vaapi`, libva
+//! On Linux, `--codec auto` (opt-in until measured on GPUs, hq#12040) uses the GPU through VAAPI (cmux-encode `vaapi`, libva
 //! loaded at run time) when a render node encodes H.264, else OpenH264, and logs which and why.
 
 use crate::Res;
@@ -42,7 +42,7 @@ pub struct EncCfg<'a> {
         allow(dead_code)
     )]
     pub threads: u16,
-    /// `auto` (the Linux default: VAAPI on a GPU, else openh264), `vaapi` (Linux), `openh264`
+    /// `auto` (Linux: VAAPI on a GPU, else openh264), `vaapi` (Linux), `openh264`
     /// or `x264` (needs the `x264` feature).
     pub codec: &'a str,
     /// openh264 usage: screen content (default; codes scrolling text with motion search
