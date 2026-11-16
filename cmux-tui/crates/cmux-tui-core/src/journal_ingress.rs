@@ -24,6 +24,7 @@ pub(crate) mod contention;
 mod disk_full;
 mod effect_intents;
 mod terminal_offer;
+mod writer_end;
 pub(crate) use completion::JournalBatchReceipt;
 use completion::{complete_batch_error, complete_batch_success};
 pub(crate) use effect_intents::{EffectSend, PendingRegistryReceipt};
@@ -527,6 +528,8 @@ struct JournalIngressState {
     disk_full: disk_full::DiskFullState,
     /// Markers for records the full terminal lane refused (terminal_offer.rs).
     owed_terminal_gaps: Mutex<terminal_offer::OwedTerminalGaps>,
+    /// When the writer's thread ended, for the owner's release.
+    writer_end: Arc<writer_end::WriterEnd>,
     #[cfg(test)]
     failure_notifier: Mutex<Option<SyncSender<String>>>,
     #[cfg(test)]
@@ -872,6 +875,14 @@ impl JournalIngressSender {
         self.close_and_join_until(Instant::now() + JOURNAL_WRITER_SHUTDOWN_WAIT)
     }
 
+    /// True when the writer's thread ended, or never started. Waits for its
+    /// end at most until `deadline`. A join that ran out
+    /// ([`Self::close_and_join`]) left the thread alive: only this says when
+    /// it is gone.
+    pub(crate) fn writer_ended_by(&self, deadline: Instant) -> bool {
+        self.state.writer_end.ended_by(deadline)
+    }
+
     fn close_and_join_until(&self, deadline: Instant) -> anyhow::Result<()> {
         self.state.close_admission();
         if let Some(wake) = &self.wake_sender {
@@ -919,6 +930,12 @@ impl JournalIngressSender {
             "session journal writer is already installed"
         );
         *owner = JournalWriterOwner::Reserved;
+        let runs = self.state.writer_end.begin();
+        let task = move || {
+            // Dropped after the task, also when the task ends by a panic.
+            let _runs = runs;
+            task();
+        };
         match JournalWriter::spawn(name, task) {
             Ok(writer) => {
                 *owner = JournalWriterOwner::Running(writer);

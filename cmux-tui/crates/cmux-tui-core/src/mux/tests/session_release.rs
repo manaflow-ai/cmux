@@ -367,8 +367,10 @@ fn an_owner_that_released_its_session_cannot_write_the_store() {
 
 /// The journal writer admitted a commit, and the owner's wait for the
 /// writer's end ran out. The owner then releases the session. The next owner
-/// either is refused because the session still has an owner, or it has a
-/// store in which that commit does not land.
+/// is refused because the session still has an owner: an owner keeps its
+/// session while its writer lives (decision of 2026-11-16). An open that
+/// passes then is a failure, also when that commit does not land in the
+/// store that the open got.
 #[test]
 fn a_commit_admitted_before_the_release_does_not_land_under_the_next_owner() {
     let root = std::env::temp_dir()
@@ -399,6 +401,45 @@ fn a_commit_admitted_before_the_release_does_not_land_under_the_next_owner() {
         before == after,
         "a commit that the owner before had admitted at its release landed in the store that \
          the next owner has: ((revision, tabs), journal head) before {before:?}, after {after:?}"
+    );
+    panic!(
+        "the next owner got the session while the journal writer of the owner before it was at \
+         an admitted commit: that owner must keep the session until its writer ended (the \
+         store did not change: ((revision, tabs), journal head) {before:?})"
+    );
+}
+
+/// An owner that keeps its session says what of it still lives, and the
+/// session has its owner until that owner's process ended.
+#[test]
+fn an_owner_that_keeps_its_session_says_what_of_it_still_lives() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-session-release-names-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "release-names";
+    let held = HeldWriter::open(&root, session);
+    let folder = session_folder(&held.mux);
+    let release = held.mux.release_ownership(&root.join("control.sock"));
+    // The writer ends, and the owner's value goes: the session stays kept.
+    drop(held.finish());
+    let _ = set_owner_wait(SHORT_OWNER_WAIT);
+    let kept = refusal(&root, session);
+    // What the end of that owner's process does.
+    crate::workspace_registry::owner_release::end_kept_owner_for_test(&folder);
+    let freed = refusal(&root, session);
+    let _ = std::fs::remove_dir_all(&root);
+    let names = match &release {
+        super::super::lifecycle::OwnershipRelease::KeptUntilExit { alive, .. } => alive.clone(),
+        super::super::lifecycle::OwnershipRelease::Released => Vec::new(),
+    };
+    assert!(
+        names == ["session journal writer"],
+        "an owner whose journal writer was at an admitted commit did not say that it keeps the \
+         session because of that writer: its release: {release:?}"
+    );
+    assert!(
+        kept.contains("already owned by another daemon") && freed == "the open passed",
+        "a kept session did not stay kept until the end of its owner's process, or it stayed \
+         kept after it: an open before that end: {kept}; an open after it: {freed}"
     );
 }
 

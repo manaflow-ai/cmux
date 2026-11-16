@@ -34,6 +34,9 @@ pub(super) struct OutputCleanupState {
     /// seals no more live rows (they are almost all output to be removed).
     pending: Arc<AtomicBool>,
     worker: Mutex<Option<OutputCleanupWorker>>,
+    /// Workers that lived past their stop. Each receiver disconnects when
+    /// its worker's thread ends: the owner's release waits for that.
+    left_alive: Mutex<Vec<Receiver<()>>>,
 }
 
 struct Control {
@@ -77,24 +80,29 @@ struct OutputCleanupWorker {
 
 impl OutputCleanupWorker {
     /// Stops the worker and joins it, waiting at most `wait`: a worker still
-    /// blocked after that is left to finish on its own.
-    fn stop(mut self, wait: Duration) {
+    /// blocked after that is left to finish on its own, and this returns
+    /// what says when its thread ended.
+    fn stop(mut self, wait: Duration) -> Option<Receiver<()>> {
         *self.control.stopped.lock().unwrap_or_else(PoisonError::into_inner) = true;
         self.control.changed.notify_all();
-        let Some(thread) = self.thread.take() else { return };
+        let thread = self.thread.take()?;
         // The last `Arc<Mux>` can drop on the worker itself; it must not
         // join its own thread.
         if thread.thread().id() == std::thread::current().id() {
-            return;
+            return None;
         }
         match self.exited.recv_timeout(wait) {
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => eprintln!(
-                "cmux-tui: output cleanup: the worker did not stop within {:.1} s; \
-                 shutdown goes on without it",
-                wait.as_secs_f64()
-            ),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                eprintln!(
+                    "cmux-tui: output cleanup: the worker did not stop within {:.1} s; \
+                     shutdown goes on without it",
+                    wait.as_secs_f64()
+                );
+                Some(self.exited)
+            }
             _ => {
                 let _ = thread.join();
+                None
             }
         }
     }
@@ -189,9 +197,32 @@ impl Mux {
     pub(super) fn stop_output_cleanup(&self) {
         let worker =
             self.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner).take();
-        if let Some(worker) = worker {
-            worker.stop(STOP_WAIT);
+        if let Some(worker) = worker
+            && let Some(alive) = worker.stop(STOP_WAIT)
+        {
+            self.output_cleanup
+                .left_alive
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(alive);
         }
+    }
+
+    /// True when no cleanup worker of this owner lives. A worker writes the
+    /// staged registry in the session's folder on a connection of its own,
+    /// and the next owner's start acts on that file, so the owner's release
+    /// keeps the session while one lives (decision of 2026-11-16). A worker
+    /// that no stop reached yet is stopped here; for one that lived past its
+    /// stop this waits at most until `deadline`.
+    pub(super) fn output_cleanup_ended_by(&self, deadline: Instant) -> bool {
+        self.stop_output_cleanup();
+        let mut alive =
+            self.output_cleanup.left_alive.lock().unwrap_or_else(PoisonError::into_inner);
+        alive.retain(|exited| {
+            let wait = deadline.saturating_duration_since(Instant::now());
+            matches!(exited.recv_timeout(wait), Err(std::sync::mpsc::RecvTimeoutError::Timeout))
+        });
+        alive.is_empty()
     }
 }
 

@@ -92,6 +92,7 @@ mod mutation_ledger;
 pub(crate) mod mutation_ledger_retention;
 mod open_guard;
 pub(crate) mod output_cleanup;
+pub(crate) mod owner_release;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
