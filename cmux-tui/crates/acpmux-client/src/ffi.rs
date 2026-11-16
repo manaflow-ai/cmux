@@ -5,7 +5,7 @@
 //! the ABI boundary.
 
 use crate::chat::{ChatBlobRequest, ChatChange, ChatPageRequest, ChatSubRequest};
-use crate::page::{DriverError, ListDriver, NextRequest, OpenRequest, PageRequest};
+use crate::page::{DriverError, InvalidCode, ListDriver, NextRequest, OpenRequest, PageRequest};
 use crate::wire::{FolderPageResult, FolderWindow, ListKey, Page, Sub};
 use crate::{Change, Client};
 use serde_json::{Value, json};
@@ -59,13 +59,11 @@ fn page_error(error: DriverError) -> i32 {
         DriverError::Busy => ACPMUX_PAGE_ERR_BUSY,
         DriverError::Limit(_) => ACPMUX_PAGE_ERR_LIMIT,
         DriverError::MissingQuestion => ACPMUX_PAGE_ERR_SID,
-        DriverError::Invalid(code) if code == "list.sid" => ACPMUX_PAGE_ERR_SID,
-        DriverError::Invalid(code)
-            if code == "list.request" || code == "list.unsupported" || code == "list.page" =>
-        {
-            ACPMUX_PAGE_ERR_REQUEST
-        }
-        DriverError::Invalid(_) => ACPMUX_CLIENT_ERR_INVALID,
+        DriverError::Invalid(InvalidCode::Sid) => ACPMUX_PAGE_ERR_SID,
+        DriverError::Invalid(
+            InvalidCode::Request | InvalidCode::Page | InvalidCode::Unsupported,
+        ) => ACPMUX_PAGE_ERR_REQUEST,
+        DriverError::Invalid(InvalidCode::Protocol(_)) => ACPMUX_CLIENT_ERR_INVALID,
     }
 }
 
