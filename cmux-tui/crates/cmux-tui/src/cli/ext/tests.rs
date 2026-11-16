@@ -7,6 +7,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
@@ -388,6 +389,12 @@ fn the_watch_skips_reads_dot_files_and_node_modules() {
 pub(super) struct FakeDaemon {
     pub(super) socket: PathBuf,
     pub(super) requests: Arc<Mutex<Vec<Value>>>,
+    /// The folder watch sends nothing, as a loaded Mac's file events that
+    /// come too late: only an asked reload (`apps-reload-local`) answers.
+    pub(super) watch_off: Arc<AtomicBool>,
+    /// A daemon older than `apps-reload-local`: it refuses the request and
+    /// reloads on its watch only.
+    pub(super) old: Arc<AtomicBool>,
     _watcher: notify::RecommendedWatcher,
     _dir: cmux_unix_socket::TestDir,
 }
@@ -404,6 +411,9 @@ impl FakeDaemon {
 
     fn start_with(local_dir: &Path, app: &str, installed: bool, hosting: bool) -> Self {
         use notify::Watcher as _;
+        let watch_off: Arc<AtomicBool> = Arc::default();
+        let old: Arc<AtomicBool> = Arc::default();
+        let muted = watch_off.clone();
         let dir = cmux_unix_socket::short_test_dir("cmux-ext");
         let socket = dir.path().join("daemon.sock");
         let listener = UnixListener::bind(&socket).unwrap();
@@ -413,7 +423,7 @@ impl FakeDaemon {
         let (watch_clients, watch_app) = (clients.clone(), app.to_string());
         let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
             let Ok(event) = event else { return };
-            if matches!(event.kind, notify::EventKind::Access(_)) {
+            if matches!(event.kind, notify::EventKind::Access(_)) || muted.load(Ordering::SeqCst) {
                 return;
             }
             let line = json!({"event": "apps-changed", "transaction": "local-reload", "app": watch_app});
@@ -424,18 +434,20 @@ impl FakeDaemon {
         .unwrap();
         watcher.watch(local_dir, notify::RecursiveMode::Recursive).unwrap();
         let (local, app, seen) = (local_dir.to_path_buf(), app.to_string(), requests.clone());
+        let serving_old = old.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { return };
                 let writer: Writer = Arc::new(Mutex::new(stream.try_clone().unwrap()));
                 clients.lock().unwrap().push(writer.clone());
                 let (local, app, seen) = (local.clone(), app.clone(), seen.clone());
+                let old = serving_old.clone();
                 std::thread::spawn(move || {
-                    serve(stream, &writer, &local, &app, (installed, hosting), &seen);
+                    serve(stream, &writer, &local, &app, (installed, hosting), &seen, &old);
                 });
             }
         });
-        Self { socket, requests, _watcher: watcher, _dir: dir }
+        Self { socket, requests, watch_off, old, _watcher: watcher, _dir: dir }
     }
 
     fn cmds(&self) -> Vec<String> {
@@ -463,6 +475,7 @@ fn serve(
     app: &str,
     (installed, hosting): (bool, bool),
     seen: &Mutex<Vec<Value>>,
+    old: &AtomicBool,
 ) {
     let name = app.trim_start_matches("local/");
     for line in BufReader::new(stream).lines() {
@@ -531,6 +544,18 @@ fn serve(
                     }
                     None => out.push(reply(json!({}))),
                 }
+            }
+            // The daemon's pass: its events, then the reply (`Supervisor::reload_local_apps_now`).
+            "apps-reload-local" if old.load(Ordering::SeqCst) => out.push(json!({
+                "id": id, "ok": false, "error": "unknown command", "error_code": "parse"
+            })),
+            "apps-reload-local" => {
+                if local.join(name).is_dir() {
+                    out.push(
+                        json!({"event": "apps-changed", "transaction": "local-reload", "app": app}),
+                    );
+                }
+                out.push(reply(json!({})));
             }
             _ => out.push(reply(json!({}))),
         }
@@ -902,6 +927,40 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     let broken = dev::once(&global(&fake.socket), &dev_options(&dir), false);
     let (_, code) = shot::report(&broken, &dir, None, false);
     assert_eq!(code, exit::LOAD_FAILED);
+}
+
+/// A copied change reloads as soon as the daemon's pass answers, with no
+/// file event at all: on a loaded Mac the watch's events came 3.6 s to past
+/// 30 s late, and `ext dev` waited for them (base red: this run waits out
+/// `PICKUP_DEADLINE` and fails "not reloaded", ask-7fc19bd861).
+#[test]
+fn a_reload_does_not_wait_for_the_file_watch() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "quick");
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/quick", true);
+    fake.watch_off.store(true, Ordering::SeqCst);
+    let started = std::time::Instant::now();
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(outcome.changed);
+    assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
+    let cmds = fake.cmds();
+    assert!(cmds.contains(&"apps-reload-local".to_string()), "{cmds:?}");
+}
+
+/// A daemon older than `apps-reload-local` refuses it and still reloads on
+/// its watch, which `ext dev` waits for as before.
+#[test]
+fn an_older_daemon_reloads_on_its_watch() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "older");
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/older", true);
+    fake.old.store(true, Ordering::SeqCst);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert!(outcome.changed);
 }
 
 /// `ext dev` says where a whole New Tab page shows: only once the person picks it.

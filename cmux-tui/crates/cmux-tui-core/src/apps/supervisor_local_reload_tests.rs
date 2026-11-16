@@ -189,3 +189,26 @@ fn a_save_in_an_apps_dirs_folder_reloads_the_app_and_its_open_view() {
     });
     assert_eq!(scene["ops"][0]["props"]["text"], "renderAgain", "{scene}");
 }
+
+/// An asked pass (`apps-reload-local`, `reload_local_apps_now`) applies a
+/// save with no file event, from the prints of the last pass whoever ran it;
+/// a second pass with nothing new announces and restarts nothing, so the
+/// watch's late event after an asked pass costs no second restart
+/// (ask-7fc19bd861).
+#[test]
+fn an_asked_pass_applies_a_save_once() {
+    let f = fixture();
+    f.supervisor.reload_local_apps_now();
+    while f.events.try_recv().is_ok() {}
+    save_spy_version(&f.state, "1.0.2");
+    f.supervisor.reload_local_apps_now();
+    let changed: Vec<Value> =
+        f.events.try_iter().filter(|e| e["event"] == "apps-changed").collect();
+    assert_eq!(changed.len(), 1, "{changed:?}");
+    assert_eq!(changed[0]["app"], "local/spy");
+    assert_eq!(changed[0]["transaction"], "local-reload");
+    assert_eq!(app_entry(&f.supervisor.list(), "local/spy")["version"], "1.0.2");
+    f.supervisor.reload_local_apps_now();
+    let again: Vec<Value> = f.events.try_iter().filter(|e| e["event"] == "apps-changed").collect();
+    assert!(again.is_empty(), "{again:?}");
+}

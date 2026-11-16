@@ -29,7 +29,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, PoisonError, Weak};
 
 use notify::event::{AccessKind, AccessMode, EventKind};
 use serde_json::json;
@@ -50,10 +50,11 @@ pub(super) const MAX_FILES: usize = 2_000;
 const MAX_HASHED_BYTES: u64 = 4 << 20;
 
 impl Supervisor {
-    /// Starts the watch thread; returns at once. `prints` are the startup
-    /// catalog's, taken before its read (`PrintsBefore`). In-crate tests
-    /// build many supervisors and read no real folders.
-    pub(crate) fn start_local_watch(self: &Arc<Self>, prints: Prints) {
+    /// Starts the watch thread; returns at once. Its passes start from the
+    /// startup catalog's prints (`Inner::local_prints`, taken before its
+    /// read, `PrintsBefore`). In-crate tests build many supervisors and read
+    /// no real folders.
+    pub(crate) fn start_local_watch(self: &Arc<Self>) {
         if cfg!(test) {
             return;
         }
@@ -61,10 +62,28 @@ impl Supervisor {
         let dirs = watched_dirs(&self.config.sources);
         let spawned = std::thread::Builder::new()
             .name("apps-local-reload".into())
-            .spawn(move || watch(&me, dirs, prints));
+            .spawn(move || watch(&me, dirs));
         if let Err(error) = spawned {
             eprintln!("cmux-tui: apps local reload thread did not start: {error}");
         }
+    }
+
+    /// One local reload pass now: reads the watched folders and applies what
+    /// changed since the last pass, whoever ran it. The file watch runs it on
+    /// a save; `apps-reload-local` runs it when a caller that just wrote an
+    /// app's files (`cmux ext dev`) asks, so a reload never waits on file
+    /// events, which a loaded Mac delivers seconds late (Leo's NIGHTLY at load
+    /// average 93 to 105: `ext dev`'s copy waited 3.6 s, 22.7 s, then past its
+    /// 30 s cap three times for the watch's reload, ask-7fc19bd861). Passes
+    /// run one at a time, so a late event after an asked pass finds nothing
+    /// changed and restarts no host again. A person waits on each pass (they
+    /// just saved), so it runs at user-initiated QoS, as acpmux's reads for a
+    /// chat opened on screen do (`qos::on_screen`), ahead of default-priority
+    /// builds; then the thread's own QoS comes back.
+    pub(crate) fn reload_local_apps_now(&self) {
+        let _pass = self.local_reload_pass.lock().unwrap_or_else(PoisonError::into_inner);
+        let prints = self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_prints.clone();
+        on_screen(|| self.reload_local_apps(&prints));
     }
 
     /// Reads the catalog again and applies what changed in local apps since
@@ -437,7 +456,7 @@ fn collect(dir: &Path, files: &mut Vec<(PathBuf, u64, u128)>) {
 }
 
 /// The watch thread over `dirs` (`watched_dirs`).
-fn watch(me: &Weak<Supervisor>, dirs: Vec<PathBuf>, mut prints: Prints) {
+fn watch(me: &Weak<Supervisor>, dirs: Vec<PathBuf>) {
     let (sender, events) = channel();
     let files = sender.clone();
     let watcher = notify::recommended_watcher(move |event| {
@@ -476,11 +495,11 @@ fn watch(me: &Weak<Supervisor>, dirs: Vec<PathBuf>, mut prints: Prints) {
     // is matched by its resolved spelling too.
     let mut roots = watch_roots(&dirs);
     // FSEvents reports only what changes after its stream starts, and the
-    // catalog in `prints` was read before this thread armed it: a write in
+    // startup catalog (`Inner::local_prints`) was read before this thread armed it: a write in
     // between (a loaded machine, an app saved as cmux starts) had no event
     // and was never read. Read once more now that the watch is on.
     match me.upgrade() {
-        Some(supervisor) => prints = supervisor.reload_local_apps(&prints),
+        Some(supervisor) => supervisor.reload_local_apps_now(),
         None => return,
     }
     loop {
@@ -494,7 +513,7 @@ fn watch(me: &Weak<Supervisor>, dirs: Vec<PathBuf>, mut prints: Prints) {
             roots = watch_roots(&dirs);
         }
         let Some(supervisor) = me.upgrade() else { return };
-        prints = supervisor.reload_local_apps(&prints);
+        supervisor.reload_local_apps_now();
     }
 }
 
@@ -619,6 +638,37 @@ fn is_change(event: &notify::Result<notify::Event>, relevant: &dyn Fn(&Path) -> 
         _ => {}
     }
     event.paths.iter().any(|path| relevant(path))
+}
+
+/// Runs `work` with the calling thread at user-initiated QoS, then puts its
+/// class back (acpmux `qos::ThreadOnScreen`: an unspecified class goes back
+/// as default, the class such a thread runs at). A thread already above
+/// user-initiated (a connection carrying the person's keys,
+/// `server/input_qos.rs`) keeps its class. Off macOS it only runs `work`.
+fn on_screen<T>(work: impl FnOnce() -> T) -> T {
+    #[cfg(target_os = "macos")]
+    {
+        use libc::qos_class_t::{
+            QOS_CLASS_DEFAULT, QOS_CLASS_UNSPECIFIED, QOS_CLASS_USER_INITIATED,
+        };
+        let mut was = QOS_CLASS_UNSPECIFIED;
+        let mut relative = 0;
+        // SAFETY: reads the calling thread's own class into locals.
+        unsafe { libc::pthread_get_qos_class_np(libc::pthread_self(), &mut was, &mut relative) };
+        // SAFETY: sets the calling thread's own class; no pointer is passed.
+        let raised = (was as u32) < (QOS_CLASS_USER_INITIATED as u32)
+            && unsafe { libc::pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0) } == 0;
+        let out = work();
+        if raised {
+            let back =
+                if was as u32 == QOS_CLASS_UNSPECIFIED as u32 { QOS_CLASS_DEFAULT } else { was };
+            // SAFETY: as above.
+            unsafe { libc::pthread_set_qos_class_self_np(back, relative) };
+        }
+        out
+    }
+    #[cfg(not(target_os = "macos"))]
+    work()
 }
 
 #[cfg(test)]

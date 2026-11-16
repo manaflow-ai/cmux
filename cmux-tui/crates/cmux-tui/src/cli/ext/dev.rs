@@ -1201,10 +1201,19 @@ impl Session {
 
     /// Waits for the daemon's answer to a copied change: its reload of the
     /// app, its refusal of the saved script (an open view keeps the last
-    /// good one), or its refusal of the folder.
+    /// good one), or its refusal of the folder. It asks for the reload
+    /// (`apps-reload-local`) instead of waiting on the daemon's file watch,
+    /// whose events a loaded Mac delivers seconds late (ask-7fc19bd861): the
+    /// pass's events come before its reply, so a reply with none for this
+    /// app means the daemon already had these files. A daemon that does not
+    /// know the request still reloads on its watch, waited for as before.
     fn pickup(&mut self, id: &str, target: &Path) -> Result<Result<(), Problem>, Stop> {
         let folder = target.display().to_string();
+        let asked = self.daemon.send(json!({ "cmd": "apps-reload-local" }))?;
         self.daemon.wait(Instant::now() + PICKUP_DEADLINE, |value| {
+            if value.get("id").and_then(Value::as_str) == Some(asked.as_str()) {
+                return (value.field("ok").as_bool() == Some(true)).then_some(Ok(()));
+            }
             let event = value.get("event").and_then(Value::as_str)?;
             let app = value.get("app").and_then(Value::as_str);
             match event {
