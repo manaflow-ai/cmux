@@ -53,7 +53,11 @@ for input in "${inputs[@]}"; do
   key_material+="$(git -C "$repo_root" rev-parse "HEAD:$input" 2>/dev/null || echo "missing:$input")"$'\n'
 done
 key_material+="$(git -C "$repo_root" diff HEAD -- "${inputs[@]}" 2>/dev/null || true)"
-key_material+="$(git -C "$repo_root" ls-files --others --exclude-standard -- "${inputs[@]}" 2>/dev/null || true)"
+# Untracked files by content, not only by name: editing a new, uncommitted module must change the key.
+while IFS= read -r untracked; do
+  [[ -n "$untracked" ]] || continue
+  key_material+="$untracked $(git -C "$repo_root" hash-object -- "$untracked" 2>/dev/null || echo unreadable)"$'\n'
+done < <(git -C "$repo_root" ls-files --others --exclude-standard -- "${inputs[@]}" 2>/dev/null || true)
 source_key="$(printf '%s' "$key_material" | shasum -a 256 | cut -c1-16)"
 
 normalize_archs() {

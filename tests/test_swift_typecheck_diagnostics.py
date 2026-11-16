@@ -78,7 +78,9 @@ class SwiftTypecheckDiagnosticsTests(unittest.TestCase):
         ):
             text = (ROOT / "scripts/cmux-next" / script).read_text()
             self.assertIn("if (( status == 0 )); then", text)
-            self.assertIn('rm -f "$stamp"', text)
+            # embed-cef.sh names its phase stamp phase_stamp: its $stamp is the signing stamp,
+            # which must survive the run so a warm build skips re-signing.
+            self.assertRegex(text, r'rm -f "\$(phase_)?stamp"')
 
 
 if __name__ == "__main__":
