@@ -1581,9 +1581,11 @@ mod unix {
                             !remaining.is_zero(),
                             "terminal host did not apply Kitty graphics limits before adoption"
                         );
-                        reader
-                            .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
-                            .context("set terminal-host Kitty quota adoption timeout")?;
+                        set_link_read_timeout(
+                            reader,
+                            Some(remaining.max(Duration::from_millis(1))),
+                        )
+                        .context("set terminal-host Kitty quota adoption timeout")?;
                         let frame = read_frame(reader, MAX_FRAME_PAYLOAD)
                             .map_err(protocol_io_error)?
                             .ok_or_else(|| {
@@ -1615,8 +1617,7 @@ mod unix {
                         return Ok(());
                     }
                 })();
-                let restored = reader
-                    .set_read_timeout(previous_timeout)
+                let restored = set_link_read_timeout(reader, previous_timeout)
                     .context("restore terminal-host timeout after Kitty quota adoption");
                 response.and(restored)
             })();
