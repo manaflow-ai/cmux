@@ -76,7 +76,7 @@ struct NewFloatingPane {
     ///   registry, so a key run shows the failure and a caller that waits gets it.
     static func start(on daemon: DaemonService, beside pane: PaneID, window: NewPaneFocus?) -> ActionWork {
         let label = "new-floating-pane"
-        let focus: @MainActor (SurfaceID) -> Void = window?.started() ?? { _ in }
+        let focus = window?.started()
         let options = SpawnOptions(workspace: daemon.store.workspace(containing: pane)?.key)
         // The ticket opens now, as `send` opens it: a caller that waits for the action's scope waits for the 2 requests.
         let ticket = daemon.openTicket(label)
@@ -95,7 +95,7 @@ struct NewFloatingPane {
                         return created
                     },
                     float: { _ = try await connection.floatPane($0, mode: .on) },
-                    focus: focus
+                    focus: { surface in if let focus { focus(surface) } }
                 )
                 try await act.run(beside: pane)
                 await daemon.closeTicket(ticket, label: label, error: nil, replying: connection)
