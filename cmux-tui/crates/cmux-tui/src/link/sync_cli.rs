@@ -52,6 +52,7 @@ mod base;
 pub(super) mod fence;
 mod git_back;
 mod history;
+mod left_note;
 mod links;
 mod listed;
 mod local;
@@ -1061,6 +1062,10 @@ fn push_inner(
     if set.files.remove(manifest_name).is_some() | set.links.remove(manifest_name).is_some() {
         set.skips.note(manifest_name, skips::Why::Reserved);
     }
+    // Nor is the note of what a first pass left on this Mac ([`left_note`]).
+    if set.files.remove(left_note::NAME).is_some() | set.links.remove(left_note::NAME).is_some() {
+        set.skips.note(left_note::NAME, skips::Why::Reserved);
+    }
     // Loose objects go as packs ([`packs`]).
     if git_record {
         let dirs = local::GitDirs::of(&local)?.context("the folder is no longer in git")?;
@@ -1328,6 +1333,19 @@ fn push_inner(
     remote
         .write(&manifest_path, &mut manifest.as_slice(), 0o600)
         .context("cannot save the sync manifest")?;
+    // A first pass names what stayed on this Mac at the copy's top, for the chat's agent; a copy
+    // sent whole takes away a note an earlier first pass left (cmuxterm-hq#11697).
+    let note_path = format!("{remote_root}/{}", left_note::NAME);
+    match set.left.as_ref() {
+        Some(left_here) => {
+            let text = left_here.text(&local, remote_root);
+            remote
+                .write(&note_path, &mut text.as_bytes(), 0o644)
+                .context("cannot write the note of what stayed on this Mac")?;
+        }
+        None if rules == local::Rules::Copy => remote.delete(&[note_path])?,
+        None => {}
+    }
     store::forget(&mut remote, &left.jobs);
     // A pull's base is this copy, never the machine's.
     base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
