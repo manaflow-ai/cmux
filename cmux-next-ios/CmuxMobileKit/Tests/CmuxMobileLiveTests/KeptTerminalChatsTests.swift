@@ -42,6 +42,7 @@ import Testing
         // Another account or Mac keeps none of it.
         #expect(relaunched.chat(try #require(KeptTerminalChats.key("other", "mac", "claude", "h-1"))) == nil)
         #expect(relaunched.chat(try #require(KeptTerminalChats.key("acct", "mac2", "claude", "h-1"))) == nil)
+        #expect(KeptTerminalChats.key("", "mac", "claude", "h-1") == nil)
         #expect(KeptTerminalChats.key("", "mac", "s2") == nil)
 
         // A stale pairing is forgotten, and stays forgotten after a relaunch.

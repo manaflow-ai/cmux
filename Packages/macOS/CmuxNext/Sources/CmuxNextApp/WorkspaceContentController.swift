@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextWakeups
@@ -186,11 +187,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         for pane in panes.values {
             if case .agent(let view)? = pane.currentContent, view.model.newTab != nil, view.pageDrawsOverCovers { view.placeMovedChromiumPage(requiringFrame: true) }
         }
-        // A Home with no pane yet is still being made (its dock, then the Chief conversation, over
-        // several daemon replies): it stays clear until its conversation is in, never in pieces.
-        if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) {
-            services.launchReveal.hold(contentView, until: .home)
-        }
+        // A Home with no pane yet stays clear until its page is in its dock (HomeDock.revealWhenDocked), never in pieces.
+        if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) { services.launchReveal.hold(contentView, until: .home) }
     }
 
     func teardown() {
@@ -319,6 +317,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         sendTopology()
         isApplying = true
         layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
+        if HomeDock.revealWhenDocked(workspace, reveal: services.launchReveal) { DebugTimings.markLaunch("home.saved_page_shown") }
     }
 
     /// Takes the mapping's handles. A pane record a resync rebuilt under the same key keeps its

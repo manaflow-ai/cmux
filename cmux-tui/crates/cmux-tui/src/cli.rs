@@ -210,7 +210,10 @@ mod terminal_talk;
 mod theme_file;
 #[cfg(unix)]
 mod theme_scheme;
+// `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
+#[cfg(unix)]
+mod wallpaper;
 mod wire;
 #[cfg(unix)]
 mod workflow;
@@ -700,8 +703,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = vm_short::run_if_requested(args) {
         return code;
     }
-    // `device revoke|rotate|doctor|vault` and `device SELECTOR show` are `machine …` (`machine`
-    // is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
+    // `device revoke|rotate|doctor|vault` and `device SELECTOR show --catalog|session|doctor` are
+    // `machine …` (`machine` is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
+    // A plain `device SELECTOR show` ran in devices/mod.rs (the device list, then this route).
     #[cfg(unix)]
     let device_alias_args;
     #[cfg(unix)]
@@ -848,7 +852,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| ext::run_if_requested(args))
+        .or_else(|| ext::run_reload_config_if_requested(args))
         .or_else(|| theme_scheme::run_if_requested(args))
+        .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -1011,7 +1017,7 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         {
             false
         }
-        Some("get" | "set" | "reset" | "unset") => true,
+        Some("get" | "set" | "reset" | "unset" | "edit") => true,
         _ => false,
     }
 }
