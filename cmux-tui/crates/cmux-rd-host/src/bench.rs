@@ -21,7 +21,7 @@ use crate::wire::{
 use crate::Res;
 use cmux_rd_core::cc::{CcConfig, PathKind};
 use cmux_rd_core::input::InputSender;
-use cmux_rd_core::reassembly::Reassembler;
+use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_core::service::caps;
 use cmux_rd_core::upstream::{UpstreamConfig, UpstreamSender};
 use cmux_rd_proto::control::StreamKind;
@@ -178,6 +178,11 @@ struct Viewer {
     marker_changes: u64,
     /// The first datagram's arrival of the newest video frames (frame, ns).
     first_rx: std::collections::VecDeque<(u32, u64)>,
+    /// The newest shard's arrival of the newest video frames (frame, ns).
+    last_rx: std::collections::VecDeque<(u32, u64)>,
+    /// Each released frame's wait from its last shard to its release (ms): the
+    /// reassembly stage of the latency budget (design D6: at most RTT + 10 ms under loss).
+    shard_to_release_ms: Vec<f64>,
     frames: u64,
     decoded_frames: u64,
     eval_decode: Option<crate::eval::DecodeLog>,
@@ -187,6 +192,8 @@ struct Viewer {
     decode_errors: u64,
     last_feedback_ns: u64,
     released_since_feedback: bool,
+    /// The current recovery request went out; a new one goes out at once.
+    recovery_sent: bool,
     stats: Vec<serde_json::Value>,
     ended: Option<String>,
     welcome: Option<serde_json::Value>,
@@ -259,6 +266,132 @@ impl Viewer {
             self.first_rx.iter().find(|(f, _)| *f == frame).map_or(complete_ns, |(_, at)| *at);
     }
 
+    /// Decodes frames the reassembler released at `now` (ns), oldest first, and
+    /// times each from its last shard's arrival to its release.
+    fn on_frames(&mut self, frames: Vec<CompleteFrame>, now: u64) {
+        for frame in frames {
+            if let Some((_, last)) = self.last_rx.iter().find(|(f, _)| *f == frame.frame) {
+                self.shard_to_release_ms.push(now.saturating_sub(*last) as f64 / 1e6);
+            }
+            self.released_since_feedback = true;
+            self.frames += 1;
+            if let Some(file) = self.record.as_mut() {
+                let _ = io::Write::write_all(file, &frame.body.access_unit);
+            }
+            let t0 = now_ns();
+            #[cfg(target_os = "macos")]
+            if let Some(vt) = self.vt.as_mut() {
+                let decoded = vt.decode(&frame.body.access_unit);
+                let t1 = now_ns();
+                self.decode_ms.push((t1 - t0) as f64 / 1e6);
+                match decoded {
+                    Ok(Some(picture)) => {
+                        self.decoded_frames += 1;
+                        if let Some(log) = self.eval_decode.as_mut() {
+                            log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
+                        }
+                        if let Some(quality) = self.eval_quality.as_mut() {
+                            if let Some(pixels) = picture.with_luma(crate::eval::roi) {
+                                quality.decoded(
+                                    u64::from(frame.frame),
+                                    frame.body.t_capture_us,
+                                    &frame.body.access_unit,
+                                    &pixels,
+                                );
+                            }
+                        }
+                        let origin = self.marker_origin;
+                        let read = picture
+                            .with_luma(|y, stride| marker::decode_luma_at(y, stride, true, origin));
+                        self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
+                        if self.want_snapshot {
+                            self.newest_picture = Some(picture);
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(_) => self.decode_errors += 1,
+                }
+                continue;
+            }
+            #[cfg(any(feature = "vp9", feature = "av1"))]
+            if let Some((dec, pic)) = self.alt.as_mut() {
+                let decoded = dec.decode(&frame.body.access_unit, pic);
+                let t1 = now_ns();
+                self.decode_ms.push((t1 - t0) as f64 / 1e6);
+                match decoded {
+                    Ok(true) => {
+                        self.decoded_frames += 1;
+                        if let Some(log) = self.eval_decode.as_mut() {
+                            log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
+                        }
+                        if let Some(quality) = self.eval_quality.as_mut() {
+                            if let Some(pixels) = crate::eval::roi(&pic.y, pic.width) {
+                                quality.decoded(
+                                    u64::from(frame.frame),
+                                    frame.body.t_capture_us,
+                                    &frame.body.access_unit,
+                                    &pixels,
+                                );
+                            }
+                        }
+                        let read =
+                            marker::decode_luma_at(&pic.y, pic.width, true, self.marker_origin);
+                        self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
+                    }
+                    Ok(false) => {}
+                    Err(_) => self.decode_errors += 1,
+                }
+                continue;
+            }
+            let t1;
+            // A block, so the decoder's borrowed picture ends before saw_marker.
+            let read = {
+                let decoded = self.decoder.decode(&frame.body.access_unit);
+                t1 = now_ns();
+                self.decode_ms.push((t1 - t0) as f64 / 1e6);
+                match decoded {
+                    Ok(Some(yuv)) => {
+                        #[cfg(target_os = "linux")]
+                        if let Some(p) = self.presenter.as_mut() {
+                            if p.show(&yuv).is_err() {
+                                self.present_errors += 1;
+                            }
+                        }
+                        self.decoded_frames += 1;
+                        if let Some(log) = self.eval_decode.as_mut() {
+                            log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
+                        }
+                        if let Some(quality) = self.eval_quality.as_mut() {
+                            if let Some(pixels) = crate::eval::roi(yuv.y(), yuv.strides().0) {
+                                quality.decoded(
+                                    u64::from(frame.frame),
+                                    frame.body.t_capture_us,
+                                    &frame.body.access_unit,
+                                    &pixels,
+                                );
+                            }
+                        }
+                        // OpenH264 lends its picture only for this call, so a snapshot
+                        // converts every frame: use --snapshot for pictures, not timing.
+                        if self.want_snapshot {
+                            let (w, h) = yuv.dimensions();
+                            let mut rgb = vec![0u8; w * h * 3];
+                            yuv.write_rgb8(&mut rgb);
+                            self.snapshot = Some((w, h, rgb));
+                        }
+                        marker::decode_luma_at(yuv.y(), yuv.strides().0, true, self.marker_origin)
+                    }
+                    Ok(None) => None,
+                    Err(_) => {
+                        self.decode_errors += 1;
+                        None
+                    }
+                }
+            };
+            self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
+        }
+    }
+
     fn on_datagram(&mut self, d: &[u8]) {
         let now = now_ns();
         let Ok((h, payload)) = DatagramHeader::decode(d) else { return };
@@ -275,147 +408,16 @@ impl Viewer {
                     }
                     self.first_rx.push_back((h.frame, now));
                 }
-                for frame in self.reassembler.push(&h, payload, now / 1000) {
-                    self.released_since_feedback = true;
-                    self.frames += 1;
-                    if let Some(file) = self.record.as_mut() {
-                        let _ = io::Write::write_all(file, &frame.body.access_unit);
+                if let Some(at) = self.last_rx.iter_mut().find(|(f, _)| *f == h.frame) {
+                    at.1 = now;
+                } else {
+                    if self.last_rx.len() >= 64 {
+                        self.last_rx.pop_front();
                     }
-                    let t0 = now_ns();
-                    #[cfg(target_os = "macos")]
-                    if let Some(vt) = self.vt.as_mut() {
-                        let decoded = vt.decode(&frame.body.access_unit);
-                        let t1 = now_ns();
-                        self.decode_ms.push((t1 - t0) as f64 / 1e6);
-                        match decoded {
-                            Ok(Some(picture)) => {
-                                self.decoded_frames += 1;
-                                if let Some(log) = self.eval_decode.as_mut() {
-                                    log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
-                                }
-                                if let Some(quality) = self.eval_quality.as_mut() {
-                                    if let Some(pixels) = picture.with_luma(crate::eval::roi) {
-                                        quality.decoded(
-                                            u64::from(frame.frame),
-                                            frame.body.t_capture_us,
-                                            &frame.body.access_unit,
-                                            &pixels,
-                                        );
-                                    }
-                                }
-                                let origin = self.marker_origin;
-                                let read = picture.with_luma(|y, stride| {
-                                    marker::decode_luma_at(y, stride, true, origin)
-                                });
-                                self.saw_marker(
-                                    read,
-                                    frame.frame,
-                                    frame.body.t_capture_us,
-                                    now,
-                                    t1,
-                                );
-                                if self.want_snapshot {
-                                    self.newest_picture = Some(picture);
-                                }
-                            }
-                            Ok(None) => {}
-                            Err(_) => self.decode_errors += 1,
-                        }
-                        continue;
-                    }
-                    #[cfg(any(feature = "vp9", feature = "av1"))]
-                    if let Some((dec, pic)) = self.alt.as_mut() {
-                        let decoded = dec.decode(&frame.body.access_unit, pic);
-                        let t1 = now_ns();
-                        self.decode_ms.push((t1 - t0) as f64 / 1e6);
-                        match decoded {
-                            Ok(true) => {
-                                self.decoded_frames += 1;
-                                if let Some(log) = self.eval_decode.as_mut() {
-                                    log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
-                                }
-                                if let Some(quality) = self.eval_quality.as_mut() {
-                                    if let Some(pixels) = crate::eval::roi(&pic.y, pic.width) {
-                                        quality.decoded(
-                                            u64::from(frame.frame),
-                                            frame.body.t_capture_us,
-                                            &frame.body.access_unit,
-                                            &pixels,
-                                        );
-                                    }
-                                }
-                                let read = marker::decode_luma_at(
-                                    &pic.y,
-                                    pic.width,
-                                    true,
-                                    self.marker_origin,
-                                );
-                                self.saw_marker(
-                                    read,
-                                    frame.frame,
-                                    frame.body.t_capture_us,
-                                    now,
-                                    t1,
-                                );
-                            }
-                            Ok(false) => {}
-                            Err(_) => self.decode_errors += 1,
-                        }
-                        continue;
-                    }
-                    let t1;
-                    // A block, so the decoder's borrowed picture ends before saw_marker.
-                    let read = {
-                        let decoded = self.decoder.decode(&frame.body.access_unit);
-                        t1 = now_ns();
-                        self.decode_ms.push((t1 - t0) as f64 / 1e6);
-                        match decoded {
-                            Ok(Some(yuv)) => {
-                                #[cfg(target_os = "linux")]
-                                if let Some(p) = self.presenter.as_mut() {
-                                    if p.show(&yuv).is_err() {
-                                        self.present_errors += 1;
-                                    }
-                                }
-                                self.decoded_frames += 1;
-                                if let Some(log) = self.eval_decode.as_mut() {
-                                    log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
-                                }
-                                if let Some(quality) = self.eval_quality.as_mut() {
-                                    if let Some(pixels) = crate::eval::roi(yuv.y(), yuv.strides().0)
-                                    {
-                                        quality.decoded(
-                                            u64::from(frame.frame),
-                                            frame.body.t_capture_us,
-                                            &frame.body.access_unit,
-                                            &pixels,
-                                        );
-                                    }
-                                }
-                                // OpenH264 lends its picture only for this call, so a snapshot
-                                // converts every frame: use --snapshot for pictures, not timing.
-                                if self.want_snapshot {
-                                    let (w, h) = yuv.dimensions();
-                                    let mut rgb = vec![0u8; w * h * 3];
-                                    yuv.write_rgb8(&mut rgb);
-                                    self.snapshot = Some((w, h, rgb));
-                                }
-                                marker::decode_luma_at(
-                                    yuv.y(),
-                                    yuv.strides().0,
-                                    true,
-                                    self.marker_origin,
-                                )
-                            }
-                            Ok(None) => None,
-                            Err(_) => {
-                                self.decode_errors += 1;
-                                None
-                            }
-                        }
-                    };
-                    self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
+                    self.last_rx.push_back((h.frame, now));
                 }
+                let frames = self.reassembler.push(&h, payload, now / 1000);
+                self.on_frames(frames, now);
             }
             DatagramKind::Feedback if h.stream == UP_STREAM => {
                 let resends = match self.upstream.as_mut() {
@@ -435,9 +437,12 @@ impl Viewer {
     }
 
     fn pump(&mut self, timeout_ns: u64) -> Res<()> {
-        let timeout_ns =
-            self.reassembler.next_nack_us(5_000, 50_000).map_or(timeout_ns, |deadline| {
-                timeout_ns.min(deadline.saturating_mul(1000).saturating_sub(now_ns()))
+        // Wake for the next NACK and for the next give-up, whose recovery request goes out at once.
+        let timeout_ns = [self.reassembler.next_nack_us(), self.reassembler.next_expiry_us()]
+            .into_iter()
+            .flatten()
+            .fold(timeout_ns, |t, deadline| {
+                t.min(deadline.saturating_mul(1000).saturating_sub(now_ns()))
             });
         wait_readable(&self.io.fds(), Some(timeout_ns))?;
         let mut arrived = Vec::new();
@@ -476,7 +481,9 @@ impl Viewer {
                 _ => {}
             }
         }
-        self.reassembler.tick(now_ns() / 1000);
+        let now = now_ns();
+        let frames = self.reassembler.tick(now / 1000);
+        self.on_frames(frames, now);
         self.maybe_feedback()?;
         self.send_input()?;
         Ok(())
@@ -507,18 +514,22 @@ impl Viewer {
         let due = now.saturating_sub(self.last_feedback_ns) >= 50_000_000;
         // At least one feedback per second keeps the session alive on an idle desktop.
         let keepalive = now.saturating_sub(self.last_feedback_ns) >= 1_000_000_000;
-        let nack_due = self
-            .reassembler
-            .next_nack_us(5_000, 50_000)
-            .is_some_and(|deadline| now / 1000 >= deadline);
+        let nack_due =
+            self.reassembler.next_nack_us().is_some_and(|deadline| now / 1000 >= deadline);
+        let need_recovery = self.reassembler.need_recovery();
+        if !need_recovery {
+            self.recovery_sent = false;
+        }
         if !(self.released_since_feedback
             || keepalive
             || nack_due
-            || (due && (!self.arrivals.is_empty() || self.reassembler.need_recovery())))
+            || (need_recovery && !self.recovery_sent)
+            || (due && (!self.arrivals.is_empty() || need_recovery)))
         {
             return Ok(());
         }
-        let nacks = self.reassembler.take_nacks(now / 1000, 5_000, 50_000);
+        self.recovery_sent = need_recovery;
+        let nacks = self.reassembler.take_nacks(now / 1000);
         let mut sorted = self.decode_ms.iter().rev().take(30).copied().collect::<Vec<_>>();
         sorted.sort_by(f64::total_cmp);
         // Arrivals beyond one message go in extra feedback messages first.
@@ -746,6 +757,8 @@ pub fn run(opts: &Opts) -> Res<()> {
         marker_complete_ns: 0,
         marker_changes: 0,
         first_rx: std::collections::VecDeque::new(),
+        last_rx: std::collections::VecDeque::new(),
+        shard_to_release_ms: Vec::new(),
         frames: 0,
         decoded_frames: 0,
         eval_decode: eval_local.then(crate::eval::DecodeLog::default),
@@ -755,6 +768,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         decode_errors: 0,
         last_feedback_ns: 0,
         released_since_feedback: false,
+        recovery_sent: false,
         stats: Vec::new(),
         ended: None,
         welcome: None,
@@ -965,6 +979,9 @@ pub fn run(opts: &Opts) -> Res<()> {
         "frames_per_s": (v.frames - f0) as f64 / secs,
         "mbit_per_s": (v.bytes - b0) as f64 * 8.0 / secs / 1e6,
         "decode_ms": pct(&mut v.decode_ms.clone()),
+        "shard_to_release_ms": pct(&mut v.shard_to_release_ms.clone()),
+        "repair_window_ms": v.reassembler.repair_window_us() as f64 / 1e3,
+        "repair_rtt_ms": v.reassembler.rtt_us().map(|r| r as f64 / 1e3),
         "decode_errors": v.decode_errors,
         "present_errors": v.present_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
