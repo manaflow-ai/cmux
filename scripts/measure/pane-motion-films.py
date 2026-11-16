@@ -16,8 +16,10 @@ The sources of the acts, and their limits (each row says which it used):
            launcher's usual launch (the app never takes the keyboard) and each key-down is one call at its time by
            this script's clock, into a window that is not key; that form has no repeat flag, so a film with a held
            key is `not_run` in it. `auto` (the default) = `activate`, and if its preflight fails, one new launch as
-           `one-key`. Each launch and each film's row say the form. The launcher starts the app's binary directly,
-           and on a display Mac such a process did not become the active app; so the `activate` form then asks
+           `one-key`. Each launch and each film's row say the form. In the `activate` form the key window of each
+           sequence follows the focus (`focus_word`): the page's own window when a Chromium page has the keys (after
+           a Cmd-T, the New Tab page), else the shell window; each act's row says the word.
+           The launcher starts the app's binary directly, and on a display Mac such a process did not become the active app; so the `activate` form then asks
            LaunchServices one time (`open BUNDLE`, as a click on the Dock icon of an app that runs), and `PREFLIGHT activate:`
            says what made the app active (`by=launch`, `open`, `none`), which app is frontmost, and which
            instances of the app run. With `by=none` the `activate` form is not run (`forms_not_run` in the report
@@ -206,6 +208,18 @@ def send_keys(rpc, form, chord, key_window="shell", presses=1, gap_ms=250, repea
         if error:
             return {**said, "error": str(error)}
     return {**said, "duration_ms": round((time.monotonic() - start) * 1000, 1)}
+
+
+def focus_word(rpc):
+    """The `key_window` word for the next key sequence of the `activate` form, by one read of `debug.focus`: `page`
+    when a Chromium page has the keys, else `shell`. The app shows such a page (a browser tab, a chat, the New Tab
+    page) in a child window that has the keys while the page has focus, and it gives the keys back to that window
+    when the shell window takes them with no click; so it refuses `shell` then (`the shell window did not become
+    key`). The word thus follows the focus at each key: a Cmd-T moves the keys to the new tab's page. The read:
+    `appkit.child_window_page` of the cmux window that is key, or of each window when none is (a page's window is)."""
+    focus = rpc("debug.focus")
+    windows = [w for w in (focus.get("windows") if isinstance(focus, dict) else None) or [] if isinstance(w, dict)]
+    return "page" if any((w.get("appkit") or {}).get("child_window_page") for w in [w for w in windows if w.get("is_key")] or windows) else "shell"
 
 
 def app_said(said):
@@ -421,7 +435,7 @@ def preflight(app, st, out, mbps, form, display):
         """One chord as a film sends it; `read()` must become `want` in 10 s. Returns "" when it did; when it did
         not: raises with `must`, else prints the same lines and returns the fault."""
         before = read()
-        said = send_keys(rpc, form, chord)
+        said = send_keys(rpc, form, chord, focus_word(rpc) if form == "activate" else "shell")
         fault = said.get("error") or (not wait(lambda: read() == want(before), 10, 0.05, cut=must) and f"{unit} {before} -> {read()} in 10 s, not {want(before)}")
         if fault:
             fault = f"{fault}; {app_said(said)}" + (f"; {dry_run(rpc, chord)}" if form == "activate" else "")
@@ -656,9 +670,11 @@ class Films:
                 # "tabs": the key-down and its repeats close all but 2 tabs of the pane, so the pane stays.
                 delay, every = self.opts.repeat_delay_ms, max(self.opts.repeat_ms, 1)
                 repeats = max(1, len(self.st.tabs(workspace, focus)) - 3) if hold == "tabs" else max(1, 1 + int((hold * 1000 - delay) / every)) if hold else 0
-                said = send_keys(self.app.rpc, self.form, chord, key_window, presses, gap, repeats, delay, every)
-                if said.get("error") and key_window != "shell":
-                    row["refused_as"] = f"{key_window}: {str(said['error'])[:120]}"
+                # The `activate` form: the window that has the keys now. The `one-key` form: the word of the film's set-up.
+                word = focus_word(self.app.rpc) if self.form == "activate" else key_window
+                said = send_keys(self.app.rpc, self.form, chord, word, presses, gap, repeats, delay, every)
+                if said.get("error") and word != "shell":
+                    row["refused_as"] = f"{word}: {str(said['error'])[:120]}"
                     said = send_keys(self.app.rpc, self.form, chord, "shell", presses, gap, repeats, delay, every)
                 row.update(said)
             elif act[0] == "action":
@@ -692,7 +708,8 @@ class Films:
             workspace, panes, streams = self.build(spec, row)
             focus = panes[spec.get("focus", 0)]
             # A person's key on a page goes through the page's own window: the film's keys take that path when the
-            # focused pane shows a Chromium page.
+            # focused pane shows a Chromium page. This word of the set-up is for the `one-key` form; in the `activate`
+            # form each key sequence gets its word from the focus at that time (`focus_word`).
             key_window = "page" if SETUPS[spec["setup"]][1][spec.get("focus", 0)] == "page" else "shell"
             self.refused(self.play(spec.get("pre", ()), workspace, panes, focus, key_window, time.monotonic()))
             row["panes_before"] = len(st.panes(st.workspace(workspace)))
