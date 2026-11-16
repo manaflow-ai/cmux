@@ -105,9 +105,10 @@ case "${1:-}" in
     prof=$2 max=$3
     trap '[ -s "$ST/py.pid" ] && kill -TERM "$(cat "$ST/py.pid")" 2>/dev/null; clear_all; rm -f "$ST/watchdog.pid" "$ST/py.pid"; exit 0' TERM INT HUP
     # The hold loop runs in Python for its timing and the monotonic clock.
-    "$PY" -I - "$PIPE" "$(plr_of "$prof")" "$ST/schedule.jsonl" "$ST/holds.jsonl" <<'PYEOF' &
+    "$PY" -I - "$PIPE" "$(plr_of "$prof")" "$ST/schedule.jsonl" "$ST/holds.jsonl" "$max" <<'PYEOF' &
 import json, subprocess, sys, time
 pipe, plr, sched, out = sys.argv[1:5]
+max_s = float(sys.argv[5])
 mono_us = lambda: time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1000
 def delay(ms):
     subprocess.run(["dnctl", "pipe", pipe, "config", "delay", str(int(ms)), "plr", plr], stdout=subprocess.DEVNULL)
@@ -130,6 +131,8 @@ with open(out, "a") as log:
         delay(4)
         rec.update({"end_mono_us": mono_us(), "end_wall_ms": int(time.time() * 1000)})
         log.write(json.dumps(rec) + "\n"); log.flush()
+# The base delay and loss stay on until MAX_S (or clear), also with no holds left (wifi-loss has none).
+time.sleep(max(0.0, t_base + max_s - time.monotonic()))
 PYEOF
     echo $! > "$ST/py.pid"
     wait $!
