@@ -22,6 +22,10 @@
 
 use crate::{TweenCurve, TweenParameters};
 
+/// 1e-9 s: frames of 1/60 s sum to just under a length and must end the
+/// flight, as in `TweenValue::step`.
+const END_SLACK: f64 = 1e-9;
+
 /// What one change of targets does to the surface.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FlightStep {
@@ -104,22 +108,76 @@ impl MotionFlight {
         motion: TweenParameters,
         now: f64,
     ) -> FlightStep {
-        let _ = (act, moved, motion, now);
-        FlightStep::Keep
+        if !moved {
+            return FlightStep::Keep;
+        }
+        let flying = self.is_flying(now);
+        if !flying {
+            self.land();
+        }
+        let animates = motion.duration.is_finite() && motion.duration > 0.;
+        if !animates || now.is_nan() {
+            // No motion at all (speed off, Reduce Motion, a kind off): no quiet time either.
+            self.land();
+            self.quiet_act = Self::NO_ACT;
+            return FlightStep::AtOnce;
+        }
+        let quiet = act == self.quiet_act && now < self.quiet_until - END_SLACK;
+        if act != Self::NO_ACT && (quiet || (flying && act == self.act)) {
+            self.land();
+            self.quiet_act = act;
+            self.quiet_until = now + motion.duration;
+            return FlightStep::AtOnce;
+        }
+        let from = self.progress(now);
+        self.start = now;
+        self.duration = motion.duration;
+        self.curve = motion.curve;
+        if flying {
+            // A change by no act leaves the flight its act: that act's next change still ends it.
+            if act != Self::NO_ACT {
+                self.act = act;
+            }
+            FlightStep::Retarget { from }
+        } else {
+            self.act = act;
+            FlightStep::Start
+        }
     }
 
     /// The progress of the flight at `now` on its curve, 0 at its start to
     /// 1 at its end; 1 when no flight is in the air.
     pub fn progress(&self, now: f64) -> f64 {
-        let _ = now;
-        1.
+        if self.is_flying(now) {
+            self.curve.progress_f64((now - self.start) / self.duration)
+        } else {
+            1.
+        }
     }
 
     /// One frame at `now`: ends a flight that reached its length and a quiet
     /// time that passed, and says where the surface is.
     pub fn frame(&mut self, now: f64) -> FlightPhase {
-        let _ = now;
+        if self.is_flying(now) {
+            return FlightPhase::Flying;
+        }
+        self.land();
+        if self.quiet_act != Self::NO_ACT && now < self.quiet_until - END_SLACK {
+            return FlightPhase::Quiet;
+        }
+        self.quiet_act = Self::NO_ACT;
         FlightPhase::Still
+    }
+
+    /// True while the flight has not reached its length at `now`. A clock
+    /// that is not a number flies nothing.
+    fn is_flying(&self, now: f64) -> bool {
+        self.duration > 0. && now < self.start + self.duration - END_SLACK
+    }
+
+    fn land(&mut self) {
+        self.duration = 0.;
+        self.act = Self::NO_ACT;
     }
 }
 
