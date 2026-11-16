@@ -83,7 +83,7 @@ public nonisolated struct AcpmuxPeerList: Sendable {
     /// Each peer's name and load row (`peers[].load`, cmux-tui acpmux placement.rs `load_row`) of a
     /// `_acpmux/peers` answer, as JSON text `{"peers": [{name, load}]}`: what Settings > Machines draws,
     /// the same reading the composer's machine picker words. Nothing else of a row (never its URL).
-    @concurrent public func loadRows(deadline: Duration = .seconds(4)) async throws -> String {
+    @concurrent public func loadRows(deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> String {
         let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/peers", deadline: deadline)
         let rows: [[String: Any]] = (result["peers"] as? [[String: Any]] ?? []).compactMap { peer in
             guard let name = peer["name"] as? String, !name.isEmpty, let load = peer["load"] as? [String: Any] else { return nil }
