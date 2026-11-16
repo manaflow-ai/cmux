@@ -844,7 +844,13 @@ export async function runPreclaimChat(exec: Exec, session: string, prompt: strin
   if (!/@@exit 0/.test(sent.stdout)) throw new Error(`preclaim ${session}: chat send refused`);
   const waitStarted = Date.now();
   while (Date.now() - waitStarted < budgetMs) {
-    const reply = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1`, 45_000);
+    let reply: { stdout: string };
+    try {
+      reply = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1`, 45_000);
+    } catch (error) {
+      // The agent started and took the prompt; a read that drops now (run 43918388959: ECONNRESET) says nothing about the claim.
+      return { chatMs, replyMs: null, replyNotJudged: `reply wait read failed: ${String((error as Error)?.message ?? error).slice(0, 300)}` };
+    }
     const wait = /@@wait (\d+)/.exec(reply.stdout)?.[1];
     const text = reply.stdout.replace(/@@wait \d+\n?/, "").trim();
     if (wait === "0" && text) return { chatMs, replyMs: Date.now() - waitStarted, replyNotJudged: null };
@@ -1094,15 +1100,20 @@ export async function runPreclaimBurst(args: {
     for (let index = 0; index < args.claims; index++) {
       let claimedMachine: string | null = null;
       let claimedBehind: boolean | null = null;
+      // The step a failure happened in, named on its row (run 43918388959 kept only "ECONNRESET").
+      let step = "health before";
       try {
       const healthBefore = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
+      step = "client-config";
       platform ??= clientPlatformOrigin((await args.api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
       const platformHealthBefore = await platformHealth(platform);
       const scope = scopeOf(platform);
       const request = { platform, account, scope, currentScope: scope };
+      step = "warm spare";
       const { prepared, wait: spareWait } = await waitForReadySpare(() => prepareSpareLogin({ api: args.api, cmux: args.cmux, stateDir, installToken: args.install.token, request, wireTeam, programs, login: args.login, ownerScope: args.team ? "owner or team" : "owner", index, journey: args.journey }), args.spareWaitMs ?? 0);
       const { spare, leaseId } = prepared;
       const claimSentAt = Date.now();
+      step = "claim";
       const answer = await args.api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-preclaim-${index}`);
       const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
       claimedMachine = typeof machine === "string" ? machine : null;
@@ -1114,14 +1125,17 @@ export async function runPreclaimBurst(args: {
       let postBindLoginMs: number | null = null;
       let postBindLoginWhy: string | null = "the claim answered no machine";
       if (typeof machine === "string") {
+        step = "wait running";
         await waitMachine(args.api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
         if (loginMode === "post-bind") {
+          step = "post-bind login";
           const copyAt = Date.now();
           await installPreclaimLogin(args.api, machine, directExec(args.api, machine, args.journey), programs, args.login, index, args.team ? "owner or team" : "owner");
           postBindLoginMs = Date.now() - copyAt;
           postBindLoginWhy = null;
         }
       }
+      step = "login receipt";
       const receiptAt = Date.now();
       const receiptInstalled = typeof machine === "string" ? await spareLoginReceipt(args.cmux, args.api, stateDir, args.install.token, prepared, machine) : false;
       if (typeof machine === "string" && loginMode === "preclaim") {
@@ -1133,12 +1147,14 @@ export async function runPreclaimBurst(args: {
       let claimToFirstTextMs: number | null = null;
       let replyNotJudged: string | null = null;
       if (typeof machine === "string") {
+        step = "first chat";
         const chat = await runPreclaimChat(directExec(args.api, machine, args.journey), `preclaim-${args.tag}-${index}`, `Reply with one short sentence for preclaim ${index}.`, 300_000);
         claimToFirstTextMs = chat.replyMs === null ? null : Date.now() - claimSentAt;
         firstChatMs = chat.chatMs;
         firstReplyMs = chat.replyMs;
         replyNotJudged = chat.replyNotJudged === null ? null : scrub(chat.replyNotJudged, args.journey.secrets).slice(0, 600);
       }
+      step = "health after";
       const healthAfter = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
       const platformHealthAfter = await platformHealth(platform);
       const met: Partial<PreclaimMetFields> = {
@@ -1158,9 +1174,9 @@ export async function runPreclaimBurst(args: {
         // The machine's own facts first: deleting it is the end of every log that says why.
         const guest = claimedMachine ? await preclaimGuestFacts(directExec(args.api, claimedMachine, args.journey), `preclaim-${args.tag}-${index}`) : undefined;
         if (claimedMachine) await args.api.deleteMachine(claimedMachine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
-        failures.push(preclaimFailureRecord(index, error, args.journey.secrets, claimedBehind, guest));
+        failures.push(preclaimFailureRecord(index, `${step}: ${String(error instanceof Error ? error.message : error)}`, args.journey.secrets, claimedBehind, guest));
         writeOutput();
-        throw error;
+        // Record it and go on: claim-path rows keep coming, and the burst still ends red (preclaimRunComplete).
       }
     }
   } finally {
