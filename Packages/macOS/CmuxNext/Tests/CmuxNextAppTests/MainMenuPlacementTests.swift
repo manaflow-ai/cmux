@@ -110,8 +110,8 @@ import Testing
         #expect(quits.map { $0.representedObject as? String } == ["quit"], "quit rows: \(app.items.map(\.title))")
         #expect(app.items.last?.representedObject as? String == "quit")
         #expect(quits.first?.keyEquivalent == "q")
-        for id in ["quitEndSessions", "quitEndEverything"] {
-            #expect(MainMenu.removedMainMenuActionIDs.contains(ActionID(id)), "\(id) is not a palette-only row")
+        for id: ActionID in ["quitEndSessions", "quitEndEverything"] {
+            #expect(MainMenu.removedMainMenuActionIDs.contains(id), "\(id) is not a palette-only row")
         }
     }
 
