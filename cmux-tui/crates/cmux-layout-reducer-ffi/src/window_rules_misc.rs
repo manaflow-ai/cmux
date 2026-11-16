@@ -2,7 +2,9 @@
 //! `window_history_*`, `window_remote_*`, `window_browser_*`,
 //! `window_files_*`, `window_appearance_*`): their tables and refusals.
 
-use cmux_window_rules::{appearance, browser, files, history, notifications, remote, screen_share};
+use cmux_window_rules::{
+    appearance, browser, files, history, notifications, remote, restore, screen_share,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -136,8 +138,17 @@ struct Keymap {
     changed: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RestoreOrder {
+    #[serde(default)]
+    windows: Vec<restore::SavedWindow>,
+    adopted: Option<String>,
+}
+
 /// The domains whose ops this module answers.
-const DOMAINS: [&[u8]; 6] = [
+const DOMAINS: [&[u8]; 7] = [
+    b"window_restore_",
     b"window_notifications_",
     b"window_history_",
     b"window_remote_",
@@ -154,6 +165,11 @@ pub(crate) fn handles(operation: &[u8]) -> bool {
 /// One op of the smaller window handlers.
 pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let answer = match operation {
+        // Which saved windows a launch makes now (the front one) and which follow, one per turn.
+        b"window_restore_order" => {
+            let request: RestoreOrder = read(request)?;
+            value(restore::order(&request.windows, request.adopted.as_deref()))?
+        }
         // Which unread tabs a notification verb acknowledges and opens.
         b"window_notifications_plan" => {
             let request: Unread = read(request)?;
