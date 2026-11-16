@@ -226,6 +226,8 @@ struct Decision {
 pub(crate) struct Gate {
     decided: StdMutex<HashMap<String, Decision>>,
     done: Notify,
+    /// Each restore of a copy under way: its holder, step and deadline ([`Holds`]).
+    holds: Holds,
 }
 
 impl Gate {
@@ -473,7 +475,7 @@ impl Hub {
                     hub.peer(&peer).is_some_and(|p| (p.generation, p.link_epoch()) == l)
                 };
                 let key = (peer.as_str(), mux.as_str(), created_at);
-                let Some(hold) = hub.peer_snapshots.holds.take(key, link, current).await else {
+                let Some(hold) = hub.peer_snapshots.restoring.holds.take(key, link, current).await else {
                     held.insert(mux);
                     continue;
                 };
