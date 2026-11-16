@@ -42,7 +42,8 @@ jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 50
+    # The gate step alone may take 60 minutes, beside Rust setup and the report.
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
@@ -127,7 +128,9 @@ jobs:
       - name: Run v2 gate measures
         if: steps.done.outputs.cache-hit != 'true'
         continue-on-error: true
-        timeout-minutes: 20
+        # The whole gate script took 1,805 s at a cold native build (cmux-ci run 43709036687:
+        # cmux-tui-core-lib 954 s, row 7c) on an 8-CPU runner; this job runs on 4.
+        timeout-minutes: 60
         working-directory: cmux-tui
         run: |
           set -o pipefail

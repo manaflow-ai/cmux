@@ -183,7 +183,14 @@ if [ -n "$REPORT_DIR" ]; then
   export CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" CMUX_PAGES_METAFILE="$REPORT_DIR/pages.json"
 fi
 "$ROOT/scripts/cmux-next/build-agent-pane-web.sh" --out "$(out "$PANE")"
-"$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
+# The Pages build also bundles the artifact iframe runtime; a report run records that graph too.
+# It goes to this builder alone: the webviews app names its own sidecar, so no two share a file.
+if [ -n "$REPORT_DIR" ]; then
+  CMUX_ARTIFACT_RUNTIME_METAFILE="$REPORT_DIR/pages-artifact-runtime.json" \
+    "$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
+else
+  "$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
+fi
 "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
 "$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
 # In-tree, the committed page was checked above.

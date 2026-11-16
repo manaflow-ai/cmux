@@ -180,6 +180,17 @@ finish_host_build() {
 fail_host_build() {
   [[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py fail-host "$host_root" "$1" || true
 }
+# The stall window for this build: 8 min, not the wrapper's 15. Six healthy nightly-next-one Release builds on
+# 2026-11-15 (both nightly Macs, Xcode 26.6, clean DerivedData, 127 to 367 s) went at most 27 s without an
+# xcodebuild line; run 43673773157's deadlock went silent about a minute in. The CPU condition still has to hold.
+export CMUX_XCODEBUILD_STALL_SECONDS="${CMUX_XCODEBUILD_STALL_SECONDS:-480}"
+# Where run-xcodebuild-with-diagnostics.sh keeps a stalled build's `sample` of its build service: on the host,
+# outside RUNNER_TEMP (the runner empties that at the next job), one folder per run attempt, the last 30 days.
+if [[ -z "${CMUX_XCODEBUILD_STALL_DIR:-}" ]]; then
+  stall_root="$HOME/Library/Logs/cmux-ci/xcodebuild-stall"
+  find "$stall_root" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} + 2>/dev/null || true
+  export CMUX_XCODEBUILD_STALL_DIR="$stall_root/${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${GITHUB_JOB:-job}"
+fi
 # A build on the fleet cache that fails for any reason retries once with Xcode's local cache, keeping the
 # build's incremental inputs. The fleet cache has failed in one form after another (a corrupt object, a missing
 # module key, a precompile's "CAS operation failed", a compiler crash reading the CAS; runs 42100189059,
@@ -207,6 +218,10 @@ if [[ -n "$release_retry" ]]; then
   run_release_build 1 2>&1 | tee "$RUNNER_TEMP/nightly-release-build-retry.log"
   retry_status=${PIPESTATUS[0]}
   set -e
+  if [[ "$retry_status" -eq 124 ]]; then
+    stall_samples="$(find "$CMUX_XCODEBUILD_STALL_DIR" -name '*.sample.txt' 2>/dev/null | sort | paste -sd' ' - || true)"
+    echo "::error::the Release build stalled again on its retry, with a new build service; the build service's stacks: ${stall_samples:-none taken (see $CMUX_XCODEBUILD_STALL_DIR)}"
+  fi
   [[ "$retry_status" -eq 0 ]] || { fail_host_build "$retry_status"; exit "$retry_status"; }
   summarize_release_build "$RUNNER_TEMP/nightly-release-build-retry.log" "$([[ $build_cache == fleet ]] && echo fallback || echo "$build_cache")"
   finish_host_build

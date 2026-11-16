@@ -46,6 +46,11 @@ if ! [[ "$stall_seconds" =~ ^[0-9]+$ && "$stall_cpu_seconds" =~ ^[0-9]+([.][0-9]
   exit 2
 fi
 stalled_status=124
+# Before ending a stalled build, the wrapper samples its build service's stacks
+# into this directory: run 43673773157's deadlock was diagnosed only from a
+# `sample` someone took by hand on the runner. The error names the file.
+stall_dir="${CMUX_XCODEBUILD_STALL_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/xcodebuild-stall}"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
 
 set +e
 collect_process_tree() {
@@ -96,6 +101,49 @@ build_tree_snapshot() {
       n = split(t, p, ":"); s = 0
       for (i = 1; i <= n; i++) s = s * 60 + p[i]
       printf "%d %.2f\n", $1, s + d * 86400 }' | sort -n
+}
+
+# The build service this build started (SWBBuildService, XCBBuildService on
+# older Xcodes): looked up only in the build's own process tree, never by name
+# across the host, where another job's build service may be running.
+build_service_pid() {
+  local pid
+  for pid in $(collect_process_tree "$child_pid"); do
+    if ps -o args= -p "$pid" 2>/dev/null | grep -Eq '(^|/)(SWB|XCB)BuildService( |$)'; then
+      printf '%s\n' "$pid"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Samples the stalled build's build service (or xcodebuild, when it started
+# none) for 5 seconds with macOS `sample`, writes the build's process tree
+# beside it, prints the sample's top of stack, and prints the sample's path.
+sample_stalled_build() {
+  local stamp target what sample_file sampler
+  stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+  if target="$(build_service_pid)"; then what=build-service; else target="$child_pid"; what=xcodebuild; fi
+  mkdir -p "$stall_dir" 2>/dev/null || true
+  sample_file="$stall_dir/xcodebuild-stall-$stamp-$what-$target.sample.txt"
+  ps -o pid=,ppid=,time=,stat=,command= -p "$(collect_process_tree "$child_pid" | paste -sd, -)" \
+    >"$stall_dir/xcodebuild-stall-$stamp.ps.txt" 2>/dev/null || true
+  if ! command -v sample >/dev/null 2>&1; then
+    echo "stall sample: no sample command on this host (not macOS); none taken" >&2
+    return 0
+  fi
+  sampler=()
+  [[ -x "$script_dir/timeout.sh" ]] && sampler=("$script_dir/timeout.sh" --kill-after=5 60)
+  if ! ${sampler[@]+"${sampler[@]}"} sample "$target" 5 -file "$sample_file" >/dev/null 2>&1 || [[ ! -s "$sample_file" ]]; then
+    echo "stall sample: sample $target failed; see the process tree in $stall_dir" >&2
+    return 0
+  fi
+  {
+    echo "--- top of stack of the stalled $what (pid $target), from $sample_file ---"
+    awk '/^Sort by top of stack/ { show = 1; print; next } show && NF == 0 { exit } show && n++ < 15 { print }' \
+      "$sample_file" 2>/dev/null || true
+  } >&2
+  printf '%s\n' "$sample_file"
 }
 
 # Keep a copy of the build output so a failure can repeat its compiler errors
@@ -158,10 +206,11 @@ trap 'handle_signal 15' TERM
     fi
     idle=$((now_epoch - idle_since))
     [[ "$idle" -ge "$stall_seconds" ]] || continue
-    echo "::error::xcodebuild stalled: no output, no process started or ended, and under ${stall_cpu_seconds}s of CPU for ${idle}s (after ${elapsed}s); ending it with status $stalled_status so the build can be retried"
     echo "--- stalled build process tree ---"
     ps -o pid=,ppid=,time=,stat=,command= -p "$pids" 2>/dev/null | cut -c1-300 || true
-    : >"$output_dir/stalled"
+    sample_file="$(sample_stalled_build)"
+    echo "::error::xcodebuild stalled: no output, no process started or ended, and under ${stall_cpu_seconds}s of CPU for ${idle}s (after ${elapsed}s); ending it with status $stalled_status so the build can be retried; build service stacks: ${sample_file:-none taken (see $stall_dir)}"
+    printf '%s\n' "$sample_file" >"$output_dir/stalled"
     terminate_child
     break
   done

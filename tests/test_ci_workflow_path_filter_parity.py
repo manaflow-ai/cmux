@@ -65,6 +65,13 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
         "earns its Release compile before promotion; the base-red classifier runs "
         "only on pushes",
     ),
+    # The push trigger only registers the workflow on feat-cmux-next for its dispatch half (its jobs skip on a
+    # push); pull requests take no path filter, since the plan decides.
+    "cmux-next-hot-verify.yml": (
+        "paths",
+        frozenset({".github/workflows/cmux-next-hot-verify.yml"}),
+        "a push of this file registers the workflow for dispatch on feat-cmux-next; no job runs on a push",
+    ),
 }
 
 # name -> (filter, pull-request-only patterns, why). The mirror allowance: only

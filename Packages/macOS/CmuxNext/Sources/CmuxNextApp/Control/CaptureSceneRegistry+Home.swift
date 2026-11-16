@@ -62,7 +62,7 @@ extension CaptureSceneRegistry {
         }
         page.show(ConversationID(chief))
         // An empty field: an earlier long-draft scene in this app leaves its draft there.
-        page.host.flatMap(HomePageTab.transcript(in:))?.debugSetDraft("")
+        page.host.flatMap(HomeNativeTranscriptView.first(in:))?.debugSetDraft("")
         let statuses: Set<HomeAgentGlance.Status> = Set(agents.map(\.0.status)).union([.needsYou])
         let start = ContinuousClock.now
         frames.start()
@@ -70,7 +70,7 @@ extension CaptureSceneRegistry {
             until: {
                 guard terminal.tab.agent?.state == .blocked, agents.allSatisfy({ $0.0.reached($0.1) }),
                       let host = page.host, host.window != nil, !host.isHiddenOrHasHiddenAncestor,
-                      let transcript = HomePageTab.transcript(in: host), transcript.debugFirstRunShown else { return false }
+                      let transcript = HomeNativeTranscriptView.first(in: host), transcript.debugFirstRunShown else { return false }
                 return statuses.isSubset(of: transcript.debugFirstRunAgents.filter(\.shown).map(\.status))
             },
             start: start,
@@ -78,7 +78,7 @@ extension CaptureSceneRegistry {
             deadline: 10_000,
         )
         let frameStats = frames.stop()
-        let transcript = page.host.flatMap(HomePageTab.transcript(in:))
+        let transcript = page.host.flatMap(HomeNativeTranscriptView.first(in:))
         var report: [String: CmuxNextSettings.JSONValue] = ["chief": .string(chief), "home_frames": frameStats]
         report["shown"] = page.shown.map { CmuxNextSettings.JSONValue.string($0.rawValue) } ?? .null
         report["first_run_shown"] = .bool(transcript?.debugFirstRunShown ?? false)
@@ -186,7 +186,7 @@ extension CaptureSceneRegistry {
             owner: { _, body in capture.owner(body) }, isSignedIn: { true }, ownInstall: { "inst_capture_mac" },
             presenceKeys: { throw CancellationError() })
         bridge.start()
-        let section = { controller.window?.contentView.flatMap(HomePageTab.transcript(in:))?.pinnedSection as? FeedNeedsYouSection }
+        let section = { controller.window?.contentView.flatMap(HomeNativeTranscriptView.first(in:))?.pinnedSection as? FeedNeedsYouSection }
         frames.start()
         let shown = await frames.settled(until: { (section()?.waiting ?? 0) > 0 }, start: .now, window: 100, deadline: 8_000)
         var report: [String: CmuxNextSettings.JSONValue] = ["shown_frames": frames.stop(), "connected": .bool(capture.connected)]
@@ -205,7 +205,7 @@ extension CaptureSceneRegistry {
             capture.notifyPending()
         }
         report["acpmux_and_feed"] = .array((capture.infoReads + capture.ops).map { .string($0) })
-        report["view"] = .string((try? await services.feed.daemon.view(.needsYou)).map { "transcript \(controller.window?.contentView.flatMap(HomePageTab.transcript(in:)) != nil) pinned \(services.settings?.snapshot.homeNeedsYouInChief ?? false) settled \($0.isSettled) \($0.connection?.state ?? "-") \($0.connection?.reason ?? "-") needs_you \($0.items(in: "needs_you").count)" } ?? "unread")
+        report["view"] = .string((try? await services.feed.daemon.view(.needsYou)).map { "transcript \(controller.window?.contentView.flatMap(HomeNativeTranscriptView.first(in:)) != nil) pinned \(services.settings?.snapshot.homeNeedsYouInChief ?? false) settled \($0.isSettled) \($0.connection?.state ?? "-") \($0.connection?.reason ?? "-") needs_you \($0.items(in: "needs_you").count)" } ?? "unread")
         guard shown != nil, case .object(let drawn)? = row, drawn["matched"]?.boolValue == true else {
             return .object(report.merging(["error": .string("Needs you never drew the prompt"), "scene": .string(scene)]) { $1 })
         }

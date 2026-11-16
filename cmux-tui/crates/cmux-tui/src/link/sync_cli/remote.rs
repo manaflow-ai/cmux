@@ -12,6 +12,9 @@ use base64::Engine as _;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
+mod batch;
+pub(super) use batch::{Whole, read_at_most};
+
 /// Bytes per `fs.write` line: the daemon takes 12 MiB, so a part stays
 /// under it with room for the request around its base64.
 pub(super) const PART_BYTES: usize = 8 * 1024 * 1024;

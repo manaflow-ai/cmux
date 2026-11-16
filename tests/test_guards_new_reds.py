@@ -470,6 +470,98 @@ class ANewItemInABaseRedStepIsTheChanges(unittest.TestCase):
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn("14 guard steps red on this change, 0 red on the base too", done.stdout)
 
+    def test_interpreter_shutdown_noise_is_not_a_new_failure_name(self):
+        # cmux#43507 (job 132737397395): "Validate base-red excusal" failed the same way on both sides, but the head's
+        # output also held CPython's shutdown warning `sys:1: ResourceWarning: unclosed file <...>`, so `sys:0` was a
+        # name the base's failure lacked and the step was charged to the change. Shutdown noise names nothing.
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old, "41")
+        head[self.WIRED] += ("\n" + "." * 40 + "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>"
+                             "\nResourceWarning: Enable tracemalloc to get the object allocation traceback"
+                             "\nsys:1: ResourceWarning: unclosed <socket.socket fd=7, family=2, type=1, proto=6>")
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red on this change, 14 red on the base too", done.stdout)
+
+    def test_a_real_new_name_beside_shutdown_noise_is_still_the_changes(self):
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old + ["tests/test_portable_jobs_bring_their_python.py"], "41")
+        head[self.WIRED] += "\nsys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>"
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("tests/test_portable_jobs_bring_their_python.py", done.stdout)
+        self.assertNotIn("sys:0", done.stdout)
+
+
+class AWarningLineIsNotAFailureName(unittest.TestCase):
+    """hq#11346, hq#11216: "Validate base-red excusal for gh-merge-green" failed the same way on the head and the base,
+    but the head's output also held CPython's `sys:1: ResourceWarning: unclosed file <...>`, so `sys:0` was a name the
+    base's failure lacked and the guard group charged the step to the change (#43287, #43307, #43573, #43445). Any
+    Python warning line (`<file>:<line>: <Category>Warning: ...`, its source echo, the bare tracemalloc hint) names
+    nothing that failed. A real new name beside one still counts, and a failure that is only warnings stays unexcused."""
+
+    WIRED = ANewItemInABaseRedStepIsTheChanges.WIRED
+    NOISE = [
+        "." * 40 + "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>",
+        "ResourceWarning: Enable tracemalloc to get the object allocation traceback",
+        "sys:1: ResourceWarning: unclosed <socket.socket fd=7, family=2, type=1, proto=6>",
+        "<ROOT>/scripts/ci/base_red_excuse.py:812: DeprecationWarning: datetime.datetime.utcnow() is deprecated",
+        "  now = datetime.datetime.utcnow()",
+        "<frozen importlib._bootstrap>:488: RuntimeWarning: numpy.ndarray size changed",
+        "/usr/lib/python3/dist-packages/urllib3/connectionpool.py:1100: urllib3.exceptions.InsecureRequestWarning: "
+        "Unverified HTTPS request is being made to host 'example.invalid'",
+        "  warnings.warn(",
+        "tests/test_keychain.py:41: UserWarning: keychain_probe_skipped fell back to the login keychain",
+    ]
+
+    def setUp(self):
+        self.cases = ANewItemInABaseRedStepIsTheChanges()
+
+    def compare(self, head, base):
+        return self.cases.compare(head, base)
+
+    def outputs(self, unwired, seed):
+        return self.cases.outputs(unwired, seed)
+
+    def test_warning_lines_beside_the_bases_own_failure_are_excused(self):
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old, "41")
+        head[self.WIRED] += "\n" + "\n".join(self.NOISE)
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("sys:0", done.stdout)
+        self.assertIn("0 guard steps red on this change, 14 red on the base too", done.stdout)
+
+    def test_a_real_new_name_beside_warning_lines_is_still_the_changes(self):
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old + ["tests/test_portable_jobs_bring_their_python.py"], "41")
+        head[self.WIRED] += "\n" + "\n".join(self.NOISE)
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"::error title=Guard red on this change::{self.WIRED}", done.stdout)
+        self.assertIn("its head failure names what the base's does not: tests/test_portable_jobs_bring_their_python.py",
+                      done.stdout)
+        self.assertNotIn("sys:0", done.stdout)
+
+    def test_a_failure_that_is_only_warnings_is_not_excused(self):
+        # Fails closed: the step is red but its output names nothing once the warnings are gone, so the head and base
+        # failures cannot be compared.
+        head = self.outputs(["tests/test_cargo_locks.py"], "41")
+        head[self.WIRED] = "\n".join(self.NOISE)
+        done = self.compare(head, self.outputs(["tests/test_cargo_locks.py"], "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"{self.WIRED}: red on the base too, but its failures cannot be compared", done.stdout)
+
+    def test_a_warning_category_inside_a_failure_line_keeps_the_test_name(self):
+        import guards_new_reds
+
+        names = guards_new_reds.failure_names([
+            "FAILED tests/test_keychain.py::test_probe - DeprecationWarning: probe() is deprecated",
+            "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>",
+        ])
+        self.assertIn("tests/test_keychain.py::test_probe", names)
+        self.assertFalse({name for name in names if name.startswith("sys")}, names)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -53,9 +53,11 @@ carries into the signed notes.
 With no person: cmux-next-media.yml's nightly tour (a push to nightly-next) builds the previous
 nightly tip and the new one. `plan` (run on Linux by the route job, so a tip whose only change is a
 highlight and its spec still gets a Mac) lists the New and Improved highlights that have a spec, no
-`clip:` line and a role not published yet: the ones the new tip adds, then the ones added in the
-CLIP_REANNOUNCE_DAYS before it (an earlier tour left them waiting, or their spec came later), at
-most PLAN_LIMIT. The tour job writes each spec as a tour.py tour (`write-tours`) and runs them on the
+`clip:` line and a role not published yet (an Improved one with a `clip:` line too, for its before
+alone: the line is its after): the ones the new tip adds, then the ones added in the
+CLIP_REANNOUNCE_DAYS before it (an earlier tour left them waiting, or their spec came later), and
+last the ones whose tour already failed with the same spec (publish-auto's whats-new/ID/
+clip-auto-ROLE.failed.json marker), at most PLAN_LIMIT. The tour job writes each spec as a tour.py tour (`write-tours`) and runs them on the
 new tip's app (the clip) and, for an improvement, on the app of the commit before its highlight (its
 before): the previous tip's for the ones the tip adds, and for an earlier one the parent of the
 commit that added it, one such extra app a tour (PLAN_EXTRA_BEFORES). `publish-auto` renders each from the tour's capture.mov (or its stills), checks it
@@ -103,7 +105,7 @@ URL_PREFIX = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/whats-new/"
 CLIP_LINE = re.compile(r"^clip:\s*(?P<url>\S+)\s*\|\s*(?P<sha256>[0-9a-f]{64})\s*$", re.M)
 ID = re.compile(r"[a-z0-9][a-z0-9-]{0,79}")
 SPEC_KEYS = {"caption", "frameInterval", "settings", "launch_args", "steps", "crop", "hold", "lead", "app", "env",
-             "appearance"}
+             "appearance", "harnessFixture"}
 # What a clip records: the Mac app (a tour.py tour on the media Mac) or the iPhone app (a fleet simulator step).
 APPS = ("mac", "iphone")
 # An iPhone step: nothing taps the simulator's screen, so a step waits while the demo driver moves the app,
@@ -196,6 +198,11 @@ def spec_problems(spec: Any) -> list[str]:
         out += iphone_problems(spec)
     elif "env" in spec or "appearance" in spec:
         out.append("env, appearance: an iPhone spec's (\"app\": \"iphone\")")
+    # The acpmux harnesses the tour's daemon starts with (tour.py `harnessFixture`; {repo} is the checkout).
+    fixture = spec.get("harnessFixture")
+    if fixture is not None and not (app == "mac" and isinstance(fixture, dict) and set(fixture) <= {"harnesses", "health"}
+                                    and isinstance(fixture.get("harnesses", {}), dict)):
+        out.append('harnessFixture: a Mac tour\'s acpmux harness fixture, {"harnesses": {...}}')
     return out
 
 
@@ -443,6 +450,36 @@ def auto_url(clip_id: str, role: str) -> str:
     return f"{URL_PREFIX}{clip_id}/clip-auto-{role}.webp"
 
 
+def failed_path(clip_id: str, role: str) -> str:
+    """Where publish-auto marks a planned clip whose tour gave no clip: {"tip": SHA, "spec": SHA256}."""
+    return f"whats-new/{clip_id}/clip-auto-{role}.failed.json"
+
+
+def failed_url(clip_id: str, role: str) -> str:
+    return URL_PREFIX + failed_path(clip_id, role).removeprefix("whats-new/")
+
+
+def spec_digest(clip_id: str, specs: Path | None = None) -> str:
+    """The spec file's SHA-256: a failure marker counts only for the spec it was recorded with, so a repaired
+    spec is planned as a new one."""
+    path = (SPECS if specs is None else specs) / f"{clip_id}.json"
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+
+
+def failure_marker(url: str) -> dict | None:
+    """A failure marker on pr-media, or None when there is none (or it cannot be read: the row then plans as
+    never tried, as before markers existed)."""
+    import urllib.error
+    import urllib.request
+    request = urllib.request.Request(url, headers={"User-Agent": "cmux-whats-new-clips/1"})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            marker = json.loads(response.read(4096).decode())
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+    return marker if isinstance(marker, dict) else None
+
+
 def published(url: str) -> bool:
     import urllib.error
     import urllib.request
@@ -470,7 +507,7 @@ def tour_from_spec(spec: dict, title: str) -> dict:
     steps = [{**{k: v for k, v in step.items() if k not in CAPTURE_ONLY_STEP_KEYS}, "shot": False}
              for step in spec["steps"]]
     tour = {"title": title, "steps": steps}
-    for key in ("settings", "launch_args"):
+    for key in ("settings", "launch_args", "harnessFixture"):
         if key in spec:
             tour[key] = spec[key]
     return tour
@@ -512,52 +549,74 @@ def highlight_rows(base: str, head: str, root: Path = ROOT, days: int = CLIP_REA
 
 def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=published,
          root: Path = ROOT, days: int = CLIP_REANNOUNCE_DAYS, extra_befores: int = PLAN_EXTRA_BEFORES,
-         app: str | None = None) -> list[dict]:
+         app: str | None = None, marker=None) -> list[dict]:
     """With APP, only the specs that record that app (the media workflow plans "mac", the iPhone clips
     workflow "iphone"; each has its own LIMIT). The highlights the tour records (highlight_rows): New or Improved, a valid spec, no `clip:` line, and
-    a role whose clip is not on pr-media yet. Each row's `before` is the commit its before is recorded on;
+    a role whose clip is not on pr-media yet; an Improved one with a `clip:` line records its before alone (the
+    line is its after, and release-notes.py shows the two as a pair). Each row's `before` is the commit its before is recorded on;
     at most EXTRA_BEFORES rows have one other than base (each is another app to build), and a row past
-    that records its after now and its before on a later tour. Writes each one's tour to TOURS/ID.json."""
+    that records its after now and its before on a later tour. Writes each one's tour to TOURS/ID.json.
+
+    MARKER (failure_marker; None reads none) reads a role's failure marker (failed_url): a row whose tour
+    already failed with this same spec goes after every row not yet tried, in the same order, so a spec that
+    keeps failing never holds a slot a newer highlight needs (four failing specs took all four slots for
+    the 7 days, and a highlight added after them shipped with no clip). It still records when slots are left."""
     git = lambda *a: run(["git", "-C", str(root), *a], text=True).stdout
     validate = tour_module().load_tour
-    rows, others, waiting = [], set(), 0
+    specs = root / "release-notes/next/clips"
+    fresh, tried = [], []
     for path, before in highlight_rows(base, head, root, days):
         clip_id = Path(path).stem
         if not path.endswith(".md") or not ID.fullmatch(clip_id):
             continue
         meta = front_matter(git("show", f"{head}:{path}"))
         category = meta.get("category", "new").lower() or "new"
-        if category not in {"new", "improved"} or "clip" in meta:
+        clip_line = "clip" in meta
+        if category not in {"new", "improved"} or (clip_line and category != "improved"):
             continue
         try:
-            spec = load_spec(clip_id, root / "release-notes/next/clips")
-            iphone = is_iphone(spec)
-            if app is not None and spec.get("app", "mac") != app:
-                continue
-            roles = [role for role in AUTO_ROLES[:2 if category == "improved" else 1]
-                     if not exists(auto_url(clip_id, role))]
-            # An iPhone clip's before builds on its own simulator step, never in the Mac tour's base slot.
-            if not iphone and "before" in roles and before != base and before not in others \
-                    and len(others) >= extra_befores:
-                roles.remove("before")  # no app for its commit this tour; a later tour records it
-            if not roles:
-                continue
-            if len(rows) >= limit:
-                waiting += 1
-                continue
-            if not iphone:
-                tours.mkdir(parents=True, exist_ok=True)
-                tour = tours / f"{clip_id}.json"
-                tour.write_text(json.dumps(tour_from_spec(spec, meta.get("title") or clip_id), indent=2) + "\n")
-                validate(tour)
+            spec = load_spec(clip_id, specs)
         except ClipError as error:
             if "no spec" not in str(error):
                 print(f"::warning title=What's New clip::{clip_id}: {error}")
             continue
-        except Exception as error:  # tour.py's TourError: the spec has a step tour.py cannot run
-            (tours / f"{clip_id}.json").unlink(missing_ok=True)
-            print(f"::warning title=What's New clip::{clip_id}: not a tour: {error}")
+        except ValueError as error:  # a spec that is not JSON
+            print(f"::warning title=What's New clip::{clip_id}: {error}")
             continue
+        if app is not None and spec.get("app", "mac") != app:
+            continue
+        roles = [role for role in AUTO_ROLES[:2 if category == "improved" else 1]
+                 if not (clip_line and role == "after") and not exists(auto_url(clip_id, role))]
+        if not roles:
+            continue
+        digest = spec_digest(clip_id, specs)
+        failed = marker is not None and any((marker(failed_url(clip_id, role)) or {}).get("spec") == digest
+                                            for role in roles)
+        (tried if failed else fresh).append((clip_id, category, before, spec, meta, roles))
+    if tried:
+        print(f"::notice title=What's New clip::{len(tried)} whose tour already failed with the same spec go last")
+    rows, others, waiting = [], set(), 0
+    for clip_id, category, before, spec, meta, roles in fresh + tried:
+        iphone = is_iphone(spec)
+        # An iPhone clip's before builds on its own simulator step, never in the Mac tour's base slot.
+        if not iphone and "before" in roles and before != base and before not in others \
+                and len(others) >= extra_befores:
+            roles = [role for role in roles if role != "before"]  # no app for its commit this tour; a later tour records it
+        if not roles:
+            continue
+        if len(rows) >= limit:
+            waiting += 1
+            continue
+        if not iphone:
+            try:
+                tours.mkdir(parents=True, exist_ok=True)
+                tour = tours / f"{clip_id}.json"
+                tour.write_text(json.dumps(tour_from_spec(spec, meta.get("title") or clip_id), indent=2) + "\n")
+                validate(tour)
+            except Exception as error:  # tour.py's TourError: the spec has a step tour.py cannot run
+                (tours / f"{clip_id}.json").unlink(missing_ok=True)
+                print(f"::warning title=What's New clip::{clip_id}: not a tour: {error}")
+                continue
         row = {"id": clip_id, "category": category, "roles": roles}
         if iphone:
             row["app"] = "iphone"
@@ -736,14 +795,18 @@ def render_tour(clip_id: str, tour_dir: Path, out: Path, keep: Path | None = Non
     return report
 
 
-def publish_auto(rows: list[dict], results: Path, scratch: Path) -> list[str]:
+def publish_auto(rows: list[dict], results: Path, scratch: Path, tip: str = "", specs: Path | None = None) -> list[str]:
     """Renders each planned clip from RESULTS/ROLE/ID (the tour's folders), then checks them all and puts
     them at auto_url. A clip that does not render is left out with a warning; a refusal uploads nothing.
     The check reads each clip's frames as PNGs (the cropped frames the encoder made it from), never the
     animated WebP: the Linux OCR (pr_media_ocr_tesseract.py, Leptonica) reads a .webp as one still and cannot
     decode an animated one, so it refused every clip as unreadable. pr-media-privacy.yml reads the pushed
-    clips again with Vision."""
-    files, problems = [], []
+    clips again with Vision.
+
+    A clip left out gets a failure marker at failed_path ({"tip": TIP, "spec": its spec's SHA-256}), which
+    the next plan reads to put that row after the ones not tried yet. A marker that cannot be written is a
+    warning: the row then plans as before."""
+    files, problems, failed = [], [], []
     # tour.py names a tour's folder by the slug of its file's name (40 characters at most).
     folder = tour_module().slug
     for row in rows:
@@ -757,21 +820,33 @@ def publish_auto(rows: list[dict], results: Path, scratch: Path) -> list[str]:
                     raise ClipError("the encoder kept no frames to check")
             except (ClipError, OSError, ValueError) as error:
                 problems.append(f"{row['id']} {role}: {error}")
+                if ID.fullmatch(row["id"]) and role in AUTO_ROLES:
+                    failed.append((row["id"], role))
                 continue
             files.append((f"whats-new/{row['id']}/clip-auto-{role}.webp", local, row["id"], role, frames))
-    if not files:
-        return problems
-    pr_media = pr_media_module()
-    if pr_media.privacy_module().ocr_binary() is None:
-        raise ClipError("publish-auto reads every frame first, and no OCR is set up")
-    # One check for all of them: a refusal names paths and kinds only, and uploads nothing. Each frame is
-    # named under its clip's path, so a refusal says which clip and frame.
-    pr_media.check_privacy([(f"{path}.frames/{frame.name}", frame)
-                            for path, _, _, _, frames in files for frame in frames], REPO)
-    for path, local, clip_id, role, _ in files:
-        pr_media.put_file(REPO, BRANCH, path, local, f"What's New clip: {clip_id} ({role}, nightly tour)",
-                          checked=True)
-        print(auto_url(clip_id, role))
+    if files:
+        pr_media = pr_media_module()
+        if pr_media.privacy_module().ocr_binary() is None:
+            raise ClipError("publish-auto reads every frame first, and no OCR is set up")
+        # One check for all of them: a refusal names paths and kinds only, and uploads nothing. Each frame is
+        # named under its clip's path, so a refusal says which clip and frame.
+        pr_media.check_privacy([(f"{path}.frames/{frame.name}", frame)
+                                for path, _, _, _, frames in files for frame in frames], REPO)
+        for path, local, clip_id, role, _ in files:
+            pr_media.put_file(REPO, BRANCH, path, local, f"What's New clip: {clip_id} ({role}, nightly tour)",
+                              checked=True)
+            print(auto_url(clip_id, role))
+    if failed:
+        markers = {}
+        for clip_id, role in failed:
+            local = scratch / f"{clip_id}-{role}.failed.json"
+            local.write_text(json.dumps({"tip": tip, "spec": spec_digest(clip_id, specs)}) + "\n")
+            markers[failed_path(clip_id, role)] = local
+        try:
+            # JSON of hex digits only; put_files still reads it through the privacy check.
+            pr_media_module().put_files(REPO, BRANCH, markers, f"What's New clips: {len(markers)} tour(s) failed (nightly tour)")
+        except Exception as error:  # MediaError, a lost push race: the rows plan as never tried
+            problems.append(f"failure markers not written: {type(error).__name__}")
     return problems
 
 
@@ -835,6 +910,7 @@ def main(argv: list[str] | None = None) -> int:
     u = sub.add_parser("publish-auto")
     u.add_argument("--plan", type=Path, required=True)
     u.add_argument("--results", type=Path, required=True)
+    u.add_argument("--tip", default=os.environ.get("GITHUB_SHA", ""), help="the nightly tip its failure markers name")
     i = sub.add_parser("iphone-runs")
     i.add_argument("--plan", type=Path, required=True)
     c = sub.add_parser("count")
@@ -861,7 +937,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(record_iphone(a.id, simctl, a.udid, a.bundle_id, a.app, a.out)))
             return 0
         if a.command == "plan":
-            rows = plan(a.base, a.head, a.tours, a.limit, app=a.app)
+            rows = plan(a.base, a.head, a.tours, a.limit, app=a.app, marker=failure_marker)
             a.out.write_text(json.dumps(rows, indent=2) + "\n")
             print(len(rows))
             return 0
@@ -885,7 +961,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if a.command == "publish-auto":
             with tempfile.TemporaryDirectory(prefix="whats-new-clips-") as tmp:
-                for problem in publish_auto(json.loads(a.plan.read_text()), a.results, Path(tmp)):
+                for problem in publish_auto(json.loads(a.plan.read_text()), a.results, Path(tmp), a.tip):
                     print(f"::warning title=What's New clip::{problem}")
             return 0
         if a.command == "check":

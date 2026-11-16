@@ -20,7 +20,10 @@ public struct CloudCarrierResolver: CloudLinkResolver {
     }
 
     public func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
-        guard let serve else { throw CloudLinkError.helperNotRunning(reason: "no bundled cmux-tui") }
+        guard let serve else {
+            CloudCarrierServe.log.error("carrier link: no bundled cmux-tui, so no carrier for this machine")
+            throw CloudLinkError.helperNotRunning(reason: "no bundled cmux-tui")
+        }
         let socket = try await serve.socketPath()
         // The grant's answer on this child's latest connected line; the record's creator rule only before any.
         let answered = await serve.answer
@@ -134,6 +137,7 @@ public actor CloudCarrierServe {
         do {
             try process.startHoldingInput()
         } catch {
+            Self.log.error("carrier supervise \(self.connector.dial.machine, privacy: .public): did not start: \(error.localizedDescription, privacy: .public)")
             finish(Result.failure(CloudLinkError.helperNotRunning(reason: "cmux carrier supervise did not start: \(error.localizedDescription)")))
             return nil
         }
@@ -160,7 +164,10 @@ public actor CloudCarrierServe {
     private func received(_ text: String, from process: ChildProcess) {
         guard process === supervisor,
               let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return }
-        if let read = object["read_token"] as? UInt64 {
+        if let step = object["log"] as? String {
+            // One link step, worded, bounded and stripped of credentials by the supervisor (`supervise_wire::log_line`).
+            Self.log.notice("carrier supervise \(self.connector.dial.machine, privacy: .public): \(String(step.prefix(500)), privacy: .public)")
+        } else if let read = object["read_token"] as? UInt64 {
             readToken(read, for: process)
         } else if let ids = object["resume"] as? [UInt64] {
             var result: Result<String, CloudLinkError> = if let socket = object["socket"] as? String { .success(socket) } else {
@@ -192,7 +199,7 @@ public actor CloudCarrierServe {
     /// ``tokenReadDeadline`` an access token, `fenced` or why there is none.
     private func readToken(_ read: UInt64, for process: ChildProcess) {
         let (connector, machine, deadline) = (connector, connector.dial.machine, readDeadline)
-        Self.log.info("carrier supervise \(machine, privacy: .public): token read \(read) asked")
+        Self.log.notice("carrier supervise \(machine, privacy: .public): token read \(read) asked")
         // task-owner: one token read, ended by its answer or its deadline; the supervisor drops an answer whose launch moved on
         Task.detached(priority: .userInitiated) {
             let started = ContinuousClock.now
@@ -202,7 +209,7 @@ public actor CloudCarrierServe {
             let kind = reply["env"] != nil ? "env" : reply["fenced"] != nil ? "fenced" : "error"
             let ms = Int(started.duration(to: .now) / .milliseconds(1))
             if wrote {
-                Self.log.info("carrier supervise \(machine, privacy: .public): token read \(read) answered \(kind, privacy: .public) after \(ms) ms")
+                Self.log.notice("carrier supervise \(machine, privacy: .public): token read \(read) answered \(kind, privacy: .public) after \(ms) ms")
             } else {
                 Self.log.error("carrier supervise \(machine, privacy: .public): token read \(read) answer (\(kind, privacy: .public)) did not reach the supervisor after \(ms) ms")
             }
@@ -251,7 +258,10 @@ public actor CloudCarrierServe {
         return first
     }
 
-    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.carrier")
+    /// The carrier link's steps, one line each. Notice and error only: release builds persist those, so
+    /// `log show --predicate 'subsystem == "com.cmuxterm.app.next" AND category == "cloud.carrier"'` reads a
+    /// nightly's link failure; an info or debug line is not kept (tests/test_cloud_carrier_os_log.py).
+    static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.carrier")
 
     private func exited(_ process: ChildProcess, status: Int32) {
         guard process === supervisor else { return }
@@ -260,6 +270,11 @@ public actor CloudCarrierServe {
         held = nil
         answer = nil
         let ended = stopped ? Self.closed : Self.supervisorExited(status: status, stderr: process.stderrText)
+        if stopped {
+            Self.log.notice("carrier supervise \(self.connector.dial.machine, privacy: .public): exited with status \(status) after a stop")
+        } else {
+            Self.log.error("carrier supervise \(self.connector.dial.machine, privacy: .public): \(String(String(describing: ended).prefix(500)), privacy: .public)")
+        }
         refusal = ended
         finish(.failure(ended))
     }
