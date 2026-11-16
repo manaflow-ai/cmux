@@ -147,7 +147,7 @@
       "owner": "PL-acpmux (HOT PATH AUDIT area F: hpa-stream)"
     },
     "agent-chat-token-rows": {
-      "what": "one streamed token's pass over the agent chat's rows in the pane (App.tsx turnRowsShown: the subagent lines, turns.ts turnViewFrom, the layout); each pass starts at the first changed row (prefixFlatMap.ts noteKeptPrefix), so a long chat costs what a short one does",
+      "what": "one streamed token's pass over the agent chat's rows in the pane (App.tsx turnRowsShown: the started chat cards, the subagent lines, turns.ts turnViewFrom, the layout); each pass starts at the first changed row (prefixFlatMap.ts noteKeptPrefix), so a long chat costs what a short one does",
       "bench": "cd webviews && PAIRED=1 CLOCK=cpu bun bench/transcript-replay.bench.ts --only long (god/small p95 ratio of token and thought), and FIXTURE=god PROFILE=1 for the steps that grow with rows",
       "owner": "agent chat (CMUX-571)"
     },
