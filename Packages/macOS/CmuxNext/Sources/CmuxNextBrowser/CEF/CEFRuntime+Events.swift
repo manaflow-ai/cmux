@@ -372,7 +372,11 @@ extension CEFRuntime {
     /// thread pool's shutdown tasks and child processes, under load), and in most of those
     /// quits the quit deadline ended the process inside it, before Chromium's own cookie
     /// flush finished. The flush here runs first, while the main thread is free.
-    func shutdown(timeout: Duration, beforeEngineStop: @MainActor () async -> Void = {}) async {
+    func shutdown(timeout: Duration) async {
+        await shutdown(timeout: timeout, beforeEngineStop: {})
+    }
+
+    func shutdown(timeout: Duration, beforeEngineStop: @MainActor () async -> Void) async {
         if state == .loading {
             // The library is still mapping: never initialize after quit began.
             state = .shutDown
