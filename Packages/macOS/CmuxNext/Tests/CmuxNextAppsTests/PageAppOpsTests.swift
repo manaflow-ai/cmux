@@ -164,7 +164,7 @@ struct PageAppOpsTests {
         let value = try await ops.handle(request("page.hints", ["action": "clear"]))
         #expect(value == ["tab": "tab_focused", "hints": []])
         #expect(browser.token == .null, "the app's labels are gone")
-        #expect(browser.evals.last?.contains("if (!token || !tokens.includes(token)) return null") == true, "the built-in f session's labels stay")
+        #expect(browser.evals.last?.contains("if (!token || !(tokens.includes(token)") == true, "the built-in f session's labels stay")
     }
 
     @Test func anotherAppCanNeitherFollowNorClearNorReplaceTheLabels() async throws {

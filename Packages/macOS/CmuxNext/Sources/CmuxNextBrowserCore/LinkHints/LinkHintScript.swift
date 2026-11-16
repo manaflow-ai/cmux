@@ -22,7 +22,7 @@ public nonisolated extension LinkHintSession {
       // typed (a password, a draft), never a name.
       const shown = (node) => !node || node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable ||
         /^(textbox|searchbox|combobox)$/.test(node.getAttribute('role') || '') ||
-        node.querySelector('textarea,[contenteditable]:not([contenteditable=false]),[role=textbox],[role=searchbox]') ? '' : node.innerText || '';
+        node.querySelector('textarea,[contenteditable]:not([contenteditable=false]),[role=textbox],[role=searchbox],[role=combobox]') ? '' : node.innerText || '';
       const width = innerWidth, height = innerHeight, out = [];
       for (const element of document.querySelectorAll(selector)) {
         if (element.disabled || element.closest('[inert],[aria-hidden=true]')) continue;
