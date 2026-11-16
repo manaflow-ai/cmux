@@ -10721,6 +10721,15 @@
           },
           "description": "For example origin/main."
         },
+        "github_repo": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "With github: true, the owner/name of the upstream's remote (else origin) when its URL is on github.com, for example manaflow-ai/cmux. Absent otherwise."
+        },
         "base": {
           "required": false,
           "type": {
@@ -28319,6 +28328,14 @@
               "min_length": 1
             },
             "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "github": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Also read github_repo, the GitHub owner/name of the upstream's remote (else origin). One more git run, so it is off unless asked."
           }
         },
         "extra": false
