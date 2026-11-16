@@ -344,3 +344,93 @@ fn pr08_mirror_local_row_thirty() {
     }
     assert!(capped_p95 <= 10_000_000, "local row p95 under 30 units over 10 ms: {capped_p95} ns");
 }
+
+/// Where `v2.pr08.mirror_local_row_thirty`'s time goes: per cap, the local row's
+/// submit-to-publish and, for the turns until it publishes, the log sync and the four unit
+/// parts (build, append, apply, publish), with the changes those turns wrote.
+#[test]
+#[ignore = "release measurement; run with --ignored --release --nocapture"]
+fn pr08_mirror_local_row_thirty_probe() {
+    let mut god = fixture(11_000, ORIGINS, 16_000);
+    thirty_sample(&mut god);
+    let alone: Vec<u128> = (0..90).map(|_| local_sample(&mut god, false)).collect();
+    let mut alone = alone;
+    eprintln!("probe alone p50 {} p95 {}", p50(&mut alone.clone()), p95(&mut alone));
+    for cap in [MAX_TURN_UNIT_CHANGES, 1_536, 1_024, 512, usize::MAX] {
+        god.writer.mirror.turn_changes = cap;
+        let mut totals = Vec::new();
+        let mut syncs = Vec::new();
+        let mut parts = [0u128; 4];
+        let mut turns = 0usize;
+        let mut changed = 0usize;
+        let mut compacting = 0usize;
+        let samples = 90;
+        for _ in 0..samples {
+            let cursor = god.next;
+            god.next += 1;
+            for origin in 0..ORIGINS {
+                let name = format!("peer-{origin:02}");
+                let changes = (0..MAX_UNIT_CHANGES)
+                    .map(|n| {
+                        UnitChange::Summary(Box::new(row(&name, format!("big-{n:05}"), cursor)))
+                    })
+                    .collect();
+                let unit = MirrorUnit {
+                    origin: name.clone(),
+                    after: god.hub.mirror_mark(&name),
+                    changes,
+                    mark: MirrorMark { cursor, edition: 3, whole: true },
+                };
+                god.hub.submit_unit(Source::Mirror, unit).expect("unit");
+            }
+            let key = RowKey::new("local", format!("local-{:05}", cursor % 20));
+            let published = |hub: &Hub| {
+                hub.snapshot().get_row(&key).is_some_and(|row| row.last_activity == cursor)
+            };
+            let before = god.hub.mirror_counts().applied;
+            let started = Instant::now();
+            god.hub.submit(row("local", key.chat_id.to_string(), cursor)).expect("local row");
+            let mut sync = 0;
+            while !published(&god.hub) {
+                god.writer.process_batch();
+                turns += 1;
+                sync += god.writer.turn_measure.sync_ns;
+                compacting += usize::from(god.writer.compaction.is_some());
+                for (sum, part) in parts.iter_mut().zip(god.writer.turn_measure.unit_ns) {
+                    *sum += part;
+                }
+            }
+            totals.push(started.elapsed().as_nanos().max(1));
+            syncs.push(sync);
+            changed += (god.hub.mirror_counts().applied - before) as usize * MAX_UNIT_CHANGES;
+            while (0..ORIGINS).any(|origin| {
+                god.hub.mirror_mark(&format!("peer-{origin:02}")).map(|mark| mark.cursor)
+                    != Some(cursor)
+            }) {
+                god.writer.process_batch();
+            }
+        }
+        let n = samples as u128;
+        let unit_ns: u128 = parts.iter().sum();
+        eprintln!(
+            "probe cap {cap}: total p50 {} p95 {}; sync p50 {} p95 {}; turns/sample {:.2}; changes before publish/sample {}; mean ns build {} append {} apply {} publish {}; ns per change {}; compacting turns {}",
+            p50(&mut totals.clone()),
+            p95(&mut totals),
+            p50(&mut syncs.clone()),
+            p95(&mut syncs),
+            turns as f64 / samples as f64,
+            changed / samples,
+            parts[0] / n,
+            parts[1] / n,
+            parts[2] / n,
+            parts[3] / n,
+            unit_ns / (changed as u128).max(1),
+            compacting,
+        );
+    }
+}
+
+fn p50(values: &mut [u128]) -> u128 {
+    values.sort_unstable();
+    values.get(values.len() / 2).copied().unwrap_or(0)
+}
