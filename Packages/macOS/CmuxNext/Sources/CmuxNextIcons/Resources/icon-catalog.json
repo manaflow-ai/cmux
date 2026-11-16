@@ -1510,6 +1510,13 @@
    "denseStyle": "solid"
   },
   {
+   "name": "radio.off",
+   "meaning": "Option not chosen, todo not done (an empty ring)",
+   "sf": "circle",
+   "family": "radio",
+   "alias": false
+  },
+  {
    "name": "radio.on",
    "meaning": "Chosen option (filled dot in a ring)",
    "sf": "largecircle.fill.circle",

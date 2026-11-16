@@ -3,10 +3,10 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { SceneSymbol, appSceneIcon } from "./SceneSymbol";
 
-type Set = "weather" | "time-calendar" | "todo" | "unmapped";
+type SymbolSet = "weather" | "time-calendar" | "todo" | "unmapped";
 
 // The SF Symbols widgets name (weather, clock, calendar, todo); the native sidebar draws the system symbol.
-const SETS: Record<Set, string[]> = {
+const SETS: Record<SymbolSet, string[]> = {
   weather: [
     "sun.max",
     "sun.max.fill",
@@ -80,7 +80,7 @@ const SETS: Record<Set, string[]> = {
   unmapped: ["not.a.real.symbol", "cloud.hail", "tornado", "figure.walk", "sparkles.rectangle.stack", "airpods"],
 };
 
-function SceneSymbols({ set = "weather" }: { set?: Set }) {
+function SceneSymbols({ set = "weather" }: { set?: SymbolSet }) {
   return (
     <div
       style={{
@@ -112,7 +112,7 @@ const ready: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector("[data-symbol] svg") !== null);
 };
 
-export default componentEntry<{ set?: Set }>({
+export default componentEntry<{ set?: SymbolSet }>({
   id: "apps.scene-symbols",
   title: "App scene SF symbols",
   area: "Apps",

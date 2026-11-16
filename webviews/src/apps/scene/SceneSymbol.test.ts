@@ -124,6 +124,10 @@ describe("scene SF symbols", () => {
     expect(appSceneIconFilled("cloud.rain.fill")).toBe(true);
     expect(appSceneIconFilled("largecircle.fill.circle")).toBe(true);
     expect(appSceneIconFilled("cloud.rain")).toBe(false);
+    // Already filled in Line; its Solid form is a selected swatch's ring.
+    expect(appSceneIconFilled("circle.fill")).toBe(false);
+    // The fallback dot never draws its Solid ring.
+    expect(appSceneIconFilled("cloud.hail.fill")).toBe(false);
   });
 
   // An unmapped name (a symbol this table lacks) draws a quiet dot, never the pack's "?" box.

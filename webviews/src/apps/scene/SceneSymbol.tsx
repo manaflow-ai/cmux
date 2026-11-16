@@ -23,7 +23,7 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   "checkmark.square.fill": "checkbox.on",
   square: "checkbox.off",
   checklist: "tunable.tasks",
-  circle: "state.idle",
+  circle: "radio.off",
   "circle.fill": "color.swatch",
   "largecircle.fill.circle": "radio.on",
   xmark: "action.close",
@@ -123,13 +123,23 @@ export function appSceneIcon(value: unknown): string {
   return resolve(bundledIconPack, sceneText(value));
 }
 
-/** Whether a scene symbol draws Solid: an SF `.fill` name. */
-export function appSceneIconFilled(value: unknown): boolean {
-  const name = sceneText(value);
-  return name.endsWith(".fill") || name.includes(".fill.");
+/** `.fill` names whose glyph is already filled in Line; their Solid form means something else (a
+ *  selected swatch's ring). */
+const LINE_FILLED = new Set(["circle.fill"]);
+
+function drawsSolid(value: string, icon: string): boolean {
+  if (icon === SCENE_FALLBACK_ICON || LINE_FILLED.has(value)) return false;
+  return value.endsWith(".fill") || value.includes(".fill.");
 }
 
-/** Unknown SF names deliberately draw the neutral fallback without an icon-pack warning. */
+/** Whether a scene symbol draws Solid: an SF `.fill` name the pack draws as a known glyph. */
+export function appSceneIconFilled(value: unknown): boolean {
+  const name = sceneText(value);
+  return drawsSolid(name, appSceneIcon(name));
+}
+
+/** Unknown SF names deliberately draw the neutral fallback without an icon-pack warning, unfitted so it
+ *  stays a small dot rather than being scaled up to the shared glyph box. */
 export function SceneSymbol({
   symbol,
   size = 14,
@@ -142,8 +152,17 @@ export function SceneSymbol({
   className?: string;
 }) {
   const { pack } = useIcons();
-  const name = resolve(pack, sceneText(symbol));
+  const value = sceneText(symbol);
+  const name = resolve(pack, value);
   return (
-    <Icon name={name} selected={appSceneIconFilled(symbol)} size={size} row fit color={color} className={className} />
+    <Icon
+      name={name}
+      selected={drawsSolid(value, name)}
+      size={size}
+      row
+      fit={name !== SCENE_FALLBACK_ICON}
+      color={color}
+      className={className}
+    />
   );
 }

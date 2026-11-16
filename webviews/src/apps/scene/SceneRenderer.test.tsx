@@ -245,6 +245,8 @@ test("a disabled container suppresses descendant row input; unknown symbols use 
   act(() => button.click());
   expect(calls).toEqual([]);
   expect(button.querySelector("svg")?.getAttribute("data-icon")).toBe(SCENE_FALLBACK_ICON);
+  // Unfitted: the dot keeps its small authored size instead of being scaled to the shared glyph box.
+  expect(button.querySelector("svg")?.getAttribute("viewBox")).toBe("2.5 2.5 19 19");
   expect(appSceneIcon("not.a.real.sf.symbol")).toBe(SCENE_FALLBACK_ICON);
 });
 
