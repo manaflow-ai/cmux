@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
@@ -31,8 +32,9 @@ import Testing
 /// journal (2026-11-16): key-ups with Command down came for shortcut letters; none of them was the T key.
 ///
 /// Frames are the app's own, and a test waits for one by an event (`NewTabPageAtItsFrameTests.frame`). No wait
-/// polls and no wait reads a clock: a page that the rule gives a tab comes at ONE frame, and a test asks after
-/// that one frame.
+/// for a page polls and no wait for a page reads a clock: a page that the rule gives a tab comes at ONE frame, and
+/// a test asks after that one frame. One fixture wait is of another kind and says so: the wait for a second pane
+/// of the store (`theEndOfAHoldGivesEachPaneThePageOfItsSelectedTab`), where two pages also come at two frames.
 ///
 /// The engine: each page view here is a real one, and each test prints the engine of each page view that it made
 /// (`engine-of-test:` in the run's output, with the case's name). The package's tests have no Chromium host, so
@@ -44,11 +46,13 @@ struct NewTabRepeatKeyTests {
     /// Key code of T, and of A (another key).
     private static let keyT: UInt16 = 17, keyA: UInt16 = 0
 
-    /// An event of the keyboard, as AppKit hands it to the application.
+    /// An event of the keyboard, as AppKit hands it to the application. Its time is the time when the test made
+    /// it, or `time`: the time that the system gave it, for an event that the app gets again later.
     private static func event(_ type: NSEvent.EventType, code: UInt16 = keyT, repeats: Bool = false, flags: NSEvent.ModifierFlags = .command,
-                              in window: NSWindow) throws -> NSEvent {
+                              in window: NSWindow, at time: TimeInterval? = nil) throws -> NSEvent {
         let text = type == .flagsChanged ? "" : (code == keyT ? "t" : "a")
-        return try #require(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+        let stamp: TimeInterval = time ?? ProcessInfo.processInfo.systemUptime
+        return try #require(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: stamp,
                                              windowNumber: window.windowNumber, context: nil, characters: text,
                                              charactersIgnoringModifiers: text, isARepeat: repeats, keyCode: code),
                             "AppKit made no \(type) event")
@@ -57,6 +61,15 @@ struct NewTabRepeatKeyTests {
     /// Dispatches `event` as the application does: `body` runs with it as the event in dispatch.
     private static func send(_ event: NSEvent, _ services: AppServices, _ body: () -> Void = {}) {
         services.inputDispatch.dispatching(event, body)
+    }
+
+    /// The app is no longer the active app. A key router of this app's input dispatch context on the test's own
+    /// center: a post to the default center reaches each observer of the test process. The router's init wires the
+    /// observer under test.
+    private static func resignActive(_ services: AppServices) {
+        let center = NotificationCenter()
+        let router = KeyRouter(registry: services.registry, inputDispatch: services.inputDispatch, center: center)
+        withExtendedLifetime(router) { center.post(name: NSApplication.didResignActiveNotification, object: nil) }
     }
 
     /// The New Tab key goes down in `pane`: the first key-down of a press (no repeat), or one of the system's repeats.
@@ -213,12 +226,7 @@ struct NewTabRepeatKeyTests {
             case .commandUp: Self.send(try Self.event(.flagsChanged, code: 55, flags: [], in: window), services)
             case .anotherKey: Self.send(try Self.event(.keyDown, code: Self.keyA, flags: [], in: window), services)
             case .repeatOfAnotherKey: Self.send(try Self.event(.keyDown, code: Self.keyA, repeats: true, flags: [], in: window), services)
-            case .appResignsActive:
-                // A key router of this app's input dispatch context on the test's own center: a post to the default
-                // center reaches each observer of the test process. The router's init wires the observer under test.
-                let center = NotificationCenter()
-                let router = KeyRouter(registry: services.registry, inputDispatch: services.inputDispatch, center: center)
-                withExtendedLifetime(router) { center.post(name: NSApplication.didResignActiveNotification, object: nil) }
+            case .appResignsActive: Self.resignActive(services)
             }
             await Self.expectOnePageForTheSelectedTab(after: held, "the end \(end.rawValue), answer \(order.rawValue)", in: pane, services, built)
             guard order == .afterTheEnd else { return }
@@ -373,6 +381,117 @@ struct NewTabRepeatKeyTests {
             Self.send(try Self.event(.keyUp, in: window), services)
             #expect(built() == held + 1, "\(built() - held - 1) page views were made in the key-up's own turn, before a frame")
             await Self.expectOnePageForTheSelectedTab(after: held + 1, "the key-up, after a reservation with the key down", in: pane, services, built)
+        }
+    }
+
+    /// A repeat that the app gets again after the key-up of its key. While the store has not answered a creation,
+    /// the window keeps each key-down and lets the key-up through; at the answer it sends the kept key-downs again,
+    /// as the events that the system made. A kept repeat that runs then is older than the key-up: no later event
+    /// ends a hold that it begins, and the selected tab would have no page for the life of that hold.
+    ///
+    /// The rule (decision 2026-11-16): a repeat that is older than an event that ends a hold begins no hold. Its tab
+    /// gets its page as the tab of a single key does, at the next frame.
+    ///
+    /// The two events have their times from the test, in the system's order (the repeat, then the key-up). NOT
+    /// proven here: that the window sends a kept repeat again in this way (a read of `CreationInputCoordinator`).
+    @Test func aRepeatDispatchedAgainAfterItsKeyUpBeginsNoHold() async throws {
+        try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-repeat-key-late") { services, window, pane, built in
+            let hold = services.inputDispatch.newTabHold
+            let made: TimeInterval = ProcessInfo.processInfo.systemUptime
+            let late = try Self.event(.keyDown, repeats: true, in: window, at: made - 2)
+            let up = try Self.event(.keyUp, in: window, at: made - 1)
+            // The app gets each of them once, in the system's order. The repeat opens nothing: the window keeps it.
+            Self.send(late, services)
+            Self.send(up, services)
+            try #require(!hold.isOn, "fixture: a hold is on before the kept repeat runs")
+
+            let before = built()
+            Self.send(late, services) { NewTabPage.open(in: pane, seed: nil) }
+            #expect(!hold.isOn, "a repeat that ran again after its key-up began a hold: no later event ends that hold")
+            await Self.expectOnePageForTheSelectedTab(after: before, "a repeat that ran again after its key-up", in: pane, services, built)
+        }
+    }
+
+    /// A repeat that the app gets again after the app is no longer the active app. A person holds the key and goes
+    /// to another app: the key-up goes there. A kept repeat that runs after that is older than the resign: no later
+    /// event ends a hold that it begins.
+    ///
+    /// The rule (decision 2026-11-16): a repeat that is no newer than the newest event that the app got before it
+    /// resigned begins no hold. The resign has no time of its own, and no line reads a clock for it.
+    @Test func aRepeatDispatchedAgainAfterTheAppResignedBeginsNoHold() async throws {
+        try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-repeat-key-late-resign") { services, window, pane, built in
+            let hold = services.inputDispatch.newTabHold
+            let made: TimeInterval = ProcessInfo.processInfo.systemUptime
+            let late = try Self.event(.keyDown, repeats: true, in: window, at: made - 1)
+            // The app gets the repeat once before it resigns. The repeat opens nothing: the window keeps it.
+            Self.send(late, services)
+            Self.resignActive(services)
+            try #require(!hold.isOn, "fixture: a hold is on before the kept repeat runs")
+
+            let before = built()
+            Self.send(late, services) { NewTabPage.open(in: pane, seed: nil) }
+            #expect(!hold.isOn, "a repeat that ran again after the app resigned began a hold: no later event ends that hold")
+            await Self.expectOnePageForTheSelectedTab(after: before, "a repeat that ran again after the app resigned", in: pane, services, built)
+        }
+    }
+
+    /// Two panes. A hold is on, begun by a repeat in the first pane. A New Tab page then opens in the second pane
+    /// with no event in dispatch (a command, not a key). The hold is the app's: the second pane makes no page for
+    /// its tab while the key is down. The end of the hold must give EACH pane the page of its selected tab.
+    ///
+    /// The frame rule makes one new page view at a frame, so the two pages come at two frames: the test asks after
+    /// the second frame. Where the keyboard is, and which pane's page comes first, are no claims of this test.
+    ///
+    /// The test owns the order: the store answered both opens before the end, and one frame ran between the second
+    /// pane's open and the end. The wait for the second pane of the store has a deadline that fails the test, as
+    /// the fixture's wait for the first pane has (`NewTabOpenFramesTests.focusedPane`); no claim of the rule waits
+    /// that way.
+    @Test func theEndOfAHoldGivesEachPaneThePageOfItsSelectedTab() async throws {
+        try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-repeat-key-two-panes") { services, window, pane, built in
+            let tabs = services.agentTabs
+            let content = try #require(services.windows.active?.workspaceContent, "fixture: the window has no workspace content")
+            // A second pane, with a terminal: its first tab is no New Tab page and makes no page view.
+            var opensTerminal = ActionInvocation(origin: .user)
+            opensTerminal.opensTerminal = true
+            try #require(services.registry.perform("splitRight", invocation: opensTerminal), "fixture: the split did not run")
+            @MainActor func second() -> PaneController? {
+                content.panes.values.first { $0 !== pane && !ProvisionalPane.isStandIn($0.pane.handle) }
+            }
+            try await PasswordManagerRouteTests.until({ second() != nil }, within: .seconds(30), report: { "waiting for the split's pane of the store" })
+            let other = try #require(second(), "fixture: no second pane of the store")
+            try #require(content.panes.values.contains { $0 === pane }, "fixture: the first pane is no pane of the window after the split")
+
+            let firstAnswer = StoreAnswer(), secondAnswer = StoreAnswer()
+            let held = try await Self.heldNewTabKey(repeats: 3, in: pane, window, services, lastAnswered: { firstAnswer.came($0) }, built)
+            #expect(built() == held, "\(built() - held) page views were made for the tabs of 3 repeats, with the key still down")
+            try #require(services.inputDispatch.newTabHold.isOn, "fixture: the 3 repeats began no hold")
+            _ = await firstAnswer.value()
+
+            // A New Tab page opens in the second pane, with no event in dispatch.
+            let secondCame: @MainActor (String) -> Void = { secondAnswer.came($0) }
+            NewTabPage.open(in: other, seed: nil, then: secondCame)
+            let real = await secondAnswer.value()
+            try #require(!ProvisionalTab.isProvisional(real) && tabs.isNewTabPage(real),
+                         "fixture: the store's answer \(real) is no New Tab page with a key of the store")
+            await NewTabPageAtItsFrameTests.frame(services)
+            let chosen = other.stripModel.selectedID?.rawValue
+            try #require(chosen.map { tabs.isNewTabPage($0) } == true,
+                         "fixture: the second pane's selected tab is no New Tab page: \(Self.state(of: other, services))")
+            #expect(built() == held, "\(built() - held) page views were made for the second pane's tab, with the key still down")
+
+            Self.send(try Self.event(.keyUp, in: window), services)
+            #expect(built() == held, "\(built() - held) page views were made in the key-up's own turn, before a frame")
+            for _ in 0..<2 { await NewTabPageAtItsFrameTests.frame(services) }
+            let panes: String = "first pane: \(Self.state(of: pane, services)); second pane: \(Self.state(of: other, services))"
+            #expect(built() == held + 2,
+                    "\(built() - held) page views were made by the second frame after the key-up; two are right, one for each pane; \(panes)")
+            for _ in 0..<2 { await NewTabPageAtItsFrameTests.frame(services) }
+            #expect(built() == held + 2, "\(built() - held) page views were made by the fourth frame after the key-up; two are right")
+            for (name, each) in [("first", pane), ("second", other)] {
+                let selected = each.stripModel.selectedID?.rawValue
+                #expect(each.currentTabKey == selected, "the \(name) pane does not show its selected tab after the key-up")
+                #expect(selected.map { tabs.existingView($0) != nil } == true, "the \(name) pane's selected tab has no page view after the key-up")
+            }
         }
     }
 }
