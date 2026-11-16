@@ -311,6 +311,7 @@ export interface AcpmuxRequests {
   "_acpmux/consent_grantor_trust": { params: unknown; result: unknown };
   "_acpmux/consent_account_set": { params: unknown; result: unknown };
   "_acpmux/consent_trust_refresh": { params: unknown; result: unknown };
+  "_acpmux/consent_screen_auto": { params: unknown; result: unknown };
   "_acpmux/machine_routes": { params: unknown; result: unknown };
   "_acpmux/machine_route_probe": { params: unknown; result: unknown };
   "_acpmux/machine_enroll": { params: unknown; result: unknown };
@@ -689,6 +690,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/consent_grantor_trust", kind: "request", acp: false, typed: false },
   { name: "_acpmux/consent_account_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/consent_trust_refresh", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/consent_screen_auto", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_routes", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_route_probe", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_enroll", kind: "request", acp: false, typed: false },

@@ -30,6 +30,17 @@
 //! - Once this machine is joined as another account, what was granted for the old one reads as
 //!   not given ([`super::machine_consent::for_account`]); pins and policy count only for their
 //!   account.
+//! - What is granted lives on this machine's disk, in the OS account's consent authority, keyed to
+//!   the account and this enrolled machine: never to a session, a process or a build. A daemon
+//!   restart, an app update or a replaced daemon reads the same grant (Leo, 2026-11-16: "i dont
+//!   want to have to click share this mac allow every single time when screen sharing").
+//! - A screen share reaches this machine from the device hub as a viewer device of the account.
+//!   [`screen_auto`] (`_acpmux/consent_screen_auto`) tells the app here whether it may skip its
+//!   per-connect prompt: only when this machine is joined, the effective consent for the surface
+//!   is on (local, machine or account) and the viewer's hub user is this machine's account. The
+//!   viewer's identity comes from the device hub, so a compromised hub could ask as a device of
+//!   the account once consent is on: the same exposure as the mesh adding a node to the book. The
+//!   grant itself still cannot be forged, and turning consent off here ends it.
 //! - Every outcome, accepted or refused, every pin and every local change is a line of
 //!   `grants.jsonl`.
 //!
@@ -364,8 +375,11 @@ pub fn parse(value: &Value) -> Result<Grant, Refusal> {
     if control == Change::Keep && screen == Change::Keep {
         return Err(bad("control and screen are both keep"));
     }
-    if account_wide && (control == Change::Default || screen == Change::Default) {
-        return Err(bad("default is for a per-machine grant"));
+    // The account policy is the newest account grant, whole, so it names both surfaces.
+    let sets = |change: Change| matches!(change, Change::On | Change::Off);
+    if account_wide && !(sets(control) && sets(screen)) && false {
+        // red stub
+        return Err(bad("an account grant sets control and screen on or off"));
     }
     let (issued_at, expires_at) = (number("issuedAt")?, number("expiresAt")?);
     let signature = value
@@ -478,6 +492,7 @@ pub(crate) fn signed_by(grant: &Grant, key: &[u8]) -> bool {
 /// `consent.json` with each changed surface's provenance, then the log. A refusal is logged too,
 /// and an unpinned grant whose key checks out leaves the one pending ask. `from` names the
 /// machine that carried it (a host the hub lists).
+#[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier's consent service
 pub(crate) fn apply(
     authority: &Authority,
     value: &Value,
@@ -636,6 +651,7 @@ fn read_policy(root: &Path) -> Option<(Grant, u64)> {
 }
 
 /// The account policy kept here for `account`, whole, as a peer verifies it.
+#[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier's consent service
 pub(crate) fn policy_grant(root: &Path, account: Option<&str>) -> Option<Value> {
     let kept: Value = read_json_opt(&root.join(POLICY))?;
     let grant = kept.get("grant")?;
@@ -644,6 +660,7 @@ pub(crate) fn policy_grant(root: &Path, account: Option<&str>) -> Option<Value> 
 }
 
 /// When the account policy kept here for `account` was issued.
+#[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier's consent service
 pub(crate) fn policy_issued_at(authority: &Authority, account: &str) -> Option<u64> {
     read_policy(authority.root())
         .filter(|(grant, _)| grant.account == account)
@@ -732,6 +749,7 @@ pub(crate) fn open_window(authority: &Authority, now: u64) -> Result<()> {
 }
 
 /// Whether the enrollment window is open at `now`.
+#[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier's consent service
 pub(crate) fn window_open(authority: &Authority, now: u64) -> bool {
     read_json_opt::<Value>(&authority.root().join(WINDOW))
         .and_then(|window| Some((window.get("opened")?.as_u64()?, window.get("until")?.as_u64()?)))
@@ -741,6 +759,7 @@ pub(crate) fn window_open(authority: &Authority, now: u64) -> bool {
 /// Pins `key` (named `name`) for `account` with no prompt, while the enrollment window is open:
 /// this machine's own app key, or one a listed peer of the account reported. True when it was
 /// not pinned before. Logs `pinned` with `via: "enroll"` and drops an ask for the same key.
+#[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier's consent service
 pub(crate) fn pin_enrolled(
     authority: &Authority,
     key: &[u8],
@@ -908,6 +927,73 @@ fn effective(authority: &Authority, account: Option<&str>) -> Value {
     Value::Object(out)
 }
 
+/// How long one viewer's repeated connects for one surface write a single `auto_allow` line.
+pub const AUTO_ALLOW_LOG_MS: u64 = 60_000;
+
+/// One viewer device's ask to share this machine (`_acpmux/consent_screen_auto`), as the device
+/// hub names it.
+#[derive(Clone, Debug, Default)]
+pub struct Viewer {
+    /// The hub's device id of the viewer.
+    pub id: String,
+    pub name: Option<String>,
+    /// The hub user the viewer is signed in as, when the hub said.
+    pub hub_user: Option<String>,
+}
+
+/// Whether the app here may skip its per-connect prompt for `viewer` on `surface` (`screen` or
+/// `control`) at `now`: `{allowed, source, reason?}`. Allowed only when this machine is joined
+/// (`account`), the viewer's hub user (when given) is that account, and the effective consent for
+/// the surface is on, from the person's setting here, this machine's grant or the account policy.
+/// An allowed answer logs `auto_allow`, once per viewer and surface in [`AUTO_ALLOW_LOG_MS`].
+pub(crate) fn screen_auto(
+    authority: &Authority,
+    account: Option<&str>,
+    surface: &str,
+    viewer: &Viewer,
+    now: u64,
+) -> Value {
+    return json!({"allowed": false, "source": "none", "reason": "stub"}); // red stub
+    let refuse =
+        |source: &str, reason: &str| json!({"allowed": false, "source": source, "reason": reason});
+    let Some(account) = account else {
+        return refuse("none", "not_joined");
+    };
+    if viewer.hub_user.as_deref().is_some_and(|user| user != account) {
+        return refuse("none", "account");
+    }
+    let effective = effective(authority, Some(account));
+    let on = effective.pointer(&format!("/{surface}/on")) == Some(&Value::Bool(true));
+    let source = effective
+        .pointer(&format!("/{surface}/source"))
+        .and_then(Value::as_str)
+        .unwrap_or("none")
+        .to_owned();
+    if !on || !matches!(source.as_str(), "local" | "machine" | "account") {
+        return refuse(&source, "consent_off");
+    }
+    let id = bounded(&viewer.id);
+    let recent = log_lines(authority.root(), MAX_LOG_LINES).iter().rev().any(|line| {
+        line["event"] == "auto_allow"
+            && line["surface"] == surface
+            && line["viewer"].as_str() == Some(id.as_str())
+            && line["at"].as_u64().is_some_and(|at| now.saturating_sub(at) < AUTO_ALLOW_LOG_MS)
+    });
+    if !recent && authority.prepare().is_ok() {
+        if let Ok(_lock) = lock_waiting(authority) {
+            let mut line = Map::new();
+            line.insert("at".into(), json!(now));
+            line.insert("event".into(), json!("auto_allow"));
+            line.insert("surface".into(), json!(surface));
+            line.insert("viewer".into(), json!(id));
+            put(&mut line, "name", viewer.name.as_deref());
+            line.insert("source".into(), json!(source));
+            let _ = append_log(authority.root(), Value::Object(line));
+        }
+    }
+    json!({"allowed": true, "source": source})
+}
+
 /// What `machine_consent_get` adds for `account`, this machine's account now: the grantors
 /// pinned for it, the pending ask made for it, the last lines of the log, the account policy,
 /// the effective consent and its sources, and this machine's own app key (`own`) with its words.
@@ -974,6 +1060,7 @@ pub(crate) fn list(authority: &Authority) -> Value {
 
 /// The carrier's `status` answer for `target`, and whether `grantor` (the asking Mac's id) is
 /// pinned here for this machine's account.
+#[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier's consent service
 pub(crate) fn remote_status(
     authority: &Authority,
     target: &Target,
@@ -1009,6 +1096,7 @@ pub(crate) fn remote_status(
 /// One carrier request (`{"op":"status","grantor"?}`, `{"op":"set","grant"}` or
 /// `{"op":"policy"}`) from the machine the hub book lists as `from`, and its answer. `policy`
 /// answers the account policy kept here, whole, which the asker verifies itself.
+#[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))] // the carrier's consent service
 pub(crate) fn handle_request(
     authority: &Authority,
     target: &Target,

@@ -1097,9 +1097,12 @@ pub(crate) fn consent_status_with_grants(
     own: Option<&super::consent_grant::OwnGrantor>,
 ) -> Value {
     let mut status = consent_status_for(params);
-    if let (Ok(authority), Some(fields)) = (authority(), status.as_object_mut()) {
-        let account = machine_user_id();
-        fields.extend(super::consent_grant::status_fields(&authority, account.as_deref(), own));
+    let account = machine_user_id();
+    if let Some(fields) = status.as_object_mut() {
+        if let Ok(authority) = authority() {
+            fields.extend(super::consent_grant::status_fields(&authority, account.as_deref(), own));
+        }
+        fields.insert("account".into(), json!(account));
     }
     status
 }

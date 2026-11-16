@@ -7,6 +7,8 @@
 //! - `_acpmux/consent_account_set {grant}`: an account-wide grant this Mac's own app key signed,
 //!   applied here, then handed to every listed machine of the account.
 //! - `_acpmux/consent_trust_refresh {}`: opens the enrollment window and collects the keys.
+//! - `_acpmux/consent_screen_auto {surface, viewerId, viewerName?, hubUser?}`: whether the app may
+//!   skip its per-connect prompt for a device hub viewer (`consent_grant::screen_auto`).
 
 use std::sync::Arc;
 
@@ -30,6 +32,7 @@ pub(super) async fn dispatch(
             | method::MUX_CONSENT_GRANTOR_TRUST
             | method::MUX_CONSENT_ACCOUNT_SET
             | method::MUX_CONSENT_TRUST_REFRESH
+            | method::MUX_CONSENT_SCREEN_AUTO
     ) {
         return None;
     }
@@ -41,6 +44,7 @@ pub(super) async fn dispatch(
         method::MUX_CONSENT_REMOTE_STATUS => remote_status(hub, params).await,
         method::MUX_CONSENT_ACCOUNT_SET => account_set(hub, params).await,
         method::MUX_CONSENT_TRUST_REFRESH => trust_refresh(hub).await,
+        method::MUX_CONSENT_SCREEN_AUTO => screen_auto(params).await,
         _ => remote_set(hub, params).await,
     })
 }
@@ -81,6 +85,41 @@ async fn trust(params: &Value) -> Result<Value, RpcError> {
         TrustError::Invalid(message) => RpcError::invalid_params(message),
         TrustError::Store => RpcError::internal("consent store unavailable"),
     })
+}
+
+/// `_acpmux/consent_screen_auto`: a device hub viewer's ask, decided by the store here.
+async fn screen_auto(params: &Value) -> Result<Value, RpcError> {
+    let text = |field: &str| {
+        params
+            .get(field)
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty() && text.len() <= 256)
+            .map(str::to_owned)
+    };
+    let surface = text("surface")
+        .filter(|surface| matches!(surface.as_str(), "screen" | "control"))
+        .ok_or_else(|| RpcError::invalid_params("surface must be screen or control"))?;
+    let viewer = crate::cli::consent_grant::Viewer {
+        id: text("viewerId").ok_or_else(|| RpcError::invalid_params("viewerId is required"))?,
+        name: text("viewerName"),
+        hub_user: text("hubUser"),
+    };
+    tokio::task::spawn_blocking(move || {
+        let account = crate::cli::cloud_join::machine_user_id();
+        let now = crate::store::now_ms();
+        match crate::cli::cloud_join::authority() {
+            Ok(authority) => crate::cli::consent_grant::screen_auto(
+                &authority,
+                account.as_deref(),
+                &surface,
+                &viewer,
+                now,
+            ),
+            Err(_) => json!({"allowed": false, "source": "none", "reason": "store"}),
+        }
+    })
+    .await
+    .map_err(|_| RpcError::internal("consent store unavailable"))
 }
 
 fn daemon_id(params: &Value) -> Result<String, RpcError> {

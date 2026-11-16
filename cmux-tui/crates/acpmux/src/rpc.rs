@@ -889,6 +889,9 @@ pub mod method {
     pub const MUX_CONSENT_ACCOUNT_SET: &str = "_acpmux/consent_account_set";
     /// `{}`: opens this machine's enrollment window and collects its app's and its peers' keys.
     pub const MUX_CONSENT_TRUST_REFRESH: &str = "_acpmux/consent_trust_refresh";
+    /// `{surface, viewerId, viewerName?, hubUser?}` -> `{allowed, source, reason?}`: whether the app
+    /// may skip its per-connect prompt for a device hub viewer of this account.
+    pub const MUX_CONSENT_SCREEN_AUTO: &str = "_acpmux/consent_screen_auto";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
     /// The person's other machines' workspace routes (`machine_routes.rs`): `{}` ->
     /// `{machines: [{host, daemonId, via, route, socket, state, refusal}]}`. Local socket only.

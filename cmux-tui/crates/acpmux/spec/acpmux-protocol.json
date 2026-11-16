@@ -2145,6 +2145,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/consent_screen_auto",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_routes",
       "params": true,
       "result": true

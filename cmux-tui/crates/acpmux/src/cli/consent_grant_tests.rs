@@ -593,6 +593,8 @@ fn default_drops_the_per_machine_record() {
     // `default` names a per-machine record; an account grant has none to drop.
     let bad = account_grant(&k, NOW, |g| g["control"] = json!("default"));
     assert_eq!(apply(&authority, &bad, &target(), None, NOW).unwrap_err().reason, MALFORMED);
+    let kept = account_grant(&k, NOW, |g| g["screen"] = json!("keep"));
+    assert_eq!(apply(&authority, &kept, &target(), None, NOW).unwrap_err().reason, MALFORMED);
 }
 
 #[test]
@@ -738,13 +740,13 @@ fn the_carrier_answers_the_policy_and_the_own_key_and_a_peer_verifies_it() {
     assert!(status["accountPolicy"].is_null());
     assert_eq!(status["effective"]["control"], json!({"on": false, "source": "none"}));
     pin(&authority, &k, ACCOUNT_ID);
-    let policy = account_grant(&k, NOW, |g| g["screen"] = json!("keep"));
+    let policy = account_grant(&k, NOW, |g| g["screen"] = json!("off"));
     apply(&authority, &policy, &here, None, NOW).unwrap();
     let handed = ask(json!({"op": "policy"}));
     assert_eq!(handed["grant"], policy);
     let status = ask(json!({"op": "status"}));
     assert_eq!(status["accountPolicy"]["control"], "on");
-    assert_eq!(status["accountPolicy"]["screen"], "keep");
+    assert_eq!(status["accountPolicy"]["screen"], "off");
     assert_eq!(status["effective"]["control"], json!({"on": true, "source": "account"}));
     // A peer that pinned the same key verifies and applies the handed policy itself.
     let (_peer_dir, peer) = fixture();
@@ -762,4 +764,95 @@ fn the_carrier_answers_the_policy_and_the_own_key_and_a_peer_verifies_it() {
     assert!(elsewhere["grant"].is_null());
     let own_fields = status_fields(&authority, Some(ACCOUNT_ID), Some(&own(&k)));
     assert_eq!(own_fields["ownGrantor"]["words"], json!(words(&public(&k))));
+}
+
+fn viewer(id: &str, hub_user: Option<&str>) -> Viewer {
+    Viewer { id: id.into(), name: Some("Leo's iPad".into()), hub_user: hub_user.map(str::to_owned) }
+}
+
+/// The same store as `authority`, opened again: what a restarted or replaced daemon reads.
+fn reopened(dir: &tempfile::TempDir, authority: &Authority) -> Authority {
+    Authority::at(authority.root().to_path_buf(), dir.path().join("tag"))
+}
+
+#[test]
+fn a_grant_survives_a_store_reload_and_later_connects_record_no_refusal_or_ask() {
+    let (dir, authority) = fixture();
+    let k = key();
+    pin(&authority, &k, ACCOUNT_ID);
+    apply(&authority, &account_grant(&k, NOW, |_| {}), &target(), None, NOW).unwrap();
+    let lines = log(&authority).len();
+    for _ in 0..2 {
+        let again = reopened(&dir, &authority);
+        let now = status(&again, Some(ACCOUNT_ID));
+        assert_eq!(consent_of(&now, "screen"), "granted");
+        assert_eq!(source(&now, "screen"), "account");
+        #[cfg(feature = "hub-carrier")]
+        {
+            assert!(crate::cmux_tui_service::admit(Some("127.0.0.1:7781"), &now, 7781).is_ok());
+            assert!(matches!(
+                crate::session_service::decide(&now, Some(ACCOUNT_ID)),
+                crate::session_service::Decision::Admit
+            ));
+        }
+        assert!(status_fields(&again, Some(ACCOUNT_ID), None)["grantorAsk"].is_null());
+    }
+    let after = log(&authority);
+    assert_eq!(after.len(), lines, "a connect writes no refusal and no ask");
+    assert!(after.iter().all(|line| line["event"] != "refused"));
+    // A later grant from the same key still counts after the reload: the pin persisted too.
+    let again = reopened(&dir, &authority);
+    let off = account_grant(&k, NOW + 1, |g| g["control"] = json!("off"));
+    apply(&again, &off, &target(), None, NOW + 1).unwrap();
+    assert_eq!(consent_of(&status(&authority, Some(ACCOUNT_ID)), "control"), "none");
+}
+
+#[test]
+fn screen_auto_allows_a_viewer_of_the_account_only_while_consent_is_on() {
+    let (dir, authority) = fixture();
+    let k = key();
+    let ipad = viewer("dev-ipad", Some(ACCOUNT_ID));
+    let never = screen_auto(&authority, Some(ACCOUNT_ID), "screen", &ipad, NOW);
+    assert_eq!(never, json!({"allowed": false, "source": "none", "reason": "consent_off"}));
+    pin(&authority, &k, ACCOUNT_ID);
+    apply(&authority, &account_grant(&k, NOW - 5_000, |_| {}), &target(), None, NOW).unwrap();
+    let allowed = screen_auto(&authority, Some(ACCOUNT_ID), "screen", &ipad, NOW);
+    assert_eq!(allowed, json!({"allowed": true, "source": "account"}));
+    // Repeated connects within a minute write one line; a later one writes another.
+    screen_auto(&authority, Some(ACCOUNT_ID), "screen", &ipad, NOW + 1_000);
+    let no_user = viewer("dev-ipad", None);
+    assert_eq!(screen_auto(&authority, Some(ACCOUNT_ID), "screen", &no_user, NOW)["allowed"], true);
+    let auto = |authority: &Authority| {
+        log(authority).into_iter().filter(|l| l["event"] == "auto_allow").collect::<Vec<_>>()
+    };
+    assert_eq!(auto(&authority).len(), 1);
+    assert_eq!(auto(&authority)[0]["viewer"], "dev-ipad");
+    assert_eq!(auto(&authority)[0]["name"], "Leo's iPad");
+    assert_eq!(auto(&authority)[0]["surface"], "screen");
+    screen_auto(&authority, Some(ACCOUNT_ID), "screen", &ipad, NOW + AUTO_ALLOW_LOG_MS + 1);
+    assert_eq!(auto(&authority).len(), 2);
+    // The answer persists in a fresh store.
+    let again = reopened(&dir, &authority);
+    assert_eq!(screen_auto(&again, Some(ACCOUNT_ID), "control", &ipad, NOW)["allowed"], true);
+    // Not joined, or a viewer of another hub user.
+    let unjoined = screen_auto(&authority, None, "screen", &ipad, NOW);
+    assert_eq!(unjoined["reason"], "not_joined");
+    assert_eq!(unjoined["allowed"], false);
+    let stranger = viewer("dev-other", Some(OTHER_ACCOUNT));
+    let other = screen_auto(&authority, Some(ACCOUNT_ID), "screen", &stranger, NOW);
+    assert_eq!(
+        (other["allowed"].as_bool(), other["reason"].as_str()),
+        (Some(false), Some("account"))
+    );
+    // A local Off here, then an account Off.
+    authority.set("screen", false).unwrap();
+    let local = screen_auto(&authority, Some(ACCOUNT_ID), "screen", &ipad, NOW);
+    assert_eq!(local, json!({"allowed": false, "source": "local", "reason": "consent_off"}));
+    let revoke = account_grant(&k, NOW, |g| {
+        g["control"] = json!("off");
+        g["screen"] = json!("off");
+    });
+    apply(&authority, &revoke, &target(), None, NOW).unwrap();
+    let off = screen_auto(&authority, Some(ACCOUNT_ID), "control", &ipad, NOW);
+    assert_eq!(off, json!({"allowed": false, "source": "account", "reason": "consent_off"}));
 }
