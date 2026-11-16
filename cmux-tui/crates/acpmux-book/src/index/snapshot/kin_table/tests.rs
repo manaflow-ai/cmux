@@ -303,9 +303,10 @@ fn cold_descendant_keeps_ancestor_path_through_hot_parent() {
     let child_offset = offset(2);
     let child_entries: Vec<_> =
         actual.iter().filter(|entry| entry.offset == child_offset).collect();
-    assert_eq!(child_entries.len(), 2);
+    assert_eq!(child_entries.len(), 3);
     assert!(child_entries.iter().any(|entry| entry.depth == 1));
     assert!(child_entries.iter().any(|entry| entry.depth == 2));
+    assert!(child_entries.iter().any(|entry| entry.depth == 3));
 }
 
 #[test]
