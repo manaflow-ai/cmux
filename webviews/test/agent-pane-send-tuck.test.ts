@@ -20,6 +20,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { MOTION_SEND_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 type Box = { left: number; top: number; width: number; height: number };
 /// One frame from the send: the time since the send's key went down, what the composer still holds,
@@ -66,7 +67,7 @@ await requireBrowserLane("agent-pane-send-tuck.test.ts", async () => {
   });
 
   const port = () => (pane!.httpServer!.address() as { port: number }).port;
-  const prompt = (page: Page) => page.locator('.acpmux-composer-prompt [contenteditable="true"]');
+  const prompt = (page: Page) => page.locator(COMPOSER_EDITOR);
 
   /// The agent pane's dev entry with its in-page mock agent, three exchanges in, so the chat overflows.
   const openChat = async (page: Page) => {
@@ -121,20 +122,23 @@ await requireBrowserLane("agent-pane-send-tuck.test.ts", async () => {
   /// A screenshot pasted into the composer beside typed text, ready to send.
   const fillComposer = async (page: Page) => {
     await prompt(page).click();
-    await page.evaluate(async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 800;
-      canvas.height = 500;
-      const context = canvas.getContext("2d")!;
-      context.fillStyle = "#3a7bd5";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-      const data = new DataTransfer();
-      data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
-      document
-        .querySelector('.acpmux-composer-prompt [contenteditable="true"]')!
-        .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
+    await page.evaluate(
+      async ({ COMPOSER_EDITOR }) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 800;
+        canvas.height = 500;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = "#3a7bd5";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        const data = new DataTransfer();
+        data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
+        document
+          .querySelector(COMPOSER_EDITOR)!
+          .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { COMPOSER_EDITOR },
+    );
     await page.waitForFunction(() => {
       const image = document.querySelector<HTMLImageElement>(".acpmux-composer .acpmux-attachment img");
       return !!image && image.complete && image.naturalWidth > 0;
