@@ -115,6 +115,31 @@ struct DeviceHubStartupRecoveryTests {
         #expect(service.settingsModel.state.status.text == L.t("devices.status.signedOut", "Sign in to cmux to see your devices."))
     }
 
+    @Observable @MainActor final class RestoreState {
+        var restoring = true
+    }
+
+    /// While the saved sign-in restores, the pages say they are loading; once it ends signed out, they say sign in.
+    @Test func aRestoringAccountReadsAsLoadingThenSignedOut() async throws {
+        let pages = pages(), account = RestoreState()
+        let service = DeviceHubService(pages: pages, account: .init(awaitRestored: {}, userID: { nil },
+            accessToken: { throw CancellationError() }, isRestoring: { account.restoring }),
+            bundleIdentifier: "test.hub-recovery", loginKeychain: LoginKeychain())
+        defer { service.willSignOut() }
+        service.start(settings: settings())
+        let home = MacScreenHomeView(host: pages.host, actions: .init(), devices: .init(pages: pages))
+        #expect(MacScreenHomeSnapshot(home: home).devices == MacScreenHomeSnapshot.setupDevices(configured: true, restoring: true))
+        #expect(MacScreenHomeSnapshot(home: home).devices?.note == L.t("macScreen.home.devicesLoading", "Loading your devices…"))
+        #expect(service.settingsModel.state.available)
+        #expect(service.settingsModel.state.signIn == nil)
+        account.restoring = false
+        for await restoring in ObservationStream({ pages.hubRestoring }) where !restoring { break }
+        guard case .signedOut? = MacScreenHomeSnapshot(home: home).devices else {
+            Issue.record("a restore that ended signed out did not read as signed out")
+            return
+        }
+    }
+
     @Observable @MainActor final class AccountState {
         var user = "old"
     }

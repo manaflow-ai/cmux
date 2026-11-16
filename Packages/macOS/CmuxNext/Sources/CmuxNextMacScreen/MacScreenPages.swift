@@ -63,9 +63,16 @@ public final class MacScreenPages {
     /// Whether this build has a usable device hub address: always, unless a
     /// DEV build's `deviceHub.url` override is not valid. The home page says
     /// "sign in" when it does and asks to fix the address when it does not.
+    /// Only an address that is not valid makes it false: never a sign-out or a restore.
     public var hubConfigured: Bool {
         get { hubBox.configured }
         set { hubBox.configured = newValue }
+    }
+    /// The saved cmux sign-in is still being restored at launch: the pages say
+    /// they are loading, not "sign in" and not "fix the address".
+    public var hubRestoring: Bool {
+        get { hubBox.restoring }
+        set { hubBox.restoring = newValue }
     }
     /// Startup failure before a hub exists; cleared only on recovery or a changed account/address.
     var hubStartupError: String? {
