@@ -306,6 +306,11 @@ pub struct Supervisor {
     /// Connector links of the terminal interfaces (`terminal_ops.rs`).
     pub(super) terminals: super::terminal_links::Terminals,
     transactions: AtomicU64,
+    /// `apps-set` commits take turns here, so the supervisor lock is free
+    /// while one writes `apps.json` (`Supervisor::set`).
+    commits: Mutex<()>,
+    /// One `apps.json` write at a time (`Supervisor::persist`).
+    persisting: Mutex<()>,
     /// App host processes spawned (`safe_mode.rs` `host_spawns`).
     pub(super) host_spawns: AtomicU64,
     /// Keeping a last good copy and rolling back, serialized per app
@@ -444,6 +449,8 @@ impl Supervisor {
             me: me.clone(),
             terminals: Default::default(),
             transactions: AtomicU64::new(1),
+            commits: Mutex::new(()),
+            persisting: Mutex::new(()),
             host_spawns: AtomicU64::new(0),
             rollback_locks: Default::default(),
             local_reload_pass: Mutex::new(()),
@@ -534,43 +541,76 @@ impl Supervisor {
     /// `apps-set`: one validated commit of the install mirror. Every request
     /// ends with `request-settled`, rejects and no-ops included. The mirror
     /// is written to disk before it is applied; a failed write rejects.
+    ///
+    /// The write (an fsync, which a busy disk stretches to seconds) runs off
+    /// the supervisor lock, so no other apps request waits for it. Commits
+    /// take turns (`commits`); one whose mirror changed while it wrote (a
+    /// local reload seeds the customization app under the lock) reduces and
+    /// writes again, so no change is lost.
     pub fn set(&self, client: u64, op: SetOp) -> Result<Value, ApiError> {
         let app = op.app.clone();
         let transaction = format!("apps-{}", self.transactions.fetch_add(1, Ordering::Relaxed));
-        let (outs, result) = {
-            let mut inner = self.inner.lock().unwrap();
+        let turn = self.commits.lock().recover_poison();
+        let (outs, result) = loop {
+            let (base, staged) = {
+                let inner = self.inner.lock().recover_poison();
+                let facts = inner.catalog.packages.get(&app).map(Package::facts);
+                let staged = mirror::reduce(&inner.mirror, &Op::Set(op.clone()), facts.as_ref())
+                    .map_err(|r| ApiError::new(r.code(), r.message()));
+                (inner.mirror.clone(), staged)
+            };
+            // A no-op still records its key, so the key cannot be reused later.
+            let written = match &staged {
+                Ok(outcome) if !outcome.replayed => self
+                    .persist(&outcome.mirror)
+                    .map_err(|e| ApiError::new("apps.persist", format!("apps.json: {e}"))),
+                _ => Ok(()),
+            };
+            let mut inner = self.inner.lock().recover_poison();
+            if written.is_ok() && staged.as_ref().is_ok_and(|o| !o.replayed) && inner.mirror != base
+            {
+                continue;
+            }
             let mut outs = Vec::new();
-            let result = self.commit_locked(&mut inner, op, &transaction, &mut outs).map(|()| {
-                let mut record =
-                    entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
-                // Lets a client drop list replies older than this commit.
-                record.set("revision", json!(inner.mirror.revision));
-                record
-            });
+            let result = written
+                .and(staged)
+                .map(|outcome| {
+                    if !outcome.replayed {
+                        self.apply_commit_locked(
+                            &mut inner,
+                            outcome,
+                            &app,
+                            &transaction,
+                            &mut outs,
+                        );
+                    }
+                })
+                .map(|()| {
+                    let mut record =
+                        entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
+                    // Lets a client drop list replies older than this commit.
+                    record.set("revision", json!(inner.mirror.revision));
+                    record
+                });
             outs.push(Out::Client(client, json!({ "event": "request-settled", "transaction": transaction, "sequence": inner.mirror.revision })));
-            (outs, result)
+            break (outs, result);
         };
+        // Before the emit: what it runs may commit again.
+        drop(turn);
         self.emit(outs);
         result
     }
 
-    fn commit_locked(
+    /// Applies a commit already written to disk.
+    fn apply_commit_locked(
         &self,
         inner: &mut Inner,
-        op: SetOp,
+        outcome: mirror::Outcome,
+        app: &str,
         transaction: &str,
         outs: &mut Vec<Out>,
-    ) -> Result<(), ApiError> {
-        let app = op.app.clone();
-        let facts = inner.catalog.packages.get(&op.app).map(Package::facts);
-        let outcome = mirror::reduce(&inner.mirror, &Op::Set(op), facts.as_ref())
-            .map_err(|r| ApiError::new(r.code(), r.message()))?;
-        if outcome.replayed {
-            return Ok(());
-        }
-        // A no-op still records its key, so the key cannot be reused later.
-        self.persist(&outcome.mirror)
-            .map_err(|e| ApiError::new("apps.persist", format!("apps.json: {e}")))?;
+    ) {
+        let app = app.to_string();
         inner.mirror = outcome.mirror;
         for effect in &outcome.effects {
             outs.extend(self.apply_effect(inner, effect));
@@ -582,7 +622,6 @@ impl Supervisor {
             outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction, "app": app })));
         }
         outs.extend(Self::inventory_demand_locked(inner));
-        Ok(())
     }
 
     fn apply_effect(&self, inner: &mut Inner, effect: &Effect) -> Vec<Out> {
@@ -782,6 +821,10 @@ impl Supervisor {
     pub(super) fn persist(&self, mirror: &Mirror) -> std::io::Result<()> {
         use std::io::Write as _;
         let Some(dir) = &self.config.state_dir else { return Ok(()) };
+        // `apps-set` writes off the supervisor lock: two writers never share the temp file.
+        let _one = self.persisting.lock().recover_poison();
+        #[cfg(test)]
+        persist_test_pause(dir);
         // A fresh daemon may not have created its state directory yet.
         std::fs::create_dir_all(dir)?;
         let temp = dir.join("apps.json.tmp");
@@ -854,6 +897,28 @@ fn background_triggers(outs: &[Out]) -> Option<BTreeSet<String>> {
         }
     }
     triggered.then_some(saved)
+}
+
+/// A slow `apps.json` write on demand: an fsync on a busy disk takes seconds.
+#[cfg(test)]
+static PERSIST_PAUSES: Mutex<Vec<(PathBuf, Duration)>> = Mutex::new(Vec::new());
+
+/// The next `apps.json` write into `dir` takes `pause` longer.
+#[cfg(test)]
+pub(super) fn pause_next_persist(dir: &std::path::Path, pause: Duration) {
+    PERSIST_PAUSES.lock().recover_poison().push((dir.to_path_buf(), pause));
+}
+
+#[cfg(test)]
+fn persist_test_pause(dir: &std::path::Path) {
+    let pause = {
+        let mut pauses = PERSIST_PAUSES.lock().recover_poison();
+        let index = pauses.iter().position(|(d, _)| d == dir);
+        index.map(|i| pauses.remove(i).1)
+    };
+    if let Some(pause) = pause {
+        std::thread::sleep(pause);
+    }
 }
 
 fn load_mirror(state_dir: Option<&std::path::Path>) -> Mirror {

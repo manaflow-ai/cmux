@@ -47,7 +47,7 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
     /// here and never reached the file (Leo, 2026-11-15: "now there's just no response from you?").
     nonisolated static let pageKinds: Set<String> = [
         "page-load", "visibility", "transcript-mount", "transcript-replace", "remount", "reply-unpainted",
-        "long-frame", "frames",
+        "long-frame", "frames", "focus-lost",
     ]
     nonisolated static let maximumPageEvents = 32
 
