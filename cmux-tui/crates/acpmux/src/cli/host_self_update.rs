@@ -47,7 +47,7 @@ pub(super) const ROLLED_BACK: &str = "rolled-back";
 
 /// A channel file as CI writes it.
 #[derive(Debug, Deserialize)]
-pub(super) struct Channel {
+pub(crate) struct Channel {
     /// The tree whose folder (`cmux-tui/tree/<key>/`) holds the binaries.
     pub(super) key: String,
     /// The channel commit the tree was tested for. The binaries may report an
@@ -59,7 +59,7 @@ pub(super) struct Channel {
 
 impl Channel {
     /// A channel file's contents, its key and commit full lowercase hashes.
-    pub(super) fn parse(body: &[u8]) -> Result<Channel> {
+    pub(crate) fn parse(body: &[u8]) -> Result<Channel> {
         let channel: Channel =
             serde_json::from_slice(body).context("the channel file is not a channel")?;
         if !lower_hex(&channel.key, 40) {
@@ -72,7 +72,7 @@ impl Channel {
     }
 
     /// The sha256 of the acpmux build for `target`.
-    pub(super) fn sha256_for(&self, target: &str) -> Result<&str> {
+    pub(crate) fn sha256_for(&self, target: &str) -> Result<&str> {
         let name = format!("cmux-tui-acpmux-{target}");
         let sha = self
             .binaries
@@ -84,7 +84,7 @@ impl Channel {
         Ok(sha)
     }
 
-    fn binary_url(&self, target: &str) -> String {
+    pub(crate) fn binary_url(&self, target: &str) -> String {
         format!("{FILES}/tree/{}/cmux-tui-acpmux-{target}", self.key)
     }
 }
@@ -95,7 +95,7 @@ fn lower_hex(text: &str, len: usize) -> bool {
 }
 
 /// The URL of a channel's file; a channel is lowercase letters, digits and `-`.
-pub(super) fn channel_url(channel: &str) -> Result<String> {
+pub(crate) fn channel_url(channel: &str) -> Result<String> {
     let plain = !channel.is_empty()
         && channel.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
     if !plain {

@@ -54,7 +54,7 @@ final class CmuxKeycapPlaygroundView: NSView {
     private func build(_ cells: [NSView]) {
         let intro = ThemedLabel(wrappingLabelWithString:
             "Each style on a real dialog card's real buttons: Cancel (esc) and the default button (↩), at rest, hovered "
-            + "and pressed. Dialogs keep style 1 until one is picked.")
+            + "and pressed. Every dialog draws style 2; the others are here to compare.")
         intro.font = Typography.body
         intro.themeColor = { Palette.textSecondary }
         let rows = stride(from: 0, to: cells.count, by: Self.columns).map { start -> NSStackView in

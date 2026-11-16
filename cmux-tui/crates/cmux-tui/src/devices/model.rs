@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use super::network::{NetworkNode, NetworkStatus};
 use cmux_device_kind::DeviceKind;
+use cmux_device_kind::screen::{self, Screen};
 
 /// What the stores said, as their own `--json` printed it.
 #[derive(Clone, Debug, Default)]
@@ -113,6 +114,10 @@ pub(crate) struct Device {
     /// may run chats here in Full access. None for every other row, which has no such setting.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_access: Option<bool>,
+    /// What the Screen Sharing page offers for it (`cmux_device_kind::screen::offer`): View, or
+    /// nothing with the reason. None for a row that is not a machine (a person's login).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen: Option<Screen>,
 }
 
 /// Where an available computer was found.
@@ -130,8 +135,12 @@ pub(crate) enum Found {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Available {
     pub name: String,
-    /// What enroll dials: the MagicDNS name, else the address; an ssh
-    /// config host's own name.
+    /// What enroll dials (`cmux device add ADDRESS --yes`): the person's ssh
+    /// config alias for the computer when one names it, since that alias
+    /// carries their user, key and HostKeyAlias pin (hq#11835: the MagicDNS
+    /// name failed `Host key verification failed` where the alias reached
+    /// it); else the MagicDNS name, else the address; an ssh config host's
+    /// own name.
     pub address: String,
     /// Empty for an ssh config host: nothing says what it runs until enroll reaches it.
     pub os: String,
@@ -192,7 +201,7 @@ pub(crate) struct Listing {
 /// The pool stem of a machine name that ends in a generated id: a last part of 6 or more hex
 /// characters with both a digit and a letter (`3fa17bde`), with any all-digit parts before it
 /// (a timestamp) dropped too. `swarm-01` and `release-20261114` have no generated id.
-fn pool_stem(name: &str) -> Option<&str> {
+pub(crate) fn pool_stem(name: &str) -> Option<&str> {
     let (rest, last) = name.rsplit_once('-')?;
     let generated = last.len() >= 6
         && last.chars().all(|c| c.is_ascii_hexdigit())
@@ -233,6 +242,24 @@ fn parked_detail(name: &str) -> String {
     format!(
         "Not reachable for over a day; tried again hourly. If it is gone for good: cmux device remove {name}"
     )
+}
+
+/// The person's ssh config alias for network computer `node`: one whose
+/// HostName is the node (its MagicDNS name, short name or address) first, else
+/// one named as the node is. ssh dials such an alias with the person's own
+/// user, key and known-hosts pin, which the bare MagicDNS name lacks.
+fn ssh_alias(
+    hosts: &[crate::machine_runtime::SshConfigHost],
+    node: &NetworkNode,
+) -> Option<String> {
+    let by_host_name =
+        hosts.iter().find(|h| h.host_name.as_deref().is_some_and(|name| node.answers_to(name)));
+    by_host_name
+        .or_else(|| {
+            // An alias with its own HostName goes elsewhere, whatever its name says.
+            hosts.iter().find(|h| h.host_name.is_none() && node.answers_to(&h.alias))
+        })
+        .map(|h| h.alias.clone())
 }
 
 /// Merges the stores and the network's nodes into one row per device.
@@ -295,6 +322,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
                 None
             },
             full_access: None,
+            screen: None,
         });
     }
     for paired in array(&sources.pairing, "devices") {
@@ -337,6 +365,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             detail: None,
             full_access: matches!(role.as_str(), "client" | "phone")
                 .then(|| paired["full_access"] == true),
+            screen: None,
         });
     }
     for row in sources.joined.as_array().map(Vec::as_slice).unwrap_or_default() {
@@ -364,6 +393,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             added_at: text(row, "createdAt"),
             detail: None,
             full_access: None,
+            screen: None,
         });
     }
     if sources.remote["enabled"].as_bool() == Some(true) {
@@ -408,6 +438,9 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             ));
         }
     }
+    for d in &mut devices {
+        d.screen = screen_of(d);
+    }
     devices.sort_by(|a, b| {
         rank(a.state)
             .cmp(&rank(b.state))
@@ -425,7 +458,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
                 n.mine,
                 Available {
                     name: n.name.clone(),
-                    address: n.address(),
+                    address: ssh_alias(&sources.ssh_hosts, n).unwrap_or_else(|| n.address()),
                     os: n.os.clone(),
                     mine: n.mine,
                     found: Found::Network,
@@ -512,7 +545,18 @@ fn login_row(
         added_at,
         detail,
         full_access: None,
+        screen: None,
     }
+}
+
+/// What the Screen Sharing page offers for a row: none for a person's login (not a machine), else
+/// what its kind (or, when it reported none, its OS) can do there.
+fn screen_of(d: &Device) -> Option<Screen> {
+    if d.via.iter().all(|v| matches!(v, Via::Grant { .. } | Via::Allow { .. })) {
+        return None;
+    }
+    let os = if d.kind == Kind::Phone { Some("ios") } else { d.os.as_deref() };
+    Some(screen::offer(d.device, os, d.state == State::Connected))
 }
 
 /// The order rows show in: what needs a person first.

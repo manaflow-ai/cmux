@@ -169,8 +169,13 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
     # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
-    {"name": "memory-agents", "args": [*MEASURE, "--suite=memory-agents", "--agents=10"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
+    # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
+    # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
+    # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
+    # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
+    {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
+     "run_seconds": 2400},  # 1500 s for the bench, plus a cold bench build (800 s) when this part runs first
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
     # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
@@ -232,8 +237,11 @@ ROW_PARTS = [
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
 # here reads a higher p95 as worse. The memory-agents breakdown (memory-agents-cron.py) says where the judged totals'
-# memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged.
-REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.)")
+# memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged. The chat
+# composer's typing stages (acp.<engine>.typing.to_listener and .to_work, perf-budgets.py STAGE_ROW_RE) say where
+# the judged to_frame time goes: shown, not judged (measurement only, no new gate).
+REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
+                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -1161,6 +1169,41 @@ def give_up_host(state, t):
     return why
 
 
+def no_host_for_tip(state, t):
+    """End the Mac parts still to do of the tip measurement in flight as 'no_host' when no measure host took one for
+    HOST_WAIT_HOURS while any host could (cur['host_asked_since']: the first request since the last Mac part result):
+    the measurement is unpinned, or it gave a host up before (give_up_host) and the host it is pinned to again went
+    silent. A pinned tip that never gave its host up goes to give_up_host first (any idle host may take it). The
+    measurement then finishes with the parts that ran: their rows are stored as usual, a no_host part's rows keep
+    their last value and age (the measurement is incomplete, so the stale clock keeps running), and the next tick
+    starts a newer tip, whose parts run wherever they can. Returns why, or None.
+
+    2026-11-16 00:59Z: tip 83b6f50f waited on cmux20-bench (reserved, given up twice) for memory-agents and throughput
+    until the 48 h ABANDON_WALL_HOURS cap, and no newer tip started meanwhile: chat_100k_flat_ratio_max never got a
+    row although cmux#44161 fixed its Linux part on a newer commit, and every other row went stale with it."""
+    cur = state.get("current")
+    if not cur or cur.get("kind") != "tip" or not needs_mac(cur):
+        return None
+    asked = parse_iso(cur.get("host_asked_since") or None)
+    if not (asked and hours_between(asked, t) > HOST_WAIT_HOURS):
+        return None
+    host = cur.get("host")
+    if host and not cur.get("gave_up"):
+        return None
+    tried = sorted({g.get("host") for g in cur.get("gave_up") or [] if isinstance(g, dict) and g.get("host")} | {host} - {None})
+    why = f"no measure host took a Mac part for {HOST_WAIT_HOURS} h" + (f" (gave up {', '.join(tried)})" if tried else "")
+    if host:
+        mark_host(state, host, waited_at=iso(t))
+        cur.pop("host")
+    for name in [p for p in cur["parts_todo"] if not is_linux_part(p)]:
+        cur["parts"][name] = {"state": "no_host", "reason": why}
+        cur["parts_todo"].remove(name)
+    cur.pop("host_asked_since", None)
+    end_yield(cur, t)
+    cur["no_host"] = {"at": iso(t), "why": why}
+    return why
+
+
 def tip_pin_host(state, t):
     """The Mac host a new tip measurement is pinned to (pure): the host of the oldest Mac row waiting for its confirming
     run (state['pending']: only a run there can confirm or clear it, so its run comes first), else of the earliest open regression of a Mac row,
@@ -1204,6 +1247,7 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     that has no answer until the part's result run, so the time from the request to the result is the fleet's wait
     (start_yield; record_part ends it), not the measurement's active time."""
     drop_dead_measurement(state, t, measurable)
+    no_host = no_host_for_tip(state, t)
     give_up_host(state, t)
     cur = state.get("current")
     if not cur and bisect and not (candidate and tip_due(state, t)):
@@ -1225,7 +1269,8 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
         return {"action": "none", "reason": "nothing new to measure: the newest measurable feat-cmux-next commit "
                                             "was measured, and no regression range to bisect"}
     if not cur["parts_todo"]:
-        return {"action": "finish", "sha": cur["sha"], "reason": "every part ran; report only"}
+        return {"action": "finish", "sha": cur["sha"],
+                "reason": f"its Mac parts have no host ({no_host}); report only" if no_host else "every part ran; report only"}
     linux = next((p for p in cur["parts_todo"] if is_linux_part(p)), "")
     fleet = next((p for p in cur["parts_todo"] if not is_linux_part(p)), "")
     done = f"{len(cur['parts'])} of {len(cur['parts']) + len(cur['parts_todo'])} done"
@@ -1240,12 +1285,12 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     if github_busy and fleet and not bench_only:
         fleet = ""
         start_yield(cur, t)  # the wait does not count against ABANDON_HOURS
-        if cur.get("host"):
-            cur.setdefault("host_asked_since", iso(t))  # ...but it does count for give_up_host: then the bench host
+        cur.setdefault("host_asked_since", iso(t))  # ...but it counts for give_up_host (the bench host) and no_host_for_tip
     if not fleet and not linux:
         return {"action": "none", "sha": cur["sha"], "reason": github_busy, "yielded": True}
-    if fleet and cur.get("host"):
-        cur.setdefault("host_asked_since", iso(t))  # give_up_host's clock: cleared by the host's next part result
+    if fleet:
+        # give_up_host's clock for a pinned host, no_host_for_tip's for any host: cleared by the next Mac part result.
+        cur.setdefault("host_asked_since", iso(t))
     if fleet and controller_route:
         start_yield(cur, t)
     what = " and ".join(x for x in (fleet, linux) if x)
@@ -2967,6 +3012,18 @@ def cmd_run_part(o):
     print(f"perf-cron part: {json.dumps({k: v for k, v in result.items() if k != 'tail'})}")
 
 
+# A Linux part that failed before its bench could measure anything: the runner had no browser (Playwright's
+# "Executable doesn't exist", runs 43809071719 and 43812228014 on 2026-11-16) or refused the job. The commit is not
+# to blame, so record_part runs the part once more (a runner that writes no result at all is NO_RESULT, a yield).
+SETUP_FAILURE_RE = re.compile(r"Executable doesn't exist|Please run the following command to download new browsers"
+                              r"|browserType\.launch(?:Server)?: |The runner refused the job|No space left on device")
+
+
+def setup_failure(result):
+    """The line of a failed part's tail that names a setup failure (SETUP_FAILURE_RE), or None (pure)."""
+    return next((str(line) for line in result.get("tail") or [] if SETUP_FAILURE_RE.search(str(line))), None)
+
+
 NOT_STARTED = "not-started.json"  # a part dir with this file: the fleet check said no, no part ran (no attempt)
 NO_RESULT = {"state": "yielded", "no_result": True,
              "reason": "the job ended without the part's result (cancelled, timed out, no fleet client, or a setup step "
@@ -3132,6 +3189,8 @@ def cmd_run_linux_part(o):
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
                 if failed:
                     report["incomplete"] = [f"{f.get('bench')}: {f.get('why')}" for f in failed]
+                    # A bench's setup failure (no browser) is in its own tail, not its exit code: record_part reads it.
+                    tail += [str(x) for f in failed for x in f.get("tail") or [] if SETUP_FAILURE_RE.search(str(x))][-3:]
                     tail += [f"{f.get('bench')}: {f.get('why')}" for f in failed]
             ok = isinstance(value, dict) and bool(value.get("rows"))
         elif code != 0 or value is None:
@@ -3281,7 +3340,7 @@ def record_part(cur, part, result, run_url, t=None):
     failure: the next part builds the app itself (split-spring.sh --app-cache builds on a cache miss)."""
     if t is not None and not is_linux_part(part):
         end_yield(cur, t)
-    if not is_linux_part(part) and result.get("worker") in (None, cur.get("host")):
+    if not is_linux_part(part) and (not cur.get("host") or result.get("worker") in (None, cur.get("host"))):
         cur.pop("host_asked_since", None)  # the host answered (any result): give_up_host's wait starts again
     entry = dict(cur["parts"].get(part) or {"yields": 0})
     entry.update({"state": result["state"], "step_id": result.get("step_id"), "run_url": run_url,
@@ -3298,7 +3357,11 @@ def record_part(cur, part, result, run_url, t=None):
         entry["yields"] = entry.get("yields", 0) + 1
         if entry["yields"] >= MAX_YIELDS:
             entry["state"] = "yielded_out"
-    if entry["state"] != "yielded" and part in cur["parts_todo"]:
+    retry = (entry["state"] == "failed" and is_linux_part(part) and not entry.get("setup_retried")
+             and setup_failure(result))
+    if retry:
+        entry["setup_retried"] = retry[:200]  # runs once more on the same commit; a second failure ends it
+    if entry["state"] != "yielded" and not retry and part in cur["parts_todo"]:
         cur["parts_todo"].remove(part)
     cur["parts"][part] = entry
     build_failed = bool(result.get("build_failed")) or any(BUILD_FAILED_MARK in line for line in result.get("tail") or [])

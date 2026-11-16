@@ -106,8 +106,34 @@ pub struct EncodeRequest {
     pub damage: Rect,
     /// Encode an IDR (first frame, recovery, or after a dropped frame).
     pub force_idr: bool,
+    /// Why `force_idr` is set, for the source's timing log.
+    pub idr_reason: Option<IdrReason>,
     /// The congestion controller's target for this frame.
     pub target_kbps: u32,
+}
+
+/// Why the engine asks for a keyframe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdrReason {
+    /// A stream's first frame.
+    Start,
+    /// The viewer's feedback asked for recovery (a lost or unreferenced frame).
+    Recovery,
+    /// The newest frame stayed unacknowledged through every tail probe.
+    TailProbe,
+    /// The last frame was too large to packetize and was dropped.
+    TooLarge,
+}
+
+impl IdrReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IdrReason::Start => "start",
+            IdrReason::Recovery => "recovery",
+            IdrReason::TailProbe => "tail_probe",
+            IdrReason::TooLarge => "too_large",
+        }
+    }
 }
 
 /// One encoded frame from the source.
@@ -278,7 +304,8 @@ struct StreamState {
     gate: FrameGate,
     history: BTreeMap<u32, Vec<Vec<u8>>>,
     last_frame: u32,
-    force_idr: bool,
+    /// The next frame is a keyframe, and why.
+    force_idr: Option<IdrReason>,
     last_forced_idr_us: Option<u64>,
     /// The first damage covers the whole stream.
     started: bool,
@@ -302,7 +329,7 @@ impl StreamState {
             gate: FrameGate::new(frames_in_flight.max(1), max_fps.max(1)),
             history: BTreeMap::new(),
             last_frame: 0,
-            force_idr: true,
+            force_idr: Some(IdrReason::Start),
             last_forced_idr_us: None,
             started: false,
             tile_of: None,
@@ -395,7 +422,24 @@ impl MediaEngine {
     pub fn update_frames_in_flight_from_rtt(&mut self, path_rtt_us: Option<u64>) {
         if let Some(rtt_us) = path_rtt_us.or_else(|| self.ack_rtt_us()) {
             self.set_frames_in_flight(frames_in_flight_for(rtt_us, self.cfg.max_fps).max(2));
+            // A measured LAN round trip starts the target high (until the first overuse).
+            self.cc.on_rtt(rtt_us);
         }
+    }
+
+    /// A paced datagram from `encoded` really left now: the controller times it from
+    /// here, so pacing is not read as path delay. Other datagrams need no call.
+    pub fn datagram_sent(&mut self, datagram: &[u8], now_us: u64) {
+        if let Ok((header, _)) = DatagramHeader::decode(datagram)
+            && matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
+        {
+            self.cc.on_departed(header.transport_seq, now_us);
+        }
+    }
+
+    /// The controller's target now (all display streams together).
+    pub fn target_bps(&self) -> u64 {
+        self.cc.target_bps()
     }
 
     /// Adds a lossless tile stream (rd change C3) for surface stream `of`:
@@ -475,7 +519,8 @@ impl MediaEngine {
                 stream,
                 frame,
                 damage,
-                force_idr: state.force_idr,
+                force_idr: state.force_idr.is_some(),
+                idr_reason: state.force_idr,
                 target_kbps: self.target_kbps(stream),
             }),
             FlowAction::Wait => None,
@@ -573,15 +618,15 @@ impl MediaEngine {
             Err(PacketizeError::FrameTooLarge) => {
                 // Drop it and start over from a keyframe at half the bitrate,
                 // instead of ending the session.
-                state.force_idr = true;
+                state.force_idr = Some(IdrReason::TooLarge);
                 state.gate.clear_in_flight();
                 return Ok(Output { halve_bitrate: true, ..Output::default() });
             }
             Err(e) => return Err(e),
         };
-        for i in 0..packets.datagrams.len() {
+        for (i, d) in packets.datagrams.iter().enumerate() {
             let seq = packets.first_transport_seq.wrapping_add(i as u16);
-            self.cc.on_sent(seq, now_us);
+            self.cc.on_sent_bytes(seq, now_us, d.len());
             self.loss_meter.on_sent(seq);
         }
         state.history.insert(req.frame, packets.datagrams.clone());
@@ -592,7 +637,7 @@ impl MediaEngine {
         while state.history.len() > HISTORY_FRAMES {
             state.history.pop_first();
         }
-        state.force_idr = false;
+        state.force_idr = None;
         state.last_frame = req.frame;
         state.probe_from_us = Some(now_us);
         state.probes = 0;
@@ -691,7 +736,7 @@ impl MediaEngine {
             .is_none_or(|t| now_us.saturating_sub(t) >= MIN_FORCED_IDR_INTERVAL_US);
         if fb.need_recovery && idr_allowed {
             state.last_forced_idr_us = Some(now_us);
-            state.force_idr = true;
+            state.force_idr = Some(IdrReason::Recovery);
             state.gate.clear_in_flight();
             let full = state.full();
             action = state.gate.damage(full, now_us);
@@ -734,7 +779,7 @@ impl MediaEngine {
             }
             state.probe_from_us = None;
             state.last_forced_idr_us = Some(now_us);
-            state.force_idr = true;
+            state.force_idr = Some(IdrReason::TailProbe);
             state.gate.clear_in_flight();
             let full = state.full();
             let action = state.gate.damage(full, now_us);

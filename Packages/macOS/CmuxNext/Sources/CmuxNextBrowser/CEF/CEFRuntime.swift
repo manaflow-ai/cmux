@@ -156,6 +156,10 @@ final class CEFRuntime {
     /// Runs when a start fails. `CefInitialize` resets the signal actions
     /// before it can fail, so the App re-installs its handlers here too.
     var onStartFailed: (() -> Void)?
+    /// The first window frame (`AppDelegate.firstFrame`): `start` runs `CefInitialize` (about 360 ms on the
+    /// main thread) only once it is open, so a framework mapped early never delays that frame (CMUX-571).
+    /// The gate always opens (its 3 s backstop), so a start waits at most until then; nil waits for nothing.
+    weak var initializeAfter: FirstFrameGate?
     /// Hides or closes top-level Chromium windows that slip through (see
     /// `ChromiumWindowGuard`).
     private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
@@ -190,7 +194,33 @@ final class CEFRuntime {
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
 
-    private init() {}
+    /// Maps the shim and the framework (``loadLibrary(_:signatureChecker:)``). Called only from the detached
+    /// load task of ``start(layout:environment:trigger:)`` and ``preload(layout:)``, never on the main thread:
+    /// the map holds dyld's loader lock, and a main-thread `dlopen` or `dladdr` meanwhile waits on it.
+    /// Tests inject a spy (which thread maps, and when).
+    typealias LibraryLoader = @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError>
+    private let libraryLoader: LibraryLoader
+    /// A load begun from any thread before any page asked (`CEFEngine.beginEarlyLoad`, handed over by the engine with
+    /// its stores, `adopt(earlyLoad:)`); the first start or preload of its layout takes it instead of loading again.
+    private(set) var earlyLoad: CEFEarlyLoad?
+
+    private init() { libraryLoader = { CEFRuntime.loadLibrary($0) } }
+
+    /// An idle runtime whose framework load is `libraryLoader` (tests).
+    init(libraryLoader: @escaping LibraryLoader) {
+        self.libraryLoader = libraryLoader
+    }
+
+    /// Takes the engine's early load (`CEFEngine.beginEarlyLoad`).
+    func adopt(earlyLoad: CEFEarlyLoad) {
+        self.earlyLoad = earlyLoad
+    }
+
+    /// The load to await for `candidate`: the early load of that layout when one began, else a new load at `priority`.
+    private func newLoadTask(_ candidate: CEFRuntimeLayout?, priority: TaskPriority) -> CEFEarlyLoad.LoadTask {
+        if let early = earlyLoad?.task(for: candidate) { return early }
+        return Task.detached(priority: priority) { [libraryLoader] in libraryLoader(candidate) }
+    }
 
     /// Takes the engine's stores and sign-in tabs (the process has one Chromium, so the App's one
     /// engine hands them over before its first start or tab). Idempotent for the same stores.
@@ -212,6 +242,7 @@ final class CEFRuntime {
     init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
         self.shim = shim
         self.storage = storage
+        libraryLoader = { _ in .failure(.notEmbedded) }
         state = .ready
     }
 
@@ -274,16 +305,24 @@ final class CEFRuntime {
             task = loadTask
         } else {
             state = .loading
-            task = Task.detached(priority: .userInitiated) { CEFRuntime.loadLibrary(candidate) }
+            task = newLoadTask(candidate, priority: .userInitiated)
             loadTask = task
         }
         // A utility-priority preload may still be running; the await below
         // raises its priority to this task's.
         let loaded = await task.value
+        if await Self.waitForInitializeGate(initializeAfter) { CEFStartSteps.shared.point("first_frame_waited") }
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() { throw error }
         if state == .ready { return }
         try finishStart(loaded, environment: environment, trigger: trigger)
+    }
+
+    /// Returns once `gate` is open (at once when it is nil or already open); true when it waited.
+    static func waitForInitializeGate(_ gate: FirstFrameGate?) async -> Bool {
+        guard let gate, !gate.isOpen else { return false }
+        await gate.opened()
+        return true
     }
 
     /// Starts mapping the shim and the framework in the background without
@@ -293,7 +332,7 @@ final class CEFRuntime {
         guard state == .idle, loadTask == nil else { return }
         state = .loading
         preloaded = true
-        let task = Task.detached(priority: .utility) { CEFRuntime.loadLibrary(candidate) }
+        let task = newLoadTask(candidate, priority: .utility)
         loadTask = task
         Task { [weak self] in
             _ = await task.value
