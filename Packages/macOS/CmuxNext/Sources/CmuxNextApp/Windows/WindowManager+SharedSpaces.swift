@@ -1,0 +1,54 @@
+import CmuxNextDaemon
+import CmuxNextLayout
+
+// A window is a view of a space (Lawrence 2026-11-15: "if i make a new window, it makes it as a new space, so
+// technically it's accessible from my original window. then if i switch to that space from original window, and view a
+// terminal, that terminal must be shared"; plans/cmux-next/spaces-overhaul-DESIGN.md rule 6). A window on space R lists
+// every workspace of R: the ones it owns, and as guests (`WindowRegistry.Window.guests`) the ones another open window
+// owns. The guests follow from the owners, each window's space and the spaces' rules alone, so this is their one writer:
+// every membership transition and every space a window enters sets them again. Nothing else adds or drops a guest.
+extension WindowManager {
+    /// Whether window `id` takes part in shared spaces: open, normal (incognito content never shows in another window,
+    /// spaces-overhaul rule 2), with a state.
+    private func sharesSpaces(_ id: String, in registry: WindowRegistry) -> Bool {
+        registry.window(id)?.isOpen == true && !registry.isIncognito(id) && incognitoSpaces[id] == nil && states[id] != nil
+    }
+
+    /// The workspaces of space `profile` that window `id` lists as guests while it shows `profile`: those another open
+    /// normal window owns, in those windows' order. Empty without spaces (a home session with no space rules lists each
+    /// workspace in its own window, as before). A Home is each window's own; a workspace no session reports yet has no
+    /// space to be shared in.
+    func sharedWorkspaces(in profile: ProfileID, for id: String, registry: WindowRegistry) -> [String] {
+        let machines = services.machines
+        guard WindowProfiles.membership(machines) != nil, sharesSpaces(id, in: registry) else { return [] }
+        var shared: [String] = []
+        for other in registry.windows where other.id != id && sharesSpaces(other.id, in: registry) {
+            for workspace in WindowProfiles.visible(other.ownedIDs, profile: profile, machines: machines)
+            where WindowProfiles.qualified(workspace, machines: machines) != nil && services.workspace(id: workspace)?.isAnyHome != true {
+                shared.append(workspace)
+            }
+        }
+        return shared
+    }
+
+    /// Sets every window's guests for the space it shows now (one window: no guests, and nothing is read).
+    func shareSpaces(_ registry: inout WindowRegistry) {
+        let sharing = registry.windows.filter { sharesSpaces($0.id, in: registry) }
+        for window in registry.windows {
+            let guests = sharing.count > 1 ? states[window.id].map { sharedWorkspaces(in: $0.profileID, for: window.id, registry: registry) } ?? [] : []
+            guard !guests.isEmpty || !window.guests.isEmpty else { continue }
+            registry.setGuests(guests, of: window.id)
+        }
+    }
+
+    /// A window entered a space (`WindowState.onProfileChange`: a space switch, a selection of another space's
+    /// workspace, a selection repair): the guests are set again in this turn, so the window lists the space's shared
+    /// workspaces before anything reads its list. Only lists change: no window opens or closes (`setGuests`), and the
+    /// caller that moved the window to the space selects what it shows there.
+    func spaceDidChange() {
+        registry.apply { registry in
+            shareSpaces(&registry)
+            return WindowRegistry.Changes()
+        }
+    }
+}

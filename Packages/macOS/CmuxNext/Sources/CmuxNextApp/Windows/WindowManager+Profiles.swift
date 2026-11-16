@@ -39,6 +39,9 @@ extension WindowManager {
                 visible = adoptable
             }
         }
+        // Workspaces of the space that another open window owns show here too, as the same workspaces (a shared space):
+        // the window never makes a new one beside them. They are listed once the window is in the space (`spaceDidChange`).
+        if visible.isEmpty { visible = sharedWorkspaces(in: profile, for: state.id, registry: registry.value) }
         guard !visible.isEmpty else {
             // Nothing to show there yet: the window enters the profile with
             // a new workspace (no empty window, REWRITE.md round 1). It is

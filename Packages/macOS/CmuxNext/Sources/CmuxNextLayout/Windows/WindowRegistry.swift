@@ -7,10 +7,16 @@ import Foundation
 /// (selected workspace, sidebar width, focus, screen switcher) is that
 /// window's own `WindowState`.
 ///
-/// Invariants: a window exists only while it owns at least one workspace
+/// Invariants: a window exists only while it lists at least one workspace
 /// (user decision 2026-09-30: no "No workspaces in this window" state);
 /// every workspace is owned by at most one window, and every live workspace
-/// by exactly one after `reconcile`. Every transition that takes a window's
+/// by exactly one after `reconcile`. A window is a view of a space (Lawrence
+/// 2026-11-15: a space another window shows is reached from this window, and
+/// what it shows there "must be shared"): besides the workspaces it owns, a
+/// window lists the workspaces of its current space that another open window
+/// owns, as `guests` (`setGuests`). A guest is a second view of the same
+/// workspace: its owner keeps it, and closing the owner's window hands it to
+/// the first open window that lists it (`close`). Every transition that takes a window's
 /// last workspace (close, move, tear-off, daemon removal) removes that
 /// window in the same step, the only window too; no window is registered
 /// without a workspace. Closing a window never ends terminals: it stays
@@ -37,6 +43,10 @@ public struct WindowRegistry: Equatable, Sendable {
         /// membership changes, not on every move (the sidebar draws its own
         /// order): a move must not cost a pass over every workspace.
         public var workspaceIDs: [String]
+        /// The listed workspaces another open window owns (a second view of them); always a subset of `workspaceIDs`.
+        public var guests: Set<String> = []
+        /// The workspaces this window owns: `workspaceIDs` without its guests.
+        public var ownedIDs: [String] { guests.isEmpty ? workspaceIDs : workspaceIDs.filter { !guests.contains($0) } }
         /// AppKit screen frame (bottom-left origin).
         public var frame: CGRect?
         /// Display the window was on (`CGDisplayCreateUUIDFromDisplayID`).
@@ -76,11 +86,11 @@ public struct WindowRegistry: Equatable, Sendable {
     public private(set) var windows: [Window] = [] {
         didSet {
             let same = windows.count == oldValue.count
-                && zip(windows, oldValue).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs }
+                && zip(windows, oldValue).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs && $0.guests == $1.guests }
             if !same { owners = Self.ownerIndex(windows) }
         }
     }
-    /// Owning window by workspace id (the first window that lists it), so
+    /// Owning window by workspace id (the first window that lists it as its own, never as a guest), so
     /// `owner(of:)` is O(1): reconcile asks it once per live workspace, which
     /// was O(n²) at 1,000 workspaces (a watchdog trip). Derived from
     /// `windows`; not part of `==`.
@@ -109,7 +119,7 @@ public struct WindowRegistry: Equatable, Sendable {
         var owners: [String: String] = [:]
         owners.reserveCapacity(windows.reduce(0) { $0 + $1.workspaceIDs.count })
         for window in windows {
-            for id in window.workspaceIDs where owners[id] == nil { owners[id] = window.id }
+            for id in window.workspaceIDs where owners[id] == nil && !window.guests.contains(id) { owners[id] = window.id }
         }
         return owners
     }
@@ -119,6 +129,14 @@ public struct WindowRegistry: Equatable, Sendable {
     public func window(_ id: String) -> Window? { windows.first { $0.id == id } }
 
     public func owner(of workspaceID: String) -> String? { owners[workspaceID] }
+
+    /// Whether window `id` lists `workspaceID`, as its own or as a guest.
+    public func lists(_ workspaceID: String, in id: String) -> Bool {
+        owners[workspaceID] == id || window(id)?.guests.contains(workspaceID) == true
+    }
+
+    /// Whether window `id` lists `workspaceID` as a guest: a second view of a workspace another window owns.
+    public func isGuest(_ workspaceID: String, in id: String) -> Bool { window(id)?.guests.contains(workspaceID) == true }
 
     public var openWindows: [Window] { windows.filter(\.isOpen) }
 
@@ -144,10 +162,14 @@ public struct WindowRegistry: Equatable, Sendable {
         var seen: [String: String] = [:]
         var problems: [String] = []
         for window in windows {
-            for id in window.workspaceIDs {
+            for id in window.ownedIDs {
                 if let other = seen[id] { problems.append("\(id) owned by \(other) and \(window.id)") }
                 seen[id] = window.id
             }
+            if !window.guests.isSubset(of: window.workspaceIDs) { problems.append("\(window.id) has a guest it does not list") }
+        }
+        for window in windows {
+            for id in window.guests where seen[id] == nil || seen[id] == window.id { problems.append("\(id) is a guest of \(window.id) with no other owner") }
         }
         if Set(windows.map(\.id)).count != windows.count { problems.append("duplicate window ids") }
         if Set(recency) != Set(windows.map(\.id)) || recency.count != windows.count { problems.append("recency out of sync") }
@@ -203,9 +225,18 @@ public struct WindowRegistry: Equatable, Sendable {
         if !keepsGroup, let heir = mostRecentOpen(excluding: [id]) {
             return merge(id, into: heir)
         }
+        // A closing window is one view less: what another open window also lists stays there, now owned by the first
+        // such window, and never joins the closed group; the closed window lists no guest. Left with nothing, it is gone.
+        var changes = handOverShared(of: id)
+        guard let index = windows.firstIndex(where: { $0.id == id }) else { return changes }
+        guard !windows[index].workspaceIDs.isEmpty else {
+            remove(id)
+            changes.emptied.append(id)
+            return changes
+        }
         windows[index].isOpen = false
         activate(id) // a Dock click or a relaunch brings back the last window closed
-        return Changes()
+        return changes
     }
 
     /// Closed window `id`'s group was deleted: its workspaces move to the most
@@ -220,10 +251,52 @@ public struct WindowRegistry: Equatable, Sendable {
         return merge(id, into: heir)
     }
 
+    /// Window `id` stops being a view (it closes): each workspace it owns that another open window lists as a guest
+    /// is owned by the first such window from now on, and `id` lists none of its own guests any more.
+    private mutating func handOverShared(of id: String) -> Changes {
+        var changes = Changes()
+        guard let closing = window(id) else { return changes }
+        var next = windows
+        for workspace in closing.ownedIDs {
+            guard let heir = next.firstIndex(where: { $0.id != id && $0.isOpen && $0.guests.contains(workspace) }) else { continue }
+            next[heir].guests.remove(workspace)
+            changes.moved[next[heir].id, default: []].append(workspace)
+        }
+        let handed = Set(changes.moved.values.joined())
+        if let index = next.firstIndex(where: { $0.id == id }) {
+            let dropped = handed.union(next[index].guests)
+            next[index].workspaceIDs.removeAll { dropped.contains($0) }
+            next[index].guests = []
+        }
+        // A view of a handed-over workspace in a third window stays a guest of its new owner.
+        windows = next
+        return changes
+    }
+
+    /// Makes window `id` list exactly `guests` as its guests (the workspaces of its current space that another open
+    /// window owns), keeping the ones it owns. Ids `id` owns, that no other window owns, or of a closed or unknown
+    /// window are skipped. Only lists change, never which windows exist: a window that owns nothing keeps the guests it
+    /// has when the new set is empty (a window lists at least one workspace; the next transition that gives it one, or
+    /// closes it, sets them again).
+    public mutating func setGuests(_ guests: [String], of id: String) {
+        guard let index = windows.firstIndex(where: { $0.id == id }), windows[index].isOpen else { return }
+        let wanted = Set(guests.filter { workspace in owners[workspace].map { $0 != id } ?? false })
+        guard wanted != windows[index].guests else { return }
+        var window = windows[index]
+        let left = window.guests.subtracting(wanted)
+        window.workspaceIDs.removeAll { left.contains($0) }
+        var listed = Set(window.workspaceIDs)
+        for workspace in guests where wanted.contains(workspace) && listed.insert(workspace).inserted { window.workspaceIDs.append(workspace) }
+        guard !window.workspaceIDs.isEmpty else { return }
+        window.guests = wanted
+        windows[index] = window
+    }
+
     /// Moves every workspace of `id` into `heir` and removes `id`.
     private mutating func merge(_ id: String, into heir: String) -> Changes {
         var changes = Changes()
-        let orphans = window(id)?.workspaceIDs ?? []
+        let orphans = window(id)?.ownedIDs ?? []
+        _ = detach(orphans) // `heir` may list them as guests: it owns them now
         remove(id)
         if !orphans.isEmpty, let heirIndex = windows.firstIndex(where: { $0.id == heir }) {
             windows[heirIndex].workspaceIDs += orphans
@@ -310,6 +383,7 @@ public struct WindowRegistry: Equatable, Sendable {
         var pruned = windows
         for index in pruned.indices {
             pruned[index].workspaceIDs = pruned[index].workspaceIDs.filter { !dead.contains($0) }.merged(adding: [], rank: rank)
+            if !pruned[index].guests.isEmpty { pruned[index].guests.subtract(dead) }
         }
         windows = pruned
         discarding = discarding.intersection(live).subtracting(dead)
@@ -354,7 +428,10 @@ public struct WindowRegistry: Equatable, Sendable {
         var set = Set<String>()
         for id in ids where set.insert(id).inserted { unique.append(id) }
         var detached = windows
-        for index in detached.indices { detached[index].workspaceIDs.removeAll { set.contains($0) } }
+        for index in detached.indices {
+            detached[index].workspaceIDs.removeAll { set.contains($0) }
+            if !detached[index].guests.isEmpty { detached[index].guests.subtract(set) }
+        }
         windows = detached
         return unique
     }

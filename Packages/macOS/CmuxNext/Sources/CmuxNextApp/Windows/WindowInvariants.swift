@@ -42,6 +42,7 @@ enum WindowInvariants {
                     "id": .string(window.id),
                     "open": .bool(window.isOpen),
                     "workspaces": .array(window.workspaceIDs.map(JSONValue.string)),
+                    "guests": .array(window.guests.sorted().map(JSONValue.string)), // another window's, shown here too
                     "selected": manager.states[window.id]?.workspaceID.map(JSONValue.string) ?? .null,
                     "has_controller": .bool(controller != nil),
                     "visible": .bool(controller?.window?.isVisible ?? false),

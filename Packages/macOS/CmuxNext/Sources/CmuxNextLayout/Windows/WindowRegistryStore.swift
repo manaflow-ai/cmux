@@ -68,7 +68,7 @@ public final class WindowRegistryStore {
     /// share storage (the compare is O(windows) then); a reconcile writes each list again, and the compare reads them.
     private static func sameAnswers(_ old: WindowRegistry, _ new: WindowRegistry) -> Bool {
         old.incognito == new.incognito && old.discarding == new.discarding && old.windows.count == new.windows.count
-            && zip(old.windows, new.windows).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs }
+            && zip(old.windows, new.windows).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs && $0.guests == $1.guests }
     }
 
     /// Drops every launch-snapshot membership (the restore): each window's readers hear only their own window's entry.
@@ -152,7 +152,7 @@ public final class WindowRegistryStore {
         // The first window that lists a workspace owns it (`WindowRegistry.owner(of:)`).
         for window in value.windows {
             let incognito = value.isIncognito(window.id)
-            for id in window.workspaceIDs where next[id] == nil { next[id] = (incognito: incognito, owner: window.id) }
+            for id in window.workspaceIDs where next[id] == nil && !window.guests.contains(id) { next[id] = (incognito: incognito, owner: window.id) }
         }
         for id in value.discarding { next[id] = (incognito: true, owner: next[id]?.owner) }
         for (id, old) in answered where next[id] == nil {

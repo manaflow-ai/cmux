@@ -203,6 +203,7 @@ final class ThemeCoordinator {
         applyWorkspaceBackground(content)
         for pane in content.panes.values { applyPaneBackground(pane) }
         for id in content.panes.values.flatMap(\.orderedIDs) { services.cache.existingTerminal(id.rawValue).map { catchUp($0, fresh: false) } }
+        for pane in content.panes.values { pane.guestTerminal.map { catchUp($0.entry, fresh: false) } }
     }
 
     /// `entry` takes its theme as of the last `apply`. `fresh`: its surface was just made or

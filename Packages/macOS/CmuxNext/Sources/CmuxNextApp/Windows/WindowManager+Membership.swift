@@ -24,6 +24,7 @@ extension WindowManager {
         let live = order ?? services.machines.daemons.flatMap { daemon in registry.orderBuild { Self.orderedIDs(of: daemon, machines: self.services.machines, doc: self.services.sidebarDoc) } }
         let changes = registry.apply { registry in
             let changes = body(&registry)
+            shareSpaces(&registry) // the guests follow the owners in the same registry write (`WindowManager+SharedSpaces`)
             registry.order(like: live)
             return changes
         }
@@ -131,7 +132,7 @@ extension WindowManager {
         if DebugWorkspaceSwitch.timer.isRecording, let timed = controller(for: value.owner(of: workspaceID) ?? state.id) ?? controller(for: state.id) {
             DebugWorkspaceSwitch.began(timed)
         }
-        if origin == .anywhere, let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
+        if origin == .anywhere, !value.isGuest(workspaceID, in: state.id), let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
            let target = controller(for: owner) {
             select(workspaceID, in: target.state)
             target.showWorkspace(requested: target.state.workspaceID)
@@ -143,7 +144,7 @@ extension WindowManager {
         let openBefore = Set(value.openWindows.map(\.id))
         claim(workspaceID: workspaceID, in: state)
         // An unowned ephemeral workspace went to its own incognito window: that window shows it.
-        if let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = controller(for: owner) {
+        if !registry.value.isGuest(workspaceID, in: state.id), let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = controller(for: owner) {
             target.showWorkspace(requested: target.state.workspaceID)
             if origin.raisesOwner(ownerWasOpen: openBefore.contains(owner)) { bringToFront(target) }
             return
@@ -214,7 +215,8 @@ extension WindowManager {
         // Not reported yet: it lands when the daemon reports it, shown only
         // when asked (reconcileMembership).
         if !shows, claims.pending[workspaceID] != nil { claims.quiet.insert(workspaceID) }
-        if registry.value.owner(of: workspaceID) == state.id {
+        // Listed here, as its own or as a view of another window's (a shared space): selected, never taken.
+        if registry.value.lists(workspaceID, in: state.id) {
             if shows { select(workspaceID, in: state) }
             return
         }

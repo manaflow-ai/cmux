@@ -47,7 +47,7 @@ extension WindowRegistry {
         var record = WindowRecord(
             id: id,
             workspaceKey: selected.map(WorkspaceKey.init(rawValue:)),
-            workspaceKeys: window.workspaceIDs.map(WorkspaceKey.init(rawValue:)),
+            workspaceKeys: window.ownedIDs.map(WorkspaceKey.init(rawValue:)), // a guest is its owner's to save
             machine: state.flatMap { $0.machineID == MachineRegistry.localID ? nil : $0.machineID },
             screenID: state?.activeScreenID.map(ResourceID.init(rawValue:)),
             frame: window.frame.map(WindowFrame.init(rect:)),
