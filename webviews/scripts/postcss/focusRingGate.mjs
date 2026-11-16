@@ -33,9 +33,12 @@ export function gateFocusVisible(selector) {
 function gateSiblingLeft(selector) {
   const cut = lastSiblingCombinator(selector);
   if (cut < 0) return undefined;
-  const left = selector.slice(0, cut).trimEnd();
+  const left = trimCss(selector.slice(0, cut));
   const spots = focusVisibleSpots(left);
   if (!spots.length || spots.some((spot) => spot.names.some((name) => name !== "has"))) return undefined;
+  // Only from a compound right before a `+` or `~`: a sibling is never the root. Off an ancestor that
+  // can be the root (`:root:has(:focus-visible) > head + body`) the gate would change what matches.
+  if (spots.some((spot) => !beforeSiblingCombinator(left + " +", spot.at))) return undefined;
   // A subject with a pseudo-element other than one plain one at its end (`:before`, `::after:hover`,
   // `::slotted(:is(.x))`) keeps the gate in place: after it, the selector would be invalid.
   const subject = selector.slice(cut);
@@ -73,6 +76,26 @@ function focusVisibleSpots(text) {
   return spots;
 }
 
+/** Whether the compound holding index `at` ends in a `+` or `~` combinator. */
+function beforeSiblingCombinator(selector, at) {
+  let next = "";
+  scanTopLevel(selector, (c, i, depth) => {
+    if (next || depth || i <= at) return;
+    if (/[\s>+~]/.test(c) && selector[i - 1] !== "\\") next = c;
+  });
+  if (!/\s/.test(next)) return next === "+" || next === "~";
+  // Whitespace: a descendant combinator unless a `>`, `+` or `~` follows it.
+  const after = /^\s*([>+~])?/.exec(selector.slice(selector.indexOf(next, at)))?.[1];
+  return after === "+" || after === "~";
+}
+
+/** `text` trimmed, keeping an escaped trailing space (`.b\ `). */
+function trimCss(text) {
+  let out = text.trimStart();
+  while (/\s$/.test(out) && !/\\\s$/.test(out)) out = out.slice(0, -1);
+  return out;
+}
+
 /** Index of the last `+` or `~` combinator outside parentheses, brackets and strings, or -1. */
 function lastSiblingCombinator(selector) {
   let cut = -1;
@@ -88,11 +111,11 @@ function splitTopLevel(selector, separator) {
   let from = 0;
   scanTopLevel(selector, (c, i, depth) => {
     if (!depth && c === separator) {
-      parts.push(selector.slice(from, i).trim());
+      parts.push(trimCss(selector.slice(from, i)));
       from = i + 1;
     }
   });
-  parts.push(selector.slice(from).trim());
+  parts.push(trimCss(selector.slice(from)));
   return parts;
 }
 

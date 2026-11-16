@@ -120,12 +120,12 @@ function listArguments(compound: string): string[] {
   }
   return out;
 }
-/// It holds an `:is()` or `:where()` with a branch that names no class, id, attribute or tag.
+/// It holds an `:is()` or `:where()` with a branch that names no class, id or attribute (a tag is no
+/// feature for Blink's sibling invalidation either).
 const namelessList = (compound: string): boolean =>
   listArguments(compound).some((list) =>
     splitTop(list, (ch) => ch === ",").some((branch) => {
-      const last = compounds(branch).parts.at(-1) ?? "";
-      return !named(last) && !/^[a-z]/i.test(ownPart(last));
+      return !named(compounds(branch).parts.at(-1) ?? "");
     }),
   );
 
@@ -140,8 +140,8 @@ function findings(file: string, selector: string): string[] {
     out.push(`a :has() rule whose subject (${subject}) names no class, id or attribute`);
   if (combinators.some((combinator) => combinator === "+" || combinator === "~") && anyElement(subject))
     out.push(`a sibling rule whose subject (${subject}) is any element`);
-  const lastSibling = Math.max(combinators.lastIndexOf("+"), combinators.lastIndexOf("~"));
-  if (parts.slice(0, lastSibling + 1).some(namelessList))
+  // Only a compound right before a `+` or `~`: Blink drops sibling features at a descendant combinator.
+  if (parts.some((part, index) => (combinators[index] === "+" || combinators[index] === "~") && namelessList(part)))
     out.push("a sibling rule with an :is() or :where() of states on its left");
   return out.filter(() => !ALLOWED.has(`${file} ${selector}`));
 }
@@ -174,7 +174,9 @@ test("the detector catches each kind", () => {
   expect(findings("x.css", ".tag.is-open:is(:hover) + .x")).toHaveLength(1);
   expect(findings("x.css", '.tag ~ svg[data-icon]:where(:not(:root[data-m="p"] *))')).toEqual([]);
   expect(findings("x.css", ".tag.is-open:hover ~ svg[data-icon]")).toEqual([]);
-  expect(findings("x.css", '.goal:is([data-look="head"], li) + .x')).toEqual([]);
+  expect(findings("x.css", '.goal:is([data-look="head"], [data-look="foot"]) + .x')).toEqual([]);
+  expect(findings("x.css", '.goal:is([data-look="head"], li) + .x')).toHaveLength(1);
+  expect(findings("x.css", ".a:is(:hover) .b + .c")).toEqual([]);
   expect(findings("x.css", ".a:not(.b) + .d")).toEqual([]);
   expect(findings("x.css", ":root:not([data-a], [data-b]) .x + .d")).toEqual([]);
 });
