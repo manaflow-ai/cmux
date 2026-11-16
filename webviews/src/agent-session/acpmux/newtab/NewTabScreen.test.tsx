@@ -1978,3 +1978,21 @@ test("Standard: Esc closes the rows and a key typed with nothing focused goes in
   });
   expect(promptValue(field)).toBe("example.comj");
 });
+
+test("Vim: a key typed with nothing focused still goes into the prompt, g included", async () => {
+  // Vim's list keys live on the prompt and the rows; the page's type-to-field rule is unchanged.
+  const { field, doc } = await styledScreen("vim");
+  (doc.activeElement as HTMLElement | null)?.blur();
+  for (const [key, code] of [
+    ["g", "KeyG"],
+    ["i", "KeyI"],
+    ["t", "KeyT"],
+  ]) {
+    await act(async () => {
+      (doc.activeElement ?? doc.body).dispatchEvent(
+        new dom!.window.KeyboardEvent("keydown", { key, code, bubbles: true, cancelable: true }),
+      );
+    });
+  }
+  expect(promptValue(field)).toBe("example.comgit");
+});
