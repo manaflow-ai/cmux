@@ -200,8 +200,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
   // This row's work on the page's one reveal clock (revealClock), made once: it reads the latest
   // text and state itself, so a new snapshot (once a frame while the reply streams) only puts it on
   // the clock when it is off, never restarts it.
-  const tick = useRef<RevealTick | null>(null);
-  tick.current ??= (now, away, fadeMs) => {
+  const [tick] = useState<RevealTick>(() => (now, away, fadeMs) => {
     const current = reveal.current!;
     const state = loop.current;
     const before = latest.current.shown;
@@ -235,7 +234,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
     }
     const held = length < target.length;
     return !current.settled || fresh.length > 0 || held;
-  };
+  });
   useLayoutEffect(() => {
     const current = reveal.current!;
     // A completed historical row is already settled when it is published. If a page swap gives
@@ -248,9 +247,9 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       setShown(next);
       return;
     }
-    if (revealClock.rows.has(tick.current!)) return;
+    if (revealClock.rows.has(tick)) return;
     if (current.settled && shown.length >= displayText.length && !shown.fresh.length) return;
-    revealClock.add(tick.current!);
+    revealClock.add(tick);
     // `shown` is read only to skip a row that has nothing to do.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayText, historicalReplacement, shown, streaming]);
@@ -261,10 +260,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
   useLayoutEffect(() => {
     setPrevious({ text, streaming });
   }, [text, streaming]);
-  useLayoutEffect(() => {
-    const row = tick.current!;
-    return () => revealClock.remove(row);
-  }, []);
+  useLayoutEffect(() => () => revealClock.remove(tick), [tick]);
   // Reduce Motion can change while the row is mounted, and the stylesheet follows it at once.
   // Turned on, the whole reply shows now: the pending frame is cancelled and no step is left
   // fading; later text shows as it arrives. Turned off, later text is paced again.
@@ -277,7 +273,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       reduce.current = on;
       reveal.current!.setReduceMotion(on, latest.current.text);
       if (!on) return;
-      revealClock.remove(tick.current!);
+      revealClock.remove(tick);
       const { text: target, shown: before } = latest.current;
       if (before.length === target.length && !before.fresh.length) return;
       const next = { length: target.length, fresh: [], now: before.now };
@@ -287,7 +283,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
     changed();
     query.addEventListener("change", changed);
     return () => query.removeEventListener("change", changed);
-  }, []);
+  }, [tick]);
   return {
     visible: historicalReplacement ? displayText : displayText.slice(0, Math.min(shown.length, displayText.length)),
     fresh: historicalReplacement ? [] : shown.fresh,

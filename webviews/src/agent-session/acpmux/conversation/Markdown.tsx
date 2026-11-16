@@ -6,7 +6,7 @@ import { BlockTail, InlineTail } from "./InlineTail";
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { Fragment, memo, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { CodeBlock } from "./CodeBlock";
 import { InlinePreview } from "./InlinePreview";
@@ -477,14 +477,12 @@ export function Markdown({
   // same object until a new reference arrives.
   // A revealing reply's source grows every frame: both scans read only what is new
   // (FootnoteScan, ReplyFolderScan), not the whole reply each frame.
-  const noteScan = useRef<FootnoteScan | null>(null);
-  noteScan.current ??= new FootnoteScan();
-  const folderScan = useRef<ReplyFolderScan | null>(null);
-  folderScan.current ??= new ReplyFolderScan();
-  const noteIds = useMemo(() => noteScan.current!.update(children).join(" "), [children]);
+  const [noteScan] = useState(() => new FootnoteScan());
+  const [folderScan] = useState(() => new ReplyFolderScan());
+  const noteIds = useMemo(() => noteScan.update(children).join(" "), [noteScan, children]);
   // The folders this reply's paths are in, joined so a streaming reply keeps the same value (and
   // its memoized blocks) until a new folder arrives; its bare file names may be files there.
-  const folderKey = useMemo(() => folderScan.current!.update(children).join("\n"), [children]);
+  const folderKey = useMemo(() => folderScan.update(children).join("\n"), [folderScan, children]);
   const folders = useMemo(() => (folderKey ? folderKey.split("\n") : []), [folderKey]);
   // The reply's data URL budget; only a reply longer than the budget can pass it.
   const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
