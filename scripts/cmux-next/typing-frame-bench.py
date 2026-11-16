@@ -485,13 +485,16 @@ def measure_agentpane(phase, pid, pane, streams=()):
         except OSError:
             main_profile = {"error": "sample output unavailable", "file": os.path.basename(sampler[1])}
     verdict = agent_typing_verdict(typing, expected, dispatch)
+    frame_report = frame_metrics(frames)
     entry.update({"keys": len(expected), "measured": verdict["observed_keys"], "expected_text": expected,
                   "clear": {"select": clear_select, "delete": clear_delete, "delete_key": "delete",
                             "verified": bool(cleared), "reset": reset},
                   "typing": typing, "dispatch": dispatch, "key_rpc_ms": pct(trips), **verdict,
                   "driver_p95_late_ms": pct([item["late_ms"] for item in dispatch]).get("p95"),
                   "driver_p99_rpc_ms": pct(trips).get("p99"),
-                  "frames": frames, "frame_metrics": frame_metrics(frames), "hangs": hangs,
+                  "frames": frames, "frame_metrics": frame_report, "frames_over_16ms": frame_report.get("frames_over_16ms"),
+                  "frame_bursts": frame_report.get("frame_bursts"), "main_thread_cost": frame_report.get("main_thread_cost"),
+                  "hangs": hangs,
                   "streams": [stream.calls for stream in streams], "main_profile": main_profile,
                   "complete": bool(verdict["complete"] and cleared)})
     results["runs"].append(entry)
@@ -644,6 +647,7 @@ def measure(surface, phase, params, column, pid, streams=()):
     marks = ["dispatch_start_ms", "dispatch_end_ms", "io_write_ms", "socket_submit_ms", "output_decoded_ms",
              "output_received_ms", "output_parsed_ms", "contents_ms", "commit_ms"]
     hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
+    display_metrics = frame_metrics(frames)
     f = lambda key: [float(r[key]) for r in rows if r.get(key)]
     entry = {
         "session": SESSION, "surface": surface, "phase": phase, "keys": len(trips), "measured": len(rows),
@@ -660,7 +664,9 @@ def measure(surface, phase, params, column, pid, streams=()):
         "hangs": {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "frames_over_8_3ms", "max_gap_ms")}
         if isinstance(hangs, dict) else hangs,
         "hang_records": (hangs or {}).get("records") if isinstance(hangs, dict) else None,
-        "frames": frames, "frame_metrics": frame_metrics(frames), "streams": [s.calls for s in streams],
+        "frames": frames, "frame_metrics": display_metrics, "frames_over_16ms": display_metrics.get("frames_over_16ms"),
+        "frame_bursts": display_metrics.get("frame_bursts"), "main_thread_cost": display_metrics.get("main_thread_cost"),
+        "streams": [s.calls for s in streams],
         "round": ROUND, "focus": LOAD.get("focus"),
         "view_churn": churn, "control_publishes": {"count": len(publishes), "ms": pct(publishes),
                                                    "total_ms": round(sum(publishes), 1)},
