@@ -193,6 +193,11 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
       actions.push(String(request.params?.id ?? ""));
       return { ok: true, value: null };
     }
+    case "cmux.page.heartbeat":
+      // As the app's page host answers (PageWebView takesRestBeats): a page with nothing happening in it
+      // stops beating after 10 s (pageHealth.ts). "Unsupported" here kept every dev and bench page beating
+      // every 2 s for good, a wakeup the app does not have.
+      return { ok: true, value: { rest: true } };
     case "pane.painted":
       // When the app would fade the page in over its loading state (frame tests read it).
       (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt ??= performance.now();
