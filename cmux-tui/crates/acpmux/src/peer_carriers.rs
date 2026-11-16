@@ -684,10 +684,10 @@ impl Peer {
             };
             // End the owned SSH process now, including when its next attempt is an hour away.
             self.end_tunnel().await;
-            // A client asked while this attempt, sent while the network may have been down, was
-            // still connecting: once per connect, a new attempt with the same tokens, now.
+            // A client asked mid-connect (the network was down): one new attempt, same tokens, now.
             if restart && !self.stop.load(Ordering::SeqCst) {
                 tracing::info!(peer = %self.name, "a client asked while the connect was pending; connecting again");
+                self.with_silence(crate::peer_link::SilenceBudget::dial_struggled);
                 restarted = true;
                 ssh_tokens = Some(((token, peer_token), kept));
                 continue;

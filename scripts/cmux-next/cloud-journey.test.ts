@@ -10,7 +10,7 @@ import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from ".
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummaryMarkdown, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -83,7 +83,41 @@ describe("cloud journey", () => {
       post_bind_login: "receipt",
       first_chat_ms: null,
       first_reply_ms: null,
+      claimed_behind: null,
+      spare_skips: null,
+      spare_fallback: null,
     });
+  });
+
+  test("preclaim records name a claim served one image roll behind (held across a roll) and the claim's skips", () => {
+    const held = preclaimClaimRecord({ claim: 0, answer: { claim: { behind: true }, spare_skips: { image: 2, "vm_private id": 1 }, spare_fallback: "image" } });
+    expect(held.claimed_behind).toBe(true);
+    expect(held.spare_skips).toEqual({ image: 2 });
+    expect(held.spare_fallback).toBe("image");
+    const current = preclaimClaimRecord({ claim: 1, answer: { claim: { behind: false } } });
+    expect(current.claimed_behind).toBe(false);
+    expect(preclaimClaimRecord({ claim: 2, answer: { machine_id: "vm_cold" } }).claimed_behind).toBeNull();
+  });
+
+  test("the preclaim summary counts held claims and their failures apart from normal hits", () => {
+    const ok = { postBindLogin: "receipt" as const, firstChatMs: 5, firstReplyMs: 9 };
+    const rows = [
+      preclaimClaimRecord({ claim: 0, leaseHit: true, answer: { claim: { behind: false }, spare_skips: { image: 1 } }, ...ok }),
+      preclaimClaimRecord({ claim: 1, leaseHit: true, answer: { claim: { behind: true } }, ...ok }),
+      preclaimClaimRecord({ claim: 2, leaseHit: true, answer: { claim: { behind: true }, spare_skips: { image: 3, disconnected: 1 } }, postBindLogin: "receipt", firstChatMs: 5, firstReplyMs: null }),
+      preclaimClaimRecord({ claim: 3, leaseHit: false, answer: { spare_fallback: "image", spare_skips: { image: 2 } }, postBindLogin: "post-bind", firstReplyMs: 40 }),
+    ];
+    const failures = [preclaimFailureRecord(4, new Error("reply wait exit 1"), [], true), preclaimFailureRecord(5, new Error("create refused"))];
+    expect(failures[0].claimed_behind).toBe(true);
+    expect(failures[1].claimed_behind).toBeNull();
+    const summary = preclaimSummary(rows, failures);
+    expect(summary).toMatchObject({ claims: 4, lease_hits: 3, lease_misses: 1, cold_creates: 1, held_claims: 3, held_failures: 2, image_skips: 6, claims_with_image_skip: 3 });
+    const md = preclaimSummaryMarkdown(rows, failures);
+    expect(md).toContain("- held claims (one image roll behind): 3");
+    expect(md).toContain("- held claim failures: 2");
+    expect(md).toContain("- cold creates: 1");
+    expect(md).toContain("| held |");
+    expect(md).not.toContain("reply wait exit 1");
   });
 
   test("preclaim health and lease evidence stay bounded and opaque", () => {
@@ -119,7 +153,7 @@ describe("cloud journey", () => {
 
   test("preclaim failures retain a private failed row and force a nonzero incomplete run", () => {
     const failure = preclaimFailureRecord(3, new Error("credential installer refused: secret-value"), ["secret-value"]);
-    expect(failure).toEqual({ claim: 3, outcome: "fail", error: "credential installer refused: [secret]" });
+    expect(failure).toEqual({ claim: 3, outcome: "fail", error: "credential installer refused: [secret]", claimed_behind: null });
     expect(preclaimRunComplete([], [failure], 1)).toBe(false);
     expect(preclaimRunComplete([preclaimClaimRecord({ claim: 0 })], [], 1)).toBe(true);
   });
