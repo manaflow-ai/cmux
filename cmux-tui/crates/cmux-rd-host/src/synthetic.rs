@@ -26,6 +26,7 @@ use crate::args::Opts;
 use crate::marker::{cells, CELL, CELLS};
 use cmux_rd_proto::InputEvent;
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 /// The default picture size (`--synthetic-size WxH` changes it; `--max-width` fits it).
 pub const DEFAULT_SIZE: (u32, u32) = (1920, 1080);
@@ -179,6 +180,34 @@ pub fn bumps(event: &InputEvent) -> bool {
         InputEvent::Key { down, .. } | InputEvent::Button { down, .. } => *down,
         InputEvent::Scroll { .. } => true,
         _ => false,
+    }
+}
+
+/// The longest single sleep of the ticker. macOS gives a process started over ssh about 50%
+/// timer leeway, so one `sleep(16.7 ms)` returned after 25.0 ms on a fleet Mac and the 60 fps
+/// ticker ran at 40; sleeps of at most 2 ms toward an absolute deadline held 60.0 fps there
+/// (gap p95 17.0 ms).
+const TICK_STEP: Duration = Duration::from_millis(2);
+
+/// Sleeps until `deadline` in steps of at most [`TICK_STEP`].
+pub fn sleep_until(deadline: Instant) {
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        std::thread::sleep(left.min(TICK_STEP));
+    }
+}
+
+/// The ticker's next deadline: one interval after the last, so late wakes do not drift the
+/// rate; but never in the past, so a stall is not followed by a burst of catch-up frames.
+pub fn next_tick(last: Instant, interval: Duration, now: Instant) -> Instant {
+    let next = last + interval;
+    if next > now {
+        next
+    } else {
+        now + interval
     }
 }
 
@@ -586,5 +615,30 @@ mod tests {
         assert_eq!(fit((1920, 1080), Some(2560)), (1920, 1080));
         assert_eq!(fit((1920, 1080), Some(1280)), (1280, 720));
         assert_eq!(fit((1920, 1080), Some(100)), (640, 360));
+    }
+
+    #[test]
+    fn the_ticker_keeps_its_schedule_and_never_bursts_after_a_stall() {
+        let interval = Duration::from_micros(16_667);
+        let t0 = Instant::now();
+        // A late wake keeps the schedule: the next deadline is one interval after the last.
+        let late = t0 + Duration::from_millis(3);
+        assert_eq!(next_tick(t0, interval, late), t0 + interval);
+        // A stall past the next deadline starts over from now, with no catch-up frames.
+        let stalled = t0 + Duration::from_millis(100);
+        assert_eq!(next_tick(t0, interval, stalled), stalled + interval);
+        // Sixty steps on time land sixty intervals out.
+        let mut d = t0;
+        for _ in 0..60 {
+            d = next_tick(d, interval, d);
+        }
+        assert_eq!(d, t0 + interval * 60);
+        // sleep_until returns at or after its deadline, and at once for a past one.
+        let target = Instant::now() + Duration::from_millis(5);
+        sleep_until(target);
+        assert!(Instant::now() >= target);
+        let before = Instant::now();
+        sleep_until(before - Duration::from_millis(1));
+        assert!(before.elapsed() < Duration::from_millis(50));
     }
 }
