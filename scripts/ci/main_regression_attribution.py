@@ -67,6 +67,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import main_full_suite as suite_run  # noqa: E402
 from merge_receipt import LABEL as UNVERIFIED_LABEL  # noqa: E402
+import receipt_read  # noqa: E402  (the shared reader: a PR's comments, read back past the newest page)
 from app_host_test_rerun import OUTSIDE_THE_APP, TEST_ROOT  # noqa: E402
 from app_host_result_accounting import RESTART_MARKER  # noqa: E402
 
@@ -1117,17 +1118,20 @@ def rank_inputs(root: Path, prs: list[PullRequest]) -> None:
 
 
 def pr_comment_bodies(repo: str, number: int) -> list[str]:
-    owner, name = repo.split("/", 1)
-    query = (
-        'query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) '
-        "{ pullRequest(number: $number) { comments(last: 100) { nodes { body } } } } }"
-    )
-    data = json.loads(gh([
-        "api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}", "-f", f"name={name}",
-        "-F", f"number={number}",
-    ]))
-    nodes = data["data"]["repository"]["pullRequest"]["comments"]["nodes"]
-    return [str(node.get("body") or "") for node in nodes]
+    """The PR's comment bodies, oldest first: its newest 100 and, while they hold no attribution marker for this PR,
+    older pages (receipt_read.read, at most receipt_read.MORE_PAGES more). Until 2026-11-11 only the newest 100 were
+    read, so on a busy PR an earlier notice fell out and already_told posted it again."""
+    def enough(items: list, _head: str) -> bool:
+        return any(int(n) == number for item in items for n, _, _ in MARKER_RE.findall(str(item.get("body") or "")))
+
+    def graphql(query: str, variables: dict) -> dict:
+        args = ["api", "graphql", "-f", f"query={query}"]
+        for key, value in variables.items():
+            args += ["-f", f"{key}={value}"]
+        return json.loads(gh(args))["data"]
+
+    found = receipt_read.read(graphql, repo, [number], enough, types=("ISSUE_COMMENT",), page=100)[number]
+    return [str(item.get("body") or "") for item in found["items"]]
 
 
 def resolve_run(args: argparse.Namespace) -> dict | None:
