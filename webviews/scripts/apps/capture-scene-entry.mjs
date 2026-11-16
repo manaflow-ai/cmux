@@ -49,6 +49,32 @@ async function open(page, variant) {
   await page.waitForFunction((n) => document.querySelectorAll(".cmux-app-scene-root").length >= n, roots, {
     timeout: 60_000,
   });
+  // CAPTURE_PROBE=selector prints each match's box, its parent's and its first child's, to check layout.
+  const probe = process.env.CAPTURE_PROBE;
+  if (probe) {
+    const boxes = await page.evaluate((sel) => {
+      const box = (e) => {
+        if (!e) return null;
+        const r = e.getBoundingClientRect();
+        const cs = getComputedStyle(e);
+        return {
+          cls: String(e.className),
+          w: r.width,
+          h: r.height,
+          y: r.y,
+          display: cs.display,
+          height: cs.height,
+          alignSelf: cs.alignSelf,
+        };
+      };
+      return [...document.querySelectorAll(sel)].map((el) => ({
+        el: box(el),
+        parent: box(el.parentElement),
+        child: box(el.firstElementChild),
+      }));
+    }, probe);
+    console.log(`probe ${variant}: ${JSON.stringify(boxes)}`);
+  }
 }
 
 function toMp4(webm) {
