@@ -4,18 +4,23 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneSymbol } from "./SceneSymbol";
+import { SceneParticles } from "./SceneParticles";
+import { loopStyle, trimRange } from "./motionProps";
 import { sceneColor, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
+import { currentMotionEnv, useSceneMotion, type MotionPart } from "./useSceneMotion";
 import "./scene.css";
 
 export type SceneDispatch = (node: string, event: string, payload?: unknown) => void;
@@ -251,7 +256,61 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
   );
 }
 
-function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch, disabled: boolean): ReactNode {
+const SHAPES = ["Circle", "Capsule", "Rectangle", "RoundedRectangle"];
+
+/** A stroked shape with `trim` draws its outline as SVG (a CSS border cannot draw part of itself). */
+const trimmedOutline = (node: SceneNode): boolean =>
+  SHAPES.includes(node.type) && sceneColor(node.props.stroke) !== undefined && trimRange(node.props.trim) !== undefined;
+
+/** The trimmed outline: `pathLength` 1, so the dash is the trimmed fraction; a circle starts at
+ * 12 o'clock and runs clockwise, a rectangle at its top-left corner. The dash animates on the
+ * node's `animation` (the node's part, useSceneMotion). */
+function SceneShapeOutline({ node, partRef }: { node: SceneNode; partRef: RefObject<Element | null> }) {
+  const props = node.props;
+  const size = Math.max(0, sceneNumber(props.size) ?? 16);
+  const width = Math.min(Math.max(0, sceneNumber(props.strokeWidth) ?? 1), size / 2);
+  const [from, to] = trimRange(props.trim) ?? [0, 1];
+  const outline = {
+    ref: partRef as RefObject<SVGCircleElement & SVGRectElement>,
+    pathLength: 1,
+    fill: "none",
+    strokeWidth: width,
+    // A token is a var(), which a presentation attribute cannot read: the ink is a style.
+    style: { stroke: sceneColor(props.stroke) },
+    strokeDasharray: `${to - from} 1`,
+    strokeDashoffset: -from,
+  };
+  const inner = size - width;
+  const radius =
+    node.type === "Circle" || node.type === "Capsule"
+      ? inner / 2
+      : node.type === "RoundedRectangle"
+        ? Math.min(sceneNumber(props.cornerRadius) ?? 4, inner / 2)
+        : 0;
+  return (
+    <svg className="cmux-app-scene-shape-svg" viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+      {node.type === "Circle" ? (
+        <circle
+          {...outline}
+          cx={size / 2}
+          cy={size / 2}
+          r={inner / 2}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      ) : (
+        <rect {...outline} x={width / 2} y={width / 2} width={inner} height={inner} rx={radius} />
+      )}
+    </svg>
+  );
+}
+
+function contentOf(
+  node: SceneNode,
+  children: ReactNode,
+  dispatch: SceneDispatch,
+  disabled: boolean,
+  partRef: RefObject<Element | null>,
+): ReactNode {
   const props = node.props;
   switch (node.type) {
     case "VStack":
@@ -305,9 +364,28 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
       return <SceneBadge text={sceneText(props.text)} tone={props.tone} />;
     case "ProgressView": {
       const value = sceneNumber(props.value);
-      return value === undefined ? (
-        <Spinner loading size={16} />
-      ) : (
+      if (value === undefined) return <Spinner loading size={16} />;
+      // An animated bar is a track and a fill the value scales, so the value runs on `animation`.
+      if (props.animation !== undefined) {
+        const fraction = Math.max(0, Math.min(1, value));
+        return (
+          <span
+            className="cmux-app-scene-progress-track"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={1}
+            aria-valuenow={fraction}
+            aria-label={sceneText(props.help) || undefined}
+          >
+            <span
+              ref={partRef as RefObject<HTMLSpanElement | null>}
+              className="cmux-app-scene-progress-fill"
+              style={{ scale: `${fraction} 1` }}
+            />
+          </span>
+        );
+      }
+      return (
         <progress
           className="cmux-app-scene-progress"
           max={1}
@@ -322,7 +400,9 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
     case "Capsule":
     case "Rectangle":
     case "RoundedRectangle":
-      return null;
+      return trimmedOutline(node) ? <SceneShapeOutline node={node} partRef={partRef} /> : null;
+    case "Particles":
+      return <SceneParticles node={node} />;
     case "Image":
       return <SceneImage source={props.src} />;
     case "Toggle":
@@ -346,26 +426,47 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
 const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeProps): ReactNode {
   const node = useSceneNode(store, id);
   const inheritedDisabled = useContext(DisabledContext);
+  const element = useRef<HTMLElement>(null);
+  const partRef = useRef<Element>(null);
+  const type = node?.type;
+  const part = useMemo<MotionPart | undefined>(() => {
+    if (type === "ProgressView") return { ref: partRef, properties: ["scale"] };
+    if (type && SHAPES.includes(type))
+      return { ref: partRef, properties: ["stroke-dasharray", "stroke-dashoffset", "stroke"] };
+    return undefined;
+  }, [type]);
+  useSceneMotion(element, node, store, part);
   if (!node) return null;
   const props = node.props;
   const disabled = inheritedDisabled || props.disabled === true;
   const children = node.children.map((child) => (
     <SceneNodeView key={child} id={child} store={store} dispatch={dispatch} />
   ));
-  const content = contentOf(node, children, dispatch, disabled);
+  const content = contentOf(node, children, dispatch, disabled, partRef);
   if (content === undefined) return null;
-  const style: CSSProperties = sceneStyle(props);
+  const style = sceneStyle(props) as CSSProperties & Record<`--${string}`, string | undefined>;
+  // `loop`: scene.css runs the effect from these (no script per frame); the period follows ui.animationSpeed.
+  const loop =
+    props.loop !== undefined && typeof document !== "undefined"
+      ? loopStyle(props.loop, currentMotionEnv(document).speed)
+      : undefined;
+  if (loop) {
+    Object.assign(style, loop.vars);
+    if (loop.effect === "breathe" && style.opacity !== undefined) style["--scene-opacity"] = String(style.opacity);
+  }
   if (node.type === "Button" && props.destructive === true) style.color = sceneColor("danger");
   if (node.type === "Panel") style.gap = sceneNumber(props.spacing) ?? "var(--cmux-app-scene-panel-spacing)";
   if (node.type === "VStack" || node.type === "LazyVStack" || node.type === "Reorderable") {
     style.alignItems =
       props.alignment === "center" ? "center" : props.alignment === "trailing" ? "flex-end" : "stretch";
   }
-  if (["Circle", "Capsule", "Rectangle", "RoundedRectangle"].includes(node.type)) {
+  if (SHAPES.includes(node.type)) {
     style.width = style.height = Math.max(0, sceneNumber(props.size) ?? 16);
     style.backgroundColor =
-      sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary"));
-    if (sceneColor(props.stroke)) {
+      sceneColor(props.fill) ??
+      (sceneColor(props.stroke) || style.backgroundImage ? "transparent" : sceneColor("secondary"));
+    // A trimmed outline is SVG (SceneShapeOutline); the box draws only the fill.
+    if (sceneColor(props.stroke) && !trimmedOutline(node)) {
       style.borderColor = sceneColor(props.stroke);
       style.borderStyle = "solid";
       style.borderWidth = Math.max(0, sceneNumber(props.strokeWidth) ?? 1);
@@ -382,7 +483,11 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeP
     "data-disabled": disabled ? "" : undefined,
     "data-hover": sceneColor(props.hoverBackground) ? "" : undefined,
     "data-style": node.type === "Panel" ? (props.style === "card" ? "card" : "glass") : undefined,
+    "data-loop": loop?.effect,
+    "data-exiting": node.exiting ? "" : undefined,
+    "aria-hidden": node.exiting || node.type === "Particles" ? true : undefined,
     className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}`,
+    ref: element as RefObject<HTMLDivElement & HTMLButtonElement>,
     style,
     title: sceneText(props.help) || undefined,
   };

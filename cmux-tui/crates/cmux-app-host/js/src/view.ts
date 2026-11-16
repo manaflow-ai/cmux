@@ -16,6 +16,28 @@ export interface ListSpec<T> {
   spacing?: number
 }
 
+/** A motion token, a spring, or a timed curve. Times in seconds, clamped to [0.05, 10]; damping to [0.3, 1]. */
+export type Motion =
+  | "move" | "appear" | "disappear" | "fade" | "snappy" | "bouncy"
+  | { spring: { response: number; dampingFraction: number } }
+  | { duration: number; curve?: "easeOut" | "easeInOut" | "linear" }
+export type Offset = { x?: number; y?: number }
+export type Glow = { color: string; radius: number; opacity?: number }
+export type Gradient = { colors: string[]; angle?: number }
+export type Trim = { from?: number; to: number }
+export type LoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bounce" | "shimmer"
+/** `period` in seconds; `amount` scales the effect's default amplitude. */
+export type Loop = { effect: LoopEffect; period?: number; amount?: number }
+export type Transition = "fade" | "scale" | "slide" | "pop"
+export type ParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
+/** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst. */
+export type ParticlesProps = {
+  preset: Bindable<ParticlePreset>
+  colors?: Bindable<string[] | null>
+  rate?: Bindable<number>
+  burst?: Bindable<number>
+}
+
 export class ViewNode {
   readonly props: Record<string, unknown> = {}
   readonly handlers: Record<string, Handler> = {}
@@ -69,6 +91,25 @@ export class ViewNode {
   strokeWidth(v: Bindable<number>) { return this.set("strokeWidth", v) }
   size(v: Bindable<number>) { return this.set("size", v) }
   rotation(degrees: Bindable<number>) { return this.set("rotation", degrees) }
+  // Motion (ABI.md "Motion"): declared here, run by the host renderer at display rate, never ticked from JS.
+  /** Animate this node's animatable props from the value on screen whenever they change; `null` stops. */
+  animation(v: Bindable<Motion | null>) { return this.set("animation", v) }
+  /** Scale about the node's center (1 = identity). */
+  scale(v: Bindable<number>) { return this.set("scale", v) }
+  /** Move the drawing by points without changing layout. */
+  offset(v: Bindable<Offset>) { return this.set("offset", v) }
+  /** Gaussian blur radius in points. */
+  blur(v: Bindable<number>) { return this.set("blur", v) }
+  /** A colored, zero-offset shadow around the node's shape; `null` removes it. */
+  glow(v: Bindable<Glow | null>) { return this.set("glow", v) }
+  /** A linear gradient fill (shapes) or background (stacks, panels); angle 0 = left to right, 90 (default) = top to bottom. */
+  gradient(v: Bindable<Gradient | null>) { return this.set("gradient", v) }
+  /** Draw only this fraction of a stroked shape's outline (a circle starts at 12 o'clock, clockwise). */
+  trim(v: Bindable<Trim | null>) { return this.set("trim", v) }
+  /** A host-run effect that repeats forever; `null` stops it. */
+  loop(v: Bindable<Loop | null>) { return this.set("loop", v) }
+  /** How the node enters when created and leaves when removed (kept on screen until its exit ends). */
+  transition(v: Bindable<Transition | null>) { return this.set("transition", v) }
   cursor(v: "pointer" | "default") { return this.set("cursor", v) }
   help(v: Bindable<string>) { return this.set("help", v) }
   // Behavior
@@ -146,6 +187,11 @@ export const Circle = (props: Record<string, unknown> = {}) => new ViewNode("Cir
 export const Capsule = (props: Record<string, unknown> = {}) => new ViewNode("Capsule").withProps(props)
 export const Rectangle = (props: Record<string, unknown> = {}) => new ViewNode("Rectangle").withProps(props)
 export const RoundedRectangle = (props: Record<string, unknown> = {}) => new ViewNode("RoundedRectangle").withProps(props)
+
+/** A particle field that fills its frame and takes no input; first in a ZStack, it draws behind its siblings. */
+export function Particles(props: ParticlesProps): ViewNode {
+  return new ViewNode("Particles").withProps(props)
+}
 
 export function ProgressView(value?: Bindable<number | null>): ViewNode {
   const node = new ViewNode("ProgressView")
