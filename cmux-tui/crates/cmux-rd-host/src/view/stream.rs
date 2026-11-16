@@ -74,6 +74,20 @@ extern "C" fn on_interrupt(_: libc::c_int) {
     }
 }
 
+/// Restores SIGINT and SIGTERM to their defaults and forgets the pipe when dropped.
+pub struct InterruptHook;
+
+impl Drop for InterruptHook {
+    fn drop(&mut self) {
+        // SAFETY: resetting to SIG_DFL; the store keeps a late handler from writing anywhere.
+        unsafe {
+            libc::signal(libc::SIGINT, libc::SIG_DFL);
+            libc::signal(libc::SIGTERM, libc::SIG_DFL);
+        }
+        INTERRUPT_FD.store(-1, Ordering::SeqCst);
+    }
+}
+
 /// Whether Ctrl-C or SIGTERM asked the viewer to stop.
 pub fn interrupted() -> bool {
     INTERRUPTED.load(Ordering::SeqCst)
@@ -115,7 +129,9 @@ impl Waker {
 
     /// Ctrl-C (SIGINT) or SIGTERM wakes this pipe and sets [`interrupted`], so the viewer ends
     /// the session (Stop, bye, the report) instead of dying mid-stream.
-    pub fn wake_on_interrupt(&self) -> Res<()> {
+    /// The hook lasts as long as the returned guard: dropping it restores the default
+    /// handlers, so a Ctrl-C after the session never writes into a closed (reused) pipe.
+    pub fn wake_on_interrupt(&self) -> Res<InterruptHook> {
         INTERRUPT_FD.store(self.0.write, Ordering::SeqCst);
         // SAFETY: the handler only stores to an atomic and writes one byte to a pipe, both
         // async-signal-safe; the zeroed sigaction is then filled in before use.
@@ -130,7 +146,7 @@ impl Waker {
                 }
             }
         }
-        Ok(())
+        Ok(InterruptHook)
     }
 
     /// Clears the wake-ups.
@@ -199,7 +215,7 @@ pub fn run(
     let mailbox: SharedMailbox = Arc::default();
     let present_waker = Waker::new()?;
     let input_waker = Waker::new()?;
-    input_waker.wake_on_interrupt()?;
+    let _interrupt_hook = input_waker.wake_on_interrupt()?;
     let (input_tx, input_rx) = mpsc::channel::<InputEvent>();
     let window_done = Arc::new(AtomicBool::new(false));
     let win = Window::open(&config.display, &config.title, config.control)?;

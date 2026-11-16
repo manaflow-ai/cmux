@@ -93,7 +93,8 @@ pub fn sign_in_keeping_refresh(
     Ok((access, refresh_token))
 }
 
-/// A fresh access token from a kept refresh token.
+/// A fresh access token from a kept refresh token (`cmux-rd view` keeps one).
+#[cfg(all(feature = "openh264", target_os = "linux"))]
 pub fn refresh(config_url: &str, refresh_token: &str) -> Res<String> {
     access_from_refresh(&load_config(config_url)?, refresh_token)
 }
