@@ -23,7 +23,7 @@ const cloudMutation = cloudOps.find((o) => o.owner === "cloud:CloudDO" && o.clas
 const cloudRead = cloudOps.find((o) => o.owner === "cloud:CloudDO" && o.class === "read")!.name
 const stayingMutation = "user.ensure"
 
-type Seen = { url: string; method: string; body: string; protocols: string | null }
+type Seen = { url: string; method: string; body: string; protocols: string | null; space: string | null }
 
 /** A stand-in for the platform Worker: records what reached it and answers 299. */
 const fakePlatform = (opts: { throws?: boolean } = {}) => {
@@ -32,7 +32,7 @@ const fakePlatform = (opts: { throws?: boolean } = {}) => {
     fetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (opts.throws) throw new Error("platform down")
       const r = new Request(input as RequestInfo, init)
-      seen.push({ url: r.url, method: r.method, body: await r.text(), protocols: r.headers.get("Sec-WebSocket-Protocol") })
+      seen.push({ url: r.url, method: r.method, body: await r.text(), protocols: r.headers.get("Sec-WebSocket-Protocol"), space: r.headers.get("x-cmux-build-space") })
       return new Response("from platform", { status: 299, headers: { "x-from": "platform" } })
     })
   }
@@ -202,4 +202,16 @@ describe("entry ticket spend", () => {
     await call(new Request(`${ORIGIN}/v1/health`, { headers: { "Sec-WebSocket-Protocol": `ticket.${ticket}` } }), { PLATFORM: fakePlatform().fetcher, PLATFORM_SURFACES: "cloud", WIRE_TICKET_DO: tickets.ns })
     expect(tickets.spends()).toBe(1)
   })
+
+  /** Build spaces (build-space.ts): a dev build's Cloud request reaches the platform with its space, which the
+   * platform needs to find the build's own install (its UserDO is named `dev:<slug>|<user>`). */
+  it("forwards a dev build's machine route and Cloud op with its build space", async () => {
+    const platform = fakePlatform()
+    const env = { PLATFORM_SURFACES: "cloud", PLATFORM: platform.fetcher }
+    expect((await call(post("/v1/cloud/bind", "{}", { "x-cmux-build-space": "dev:my-tag" }), env)).from).toBe("platform")
+    expect((await call(post("/v1/ops", op(cloudMutation), { "x-cmux-build-space": "dev:my-tag" }), env)).from).toBe("platform")
+    expect((await call(post("/v1/ops", op(cloudMutation)), env)).from).toBe("platform")
+    expect(platform.seen.map((s) => s.space)).toEqual(["dev:my-tag", "dev:my-tag", null])
+  })
 })
+
