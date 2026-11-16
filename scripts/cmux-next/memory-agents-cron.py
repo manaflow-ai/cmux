@@ -178,6 +178,20 @@ def breakdown_from(report: dict) -> tuple[dict, list[dict]]:
     return out, rows
 
 
+def bench_cmd(args: argparse.Namespace, raw: str) -> list[str]:
+    """bench_memory.py's command for this part (pure). The empty app process's own split (--app-vm) is on unless
+    --no-app-vm: the app process is the largest kind of the empty app (ram-baseline, CMUX-571), and only a stored
+    vmmap says which of its regions grew."""
+    cmd = [sys.executable, os.path.join(HERE, "bench_memory.py"), "--app", args.app, "--workspaces", args.agents,
+           "--mix", "terminal+chat", "--fake-agent", os.path.join(ROOT, FAKE_AGENT), "--settle", args.settle,
+           "--measure", args.measure, "--top", "8", "--js-heap", "--out", raw]
+    if not args.no_app_vm or args.app_vm_stacks:
+        cmd.append("--app-vm")
+    if args.app_vm_stacks:
+        cmd += ["--app-vm-stacks", args.app_vm_stacks]
+    return cmd
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
@@ -186,13 +200,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--agents", default="10", help="agent chat counts, e.g. 10 or 10,20")
     parser.add_argument("--settle", default="20")
     parser.add_argument("--measure", default="30")
+    parser.add_argument("--no-app-vm", action="store_true",
+                        help="skip bench_memory --app-vm (by default every run stores the empty app process's vmmap "
+                             "summary, footprint and heap in report.json app_vm)")
+    parser.add_argument("--app-vm-stacks", metavar="PATTERN", help="bench_memory --app-vm-stacks (a diagnostic run)")
     args, _rest = parser.parse_known_args(argv)  # split-spring's own args (--tag) are not this suite's
     out_dir = args.out or os.path.dirname(os.path.abspath(args.json))
     os.makedirs(out_dir, exist_ok=True)
     raw = os.path.join(out_dir, "memory-agents.json")
-    cmd = [sys.executable, os.path.join(HERE, "bench_memory.py"), "--app", args.app, "--workspaces", args.agents,
-           "--mix", "terminal+chat", "--fake-agent", os.path.join(ROOT, FAKE_AGENT), "--settle", args.settle,
-           "--measure", args.measure, "--top", "8", "--js-heap", "--out", raw]
+    cmd = bench_cmd(args, raw)
     status = subprocess.run(cmd, cwd=ROOT).returncode
     try:
         with open(raw) as f:
@@ -204,6 +220,9 @@ def main(argv: list[str] | None = None) -> int:
     out = {"rows": rows + breakdown_rows, "agents": args.agents, "bench_status": status}
     if breakdown:
         out["breakdown"] = breakdown
+    empty = next((s for s in report.get("samples") or [] if isinstance(s, dict) and s.get("label") == "idle-launch"), {})
+    if empty.get("app_vm"):
+        out["app_vm"] = empty["app_vm"]
     # perf-cron.py: an incomplete report keeps its rows for diagnostics but is no done part (incomplete_why names it).
     missing = [] if any(r["name"].endswith(".empty.total_footprint_mb") for r in rows) else \
         [f"no empty-app sample (bench_memory.py exit {status})"]
