@@ -301,6 +301,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `www.ietf.org` | identifier | an RTP header extension id, never fetched |
 | `json-schema.org` | identifier | a JSON schema id, never fetched |
 | `www.w3.org` | identifier | an XML or SVG namespace, never fetched |
+| `schemas.microsoft.com` | identifier | the Task Scheduler XML namespace in acpmux's Windows logon task, never fetched |
 | `freestyle.sh` | identifier | a cloud host name the app recognizes |
 | `ac.uk` | identifier | a public suffix, so sites under it are told apart |
 | `ltd.uk` | identifier | a public suffix, so sites under it are told apart |

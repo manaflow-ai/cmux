@@ -229,6 +229,7 @@ export class Journey {
   readonly secrets: string[] = [];
   readonly firstText = new FirstTextTiming();
   preclaimRows: PreclaimClaimRecord[] | null = null;
+  preclaimFailures: PreclaimFailureRecord[] = [];
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>, private readonly publicSafe = false) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
@@ -256,7 +257,7 @@ export class Journey {
     if (!this.outDir) return;
     const meta = this.publicSafe ? preclaimPublicMeta() : this.meta;
     writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta, steps: this.steps }, null, 2)}\n`);
-    const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows)}`;
+    const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows, this.preclaimFailures)}`;
     writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta) + preclaim);
   }
 }
@@ -373,17 +374,41 @@ export type PreclaimClaimRecord = {
   post_bind_login: "receipt" | "post-bind" | "missing" | "not_checked";
   first_chat_ms: number | null;
   first_reply_ms: number | null;
+  /** The claim answer's value.claim.behind (cmux-platform#1429): the spare was held across an image roll; null with no claim. */
+  claimed_behind: boolean | null;
+  /** The claim answer's skipped spares by reason (cmux-platform#1418), e.g. image or a #1414 guard reason; null when absent. */
+  spare_skips: Record<string, number> | null;
+  spare_fallback: string | null;
 };
 
 export type PreclaimFailureRecord = {
   claim: number;
   outcome: "fail";
   error: string;
+  /** The claimed machine's facts at the failure (preclaimGuestFacts), when it existed. */
+  guest?: string;
+  /** Whether the failed claim had taken a spare held across a roll (null when it failed before the claim answered). */
+  claimed_behind: boolean | null;
 };
 
 /** A failed claim stays visible in the private evidence without exposing credentials publicly. */
-export function preclaimFailureRecord(claim: number, error: unknown, secrets: string[] = []): PreclaimFailureRecord {
-  return { claim, outcome: "fail", error: scrub(String(error instanceof Error ? error.message : error), secrets).slice(0, 600) };
+export function preclaimFailureRecord(claim: number, error: unknown, secrets: string[] = [], claimedBehind: boolean | null = null, guest?: string): PreclaimFailureRecord {
+  return { claim, outcome: "fail", error: scrub(String(error instanceof Error ? error.message : error), secrets).slice(0, 600), claimed_behind: claimedBehind, ...(guest === undefined ? {} : { guest: scrub(guest, secrets).slice(-8000) }) };
+}
+
+/**
+ * What the claimed machine shows when a claim fails after it exists (run 43824872130: the first chat's `acp wait` exited
+ * 1 and the machine was deleted with no trace): whether the guest sees its own Claude login, the chat session's acp
+ * events and the journal's agent lines. Private rows only, scrubbed by the caller; never the login itself.
+ */
+export async function preclaimGuestFacts(exec: Exec, session: string): Promise<string> {
+  const facts = await exec([
+    `${GUEST}echo "== own login"; (. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude) && echo yes || echo no`,
+    `echo "== acp tail ${session}"; "$c" acp tail ${shq(session)} 2>&1 | tail -40 | cut -c1-400`,
+    `echo "== acp list"; "$c" acp list 2>&1 | tail -10 | cut -c1-300`,
+    `echo "== journal"; journalctl -m --no-pager -o short-monotonic --since -15min 2>/dev/null | grep -iE 'acp|claude|auth|login|harness' | tail -80 | cut -c1-400`,
+  ].join("; "), 60_000).catch((error) => ({ code: 1, stdout: `unreadable: ${String((error as Error)?.message ?? error).slice(0, 200)}`, stderr: "" }));
+  return facts.stdout;
 }
 
 export function preclaimRunComplete(rows: PreclaimClaimRecord[], failures: PreclaimFailureRecord[], expectedClaims: number): boolean {
@@ -458,6 +483,35 @@ export function preclaimClaimRecord(input: {
     post_bind_login: input.postBindLogin ?? "not_checked",
     first_chat_ms: input.firstChatMs ?? null,
     first_reply_ms: input.firstReplyMs ?? null,
+    ...spareFields(answer),
+  };
+}
+
+/** A held claim (one roll behind) fails when its chat got no reply or its login never arrived; a failed claim that took one counts too. */
+const heldRowFailed = (r: PreclaimClaimRecord) => r.first_reply_ms === null || r.post_bind_login === "missing";
+
+/**
+ * The burst's counts. Held claims (a spare kept claimable across an image roll, CLOUD_SPARE_ROLL_HOLD) are counted apart from
+ * normal hits, with their failures, so a roll-crossing burst shows whether held spares still passed the claim guard (#1414).
+ */
+export function preclaimSummary(rows: PreclaimClaimRecord[], failures: PreclaimFailureRecord[] = []) {
+  const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
+  const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
+  const heldRows = rows.filter((r) => r.claimed_behind === true);
+  const heldFailed = failures.filter((f) => f.claimed_behind === true);
+  const lease_misses = rows.filter((r) => r.lease_hit === false).length;
+  return {
+    claims: rows.length,
+    lease_hits: rows.filter((r) => r.lease_hit === true).length,
+    lease_misses,
+    cold_creates: lease_misses,
+    held_claims: heldRows.length + heldFailed.length,
+    held_failures: heldRows.filter(heldRowFailed).length + heldFailed.length,
+    image_skips: rows.reduce((n, r) => n + (r.spare_skips?.image ?? 0), 0),
+    claims_with_image_skip: rows.filter((r) => (r.spare_skips?.image ?? 0) > 0).length,
+    post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length,
+    replies: rows.filter((r) => r.first_reply_ms !== null).length,
+    claim_to_bound_p90_ms: p90,
   };
 }
 
@@ -477,11 +531,10 @@ export function opaquePreclaimLeaseId(value: unknown): string | null {
 }
 
 /** Public preclaim evidence is limited to timings, outcomes and opaque lease handles. */
-export function preclaimSummaryMarkdown(rows: PreclaimClaimRecord[]): string {
-  const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
-  const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
-  const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, replies: rows.filter((r) => r.first_reply_ms !== null).length, claim_to_bound_p90_ms: p90 };
-  return ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- replies: ${summary.replies}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease id | lease hit | health before | health after | claim answer | join | guest bind | connect_info | bound | post-bind login | first chat | first reply |", "|---:|:---|:---:|:---:|:---:|---:|---:|---:|---:|---:|:---|---:|---:|", ...rows.map((r) => `| ${r.claim} | ${r.lease_id ?? "-"} | ${r.lease_hit === null ? "unknown" : r.lease_hit ? "yes" : "no"} | ${r.health_before.outcome} | ${r.health_after.outcome} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} | ${r.first_chat_ms ?? "-"} | ${r.first_reply_ms ?? "-"} |`)].join("\n") + "\n";
+export function preclaimSummaryMarkdown(rows: PreclaimClaimRecord[], failures: PreclaimFailureRecord[] = []): string {
+  const summary = preclaimSummary(rows, failures);
+  const yesNo = (v: boolean | null) => (v === null ? "unknown" : v ? "yes" : "no");
+  return ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- cold creates: ${summary.cold_creates}`, `- held claims (one image roll behind): ${summary.held_claims}`, `- held claim failures: ${summary.held_failures}`, `- image skips: ${summary.image_skips} (claims with one: ${summary.claims_with_image_skip})`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- replies: ${summary.replies}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease id | lease hit | held | health before | health after | claim answer | join | guest bind | connect_info | bound | post-bind login | first chat | first reply |", "|---:|:---|:---:|:---:|:---:|:---:|---:|---:|---:|---:|---:|:---|---:|---:|", ...rows.map((r) => `| ${r.claim} | ${r.lease_id ?? "-"} | ${yesNo(r.lease_hit)} | ${yesNo(r.claimed_behind)} | ${r.health_before.outcome} | ${r.health_after.outcome} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} | ${r.first_chat_ms ?? "-"} | ${r.first_reply_ms ?? "-"} |`)].join("\n") + "\n";
 }
 
 function normalizedWireValue(value: unknown): Record<string, unknown> {
@@ -595,9 +648,19 @@ export async function runPreclaimChat(exec: Exec, session: string, prompt: strin
     const text = reply.stdout.replace(/@@wait \d+\n?/, "").trim();
     if (wait === "0" && text) return { chatMs, replyMs: Date.now() - waitStarted };
     // The send is queued: an idle exit before the turn starts is not a failed reply.
-    if (wait && wait !== "0" && wait !== "3") throw new Error(`preclaim ${session}: reply wait exit ${wait}`);
+    if (wait && wait !== "0" && wait !== "3") throw new Error(`preclaim ${session}: reply wait exit ${wait}: ${await failedTurnWhy(exec, session, text)}`);
   }
   throw new Error(`preclaim ${session}: no reply within ${budgetMs / 1000} s`);
+}
+
+/**
+ * Why a turn failed: a failed turn (`acp wait` exit 1) prints no reply, so this names the session's last turn_error
+ * (e.g. a harness with no sign-in on the machine), else the last message (run 43817240410 recorded only "exit 1").
+ */
+export async function failedTurnWhy(exec: Exec, session: string, last: string): Promise<string> {
+  const h = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -E '"kind":"turn_error"' | tail -1`, 45_000).catch(() => null);
+  const why = /"error":"((?:[^"\\]|\\.)*)"/.exec(h?.stdout ?? "")?.[1] ?? "";
+  return (why || last).slice(-300);
 }
 
 /** A cold claim has no warm receipt, so it uses the same credential transfer after bind. */
@@ -701,16 +764,16 @@ export async function runPreclaimBurst(args: {
   const writeOutput = () => {
     if (!args.outDir && !args.privateRowsPath) return;
     if (args.outDir) mkdirSync(args.outDir, { recursive: true });
-    const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
-    const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
-    const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, replies: rows.filter((r) => r.first_reply_ms !== null).length, claim_to_bound_p90_ms: p90, outcome: verificationFailed || !preclaimRunComplete(rows, failures, args.claims) ? "fail" : "pass", complete: preclaimRunComplete(rows, failures, args.claims) };
+    const summary = { ...preclaimSummary(rows, failures), outcome: verificationFailed || !preclaimRunComplete(rows, failures, args.claims) ? "fail" : "pass", complete: preclaimRunComplete(rows, failures, args.claims) };
     if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend.name, summary }, rows, failures }, null, 2)}\n`);
     args.journey.preclaimRows = rows;
+    args.journey.preclaimFailures = failures;
     args.journey.flush();
   };
   try {
     for (let index = 0; index < args.claims; index++) {
       let claimedMachine: string | null = null;
+      let claimedBehind: boolean | null = null;
       try {
       const healthBefore = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
       platform ??= clientPlatformOrigin((await args.api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
@@ -721,6 +784,7 @@ export async function runPreclaimBurst(args: {
       const answer = await args.api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-preclaim-${index}`);
       const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
       claimedMachine = typeof machine === "string" ? machine : null;
+      claimedBehind = spareFields(answer).claimed_behind;
       const explicitLease = classifyLeaseHit(answer);
       const leaseHit = explicitLease ?? (spare === null ? false : typeof machine === "string" ? machine === spare : null);
       if (typeof machine === "string") {
@@ -747,8 +811,10 @@ export async function runPreclaimBurst(args: {
       }
       writeOutput();
       } catch (error) {
+        // The machine's own facts first: deleting it is the end of every log that says why.
+        const guest = claimedMachine ? await preclaimGuestFacts(directExec(args.api, claimedMachine, args.journey), `preclaim-${args.tag}-${index}`) : undefined;
         if (claimedMachine) await args.api.deleteMachine(claimedMachine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
-        failures.push(preclaimFailureRecord(index, error, args.journey.secrets));
+        failures.push(preclaimFailureRecord(index, error, args.journey.secrets, claimedBehind, guest));
         writeOutput();
         throw error;
       }
@@ -3254,10 +3320,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (wait === "0" && last) return last;
         if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);
         if (wait && wait !== "3" && wait !== "0") {
-          // A failed turn (exit 1) prints no reply: name its error, e.g. a harness with no sign-in on the machine.
-          const h = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -E '"kind":"turn_error"' | tail -1`, 45_000).catch(() => null);
-          const why = /"error":"((?:[^"\\]|\\.)*)"/.exec(h?.stdout ?? "")?.[1] ?? "";
-          throw new Error(`acp wait exit ${wait}: ${(why || last).slice(-300)}`);
+          throw new Error(`acp wait exit ${wait}: ${await failedTurnWhy(exec, session, last)}`);
         }
       }
       throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);

@@ -39,7 +39,7 @@ async fn run() -> Result<()> {
     // keeps its router through a daemon restart. The path comes from the
     // daemon, whose home may be a tagged build's override.
     let _router_owner =
-        spec.router_owner_fifo.as_deref().and_then(crate::daemon::open_router_owner);
+        spec.router_owner_fifo.as_deref().and_then(crate::daemon_parts::open_router_owner);
     match start(&spec).await {
         Ok(started) => {
             write_frame(&mut stdout, &BootstrapReply::Ready { record: started.record.clone() })
@@ -704,9 +704,9 @@ impl Started {
                     return;
                 };
                 // Who sent it goes to the home's `agent-host-signals.log` (`daemon/term_sender.rs`).
-                crate::daemon::term_sender::record();
+                crate::term_sender::record();
                 if term.recv().await.is_some() {
-                    let sender = crate::daemon::term_sender::settled().await;
+                    let sender = crate::term_sender::settled().await;
                     note_term(&signals_log, &session, sender);
                     let _ = tx.send(Event::Term).await;
                 }
@@ -720,7 +720,7 @@ impl Started {
         #[cfg(debug_assertions)]
         {
             let tx = events_tx.clone();
-            crate::daemon::owner_exit::follow_test_owner(move |_| {
+            crate::owner_exit::follow_test_owner(move |_| {
                 let _ = tx.blocking_send(Event::Term);
             });
         }
@@ -1610,8 +1610,7 @@ pub(crate) const SIGNALS_LOG: &str = "agent-host-signals.log";
 /// sender when the kernel named one. Best effort: a failed write changes nothing.
 fn note_term(log: &Path, session: &str, sender: Option<i32>) {
     use std::io::Write as _;
-    let from =
-        sender.map_or_else(|| "an unknown sender".to_owned(), crate::daemon::term_sender::describe);
+    let from = sender.map_or_else(|| "an unknown sender".to_owned(), crate::term_sender::describe);
     let line = format!(
         "{} agent host {} (session {session}) stopping: SIGTERM from {from}\n",
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),

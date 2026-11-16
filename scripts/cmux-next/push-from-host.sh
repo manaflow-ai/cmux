@@ -274,13 +274,19 @@ fi
 # BEGIN gate_hook_runs
 gate_hook_runs() {
     local hooks common own
-    hooks="$(git config --get core.hooksPath || true)"
+    # --type=path: git expands a `~/...` value the same way when it runs the hook.
+    hooks="$(git config --type=path --get core.hooksPath || true)"
     common="$(git rev-parse --path-format=absolute --git-common-dir)" || return 1
     own="$common/cmux-git-hooks"
     [[ -x "$own/pre-push" ]] && grep -q 'prepush[-_]gate' "$own/pre-push" || return 1
-    [[ -n "$hooks" && -x "$hooks/pre-push" ]] || return 1
+    # A relative core.hooksPath is resolved where the hook runs, the pushed tree, so a check made here would read
+    # other files than the ones git runs: refused.
+    [[ "$hooks" == /* && -x "$hooks/pre-push" ]] || return 1
     [[ "$(cd "$hooks" && pwd -P)" == "$(cd "$own" && pwd -P)" ]] && return 0
-    grep -q 'run_repo_hooks' "$hooks/pre-push"
+    # The wiring install-git-hooks.sh prints for a clone with hooks of its own: a pre-push that calls this one.
+    grep -qF "$own/pre-push" "$hooks/pre-push" && return 0
+    # A shared hooks folder that runs each repo's own hooks (run_repo_hooks, defined in the repo-hook beside it).
+    [[ -f "$hooks/repo-hook" ]] && grep -q 'run_repo_hooks' "$hooks/pre-push" && grep -q '^run_repo_hooks()' "$hooks/repo-hook"
 }
 # END gate_hook_runs
 if ! gate_hook_runs; then
@@ -291,7 +297,7 @@ if ! gate_hook_runs; then
     git worktree remove --force "$TREE.hooks"
     if ! gate_hook_runs; then
         echo "push-from-host: $HOSTNAME's clone still would not run cmux's pre-push gate (core.hooksPath:" \
-            "$(git config --get core.hooksPath || echo none)); nothing was pushed. Point it at the clone's" \
+            "$(git config --type=path --get core.hooksPath || echo none)); nothing was pushed. Point it at the clone's" \
             "cmux-git-hooks or at a hooks folder that runs each repo's own hooks." >&2
         exit 2
     fi
