@@ -19,13 +19,27 @@ each in two phases:
              other workspaces), --chats mock agent chats stream (debug.agent_pane stream), and for home the
              fixture's Chief streams a reply into the transcript at 30 tokens/s
 
+or, with --modes, in the load modes every under-load harness shares (webviews/bench/load-modes.json, cmuxterm-hq
+docs/design/chat-instant-under-load.md "The bench"; Leo, 2026-11-16: "but typing under load is not good enough"), so
+a native typing number and a web typing number were taken under the same load:
+
+  L0 idle                       L3 the focused chat is the 100k-row fixture, streaming
+  L1 the focused chat streams    L4 every core saturated by other processes (--cpu-burners spinning processes)
+  L2 10 other chats streaming    L5 L1 to L4 together, in the STRESS session (60 workspaces, 20 printing terminals)
+
+Each mode is one launch of the app, and its knobs come from the registry, not from --busy/--chats. A knob these
+surfaces cannot express (the 100k-row chat transcript: none of them types into a chat) is in the mode's
+`nativeMissing` and goes in the report beside the row, so a number is never read as the full mode. The web side of
+the same modes is `cd webviews && bun bench/composer-typing.bench.ts --modes all`.
+
 Per surface and phase: key-to-frame p50/p95/p99/max, the probe's hop split (send to dispatch, dispatch, dispatch to
 frame), main-thread hangs over 8 ms (`debug.hangs`), and with --sample a `/usr/bin/sample` of the app during the
 load phase's keys (the main thread's heaviest frames). The display's refresh rate is in the report (judge drops in
 frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
 
   typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
-      [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8]
+      [--phases idle,load | --modes L0,L1,L2,L4,L5|all] [--samples 80] [--busy 20] [--chats 2] [--cpu-burners N]
+      [--sample] [--gate-p95-ms 8]
 
 Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
@@ -34,6 +48,7 @@ Fleet (an owned mini with a console; the step builds the app):
 """
 import argparse, csv, glob, json, os, re, socket, statistics, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import load_modes  # noqa: E402
 from bench_launch import BenchApp, LaunchError  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -43,6 +58,10 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--json")
 parser.add_argument("--surfaces", default="dock,terminal,home,omnibar")
 parser.add_argument("--phases", default="idle,load")
+parser.add_argument("--modes", help="the shared load modes instead of --phases: a comma list of ids (L0,L1,...) or "
+                                    "`all`; one app launch each, knobs from webviews/bench/load-modes.json")
+parser.add_argument("--cpu-burners", type=int, default=0,
+                    help="spinning processes a mode that saturates every core starts (default: this host's cores)")
 parser.add_argument("--samples", type=int, default=80)
 parser.add_argument("--interval", type=float, default=0.1, help="seconds between keys (one key in flight)")
 parser.add_argument("--busy", type=int, default=20, help="busy terminals in the load phase")
@@ -70,6 +89,34 @@ results = {"tag": TAG, "host": os.uname().nodename, "opts": vars(opts), "log": [
 app = None
 SESSION = "light"
 ROUND = 0
+# The mode being measured, when --modes is given: its id, its `native` knobs and what it cannot express here.
+MODE = None
+
+
+# What make_load builds: --busy/--chats by default, a mode's `native` knobs with --modes.
+LOADSPEC = {"busy": opts.busy, "chats": opts.chats, "cpu": False}
+BURNERS = []
+
+
+def start_burners():
+    """Mode L4's load: one spinning shell per core, each a process of ours, so the app waits its turn for a core as
+    it does on a loaded Mac. Only these children are ever signalled."""
+    count = opts.cpu_burners or os.cpu_count() or 8
+    for _ in range(count):
+        BURNERS.append(subprocess.Popen(["/bin/sh", "-c", "while :; do :; done"],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+    note(f"load: {len(BURNERS)} cpu burners (this host has {os.cpu_count()} cores)")
+    return len(BURNERS)
+
+
+def stop_burners():
+    while BURNERS:
+        child = BURNERS.pop()
+        try:
+            child.terminate()
+            child.wait(timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
 
 def note(text):
@@ -180,17 +227,19 @@ def make_load(surface_ws):
     if LOAD["made"]:
         return
     LOAD["made"] = True
+    if LOADSPEC["cpu"]:
+        LOAD["cpu_burners"] = start_burners()
     if SESSION == "stress":
-        # STRESS has its printing terminals and agent chats already: stream up to --chats of its chats.
+        # STRESS has its printing terminals and agent chats already: stream up to this many of its chats.
         listed = rpc("debug.agent_pane", {"action": "engine", "pane": "none"}) or {}
-        LOAD["chat_panes"] = (listed.get("agent_panes") or [])[: opts.chats]
+        LOAD["chat_panes"] = (listed.get("agent_panes") or [])[: LOADSPEC["chats"]]
         note(f"load (stress): streaming chats {LOAD['chat_panes']}")
         return
-    visible = min(3, opts.busy)
+    visible = min(3, LOADSPEC["busy"])
     for _ in range(visible):
         action("splitRight", settle=0.6)
         action("terminal.sendText", {"text": BUSY + "\r"})
-    rest = opts.busy - visible
+    rest = LOADSPEC["busy"] - visible
     per = 4
     for index in range((rest + per - 1) // per):
         count = min(per, rest - index * per)
@@ -200,7 +249,7 @@ def make_load(surface_ws):
             cli("workspace", ref, "focus")
             action("splitDown", settle=0.4)
             action("terminal.sendText", {"text": BUSY + "\r"})
-    for _ in range(opts.chats):
+    for _ in range(LOADSPEC["chats"]):
         reply = action("palette.newAgentChat", settle=1.0)
         # The action answers after ~2 s while the chat still opens: wait for its page, then its composer.
         ready = wait(lambda: (lambda r: r if r.get("document_ready") else None)(
@@ -210,7 +259,7 @@ def make_load(surface_ws):
         note(f"load: agent chat {engine.get('pane')} ({engine.get('engine')}) ready={bool(ready)} {json.dumps(reply)[:120]}")
     if surface_ws:
         cli("workspace", surface_ws, "focus")
-    note(f"load: {opts.busy} busy terminals ({visible} visible), {len(LOAD['chat_panes'])} agent chats")
+    note(f"load: {LOADSPEC['busy']} busy terminals ({visible} visible), {len(LOAD['chat_panes'])} agent chats")
 
 
 def chat_streams():
@@ -373,6 +422,10 @@ def measure(surface, phase, params, column, pid, streams=()):
     f = lambda key: [float(r[key]) for r in rows if r.get(key)]
     entry = {
         "session": SESSION, "surface": surface, "phase": phase, "keys": len(trips), "measured": len(rows),
+        # Only with --modes, so a report from the --phases path stays the rows bench_ab already compares.
+        "mode": (MODE or {}).get("id"),
+        "mode_missing": (MODE or {}).get("nativeMissing") or [],
+        "cpu_burners": LOAD.get("cpu_burners", 0),
         "key_to_frame_ms": pct(f(column)), "column": column,
         "send_to_dispatch_ms": pct(f("dispatch_start_ms")),
         "dispatch_ms": pct([float(r["dispatch_end_ms"]) - float(r["dispatch_start_ms"]) for r in rows
@@ -517,7 +570,7 @@ def surface_omnibar(phase, pid):
 SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar}
 
 
-def run_session(session):
+def run_session(session, phases=None):
     """One launch of the app (scripts/cmux-next/bench_launch.py): the light session, or STRESS (built first); every
     surface and phase in it, --rounds times."""
     global app, SESSION, SOCKET, CONFIG
@@ -542,7 +595,7 @@ def run_session(session):
         surfaces = opts.surfaces.split(",")
         global ROUND
         for ROUND in range(opts.rounds):
-            for phase in opts.phases.split(","):
+            for phase in (phases or opts.phases.split(",")):
                 for surface in surfaces:
                     if surface == "dock" and phase != "idle":
                         continue
@@ -552,19 +605,44 @@ def run_session(session):
                         note(f"{session} {surface}.{phase}: failed: {error!r}")
     finally:
         bench.stop()
+        stop_burners()
 
 
 def main():
     results["refresh_hz"] = refresh_hz()
     results["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
+    global MODE
     sessions = opts.sessions.split(",") if opts.sessions else (["stress"] if opts.stress else ["light"])
     try:
-        for session in sessions:
-            run_session(session)
+        if opts.modes:
+            # One launch per mode, its knobs from the registry. L0 is the idle phase; every other mode is the load
+            # phase with the mode's own load.
+            try:
+                wanted = load_modes.load(opts.modes)
+            except KeyError as error:
+                sys.exit(str(error))
+            for mode in wanted:
+                MODE = mode
+                native = mode["native"]
+                LOADSPEC.update({"busy": native["busyTerminals"], "chats": native["chats"],
+                                 "cpu": bool(native["cpuSaturation"])})
+                missing = mode.get("nativeMissing") or []
+                note(f"mode {mode['id']} ({mode['label']}): {mode['what']}; session {native['session']}, "
+                     f"{native['chats']} chats, {native['busyTerminals']} busy terminals, "
+                     f"cpu saturation {bool(native['cpuSaturation'])}"
+                     + (f"; not expressed here: {'; '.join(missing)}" if missing else ""))
+                phase = "idle" if mode["id"] == "L0" else "load"
+                run_session(native["session"], [phase])
+            MODE = None
+        else:
+            for session in sessions:
+                run_session(session)
     finally:
         summary = {}
         for r in results["runs"]:
-            summary.setdefault(f"{r['session']}.{r['surface']}.{r['phase']}", []).append((r["key_to_frame_ms"] or {}).get("p95"))
+            key = (f"{r['mode']}.{r['surface']}" if r.get("mode")
+                   else f"{r['session']}.{r['surface']}.{r['phase']}")
+            summary.setdefault(key, []).append((r["key_to_frame_ms"] or {}).get("p95"))
         results["summary_p95_ms"] = summary
         note(f"summary p95 ms: {json.dumps(summary)} refresh {results.get('refresh_hz')}")
         if opts.json:
