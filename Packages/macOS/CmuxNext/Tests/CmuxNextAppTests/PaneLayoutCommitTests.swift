@@ -137,11 +137,13 @@ import Testing
         var panes: [PaneID: CGRect]
         var dividers: [CGRect]
 
+        /// `camerasAtEnd`: the strip's camera and each row column's rest at their ends (the layout scrolled as far as it
+        /// goes, which is nowhere when it fits its screen); else at their starts.
         @MainActor
-        init(_ screens: [LayoutScreen], in screen: ScreenContentView, style: LayoutStyle) {
-            let geometry = ScreenGeometry.compute(screens[0].layout, viewport: screen.bounds.size, style: style, scale: screen.scale)
-            // The layouts of these tests fit their screen: the strip's camera rests at 0.
-            let strip = geometry.viewShift(offset: 0)
+        init(_ screens: [LayoutScreen], in screen: ScreenContentView, style: LayoutStyle, camerasAtEnd: Bool = false) {
+            let base = ScreenGeometry.compute(screens[0].layout, viewport: screen.bounds.size, style: style, scale: screen.scale)
+            let geometry = camerasAtEnd ? base.shiftingRows(base.rowStacks.mapValues(\.maxOffset)) : base
+            let strip = geometry.viewShift(offset: camerasAtEnd ? base.maxOffset : 0)
             panes = geometry.panes.reduce(into: [:]) { result, entry in
                 result[entry.key] = entry.value.offsetBy(dx: geometry.scrolls(pane: entry.key) ? strip : 0, dy: 0)
             }
@@ -485,9 +487,9 @@ import Testing
         return [LayoutScreen(id: "s", name: "s", layout: .columns([LayoutColumn(id: "c1", width: 1, root: chain(rows[...]), rows: rows)]))]
     }
 
-    /// A strip of `count` columns, each half the screen wide: more than two scroll.
-    static func strip(_ count: Int) -> [LayoutScreen] {
-        [LayoutScreen(id: "s", name: "s", layout: .columns((1...count).map { LayoutColumn(id: ColumnID("c\($0)"), width: 0.5, root: .leaf(PaneID("p\($0)"))) }))]
+    /// A strip of the columns `numbers` (column `cN` holds pane `pN`), each half the screen wide: more than two scroll.
+    static func strip(_ numbers: [Int]) -> [LayoutScreen] {
+        [LayoutScreen(id: "s", name: "s", layout: .columns(numbers.map { LayoutColumn(id: ColumnID("c\($0)"), width: 0.5, root: .leaf(PaneID("p\($0)"))) }))]
     }
 
     struct CameraClose: CustomTestStringConvertible, Sendable {
@@ -495,28 +497,44 @@ import Testing
         var testDescription: String { name }
     }
 
-    nonisolated static let cameraCloses = [CameraClose(name: "the last row, and the rest fit their column"), CameraClose(name: "the last column of a scrolled strip")]
+    nonisolated static let cameraCloses = [
+        CameraClose(name: "the last row, and the rest fit their column"), CameraClose(name: "the last row, and the rows still overflow"),
+        CameraClose(name: "the last column of a scrolled strip"), CameraClose(name: "a middle column of a strip scrolled to its end"),
+    ]
 
-    /// A close that leaves a scrolled camera with less to show (the last row of a column whose rows overflowed, the last
-    /// column of a scrolled strip): the camera's new place is part of the close. Each frame shows what the screen showed
-    /// before the close, or the layout after it at rest, with nothing between: no frame shows the panes that stay on
-    /// their way to their places, beside the ground of the pane that left.
+    /// The layout before the close with the pane that has the focus in it (the pane at its end, so its camera rests at
+    /// its end), and the layout after the close with the pane the close's topology focuses.
+    static func layouts(of close: CameraClose) -> (before: [LayoutScreen], focused: PaneID, after: [LayoutScreen], focus: PaneID) {
+        switch close.name {
+        case "the last row, and the rest fit their column": (rows([500, 500, 500]), "p3", rows([500, 500]), "p2")
+        case "the last row, and the rows still overflow": (rows([400, 400, 400, 400]), "p4", rows([400, 400, 400]), "p3")
+        case "the last column of a scrolled strip": (strip([1, 2, 3]), "p3", strip([1, 2]), "p2")
+        default: (strip([1, 2, 3, 4]), "p4", strip([1, 2, 4]), "p4")
+        }
+    }
+
+    /// A close that leaves a scrolled camera with less to show (the last row of a column whose rows overflow, the last
+    /// column of a scrolled strip, a column before the last one): the camera's new place is part of the close. Each
+    /// frame shows what the screen showed before the close, or the layout after it with its camera at rest, with
+    /// nothing between: no frame shows the panes that stay on their way to their places, beside the ground of the pane
+    /// that left.
     @Test(arguments: cameraCloses)
     func aCloseThatMovesACameraShowsInOneFrame(_ close: CameraClose) throws {
-        let rows = close.name.hasPrefix("the last row")
-        let harness = Harness(rows ? Self.rows([500, 500, 500]) : Self.strip(3), focused: "p3", holds: false) { $0.rowsEnabledOverride = true }
+        let change = Self.layouts(of: close)
+        let harness = Harness(change.before, focused: change.focused, holds: false) { $0.rowsEnabledOverride = true }
         defer { harness.window.closeAfterTest() }
         Self.rest(harness)
         let screen = try #require(harness.screen)
-        let camera = rows ? screen.rowScrolls["c1"]?.state.spring.value ?? 0 : screen.scroll.value
+        let camera = max(screen.rowScrolls["c1"]?.state.spring.value ?? 0, screen.scroll.value)
         try #require(camera > 100, "set-up: the camera is not scrolled to the pane that closes (\(camera))")
         let before = Self.shown(screen)
 
         // The app's order for a close: the daemon's tree, then the focus its topology lands.
-        harness.model.apply(screens: rows ? Self.rows([500, 500]) : Self.strip(2))
-        let after = Rest(harness.model.screens, in: screen, style: harness.root.context.style)
+        harness.model.apply(screens: change.after)
+        // At rest the camera shows the end of what the layout still has: all of it, when it fits.
+        let after = Rest(harness.model.screens, in: screen, style: harness.root.context.style, camerasAtEnd: true)
         harness.root.syncWithModel()
-        harness.model.focus("p2", notify: false)
+        harness.model.focus(change.focus, notify: false)
         harness.root.syncWithModel()
         var shown = [Self.shown(screen)]
         for _ in 0..<Self.frames {
