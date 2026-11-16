@@ -399,23 +399,30 @@ impl Mux {
                 return Err(error);
             }
             let presentation = &notifications.presentation;
-            let slot = match strip_index {
-                Some(_) => {
+            // With no `place`, the older `after` field places the tab, also
+            // when its creation took a slot (a `transaction`).
+            let by_after = after.is_some() && placed.place.is_none();
+            let landing = match strip_index {
+                None if !by_after => {
+                    placed.land(&state, presentation, target, surface.id, activate)
+                }
+                _ => None,
+            };
+            let slot = match (strip_index, landing) {
+                (Some(_), _) => {
                     joins = None;
                     None
                 }
-                None => match placed.land(&state, presentation, target, surface.id, activate) {
-                    Some(landing) => {
-                        joins = landing.joins;
-                        takes_active = landing.active;
-                        Some(landing.index)
-                    }
-                    None => {
-                        takes_active = activate && placed.takes_active(&state, target);
-                        joins = joined_group(&state, presentation, target, after);
-                        insertion_index(&state, presentation, target, after)
-                    }
-                },
+                (None, Some(landing)) => {
+                    joins = landing.joins;
+                    takes_active = landing.active;
+                    Some(landing.index)
+                }
+                (None, None) => {
+                    takes_active = activate && placed.takes_active(&state, target);
+                    joins = joined_group(&state, presentation, target, after);
+                    insertion_index(&state, presentation, target, after)
+                }
             };
             match state.panes.get_mut(&target) {
                 Some(pane) => {

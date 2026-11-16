@@ -2063,7 +2063,7 @@ Params:
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 | `shell_args` | `string[]` | default null | With `terminal-shell-args-v1`: arguments for the terminal's shell, its `SHELL` in `env` or else the daemon's default shell; none or empty keeps the bare shell |
 | `place` | object | default null | With `tab-create-place-v1`: where the tab goes in the strip of `pane` (see [The place of a new tab](#the-place-of-a-new-tab)); needs `pane` |
-| `transaction` | `string` | default null | With `tab-create-place-v1`: the name of this creation, 1 to 128 printable ASCII characters; the `tab-added` delta of the tab and the result carry it |
+| `transaction` | `string` | default null | With `tab-create-place-v1`: the name of this creation, 1 to 128 printable ASCII characters; the `tab-added` delta of the tab and the result carry it; needs `pane` |
 
 If only one of `cols` or `rows` is present, the server ignores both because it uses `cols.zip(rows)`.
 
@@ -2082,6 +2082,7 @@ Errors:
 | spawn or PTY error string | PTY creation or child spawn fails |
 | `bad request: ...` | Wrong JSON type |
 | `bad request: place ...` | With `tab-create-place-v1`: a `place` that names no position or more than one, `place.joins` with `start`, or a `place` with no `pane`; nothing is created |
+| `bad request: transaction needs pane ...` | With `tab-create-place-v1`: a `transaction` with no `pane`; nothing is created |
 
 CLI mapping:
 
@@ -2219,33 +2220,62 @@ creation by it in `place.after_creation`.
 The rules:
 
 - A create request with a `place` or a `transaction` takes its slot in the
-  strip when it arrives, before its tab is made. The daemon runs the requests
-  of one connection in the order of their arrival, so the slots are in that
-  order. A terminal launches while later requests make their tabs: for each
-  order in which the tabs come, the tabs of the pane are those of the same
-  create and close requests applied one by one in the order of their arrival.
-- The active tab follows the same rule among the created tabs: a tab that
-  comes after the tab of a later create request does not take the active tab
-  from it. It goes into the strip as a background tab does: the active tab of
-  the pane does not change.
+  strip when it arrives, before its tab is made. A request with a
+  `transaction` and no `place` takes the slot at the end of the strip of that
+  time. The daemon runs the requests of one connection in the order of their
+  arrival, so the slots are in that order. A terminal launches while later
+  requests make their tabs: for each order in which the tabs come, the tabs
+  of the pane are those of the same create and close requests applied one by
+  one in the order of their arrival.
+- A create request with no `place` and no `transaction` takes no slot, as
+  before this capability: its tab goes to the end of the strip when it comes
+  and takes the active tab then, also from the tab of a later request.
+- The active tab follows the same rule among the tabs of the requests that
+  took a slot: a tab that comes after the tab of a later create request with
+  a `place` or a `transaction` does not take the active tab from it. It goes
+  into the strip as a background tab does: the active tab of the pane does
+  not change.
 - A tab whose `after` or `before` tab closed while the tab was made lands
   where that tab was.
+- A creation with a `transaction` whose tab closed, moved to another pane or
+  was not made (the creation failed) keeps its slot for the requests that
+  name it: a tab `after_creation` of it lands where that tab was or would be.
 - A tab never lands before a pinned tab. A tab that does not join never
   splits a tab group: a slot inside a group moves to the end of the group for
   `after` and `after_creation`, and to the start of the group for `before`.
+- With `joins`, the `tab-added` of the tab has the index right after the run
+  of the group. The tab then joins the group at its slot in a second step,
+  with the events of a change of a tab group. A join that the daemon refuses
+  leaves the tab after the run with no group; the create request does not
+  fail.
 - `after` or `before` with a tab that is not in `pane`, and `after_creation`
   with a name that the daemon does not have for this connection and this
   pane, give the end of the strip.
 - A `transaction` names a creation of its own connection only. When a
   connection closes, no later request names its creations; a creation of it
   that has no tab yet keeps its slot.
-- The daemon keeps the 256 most recent creations that have a `transaction`.
-  It keeps them in memory only: after a daemon restart no earlier creation
-  has a name, and a creation that the new run resumes takes its slot then.
-- A `move-tab`, a select or a close that arrives between a create request and
-  its tab is applied when it arrives. The tab that comes later keeps the slot
-  that its request took, next to the tab on its left, and it takes the active
-  tab if no later create request took it.
+- The daemon keeps the 256 most recent creations that have a `transaction`
+  and have ended (the tab came, or the creation failed), for all connections
+  together. A creation that still waits for its tab does not leave by this
+  bound. The daemon keeps the creations in memory only: after a daemon
+  restart no earlier creation has a name, and a creation that the new run
+  resumes takes its slot then.
+- A `move-tab`, a select or a close between a create request and its tab is
+  applied when it arrives. The slot of the tab that still launches stays
+  right of the tab on its left. So a tab that a `move-tab` puts right after
+  that tab goes after the slot. Example: the strip is `[a, b, c]`; a `new-tab`
+  after `a` still launches; a `move-tab` puts `c` at index 1. The strip is
+  then `[a, new, c, b]`. The same requests applied one by one give
+  `[a, c, new, b]`.
+- Only a creation writes the record of the active tab: a select or a move
+  between a request and its tab does not. The tab that comes later takes the
+  active tab if no later create request with a slot took it. The active tab
+  after a close of the tab of that later request, while the earlier tab
+  still launches, is not a rule of this capability: a client must not rely
+  on it.
+- A retry of a create request with an `idempotency_key` sends the same
+  `place` and `transaction` as the first request: both are part of the
+  request that the key names.
 
 A `place` goes with `pane`: each of the three commands refuses a `place` with
 no `pane` (`bad request: place needs pane (the pane of the strip that it
@@ -2253,7 +2283,14 @@ names)`), `new-conversation-tab` refuses `place` with `workspace` or `split` (`b
 request: place goes with pane, not with workspace or split`), and
 `new-frontend-browser-tab` refuses `place` and `transaction` with `workspace`
 or `split` (`bad request: place and transaction go with pane, not with
-workspace or split`); on that command `place` wins over `after`. A `place`
+workspace or split`); on that command `place` wins over `after`. `new-tab`
+and `new-frontend-browser-tab` refuse a `transaction` with no `pane` (`bad
+request: transaction needs pane (the pane of the new tab)`).
+`new-conversation-tab` accepts a `transaction` with no `pane`, as before this
+capability: such a creation takes no slot, and no later request names it.
+With `split` and a `transaction` its creation takes the slot at the end of the
+strip of `pane` and its tab goes to the new pane, as a creation whose tab
+moved to another pane. A `place`
 that names no position or more than one is refused with `bad request: place
 names exactly one of after, after_creation, before and start: true`, and
 `joins` with `start` with `bad request: place.joins needs the tab that after,
@@ -2507,7 +2544,7 @@ Params:
 | `after` | `Id` | optional | A tab of the destination pane; the new tab goes right after it (a link's tab next to its opener), else at the end. A slot inside a tab group's run moves to the end of that run; capability `frontend-browser-insert-after-v1` |
 | `split` | object | optional | `{direction, pane_id, split_id}`, only with `pane`: the tab goes in a new pane on that side of `pane` (see below); refused with `after`; capability `frontend-browser-tab-split-v1` |
 | `place` | object | optional | Only with `pane`: where the tab goes in the strip of `pane` (see [The place of a new tab](#the-place-of-a-new-tab)); it wins over `after`; refused with `workspace` or `split`; capability `tab-create-place-v1` |
-| `transaction` | `string` | optional | The name of this creation, 1 to 128 printable ASCII characters: the `tab-added` delta of the tab and the result carry it, and a later create request of the connection names the creation by it in `place.after_creation`; refused with `workspace` or `split`; capability `tab-create-place-v1` |
+| `transaction` | `string` | optional | The name of this creation, 1 to 128 printable ASCII characters: the `tab-added` delta of the tab and the result carry it, and a later create request of the connection names the creation by it in `place.after_creation`; needs `pane`; refused with `workspace` or `split`; capability `tab-create-place-v1` |
 
 Result:
 

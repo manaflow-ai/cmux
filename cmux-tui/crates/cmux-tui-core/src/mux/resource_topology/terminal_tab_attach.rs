@@ -78,10 +78,11 @@ impl Mux {
                     if active {
                         pane.active_tab = index;
                         pane.active_at = active_at;
-                    } else if pane.active_tab >= index {
+                    } else if end > 0 && pane.active_tab >= index {
                         // The tab of a later request is active: it stays
                         // active one slot to the right, and the pane keeps
-                        // its place in the focus order.
+                        // its place in the focus order. A pane that had no
+                        // tab has no active tab to move: its index stays 0.
                         pane.active_tab = pane.active_tab.saturating_add(1);
                     }
                     fence_layout_undo_for_tab_membership(&mut state, &[target]);

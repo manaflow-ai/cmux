@@ -489,34 +489,3 @@ fn a_tab_of_another_connection_commits_before_a_tab_that_still_launches() {
     assert_eq!(active_tab(&mux, pane), 1, "the tab of the later request stays active");
     mux.shutdown();
 }
-
-/// What the daemon does today when the tab of a later request closes while
-/// the launch of an earlier request is held. The rule of the spec: "Only a
-/// creation writes the record of the active tab: a select, a move or a close
-/// between a request and its tab does not." The example: the strip is `[a]`;
-/// a terminal tab is asked for and launches; a page is asked for, comes and
-/// is active; the page closes, so `a` is active; the terminal's tab comes
-/// and does not take the active tab, because the request of the page was
-/// later. The same requests applied one by one leave the terminal's tab
-/// active.
-#[test]
-fn a_tab_that_launched_late_stays_in_the_background_after_the_later_tab_closed() {
-    for kind in PAGES {
-        let (mux, pane, [a, b, c]) = strip(&format!("chain-later-closed-{kind:?}"));
-        mux.close_surface(b).unwrap();
-        mux.close_surface(c).unwrap();
-        assert_eq!((tabs(&mux, pane), active_tab(&mux, pane)), (vec![a], 0), "{kind:?}");
-        let connection = HeldConnection::new(&mux, 1);
-        connection.send(1, terminal(pane, "t1", json!({"after": a})));
-        connection.send(2, with(kind.request(pane), [("place", json!({"after_creation": "t1"}))]));
-        let second = connection.surface(2);
-        assert_eq!((tabs(&mux, pane), active_tab(&mux, pane)), (vec![a, second], 1), "{kind:?}");
-        mux.close_surface(second).unwrap();
-        assert_eq!((tabs(&mux, pane), active_tab(&mux, pane)), (vec![a], 0), "{kind:?}");
-        connection.release(0);
-        let [first] = connection.finish([1]);
-        assert_eq!(tabs(&mux, pane), [a, first], "{kind:?}");
-        assert_eq!(active_tab(&mux, pane), 0, "{kind:?}: `a` stays the active tab");
-        mux.shutdown();
-    }
-}

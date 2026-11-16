@@ -228,8 +228,10 @@ impl Placed {
         Self { place, transaction, client: number("client"), hole: number("hole") }
     }
 
-    /// The slot of `tab`, a new tab of `pane` with a `place`; none for a
-    /// creation with no `place`, which keeps the slot of its kind. With
+    /// The slot of `tab`, a new tab of `pane` whose creation has a `place`
+    /// or took a slot when its request arrived (a `transaction` with no
+    /// `place`: the slot at the end of the strip of that time). None for
+    /// each other creation, which keeps the slot of its kind. With
     /// `activate` the tab asks for the active tab of the pane. The caller
     /// holds the state lock and inserts the tab at the index in the same
     /// lock.
@@ -241,7 +243,9 @@ impl Placed {
         tab: SurfaceId,
         activate: bool,
     ) -> Option<Landing> {
-        self.place.as_ref()?;
+        if self.place.is_none() && self.hole.is_none() {
+            return None;
+        }
         let (slots, groups) = strip_slots(state, presentation, pane);
         let asked = Asked {
             client: self.client.unwrap_or(NO_CLIENT),
@@ -384,6 +388,13 @@ impl Mux {
                 "bad request: place needs pane (the pane of the strip that it names)"
             );
         }
+        // A carried `transaction` names a creation in the strip of `pane`.
+        // With no `pane` the creation takes no slot, and on the paths of a
+        // workspace its `tab-added` does not carry the transaction.
+        anyhow::ensure!(
+            !carried || request.transaction.is_none() || request.pane.is_some(),
+            "bad request: transaction needs pane (the pane of the new tab)"
+        );
         let hole = hole.or_else(|| self.admit_tab_creation(request));
         let scope = Scope {
             client: request.client,
