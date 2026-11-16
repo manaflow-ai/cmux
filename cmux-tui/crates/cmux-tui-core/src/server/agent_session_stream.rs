@@ -358,7 +358,7 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
             // stream, which ends with the `overflow` close (the stream's own
             // overflow text), and the client replays from what it holds.
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
-                attachment.end(None);
+                attachment.end_unsent();
             }
         }
         "_acpmux/permission_pending" if same_session => {
@@ -367,7 +367,7 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
             }
             let event = json!({"event": "agent-session-permission", "surface": attachment.surface, "request": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
-                attachment.end(None);
+                attachment.end_unsent();
             }
         }
         // The session's own changes, and its descendants' (`agent-session-children-v1`),
@@ -385,7 +385,7 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
             }
             let event = json!({"event": "agent-session-changed", "surface": attachment.surface, "change": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
-                attachment.end(None);
+                attachment.end_unsent();
             }
         }
         // Who is in the chat: acpmux sends the whole set on every change, to a client that asked.
@@ -395,7 +395,7 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         {
             let event = json!({"event": "agent-session-presence", "surface": attachment.surface, "presence": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
-                attachment.end(None);
+                attachment.end_unsent();
             }
         }
         // A prompt this attachment sent: to its chat, or to a side chat it opened and follows.
