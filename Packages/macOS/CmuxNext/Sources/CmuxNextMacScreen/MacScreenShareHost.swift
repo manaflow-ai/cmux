@@ -50,6 +50,11 @@ public final class MacScreenShareHost {
         self.work = work
     }
 
+    /// Production callers that do not already own the app's shared blocking-work lanes.
+    public convenience init() {
+        self.init(work: BackgroundWork())
+    }
+
     /// At launch: reads the permissions and rechecks them whenever the app becomes active (back
     /// from System Settings, where the switches are).
     public func activate() {
