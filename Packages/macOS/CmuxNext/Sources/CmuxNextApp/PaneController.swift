@@ -356,8 +356,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let selectedID = stripModel.selectedID
         sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)
         if selectNew != nil {
-            // A tab this window created: show it now (focus is the coordinator's expectation, not decided here).
-            showSelected()
+            // A tab this window created: show it now (focus is the coordinator's expectation, not decided here). A New Tab page with no view yet goes by the frame rule (decision 2026-11-16): its view is made at the next frame, for the tab selected then, so a run of New Tab keys makes no page for a tab that no frame shows.
+            if let selectedID, services.agentTabs.isNewTabPage(selectedID.rawValue), !selectedContentIsAlive { presentSelection() } else { showSelected() }
         } else if let selectedID, selectedID.rawValue != currentTabKey {
             presentSelection() // a close selected the neighbor
         } else {
