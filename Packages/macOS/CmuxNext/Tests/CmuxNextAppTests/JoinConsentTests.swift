@@ -39,7 +39,11 @@ import Testing
             guard ticket.map({ $0.write(write) }) ?? { write(); return true }() else { return nil }
             // acpmux takes a grant and a revoke only from the person's connection.
             guard takes, isPerson else { return nil }
-            if surface == .screen { owner.record.screen = granted } else { owner.record.control = granted }
+            switch surface {
+            case .screen: owner.record.screen = granted
+            case .control: owner.record.control = granted
+            case .signedInMachines: owner.record.signedInMachines = granted
+            }
             return owner.record
         }
         func close() { closed = true }
@@ -211,7 +215,7 @@ import Testing
         #expect(model.consentSupported == false && model.consent == nil, "a record it cannot vouch for is not read")
         let data = try #require(model.pageData())
         let page = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect((page["switches"] as? [[String: Any]])?.map { $0["on"] as? Bool } == [false, false])
+        #expect((page["switches"] as? [[String: Any]])?.map { $0["on"] as? Bool } == [false, false, false])
         #expect(page["error"] as? String == JoinConsentStrings.unsupported)
         #expect(await model.set(.screen, on: true) == JoinConsentStrings.unsupported)
         #expect(fake.writes.isEmpty)
@@ -517,6 +521,76 @@ import Testing
         #expect(model.ask == nil && fake.writes.isEmpty, "once")
     }
 
+    /// A workspace ask from one of the person's other Macs (acpmux's `signedInMachines` refusal, with the Mac
+    /// it names) shows the card at once, naming that Mac, even after this Mac's one screen-or-control sheet
+    /// already showed, and it never spends that sheet. Allow writes the grant through the person path after
+    /// the owner confirms.
+    @Test func aWorkspaceAskFromAnotherMacShowsTheCardNamingItAndAllowGrants() async throws {
+        let fake = Fake()
+        fake.askShown = true
+        let model = JoinConsentModel(services: fake.services())
+        let record = try #require(JoinConsentRecord.parse([
+            "consentRequired": true, "consent": ["screen": "none", "control": "none", "signedInMachines": "none"] as [String: Any],
+            "lastRefusal": ["event": "consent_refused", "code": "consent_required", "surface": "signedInMachines", "at": 2000, "from": "studio-mini"] as [String: Any],
+        ]))
+        #expect(record.lastRefusal == .signedInMachines && record.lastRefusalFrom == "studio-mini" && record.signedInMachinesAskOpen)
+        fake.record = record
+        await model.refresh()
+        #expect(model.ask == JoinConsentRefusal(requester: "studio-mini", surface: .signedInMachines))
+        #expect(JoinConsentStrings.askTitle(try #require(model.ask)) == "studio-mini asked to open a workspace on this Mac.")
+        #expect(JoinConsentStrings.decline(.signedInMachines) == "Not now" && JoinConsentStrings.decline(.screen) == "Deny")
+        #expect(await model.answer(allow: true) == nil)
+        #expect(fake.writes == ["signedInMachines true"] && fake.confirms == ["signedInMachines"])
+        #expect(model.ask == nil && model.consent?.signedInMachines == true)
+        // Granted: a later read of the same refusal asks nothing.
+        await model.refresh()
+        #expect(model.ask == nil)
+    }
+
+    /// Not now answers the workspace ask: it closes the card and writes `signedInMachines` off (no confirm),
+    /// which acpmux keeps as the answer, so the same ask never shows again. A Deny of a screen or control
+    /// sheet still writes nothing.
+    @Test func notNowOnAWorkspaceAskWritesTheAnswerOffAndItIsNotAskedAgain() async {
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        fake.record = JoinConsentRecord(lastRefusal: .signedInMachines, signedInMachinesAskOpen: true, lastRefusalAt: 2000)
+        await model.refresh()
+        #expect(model.ask == JoinConsentRefusal(requester: JoinConsentStrings.otherMac, surface: .signedInMachines))
+        #expect(!fake.askShown, "a workspace ask does not spend the screen-or-control sheet")
+        #expect(await model.answer(allow: false) == nil)
+        #expect(model.ask == nil && fake.writes == ["signedInMachines false"] && fake.confirms.isEmpty)
+        // acpmux now holds the answer (it would answer later than the ask); even before it reads so, the
+        // card this ask showed never comes back.
+        await model.refresh()
+        #expect(model.ask == nil)
+        fake.record.signedInMachinesAskOpen = false
+        await model.refresh()
+        #expect(model.ask == nil)
+        // A newer ask after a later Off shows it again.
+        fake.record = JoinConsentRecord(lastRefusal: .signedInMachines, signedInMachinesAskOpen: true, lastRefusalAt: 3000)
+        await model.refresh()
+        #expect(model.ask?.surface == .signedInMachines)
+    }
+
+    /// The record reads `signedInMachines` only as the word granted, and a workspace ask is open only while
+    /// no answer came after it (acpmux's times: the refusal's number, the answer's string).
+    @Test func aWorkspaceAskIsOpenOnlyUntilItsAnswer() throws {
+        func parse(_ consent: [String: Any], at: Int?) throws -> JoinConsentRecord {
+            var refusal: [String: Any] = ["surface": "signedInMachines"]
+            if let at { refusal["at"] = at }
+            return try #require(JoinConsentRecord.parse(["consent": consent, "lastRefusal": refusal]))
+        }
+        #expect(try parse(["signedInMachines": "none"], at: 2000).signedInMachinesAskOpen)
+        #expect(try parse(["signedInMachines": "none", "signedInMachinesAnsweredAt": "1000"], at: 2000).signedInMachinesAskOpen)
+        #expect(!(try parse(["signedInMachines": "none", "signedInMachinesAnsweredAt": "3000"], at: 2000).signedInMachinesAskOpen))
+        #expect(!(try parse(["signedInMachines": "none"], at: nil).signedInMachinesAskOpen), "no time, no ask")
+        #expect(!(try parse(["signedInMachines": true], at: 2000).signedInMachines), "only the word granted is on")
+        #expect(try parse(["signedInMachines": "granted"], at: 2000).allows(.signedInMachines))
+        let screen = try #require(JoinConsentRecord.parse(["consent": [:] as [String: Any],
+                                                           "lastRefusal": ["surface": "screen", "at": 2000] as [String: Any]]))
+        #expect(!screen.signedInMachinesAskOpen && screen.lastRefusalAt == nil)
+    }
+
     /// SECURITY: the device owner confirms every grant (Touch ID or the login password) before it is
     /// sent, from the Settings switch and the sheet's Allow alike, whatever input asked for it. A cancel
     /// or a failure sends nothing and leaves the sheet up to try again; a Mac that can't ask grants
@@ -587,7 +661,7 @@ import Testing
         let page = try #require(model.pageData())
         let json = try #require(try JSONSerialization.jsonObject(with: page) as? [String: Any])
         #expect(json["joined"] as? String == "Joined to Example Team as studio")
-        #expect((json["switches"] as? [[String: Any]])?.map { $0["on"] as? Bool } == [false, false], "both off by default")
+        #expect((json["switches"] as? [[String: Any]])?.map { $0["on"] as? Bool } == [false, false, false], "all off by default")
         fake.enabled = false
         await model.refresh()
         #expect(!model.shown && model.pageData() == nil)
@@ -922,7 +996,7 @@ import Testing
         let url = directory.appending(path: "cmux.json")
         let labs = { (on: Bool) throws in try Data(#"{"labs": {"machineJoin": \#(on)}}"#.utf8).write(to: url) }
         try labs(true)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         #expect(settings.snapshot.machineJoin)
@@ -995,7 +1069,7 @@ import Testing
         let url = directory.appending(path: "cmux.json")
         let labs = { (on: Bool) throws in try Data(#"{"labs": {"machineJoin": \#(on)}}"#.utf8).write(to: url) }
         try labs(true)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let fake = Fake()
@@ -1047,7 +1121,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let page = SettingsPageProvider(settings: settings)
@@ -1091,7 +1165,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let page = SettingsPageProvider(settings: settings)

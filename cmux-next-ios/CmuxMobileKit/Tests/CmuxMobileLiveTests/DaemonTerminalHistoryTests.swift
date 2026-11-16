@@ -148,6 +148,24 @@ import Testing
         #expect(attaches(daemon).last?["replay_history_rows"] as? Int == DaemonTerminalSession.historyChunkRows)
     }
 
+    /// A tab back from the warm set (a new host, Leo 2026-11-14) puts its
+    /// reader back 2,500 rows above the end: its first attach asks for those
+    /// rows at once, in whole chunks, not the screen alone and then a refetch.
+    @Test func aTabBackFromTheWarmSetAsksForItsReadersRowsInTheFirstAttach() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.historyRows = 9_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog())
+        defer { session.stop() }
+        session.requestHistoryRows(2_500)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        #expect(attaches(daemon).count == 1)
+        #expect(attaches(daemon).first?["replay_history_rows"] as? Int == 2 * DaemonTerminalSession.historyChunkRows)
+        #expect(session.historyRowsOmitted == 5_000)
+    }
+
     private func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {
         for _ in 0..<attempts where !condition() {
             try await Task.sleep(for: .milliseconds(10))

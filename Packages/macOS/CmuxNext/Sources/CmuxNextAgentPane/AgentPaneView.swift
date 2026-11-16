@@ -68,6 +68,10 @@ public final class AgentPaneView: NSView {
     let terminations: AgentPageTerminations
     /// The app's flicker ring file (``AgentPageFlickerLog``, made by the composition root); nil writes nothing (tests).
     let flickerLog: AgentPageFlickerLog?
+    /// Where a page's text input losing the keyboard with no key or click is recorded (the app's focus log).
+    public typealias PageFocusLoss = @MainActor (_ window: NSWindow?, _ detail: String) -> Void
+    /// The app's focus log for this page's `focus-lost` events (``AgentPaneShared/focusLoss``); nil records none.
+    public var onPageFocusLost: PageFocusLoss?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
@@ -370,6 +374,10 @@ public final class AgentPaneView: NSView {
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
         model.onToastAvoidance = { [weak self] in self?.toastAvoidanceMoved() }
+        model.onToast = { [weak self] toast in
+            guard let window = self?.window else { return }
+            CmuxToastCenter.shared.show(toast, in: window)
+        }
         installHostGlass()
     }
 

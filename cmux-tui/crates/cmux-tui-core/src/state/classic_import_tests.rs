@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
-use super::classic_import_router::{Places, Record, places_for_test};
+use super::classic_import_router::{Places, Record, dispatch_in, places_for_test};
 use super::tests::{error_code, read, send};
 use crate::mux::*;
 use crate::state::prelude::*;
@@ -470,6 +470,51 @@ fn the_plan_says_whether_classic_is_open() {
     }
 }
 
+/// An idle classic saves only when its session changes, so a save long ago
+/// says nothing about whether it runs: a sentinel naming a live pid, or the
+/// per-user `cmux-<uid>.sock.lock` held, keeps a launch from asking. On
+/// 2026-11-15 a classic stable (open since Nov 7, last save 2 min
+/// earlier, its lock `cmux-501.sock.lock`) read as closed, and a relaunch
+/// offered its workspaces unasked.
+#[cfg(unix)]
+#[test]
+fn an_idle_classic_that_saved_long_ago_is_still_open() {
+    use std::os::unix::io::AsRawFd;
+    let mux = Mux::new_for_test("classic-import-idle", SurfaceOptions::default());
+    let home = home(true);
+    // Classic's last save, a day ago.
+    let day_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 60 * 60);
+    std::fs::File::options()
+        .write(true)
+        .open(home.session())
+        .unwrap()
+        .set_modified(day_ago)
+        .unwrap();
+    let sentinel = home.0.join(".local/state/cmux/lifecycle/com.cmuxterm.app/running.sentinel");
+    std::fs::create_dir_all(sentinel.parent().unwrap()).unwrap();
+    // A sentinel with no pid and an old save is a classic that crashed.
+    std::fs::write(&sentinel, "").unwrap();
+    assert_eq!(plan(&mux, &home, Mode::Manual)["classic_running"], false);
+    // The sentinel names a live pid (this test's): classic runs, however old its save.
+    std::fs::write(&sentinel, format!("pid={}\n", std::process::id())).unwrap();
+    let open = plan(&mux, &home, Mode::Automatic);
+    assert_eq!(open["classic_running"], true);
+    assert_eq!(open["decision"], json!({"decision": "skip", "reason": "classic_running"}));
+    std::fs::remove_file(&sentinel).unwrap();
+    assert_eq!(plan(&mux, &home, Mode::Manual)["classic_running"], false);
+    // Classic stable's lock beside its per-user socket, held.
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let lock = home.0.join(format!(".local/state/cmux/cmux-{uid}.sock.lock"));
+    std::fs::write(&lock, "").unwrap();
+    let holder = std::fs::File::open(&lock).unwrap();
+    // SAFETY: the descriptor is open for the call.
+    assert_eq!(unsafe { libc::flock(holder.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let open = plan(&mux, &home, Mode::Automatic);
+    assert_eq!(open["classic_running"], true);
+    assert_eq!(open["decision"], json!({"decision": "skip", "reason": "classic_running"}));
+}
+
 /// The channel saved last is read, whichever build this is, and a newest
 /// channel whose files do not decode falls back to the next channel's.
 #[test]
@@ -545,6 +590,119 @@ fn an_outline_plan_leaves_scrollback_out() {
         &mux,
         "classic_import.plan",
         json!({"bundle_id": BUNDLE, "mode": "manual", "outline": "yes"}),
+        None,
+    );
+    assert_eq!(error_code(bad), "validation.invalid");
+}
+
+/// One request the way the daemon answers it, under `home`: the envelope and
+/// its params checked against the embedded catalog, the op run, then its
+/// result or error checked against the catalog too. A reply field, param or
+/// event the catalog does not carry is refused here as it is in the app.
+fn checked(
+    mux: &Arc<Mux>,
+    home: &Home,
+    operation: &str,
+    params: Value,
+    key: Option<&str>,
+) -> Result<Value, ResourceError> {
+    let mut params = params;
+    params["machine"] = json!("current");
+    params["session"] = json!("current");
+    params["bundle_id"] = json!(BUNDLE);
+    let mut envelope = json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": format!("{operation}-checked"),
+        "operation": operation,
+        "params": params,
+    });
+    if let Some(key) = key {
+        envelope["idempotency_key"] = json!(key);
+    }
+    let request =
+        crate::resource_router::parse_resource_request(&serde_json::to_string(&envelope).unwrap())?;
+    let operation = request.envelope.operation;
+    crate::resource_router::validate_operation_outcome(
+        operation,
+        dispatch_in(mux, request, Some(home.places())),
+    )
+}
+
+fn checked_ok(
+    mux: &Arc<Mux>,
+    home: &Home,
+    operation: &str,
+    params: Value,
+    key: Option<&str>,
+) -> Value {
+    checked(mux, home, operation, params.clone(), key)
+        .unwrap_or_else(|error| panic!("{operation} {params} breaks its catalog: {error:?}"))
+}
+
+/// Every reply the app reads from classic_import.plan and every step it
+/// records, with classic's session there, passes the catalog the daemon
+/// enforces: the plan's classic_running, outline (scrollback null), and the
+/// decline event that sets the ledger's declinedAt.
+#[test]
+fn classic_import_replies_match_the_embedded_catalog() {
+    let mux = Mux::new_for_test("classic-import-catalog", SurfaceOptions::default());
+    let none = home(false);
+    let empty = checked_ok(&mux, &none, "classic_import.plan", json!({"mode": "automatic"}), None);
+    assert_eq!(empty["classic_running"], false, "{empty}");
+
+    let home = home(true);
+    let first = checked_ok(&mux, &home, "classic_import.plan", json!({"mode": "automatic"}), None);
+    assert_eq!(first["decision"], json!({"decision": "first_run"}));
+    assert_eq!(first["classic_running"], false);
+    assert!(first["plan"].is_object(), "{first}");
+    let manual = checked_ok(&mux, &home, "classic_import.plan", json!({"mode": "manual"}), None);
+    assert_eq!(keys(&manual).len(), 4, "{manual}");
+    for outline in [false, true] {
+        let reply = checked_ok(
+            &mux,
+            &home,
+            "classic_import.plan",
+            json!({"mode": "manual", "outline": outline}),
+            None,
+        );
+        assert_eq!(keys(&reply), keys(&manual));
+    }
+
+    let declined = checked_ok(
+        &mux,
+        &home,
+        "classic_import.record",
+        json!({"event": "decline", "source": first["source"]}),
+        Some("catalog-decline"),
+    );
+    assert_eq!(declined["value"]["state"], "completed", "{declined}");
+    assert!(home.ledger_json()["declinedAt"].is_f64());
+    let skipped =
+        checked_ok(&mux, &home, "classic_import.plan", json!({"mode": "automatic"}), None);
+    assert_eq!(skipped["decision"], json!({"decision": "skip", "reason": "declined"}));
+    // A decline without a source (a resumed run's No) passes too.
+    checked_ok(
+        &mux,
+        &home,
+        "classic_import.record",
+        json!({"event": "decline"}),
+        Some("catalog-decline-again"),
+    );
+    checked_ok(
+        &mux,
+        &home,
+        "classic_import.record",
+        json!({"event": "finish"}),
+        Some("catalog-finish"),
+    );
+
+    // The catalog still refuses what the op does not take.
+    let bad = checked(
+        &mux,
+        &home,
+        "classic_import.plan",
+        json!({"mode": "manual", "outline": "yes"}),
         None,
     );
     assert_eq!(error_code(bad), "validation.invalid");

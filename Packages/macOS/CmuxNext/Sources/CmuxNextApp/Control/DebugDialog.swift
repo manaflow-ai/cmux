@@ -2,6 +2,7 @@ import CmuxNextCloudUI
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextMobileHost
 import CmuxNextOnboarding
 import CmuxNextSessionTransfer
@@ -13,6 +14,7 @@ import CmuxNextSettings
 /// same center path a click takes.
 /// - `{}` lists the open dialogs (id, title, lines, origin, scope, visible,
 ///   buttons, field values, frame in window coordinates).
+/// - `{open: "classicImport" | "classicImportManual" | "classicImportCautions" | "classicImportBefore" | "classicImportCountTitle" | "classicImportList"}` (`CmuxDialogSpec.classicImportGallery`).
 /// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd" | "cloudCreateBefore" | "cloudWorkspaceEmpty" | "cloudWorkspaceRepository" | "cloudWorkspaceTeam" | "cloudWorkspaceSized" | "cloudWorkspaceCompact" | "cloudWorkspaceActions" | "cloudCredentials" | "cloudSetupGitHub" (app: ready | not_connected | not_configured | unknown | device),
 ///   scope: "window" | "app", origin?}`
 ///   shows a fixture (screenshots, latency) and returns its id.
@@ -28,7 +30,7 @@ enum DebugDialog {
     /// link's new tab (any page or app can open the link), and a guest link an agent or script asked for
     /// (it exposes the chat's transcript, #30263).
     static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.firstLoginIdentifier, CloudLoginCopyConsent.identifier, CloudChangeRequest.identifier, CloudCodexSignInConsent.identifier, CloudPresenter.codexDeviceCodeIdentifier,
-                                        CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, IPhoneHostService.phoneAccessDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
+                                        CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
                                         SessionLinkGate.dialogIdentifier]
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
@@ -232,7 +234,7 @@ enum DebugDialog {
             // Move Sessions from Another cmux Build (session.moveFromBuild), with no other build running.
             "sessionMove": SessionMoveSelection(peers: [moveFixturePeer]).dialog,
             "sessionMoveEnd": SessionMoveSelection.endTerminalsDialog(for: ["~/code/app"]),
-        ]
+        ].merging(CmuxDialogSpec.classicImportGallery) { first, _ in first }
     }
 
     /// A build with a chat, an agent, an idle terminal, a busy one and one that did not say.

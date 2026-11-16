@@ -354,7 +354,7 @@ jobs:
           name: cmux-next-capture-${{ needs.publish.outputs.pr }}-${{ needs.publish.outputs.sha }}
           path: ${{ runner.temp }}/capture/output
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
           compression-level: 0
 
       - name: Post before/after capture link

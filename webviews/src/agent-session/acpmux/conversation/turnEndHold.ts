@@ -9,7 +9,9 @@
 // therefore keep their open state while the reader is scrolled up: each fold an update would close
 // over one of them stays open, as if the reader had opened it, and closes only when they close it.
 // The one exception is the turn's own "Worked for": it always closes at the turn's end (Lucas,
-// 2026-11-11), as the Codex app's does.
+// 2026-11-11), as the Codex app's does. Over rows the reader has in view it closes when they are back
+// at the latest row, where the view follows and nothing moves under them (`worked` below; the perf
+// cron's ui.transcript.turn_end rows, cmux#24569): it never becomes the reader's own open fold.
 import { isLineRow, MESSAGE_RUN, type AcpmuxRow } from "../model";
 import { messageRunRowId } from "./messageRuns";
 import { isRunning } from "./toolGroups";
@@ -21,7 +23,10 @@ import type { Folds } from "./viewFolds";
 /// after an update; `before` is the view before it, and the first `reused` rows of the two are the
 /// same (turns.ts `reusedRows`). Only rows after that prefix can have gone, so the work is bounded
 /// by what the update reshaped (the running turn), never the whole chat. Rows the view adds (the
-/// live line, a date) are not in `rows` and need no fold.
+/// live line, a date) are not in `rows` and need no fold. A row the turn's "Worked for" would hide
+/// holds nothing here; its key goes into `worked`, when given: the pane keeps that fold open only
+/// until the view follows the latest row again (App.tsx `heldWorked`), then it closes.
+// perf-hot: 0px transcript-turn-end
 export function foldsToHold(
   rows: readonly AcpmuxRow[],
   drawn: readonly AcpmuxRow[],
@@ -29,6 +34,7 @@ export function foldsToHold(
   reused: number | undefined,
   inView: readonly string[],
   folds: Folds,
+  worked?: Set<string>,
 ): string[] {
   if (inView.length === 0 || !before) return [];
   const from = reused ?? 0;
@@ -52,7 +58,12 @@ export function foldsToHold(
     // A turn's "Worked for" always closes when the turn ends, in view or not (Lucas, 2026-11-11:
     // "the Worked for should ALWAYS collapse when the turn has ended", as Codex). A row it hides holds
     // nothing then: a message run held open under it would show open the next time Worked opens.
-    if (keys.some((key) => key.startsWith(`${WORKED}-`))) continue;
+    // While the reader reads the work it hides, the pane defers that close (`worked`).
+    const workedKey = keys.find((key) => key.startsWith(`${WORKED}-`));
+    if (workedKey !== undefined) {
+      if (worked && !folds.has(workedKey)) worked.add(workedKey);
+      continue;
+    }
     for (const key of keys) {
       const hold = key === ownRun && runKey !== undefined ? runKey : key;
       if (!folds.has(hold)) held.add(hold);
@@ -199,6 +210,7 @@ const ROWS_OVER_TAIL = 16;
 /// a run with short notes joined in for every run of it (the notes stay, as the replies they were).
 /// An id in view that is no row of `drawn` (a card the view makes after the turns: received
 /// messages, a shell) says nothing about where the reader is.
+// perf-hot: 0px transcript-turn-end
 export function rowsToHold(
   rows: readonly AcpmuxRow[],
   drawn: readonly AcpmuxRow[],

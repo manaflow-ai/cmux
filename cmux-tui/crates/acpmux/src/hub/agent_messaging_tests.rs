@@ -85,7 +85,7 @@ async fn the_delegators_next_send_runs_as_its_own_turn_and_answers_with_it() {
     let done = tokio::time::timeout(WAIT, next).await.unwrap().unwrap().unwrap();
     assert_eq!(done["stopReason"], "end_turn", "{done}");
     assert_eq!(turns(&hub, &s), [json!("p-1"), json!("p-2")], "its own turn, its own prompt");
-    assert!(s.inbox.lock().unwrap().items.is_empty(), "nothing waits in the inbox");
+    assert!(s.inbox().items.is_empty(), "nothing waits in the inbox");
 }
 
 /// The eval's A5: an agent's `send --wait --timeout 300` to an idle chat it did not start hung all
@@ -102,7 +102,7 @@ async fn a_waiting_send_that_cannot_wake_an_idle_chat_is_refused_at_once() {
         .expect_err("a held message is no answer");
     assert_eq!(refused.data.as_ref().unwrap()["reason"], "send.not_woken", "{refused:?}");
     assert!(refused.message.contains("--class question"), "names the fix: {}", refused.message);
-    assert!(s.inbox.lock().unwrap().items.is_empty(), "nothing was delivered");
+    assert!(s.inbox().items.is_empty(), "nothing was delivered");
     assert!(!hub.work_coming(&s.id), "no turn comes for it");
 
     // The same message that does not wait (`send --no-wait`) is held, and says so.
@@ -143,7 +143,7 @@ async fn a_waiting_fyi_is_refused_while_a_continuation_may_fire() {
         .unwrap()
         .expect_err("a held FYI is no answer");
     assert_eq!(refused.data.as_ref().unwrap()["reason"], "send.not_woken", "{refused:?}");
-    assert!(s.inbox.lock().unwrap().items.is_empty(), "nothing was delivered");
+    assert!(s.inbox().items.is_empty(), "nothing was delivered");
 
     // A result from someone else is held for the continuation, never refused, as before.
     let (held, accepted) = send(&hub, &s, "s-other", "p-r", "done", PromptClass::Result, true);

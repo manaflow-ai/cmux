@@ -4,8 +4,9 @@
    bars as the context card's (the accent over a faint text-color track), a little thicker so a
    window's share reads at a glance, as Claude desktop's. */
 .acpmux-plan-pop.ui-card {
-  width: 300px;
-  max-width: min(300px, calc(100vw - 24px));
+  /* Its frame follows Text Size as its type does (--ui-px, ui/popupSurface.css). */
+  width: calc(300 * var(--ui-px, 1px));
+  max-width: min(calc(300 * var(--ui-px, 1px)), calc(100vw - 24px));
   text-align: start;
 }
 

@@ -211,7 +211,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.controlsOnHover", "Show Sidebar Controls Only on Hover"),
-                help: SettingsText.keyed("settings.sidebar.controlsOnHover.help", "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."),
+                help: SettingsText.keyed("settings.sidebar.controlsOnHover.help", "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show unless Minimal Mode is on."),
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.controlsOnHoverDefault),
                 keywords: ["sidebar", "minimal", "hover", "hide", "show", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"]
@@ -231,8 +231,8 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.minimal", "Minimal Mode"),
-                help: SettingsText.keyed("settings.sidebar.minimal.help", "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."),
-                summary: SettingsText.keyed("settings.sidebar.minimal.summary", "Rows show only icon, name and unread mark"),
+                help: SettingsText.keyed("settings.sidebar.minimal.help", "The sidebar's and tab bars' buttons, spaces and profile button show only while the pointer is over them. Rows and spacing do not change."),
+                summary: SettingsText.keyed("settings.sidebar.minimal.summary", "Buttons show only on hover"),
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.minimalDefault),
                 keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"]

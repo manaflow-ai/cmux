@@ -54,4 +54,16 @@ impl Mux {
             eprintln!("cmux-tui: journal plugin exit cleanup could not be journaled: {error}");
         }
     }
+
+    /// One line in the slow request log (`diagnostics/request_log.rs`, kind `plugin_restart`)
+    /// for a restart that the plugin's supervisor scheduled: three numbers, no plugin id and no
+    /// exit text. Never waits: a full queue of the log drops the line and counts it.
+    pub(crate) fn record_journal_plugin_restart(
+        &self,
+        restart: crate::journal_plugin::JournalPluginRestart,
+    ) {
+        if let Some(log) = self.connection_stats().request_log() {
+            log.plugin_restart(restart.restarts, restart.failures, restart.delay);
+        }
+    }
 }

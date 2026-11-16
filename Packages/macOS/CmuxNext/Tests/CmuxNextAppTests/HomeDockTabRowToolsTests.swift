@@ -163,13 +163,14 @@ import Testing
         channels.rowTools = [.messages: ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)]
         #expect(channels.paneMoreMenuItems().isEmpty)
         let standard = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { standard }, newTabMenu: { nil }, contentMenu: { dock.paneMoreMenuItems() })
+        let toolbar = PaneToolbar(registry: { standard }, contentMenu: { dock.paneMoreMenuItems() })
         toolbar.update(target: "tab0", kind: .other)
-        let menu = try #require(toolbar.view.moreMenu?())
-        let ids = menu.items.prefix(ChiefPaneTools.actions.count).compactMap { $0.identifier?.rawValue }
+        // The Chief's rows open the tab bar's right-click (the pane's "…" is gone), its first section.
+        let sections = toolbar.tabBarMenuRows()
+        let ids = try #require(sections.first).prefix(ChiefPaneTools.actions.count).compactMap { $0.identifier?.rawValue }
         #expect(ids == ChiefPaneTools.actions.map { "cmux.action.\($0.rawValue)" })
-        #expect(menu.items[chiefRows].isSeparatorItem, "the Chief's rows end above the pane's own")
-        #expect(menu.items.count > chiefRows + 1)
+        #expect(sections.first?.count == chiefRows, "the Chief's rows are a section of their own")
+        #expect(sections.count > 1)
     }
 
     /// The Home header's second row of toggles (Memory, Right Sidebar) is off by default: the

@@ -86,8 +86,7 @@ impl SshSetup {
     /// `--wg-hub`, else [`default_hub`]; the state directory, the ssh
     /// client and this binary from the environment.
     pub(super) fn from_env(hub: Option<PathBuf>) -> Self {
-        let state = cmux_tui_core::platform::workspace_state_dir()
-            .map(|dir| dir.join("carrier").join("ssh"));
+        let state = super::state_root::state_root().map(|dir| dir.join("carrier").join("ssh"));
         Self {
             hub: hub.or_else(default_hub),
             state,
@@ -100,10 +99,11 @@ impl SshSetup {
     }
 }
 
-/// `<workspace state dir>/carrier/tunnel.sock`: where a dial looks for the
+/// `<carrier state root>/carrier/tunnel.sock` ([`super::state_root`]: the
+/// app's daemon state dir, where its link serves the hub): where a dial looks for the
 /// tunnel hub when `--wg-hub` names none (`carrier tunnel --socket` takes it).
 pub(super) fn default_hub() -> Option<PathBuf> {
-    cmux_tui_core::platform::workspace_state_dir()
+    super::state_root::state_root()
         .map(|dir| dir.join("carrier").join("tunnel.sock"))
         .filter(|path| cmux_unix_socket::fits(path))
 }

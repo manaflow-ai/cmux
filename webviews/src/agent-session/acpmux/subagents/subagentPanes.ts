@@ -97,6 +97,7 @@ export async function openSubagentPane(
   title?: string,
   tone?: number,
   mark?: string,
+  handOver?: unknown,
 ): Promise<boolean> {
   try {
     const reply = await call("chat.subagentPane", {
@@ -105,6 +106,8 @@ export async function openSubagentPane(
       ...(title ? { title } : {}),
       ...(tone !== undefined ? { tone } : {}),
       ...(mark ? { mark } : {}),
+      // The chat's tail, kept by the host before it opens the pane (tailCache.ts `TailHandOver`).
+      ...(handOver && typeof handOver === "object" ? { handOver } : {}),
     });
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {
@@ -138,7 +141,9 @@ export async function showSubagent(
     panes: boolean;
     inSubagentPane: boolean;
     here: (id: string) => void;
-    beforeOpen?: () => void;
+    /// Runs before the pane is asked for; what it returns (the chat's tail, `TailHandOver`) rides on
+    /// the request.
+    beforeOpen?: () => unknown;
     title?: string;
     tone?: number;
     mark?: string;
@@ -146,8 +151,8 @@ export async function showSubagent(
 ): Promise<void> {
   if (options.inSubagentPane) return options.here(id);
   if (!focus && !options.panes) return;
-  options.beforeOpen?.();
-  const opened = await openSubagentPane(call, id, focus, options.title, options.tone, options.mark);
+  const handOver = options.beforeOpen?.();
+  const opened = await openSubagentPane(call, id, focus, options.title, options.tone, options.mark, handOver);
   if (!opened && focus) options.here(id);
 }
 

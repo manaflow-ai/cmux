@@ -63,11 +63,20 @@ public nonisolated enum ManagedStatusReport {
         return .object(members)
     }
 
-    /// Where the App writes the file: one stable path for the release app,
-    /// a per-bundle file for NIGHTLY, RC and DEV builds.
+    /// Where the App writes the file, in NEXT's own `cmux-next` folder: one stable path for the
+    /// release app, a per-bundle file for NIGHTLY, RC and DEV builds.
     public static func defaultURL(bundleID: String, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        let directory = home.appending(path: "Library/Application Support/cmux", directoryHint: .isDirectory)
-        return directory.appending(path: bundleID == "com.cmuxterm.app" ? "managed-status.json" : "managed-status.\(bundleID).json")
+        url(bundleID: bundleID, folder: home.appending(path: "Library/Application Support/cmux-next", directoryHint: .isDirectory))
+    }
+
+    /// The same file in classic cmux's `cmux` folder, where older builds wrote it (classic never
+    /// writes one); removed once the new one is written.
+    public static func classicURL(bundleID: String, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        url(bundleID: bundleID, folder: home.appending(path: "Library/Application Support/cmux", directoryHint: .isDirectory))
+    }
+
+    private static func url(bundleID: String, folder: URL) -> URL {
+        folder.appending(path: bundleID == "com.cmuxterm.app" ? "managed-status.json" : "managed-status.\(bundleID).json")
     }
 }
 

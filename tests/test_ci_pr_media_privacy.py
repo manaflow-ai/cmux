@@ -622,8 +622,9 @@ class WriterInventoryTests(unittest.TestCase):
     # Writes only through scripts/pr-media.py, which checks.
     THROUGH_PR_MEDIA_PY = {"scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py",
                            "scripts/cmux-next/media/whats-new-clips.py", "scripts/cmux-next/media/whats-new-gallery.py",
-                           ".github/workflows/cmux-next-media.yml", ".github/workflows/nightly.yml",
-                           ".github/workflows/whats-new-gallery.yml",
+                           ".github/workflows/cmux-next-media.yml", ".github/workflows/cmux-next-iphone-clips.yml",
+                           ".github/workflows/nightly.yml",
+                           ".github/workflows/whats-new-gallery.yml", ".github/workflows/cmux-next-hot-verify.yml",
                            ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", "scripts/ci/prune_pr_media.py",
@@ -631,6 +632,7 @@ class WriterInventoryTests(unittest.TestCase):
     # Name the branch or pr-media.py's file names for links; write nothing.
     # Name pr-media URLs and push words but write nothing there (release-notes.py reads clip URLs).
     NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts",
+                   "scripts/cmux-next/hot-verify-ci.py",
                    "scripts/cmux-next/release-notes.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
 
@@ -950,8 +952,10 @@ class FeatWorkflowTests(unittest.TestCase):
     WRITER_JOBS = {
         ".github/workflows/cmux-next-media.yml": {"publish": "scripts/cmux-next/media/publish.py",
                                                   "whats-new-clips": "scripts/cmux-next/media/whats-new-clips.py"},
+        ".github/workflows/cmux-next-iphone-clips.yml": {"publish": "scripts/cmux-next/media/whats-new-clips.py"},
         ".github/workflows/nightly.yml": {"publish-nightly-reel": "scripts/cmux-next/media/reel.py"},
         ".github/workflows/whats-new-gallery.yml": {"publish": "scripts/cmux-next/media/whats-new-gallery.py"},
+        ".github/workflows/cmux-next-hot-verify.yml": {"publish": "scripts/pr-media.py"},
     }
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {".github/workflows/pr-media-prune.yml"}

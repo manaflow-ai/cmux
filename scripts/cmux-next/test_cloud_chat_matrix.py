@@ -38,8 +38,8 @@ class FixtureTests(unittest.TestCase):
         for kind in matrix.WORKSPACES:
             if kind == "big-plain":
                 continue  # 128 MiB of random blobs; its shape is the plain folder's
-            if kind in matrix.REFUSED_CELLS:
-                continue  # refused before any copy: no manifest is compared, and 21 GiB of zeros is no fixture to hash
+            if kind in matrix.FIRST_PASS_CELLS:
+                continue  # a first pass: no manifest is compared, and 21 GiB of zeros is no fixture to hash
             folder, note = matrix.build_fixture(kind, self.root, self.args, "cmxcanarytest")
             if folder is None:
                 self.assertTrue(note.startswith("skipped"), kind)
@@ -55,7 +55,20 @@ class FixtureTests(unittest.TestCase):
             for name in matrix.PARENT_REPOS:
                 self.assertTrue((folder / name / ".git").is_dir(), (kind, name))
         self.assertEqual((self.root / "huge-parent-repos/disk.img").stat().st_size, matrix.HUGE_PLAIN_BYTES)
-        self.assertEqual(set(matrix.REFUSED_CELLS), {"huge-plain", "huge-parent-repos"})
+        self.assertEqual(set(matrix.FIRST_PASS_CELLS), {"huge-plain", "huge-repo", "huge-parent-repos"})
+
+    def test_a_huge_repo_is_one_repository_with_its_big_file_untracked(self):
+        folder, _ = matrix.build_fixture("huge-repo", self.root, self.args, "")
+        self.assertTrue((folder / ".git").is_dir())
+        self.assertEqual((folder / matrix.FIRST_PASS_LEFT).stat().st_size, matrix.HUGE_PLAIN_BYTES)
+
+    def test_a_first_pass_cell_must_leave_its_big_file_on_the_mac(self):
+        cell = {"workspace": "huge-repo", "agent": "claude", "start_exit": 0, "hash_match": True,
+                "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False, "text": "MATRIX_OK"},
+                "create_to_reply_s": 20, "machine_killed": True, "left_on_mac": 0}
+        self.assertIn("nothing left on the Mac", matrix.verdict(cell, "c"))
+        cell["left_on_mac"] = 1
+        self.assertEqual(matrix.verdict(cell, "c"), "pass")
 
     def test_secrets_are_left_out_and_the_canary_is_found_where_it_is(self):
         folder, _ = matrix.build_fixture("secrets", self.root, self.args, "cmxcanarytest")
@@ -136,6 +149,42 @@ class GrantTests(unittest.TestCase):
         self.assertNotIn(".config/cmux", str(config))
         m.quit()
         self.assertFalse(config.exists())
+
+    def test_cache_claude_login_stores_for_the_signed_in_account_and_removes_at_quit(self):
+        from unittest.mock import patch
+        token = "sk-ant-oat01-" + "x" * 40
+        with self.assertRaises(SystemExit):
+            matrix.parse_args(["--cli", "/bin/true", "--out", "/tmp/x", "--cache-claude-login"])
+        with patch.dict("os.environ", {"CLAUDE_CODE_OAUTH_TOKEN": "not-a-login"}), self.assertRaises(SystemExit):
+            matrix.parse_args([*self.APP, "--cache-claude-login"])
+        with patch.dict("os.environ", {"CLAUDE_CODE_OAUTH_TOKEN": token}):
+            m = matrix.Matrix(matrix.parse_args([*self.APP, "--grant-claude-login", "--cache-claude-login",
+                                                 "--login", "pass"]))
+        # No CLI call inherits the token; it goes to `cloud secret set` on stdin only.
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", m.env)
+        status = {"pid": 1, "app_bundle_path": "/Applications/cmux.app", "signed_in": True,
+                  "cloud_environment": "staging", "backend": "https://example.invalid",
+                  "user_id": "stack-user-1", "team_id": "team-1", "account": {"signed_in": True}, "loaded": True}
+        calls = []
+
+        def run(command, *, env, input=None, capture_output, text, timeout):
+            calls.append((command[1:], input))
+            self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", env)
+            self.assertNotIn(token, " ".join(command))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with patch.object(m, "cmux", return_value=(0, json.dumps({"result": status}), "")), \
+                patch("subprocess.Popen"), patch("subprocess.run", side_effect=run):
+            self.assertEqual(m.launch(), "")
+            entries = [matrix.claude_login_cache.name("stack-user-1", "team-1"),
+                       matrix.claude_login_cache.name("stack-user-1", None)]
+            self.assertEqual([words for words, _ in calls], [["cloud", "secret", "set", e] for e in entries])
+            self.assertTrue(all(json.loads(stdin)["credential"] for _, stdin in calls))
+            calls.clear()
+            m.launcher = None
+            m.quit()
+            self.assertEqual(sorted(words for words, _ in calls), sorted(["cloud", "secret", "rm", e] for e in entries))
+        self.assertEqual(matrix.start_login("claude", "pass"), ["--login", "pass"])
 
 
 class TrustTests(unittest.TestCase):

@@ -35,6 +35,33 @@ public nonisolated enum HomeChiefName {
         }
     }
 
+    /// The chief conversation on `client`'s owner: the one ``select(from:)`` picks in `listed` (the
+    /// owner's list the caller just read; a second read held a fresh launch's Home a round trip
+    /// longer), else one created under ``createKey``. Its one-time rename (``migration(for:)``) runs
+    /// beside it, never waited for: the Chief tab and the page need only the id (CMUX-571); a failed
+    /// one keeps the old title (`renameFailed`). Off the caller's actor, so `mark`, the launch marks
+    /// `chief_found`, `chief_renamed`, `chief_create_sent` and `chief_create_replied`, time the owner's
+    /// replies and not the caller's wait to resume.
+    @concurrent public static func conversation(_ client: ConversationClient, listed: [CmuxNextDaemon.ConversationSummary],
+                                                user: ConversationParticipant, mux: ConversationParticipant,
+                                                mark: @escaping @Sendable (String) -> Void,
+                                                renameFailed: @escaping @Sendable (any Error) -> Void) async throws -> String {
+        if let existing = select(from: listed) {
+            if let rename = migration(for: existing) {
+                // task-owner: one rename op; ends with its reply
+                Task {
+                    do { _ = try await client.op(rename); mark("chief_renamed") } catch { renameFailed(error) }
+                }
+            }
+            mark("chief_found")
+            return existing.id
+        }
+        mark("chief_create_sent")
+        let id = try await client.create(createRequest(user: user, mux: mux)).conversation.id
+        mark("chief_create_replied")
+        return id
+    }
+
     /// The local user's name in the chief create request; the mux host gets
     /// the same name (MUX_USER_NAME) so both create requests are equal.
     public static var localUserName: String {

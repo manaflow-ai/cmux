@@ -438,6 +438,80 @@ mark {
   border-bottom: 1px solid var(--border);
 }
 
+/* Try on (TryOnBar.tsx): what is applied for a while, its time left and Keep / Revert Now. A quiet
+   row on the page's hairline, as the banner, with a meter under it that runs down to the revert;
+   the card and pill looks are the gallery's alternatives. */
+.try-on {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-3);
+  padding: var(--ds-space-2) 0;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.try-on-text {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.try-on-title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.try-on-left {
+  flex: none;
+  color: var(--muted-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.try-on-meter {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-bottom: 1px solid var(--border-strong);
+  transform: scaleX(var(--try-on-left, 1));
+  transform-origin: left;
+  transition: transform var(--cmux-motion-quick) linear;
+}
+
+.try-on[data-look="card"] {
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  background: var(--input-bg);
+  box-shadow: none;
+}
+
+.try-on[data-look="card"] .try-on-meter {
+  display: none;
+}
+
+.try-on[data-look="pill"] {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  padding: var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-3);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-xl);
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .try-on-meter {
+    transition: none;
+  }
+}
+
 .notice-text {
   flex: 1;
 }
@@ -885,6 +959,44 @@ mark {
   align-items: center;
 }
 
+/* Settings > Keys (design/settings-keys.md): a request is a row with its name, purpose and asker
+   over one line of field, Store and Decline (the Accounts paste form's field, at row width); a
+   key's state uses the Devices status dot. Names and commands are in the mono face. */
+.keys-name,
+.keys-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+}
+
+.keys-request {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.keys-purpose {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.keys-answer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.keys-answer > .keys-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 320px;
+}
+
+.keys-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .host-footer,
 .host-actions {
   display: flex;
@@ -1214,6 +1326,10 @@ mark {
   gap: 6px;
 }
 
+.devices-screen-action {
+  flex: 0 0 auto;
+}
+
 .devices-relays-header {
   justify-content: space-between;
   flex-wrap: nowrap;
@@ -1528,6 +1644,99 @@ mark {
   font-size: 12px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Switch Automatically (wallpaper schedule): the modes, then the chosen mode's editor. It sits
+   under the first tile row, so an editor opening never moves the grid above it. */
+.wallpaper-switch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: var(--ds-space-3) 0;
+}
+
+.wallpaper-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+  align-items: center;
+}
+
+.wallpaper-help {
+  margin: 0;
+}
+
+.wallpaper-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-card);
+}
+
+.wallpaper-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: var(--ds-space-2);
+}
+
+.wallpaper-slot[aria-expanded="true"] .backdrop-thumb {
+  border-color: var(--text);
+}
+
+.wallpaper-slot-label {
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+/* A slot's pictures: the card's tiles, three rows tall, scrolling inside the editor. */
+.wallpaper-slot-picker {
+  max-height: calc(3 * (68px + var(--ds-space-5)));
+  margin-top: 0;
+  overflow-y: auto;
+}
+
+.wallpaper-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+
+/* When | time or offset | picture | remove, on one line; the picture slot keeps a tile's width. */
+.wallpaper-when {
+  display: grid;
+  grid-template-columns: auto auto minmax(112px, 160px) auto;
+  gap: var(--ds-space-2);
+  align-items: center;
+  justify-content: start;
+}
+
+.wallpaper-time,
+.wallpaper-location {
+  width: auto;
+}
+
+/* The timeline design: the day as a strip, each picture from where it starts. */
+.wallpaper-strip {
+  position: relative;
+  height: var(--ds-control-row);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-control);
+}
+
+.wallpaper-strip-span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--border);
+}
+
+.wallpaper-strip-span .backdrop-thumb {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
 }
 
 /* Key and value lists (browser.siteEngines). */
@@ -1975,19 +2184,13 @@ mark {
   margin: 4px 0 10px;
 }
 
-/* The menu itself: a rounded panel of 24 px rows, as macOS draws a context menu. */
+/* Preview the same glass, rim and grid as the menu the person is arranging. */
 .menu-preview {
   list-style: none;
   margin: 0;
 }
 
 .menu-preview {
-  padding: var(--ds-space-1);
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
-  /* A context menu's own surface (WebTheme's --surface-popup) and drop, so it reads as the menu. */
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-drop);
   max-width: 420px;
   position: relative;
 }
@@ -1996,9 +2199,9 @@ mark {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
-  min-height: 24px;
+  min-height: var(--ui-row-height);
   padding: 0 var(--ds-space-1);
-  border-radius: 5px;
+  border-radius: var(--ui-row-radius);
   position: relative;
 }
 
@@ -2153,13 +2356,14 @@ button.menu-disclosure {
 .menus-move-picker {
   display: flex;
   flex-direction: column;
-  margin-top: 8px;
+  margin-top: var(--ds-space-2);
   max-width: 420px;
-  padding: var(--ds-space-1);
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-drop);
+}
+
+.menus-move-picker .menus-list-item {
+  min-height: var(--ui-row-height);
+  padding-inline: var(--ui-row-padding-inline);
+  border-radius: var(--ui-row-radius);
 }
 
 @media (max-width: 640px) {
@@ -2295,4 +2499,180 @@ button.menu-disclosure {
 .personalization-more-links {
   display: flex;
   gap: 4px;
+}
+
+/* Personalization > Customization Library (CustomizeLibraryCard): one row per entry, top first.
+   The mark is the entry's swatches (its thumbnail is its colors and keys, never a capture); its
+   order buttons show on hover and focus like the menu rows'; an entry that is off reads dimmed. */
+.library-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-control-row);
+  height: var(--ds-control-row);
+  overflow: hidden;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-md);
+  color: var(--ds-color-muted);
+}
+
+.library-mark[data-wide] {
+  width: 100%;
+  height: var(--ds-space-48);
+}
+
+/* The swatch's color is the entry's own, set inline as other swatches are. */
+.library-swatch {
+  flex: 1;
+  align-self: stretch;
+}
+
+.library-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.library-order {
+  display: inline-flex;
+  opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
+}
+
+[data-library-entry]:hover .library-order,
+[data-library-entry]:has(:focus-visible) .library-order,
+[data-library-entry]:has([data-popup-open]) .library-order {
+  opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+
+[data-library-entry]:has(:focus-visible) .library-order {
+  transition: none;
+}
+
+[data-library-entry]:not([data-on]) :is(.library-mark, .row-title, .library-detail) {
+  opacity: 0.55;
+}
+
+.library-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.library-beaten {
+  color: var(--ds-color-attention);
+}
+
+.library-position {
+  flex: none;
+  min-width: var(--ds-space-4);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.library-line .row-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.library-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-lg);
+}
+
+.library-tile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.library-tile .library-order {
+  align-self: flex-end;
+}
+
+/* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.
+   One row under "No settings match.", a hover fill on its own box like a result row, the words
+   quoted under the action; Return in the search does the same. */
+.ask-cmux {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  margin-top: var(--ds-space-2);
+  padding: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+}
+
+.ask-cmux:hover {
+  background: var(--input-bg);
+}
+
+.ask-cmux:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.ask-cmux-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ask-cmux-title {
+  font-weight: 600;
+}
+
+.ask-cmux-words {
+  overflow: hidden;
+  color: var(--muted-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-cmux > svg:last-child {
+  color: var(--soft-text);
+}
+
+.ask-cmux[data-look="button"] {
+  width: fit-content;
+  border: 1px solid var(--border);
+}
+
+.ask-cmux[data-look="button"] .ask-cmux-words,
+.ask-cmux[data-look="link"] .ask-cmux-words,
+.ask-cmux[data-look="link"] > svg {
+  display: none;
+}
+
+.ask-cmux[data-look="link"] {
+  width: fit-content;
+  padding: 0;
+  color: var(--cmux-accent);
+}
+
+.ask-cmux[data-look="link"]:hover {
+  background: transparent;
+  text-decoration: underline;
 }

@@ -31,10 +31,9 @@ fn pair(hub: Arc<Hub>) -> (DuplexStream, tokio::task::JoinHandle<Result<(), Conn
     let (client, server) = tokio::io::duplex(4096);
     let source = Arc::new(HubSource::new(hub));
     let (reader, writer) = tokio::io::split(server);
-    let task =
-        tokio::spawn(
-            async move { conn::run(reader, writer, source, "test", &["list".into()]).await },
-        );
+    let task = tokio::spawn(async move {
+        conn::run(reader, writer, source, "test", &["list".into()], conn::Role::Local).await
+    });
     (client, task)
 }
 
@@ -45,8 +44,9 @@ fn source_pair(
     let (client, server) = tokio::io::duplex(4096);
     let (reader, writer) = tokio::io::split(server);
     let surfaces = surfaces.iter().map(|surface| (*surface).to_owned()).collect::<Vec<_>>();
-    let task =
-        tokio::spawn(async move { conn::run(reader, writer, source, "test", &surfaces).await });
+    let task = tokio::spawn(async move {
+        conn::run(reader, writer, source, "test", &surfaces, conn::Role::Local).await
+    });
     (client, task)
 }
 
@@ -358,6 +358,7 @@ async fn client_and_daemon_credit_a_slow_taker_past_one_window() {
     client.subscribe(Sub::new("s", "list")).unwrap();
     send_bytes(&mut stream, client.take_send().unwrap()).await;
     let mut data_bytes = 0_u64;
+    let mut credited_bytes = 0_u64;
     let mut credits = 0_u8;
     for _ in 0..64 {
         let frame = read_frame(&mut stream).await;
@@ -370,9 +371,17 @@ async fn client_and_daemon_credit_a_slow_taker_past_one_window() {
             let value: Value = request_frame.decode_json().unwrap();
             if value.get("method") == Some(&Value::String("credit".into())) {
                 credits = credits.saturating_add(1);
+                credited_bytes = value
+                    .pointer("/params/consumed")
+                    .and_then(Value::as_u64)
+                    .expect("credit request carries cumulative consumed bytes");
             }
             send_bytes(&mut stream, request).await;
         }
+        assert!(
+            data_bytes.saturating_sub(credited_bytes) <= wire::CREDIT_WINDOW_BYTES,
+            "uncredited daemon bytes exceeded one credit window: data={data_bytes}, credited={credited_bytes}"
+        );
         if credits >= 2 && data_bytes > wire::CREDIT_WINDOW_BYTES {
             break;
         }

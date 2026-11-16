@@ -35,6 +35,9 @@
     "browser.viewer.release",
     "browser.viewer.resize",
     "browser_import.read",
+    "chat.list",
+    "chat.mark_read",
+    "chat.pin",
     "chief.continue",
     "chief.engine.get",
     "chief.engine.set",
@@ -132,6 +135,7 @@
     "git.diff",
     "git.files.list",
     "git.files.search",
+    "git.fingerprint",
     "git.push",
     "git.status",
     "git.worktree.apply",
@@ -330,6 +334,9 @@
     "terminal.viewport.scroll",
     "terminal.wait",
     "terminal.wait_exit",
+    "theme.scheme.convert",
+    "theme.scheme.export",
+    "theme.scheme.from_image",
     "window_record.delete",
     "window_record.list",
     "window_record.put",
@@ -541,6 +548,7 @@
       "shell-stop",
       "split",
       "swap-pane",
+      "terminal-command-context",
       "terminal-events",
       "terminal-history",
       "terminal-last-command",
@@ -690,6 +698,18 @@
       "name": "agent-changed",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "agent-cli-frame",
+      "streams": [
+        "attach-byte"
+      ]
+    },
+    {
+      "name": "agent-cli-lean",
+      "streams": [
+        "attach-byte"
       ]
     },
     {
@@ -992,6 +1012,12 @@
       "name": "screen-changed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "screen-device-changed",
+      "streams": [
+        "subscribe"
       ]
     },
     {

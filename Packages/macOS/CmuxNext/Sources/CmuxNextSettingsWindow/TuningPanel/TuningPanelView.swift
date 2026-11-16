@@ -82,7 +82,7 @@ private struct TuningPanelRow: View {
                 .themedHelp(descriptor.help)
             control
             Button { model.reset(descriptor) } label: { Icon(.actionUndo, size: 12) }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .foregroundStyle(SettingsStyle.secondary)
                 .themedHelp(DebugSettingsStrings.defaultIs(DebugSettingsStrings.display(descriptor.defaultValue, kind: descriptor.kind)))
                 .accessibilityLabel(SettingsWindowStrings.reset)

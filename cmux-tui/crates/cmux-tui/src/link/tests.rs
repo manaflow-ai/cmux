@@ -424,6 +424,7 @@ async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
                     view: receiver,
                     open: std::sync::Arc::default(),
                 }),
+                None,
             )
             .await
         })

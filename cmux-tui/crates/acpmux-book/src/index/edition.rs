@@ -24,26 +24,52 @@ impl IndexEdition {
         has_records: bool,
         random: impl FnOnce() -> u32,
     ) -> io::Result<Self> {
+        Self::open_inner(directory, boot, has_records, random, false)
+    }
+
+    /// Opens the edition after the durable index has been quarantined. A
+    /// rebuild is a new cursor epoch even when the daemon keeps the same boot
+    /// number, so a valid same-boot edition is advanced and an absent or
+    /// damaged one gets a random fence that cannot be the first-start values.
+    pub fn open_rebuild(
+        directory: &Path,
+        boot: u64,
+        random: impl FnOnce() -> u32,
+    ) -> io::Result<Self> {
+        Self::open_inner(directory, boot, true, random, true)
+    }
+
+    fn open_inner(
+        directory: &Path,
+        boot: u64,
+        has_records: bool,
+        random: impl FnOnce() -> u32,
+        rebuild: bool,
+    ) -> io::Result<Self> {
         let path = directory.join("index.edition");
+        // An edition is only a cursor fence. If the file is unreadable, keep
+        // the random in-memory fence and let the derived index open; a
+        // permissions or transient storage error must not stop the daemon.
         let previous = match File::open(&path) {
             Ok(mut file) => {
                 let mut bytes = [0; RECORD_BYTES];
                 match file.read_exact(&mut bytes) {
                     Ok(()) => decode(&bytes),
-                    Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => None,
-                    Err(error) => return Err(error),
+                    Err(_) => None,
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-            Err(error) => return Err(error),
+            Err(_) => None,
         };
-        if let Some((edition, old_boot)) = previous
+        if !rebuild
+            && let Some((edition, old_boot)) = previous
             && old_boot == boot
         {
             return Ok(Self { edition, boot, writes: 0 });
         }
         let edition = match previous {
             Some((edition, _)) => edition.checked_add(1).unwrap_or(1),
+            None if rebuild => random().max(2),
             None if has_records => random().max(1),
             None => 1,
         };
@@ -54,13 +80,23 @@ impl IndexEdition {
         bytes.extend_from_slice(&boot.to_le_bytes());
         bytes.extend_from_slice(&crc32fast::hash(&bytes).to_le_bytes());
         let temporary = directory.join("index.edition.new");
-        let mut file =
-            OpenOptions::new().create(true).truncate(true).write(true).open(&temporary)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        fs::rename(temporary, path)?;
-        File::open(directory)?.sync_all()?;
-        Ok(Self { edition, boot, writes: 1 })
+        let persisted = (|| -> io::Result<()> {
+            let mut file =
+                OpenOptions::new().create(true).truncate(true).write(true).open(&temporary)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            fs::rename(&temporary, &path)?;
+            File::open(directory)?.sync_all()?;
+            Ok(())
+        })();
+        if persisted.is_ok() {
+            Ok(Self { edition, boot, writes: 1 })
+        } else {
+            // Keep the in-memory fence. The next successful open will repair
+            // the small durable marker; callers still get a live hub now.
+            let _ = fs::remove_file(temporary);
+            Ok(Self { edition, boot, writes: 0 })
+        }
     }
 }
 

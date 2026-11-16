@@ -83,7 +83,15 @@ fn a_binary_started_by_a_link_reads_the_bundle_it_is_in() {
     let bin = bundle.join("Contents/Resources/bin");
     std::fs::create_dir_all(&bin).unwrap();
     let inside = bin.join("acpmux");
-    std::fs::copy(std::env::current_exe().unwrap(), &inside).unwrap();
+    // Copied by a short-lived `cp`, never by this process: a sibling test that forks while this
+    // process holds the copy's write descriptor hands it to its child until that child execs,
+    // and running the copy in that window fails with ETXTBSY ("Text file busy").
+    let copied = std::process::Command::new("/bin/cp")
+        .arg(std::env::current_exe().unwrap())
+        .arg(&inside)
+        .status()
+        .unwrap();
+    assert!(copied.success(), "could not copy the test binary");
     let local_bin = root.join("local-bin");
     std::fs::create_dir_all(&local_bin).unwrap();
     let link = local_bin.join("acpmux");

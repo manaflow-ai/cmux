@@ -1,6 +1,7 @@
 //! Agent chat notifications (cx-sg1qz). One watch of this machine's acpmux
 //! (`_acpmux/watch`, then its `_acpmux/session_changed` pushes) turns what a
-//! chat does into notifications on every agent tab bound to it:
+//! chat does into one notification per event, on one agent tab bound to it
+//! (one chat open in two tabs is still one chat: one banner, one push):
 //!
 //! - its turn ended: "<chat> finished" with the reply's last line, or
 //!   "<chat> failed" (level error) when the turn failed;
@@ -331,31 +332,39 @@ impl Mux {
         } else {
             Vec::new()
         };
-        for (surface, content) in self.agent_chat_tabs(session) {
-            if unread.iter().any(|(row, acknowledged)| {
-                !acknowledged
-                    && row.surface == Some(surface)
-                    && row.title == notice.title
-                    && row.body == notice.body
-            }) {
-                continue;
-            }
-            // Hashed: an adopted session's id is the agent's own, of any length.
-            let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
-            let key = format!("acpmux-{digest:x}");
-            let posted = self.create_durable_notification(
-                &Actor::Daemon,
-                &key,
-                notice.title.clone(),
-                notice.subtitle.clone(),
-                notice.body.clone(),
-                notice.level,
-                Some(surface),
-                NotificationSource::Agent,
-            );
-            if posted.is_err() {
-                self.report_internal_diagnostic("agent chat notification not posted");
-            }
+        // One tab takes the notice: the one with the least durable content id, so a daemon
+        // restart (which may number surfaces anew) picks the same tab and its key again.
+        // The other tabs keep acpmux's own unread, and a read on any of them reads it.
+        let tabs = self.agent_chat_tabs(session);
+        let Some((surface, content)) = tabs.iter().min_by(|a, b| a.1.cmp(&b.1)) else {
+            return;
+        };
+        // Any bound tab: a daemon before one-tab notices posted the wait on each of them.
+        if unread.iter().any(|(row, acknowledged)| {
+            !acknowledged
+                && row
+                    .surface
+                    .is_some_and(|row_surface| tabs.iter().any(|(tab, _)| *tab == row_surface))
+                && row.title == notice.title
+                && row.body == notice.body
+        }) {
+            return;
+        }
+        // Hashed: an adopted session's id is the agent's own, of any length.
+        let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
+        let key = format!("acpmux-{digest:x}");
+        let posted = self.create_durable_notification(
+            &Actor::Daemon,
+            &key,
+            notice.title.clone(),
+            notice.subtitle.clone(),
+            notice.body.clone(),
+            notice.level,
+            Some(*surface),
+            NotificationSource::Agent,
+        );
+        if posted.is_err() {
+            self.report_internal_diagnostic("agent chat notification not posted");
         }
     }
 
@@ -774,6 +783,13 @@ fn read_watch(
     // the list is too old to name.
     let before = mux.upgrade().map(|mux| crate::server::open_chat_shares(&mux)).unwrap_or_default();
     writer.write_all(format!("{initialize}\n{watch}\n").as_bytes())?;
+    // The chat index (`chat_index.rs`) follows the same list, follows and pushes.
+    if let Some(mux) = mux.upgrade() {
+        mux.change_chats(|chats| {
+            chats.connect();
+            false
+        });
+    }
     let mut reader = BufReader::new(stream);
     // The reply that carries the next page; none once the list is whole.
     let mut page = Some(2_u64);
@@ -817,6 +833,14 @@ fn read_watch(
                 return Err(std::io::Error::other("acpmux did not list its sessions"));
             };
             let followed = page_is_watch && result["follow"] == true;
+            // The index: a whole list (not a follow) starts over, and drops at its end what it
+            // left out.
+            mux.change_chats(|chats| {
+                if page_is_watch && !followed {
+                    chats.begin();
+                }
+                chats.page(sessions)
+            });
             if page_is_watch {
                 let position = result["listSeq"].as_u64().zip(result["listEpoch"].as_str());
                 match position {
@@ -887,6 +911,9 @@ fn read_watch(
                 apply(&mux, known.as_ref(), next, chats);
             }
             if followed {
+                if let Some(gone) = result["gone"].as_array() {
+                    mux.change_chats(|chats| chats.gone(gone));
+                }
                 for gone in result["gone"].as_array().into_iter().flatten() {
                     if !gone["peer"].is_null() {
                         continue;
@@ -932,6 +959,7 @@ fn read_watch(
                             mux.remove_cache_ttl_timer(session);
                         }
                         unlisted.clear();
+                        mux.change_chats(super::chat_index::Chats::end);
                         whole.get_or_insert_with(Instant::now);
                         *cursor = pending.take();
                         None
@@ -986,6 +1014,7 @@ fn read_watch(
                 {
                     at.seq = at.seq.max(seq);
                 }
+                mux.change_chats(|chats| chats.push(params));
             }
             if params["peer"].is_null()
                 && let Some(session) = params["sessionId"].as_str()

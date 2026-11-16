@@ -38,6 +38,8 @@ public final class ChiefSources {
         case create
         /// The chief's Cloud brain is off: turn it on (``turnOn(_:)``).
         case turnOn(CloudChief)
+        /// The service failed or could not be reached: look again (``refresh()``).
+        case retry
     }
 
     public internal(set) var cloudState: CloudState = .off
@@ -542,6 +544,8 @@ public final class ChiefSources {
     }
 
     nonisolated static let notOnThisServer = String(localized: "Cloud Chief is not available on this server.")
+    /// The service failed (a 5xx, an unexpected status, a refused read): no status code, and a Try Again.
+    nonisolated static let unavailableNow = String(localized: "Cloud Chief isn't available right now. Try again in a moment.")
 
     /// A well-formed agent id no account owns: the brain route answers it
     /// 403 (forbidden) where Chief brains run, and 404 where they do not.
@@ -568,7 +572,7 @@ public final class ChiefSources {
                 case 404: return .unavailable(notOnThisServer, nil, chiefs: chiefs, brains: false)
                 case 403: return .unavailable(String(localized: "You don't have a Cloud Chief yet."), .create, chiefs: chiefs, brains: true)
                 default:
-                    return .unavailable(String(localized: "Cloud Chief couldn't load (HTTP \(probe.status))."), nil, chiefs: chiefs, brains: nil)
+                    return .unavailable(unavailableNow, .retry, chiefs: chiefs, brains: nil)
                 }
             }
             // A chief placed on a server: that server's brain answers on the
@@ -583,9 +587,12 @@ public final class ChiefSources {
         } catch let error as ChiefCloudError {
             // No Home routes at all on this service.
             if error.status == 404 { return .unavailable(notOnThisServer, nil, chiefs: listed, brains: false) }
-            return .unavailable(String(localized: "Cloud Chief couldn't load: \(error.message)"), nil, chiefs: listed, brains: nil)
+            // The service's own sentence for a refusal (not a 5xx); never a status or a code.
+            let said = (error.status ?? 500) < 500 && UserFacingError.isProse(error.message)
+            return .unavailable(said ? String(localized: "Cloud Chief couldn't load: \(error.message)") : unavailableNow, .retry,
+                                chiefs: listed, brains: nil)
         } catch {
-            return .unavailable(String(localized: "Couldn't reach Cloud Chief. Check your connection."), nil, chiefs: listed, brains: nil)
+            return .unavailable(String(localized: "Couldn't reach Cloud Chief. Check your connection."), .retry, chiefs: listed, brains: nil)
         }
     }
 

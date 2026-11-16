@@ -8,7 +8,11 @@ extension DensityTokens {
     /// on one column.
     /// A density's own `sidebarRowHeight` token sets it too (Compact's 20 pt), so metrics made without the live row agree
     /// with the chrome row.
-    public var toolbarButtonSize: CGFloat { resolve(compact: 24, comfortable: 32, token: "sidebarRowHeight") }
+    /// A density's own `browserRowHeight` (Helium's 28 pt at Default) wins over the sidebar row.
+    public var toolbarButtonSize: CGFloat {
+        if let row = BrowserChromeTuning.override(.rowHeight, tokens: self) ?? tokens["browserRowHeight"].map({ CGFloat($0) }) { return row }
+        return resolve(compact: 24, comfortable: 32, token: "sidebarRowHeight")
+    }
 
     /// The share of a toolbar glyph's side its ink fills: the pack fits each toolbar glyph's ink to
     /// the back arrow's keyline, 14.4 of the 24 grid (`design/icons/chromium/manifest.json` `fit`),
