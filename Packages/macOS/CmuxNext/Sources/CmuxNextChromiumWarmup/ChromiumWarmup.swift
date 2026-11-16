@@ -48,6 +48,8 @@ public final class ChromiumWarmup {
     }
 
     public struct Policy: Sendable {
+        /// From the first frame to the launch warm start (`Reason.launch`, CefInitialize at the next idle
+        /// moment) while Chromium is the default engine. The framework map does not wait for it.
         public var launchPreloadDelay: Duration = .seconds(3)
         public var idleInput: Duration = .milliseconds(750)
         /// Give up (stay lazy) when the app never goes idle this long.
@@ -186,9 +188,9 @@ public final class ChromiumWarmup {
             guard let self, !stopped else { return }
             // While new browser tabs open in Chromium, any browser tab is a Chromium tab: start it
             // at the first idle moment after launch, so no Cmd-Shift-L pays CefInitialize.
-            if self.defaultIsChromium() { return chromiumLikely(.launch) }
-            mapAtFirstFrame()
+            if self.defaultIsChromium() { chromiumLikely(.launch) }
         }
+        mapAtFirstFrame()
     }
 
     /// Starts the framework map now, at the first frame, for a person likely to open a Chromium page:
