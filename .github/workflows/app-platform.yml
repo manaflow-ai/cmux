@@ -66,6 +66,11 @@ jobs:
       # drew "TypeError: not a function" in cmux).
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
       - name: Example extensions in the native host
         working-directory: cmux-tui
         run: cargo test --locked -p cmux-app-host --test examples

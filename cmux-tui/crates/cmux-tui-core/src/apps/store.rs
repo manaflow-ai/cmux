@@ -426,8 +426,10 @@ impl Supervisor {
         }
         let mut listing = listing(package, inner.mirror.apps.get(&p.app));
         annotate(&inner, &p.app, listing.install.as_mut());
-        let implements = package.manifest["implements"]
-            .as_object()
+        let implements = package
+            .manifest
+            .get("implements")
+            .and_then(Value::as_object)
             .map(|places| places.keys().cloned().collect())
             .unwrap_or_default();
         Ok(AppDetail { listing, scopes, implements, deploy: deploy_facts(&package.manifest) })

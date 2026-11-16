@@ -2340,7 +2340,7 @@ fn a_new_tab_app_that_cannot_draw_gets_a_note_after_the_write() {
     let mut off = ready.clone();
     off["install"]["enabled"] = json!(false);
     assert!(note(Ok(&off)).contains("is turned off"));
-    let mut hidden = ready.clone();
+    let mut hidden = ready;
     hidden["install"]["hidden"] = json!(true);
     assert!(note(Ok(&hidden)).contains("is hidden"));
     let section = json!({
