@@ -34,6 +34,8 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
        cmux device network [--json]
+       cmux device traffic [--json]            (this Mac's bytes in and out per service through its
+                                               iPhone and machine link host, last 10 s and 60 s)
        cmux device SELECTOR show [--json]      (one device of `cmux device list`, by id, name or
                                                address; else the machine catalog, `cmux machine ls`)
        cmux device SELECTOR show --catalog     (the machine catalog only)
