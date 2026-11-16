@@ -436,9 +436,12 @@ public final class HoverCardCoordinator {
                 return
             }
             let panel = cardWindow(for: cardKey(of: source))
-            panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
-                          themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
-                          cornerRadius: body.cornerRadius, entrance: body.entrance, applyTheme: body.applyTheme)
+            // Main-thread time of each show while `debug.motion` records (one Bool read when off).
+            MotionTrace.measure("hoverCard.present") {
+                panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
+                              themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
+                              cornerRadius: body.cornerRadius, entrance: body.entrance, applyTheme: body.applyTheme)
+            }
             // `present` lets an interactive card take the mouse; off the card it gives it back now.
             updateCardMouse()
             // A hover card whose row's escape slot already holds the pointer (it rested in the
