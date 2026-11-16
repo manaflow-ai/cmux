@@ -137,6 +137,8 @@ libc = "0.2"
 notify.workspace = true
 # Session tokens and secrets (the OS generator on every platform).
 getrandom.workspace = true
+glob.workspace = true
+cmux-process.workspace = true
 base64 = "0.22"
 bytes.workspace = true
 tempfile = "3"

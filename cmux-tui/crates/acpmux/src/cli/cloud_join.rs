@@ -724,6 +724,11 @@ pub(crate) fn hub_origin(value: &str) -> Result<String> {
     origin(Some(value.to_owned()))
 }
 
+/// `value`, else `CMUX_PLATFORM_ORIGIN`, else production, checked as `host join` checks it.
+pub(crate) fn hub_origin_or_default(value: Option<String>) -> Result<String> {
+    origin(value)
+}
+
 pub(super) fn load_at(home: &std::path::Path) -> Result<Option<MachineCredential>> {
     let path = home.join(CREDENTIAL_FILE);
     match std::fs::symlink_metadata(&path) {

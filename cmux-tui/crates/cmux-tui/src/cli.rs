@@ -143,6 +143,13 @@ mod vm_words;
 mod vnc;
 #[cfg(unix)]
 pub(crate) use auth_token::app_token;
+
+/// A short-lived access token from the signed-in cmux app this CLI belongs to (`auth.token`), for
+/// a command run in a terminal with no `CMUX_CLOUD_ACCESS_TOKEN` (`cmux device add HOST --yes`).
+#[cfg(unix)]
+pub(crate) fn app_access_token() -> Result<String, String> {
+    chat_start::joined::app_token(&GlobalArgs::default())
+}
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]

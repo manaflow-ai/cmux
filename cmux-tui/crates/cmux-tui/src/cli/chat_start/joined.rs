@@ -235,7 +235,7 @@ pub(in crate::cli) fn account_rows(global: &GlobalArgs) -> Result<Vec<Value>, St
 }
 
 /// A short-lived token from the cmux app's sign-in (`auth.token`, as `cmux auth token`).
-fn app_token(global: &GlobalArgs) -> Result<String, String> {
+pub(in crate::cli) fn app_token(global: &GlobalArgs) -> Result<String, String> {
     const TIMEOUT: Duration = Duration::from_secs(30);
     let mut stream = super::super::app::connect_command(global)
         .map_err(|_| "not signed in: no CMUX_CLOUD_ACCESS_TOKEN and no cmux app".to_owned())?;

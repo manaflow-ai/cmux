@@ -2424,6 +2424,7 @@ mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
 pub(crate) mod machine_health;
+mod machine_join_ssh;
 #[cfg(feature = "hub-carrier")]
 mod machine_routes;
 mod machine_tunnel;

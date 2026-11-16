@@ -79,6 +79,7 @@ pub mod session_search;
 pub mod session_turn_cap;
 pub mod shutdown;
 pub(crate) mod slow_notice;
+pub mod ssh_join;
 pub mod stdio;
 pub(crate) mod steer_reply;
 pub mod task;
