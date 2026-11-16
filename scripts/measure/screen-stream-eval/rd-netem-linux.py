@@ -190,7 +190,7 @@ def markdown_table(rows: list[dict]) -> str:
     for r in rows:
         if r.get("error"):
             out.append(f"| `{r.get('commit', '?')[:12]}` | {PROFILE_LABELS.get(r.get('profile'), r.get('profile'))} "
-                       f"| error: {str(r['error'])[:120]} | | | | | |")
+                       f"| error: {' '.join(str(r['error']).split())[:120]} | | | | | |")
             continue
         key, passive = r.get("key") or {}, r.get("passive") or {}
         mbps = [v for v in passive.get("mbps_per_s") or [] if v is not None]
@@ -260,10 +260,11 @@ class Rig:
 
     def spawn(self, ns: str, argv: list[str], env: dict | None = None, token: Path | None = None,
               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) -> subprocess.Popen:
-        # sudo closes inherited descriptors, so the token reaches fd 3 inside the namespace.
+        # sudo closes inherited descriptors, so the token reaches fd 3 inside the namespace, as a
+        # pipe: cmux-rd refuses a token fd that is a file.
         inner = ["env", *(f"{k}={v}" for k, v in (env or {}).items())]
         if token is not None:
-            inner += ["bash", "-c", 'exec "$@" 3<"$0"', str(token)]
+            inner += ["bash", "-c", 'exec "$@" 3< <(cat "$0")', str(token)]
         return subprocess.Popen(priv(["ip", "netns", "exec", ns, *inner, *argv]),
                                 stdout=stdout, stderr=stderr, start_new_session=True)
 

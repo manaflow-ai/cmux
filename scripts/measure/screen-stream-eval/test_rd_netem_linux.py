@@ -66,7 +66,7 @@ class TableTests(unittest.TestCase):
                 'key': {'p50_ms': 20.0, 'p95_ms': 40.0, 'lost': 0, 'stage_ledger': LEDGER},
                 'passive': {'mbps_per_s': [8.0, 1.0, 1.2], 'target_kbps_per_s': [8000, 1000, 1000]},
                 'idr_passive': {'idrs': 1}, 'idr_key': {'idrs': 3}}
-        bad = {'commit': 'b' * 40, 'profile': 'clean', 'error': 'host did not listen'}
+        bad = {'commit': 'b' * 40, 'profile': 'clean', 'error': 'host did not\nlisten\n'}
         table = rdnl.markdown_table([good, bad])
         lines = table.strip().splitlines()
         self.assertEqual(len(lines), 4)
