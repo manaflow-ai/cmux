@@ -74,7 +74,7 @@ final class CloudService {
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
     @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
-    @ObservationIgnored lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth, teams: { @MainActor [weak self] active in await self?.move.cli.map(CloudMoveCLI.init(binary:))?.startChatWireTeams(active: active, install: try? await self?.installIdentity.installToken()) }) // the wire's teams: Rust's wireTeams decides, values pass through
+    @ObservationIgnored lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth, teams: { @MainActor [weak self] (active: String?) async -> [String]? in guard let self, let binary = self.move.cli else { return nil }; return await CloudMoveCLI(binary: binary).startChatWireTeams(active: active, install: try? await self.installIdentity.installToken()) }) // Rust's wireTeams decides the teams
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
     @ObservationIgnored private var credentialProvider: CloudCredentialProvider?
