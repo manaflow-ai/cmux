@@ -602,3 +602,125 @@ fn toggle_terminal_and_chat_has_no_default_key() {
     let action = cmux_action_catalog::find("palette.toggleTerminalChat").expect("an action");
     assert!(action.default_shortcut.is_none() && action.default_chord.is_none());
 }
+
+/// The categories the App's launch check covers (`HandlerCoverage.categories` in
+/// `CmuxNextApp/Handlers/HandlerCoverage.swift`): every catalog action there needs an App handler.
+const HANDLER_COVERAGE_CATEGORIES: &[&str] = &["tab", "pane", "screen", "terminal"];
+
+/// Every `.swift` file under `dir`, recursively.
+fn swift_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            swift_files(&path, out);
+        } else if path.extension().is_some_and(|e| e == "swift") {
+            out.push(path);
+        }
+    }
+}
+
+/// A row the app has never had (absent from the Swift dump, so step A of an app FFI change) in a
+/// category `HandlerCoverage` checks reaches the app with the next FFI build: a same-tree build at
+/// once, a pinned one after the re-pin. With no App handler, a Debug app traps at launch on
+/// `HandlerCoverage.verify` (#43840's three terminal-to-chat rows). So its id must be named in a
+/// Swift source that binds actions (`bind`, `bindEffect`, or `bindUnavailable` until the handler
+/// lands) before the row merges. Rows the dump has are the App's `HandlerCoverageTests`' job.
+#[test]
+fn new_rows_in_handler_coverage_categories_have_an_app_binding() {
+    let sources = repo().join("Packages/macOS/CmuxNext/Sources");
+    let coverage =
+        std::fs::read_to_string(sources.join("CmuxNextApp/Handlers/HandlerCoverage.swift"))
+            .expect("HandlerCoverage.swift");
+    let line = coverage
+        .lines()
+        .find(|l| l.contains("static let categories"))
+        .expect("HandlerCoverage.categories");
+    let mut swift_categories: Vec<&str> = line
+        .split_once('=')
+        .map_or("", |(_, set)| set)
+        .split(|c: char| !(c.is_alphanumeric() || c == '.'))
+        .filter_map(|word| word.strip_prefix('.'))
+        .collect();
+    swift_categories.sort_unstable();
+    let mut ours = HANDLER_COVERAGE_CATEGORIES.to_vec();
+    ours.sort_unstable();
+    assert_eq!(
+        swift_categories, ours,
+        "HandlerCoverage.categories changed: update HANDLER_COVERAGE_CATEGORIES"
+    );
+
+    let dump = read_json(&repo().join("plans/cmux-next/action-catalog.json"));
+    let dumped: std::collections::HashSet<&str> = dump["actions"]
+        .as_array()
+        .expect("actions")
+        .iter()
+        .filter_map(|a| a["id"].as_str())
+        .collect();
+    let mut files = Vec::new();
+    swift_files(&sources, &mut files);
+    let binders: Vec<String> = files
+        .iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .filter(|text| text.contains("bind"))
+        .collect();
+    let missing: Vec<&str> = cmux_action_catalog::actions()
+        .filter(|a| HANDLER_COVERAGE_CATEGORIES.contains(&a.category) && !dumped.contains(a.id))
+        .map(|a| a.id)
+        .filter(|id| {
+            let literal = format!("\"{id}\"");
+            !binders.iter().any(|text| text.contains(&literal))
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "new tab/pane/screen/terminal actions with no App binding (a Debug app traps at launch in \
+         HandlerCoverage.verify): {missing:?}. Bind each in Packages/macOS/CmuxNext/Sources, \
+         with bindUnavailable until its handler lands"
+    );
+}
+
+/// The right-click menus whose top level the app assembles from more than this crate's
+/// placements: the chat menu (`ChatMenuLengthTests`) and the menus `ContextMenuEssentials` lays
+/// out (workspace row, tab, pane, with their Copy ▸ and More ▸). The app's
+/// `ActionSurfaceParityTests.everyMenuKeepsAShortTopLevel` counts those.
+const MENUS_COUNTED_IN_THE_APP: &[&str] = &["agentChat", "workspaceRow", "tab", "pane"];
+
+/// Lawrence (2026-10-01): long menus use submenus. Each right-click menu keeps at most 12
+/// top-level rows, 13 for the terminal selection menu's fork commands, the caps of the app's
+/// `ActionSurfaceParityTests.everyMenuKeepsAShortTopLevel`. The top level is what the app's
+/// `ContextMenuCatalog.topLevel` makes of the placements: one row per placement with no folder
+/// and no submenu parent, and one per folder (a folder of one row shows that row inline).
+/// The app checks the pinned catalog, so without this a catalog row that pushes a menu past its
+/// cap fails only after the re-pin, on unrelated pull requests (#43840's three terminal rows took
+/// the terminal selection menu to 16). Here it fails in the pull request that adds the row.
+#[test]
+fn menus_keep_a_short_top_level() {
+    let mut menus: std::collections::BTreeMap<&str, (usize, std::collections::BTreeSet<&str>)> =
+        std::collections::BTreeMap::new();
+    for action in cmux_action_catalog::actions() {
+        for placement in action.surface_plan.context_menus.iter().filter(|p| p.parent.is_none()) {
+            let (rows, folders) = menus.entry(placement.context).or_default();
+            match placement.folder {
+                Some(folder) => {
+                    folders.insert(folder);
+                }
+                None => *rows += 1,
+            }
+        }
+    }
+    let over: Vec<String> = menus
+        .iter()
+        .filter(|(context, _)| !MENUS_COUNTED_IN_THE_APP.contains(context))
+        .filter_map(|(context, (rows, folders))| {
+            let cap = if *context == "terminalSelection" { 13 } else { 12 };
+            let count = rows + folders.len();
+            (count > cap).then(|| format!("{context}: {count} top-level rows, cap {cap}"))
+        })
+        .collect();
+    assert!(
+        over.is_empty(),
+        "menus past their top-level cap: {over:?}. Put the new rows in one of the menu's folders \
+         (`Placement::folder`), as #44028 did with the terminal-to-chat rows"
+    );
+}

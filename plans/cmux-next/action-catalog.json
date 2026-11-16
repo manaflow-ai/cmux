@@ -121041,6 +121041,20 @@
       "browserTheme" : [
         "theme"
       ],
+      "macScreen.open" : [
+        "screen share",
+        "share screen",
+        "screen sharing",
+        "remote desktop",
+        "vnc"
+      ],
+      "macScreen.stopSharing" : [
+        "cmux remote: end screen sharing session",
+        "end screen sharing session",
+        "end screen sharing",
+        "stop screen sharing",
+        "stop screen share"
+      ],
       "moveSurfaceToPaneDown" : [
         "move to split below",
         "move to bottom split",

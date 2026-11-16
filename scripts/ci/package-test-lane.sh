@@ -34,6 +34,10 @@
 #             scripts/ci/package-test-lane.sh --ref SHA --arg=suite
 #             --arg=Packages/macOS/CmuxNext --arg=SuiteA,SuiteB,SuiteC
 #             --env CMUX_CI_XCODE_APP=/Applications/Xcode_26.6.app
+#             each:WORD (macOS) is every suite whose name holds WORD, each in
+#             its own `swift test` process: `--arg=each:Sidebar` for the
+#             whole-Sidebar run, which as one `--filter Sidebar` process
+#             started about 250 GUI tests at once and stalled (2026-11-15).
 #   compile-tests MERGE_BASE_SHA [--skip-package=DIR ...]
 #             compile, without running, the test targets this commit's change
 #             can break: scripts/ci/compile_test_plan.py over `git diff
@@ -100,6 +104,10 @@ case "${1:-}" in
         case "$suite_filter" in
           *.|*/)
             echo "package-test-lane.sh: suite filter '$suite_filter' ends with '${suite_filter: -1}'; pass the target name (CmuxNextAppTests) or Target.Suite/test" >&2; exit 2 ;;
+          each:*)
+            if ! [[ "$suite_filter" =~ ^each:[A-Za-z0-9_]+$ ]]; then
+              echo "package-test-lane.sh: each: takes one word of a suite name, such as each:Sidebar (got '$suite_filter')" >&2; exit 2
+            fi ;;
         esac
         suite_filters+=("$suite_filter")
       done
@@ -758,6 +766,51 @@ linux_suite_setup() {
   echo "Linux: $(swift --version 2>/dev/null | head -n 1) (${envs:--})"
 }
 
+# expand_each_filters PACKAGE: replaces each `each:WORD` in suite_filters with one ^Target\.Suite/ filter per suite
+# of the built PACKAGE whose name holds WORD (require_swift_test_execution.py --list-filters, the suite runner's
+# list), so each runs in its own process through the loop below with every check a named suite gets. One process
+# for a broad filter shares one main thread: `--filter Sidebar` started about 250 GUI tests at once and none
+# finished for minutes until the watchdog ended it (fleet bd721902, 2026-11-15). A word that names no suite fails.
+expand_each_filters() {
+  local package="$1" filter word list filters expanded=() found=() matched line suite
+  for filter in "${suite_filters[@]}"; do
+    [[ "$filter" == each:* ]] || { expanded+=("$filter"); continue; }
+    if [ "$lane_os" = Linux ]; then
+      echo "package-test-lane.sh: $filter runs on macOS only" >&2; exit 2
+    fi
+    word="${filter#each:}"
+    if [ -z "${list:-}" ]; then
+      list="$(mktemp -t swift-suite-list.XXXXXX)" filters="$(mktemp -t swift-suite-filters.XXXXXX)"
+      swift test list ${configuration[@]+"${configuration[@]}"} --package-path "$package" --skip-build < /dev/null > "$list"
+      python3 scripts/ci/require_swift_test_execution.py --list-filters "$list" > "$filters"
+    fi
+    matched=0
+    while IFS= read -r line; do
+      suite="$(filter_label "$line")"
+      suite="${suite#*.}"
+      if [[ "$suite" == *"$word"* ]]; then
+        expanded+=("$line") found+=("$line")
+        matched=$((matched + 1))
+      fi
+    done < "$filters"
+    if [ "$matched" -eq 0 ]; then
+      echo "::error title=Swift suite no result::$filter in $package: no suite name holds $word" >&2; exit 2
+    fi
+    echo "$filter: $matched suites, each in its own process"
+  done
+  suite_filters=("${expanded[@]}")
+  # The suites each: found, one per line: one whose own traits skip all of it (an opt-in gallery or profile,
+  # a display check) is "skipped", not "no result", since nobody named it; a named suite that runs nothing fails.
+  printf '%s\n' ${found[@]+"${found[@]}"} > "$each_found"
+}
+
+# filter_label FILTER: Target.Suite for an expanded ^Target\.Suite/ filter, else FILTER as given.
+filter_label() {
+  local label="${1#^}"
+  label="${label%/}"
+  printf '%s' "${label//\\/}"
+}
+
 # swift_filter FILTER: the --filter regex for FILTER. swift test matches it unanchored, so on Linux,
 # where only the listed targets may run, it is anchored with its dots escaped and must end at a
 # target, suite or test boundary: ListedTests never reaches ListedTestsExtra. The suite parser
@@ -871,6 +924,9 @@ run_suite() {
   # way, and display tests gate nothing (Leo, 2026-10-31: "i dont like doing display tests anymore"): it
   # reads "skipped (needs a display)" with a notice and does not fail the step, unless the step asked for a
   # display (CMUX_TEST_REQUIRE_GUI=1, or cmux-ci's --display marks it CMUX_CI_DISPLAY_ROUTED=1).
+  local each_found
+  each_found="$(mktemp -t swift-suite-each.XXXXXX)"
+  expand_each_filters "$suite_package"
   local log filter status started result failed=0 first_failure_status=0 display_only=0 rows=()
   local ran skipped reason reasons daemon_skips display_skips hint display_step_skips
   for filter in "${suite_filters[@]}"; do
@@ -922,6 +978,10 @@ run_suite() {
       display_only=$((display_only + 1))
       result="skipped (needs a display)"
       echo "::notice title=Swift suite needs a display::$filter in $suite_package: none of its $skipped tests ran (each needs a display); display tests gate nothing, so the step goes on. Run it on a display worker with cmux-ci run --display"
+    elif [ "$status" -eq 0 ] && [ "$ran" -eq 0 ] && [ "$daemon_skips" -eq 0 ] && [ "$skipped" -gt 0 ] &&
+         grep -qxF -- "$filter" "$each_found"; then
+      result="skipped (all $skipped skipped)"
+      echo "::notice title=Swift suite skipped::$(filter_label "$filter") in $suite_package: its own traits skipped all $skipped of its tests; each: found it, so it does not fail the step"
     elif [ "$status" -eq 0 ] && { [ "$ran" -eq 0 ] || [ "$daemon_skips" -gt 0 ]; }; then
       failed=$((failed + 1))
       status=1
@@ -960,7 +1020,7 @@ run_suite() {
       if [ "$status" -eq 124 ]; then result="stalled/timeout"; else result="failed (exit $status)"; fi
       echo "::error title=Swift suite failed::$filter in $suite_package: $result after $((SECONDS - started))s"
     fi
-    rows+=("$(printf '%-48s %-24s %6ss' "$filter" "$result" "$((SECONDS - started))")")
+    rows+=("$(printf '%-48s %-24s %6ss' "$(filter_label "$filter")" "$result" "$((SECONDS - started))")")
   done
   local table
   table="$(printf '%-48s %-24s %7s\n' suite result time; printf '%s\n' "${rows[@]}")"
