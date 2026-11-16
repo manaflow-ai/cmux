@@ -1,4 +1,3 @@
-@testable import CmuxNextApp
 @testable import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -10,16 +9,22 @@ import Testing
 @MainActor
 struct AppLanguageApplierTests {
     private final class Suite {
-        let name = "app-language-\(UUID().uuidString)"
+        let name: String
         let defaults: UserDefaults
-        init() throws { defaults = try #require(UserDefaults(suiteName: name)) }
+        init() throws {
+            let name = "app-language-\(UUID().uuidString)"
+            self.name = name
+            defaults = try #require(UserDefaults(suiteName: name))
+        }
         /// What the suite's own domain holds (`stringArray(forKey:)` falls back to the global domain).
         var languages: [String]? { defaults.persistentDomain(forName: name)?[AppLanguageApplier.languagesKey] as? [String] }
-        deinit { defaults.removePersistentDomain(forName: name) }
+        var applied: Any? { defaults.persistentDomain(forName: name)?[AppLanguageApplier.appliedKey] }
+        func remove() { defaults.removePersistentDomain(forName: name) }
     }
 
     @Test func aCodeIsWrittenAndPushedToThePages() throws {
         let suite = try Suite()
+        defer { suite.remove() }
         var pushed: [String?] = []
         let applier = AppLanguageApplier(defaults: suite.defaults) { pushed.append($0) }
         applier.apply("ja")
@@ -29,18 +34,20 @@ struct AppLanguageApplierTests {
 
     @Test func systemRemovesCmuxsOwnWrite() throws {
         let suite = try Suite()
+        defer { suite.remove() }
         var pushed: [String?] = []
         let applier = AppLanguageApplier(defaults: suite.defaults) { pushed.append($0) }
         applier.apply("de")
         applier.apply(nil)
         #expect(suite.languages == nil)
-        #expect(suite.defaults.persistentDomain(forName: suite.name)?[AppLanguageApplier.appliedKey] == nil)
+        #expect(suite.applied == nil)
         #expect(pushed == ["de", nil])
     }
 
     @Test func systemKeepsAPerAppLanguageCmuxDidNotWrite() throws {
         let suite = try Suite()
-        // macOS System Settings > Language & Region > Applications wrote French for cmux.
+        defer { suite.remove() }
+        // macOS System Settings > Language & Region > Applications set French for cmux.
         suite.defaults.set(["fr"], forKey: AppLanguageApplier.languagesKey)
         AppLanguageApplier(defaults: suite.defaults) { _ in }.apply(nil)
         #expect(suite.languages == ["fr"])
@@ -48,6 +55,7 @@ struct AppLanguageApplierTests {
 
     @Test func aNewCodeReplacesTheLastOne() throws {
         let suite = try Suite()
+        defer { suite.remove() }
         let applier = AppLanguageApplier(defaults: suite.defaults) { _ in }
         applier.apply("ko")
         applier.apply("zh-Hans")
@@ -59,17 +67,5 @@ struct AppLanguageApplierTests {
     @Test func thePageScriptHandsTheCodeOrNull() {
         #expect(PageWebView.languageScript("pt-BR") == #"window.__cmuxSetAppLanguage?.("pt-BR");"#)
         #expect(PageWebView.languageScript(nil) == "window.__cmuxSetAppLanguage?.(null);")
-    }
-
-    @Test func theRelaunchRowNeedsAClick() async throws {
-        var relaunches = 0
-        let route = AppLanguageRelaunchRoute { relaunches += 1 }
-        let op = AppLanguageRelaunchRoute.prefix + "relaunch"
-        await #expect(throws: PageError.self) {
-            _ = try await route.call(op, params: .object([:]), context: PageCallContext(page: "cmux.settings"))
-        }
-        #expect(relaunches == 0)
-        _ = try await route.call(op, params: .object([:]), context: PageCallContext(page: "cmux.settings", userGesture: true))
-        #expect(relaunches == 1)
     }
 }

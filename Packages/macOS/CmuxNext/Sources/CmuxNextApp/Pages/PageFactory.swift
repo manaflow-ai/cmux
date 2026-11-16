@@ -328,7 +328,7 @@ struct PageFactory {
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
                       PageRoute(prefix: AppUpdatePageProvider.prefix, provider: AppUpdatePageProvider(updater: services.updater)),
                       // General > Language's relaunch row (`app.language`).
-                      PageRoute(prefix: AppLanguageRelaunchRoute.prefix, provider: AppLanguageRelaunchRoute(updater: services.updater)),
+                      PageRoute(prefix: AppLanguageRelaunchRoute.prefix, provider: AppLanguageRelaunchRoute(updater: services.updater, app: Bundle.main.bundleURL)),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).
