@@ -340,3 +340,34 @@ User ask: `echo $TERM_PROGRAM` in a cmux terminal said `ghostty`; make it say `c
 - Cloud: `cmux-host::daemon_spec` and `cmux-devbox-boot` start the session daemon with
   `TERM_PROGRAM=cmux` and no version; cmux-host no longer reads `/etc/cmux/ghostty-version`.
 - A new terminal-child path must call `terminal_identity()` (or insert `TERMINAL_IDENTITY`).
+
+## Notice to PL-motion-cef: toasts take the pointer over catchers and pages (2026-11-16)
+
+Landed 81e95262773d591fbb1ca0a642e44b1b8b899f0a..3ede87f8221983b89f4d4028cbe3d16cac650043
+(red fe0c1420461a, fix 3ede87f8221). It changes code you own:
+
+- `DividerMousePanel` is now `UnderOverlayWindow`. `WindowOverlayHost.reassertOrder` ranks the
+  children: page windows 0, `UnderOverlayWindow` (the catchers) 1, the overlay panel 2, app panels
+  at its level 3. It re-adds only the lowest rank that sits under a higher rank and the ranks above
+  it, in an `autoreleasepool`. Before, every reorder re-added every catcher above the overlay
+  panel, so a catcher over a page took the pointer from a toast (resize cursor, drag resized panes).
+- `WindowOverlayHost.overlayTakesMouse(in:atWindowPoint:)` gates the pointer followers:
+  `ScreenDividerPointer`, `LayoutPaneContentProvider.hoverReaches` (perf-hot `window-resize-step`:
+  one early return), `PointerHover.isTopmost`, `DividerHandleView.cursorUpdate`, and the catcher
+  view's `cursorUpdate` / `mouseEntered`.
+- Follow-up in the same series ("Toasts take presses and scrolls"): `ShellWindow.sendEvent` first
+  calls `WindowOverlayHost.takeEventFromBelow`. A right, middle or left press (with its drags and
+  release) or a scroll that reaches the parent window, a page or a catcher where an overlay takes
+  the mouse goes to the overlay panel. Other events return after one type check.
+
+Numbers (fleet, `WindowResizeWorkPerStepTests`, light 3 / large 60 workspaces, layout calls per
+step): 81e9526 on cmux10s-Mac-mini 27.4 / 28.1; 3ede87f on cmuxs-Mac-mini-4 27.4 / 28.1 (same);
+3ede87f on aws-m4pro-8 (macOS 26) 23.4 / 24.1 (fewer `_NSCoreHostingView<ThemeWidgetView>` passes
+on that OS). The `real` arm did not run: `CMUX_TEST_SESSION_SIZES` is not on the cmux-ci env
+allowlist. Corner drag 1100x720 to 860x560 on cmux-lawrence-2 with a toast shown, median of 5,
+`debug.frames` main_total_ms: 81e9526 1111 and 1057, 3ede87f 1096, press fix 1141 and 1096
+(noise); missed frames 61-63 in every build.
+
+Open: on aws-m4pro-8 (macOS 26) `ParkedPageCatcherPanelsTests`, `DividerCatcherHoldsPressTests`
+and `OverlayTakesThePointerTests` leave `DividerMousePanel` windows alive (0 on screen) at the
+suite's window-leak check; the macOS 27 minis pass.

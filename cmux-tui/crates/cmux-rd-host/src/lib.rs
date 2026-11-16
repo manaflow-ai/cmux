@@ -14,6 +14,8 @@
 //!            stdin and stdout (src/serve.rs); macOS and Linux
 //!   connect  the viewer side of a hub session: bridges the pane's framed byte stream on a
 //!            private Unix socket to the secure link (src/connect.rs)
+//!   view     [DEVICE] [--scope full|view] (Linux) view and control another of your devices
+//!            through the device hub, in an X11 window (src/view/)
 //!   linux-host enable|share on|off|run|requests|approve|deny|status   (Linux) this desktop as a
 //!            device hub screen host a Mac views: its own device key, the hub link and
 //!            consent, driving `serve` per approved session (src/linux_host/)
@@ -98,6 +100,9 @@ mod testapp;
 mod token;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod upstream;
+// `cmux-rd view`: the Linux viewer of a device hub session (Windows follows from the same module).
+#[cfg(all(feature = "link", feature = "openh264", target_os = "linux"))]
+mod view;
 #[cfg(all(target_os = "macos", feature = "bench"))]
 mod vtdecode;
 #[cfg(windows)]
@@ -118,7 +123,7 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|permissions|linux-host|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|linux-host|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
@@ -126,6 +131,10 @@ pub fn run_cli(args: &[String]) -> i32 {
     #[cfg(all(feature = "link", target_os = "linux"))]
     if cmd == "linux-host" {
         return linux_host::run_cli(&args[1..]);
+    }
+    #[cfg(all(feature = "link", feature = "openh264", target_os = "linux"))]
+    if cmd == "view" {
+        return view::run_cli(&args[1..]);
     }
     if cmd == "permissions" && args.len() != 1 {
         eprintln!("cmux-rd permissions takes no arguments");
