@@ -45,7 +45,8 @@ public nonisolated extension RemoteRdHello {
     /// A Cloud machine's desktop session over the owner's Native link (service `desktop`): no
     /// token. The link admitted the owner, and the host takes only its root receiver's connection.
     static func cloudDesktop(install: String? = nil) -> RemoteRdHello {
-        RemoteRdHello(user: "cmux", install: install ?? "cmux-next-\(ProcessInfo.processInfo.processIdentifier)", token: nil, service: "desktop")
+        RemoteRdHello(user: "cmux", install: install ?? "cmux-next-\(ProcessInfo.processInfo.processIdentifier)", token: nil, service: "desktop",
+                      caps: [cursorCap])
     }
 }
 
@@ -107,4 +108,43 @@ public nonisolated extension RemoteRdHello {
 extension RemoteRdHello: CustomStringConvertible, CustomDebugStringConvertible {
     public nonisolated var description: String { redactedDescription }
     public nonisolated var debugDescription: String { redactedDescription }
+}
+
+/// Host to viewer with the `cursor` cap: one cursor shape (cmux-rd-proto
+/// `Control::CursorShape`), sent once before the first position that names it.
+public nonisolated struct RemoteRdCursorShape: Sendable, Equatable, Codable {
+    public var shape: UInt32
+    public var width: UInt32
+    public var height: UInt32
+    public var hotX: UInt32
+    public var hotY: UInt32
+    /// Base64 of `width * height` premultiplied RGBA8 pixels, rows top first.
+    public var rgba: String
+
+    public init(shape: UInt32, width: UInt32, height: UInt32, hotX: UInt32, hotY: UInt32, rgba: String) {
+        self.shape = shape
+        self.width = width
+        self.height = height
+        self.hotX = hotX
+        self.hotY = hotY
+        self.rgba = rgba
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case shape, width, height, rgba
+        case hotX = "hot_x"
+        case hotY = "hot_y"
+    }
+
+    /// The image, or nil when the pixels do not match the size.
+    public var cursorShape: RemoteCursorShape? {
+        guard let pixels = Data(base64Encoded: rgba) else { return nil }
+        return RemoteCursorShape(id: shape, width: Int(width), height: Int(height), hotX: Int(hotX), hotY: Int(hotY), rgba: pixels)
+    }
+}
+
+public nonisolated extension RemoteRdHello {
+    /// The cap a viewer offers when it draws the remote cursor itself (cmux-rd-core
+    /// `caps::CURSOR`): the host then leaves the cursor out of its pictures.
+    static let cursorCap = "cursor"
 }

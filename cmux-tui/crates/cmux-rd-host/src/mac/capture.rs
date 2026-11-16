@@ -590,7 +590,18 @@ extern "C" fn capture_stopped(block: *mut Block<SyncSender<()>>, _error: Id) {
 
 impl Capture {
     pub fn start(which: &str, fps: u32, max_width: Option<u32>) -> Res<Self> {
-        Self::start_with_marker(which, fps, max_width, None)
+        Self::start_with_marker(which, fps, max_width, true, None)
+    }
+
+    /// A session's capture: `shows_cursor` false leaves the cursor out of the pictures (the
+    /// viewer draws it from cursor metadata, cap `cursor`).
+    pub fn start_for_session(
+        which: &str,
+        fps: u32,
+        max_width: Option<u32>,
+        shows_cursor: bool,
+    ) -> Res<Self> {
+        Self::start_with_marker(which, fps, max_width, shows_cursor, None)
     }
 
     #[cfg(feature = "bench")]
@@ -600,20 +611,22 @@ impl Capture {
         max_width: Option<u32>,
         marker: MarkerConfig,
     ) -> Res<Self> {
-        Self::start_with_marker(which, fps, max_width, Some(marker))
+        Self::start_with_marker(which, fps, max_width, true, Some(marker))
     }
 
     fn start_with_marker(
         which: &str,
         fps: u32,
         max_width: Option<u32>,
+        shows_cursor: bool,
         #[cfg(feature = "bench")] marker: Option<MarkerConfig>,
         #[cfg(not(feature = "bench"))] marker: Option<()>,
     ) -> Res<Self> {
         let (content, displays) = shareable_displays()?;
         let picked = pick(&displays, which);
-        let result =
-            picked.and_then(|(display, id)| Self::stream(display, id, fps, max_width, marker));
+        let result = picked.and_then(|(display, id)| {
+            Self::stream(display, id, fps, max_width, shows_cursor, marker)
+        });
         release_all(content, &displays);
         result
     }
@@ -623,6 +636,7 @@ impl Capture {
         id: u32,
         fps: u32,
         max_width: Option<u32>,
+        shows_cursor: bool,
         #[cfg(feature = "bench")] marker: Option<MarkerConfig>,
         #[cfg(not(feature = "bench"))] marker: Option<()>,
     ) -> Res<Self> {
@@ -686,7 +700,13 @@ impl Capture {
                 sel(c"setQueueDepth:"),
                 QUEUE_DEPTH,
             );
-            msg::<unsafe extern "C" fn(Id, Sel, bool)>()(config, sel(c"setShowsCursor:"), true);
+            // Without the cursor when the viewer draws it from metadata (cap `cursor`): one
+            // cursor on the viewer's screen, not the local one over a baked-in copy.
+            msg::<unsafe extern "C" fn(Id, Sel, bool)>()(
+                config,
+                sel(c"setShowsCursor:"),
+                shows_cursor,
+            );
             msg::<unsafe extern "C" fn(Id, Sel, *const c_void)>()(
                 config,
                 sel(c"setColorSpaceName:"),
