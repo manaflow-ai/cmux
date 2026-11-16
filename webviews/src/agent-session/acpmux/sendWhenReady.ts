@@ -25,6 +25,9 @@ export function sendWaitsForHost(error: unknown): boolean {
 }
 
 export type HostWait = {
+  /// session/new only: the daemon explicitly refused before sending anything to the peer.
+  /// Never reuse a prompt's spent gesture or retry an ambiguous session creation timeout.
+  peerStart?: boolean;
   /// How long the send may wait for the host, from its first try. Default: no end.
   deadlineMs?: number;
   /// The send is no longer wanted (its chat moved, its client closed, acpmux took it): stop asking.
@@ -50,7 +53,9 @@ export async function untilHostAnswers<T>(attempt: () => Promise<T>, wait: HostW
     try {
       return await attempt();
     } catch (error) {
-      if (!sendWaitsForHost(error) || wait.stop?.() || now() + delay > deadline) throw error;
+      const data = (error as { data?: { reason?: string; retryable?: boolean } } | null)?.data;
+      const unsentPeerStart = wait.peerStart && data?.reason === "peer_unreachable" && data.retryable === true;
+      if ((!sendWaitsForHost(error) && !unsentPeerStart) || wait.stop?.() || now() + delay > deadline) throw error;
       wait.waiting?.();
       await sleep(delay);
       // A timer that fired late (a busy or sleeping Mac) never starts a try past the deadline.

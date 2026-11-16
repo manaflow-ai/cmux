@@ -855,6 +855,8 @@ export type PeerStateChanged = {
   carrier: (Carrier | null);
   /** Why the link is down; null while it is up or on its way the first time. */
   cause: (DownCause | null);
+  /** First failure of this outage, ms since the epoch; unchanged across retries, null at ready. */
+  downSince: (number | null);
   /** Why the link is down, when it is. */
   error: (string | null);
   /** The last frame from the peer, ms since the epoch. */

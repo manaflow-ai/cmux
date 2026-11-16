@@ -128,6 +128,17 @@ export function environmentReady(environment: Environment): boolean {
   return environment.connected !== false;
 }
 
+/// A known SSH machine may keep a start queued while its daemon reconnects. Auth and version
+/// refusals still need their own action; account Cloud machines keep their existing wake path.
+export function environmentQueuesStart(environment: Environment): boolean {
+  return (
+    environment.kind === "ssh" &&
+    !environmentReady(environment) &&
+    (environment.state === undefined ||
+      ["offline", "reconnecting", "restarting", "connecting", "degraded"].includes(environment.state))
+  );
+}
+
 /// The link states of a machine acpmux cannot reach: dropped and dialing again, down, refused or too
 /// old. Connecting and degraded are on their way up; paused and resuming are a Cloud machine asleep.
 const UNREACHABLE_STATES: ReadonlySet<string> = new Set([

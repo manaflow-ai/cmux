@@ -13072,8 +13072,21 @@ export class AcpmuxDirectClient {
   ): Promise<any> {
     const generation = this.selectionGeneration;
     const trustCancellation = this.trustCancellation;
+    let unhold: (() => void) | undefined;
     try {
-      const result = await this.request("session/new", params);
+      // Keep this same start, machine and draft while the daemon says it has sent nothing.
+      // The existing held-send loop owns backoff and cancellation; no retry after an uncertain reply.
+      const result = await untilHostAnswers(() => this.request("session/new", params), {
+        peerStart: true,
+        stop: () =>
+          this.closed ||
+          generation !== this.selectionGeneration ||
+          trustCancellation !== this.trustCancellation ||
+          !current(),
+        waiting: () => {
+          unhold ??= sendsHeldForHost.hold();
+        },
+      });
       // A canceled start owns neither the next Trust question nor one-shot startup defaults.
       if (generation !== this.selectionGeneration || trustCancellation !== this.trustCancellation) return undefined;
       return result;
@@ -13083,6 +13096,8 @@ export class AcpmuxDirectClient {
       failed?.(error);
       if (ownsRefusal) this.routeTrustRefusal(error, again, declined);
       throw error;
+    } finally {
+      unhold?.();
     }
   }
   /// Reserve the chip's gesture before preparing the checkout. Trust can hold preparation;

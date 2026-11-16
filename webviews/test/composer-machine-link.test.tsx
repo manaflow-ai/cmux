@@ -145,14 +145,14 @@ test("a peer chat's row says each link state in the sidebar's words, in one elem
     ["connecting", "connecting", "Connecting…"],
     ["reconnecting", "connecting", "Reconnecting…"],
     ["restarting", "connecting", "Reconnecting…"],
-    ["degraded", "connecting", "Reconnecting…"],
+
     ["offline", "offline", "Offline"],
   ] as const) {
     await render(started("walk-remote", state));
     expect(link(), state).toBe(element);
     expect(link()?.dataset.link, state).toBe(link_);
     expect(link()?.hasAttribute("data-said"), state).toBe(true);
-    expect(said(), state).toBe(`walk-remote${words}`);
+    expect(said(), state).toBe(state === "connecting" ? `walk-remote${words}` : "Reconnecting to walk-remote");
     expect(link()?.getAttribute("aria-label"), state).toBe(`walk-remote · ${words}`);
     expect(reconnect() !== null, state).toBe(false);
   }
@@ -173,7 +173,9 @@ test("an offline peer offers Reconnect, which asks for that peer", async () => {
   const button = reconnect()!;
   expect(button.textContent).toBe("Reconnect");
   await act(async () => button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
-  expect(asked).toEqual([{ machine: "walk-remote", link: "offline" }]);
+  expect(asked).toEqual([
+    { machine: "walk-remote", link: "offline", progress: { machine: "walk-remote", since: undefined } },
+  ]);
   expect(reconnect()?.disabled).toBe(true);
   expect(reconnect()?.textContent).toBe("Reconnecting…");
   await act(async () => answer());
@@ -205,7 +207,7 @@ test("an open Cloud chat whose link drops with no banner keeps its warning in th
   await render(started("dev-vm-2", "connected", "cloud"));
   await render(started("dev-vm-2", "reconnecting", "cloud"));
   expect(link()?.dataset.link).toBe("connecting");
-  expect(said()).toBe("dev-vm-2Reconnecting…");
+  expect(said()).toBe("Reconnecting to dev-vm-2");
 });
 
 test("a Cloud peer whose sign-in or build needs a person still says so", async () => {
@@ -239,37 +241,32 @@ function linked(peer: string, link: string, since: number, extra: Partial<Acpmux
   return { ...snapshot, peerLinks: { [peer]: { link, since } }, ...extra } as AcpmuxSnapshot;
 }
 
-test("a link that just dropped keeps the plain dot, with no spinner or words, until the bound, then says it once", async () => {
+test("degraded stays quiet, while a detected outage is named from its first second", async () => {
   jest.useFakeTimers();
   setLinkDownSaidMs(LINK_DOWN_SAID_MS);
-  await render(started("walk-remote", "connected"));
-  const element = link();
-  for (const state of ["degraded", "reconnecting", "connecting", "offline"]) {
-    await render(linked("walk-remote", state, Date.now()));
-    expect(link(), state).toBe(element);
-    expect(link()?.hasAttribute("data-said"), state).toBe(false);
-    expect(link()?.hasAttribute("data-quiet"), state).toBe(true);
-    expect(host.querySelector(".acpmux-machine-link-spinner"), state).toBeNull();
-    // Back before the bound: nothing was ever said.
-    await render(started("walk-remote", "connected"));
-    expect(link()?.hasAttribute("data-quiet"), state).toBe(false);
-  }
-  // A drop that goes on, through degraded and then reconnecting, counts from its start.
   await render(linked("walk-remote", "degraded", Date.now()));
-  await act(async () => void jest.advanceTimersByTime(LINK_DOWN_SAID_MS - 4_000));
-  await render(linked("walk-remote", "reconnecting", Date.now()));
-  await act(async () => void jest.advanceTimersByTime(3_999));
   expect(link()?.hasAttribute("data-said")).toBe(false);
-  await act(async () => void jest.advanceTimersByTime(1));
+  expect(host.querySelector(".acpmux-machine-link-spinner")).toBeNull();
+  const since = Date.now() - 1000;
+  await render({
+    ...linked("walk-remote", "reconnecting", Date.now()),
+    peerLinks: {
+      "walk-remote": { link: "reconnecting", since: Date.now(), downSince: since },
+    },
+  });
   expect(link()?.hasAttribute("data-said")).toBe(true);
-  expect(said()).toBe("walk-remoteReconnecting…");
-});
-
-test("a link acpmux has had down past the bound is said at once", async () => {
-  setLinkDownSaidMs(LINK_DOWN_SAID_MS);
-  await render(linked("walk-remote", "offline", Date.now() - LINK_DOWN_SAID_MS - 1));
-  expect(link()?.hasAttribute("data-said")).toBe(true);
-  expect(said()).toBe("walk-remoteOffline");
+  expect(said()).toBe("Reconnecting to walk-remote · 1 s");
+  await act(async () => void jest.advanceTimersByTime(2000));
+  expect(said()).toBe("Reconnecting to walk-remote · 3 s");
+  await render({
+    ...linked("walk-remote", "offline", Date.now()),
+    peerLinks: {
+      "walk-remote": { link: "offline", since: Date.now(), downSince: since },
+    },
+  });
+  expect(said()).toBe("Reconnecting to walk-remote · 3 s");
+  await render(started("walk-remote", "connected"));
+  expect(link()?.hasAttribute("data-said")).toBe(false);
 });
 
 test("a refused sign-in or an update the machine needs is said at once", async () => {

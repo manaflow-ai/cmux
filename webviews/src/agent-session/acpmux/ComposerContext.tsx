@@ -1303,7 +1303,7 @@ function availableComputers(
   for (const machine of knownMachines(peers, sessions, peerKinds, current, peerConnected, peerStates)) {
     const detail = t(machine.kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud);
     const link = peerLinks[machine.id];
-    const downSince = link && link.link !== "connected" ? link.since : undefined;
+    const downSince = link && link.link !== "connected" ? (link.downSince ?? link.since) : undefined;
     computers.push({
       ...machine,
       detail,

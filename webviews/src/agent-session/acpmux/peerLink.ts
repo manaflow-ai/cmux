@@ -1,4 +1,5 @@
 import type { AcpmuxLink, LinkCause, PeerLinkDetail } from "./linkState";
+import { peerReconnect, type PeerReconnect } from "./peerReconnect";
 
 /// The link of the acpmux peer a chat runs on, as the composer's quiet row draws it
 /// (MachineLinkStatus.tsx): only what acpmux reports for that peer's link (`link`, linkState.ts;
@@ -24,6 +25,7 @@ export type PeerLink = {
   /// When acpmux says the link took its current state (ms since the epoch), for a link that is not
   /// connected: the row counts its quiet time from it (afterDelay.ts `useLinkDownSaid`).
   since?: number;
+  progress?: PeerReconnect;
 };
 
 type Shown = { link: LinkState; reconnecting?: true; why?: LinkWhy; stuck?: true } | null;
@@ -34,7 +36,7 @@ type Shown = { link: LinkState; reconnecting?: true; why?: LinkWhy; stuck?: true
 export const PEER_LINKS: Record<AcpmuxLink, Shown> = {
   connected: { link: "connected" },
   connecting: { link: "connecting" },
-  degraded: { link: "connecting", reconnecting: true },
+  degraded: { link: "connected" },
   reconnecting: { link: "connecting", reconnecting: true },
   restarting: { link: "connecting", reconnecting: true },
   offline: { link: "offline" },
@@ -88,12 +90,14 @@ export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
   if (!known.stuck && known.link !== "connected" && toldAbove) return null;
   const why: LinkWhy | undefined =
     known.why ?? (known.link !== "connected" && detail?.cause === LOCAL ? LOCAL : undefined);
+  const progress = !why ? peerReconnect(peer, detail, said) : undefined;
   return {
     machine: peer,
     link: known.link,
     ...(known.reconnecting ? { reconnecting: true } : {}),
     ...(why ? { why } : {}),
     ...(known.stuck ? { stuck: true } : {}),
+    ...(progress ? { progress } : {}),
     ...(known.link !== "connected" && detail?.since !== undefined ? { since: detail.since } : {}),
   };
 }

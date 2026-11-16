@@ -26,6 +26,8 @@ export type PeerLinkDetail = {
   cause?: LinkCause;
   /// When `link` took its value, ms since the epoch.
   since?: number;
+  /// First failure of this outage on the local daemon's clock; stable across retries.
+  downSince?: number;
   /// When acpmux dials again on its own, ms since the epoch.
   nextRetryAt?: number;
 };
@@ -59,6 +61,8 @@ export function readPeerLinkDetail(value: unknown): PeerLinkDetail | undefined {
   if (typeof raw.cause === "string" && CAUSES.has(raw.cause)) detail.cause = raw.cause as LinkCause;
   const since = time(raw.since);
   if (since !== undefined) detail.since = since;
+  const downSince = time(raw.downSince);
+  if (downSince !== undefined) detail.downSince = downSince;
   const nextRetryAt = time(raw.nextRetryAt);
   if (nextRetryAt !== undefined) detail.nextRetryAt = nextRetryAt;
   return detail;

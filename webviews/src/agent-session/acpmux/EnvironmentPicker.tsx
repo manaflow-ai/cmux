@@ -14,6 +14,7 @@ import {
   environmentDigit,
   environmentForDigit,
   environmentReady,
+  environmentQueuesStart,
   environmentSections,
   environmentUnavailable,
   numberedEnvironments,
@@ -627,7 +628,8 @@ export function EnvironmentPicker({
     // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
     // stays open.
     const machine = positions.get(value)?.environment;
-    if (machine && !environmentReady(machine) && !isCloudMachineRow(machine)) return;
+    if (machine && !environmentReady(machine) && !environmentQueuesStart(machine) && !isCloudMachineRow(machine))
+      return;
     // A move that would refuse is no pick either: its row already says why.
     if (action?.reason) return;
     // Move to… opens its targets in place, as Machines… does; the list stays open.
@@ -799,7 +801,7 @@ export function EnvironmentPicker({
     const number = numbers.get(environment.id);
     const ready = environmentReady(environment);
     // An account Cloud machine acpmux does not list is a pick (it resumes or opens), not greyed.
-    const greyed = !ready && !isCloudMachineRow(environment);
+    const greyed = !ready && !environmentQueuesStart(environment) && !isCloudMachineRow(environment);
     return (
       <span
         className="acpmux-location-row acpmux-env-row"
@@ -819,7 +821,11 @@ export function EnvironmentPicker({
         </span>
         {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
             Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
-        {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
+        {!ready && (
+          <span className="acpmux-env-state">
+            {environmentQueuesStart(environment) ? t("environment.offlineQueued") : environmentStateLabel(environment)}
+          </span>
+        )}
         {ready && environment.loadWarning && (
           <span className="acpmux-env-state" data-warning="true">
             {environment.loadWarning}

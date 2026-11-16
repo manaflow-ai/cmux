@@ -20,7 +20,7 @@ const ROWS: [AcpmuxLink, string | null, string, boolean][] = [
   ["connecting", "connecting", "Connecting…", false],
   ["reconnecting", "connecting", "Reconnecting…", false],
   ["restarting", "connecting", "Reconnecting…", false],
-  ["degraded", "connecting", "Reconnecting…", false],
+  ["degraded", "connected", "Connected", false],
   ["offline", "offline", "Offline", true],
   ["authFailed", "offline", "Sign-in needed", false],
   ["updateRequired", "offline", "Update required", false],

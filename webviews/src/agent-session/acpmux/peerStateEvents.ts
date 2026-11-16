@@ -25,6 +25,7 @@ const same = (a: Link | undefined, b: Link) =>
   a.detail?.link === b.detail?.link &&
   a.detail?.carrier === b.detail?.carrier &&
   a.detail?.cause === b.detail?.cause &&
+  a.detail?.downSince === b.detail?.downSince &&
   a.detail?.nextRetryAt === b.detail?.nextRetryAt;
 
 /// One local/app connection's snapshot and pushed state. The daemon names both proven origins

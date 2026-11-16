@@ -26,6 +26,7 @@ type Props = {
   /// How long a link that comes back on its own stays unsaid; 0 (the default here) draws it at once.
   quietMs?: number;
   before?: boolean;
+  now?: number;
 };
 
 const MACHINE = "walk-remote";
@@ -35,7 +36,7 @@ const reconnecting: PeerLink = { machine: MACHINE, link: "connecting", reconnect
 const offline: PeerLink = { machine: MACHINE, link: "offline" };
 const longName: PeerLink = { machine: "gcp-codex-lane-12-us-central1-a", link: "offline" };
 
-function Row({ link, look, before = false, quietMs = 0 }: Props) {
+function Row({ link, look, before = false, quietMs = 0, now }: Props) {
   return (
     <div className="acpmux-shell" data-machine-link-fixture style={{ padding: 16 }}>
       <form className="acpmux-composer">
@@ -53,7 +54,9 @@ function Row({ link, look, before = false, quietMs = 0 }: Props) {
               </button>
             </span>
           </span>
-          {!before && <MachineLinkStatus link={link} look={look} quietMs={quietMs} onReconnect={() => undefined} />}
+          {!before && (
+            <MachineLinkStatus link={link} look={look} quietMs={quietMs} now={now} onReconnect={() => undefined} />
+          )}
         </div>
       </form>
     </div>
@@ -78,6 +81,22 @@ for (const look of looks)
 variants["named-long-name"] = {
   note: "A long machine name cuts at its end; the state and Reconnect stay whole.",
   props: { link: longName },
+};
+
+for (const seconds of [1, 3, 10, 120])
+  variants[`outage-${seconds}s`] = {
+    note: `The daemon detected this outage ${seconds} seconds ago; every retry keeps the same start.`,
+    props: {
+      link: { ...reconnecting, progress: { machine: MACHINE, since: 1000 } },
+      now: 1000 + seconds * 1000,
+    },
+  };
+variants["outage-long-name"] = {
+  note: "A long machine name at narrow width, with the same quiet elapsed status.",
+  props: {
+    link: { ...reconnecting, progress: { machine: longName.machine, since: 1000 } },
+    now: 4000,
+  },
 };
 
 // Under LINK_DOWN_SAID_MS (afterDelay.ts) a link acpmux brings back on its own is not said (Leo,

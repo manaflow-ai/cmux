@@ -658,6 +658,7 @@ import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } 
 import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import { hostLineText } from "./hostLine";
+import { peerReconnect } from "./peerReconnect";
 import {
   AcpmuxRestartGate,
   type HostRestoring,
@@ -13017,6 +13018,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The line is plain words: a chat's machine that is not reachable says so, and acpmux's own codes
   // and commands go behind Details (hostLine.ts).
   const hostWords = hostLineText(hostFailure, hostError ?? "", t, machineName);
+  const reconnectingPeer =
+    snapshot.summary?.peer ??
+    snapshot.peerCopy?.peer ??
+    (cloudUnavailable && "machine" in cloudUnavailable ? cloudUnavailable.machine : undefined);
+  const reconnectingProgress = peerReconnect(
+    reconnectingPeer,
+    reconnectingPeer ? snapshot.peerLinks?.[reconnectingPeer] : undefined,
+    reconnectingPeer ? snapshot.peerStates?.[reconnectingPeer] : undefined,
+  );
   const hostErrorCard = (
     <Notice id="host-error" tier="error" when={hostErrorSaid}>
       <HostUnavailableLine
@@ -13861,6 +13871,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <ChatUnavailableState
                     line
                     unavailable={cloudUnavailable}
+                    progress={reconnectingProgress}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
                     error={cloudRecovery.error}
@@ -13878,6 +13889,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <PeerCopyBanner
                     key={`${snapshot.sessionId ?? ""}:${snapshot.peerCopy.peer}`}
                     copy={snapshot.peerCopy}
+                    progress={reconnectingProgress}
                     machine={peerMachine.state}
                     onResume={peerMachine.resume}
                     asked={peerMachine.asked}
@@ -13944,6 +13956,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // The tab's chat is not here: which case it is, centered where the chat would be.
                   <ChatUnavailableState
                     unavailable={cloudUnavailable}
+                    progress={reconnectingProgress}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
                     error={cloudRecovery.error}

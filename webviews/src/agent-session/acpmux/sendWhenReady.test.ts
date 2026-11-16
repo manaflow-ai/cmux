@@ -35,6 +35,69 @@ afterAll(async () => {
 const notConnected = () =>
   Object.assign(new Error("The agent connection is not open."), { code: "native.not_connected" });
 
+const unsentPeer = () =>
+  Object.assign(new Error("peer unavailable"), {
+    data: { reason: "peer_unreachable", retryable: true, detail: "the request was not sent" },
+  });
+
+test("an offline new chat keeps its start until the daemon can send it, once", async () => {
+  let attempts = 0;
+  let accepted = 0;
+  const clock = fakeClock();
+  const id = await untilHostAnswers(
+    async () => {
+      if (++attempts < 4) throw unsentPeer();
+      accepted++;
+      return "remote-chat";
+    },
+    { ...clock, peerStart: true },
+  );
+  expect(id).toBe("remote-chat");
+  expect(accepted).toBe(1);
+  expect(clock.waits).toEqual([250, 500, 1000]);
+});
+
+test("only an explicitly unsent peer start retries; an ambiguous or ordinary send does not", async () => {
+  for (const [peerStart, error] of [
+    [false, unsentPeer()],
+    [true, { data: { reason: "peer_disconnected", retryable: true } }],
+    [true, { data: { reason: "peer_unreachable", retryable: false } }],
+    [true, { code: "native.timed_out" }],
+  ] as const) {
+    let attempts = 0;
+    const caught = await untilHostAnswers(
+      async () => {
+        attempts++;
+        throw error;
+      },
+      { ...fakeClock(), peerStart },
+    ).catch((e) => e);
+    expect(caught).toBe(error);
+    expect(attempts).toBe(1);
+  }
+});
+
+test("switching away cancels an offline start before another attempt can target a different chat", async () => {
+  let attempts = 0;
+  let moved = false;
+  const error = unsentPeer();
+  const caught = await untilHostAnswers(
+    async () => {
+      attempts++;
+      throw error;
+    },
+    {
+      peerStart: true,
+      stop: () => moved,
+      sleep: async () => {
+        moved = true;
+      },
+    },
+  ).catch((e) => e);
+  expect(caught).toBe(error);
+  expect(attempts).toBe(1);
+});
+
 /// A clock the waits move: `sleep(ms)` advances it at once.
 function fakeClock() {
   let at = 0;

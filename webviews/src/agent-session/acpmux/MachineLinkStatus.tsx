@@ -3,6 +3,7 @@ import { useLinkDownSaid } from "./afterDelay";
 import { Spinner } from "./conversation/icons";
 import { useT, type Translate } from "./i18n";
 import type { PeerLink } from "./peerLink";
+import { PeerReconnectText } from "./PeerReconnectText";
 import "./machineLinkStatus.css";
 
 /// How the row draws a link that is not connected (gallery `agent-pane.machine-link`): the state's
@@ -39,12 +40,14 @@ export function MachineLinkStatus({
   look = "named",
   onReconnect,
   quietMs,
+  now,
 }: {
   link: PeerLink | null;
   look?: MachineLinkLook;
   /// How long a link that comes back on its own stays unsaid (afterDelay.ts `LINK_DOWN_SAID_MS`); the
   /// gallery passes 0 to draw each state at once.
   quietMs?: number;
+  now?: number;
   onReconnect?(link: PeerLink): Promise<unknown> | void;
 }) {
   const t = useT();
@@ -57,7 +60,7 @@ export function MachineLinkStatus({
   // the machine needs is said at once.
   const waits = link !== null && link.link !== "connected" && !link.stuck;
   const due = useLinkDownSaid(waits, link?.since, quietMs);
-  const quiet = waits && !due;
+  const quiet = waits && !due && !link?.progress;
   // The last words said, kept while they fold away on a link that came back, so the fold-out shows
   // what was said rather than "Connected" (state derived during render, not in an effect).
   const words = link ? linkWords(link, t) : "";
@@ -91,8 +94,14 @@ export function MachineLinkStatus({
         <span className="acpmux-machine-link-fold">
           <span className="acpmux-machine-link-words">
             <span aria-hidden="true" className="acpmux-machine-link-said">
-              {look === "named" && <span className="acpmux-machine-link-name">{shown.name}</span>}
-              <span className="acpmux-machine-link-state">{shown.words}</span>
+              {link.progress ? (
+                <PeerReconnectText progress={link.progress} now={now} />
+              ) : (
+                <>
+                  {look === "named" && <span className="acpmux-machine-link-name">{shown.name}</span>}
+                  <span className="acpmux-machine-link-state">{shown.words}</span>
+                </>
+              )}
             </span>
             {down && !link.stuck && onReconnect && (
               <button

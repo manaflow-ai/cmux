@@ -1074,32 +1074,14 @@ test("previews on: every machine the daemon lists, grouped; the ones not connect
   // No section headers and no hairline: one list of machines.
   expect(rows().filter((row) => row.querySelector("[data-divider], [data-section]"))).toHaveLength(0);
   const greyed = shown.filter((row) => row.querySelector('.acpmux-env-row[data-ready="false"]'));
-  expect(
-    greyed.map((row) => [
-      row.querySelector(".acpmux-menu-label")?.textContent,
-      row.querySelector(".acpmux-env-state")?.textContent,
-    ]),
-  ).toEqual([
-    // Still connecting: greyed in its place, among its section's machines.
-    ["agent-vm-6", t("rail.connectorPending")],
-    ["gpu-box", t("composer.envNotConnected")],
-    ["agent-vm-3", t("header.reconnecting")],
-    ["agent-vm-4", t("header.reconnecting")],
-    ["agent-vm-5", t("header.reconnecting")],
-  ]);
-  // A greyed machine is no pick: the list stays open.
+  expect(greyed).toHaveLength(0);
   const label = (row: Element) => row.querySelector(".acpmux-menu-label")?.textContent;
-  expect(shown.slice(1, 4).map(label).join(" ")).toBe("build-mini-2 desk-mac home-linux");
-  expect(shown.slice(-4).map(label).join(" ")).toBe("gpu-box agent-vm-3 agent-vm-4 agent-vm-5");
-  expect(greyed.every((row) => row.querySelector('[aria-disabled="true"]'))).toBe(true);
-  await act(async () => greyed[1]!.click());
-  expect(computers).toEqual([]);
-  expect(doc().querySelector(".acpmux-env-popover")).not.toBeNull();
-  // A connected one is: the new chat moves there.
-  const target = shown.find((row) => label(row) === "ci-vm-10")!;
+  const target = shown.find((row) => label(row) === "gpu-box")!;
+  expect(target.querySelector(".acpmux-env-state")?.textContent).toBe(t("environment.offlineQueued"));
+  expect(target.querySelector('[aria-disabled="true"]')).toBeNull();
   await act(async () => target.click());
-  expect(computers).toEqual(["ci-vm-10"]);
-  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ci-vm-10`);
+  expect(computers).toEqual(["gpu-box"]);
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: gpu-box`);
 });
 
 test("previews on: 20+ machines stay searchable by name and section", async () => {
@@ -1913,7 +1895,7 @@ test("the machine list groups machines acpmux has not reached for a while under 
   const labels = () => rows().map(rowText);
   expect(labels()).toEqual([
     `gpu-box${t("composer.envConnected")}`,
-    `lane-4${t("header.reconnecting")}`,
+    `lane-4${t("environment.offlineQueued")}`,
     `lane-5${t("rail.connectorPending")}`,
     t("composer.envUnavailableGroup", { n: 3 }),
     t("composer.addMachine"),
@@ -1924,9 +1906,9 @@ test("the machine list groups machines acpmux has not reached for a while under 
   expect(doc().querySelector(".acpmux-env-popover")).not.toBeNull();
   expect(labels().slice(3)).toEqual([
     t("composer.envUnavailableGroup", { n: 3 }),
-    `lane-1${t("header.reconnecting")}`,
-    `lane-2${t("header.reconnecting")}`,
-    `lane-3${t("composer.envNotConnected")}`,
+    `lane-1${t("environment.offlineQueued")}`,
+    `lane-2${t("environment.offlineQueued")}`,
+    `lane-3${t("environment.offlineQueued")}`,
     t("composer.addMachine"),
   ]);
   expect(unavailableRow()?.getAttribute("aria-expanded")).toBe("true");
