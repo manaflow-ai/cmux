@@ -87,12 +87,12 @@ impl ActIdRing {
                         io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof
                     ) =>
                 {
-                    (VecDeque::new(), checkpoint_seq, None)
+                    (VecDeque::new(), checkpoint_seq, checkpoint_seq.unwrap_or_default())
                 }
                 Err(error) => return Err(error),
             },
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                (VecDeque::new(), checkpoint_seq, None)
+                (VecDeque::new(), checkpoint_seq, checkpoint_seq.unwrap_or_default())
             }
             Err(error) => return Err(error),
         };
