@@ -792,6 +792,10 @@ def refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms):
 # ms on the first kind and 0.18 to 0.24 ms on the second. Readings of one kind are within 1.25x of each other and
 # the kinds are over 4x apart, so 1.5x tells them apart from either side.
 SPEED_TOLERANCE = 0.5
+# Off-speed tip measurements in a row, all at one speed, after which a row with an open regression is rebased too
+# (rebase_shifted_rows): REF_RUNS in a row happen by chance on a fleet of two kinds of host, this many do not (1 in
+# a million at even odds), and without an end a fleet that changed for good holds the regression open for ever.
+OPEN_SPEED_RUNS = 4 * REF_RUNS
 
 
 def known_speed(value):
@@ -2109,8 +2113,8 @@ def issue_body(state, repo, now):
                           f"{1 + SPEED_TOLERANCE:g}x faster or slower than their baseline's, by the host-speed "
                           f"canary ({', '.join(last['speed_skipped'][:8])}"
                           + (", ..." if len(last["speed_skipped"]) > 8 else "") + "). They open and clear nothing and "
-                          f"stay out of the baseline; {REF_RUNS} such tip measurements in a row rebase a row with no "
-                          "regression open."]
+                          f"stay out of the baseline; {REF_RUNS} such tip measurements in a row rebase a row "
+                          f"({OPEN_SPEED_RUNS} when its regression is open)."]
     rebases = [x for x in state.get("rebases") or [] if isinstance(x, dict)][-5:]
     if rebases:
         lines += ["", "Rebases (a row measured another way starts a new reference and is not compared; a regression open "
@@ -2357,24 +2361,25 @@ def rebase_shifted_rows(state, part_rows, off_speed, sha, t, keep=()):
     streak when it is judged again) and rebase (rebase_rows) each row not judged for REF_RUNS tip measurements in a
     row that all ran at this one's speed: the fleet moved, the old reference will never be measured again, and a row
     nothing judges is a regression nothing sees. Its history restarts from those REF_RUNS values. Returns the rebased
-    names. A row in keep (an open regression's) is never rebased: on a fleet of two kinds of host REF_RUNS runs in a
-    row on the other kind happen by chance, and that must not close a regression unjudged; it stays open, listed as
-    not measured again, until a runner of its baseline's speed measures it."""
+    names. A row in keep (an open regression's) takes OPEN_SPEED_RUNS: on a fleet of two kinds of host REF_RUNS runs
+    in a row on the other kind happen by chance, and that must not close a regression unjudged; until then it stays
+    open, listed as not measured again."""
     held = state.setdefault("off_speed", {})
     shifted = []
     for name in sorted(off_speed):
         r = part_rows.get(name)
         if r is None or not isinstance(r.get("p95"), (int, float)):
             continue
-        streak = [v for v in held.get(name) or [] if isinstance(v, dict)][-(REF_RUNS - 1):]
+        streak = [v for v in held.get(name) or [] if isinstance(v, dict)][-(OPEN_SPEED_RUNS - 1):]
         streak.append({"at": iso(t), "p95": r["p95"], "speed": r.get("speed"), **({"sha": sha} if is_sha(sha) else {})})
         held[name] = streak
-        if name not in keep and len(streak) >= REF_RUNS and all(known_speed(v.get("speed")) and same_speed(v["speed"], r.get("speed"))
-                                           for v in streak):
+        need = OPEN_SPEED_RUNS if name in keep else REF_RUNS
+        if len(streak) >= need and all(known_speed(v.get("speed")) and same_speed(v["speed"], r.get("speed"))
+                                       for v in streak[-need:]):
             shifted.append(name)
     rebased = rebase_rows(state, part_rows, shifted, t)
     for name in rebased:
-        state["row_history"][name] = held.pop(name)
+        state["row_history"][name] = held.pop(name)[-REF_RUNS:]
     return rebased
 
 
@@ -2613,18 +2618,25 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
             notes.append(note_list("rebased on a measurement version change, not judged", by_version))
         if set(closed) - set(by_version):
             notes.append(note_list("rebased on a macOS change, not judged", sorted(set(closed) - set(by_version))))
-    for name in [n for n in state.get("off_speed") or {} if n in judged]:
+    # A streak is of tip measurements in a row: any measurement of the row that is not off-speed ends it, a rebase
+    # (measurement version, macOS, refresh) too, or its values of before the rebase would become the new baseline.
+    for name in [n for n in state.get("off_speed") or {} if n in part_rows and n not in off_speed]:
         state["off_speed"].pop(name)
     shifted = rebase_shifted_rows(state, part_rows, off_speed, cur["sha"], t, keep=open_names)
     if shifted:
         record["speed_rebased"] = shifted
         record["speed_skipped"] = sorted(off_speed - set(shifted))
+        closed = sorted(n for n in shifted if n in open_names)
+        if closed:
+            notes.append(note_list(f"rebased on a runner speed change ({OPEN_SPEED_RUNS} tip measurements in a row "
+                                   "at another speed), not judged", closed))
     all_rebased = set(rebased) | set(os_rebased) | set(shifted)
     if all_rebased:
         # Every rebase goes into the issue (lead 2026-10-24), also one of an incomplete measurement (not `last`).
         kinds = [("measurement version or part args", sorted(set(os_rebased) & versioned)),
                  ("macOS", sorted(set(os_rebased) - versioned)), ("display refresh", sorted(rebased)),
-                 (f"runner speed ({REF_RUNS} tip measurements in a row at another one)", shifted)]
+                 (f"runner speed ({REF_RUNS} tip measurements in a row at another one, {OPEN_SPEED_RUNS} for a "
+                  "regressed row)", shifted)]
         log = state.setdefault("rebases", [])
         log += [{"at": iso(t), "sha": cur["sha"], "run_url": run_url, "why": why, "rows": rows,
                  "closed": sorted(n for n in rows if n in open_names)} for why, rows in kinds if rows]

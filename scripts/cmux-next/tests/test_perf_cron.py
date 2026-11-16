@@ -3060,15 +3060,31 @@ class SpeedTests(OneRunRule):
         self.assertEqual(self.measured(state, "c" * 40, {"t.e2e": timed(12.0, 45.0)}, 7), "regressed",
                          "judged against the new speed's values")
 
-    def test_an_open_regression_is_never_rebased_on_runner_speed(self):
+    def test_an_open_regression_is_rebased_on_runner_speed_only_after_many_more_runs(self):
         state = cron.empty_state(T0)
         self.measured(state, "a" * 40, {"t.e2e": timed(5.0, 20.0)}, 0)
         self.measured(state, "b" * 40, {"t.e2e": timed(9.0, 20.0)}, 1)
-        for n in range(1, cron.REF_RUNS + 2):
-            self.assertEqual(self.measured(state, format(n, "x") * 40, {"t.e2e": timed(5.0, 45.0)}, 1 + n), "still")
+        for n in range(1, cron.OPEN_SPEED_RUNS):
+            self.assertEqual(self.measured(state, f"{n:02d}" * 20, {"t.e2e": timed(6.0, 45.0)}, 1 + n), "still")
         self.assertEqual([r["name"] for r in state["regressions"]], ["t.e2e"], "two kinds of host, not a fix")
         self.assertEqual([e["p95"] for e in state["row_history"]["t.e2e"]], [5.0])
         self.assertIn("on a runner of another speed: t.e2e", state["history"][-1]["note"])
+        self.measured(state, "c" * 40, {"t.e2e": timed(6.0, 45.0)}, 1 + cron.OPEN_SPEED_RUNS)
+        self.assertEqual(state["regressions"], [], "the fleet changed for good: not held open for ever")
+        self.assertEqual([e["p95"] for e in state["row_history"]["t.e2e"]], [6.0] * cron.REF_RUNS)
+        self.assertEqual(state["rebases"][-1]["closed"], ["t.e2e"])
+        self.assertIn("runner speed change", state["history"][-1]["rebased_note"])
+
+    def test_a_rebase_ends_the_off_speed_streak(self):
+        state = cron.empty_state(T0)
+        self.measured(state, "a" * 40, {"t.e2e": timed(5.0, 20.0)}, 0)
+        for n in range(1, cron.REF_RUNS - 1):
+            self.measured(state, format(n, "x") * 40, {"t.e2e": timed(8.0, 45.0)}, n)
+        self.measured(state, "b" * 40, {"t.e2e": {**timed(50.0, 20.0), "version": 2}}, 5)
+        self.assertNotIn("t.e2e", state.get("off_speed") or {}, "values of the old version are no baseline")
+        self.measured(state, "c" * 40, {"t.e2e": {**timed(80.0, 45.0), "version": 2}}, 6)
+        self.assertEqual([e["p95"] for e in state["off_speed"]["t.e2e"]], [80.0])
+        self.assertEqual([e["p95"] for e in state["row_history"]["t.e2e"]], [50.0])
 
     def test_a_web_ui_row_keeps_the_canary_of_its_bench(self):
         rows = cron.webui_rows([{"name": "chat_open.latest", "p95": 400, "speed": 21.5}, {"name": "chat_open.other", "p95": 4}])
