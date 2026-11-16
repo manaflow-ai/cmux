@@ -129,6 +129,35 @@ import Testing
         }
     }
 
+    /// A selected row's screen button (no ⋮ or ✕ show) lands on the keycap's slot when a status glyph holds the
+    /// column, so the keycap gives way there; with the column free the keycap sits clear of it and stays.
+    @Test(arguments: [false, true])
+    func theSelectedRowsScreenButtonHidesOnlyTheKeycapUnderIt(busy: Bool) throws {
+        _ = NSApplication.shared
+        var cloud = Self.section("cloud", name: "Cloud", kind: SidebarMachine.Kind.cloud)
+        cloud.nodes = [.workspace(SidebarWorkspace(id: WorkspaceID("ws-cloud"), title: "A project with a long descriptive title",
+                                                   directory: "~/Projects", activity: busy ? .busy(progress: nil) : .idle))]
+        let model = SidebarModel(sections: [cloud])
+        model.groupsByComputer = false
+        let list = SidebarListView(model: model)
+        list.frame = NSRect(x: 0, y: 0, width: 300, height: 600)
+        list.reload(animated: false)
+        list.layoutSubtreeIfNeeded()
+        let row = try #require(list.rowViews[.workspace(WorkspaceID("ws-cloud"))] as? WorkspaceRowView)
+        row.keycap.configure(3)
+        let drawn = { (view: NSView) in !view.isHidden && view.alphaValue > 0 }
+        Self.lay(row, hovered: false, selected: false)
+        #expect(drawn(row.keycap), "the keycap shows at rest")
+        Self.lay(row, selected: true)
+        let button = try #require(row.screenSlot.made)
+        #expect(drawn(button))
+        let under = row.keycap.frame.intersects(button.frame)
+        if busy { #expect(under, "with the column held, the keycap's slot is the screen button's") }
+        #expect(drawn(row.keycap) == !under, "the keycap hides only under the screen button")
+        Self.lay(row, selected: false)
+        #expect(drawn(row.keycap), "the keycap comes back")
+    }
+
     @Test func aReusedFlatScreenButtonChangesItsTargetAndLabel() throws {
         _ = NSApplication.shared
         let model = SidebarModel(sections: Self.examples)
