@@ -32,6 +32,9 @@ export type DevicePlatform = "macos" | "ios" | "linux" | "windows";
 export const DEVICE_PLATFORMS: readonly DevicePlatform[] = ["macos", "ios", "linux", "windows"];
 /** The platforms that host a screen: only these are anchored for device-key renewal. */
 export const HOST_PLATFORMS: readonly DevicePlatform[] = ["macos", "linux", "windows"];
+export function isDevicePlatform(value: unknown): value is DevicePlatform {
+  return (DEVICE_PLATFORMS as readonly unknown[]).includes(value);
+}
 
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
@@ -405,7 +408,7 @@ export class UserDO extends DurableObject<Env> {
     const body = this.parse(raw);
     if (body.id !== h.id) throw badRequest("id must equal X-Device-Id");
     const name = str(body.name, "name", 100);
-    if (!DEVICE_PLATFORMS.includes(body.platform)) {
+    if (!isDevicePlatform(body.platform)) {
       throw badRequest("platform must be macos, ios, linux or windows");
     }
     if (!(await isValidDeviceKey(body.signingKey))) throw badRequest("signingKey must be a base64 X9.63 P-256 key");
