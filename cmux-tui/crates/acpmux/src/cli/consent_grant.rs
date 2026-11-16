@@ -377,8 +377,7 @@ pub fn parse(value: &Value) -> Result<Grant, Refusal> {
     }
     // The account policy is the newest account grant, whole, so it names both surfaces.
     let sets = |change: Change| matches!(change, Change::On | Change::Off);
-    if account_wide && !(sets(control) && sets(screen)) && false {
-        // red stub
+    if account_wide && !(sets(control) && sets(screen)) {
         return Err(bad("an account grant sets control and screen on or off"));
     }
     let (issued_at, expires_at) = (number("issuedAt")?, number("expiresAt")?);
